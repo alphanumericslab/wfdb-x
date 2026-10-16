@@ -1,0 +1,2 @@
+usage: wfdbwhich [-r RECORD ] FILENAME
+ -or-  wfdbwhich FILE-TYPE RECORD

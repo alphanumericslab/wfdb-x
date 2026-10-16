@@ -1,0 +1,9 @@
+usage: mit2edf -r RECORD [OPTIONS ...]
+where RECORD is the name of the input record, and OPTIONS may include:
+ -h          print this usage summary
+ -o EDFILE   write the specified European Data Format file (default:
+              RECORD.edf)
+ -p          write the output as an EDF+ file
+ -v          select verbose mode
+This program reads MIT-format signal and header files and writes an EDF
+file containing the same data.

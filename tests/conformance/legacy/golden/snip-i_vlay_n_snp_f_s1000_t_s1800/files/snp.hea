@@ -1,0 +1,5 @@
+snp 3 250 800 12:34:56.789 31/12/1999
+snp.dat 16 400(10)/mV 12 0 130866 7752 0 sig0 fmt16
+snp.dat 16 400/uV 12 0 -32768 -12025 0 sig1 fmt212
+snp.dat 16 100/mmHg 16 0 -600 -2575 0 sig2 fmt16
+#Produced by snip from record vlay, beginning at s1000

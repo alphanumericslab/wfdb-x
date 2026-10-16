@@ -1,0 +1,4 @@
+outw 3 100 600
+out.wav 16+44 200/mV 16 0 138 -16869 0 slow
+out.wav 16+44 200/mV 16 0 1459 -29915 0 medium
+out.wav 16+44 200/mV 16 0 499 -28709 0 fast

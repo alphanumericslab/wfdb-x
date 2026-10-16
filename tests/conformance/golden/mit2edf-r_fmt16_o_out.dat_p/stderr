@@ -1,0 +1,2 @@
+mit2edf: 'out.dat' is not a valid EDF+ file name
+ EDF+ file names must end with '.edf' or '.EDF')

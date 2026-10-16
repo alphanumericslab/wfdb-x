@@ -1,0 +1,25 @@
+Record 8
+Starting time: not specified
+Length: not specified
+Sampling frequency: not specified
+2 signals
+Group 0, Signal 0:
+ File: -
+ Description: record 8, signal 0
+ Gain: uncalibrated
+ Initial value: 0
+ Storage format: 8
+ I/O: can be unbuffered
+ ADC resolution: not specified
+ ADC zero: 0
+ Baseline: 0
+Group 0, Signal 1:
+ File: -
+ Description: record 8, signal 1
+ Gain: uncalibrated
+ Initial value: 0
+ Storage format: 8
+ I/O: can be unbuffered
+ ADC resolution: not specified
+ ADC zero: 0
+ Baseline: 0

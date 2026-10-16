@@ -1,0 +1,11 @@
+usage: wfdb2mat -r RECORD [OPTIONS ...]
+where RECORD is the name of the input record, and OPTIONS may include:
+ -f TIME     begin at specified time
+ -h          print this usage summary
+ -H          read multifrequency signals in high resolution mode
+ -l INTERVAL truncate output after the specified time interval (hh:mm:ss)
+ -s SIGNAL   [SIGNAL ...]  convert only the specified signal(s)
+ -S SIGNAL   search for a valid sample of the specified SIGNAL at or after
+		the time specified with -f, and begin converting then
+ -t TIME     stop at specified time
+Outputs are written to the current directory as RECORD.mat and RECORDm.hea.

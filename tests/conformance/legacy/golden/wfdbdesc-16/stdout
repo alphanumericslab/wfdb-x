@@ -1,0 +1,25 @@
+Record 16
+Starting time: not specified
+Length: not specified
+Sampling frequency: 250 Hz
+2 signals
+Group 0, Signal 0:
+ File: -
+ Description: record 16, signal 0
+ Gain: uncalibrated; assume 200 adu/mV
+ Initial value: 0
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: 0
+Group 0, Signal 1:
+ File: -
+ Description: record 16, signal 1
+ Gain: uncalibrated; assume 200 adu/mV
+ Initial value: 0
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: 0

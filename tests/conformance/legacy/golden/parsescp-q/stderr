@@ -1,0 +1,19 @@
+parsescp: unrecognized option '-q'
+usage: parsescp -o RECORD [OPTIONS ...] <SCPFILE
+  where RECORD is the name (<= 11 alphanumeric characters) of this case,
+  SCPFILE is the name of a file containing ECG data in SCP-ECG format, and
+  OPTIONS may include:
+   -a    anonymize and copy stdin to stdout (suppresses other output).
+   -f    force parsing of a file with CRC errors.
+   -h    print brief help
+   -l    low-pass filter (smooth) the output waveforms.
+   -v    option to print a (very) detailed analysis of SCPFILE.
+   -w    produce a WFDB-format record
+   -z    zero-mean the input
+
+  Additional options for debugging only:
+   -b    show baseline (residuals);  suppress templates
+   -s N  shift templates by N samples before adding
+   -S N  skip parsing of section N
+   -t    show templates; suppress baseline
+   -x    show hex dumps (implies -v)

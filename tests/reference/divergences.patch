@@ -1,0 +1,2823 @@
+diff --git a/app/ann2rr.c b/app/ann2rr.c
+index 46815ec..0637c44 100644
+--- a/app/ann2rr.c
++++ b/app/ann2rr.c
+@@ -37,12 +37,19 @@ extern void exit();
+ 
+ char *pname;
+ 
++/* wfdb-x: returns 1 if output format c (for -i, -v, or -V) is a unit of
++   time, which needs the sampling frequency. */
++static int time_format_needs_freq(int c)
++{
++    return (c == 'h' || c == 'm' || c == 's' || c == 't' || c == 'T');
++}
++
+ main(argc, argv)	
+ int argc;
+ char *argv[];
+ {
+     char *record = NULL, rrfstr[16], t0fstr[16], t1fstr[16], *prog_name();
+-    double sps, spm, sph;
++    double Ffreq = 0., sps, spm, sph;
+     int Aflag = 0, a0, a0flag = 0, a1, a1flag = 0,
+ 	cflag = 0, i,  j, pflag = 0, previous_annot_valid = 0, rrdigits = 3,
+ 	rrformat = 0, t0digits = 3, t0flag = 0, t0format = 0, t1digits = 3,
+@@ -54,6 +61,10 @@ char *argv[];
+     static WFDB_Time from, to, rr, t0, t1;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     /* Interpret command-line options. */
+@@ -82,6 +93,17 @@ char *argv[];
+ 	    }
+ 	    from = i;   /* to be converted to sample intervals below */
+ 	    break;
++	  case 'F':	/* sampling frequency follows (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ffreq) != 1 ||
++		Ffreq <= 0.) {
++		(void)fprintf(stderr,
++			      "%s: sampling frequency (> 0) must follow -F\n",
++			      pname);
++		exit(1);
++	    }
++	    break;
+ 	  case 'h':	/* print usage summary and quit */
+ 	    help();
+ 	    exit(0);
+@@ -168,6 +190,7 @@ char *argv[];
+ 	    a0flag = 1;
+ 	    break;
+ 	  default:
++	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
+ 	    (void)fprintf(stderr, "%s: unrecognized option %s\n",
+ 			  pname, argv[i]);
+ 	    exit(1);
+@@ -183,8 +206,26 @@ char *argv[];
+ 	exit(1);
+     }
+ 
+-    if ((sps = sampfreq(record)) < 0.)
+-	(void)setsampfreq(sps = WFDB_DEFFREQ);
++    /* wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
++       the record had no header); -F specifies one.  It is needed for times
++       and intervals in units of time.  Legacy mode: as in the C program. */
++    if (wfdbx_get_legacy()) {
++	if ((sps = sampfreq(record)) < 0.)
++	    (void)setsampfreq(sps = WFDB_DEFFREQ);
++    }
++    else if ((sps = sampfreq(record)) <= 0. && Ffreq > 0.)
++	(void)setsampfreq(sps = Ffreq);
++    if (!wfdbx_get_legacy() && sps <= 0. &&
++	((from && wfdbx_time_needs_freq(argv[(int)from])) ||
++	 (to && wfdbx_time_needs_freq(argv[(int)to])) ||
++	 time_format_needs_freq(rrformat) ||
++	 (t0flag && time_format_needs_freq(t0format)) ||
++	 (t1flag && time_format_needs_freq(t1format)))) {
++	(void)fprintf(stderr,
++	    "%s: sampling frequency of record %s is not specified (use -F)\n",
++		      pname, record);
++	exit(1);
++    }
+     spm = 60.0*sps;
+     sph = 60.0*spm;
+ 
+@@ -328,6 +369,37 @@ char *s;
+ }
+ 
+ static char *help_strings[] = {
++ "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
++ "where RECORD and ANNOTATOR specify the input, and OPTIONS may include:",
++ " -A      print all intervals between annotations (default: print only RR",
++ "          intervals; overrides -c, -p)",
++ " -c      print intervals between consecutive valid annotations only",
++ " -f TIME start at specified TIME",
++ " -F FREQ sampling frequency, if the record header does not specify one",
++ " -h      print this usage summary",
++ " -i FMT  print intervals using format FMT (see below for values of FMT)",
++ " -p TYPE [TYPE ...]  print intervals ending with annotations of specified",
++ "                      TYPEs only (use mnemonics such as N or V for TYPE)",
++ " -P TYPE [TYPE ...]  print intervals beginning with specified types only",
++ " -t TIME stop at specified TIME",
++ " -v FMT  print times of ends of intervals using format FMT (see below)",
++ " -V FMT  print times of beginnings of intervals using format FMT (see below)",
++ " -w      print annotations that end intervals",
++ " -W      print annotations that begin intervals",
++ "By default, the output contains the RR intervals only, unless one or more",
++ "of -v, -V, -w, or -W are used.  Intervals and times are printed in units of",
++ "sample intervals, unless a format is specified using -i, -v, or -V.",
++ "Formats can be 'h' (hours), 'm' (minutes), 's' (seconds), 't' (hh:mm:ss);",
++ "when used with -v or -V, format 'T' yields dates and times if available,",
++ "or the format can be omitted to obtain times in sample intervals.  Formats",
++ "'h', 'm', and 's' may be followed by a number between 0 and 15, specifying",
++ "the number of decimal places (default: 3).  For example, to obtain intervals",
++ "in seconds with 8 decimal places, use '-i s8'.",
++NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+  "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
+  "where RECORD and ANNOTATOR specify the input, and OPTIONS may include:",
+  " -A      print all intervals between annotations (default: print only RR",
+@@ -359,10 +431,11 @@ NULL
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++) {
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++) {
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ 	if (i % 23 == 0) {
+ 	    char b[5];
+ 	    (void)fprintf(stderr, "--More--");
+diff --git a/app/rdann.c b/app/rdann.c
+index b638a56..9c159b4 100644
+--- a/app/rdann.c
++++ b/app/rdann.c
+@@ -53,7 +53,7 @@ char *argv[];
+ {
+     char *record = NULL, *prog_name();
+     signed char cflag = 0, chanmatch, nflag = 0, nummatch, sflag = 0, submatch;
+-    double sps, tps, tpm, tph, n;
++    double Ffreq = 0., sps, tps, tpm, tph, n;
+     int sprec, mprec, hprec;
+     int eflag = 0, i, j, vflag = 0, xflag = 0;
+     long afrom = 0L, anum = 0L, ato = 0L, bfrom = 0L, bnum = 0L, bto = 0L,
+@@ -65,6 +65,10 @@ char *argv[];
+     WFDB_Time sample_num;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     /* Accept old syntax. */
+@@ -116,6 +120,17 @@ char *argv[];
+ 	    }
+ 	    from = i;   /* to be converted to sample intervals below */
+ 	    break;
++	  case 'F':	/* sampling frequency follows (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ffreq) != 1 ||
++		Ffreq <= 0.) {
++		(void)fprintf(stderr,
++			      "%s: sampling frequency (> 0) must follow -F\n",
++			      pname);
++		exit(1);
++	    }
++	    break;
+ 	  case 'h':	/* print usage summary and quit */
+ 	    help();
+ 	    exit(0);
+@@ -182,6 +197,7 @@ char *argv[];
+ 	    eflag = 0;
+ 	    break;
+ 	  default:
++	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
+ 	    (void)fprintf(stderr, "%s: unrecognized option %s\n",
+ 			  pname, argv[i]);
+ 	    exit(1);
+@@ -197,8 +213,20 @@ char *argv[];
+ 	exit(1);
+     }
+ 
+-    if ((sps = sampfreq(record)) < 0.)
+-	(void)setsampfreq(sps = WFDB_DEFFREQ);
++    /* wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
++       the record had no header, as legacy mode does); -F specifies one. */
++    if (wfdbx_get_legacy()) {
++	if ((sps = sampfreq(record)) < 0.)
++	    (void)setsampfreq(sps = WFDB_DEFFREQ);
++    }
++    else if ((sps = sampfreq(record)) <= 0. && Ffreq > 0.)
++	(void)setsampfreq(sps = Ffreq);
++    if (!wfdbx_get_legacy() && sps <= 0.) {
++	(void)fprintf(stderr,
++	    "%s: sampling frequency of record %s is not specified (use -F)\n",
++		      pname, record);
++	exit(1);
++    }
+ 
+     ai.stat = WFDB_READ;
+     if (annopen(record, &ai, 1) < 0)	/* open annotation file */
+@@ -347,6 +375,26 @@ char *s;
+ }
+ 
+ static char *help_strings[] = {
++ "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
++ "where RECORD and ANNOTATOR specify the input, and OPTIONS may include:",
++ " -c CHAN             print annotations with specified CHAN only",
++ " -e                  * show annotation times as elapsed times",
++ " -f TIME             start at specified TIME",
++ " -F FREQ             sampling frequency, if the record header does not",
++ "                      specify one",
++ " -h                  print this usage summary",
++ " -n NUM              print annotations with specified NUM only",
++ " -p TYPE [TYPE ...]  print annotations of specified TYPEs only",
++ " -s SUBTYPE          print annotations with specified SUBTYPE only",
++ " -t TIME             stop at specified TIME",
++ " -v                  print column headings",
++ " -x                  * use alternate time format (seconds, minutes, hours)",
++ "* Only one of -e and -x can be used.",
++NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+  "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
+  "where RECORD and ANNOTATOR specify the input, and OPTIONS may include:",
+  " -c CHAN             print annotations with specified CHAN only",
+@@ -366,8 +414,9 @@ NULL
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++)
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++)
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ }
+diff --git a/app/rdsamp.c b/app/rdsamp.c
+index 3833c3c..c3bf75e 100644
+--- a/app/rdsamp.c
++++ b/app/rdsamp.c
+@@ -60,6 +60,10 @@ char *argv[];
+     WFDB_Time from = 0L, maxl = 0L, to = 0L;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+     for (i = 1 ; i < argc; i++) {
+ 	if (*argv[i] == '-') switch (*(argv[i]+1)) {
+@@ -164,11 +168,24 @@ char *argv[];
+     }
+     if ((nsig = isigopen(record, si, nsig)) <= 0)
+ 	exit(2);
+-    for (i = 0; i < nsig; i++)
+-	if (si[i].gain == 0.0) si[i].gain = WFDB_DEFGAIN;
++    if (wfdbx_get_legacy())	/* wfdb-x: the C program's default gain */
++	for (i = 0; i < nsig; i++)
++	    if (si[i].gain == 0.0) si[i].gain = WFDB_DEFGAIN;
+     if (highres)
+         setgvmode(WFDB_HIGHRES);
+     freq = sampfreq(NULL);
++    /* wfdb-x: no default sampling frequency (the C program assumed 250 Hz
++       if the header did not specify one, as legacy mode does). */
++    if (!wfdbx_get_legacy() && freq <= 0. &&
++	((from > 0L && wfdbx_time_needs_freq(argv[from])) ||
++	 (to > 0L && wfdbx_time_needs_freq(argv[to])) ||
++	 (maxl > 0L && wfdbx_time_needs_freq(argv[maxl])) ||
++	 xflag || (pflag && (timeunits != SAMPLES || vflag)))) {
++	(void)fprintf(stderr,
++		      "%s: sampling frequency of record %s is not specified\n",
++		      pname, record);
++	exit(2);
++    }
+     if (from > 0L && (from = strtim(argv[from])) < 0L)
+ 	from = -from;
+     if (isigsettime(from) < 0)
+@@ -199,6 +216,17 @@ char *argv[];
+ 	    sig[i] = i;
+     }
+ 
++    /* wfdb-x: no default gain (the C program assumed 200 adu/mV for
++       uncalibrated signals, as legacy mode does). */
++    if (pflag && !wfdbx_get_legacy())
++	for (i = 0; i < nsig; i++)
++	    if (si[sig[i]].gain == 0.0) {
++		(void)fprintf(stderr,
++		      "%s: signal %d of record %s is uncalibrated\n",
++			      pname, sig[i], record);
++		exit(2);
++	    }
++
+     /* Reset 'from' if a search was requested. */
+     if (search &&
+ 	((s = findsig(search)) < 0 || (from = tnextvec(s, from)) < 0)) {
+@@ -359,7 +387,8 @@ char *argv[];
+ 
+ 	    for (i = 0; i < nsig; i++) {
+ 		p = si[sig[i]].units;
+-		if (p == NULL) p = "mV";
++		if (p == NULL)	/* wfdb-x: unspecified units are shown as "nd" (C, legacy mode: mV) */
++		    p = wfdbx_get_legacy() ? "mV" : "nd";
+ 		if (cflag == 0) {
+ 		    char ustring[16];
+ 		    int len;
+diff --git a/app/rr2ann.c b/app/rr2ann.c
+index 4866393..dcfb4df 100644
+--- a/app/rr2ann.c
++++ b/app/rr2ann.c
+@@ -54,7 +54,7 @@ char *argv[];
+ {
+     static WFDB_Anninfo ai;
+     static WFDB_Annotation annot;
+-    WFDB_Frequency sps = 0.0;
++    WFDB_Frequency f, sps = 0.0;
+     double rr, t = 0.0, xfactor = 1.0;
+     static char line[MAXLINELEN];
+     char annstr[10], *p, *record = NULL, *prog_name();
+@@ -62,6 +62,10 @@ char *argv[];
+     void help();
+     extern double atof();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     /* Interpret command-line options. */
+@@ -129,11 +133,22 @@ char *argv[];
+     /* sampfreq is likely to fail, since the header probably doesn't exist.
+        Suppress its error message. */
+     wfdbquiet();
+-    if (sampfreq(record) <= 0.0) {
++    /* wfdb-x: no default sampling frequency (the C program assumed 250 Hz,
++       as legacy mode does); -F specifies one if the record header does
++       not. */
++    if ((f = sampfreq(record)) <= 0.0) {
+ 	wfdbverbose();	/* re-enable error reporting */
+-	if (sps == 0.0) sps = WFDB_DEFFREQ;
++	if (sps == 0.0 && wfdbx_get_legacy())
++	    sps = WFDB_DEFFREQ;
++	else if (sps == 0.0) {
++	    (void)fprintf(stderr,
++		"%s: sampling frequency of record %s is not specified (use -F)\n",
++			  pname, record);
++	    exit(1);
++	}
+ 	setsampfreq(sps);
+-	if (newheader(record) < 0)
++	if ((f < 0.0 || wfdbx_get_legacy()) && newheader(record) < 0)
++	    /* no header: create one (the C program: in any case) */
+ 	    exit(2);
+     }
+     else {
+@@ -194,6 +209,30 @@ char *s;
+ }
+ 
+ static char *help_strings[] = {
++ "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...] <TEXT-FILE\n",
++ "where RECORD and ANNOTATOR specify the output, and OPTIONS may include:",
++ " -F FREQ     use FREQ as the sampling frequency (effective only if the"
++ "               header file does not exist or does not specify it)",
++ " -h          print this usage summary",
++ " -T          TEXT-FILE contains times of occurrence, not RR intervals",
++ " -x N        multiply input by N to obtain RR in sample intervals",
++ "               (default: N = 1)",
++ " -w          copy annotation types from second column of input",
++ "TEXT-FILE should contain a column of RR intervals (or times of occurrence,",
++ "if the -T option is specified), in units of sample intervals (unless the",
++ "-x option is used to specify a conversion factor).   The first token on",
++ "each line is taken as an RR interval, and (if the -w option is specified)",
++ "the second token is taken as an annotation mnemonic (N, V, etc.);  anything",
++ "else on the same line is ignored, as are empty lines, spaces and tabs at",
++ "the beginning of a line non-numeric tokens and anything following them on",
++ "the same line, negative intervals, and zero intervals.  The output consists",
++ "of a binary annotation file (RECORD.ANNOTATOR), and (if it does not exist",
++ "already) a text header file (RECORD.hea).",
++NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+  "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...] <TEXT-FILE\n",
+  "where RECORD and ANNOTATOR specify the output, and OPTIONS may include:",
+  " -F FREQ     use FREQ as the sampling frequency (effective only if no"
+@@ -219,8 +258,9 @@ NULL
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++)
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++)
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ }
+diff --git a/app/sampfreq.c b/app/sampfreq.c
+index 6f67e1c..3ae60ce 100644
+--- a/app/sampfreq.c
++++ b/app/sampfreq.c
+@@ -35,6 +35,10 @@ char **argv;
+ {
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = argv[0];
+     switch (argc) {
+       case 1:
+diff --git a/app/sigamp.c b/app/sigamp.c
+index 11d3b01..c88bd77 100644
+--- a/app/sigamp.c
++++ b/app/sigamp.c
+@@ -70,6 +70,10 @@ main(int argc, char **argv)
+ 	ampcmp(), getptp(WFDB_Time t), getrms(WFDB_Time t);
+     void help(void), printamp(WFDB_Time t);
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     /* Interpret command-line arguments. */
+     pname = prog_name(argv[0]);
+     for (i = 1; i < argc; i++) {
+@@ -195,14 +199,33 @@ main(int argc, char **argv)
+     }
+     if (isigopen(record, si, nsig) != nsig) exit(2);
+     for (i = 0; i < nsig; i++) {
+-	if (si[i].gain == 0.0) si[i].gain = WFDB_DEFGAIN;
++	/* wfdb-x: no default gain (the C program assumed 200 adu/mV for
++	   uncalibrated signals, as legacy mode does). */
++	if (wfdbx_get_legacy()) {
++	    if (si[i].gain == 0.0) si[i].gain = WFDB_DEFGAIN;
++	}
++	else if (pflag && si[i].gain == 0.0) {
++	    (void)fprintf(stderr,
++			  "%s: signal %d of record %s is uncalibrated\n",
++			  pname, i, record);
++	    exit(2);
++	}
+ 	if ((amp[i] = malloc(nmax * sizeof(double))) == NULL) {
+ 	    (void)fprintf(stderr, "%s: insufficient memory\n", pname);
+ 	    exit(3);
+ 	}
+     }
+-    if ((sfreq = sampfreq(NULL)) <= 0.0)
++    /* wfdb-x: no default sampling frequency (the C program assumed 250 Hz,
++       as legacy mode does); the measurement windows are defined in
++       seconds. */
++    if ((sfreq = sampfreq(NULL)) <= 0.0 && wfdbx_get_legacy())
+ 	sfreq = WFDB_DEFFREQ;
++    else if (sfreq <= 0.0) {
++	(void)fprintf(stderr,
++		      "%s: sampling frequency of record %s is not specified\n",
++		      pname, record);
++	exit(2);
++    }
+ 
+     /* Adjust timeunits if starting time is undefined. */
+     if (timeunits == TIMSTR || timeunits == HHMMSS) {
+diff --git a/app/signame.c b/app/signame.c
+index b3cb0a6..b78a9db 100644
+--- a/app/signame.c
++++ b/app/signame.c
+@@ -35,6 +35,10 @@ main(int argc, char **argv)
+     WFDB_Siginfo *si;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     for (i = 1; i < argc; i++) {
+diff --git a/app/signum.c b/app/signum.c
+index 329b9c1..19336b8 100644
+--- a/app/signum.c
++++ b/app/signum.c
+@@ -36,6 +36,10 @@ main(int argc, char **argv)
+     WFDB_Siginfo *si;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     for (i = 1; i < argc; i++) {
+diff --git a/app/snip.c b/app/snip.c
+index 86f3f45..197a44d 100644
+--- a/app/snip.c
++++ b/app/snip.c
+@@ -47,6 +47,10 @@ char *argv[];
+     void copy_info(char *irec, char *startp);
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     for (i = 1; i < argc; i++) {
+@@ -152,6 +156,15 @@ char *argv[];
+ 	fprintf(stderr, "%s: error reading input header\n", pname);
+ 	exit(2);
+     }
++    /* wfdb-x: the output header needs the sampling frequency (the C program
++       assumed 250 Hz if the input header did not specify one, as legacy mode
++       does). */
++    if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0.) {
++	fprintf(stderr, "%s: sampling frequency of record %s is not specified\n",
++		pname, irec);
++	wfdbquit();
++	exit(2);
++    }
+ 
+     /* Evaluate the time limits. */
+     if ((from = strtim(startp)) < 0L)
+diff --git a/app/sortann.c b/app/sortann.c
+index 99d2a0f..40fc6a4 100644
+--- a/app/sortann.c
++++ b/app/sortann.c
+@@ -82,9 +82,13 @@ char *argv[];
+     WFDB_Time from = 0L, to = 0L;
+     long nann = 0L;
+     int i, insert_ann();
+-    double sps, spm, tps;
++    double Ffreq = 0., sps, spm, tps;
+     void cleanup(), help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     /* Interpret command-line options. */
+@@ -106,6 +110,17 @@ char *argv[];
+ 	    }
+ 	    from = i;   /* to be converted to sample intervals below */
+ 	    break;
++	  case 'F':	/* sampling frequency follows (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ffreq) != 1 ||
++		Ffreq <= 0.) {
++		(void)fprintf(stderr,
++			      "%s: sampling frequency (> 0) must follow -F\n",
++			      pname);
++		exit(1);
++	    }
++	    break;
+ 	  case 'h':	/* print usage summary and quit */
+ 	    help();
+ 	    exit(0);
+@@ -145,6 +160,7 @@ char *argv[];
+ 	    to = i;
+ 	    break;
+ 	  default:
++	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
+ 	    (void)fprintf(stderr, "%s: unrecognized option %s\n",
+ 			  pname, argv[i]);
+ 	    exit(1);
+@@ -176,8 +192,23 @@ char *argv[];
+        recursively if something goes wrong. */
+     putenv("WFDBANNSORT=0");
+ 
+-    if ((sps = sampfreq(record)) < 0.)
+-	(void)setsampfreq(sps = WFDB_DEFFREQ);
++    /* wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
++       the record had no header); -F specifies one.  It is needed only to
++       convert the -f and -t times.  Legacy mode: as in the C program. */
++    if (wfdbx_get_legacy()) {
++	if ((sps = sampfreq(record)) < 0.)
++	    (void)setsampfreq(sps = WFDB_DEFFREQ);
++    }
++    else if ((sps = sampfreq(record)) <= 0. && Ffreq > 0.)
++	(void)setsampfreq(sps = Ffreq);
++    if (!wfdbx_get_legacy() && sps <= 0. &&
++	((from && wfdbx_time_needs_freq(argv[(int)from])) ||
++	 (to && wfdbx_time_needs_freq(argv[(int)to])))) {
++	(void)fprintf(stderr,
++	    "%s: sampling frequency of record %s is not specified (use -F)\n",
++		      pname, record);
++	exit(1);
++    }
+     spm = 60.0*sps;
+ 
+     ai[0].stat = WFDB_READ;
+@@ -197,8 +228,16 @@ char *argv[];
+     if ((tps = getiaorigfreq(0)) > 0) {
+ 	setafreq(tps);
+ 	setiafreq(0, tps);
+-	from = from * tps / sps + 0.5;
+-	to = to * tps / sps + 0.5;
++	if (wfdbx_get_legacy() || sps > 0.) {
++	    from = from * tps / sps + 0.5;
++	    to = to * tps / sps + 0.5;
++	}
++	else if (from || to) {	/* wfdb-x: no default sampling frequency */
++	    (void)fprintf(stderr,
++		"%s: sampling frequency of record %s is not specified (use -F)\n",
++			  pname, record);
++	    exit(1);
++	}
+     }
+ 
+     /* Build a linked list of annotations in memory. */
+@@ -353,6 +392,20 @@ char *s;
+ }
+ 
+ static char *help_strings[] = {
++ "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
++ "where RECORD and ANNOTATOR specify the input, and OPTIONS may include:",
++ " -f TIME    start at specified TIME",
++ " -F FREQ    sampling frequency, if the record header does not specify one",
++ " -h         print this usage summary",
++ " -o OUTANN  write output as annotator OUTANN (required with -f or -t)",
++ " -t TIME    stop at specified TIME",
++ "The sorted output replaces the input if -o is omitted, the input is in",
++ "the current directory, and the input is not already sorted.",
++NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+  "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
+  "where RECORD and ANNOTATOR specify the input, and OPTIONS may include:",
+  " -f TIME    start at specified TIME",
+@@ -367,8 +420,9 @@ NULL
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++)
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++)
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ }
+diff --git a/app/time2sec.c b/app/time2sec.c
+index e4f3426..e363e65 100644
+--- a/app/time2sec.c
++++ b/app/time2sec.c
+@@ -34,6 +34,10 @@ char **argv;
+     int milliseconds;
+     long seconds;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     if (argc == 4 && strcmp(argv[1], "-r") == 0) {
+ 	(void)isigopen(argv[2], NULL, 0);
+ 	t = strtim(argv[3]);
+diff --git a/app/wfdbcat.c b/app/wfdbcat.c
+index 135ea7e..95364b0 100644
+--- a/app/wfdbcat.c
++++ b/app/wfdbcat.c
+@@ -45,6 +45,10 @@ char *argv[];
+     static char buf[BUFSIZE];
+     WFDB_FILE *ifile;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+     if (argc < 2 || (argc == 2 && strcmp(argv[1], "-h") == 0)) {
+ 	(void)fprintf(stderr, "usage: %s FILE [FILE ...]\n", pname);
+diff --git a/app/wfdbdesc.c b/app/wfdbdesc.c
+index bd0526b..18423ab 100644
+--- a/app/wfdbdesc.c
++++ b/app/wfdbdesc.c
+@@ -39,6 +39,11 @@ char *argv[];
+     FILE *ifile;
+     WFDB_Siginfo *s;
+     WFDB_Time t;
++    WFDB_Frequency freq;
++
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
+ 
+     pname = prog_name(argv[0]);
+     if (argc < 2) {
+@@ -82,10 +87,16 @@ char *argv[];
+        } while (info = getinfo((char *)NULL));
+        (void)printf("=====\n");
+     }
+-    p = mstimstr(0L);
++    /* wfdb-x: if the sampling frequency is not specified, times are not
++       shown (the C program assumed 250 Hz).  In legacy mode, the output is
++       that of the C program. */
++    freq = sampfreq(NULL);
++    p = (freq > 0. || wfdbx_get_legacy()) ? mstimstr(0L) : "";
+     (void)printf("\nStarting time: %s\n", *p == '[' ? p : "not specified");
+     (void)printf("Length: ");
+-    if (nsig < 1 || t > 0L)
++    if (freq <= 0. && !wfdbx_get_legacy() && (nsig < 1 || t > 0L))
++	(void)printf("%"WFDB_Pd_TIME" sample intervals\n", t);
++    else if (nsig < 1 || t > 0L)
+ 	(void)printf("%s (%"WFDB_Pd_TIME" sample intervals)\n",
+ 		     t > 0L ? mstimstr(t) : "0", t);
+     else if (s[0].fmt && (ifile = fopen(s[0].fname, "rb")) &&
+@@ -123,7 +134,10 @@ char *argv[];
+ 	    t = -1;
+ 	    break;
+ 	}
+-	if (t >= 0)
++	if (t >= 0 && freq <= 0. && !wfdbx_get_legacy())
++	    printf("%"WFDB_Pd_TIME" sample intervals"
++		   " [from signal file size]\n", t);
++	else if (t >= 0)
+ 	    printf("%s (%"WFDB_Pd_TIME" sample intervals)"
+ 		   " [from signal file size]\n",
+ 		   mstimstr(t), t);
+@@ -131,25 +145,39 @@ char *argv[];
+ 	    printf("not specified\n");
+     }
+     else (void)printf("not specified\n");
+-    (void)printf("Sampling frequency: %.12g Hz\n", sampfreq(NULL));
++    if (freq > 0. || wfdbx_get_legacy())
++	(void)printf("Sampling frequency: %.12g Hz\n", freq);
++    else
++	(void)printf("Sampling frequency: not specified\n");
+     (void)printf("%d signal%s\n", nsig, nsig == 1 ? "" : "s");
+     if (nsig < 1) exit(2);
+     if (msrec && s[0].nsamp != 0L) {
+ 	(void)printf("----------------------------------------------\n");
+ 	(void)printf("The following data apply to the first segment:\n");
+ 	(void)printf("----------------------------------------------\n");
+-	(void)printf("Segment length: %s (%ld sample intervals)\n",
+-		     mstimstr(s[0].nsamp), s[0].nsamp);
++	if (freq > 0. || wfdbx_get_legacy())
++	    (void)printf("Segment length: %s (%ld sample intervals)\n",
++			 mstimstr(s[0].nsamp), s[0].nsamp);
++	else
++	    (void)printf("Segment length: %ld sample intervals\n",
++			 s[0].nsamp);
+     }
+     for (i = 0; i < nsig; i++) {
+         (void)printf("Group %d, Signal %d:\n", s[i].group, i);
+         (void)printf(" File: %s\n", s[i].fmt ? s[i].fname : "[none]");
+         (void)printf(" Description: %s\n", s[i].desc);
+         (void)printf(" Gain: ");
+-        if (s[i].gain == 0.)
+-            (void)printf("uncalibrated; assume %g", WFDB_DEFGAIN);
+-        else (void)printf("%.12g", s[i].gain);
+-	(void)printf(" adu/%s\n", s[i].units ? s[i].units : "mV");
++	if (wfdbx_get_legacy()) {	/* wfdb-x: as in the C program */
++	    if (s[i].gain == 0.)
++		(void)printf("uncalibrated; assume %g", WFDB_DEFGAIN);
++	    else (void)printf("%.12g", s[i].gain);
++	    (void)printf(" adu/%s\n", s[i].units ? s[i].units : "mV");
++	}
++	else if (s[i].gain == 0.)	/* wfdb-x: no default gain */
++            (void)printf("uncalibrated\n");
++        else
++	    (void)printf("%.12g adu/%s\n", s[i].gain,	/* wfdb-x: unspecified units are shown as "nd" (C assumed mV) */
++			 s[i].units ? s[i].units : "nd");
+         (void)printf(" Initial value: %d\n", s[i].initval);
+ 	if (s[i].fmt != 0)
+ 	    (void)printf(" Storage format: %d", s[i].fmt);
+@@ -160,7 +188,10 @@ char *argv[];
+         (void)printf(" I/O: ");
+         if (s[i].bsize == 0) (void)printf("can be unbuffered\n");
+         else (void)printf("%d-byte blocks\n", s[i].bsize);
+-        (void)printf(" ADC resolution: %d bits\n", s[i].adcres);
++        if (s[i].adcres > 0 || wfdbx_get_legacy())
++	    (void)printf(" ADC resolution: %d bits\n", s[i].adcres);
++	else		/* wfdb-x: no default resolution */
++	    (void)printf(" ADC resolution: not specified\n");
+         (void)printf(" ADC zero: %d\n", s[i].adczero);
+ 	(void)printf(" Baseline: %d\n", s[i].baseline);
+         if (s[i].nsamp > 0L)
+diff --git a/app/wfdbtime.c b/app/wfdbtime.c
+index bb3ba3b..0aebdb3 100644
+--- a/app/wfdbtime.c
++++ b/app/wfdbtime.c
+@@ -33,12 +33,23 @@ main(int argc, char **argv)
+     int i;
+     WFDB_Time t;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     for (i = 1; i < argc; i++) {
+ 	if (strcmp(argv[i], "-r") == 0) {
+ 	    if (record) wfdbquit();
+ 	    if (++i == argc) break;
+ 	    record = argv[i];
+ 	    if (isigopen(record, NULL, 0) < 0) exit(2);
++	    if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0.) {
++		/* wfdb-x: no default frequency (except in legacy mode) */
++		fprintf(stderr,
++			"%s: sampling frequency of record %s is not specified\n",
++			argv[0], record);
++		exit(2);
++	    }
+ 	}
+ 	else if (record) {
+ 	    if ((t = strtim(argv[i])) < 0L) t = -t;
+diff --git a/app/wfdbwhich.c b/app/wfdbwhich.c
+index d492a3e..0882ea3 100644
+--- a/app/wfdbwhich.c
++++ b/app/wfdbwhich.c
+@@ -38,6 +38,10 @@ char *argv[];
+     char *filename, *pname, *prog_name();
+     int status = 0;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+     if (argc == 2 && strcmp(argv[1], "-h") == 0)
+ 	argc = 0;	/* give usage instructions and quit */
+diff --git a/app/wrann.c b/app/wrann.c
+index fe5dc45..9df9403 100644
+--- a/app/wrann.c
++++ b/app/wrann.c
+@@ -46,6 +46,10 @@ char *argv[];
+     WFDB_Time tm;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     /* Interpret command-line options. */
+diff --git a/app/wrsamp.c b/app/wrsamp.c
+index 08ced06..78e2fd0 100644
+--- a/app/wrsamp.c
++++ b/app/wrsamp.c
+@@ -192,9 +192,10 @@ char *argv[];
+ {
+     char **ap, *cp, **desc, *gain = "", *ifname = "(stdin)",
+ 	*line = NULL, ofname[40], *p, *record = NULL, rsep = '\n',
+-	*scale = "", sflag = 0, trim = 0, Xflag = 0, **units, *prog_name();
++	*scale = "", sflag = 0, trim = 0, Xflag = 0, **units, *prog_name(),
++	*res = "", *uopt = NULL;	/* wfdb-x: -R and -U */
+     static char btime[25], **dstrings, **ustrings;
+-    double freq = WFDB_DEFFREQ, *scalef, v;
++    double freq = 0.0, *scalef, v;	/* wfdb-x: no default frequency */
+ #ifndef atof
+     double atof();
+ #endif
+@@ -209,7 +210,13 @@ char *argv[];
+     WFDB_Siginfo *si;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
++    if (wfdbx_get_legacy())
++	freq = WFDB_DEFFREQ;	/* wfdb-x: the default of the C program */
+ 
+     for (i = 1; i < argc && *argv[i] == '-'; i++) {
+ 	switch (*(argv[i]+1)) {
+@@ -246,6 +253,25 @@ char *argv[];
+ 	    help();
+ 	    exit(1);
+ 	    break;
++	  case 'R':	/* wfdb-x: ADC resolution(s) in bits */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc) {
++		(void)fprintf(stderr,
++			      "%s: ADC resolution(s) must follow -R\n", pname);
++		exit(1);
++	    }
++	    res = argv[i];
++	    break;
++	  case 'U':	/* wfdb-x: units */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc) {
++		(void)fprintf(stderr, "%s: units must follow -U\n", pname);
++		exit(1);
++	    }
++	    uopt = argv[i];
++	    break;
+ 	  case 'i':
+ 	    if (++i >= argc) {
+ 		(void)fprintf(stderr, "%s: input file name must follow -i\n",
+@@ -318,12 +344,37 @@ char *argv[];
+ 	    zflag = 1;
+ 	    break;
+ 	  default:
++	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
+ 	    (void)fprintf(stderr, "%s: unrecognized option %s\n", pname,
+ 			  argv[i]);
+ 	    exit(1);
+ 	}
+     }
+ 
++    /* wfdb-x: the sampling frequency, the gains, the ADC resolutions, and the
++       units (of calibrated signals) must be specified when a header is
++       written (the C program assumed 250 Hz, 200 adu/mV, a resolution based
++       on the format, and millivolts), as legacy mode does. */
++    if (record != NULL && !wfdbx_get_legacy()) {
++	if (freq <= 0.) {
++	    (void)fprintf(stderr,
++			  "%s: the sampling frequency must be specified (-F)\n",
++			  pname);
++	    exit(1);
++	}
++	if (*gain == '\0') {
++	    (void)fprintf(stderr, "%s: the gain(s) must be specified (-G)\n",
++			  pname);
++	    exit(1);
++	}
++	if (*res == '\0') {
++	    (void)fprintf(stderr,
++			  "%s: the ADC resolution(s) must be specified (-R)\n",
++			  pname);
++	    exit(1);
++	}
++    }
++
+     nosig = argc - i;	/* any remaining arguments are column numbers */
+ 
+     /* Determine the number of input columns, and (if present) the signal
+@@ -467,7 +518,22 @@ char *argv[];
+ 	    (void)sprintf(tdesc, "col %d", fv[i]);
+ 	    SSTRCPY(si[i].desc, tdesc);
+ 	}
+-	if (ustrings) {
++	if (uopt) {	/* wfdb-x: -U (the last one applies to the rest) */
++	    char *q;
++
++	    while (*uopt == ' ')
++		uopt++;
++	    if (*uopt) {
++		for (q = uopt; *q && *q != ' '; q++)
++		    ;
++		SALLOC(si[i].units, q - uopt + 1, 1);
++		strncpy(si[i].units, uopt, q - uopt);
++		uopt = q;
++	    }
++	    else	/* no more units: those of the previous signal */
++		si[i].units = (i > 0) ? si[i-1].units : "";
++	}
++	else if (ustrings) {
+ 	    SSTRCPY(si[i].units, ustrings[fv[i]]);
+ 	}
+ 	else
+@@ -476,35 +542,64 @@ char *argv[];
+ 	si[i].fmt = format;
+ 	si[i].spf = 1;
+ 	si[i].bsize = 0;
+-	switch (format) {
+-	  case 508:
+-	  case 80:  si[i].adcres = 8; break;
+-	  case 310:
+-	  case 311: si[i].adcres = 10; break;
+-	  case 212: si[i].adcres = 12; break;
+-	  case 516:
+-	  case 16:
+-	  case 160:
+-	  case 61:  si[i].adcres = 16; break;
+-	  case 524:
+-	  case 24:  si[i].adcres = 24; break;
+-	  case 32:  si[i].adcres = 32; break;
+-	  default:
+-	    /* resolution for unknown future formats */
+-	    if (format > 100 && format % 100 > 0 && format % 100 <= 32)
+-		si[i].adcres = format % 100;
++	/* wfdb-x: the ADC resolutions are given by -R (the last one applies
++	   to the remaining signals); the C program (and legacy mode) inferred
++	   them from the format or assumed WFDB_DEFRES. */
++	if (wfdbx_get_legacy()) {
++	    switch (format) {
++	      case 508:
++	      case 80:  si[i].adcres = 8; break;
++	      case 310:
++	      case 311: si[i].adcres = 10; break;
++	      case 212: si[i].adcres = 12; break;
++	      case 516:
++	      case 16:
++	      case 160:
++	      case 61:  si[i].adcres = 16; break;
++	      case 524:
++	      case 24:  si[i].adcres = 24; break;
++	      case 32:  si[i].adcres = 32; break;
++	      default:
++		/* resolution for unknown future formats */
++		if (format > 100 && format % 100 > 0 && format % 100 <= 32)
++		    si[i].adcres = format % 100;
++		else
++		    si[i].adcres = WFDB_DEFRES;
++	    }
++	}
++	else {
++	    while (*res == ' ')
++		res++;
++	    if (sscanf(res, "%d", &(si[i].adcres)) < 1)
++		si[i].adcres = (i == 0) ? 0 : si[i-1].adcres;
+ 	    else
+-		si[i].adcres = WFDB_DEFRES;
++		while (*res != '\0' && *res != ' ')
++		    res++;
++	    if (record != NULL && si[i].adcres < 1) {
++		(void)fprintf(stderr,
++			      "%s: the ADC resolution(s) must be specified (-R)\n",
++			      pname);
++		exit(1);
++	    }
+ 	}
+ 	si[i].adczero = 0;
+ 	si[i].baseline = 0;
+ 	while (*gain == ' ')
+ 	    gain++;
+ 	if (sscanf(gain, "%lf", &(si[i].gain)) < 1)
+-	    si[i].gain = (i == 0) ? WFDB_DEFGAIN : si[i-1].gain;
++	    si[i].gain = (i == 0) ? (wfdbx_get_legacy() ? WFDB_DEFGAIN : 0.) :
++		si[i-1].gain;	/* wfdb-x: C (legacy mode): WFDB_DEFGAIN */
+ 	else
+ 	    while (*gain != '\0' && *gain != ' ')
+ 		gain++;
++	/* wfdb-x: the units of a calibrated signal must be specified, by -U
++	   or by the input (the C program left them out: millivolts). */
++	if (record != NULL && !wfdbx_get_legacy() && si[i].gain != 0. &&
++	    *si[i].units == '\0') {
++	    (void)fprintf(stderr, "%s: the units must be specified (-U)\n",
++			  pname);
++	    exit(1);
++	}
+ 	while (*scale == ' ')
+ 	    scale++;
+ 	if (sscanf(scale, "%lf", &(scalef[i])) < 1)
+@@ -601,6 +696,54 @@ char *s;
+ }
+ 
+ static char *help_strings[] = {
++ "usage: %s [OPTIONS ...] [COLUMN ...]\n",
++ "where COLUMN selects a field to be copied (leftmost field is column 0),",
++ "and OPTIONS may include:",
++ " -c          check that each input line contains the same number of fields",
++ " -d          add dither to the input",
++ " -f N        start copying with line N (default: 0)",
++ " -F FREQ     specify frequency to be written to header file (required",
++ "              with -o)",
++ " -G GAIN     specify gain(s) to be written to header file (required with",
++ "              -o; 0 means uncalibrated)",
++ " -h          print this usage summary",
++ " -i FILE     read input from FILE (default: standard input)",
++ " -o RECORD   save output in RECORD.dat, and generate a header file for",
++ "              RECORD (default: write to standard output in format 16, do",
++ "              not generate a header file)",
++ " -O FORMAT   save output in the specified FORMAT (default: 16)",
++ " -r RSEP     interpret RSEP as the input line separator (default: linefeed)",
++ " -R BITS     specify ADC resolution(s) in bits (required with -o)",
++ " -s FSEP     interpret any character in FSEP as an input field separator",
++ "             (default: space, tab, carriage-return, or comma)  ",
++ " -t N        stop copying at line N (default: end of input file)",
++ " -U UNITS    specify units (required with -o for calibrated signals, unless",
++ "              the input gives them)",
++ " -x SCALE    multiply inputs by SCALE factor(s) (default: 1)",
++ " -z          don't copy column 0 unless explicitly specified",
++ "",
++ "The input is a text file with a sample of each signal on each line. Samples",
++ "can be separated by tabs, spaces, commas, or any combination of these.",
++ "Consecutive separators are equivalent to single separators.",
++ "",  
++ "To specify different GAIN or SCALE values for each output signal, provide",
++ "a quoted list of values, e.g., -G \"100 50\" defines the gain for signal 0",
++ "as 100, and the gain for signal 1 (and any additional signals) as 50.",
++ "",
++ "If the first input line contains any alphabetic characters, it is assumed",
++ "to contain column headings, which are copied as signal descriptions into",
++ "RECORD.hea.  If the second input line also contains alphabetic characters,",
++ "it is assumed to specify the physical units for each column, which are",
++ "copied as units strings into RECORD.hea.  The first line containing samples",
++ "is line 0.",
++ "",
++ "If no COLUMN is specified, all fields are copied in order; column 0 can be",
++ "omitted in this case by using the '-z' option.",
++NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+  "usage: %s [OPTIONS ...] [COLUMN ...]\n",
+  "where COLUMN selects a field to be copied (leftmost field is column 0),",
+  "and OPTIONS may include:",
+@@ -645,10 +788,11 @@ NULL
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++) {
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++) {
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ 	if (i % 23 == 0) {
+ 	    char b[5];
+ 	    (void)fprintf(stderr, "--More--");
+diff --git a/app/xform.c b/app/xform.c
+index b8ae037..04407a9 100644
+--- a/app/xform.c
++++ b/app/xform.c
+@@ -67,6 +67,10 @@ char *argv[];
+     WFDB_Annotation annot;
+     WFDB_Siginfo *dfin, *dfout;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     /* Interpret the command-line arguments. */
+@@ -294,6 +298,15 @@ char *argv[];
+     else if (Hflag)
+ 	setgvmode(WFDB_HIGHRES);
+     ifreq = sampfreq(NULL);
++    /* wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
++       the input header did not specify one, as legacy mode does). */
++    if (ifreq <= 0. && !wfdbx_get_legacy()) {
++	(void)fprintf(stderr,
++		      "%s: sampling frequency of record %s is not specified\n",
++		      pname, irec);
++	wfdbquit();
++	exit(2);
++    }
+     spf = getspf();
+ 
+     if (Mflag) {
+@@ -318,6 +331,14 @@ char *argv[];
+ 
+ 	/* Determine the output sampling frequency. */
+ 	if (orec) ofreq = sampfreq(orec);
++	if (ofreq == 0. && !wfdbx_get_legacy()) {
++	    /* wfdb-x: no default sampling frequency */
++	    (void)fprintf(stderr,
++		      "%s: sampling frequency of record %s is not specified\n",
++			  pname, orec);
++	    wfdbquit();
++	    exit(2);
++	}
+ 	(void)setsampfreq(ifreq/spf);
+ 
+ 	if (ifreq != ofreq) {
+@@ -384,7 +405,15 @@ char *argv[];
+ 	    script_fgets(answer, sizeof(answer), ttyin);
+ 	    (void)sscanf(answer, "%lf", &ofreq);
+ 	} while (ofreq < 0);
+-	if (ofreq == 0) ofreq = WFDB_DEFFREQ;
++	if (ofreq == 0 && wfdbx_get_legacy())
++	    ofreq = WFDB_DEFFREQ;	/* wfdb-x: as in the C program */
++	else if (ofreq == 0) {	/* wfdb-x: the C program assumed 250 Hz */
++	    (void)fprintf(stderr,
++			  "%s: the output sampling frequency must be > 0\n",
++			  pname);
++	    wfdbquit();
++	    exit(1);
++	}
+ 	if (nosig > 0) {
+ 	    (void)fprintf(stderr,
+ 		"Specify the name of the directory in which the output\n");
+@@ -493,48 +522,89 @@ char *argv[];
+ 		dfout[i].units = *units[i] ? units[i] : NULL;
+ 	    }
+ 	    (void)fprintf(stderr, " Signal %d gain (adu/%s) [%g]: ",
+-			  i, dfout[i].units ? dfout[i].units : "mV",
+-			  dfout[i].gain);
++			  i, dfout[i].units ? dfout[i].units :
++			  (wfdbx_get_legacy() ? "mV" : "nd"),
++			  dfout[i].gain);	/* wfdb-x: C showed "mV" */
+ 	    script_fgets(answer, sizeof(answer), ttyin);
+ 	    sscanf(answer, "%lf", &dfout[i].gain);
+-	    do {
++	    /* wfdb-x: a resolution is offered only if it comes from the input
++	       (or the previous output signal) and suits the output format; the
++	       C program otherwise offered one based on the format (12 bits for
++	       16-bit formats).  Without one, the user must give it.  Legacy mode:
++	       as in the C program. */
++	    if (wfdbx_get_legacy()) {
++		do {
++		    if (i > 0) dfout[i].adcres = dfout[i-1].adcres;
++		    switch (dfout[i].fmt) {
++		      case 80:
++		      case 508:
++			dfout[i].adcres = 8;
++			break;
++		      case 212:
++			if (dfout[i].adcres < 8 || dfout[i].adcres > 12)
++			    dfout[i].adcres = 12;
++			break;
++		      case 310:
++			if (dfout[i].adcres < 8 || dfout[i].adcres > 10)
++			    dfout[i].adcres = 10;
++			break;
++		      case 24:
++		      case 524:
++			if (dfout[i].adcres < 8 || dfout[i].adcres > 24)
++			    dfout[i].adcres = 24;
++			break;
++		      case 32:
++			if (dfout[i].adcres < 8 || dfout[i].adcres > 32)
++			    dfout[i].adcres = 32;
++			break;
++		      case 16:
++		      case 61:
++		      case 160:
++		      case 516:
++		      default:
++			if (dfout[i].adcres < 8 || dfout[i].adcres > 16)
++			    dfout[i].adcres = WFDB_DEFRES;
++			break;
++		    }
++		    (void)fprintf(stderr,
++			    " Signal %d ADC resolution in bits (8-32) [%d]: ", i,
++				  dfout[i].adcres);
++		    script_fgets(answer, sizeof(answer), ttyin);
++		    (void)sscanf(answer, "%d", &dfout[i].adcres);
++		} while (dfout[i].adcres < 8 || dfout[i].adcres > 32);
++	    }
++	    else do {
++		int maxres;
++
+ 		if (i > 0) dfout[i].adcres = dfout[i-1].adcres;
+ 		switch (dfout[i].fmt) {
+ 		  case 80:
+-		  case 508:
+-		    dfout[i].adcres = 8;
+-		    break;
+-		  case 212:
+-		    if (dfout[i].adcres < 8 || dfout[i].adcres > 12)
+-			dfout[i].adcres = 12;
+-		    break;
+-		  case 310:
+-		    if (dfout[i].adcres < 8 || dfout[i].adcres > 10)
+-			dfout[i].adcres = 10;
+-		    break;
++		  case 508: maxres = 8; break;
++		  case 212: maxres = 12; break;
++		  case 310: maxres = 10; break;
+ 		  case 24:
+-		  case 524:
+-		    if (dfout[i].adcres < 8 || dfout[i].adcres > 24)
+-			dfout[i].adcres = 24;
+-		    break;
+-		  case 32:
+-		    if (dfout[i].adcres < 8 || dfout[i].adcres > 32)
+-			dfout[i].adcres = 32;
+-		    break;
+-		  case 16:
+-		  case 61:
+-		  case 160:
+-		  case 516:
+-		  default:
+-		    if (dfout[i].adcres < 8 || dfout[i].adcres > 16)
+-			dfout[i].adcres = WFDB_DEFRES;
+-		    break;
++		  case 524: maxres = 24; break;
++		  case 32:  maxres = 32; break;
++		  default:  maxres = 16; break;
+ 		}
+-		(void)fprintf(stderr,
++		if (dfout[i].adcres >= 8 && dfout[i].adcres <= maxres)
++		    (void)fprintf(stderr,
+ 			" Signal %d ADC resolution in bits (8-32) [%d]: ", i,
+-			      dfout[i].adcres);
++				  dfout[i].adcres);
++		else {
++		    (void)fprintf(stderr,
++			" Signal %d ADC resolution in bits (8-32): ", i);
++		    dfout[i].adcres = 0;
++		}
+ 		script_fgets(answer, sizeof(answer), ttyin);
+ 		(void)sscanf(answer, "%d", &dfout[i].adcres);
++		if (dfout[i].adcres == 0) {
++		    (void)fprintf(stderr,
++			"%s: the ADC resolution of signal %d must be specified\n",
++				  pname, i);
++		    wfdbquit();
++		    exit(1);
++		}
+ 	    } while (dfout[i].adcres < 8 || dfout[i].adcres > 32);
+ 	    (void)fprintf(stderr, " Signal %d ADC zero level (adu) [%d]: ",
+ 			  i, dfout[i].adczero);
+@@ -697,51 +767,75 @@ char *argv[];
+ 	       appropriate number of bits will be dropped from or added to each
+ 	       signal.
+ 	   2.  If the output gain has been specified, the signal is scaled by
+-	       the ratio of the output and input gains.  If the input gain is
+-	       not specified explicitly, the value WFDB_DEFGAIN is assumed.
++	       the ratio of the output and input gains.  (wfdb-x: if the input
++	       signal is uncalibrated, this is an error; the C program, and
++	       legacy mode, assumed an input gain of WFDB_DEFGAIN.)
+ 	   These rules differ from those used by earlier versions of xform,
+ 	   although the default behavior remains the same in most cases. */
+ 
+ 	if (dfout[i].gain == 0.) {	/* output gain not specified */
+-	    if (dfin[j].adcres == 0) {	/* input ADC resolution not specified;
+-					   assume a suitable default */
+-		switch (dfin[j].fmt) {
+-		  case 80:
+-		  case 508:
+-		    dfin[j].adcres = 8;
+-		    break;
+-		  case 212:
+-		    dfin[j].adcres = 12;
+-		    break;
+-		  case 310:
+-		    dfin[j].adcres = 10;
+-		    break;
+-		  case 24:
+-		  case 524:
+-		    dfin[j].adcres = 24;
+-		    break;
+-		  case 32:
+-		    dfin[j].adcres = 32;
+-		    break;
+-		  case 16:
+-		  case 61:
+-		  case 160:
+-		  case 516:
+-		  default:
+-		    /* for historical compatibility, 16-bit formats
+-		       assume a resolution of WFDB_DEFRES, although it
+-		       would make more sense to assume a resolution of
+-		       16 here */
+-		    dfin[j].adcres = WFDB_DEFRES;
+-		    break;
++	    /* wfdb-x: rescaling by ADC resolution needs both resolutions (the
++	       C program guessed an unspecified input resolution from the
++	       format, assuming WFDB_DEFRES for 16-bit formats, as legacy mode
++	       does). */
++	    if (wfdbx_get_legacy()) {
++		if (dfin[j].adcres == 0) {	/* input ADC resolution not specified;
++					       assume a suitable default */
++		    switch (dfin[j].fmt) {
++		      case 80:
++		      case 508:
++			dfin[j].adcres = 8;
++			break;
++		      case 212:
++			dfin[j].adcres = 12;
++			break;
++		      case 310:
++			dfin[j].adcres = 10;
++			break;
++		      case 24:
++		      case 524:
++			dfin[j].adcres = 24;
++			break;
++		      case 32:
++			dfin[j].adcres = 32;
++			break;
++		      case 16:
++		      case 61:
++		      case 160:
++		      case 516:
++		      default:
++			/* for historical compatibility, 16-bit formats
++			   assume a resolution of WFDB_DEFRES, although it
++			   would make more sense to assume a resolution of
++			   16 here */
++			dfin[j].adcres = WFDB_DEFRES;
++			break;
++		    }
+ 		}
+ 	    }
++	    else if (dfin[j].adcres == 0 || dfout[i].adcres == 0) {
++		(void)fprintf(stderr,
++		  "%s: ADC resolution of signal %d of record %s is not specified\n",
++			      pname, dfin[j].adcres == 0 ? j : i,
++			      dfin[j].adcres == 0 ? irec : (orec ? orec : nrec));
++		wfdbquit();
++		exit(2);
++	    }
+ 	    gain[i] = (double)(1L << dfout[i].adcres) /
+ 		      (double)(1L << dfin[j].adcres);
+ 	}
+-	else if (dfin[j].gain == 0.)	/* output gain specified, but input
++	else if (dfin[j].gain == 0.) {	/* output gain specified, but input
+ 					   gain not specified */
+-	    gain[i] = dfout[i].gain/WFDB_DEFGAIN;
++	    if (wfdbx_get_legacy())	/* wfdb-x: as in the C program */
++		gain[i] = dfout[i].gain/WFDB_DEFGAIN;
++	    else {
++		(void)fprintf(stderr,
++		  "%s: signal %d of record %s is uncalibrated; it cannot be "
++		  "rescaled to the specified gain\n", pname, j, irec);
++		wfdbquit();
++		exit(2);
++	    }
++	}
+ 	else				/* input and output gains specified */
+ 	    gain[i] = dfout[i].gain/dfin[j].gain;
+ 
+diff --git a/convert/a2m.c b/convert/a2m.c
+index b76fb76..2cdd7a0 100644
+--- a/convert/a2m.c
++++ b/convert/a2m.c
+@@ -80,11 +80,16 @@ char *argv[];
+     char *ifname = NULL, *oann = "atr", *p, *record = NULL, *prog_name();
+     int i, type = -1, getcann();
+     long offset = 0L;
++    double Ffreq = 0.;
+     unsigned int nann = 2;
+     WFDB_Anninfo afarray[2];
+     static WFDB_Annotation annot;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     /* Read and interpret command-line arguments. */
+     pname = prog_name(argv[0]);
+     for (i = 1; i < argc; i++) {
+@@ -98,6 +103,17 @@ char *argv[];
+ 	    }
+ 	    oann = argv[i];
+ 	    break;
++	  case 'F':	/* sampling frequency follows (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ffreq) != 1 ||
++		Ffreq <= 0.) {
++		(void)fprintf(stderr,
++			      "%s: sampling frequency (> 0) must follow -F\n",
++			      pname);
++		exit(1);
++	    }
++	    break;
+ 	  case 'h':	/* help requested */
+ 	    help();
+ 	    exit(1);
+@@ -140,6 +156,7 @@ char *argv[];
+ 	    }
+ 	    break;
+ 	  default:
++	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
+ 	    (void)fprintf(stderr, "%s: unrecognized option %s\n", pname,
+ 			  argv[i]);
+ 	    exit(1);
+@@ -191,8 +208,24 @@ char *argv[];
+ 	exit(2);
+ 
+     /* Set the time shift. */
+-    if (sampfreq(record) == 0.)
+-	(void)setsampfreq(250.);
++    /* wfdb-x: if the record header does not give the sampling frequency,
++       -F must give it.  (The C program, like legacy mode, assumed the rate of
++       the AHA database, 250 Hz, if a header without a frequency existed, and
++       1 sample per second if there was no header.) */
++    if (wfdbx_get_legacy()) {
++	if (sampfreq(record) == 0.)
++	    (void)setsampfreq(250.);
++    }
++    else if (sampfreq(record) <= 0.) {
++	if (Ffreq > 0.)
++	    (void)setsampfreq(Ffreq);
++	else {
++	    (void)fprintf(stderr,
++		"%s: sampling frequency of record %s is not specified (use -F)\n",
++			  pname, record);
++	    exit(1);
++	}
++    }
+     if (offset) offset = strtim(argv[offset]);
+     else {
+ 	switch (type) {
+@@ -227,16 +260,27 @@ char *argv[];
+ 		break;
+ 	}
+ 	break;
++      /* Times in milliseconds are converted at the sampling frequency of
++	 the record (wfdb-x; the C program assumed 4 ms per sample, i.e.,
++	 250 Hz, whatever the record's frequency, as legacy mode does). */
+       case 1:
+       case 2:
+ 	while (getann(0, &annot) >= 0) {
+-	    annot.time = (annot.time >> 2) + offset;	/* 4 msec/sample */
++	    if (wfdbx_get_legacy())
++		annot.time = (annot.time >> 2) + offset;	/* 4 msec/sample */
++	    else
++		annot.time = (WFDB_Time)(annot.time * sampfreq(NULL) / 1000.)
++		    + offset;
+ 	    (void)putann(0, &annot);
+ 	}
+ 	break;
+       case 3:
+ 	while (getcann(&annot) >= 0) {
+-	    annot.time = (annot.time >> 2) + offset;	/* 4 msec/sample */
++	    if (wfdbx_get_legacy())
++		annot.time = (annot.time >> 2) + offset;	/* 4 msec/sample */
++	    else
++		annot.time = (WFDB_Time)(annot.time * sampfreq(NULL) / 1000.)
++		    + offset;
+ 	    (void)putann(0, &annot);
+ 	}
+ 	break;
+@@ -309,6 +353,30 @@ char *s;
+ }
+ 
+ static char *help_strings[] = {
++  "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
++  "where AHAFILE is the name of the AHA-format input annotation file,",
++  "and OPTIONS may include:",
++  " -a ANNOTATOR  specify the output annotator name (default: 'atr')",
++  " -F FREQ       sampling frequency, if the record header does not specify",
++  "                one (AHA database: 250)",
++  " -h            print this usage summary",
++  " -r RECORD     specify the name of the output RECORD (default: use the",
++  "                input file name, less path info and extension, as RECORD)",
++  " -s TIME       shift annotations by TIME",
++  "                (defaults: 0 for TYPE 0,",
++  "                      5:0 for TYPE 1, (or TYPE 3 if RECORD=x2xx or x3xx)",
++  "                   2:30:0 for TYPE 2, (or TYPE 3 if RECORD=x0xx or x1xx)",
++  " -t TYPE       specify type of file to be converted:",
++  "                0 for files produced by WFDB applications in AHA format,",
++  "                1 for short-format tape files,",
++  "                2 for long-format tape files, or",
++  "                3 for compressed files from AHA DB CD-ROMs or diskettes",
++  "                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)",
++  NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+   "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
+   "where AHAFILE is the name of the AHA-format input annotation file,",
+   "and OPTIONS may include:",
+@@ -332,8 +400,9 @@ static char *help_strings[] = {
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++)
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++)
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ }
+diff --git a/convert/ad2m.c b/convert/ad2m.c
+index c693660..dc9cc54 100644
+--- a/convert/ad2m.c
++++ b/convert/ad2m.c
+@@ -51,13 +51,28 @@ int argc;
+ char *argv[];
+ {
+     char dfname[FNLEN], *ifname = NULL, *p, *record = NULL, *prog_name();
+-    int cflag = 0, i, v[2], getcvec();
++    char *Uunits = NULL, *fstr = NULL, *tstr = NULL;
++    double Ffreq = 0., Ggain = 0.;
++    int cflag = 0, i, v[2], getcvec(), Gset = 0, Rres = 0;
+     long t = 0L, start_time = 0L, end_time = 0L;
+     static WFDB_Siginfo dfarray[2];
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+-    (void)setsampfreq(250.);
++    if (wfdbx_get_legacy()) {
++	/* wfdb-x: in legacy mode, the parameters of the AHA database, set by
++	   the C program (250 Hz, 400 adu/mV, 12 bits, and no units, i.e.,
++	   millivolts); -F, -G, -R and -U are not options then. */
++	Ffreq = 250.;
++	Ggain = 400.;
++	Gset = 1;
++	Rres = 12;
++	(void)setsampfreq(250.);
++    }
+     for (i = 1; i < argc; i++) {
+ 	if (*argv[i] == '-') switch (*(argv[i]+1)) {
+ 	  case 'c':
+@@ -69,7 +84,10 @@ char *argv[];
+ 			      "%s: start time must follow -f\n", pname);
+ 		exit(1);
+ 	    }
+-	    start_time = strtim(argv[i]);
++	    if (wfdbx_get_legacy())	/* wfdb-x: as in the C program */
++		start_time = strtim(argv[i]);
++	    else
++		fstr = argv[i];	/* converted once -F is known (wfdb-x) */
+ 	    break;
+ 	  case 'h':	/* help requested */
+ 	    help();
+@@ -98,9 +116,56 @@ char *argv[];
+ 			"%s: end time must follow -t\n", pname);
+ 		exit(1);
+ 	    }
+-	    end_time = strtim(argv[i]);
++	    if (wfdbx_get_legacy())	/* wfdb-x: as in the C program */
++		end_time = strtim(argv[i]);
++	    else
++		tstr = argv[i];	/* converted once -F is known (wfdb-x) */
++	    break;
++	  case 'F':	/* sampling frequency (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ffreq) != 1 ||
++		Ffreq <= 0.) {
++		(void)fprintf(stderr,
++			      "%s: sampling frequency (> 0) must follow -F\n",
++			      pname);
++		exit(1);
++	    }
+ 	    break;
++	  case 'G':	/* gain in adu per physical unit (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ggain) != 1 ||
++		Ggain < 0.) {
++		(void)fprintf(stderr, "%s: gain (>= 0) must follow -G\n",
++			      pname);
++		exit(1);
++	    }
++	    Gset = 1;
++	    break;
++	  case 'R':	/* ADC resolution in bits (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%d", &Rres) != 1 ||
++		Rres < 1 || Rres > 32) {
++		(void)fprintf(stderr,
++			      "%s: ADC resolution (1-32 bits) must follow -R\n",
++			      pname);
++		exit(1);
++	    }
++	    break;
++	  case 'U':	/* physical units (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc) {
++		(void)fprintf(stderr, "%s: units must follow -U\n", pname);
++		exit(1);
++	    }
++	    Uunits = argv[i];
++	    break;
++
+ 	  default:
++	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
+ 	    (void)fprintf(stderr, "%s: unrecognized option %s\n", pname,
+ 			  argv[i]);
+ 	    exit(1);
+@@ -111,7 +176,39 @@ char *argv[];
+ 	    exit(1);
+ 	}
+     }
+-    if (ifname == NULL || (0L < end_time && end_time <= start_time)) {
++    if (ifname == NULL) {
++	help();
++	exit(1);
++    }
++    /* wfdb-x: the signal parameters must be given explicitly; the C program
++       assumed those of the AHA database (250 Hz, 400 adu/mV, 12 bits, and no
++       units, i.e., millivolts), as legacy mode does (the values set above for
++       legacy mode pass these checks, and no units are required then). */
++    if (Ffreq <= 0.) {
++	(void)fprintf(stderr,
++		      "%s: the sampling frequency must be specified (-F)\n",
++		      pname);
++	exit(1);
++    }
++    if (!Gset) {
++	(void)fprintf(stderr, "%s: the gain must be specified (-G)\n", pname);
++	exit(1);
++    }
++    if (Rres < 1) {
++	(void)fprintf(stderr,
++		      "%s: the ADC resolution must be specified (-R)\n",
++		      pname);
++	exit(1);
++    }
++    if (Ggain != 0. && Uunits == NULL && !wfdbx_get_legacy()) {
++	(void)fprintf(stderr, "%s: the units must be specified (-U)\n",
++		      pname);
++	exit(1);
++    }
++    (void)setsampfreq(Ffreq);
++    if (fstr) start_time = strtim(fstr);
++    if (tstr) end_time = strtim(tstr);
++    if (0L < end_time && end_time <= start_time) {
+ 	help();
+ 	exit(1);
+     }
+@@ -160,9 +257,10 @@ char *argv[];
+     (void)sprintf(dfname, "%s.dat", record);
+     dfarray[0].fname = dfarray[1].fname = dfname;
+     dfarray[0].desc = dfarray[1].desc = "";
+-    dfarray[0].gain = dfarray[1].gain = 400;
++    dfarray[0].gain = dfarray[1].gain = Ggain;
++    dfarray[0].units = dfarray[1].units = Uunits;
+     dfarray[0].fmt = dfarray[1].fmt = 212;
+-    dfarray[0].adcres = dfarray[1].adcres = 12;
++    dfarray[0].adcres = dfarray[1].adcres = Rres;
+     if (osigfopen(dfarray, 2) < 0) exit(3);
+ 
+     if (!cflag) {	/* process tape-format input file */
+@@ -250,6 +348,28 @@ char *s;
+ }
+ 
+ static char *help_strings[] = {
++    "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
++    "where AHAFILE is the name of the AHA-format input signal file,",
++    "and OPTIONS may include:",
++    " -c         process a compressed input file (default if AHAFILE ends",
++    "             with .CMP or .cmp;  otherwise old AHA tape format assumed)",
++    " -f TIME    begin at specified TIME (default: 0, i.e., the beginning",
++    "             of the input file)",
++    " -F FREQ    sampling frequency in Hz (required; AHA database: 250)",
++    " -G GAIN    gain in adu per physical unit (required; AHA database: 400)",
++    " -h         print this usage summary",
++    " -r RECORD  specify the name of the output RECORD (default: use the,"
++    "            input file name, less path info and extension, as RECORD)",
++    " -R BITS    ADC resolution in bits (required; AHA database: 12)",
++    " -t TIME    stop at specified TIME (default: 35 minutes after the",
++    "             starting time if RECORD=x2xx or x3xx, 3 hours if",
++    "             RECORD=x0xx or x1xx, or the end of the input file)",
++    " -U UNITS   physical units (required unless the gain is 0; AHA: mV)",
++    NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+     "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
+     "where AHAFILE is the name of the AHA-format input signal file,",
+     "and OPTIONS may include:",
+@@ -269,8 +389,9 @@ static char *help_strings[] = {
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++)
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++)
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ }
+diff --git a/convert/ahaecg2mit.c b/convert/ahaecg2mit.c
+index 3a2cdb7..13fc578 100644
+--- a/convert/ahaecg2mit.c
++++ b/convert/ahaecg2mit.c
+@@ -4,10 +4,23 @@ Convert *.ecg or *.txt files from an AHA Database DVD to WFDB-compatible format
+ */
+ 
+ #include <stdio.h>
++#include <string.h>
+ #include <wfdb/wfdb.h>
+ #include <wfdb/ecgmap.h>
+ 
+ int format;
++
++/* wfdb-x: the signal parameters (-F, -G, -R, -U); the C program assumed those
++   of the AHA database (250 Hz, 400 adu/mV, 12 bits, millivolts). */
++static char *pname, *Uunits;
++static double Ffreq, Ggain;
++static int Gset, Rres;
++
++/* A long-format AHA record begins with 145 minutes that are not part of the
++   short-format (35-minute) record; each sample frame of a binary (.ecg) file
++   is 5 bytes long. */
++#define SKIP_MINUTES	145L
++#define FRAME_BYTES	5L
+ FILE *ifile;
+ WFDB_Annotation a;
+ WFDB_Sample v[2];
+@@ -59,9 +72,17 @@ main(int argc, char **argv)
+     char *p, *record;
+     int i, sflag = 0;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     if (argc < 2 || strcmp(argv[1], "-h") == 0) {
+-	fprintf(stderr, "usage: %s [-s] RECORD.XXX [RECORD.XXX]...\n",
+-		argv[0]);
++	if (wfdbx_get_legacy())	/* wfdb-x: the usage of the C program */
++	    fprintf(stderr, "usage: %s [-s] RECORD.XXX [RECORD.XXX]...\n",
++		    argv[0]);
++	else
++	    fprintf(stderr, "usage: %s [-s] -F FREQ -G GAIN -R BITS -U UNITS"
++		    " RECORD.XXX [RECORD.XXX]...\n", argv[0]);
+ 	fprintf(stderr, 
+ 		" where RECORD.XXX is the name of the AHA DVD input file to"
+ 		" be converted\n"
+@@ -75,11 +96,94 @@ main(int argc, char **argv)
+ 		" long-format (2.5 hour)\n input files.  When using -s, the"
+ 		" second digit in the output record name is\n"
+ 		" incremented by 2.\n");
++	if (!wfdbx_get_legacy())
++	    fprintf(stderr,
++		" -F, -G, -R and -U give the sampling frequency (Hz), gain"
++		" (adu per physical\n unit), ADC resolution (bits) and units"
++		" of the signals; for the AHA DVD\n files, use -F 250 -G 400"
++		" -R 12 -U mV.\n");
++	exit(1);
++    }
++    /* wfdb-x: options (-s and the signal parameters) precede the input
++       files, in any order. */
++    pname = argv[0];
++    if (wfdbx_get_legacy()) {
++	/* wfdb-x: in legacy mode, the option of the C program (-s only, as
++	   the first argument), and the parameters of the AHA database that
++	   it set (250 Hz, 400 adu/mV, 12 bits, millivolts). */
++	if (strcmp(argv[i = 1], "-s") == 0) {
++	    sflag = 1;	/* produce short-format (35-minute) records */
++	    i = 2;
++	}
++	Ffreq = 250.;
++	Ggain = 400.;
++	Gset = 1;
++	Rres = 12;
++	Uunits = "mV";
++    }
++    else for (i = 1; i < argc && argv[i][0] == '-' && argv[i][1] &&
++	     strchr("sFGRU", argv[i][1]) && argv[i][2] == '\0'; i++)
++	switch (argv[i][1]) {
++	  case 's':
++	    sflag = 1;	/* produce short-format (35-minute) records */
++	    break;
++	  case 'F':	/* sampling frequency (wfdb-x) */
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ffreq) != 1 ||
++		Ffreq <= 0.) {
++		(void)fprintf(stderr,
++			      "%s: sampling frequency (> 0) must follow -F\n",
++			      pname);
++		exit(1);
++	    }
++	    break;
++	  case 'G':	/* gain in adu per physical unit (wfdb-x) */
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ggain) != 1 ||
++		Ggain < 0.) {
++		(void)fprintf(stderr, "%s: gain (>= 0) must follow -G\n",
++			      pname);
++		exit(1);
++	    }
++	    Gset = 1;
++	    break;
++	  case 'R':	/* ADC resolution in bits (wfdb-x) */
++	    if (++i >= argc || sscanf(argv[i], "%d", &Rres) != 1 ||
++		Rres < 1 || Rres > 32) {
++		(void)fprintf(stderr,
++			      "%s: ADC resolution (1-32 bits) must follow -R\n",
++			      pname);
++		exit(1);
++	    }
++	    break;
++	  case 'U':	/* physical units (wfdb-x) */
++	    if (++i >= argc) {
++		(void)fprintf(stderr, "%s: units must follow -U\n", pname);
++		exit(1);
++	    }
++	    Uunits = argv[i];
++	    break;
++	}
++    /* wfdb-x: the signal parameters must be given explicitly (see
++       docs/DIVERGENCES.md); in legacy mode, these checks pass. */
++    if (Ffreq <= 0.) {
++	(void)fprintf(stderr,
++		      "%s: the sampling frequency must be specified (-F)\n",
++		      pname);
+ 	exit(1);
+     }
+-    if (strcmp(argv[i = 1], "-s") == 0) {
+-	sflag = 1;	/* produce short-format (35-minute) records */
+-	i = 2;
++    if (!Gset) {
++	(void)fprintf(stderr, "%s: the gain must be specified (-G)\n", pname);
++	exit(1);
++    }
++    if (Rres < 1) {
++	(void)fprintf(stderr,
++		      "%s: the ADC resolution must be specified (-R)\n",
++		      pname);
++	exit(1);
++    }
++    if (Ggain != 0. && Uunits == NULL) {
++	(void)fprintf(stderr, "%s: the units must be specified (-U)\n",
++		      pname);
++	exit(1);
+     }
+     for ( ; i < argc; i++) {
+ 	p = argv[i] + strlen(argv[i]) - 4;    /* pointer to '.ecg' or '.txt' */
+@@ -98,12 +202,14 @@ main(int argc, char **argv)
+ 	*p = '\0';	/* strip off extension */
+ 	record = p - 4;	/* AHA record names are 4 (ASCII) digits */
+ 	if (sflag) {/* skip first 145 minutes if making a short-format record */
++	    long nskip = (long)(SKIP_MINUTES*60L*Ffreq);	/* samples */
++
+ 	    if (format == 1)
+-		fseek(ifile, 145L*60L*250L*5L, SEEK_SET);
++		fseek(ifile, nskip*FRAME_BYTES, SEEK_SET);
+ 	    else if (format == 2) {
+ 		long t;
+ 
+-		for (t = 0; t < 145L*60L*250L; t++)
++		for (t = 0; t < nskip; t++)
+ 		    (void)readtxtdata();
+ 	    }		
+ 	    record[1] += 2;	/* fix record name (n0nn->n2nn, n1nn->n3nn) */
+@@ -122,14 +228,14 @@ void process(char *record)
+     static WFDB_Siginfo si[2];
+     static WFDB_Anninfo ai;
+ 
+-    setsampfreq(250.0);	/* AHA DB is sampled at 250 Hz for each signal */
++    setsampfreq(Ffreq);	/* wfdb-x: -F (the C program set 250 Hz) */
+     sprintf(ofname, "%s.dat", record);
+     si[0].fname = ofname;
+     si[0].desc = "ECG0";
+-    si[0].units = "mV";
+-    si[0].gain = 400;
++    si[0].units = Uunits;
++    si[0].gain = Ggain;
+     si[0].fmt = 212;
+-    si[0].adcres = 12;
++    si[0].adcres = Rres;
+     si[1] = si[0];
+     si[1].desc = "ECG1";
+     ai.name = "atr";
+diff --git a/convert/edf2mit.c b/convert/edf2mit.c
+index 9bf0ee7..fdd96b8 100644
+--- a/convert/edf2mit.c
++++ b/convert/edf2mit.c
+@@ -44,6 +44,10 @@ char **argv;
+     WFDB_Siginfo *si, *so;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = argv[0];
+     record[0] = '\0';
+     for (i = 1; i < argc; i++) {
+diff --git a/convert/m2a.c b/convert/m2a.c
+index 814ce16..821e7ea 100644
+--- a/convert/m2a.c
++++ b/convert/m2a.c
+@@ -48,11 +48,16 @@ char *argv[];
+ {
+     char *ianame = NULL, *oaname = NULL, *record = NULL, *shift = NULL;
+     char *prog_name();
++    double Ffreq = 0.;
+     int i;
+     WFDB_Anninfo afarray[2];
+     WFDB_Annotation annot;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+     for (i = 1; i < argc; i++) {
+ 	if (*argv[i] == '-') switch (*(argv[i]+1)) {
+@@ -66,6 +71,17 @@ char *argv[];
+ 	    ianame = argv[i++];
+ 	    oaname = argv[i];
+ 	    break;
++	  case 'F':	/* sampling frequency follows (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ffreq) != 1 ||
++		Ffreq <= 0.) {
++		(void)fprintf(stderr,
++			      "%s: sampling frequency (> 0) must follow -F\n",
++			      pname);
++		exit(1);
++	    }
++	    break;
+ 	  case 'h':	/* help requested */
+ 	    help();
+ 	    exit(1);
+@@ -88,6 +104,7 @@ char *argv[];
+ 	    break;
+ 	    
+ 	  default:
++	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
+ 	    (void)fprintf(stderr, "%s: unrecognized option %s\n", pname,
+ 			  argv[i]);
+ 	    exit(1);
+@@ -114,7 +131,21 @@ char *argv[];
+ 	long dt;
+ 	double mssi;	/* milliseconds per sample interval */
+ 
+-	if (sampfreq(record) <= 0.) (void)setsampfreq(WFDB_DEFFREQ);
++	/* wfdb-x: no default sampling frequency (the C program assumed 250 Hz
++	   if the record header did not specify one, as legacy mode does); -F
++	   specifies one. */
++	if (sampfreq(record) <= 0.) {
++	    if (wfdbx_get_legacy())
++		(void)setsampfreq(WFDB_DEFFREQ);
++	    else if (Ffreq > 0.)
++		(void)setsampfreq(Ffreq);
++	    else {
++		(void)fprintf(stderr,
++		"%s: sampling frequency of record %s is not specified (use -F)\n",
++			      pname, record);
++		exit(1);
++	    }
++	}
+ 	mssi = 1000./strtim("1");
+ 	dt = strtim(shift);
+ 	while (getann(0, &annot) >= 0)
+@@ -149,6 +180,19 @@ char *s;
+ }
+ 
+ static char *help_strings[] = {
++    "usage: %s -r RECORD -a MIT-ANNOTATOR AHA-ANNOTATOR [ OPTIONS ... ]\n",
++    "where RECORD is the record name, MIT-ANNOTATOR is the annotator name",
++    "for the input annotation file, AHA-ANNOTATOR is the annotator name",
++    "for the output (AHA format) annotation file, and OPTIONS may include:",
++    " -F FREQ   sampling frequency, if the record header does not specify one",
++    " -h        print this usage summary",
++    " -s TIME   shift annotation times backwards by the specified TIME,",
++    "            and convert them to milliseconds",
++    NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+     "usage: %s -r RECORD -a MIT-ANNOTATOR AHA-ANNOTATOR [ OPTIONS ... ]\n",
+     "where RECORD is the record name, MIT-ANNOTATOR is the annotator name",
+     "for the input annotation file, AHA-ANNOTATOR is the annotator name",
+@@ -162,8 +206,9 @@ static char *help_strings[] = {
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++)
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++)
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ }
+diff --git a/convert/makeid.c b/convert/makeid.c
+index 674f438..5408036 100644
+--- a/convert/makeid.c
++++ b/convert/makeid.c
+@@ -57,6 +57,10 @@ char *argv[];
+     WFDB_Siginfo dfarray[2];
+     WFDB_Annotation annot;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     if (argc < 3) {
+ 	(void)fprintf(stderr, "usage: %s annotator record\n", argv[0]);
+ 	exit(1);
+diff --git a/convert/md2a.c b/convert/md2a.c
+index 6d275c9..d38beb7 100644
+--- a/convert/md2a.c
++++ b/convert/md2a.c
+@@ -57,6 +57,10 @@ char *argv[];
+     static WFDB_Siginfo s[WFDB_MAXSIG];
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+     for (i = 1; i < argc; i++) {
+ 	if (*argv[i] == '-') switch (*(argv[i]+1)) {
+diff --git a/convert/mit2edf.c b/convert/mit2edf.c
+index 715848d..0295cbf 100644
+--- a/convert/mit2edf.c
++++ b/convert/mit2edf.c
+@@ -48,6 +48,10 @@ char **argv;
+ 				   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     /* Interpret the command line. */
+     pname = argv[0];
+     for (i = 1; i < argc; i++) {
+@@ -115,6 +119,30 @@ char **argv;
+     if ((nsig = isigopen(record, si, nsig)) <= 0)
+ 	exit(3);
+ 
++    /* wfdb-x: an EDF file needs the sampling frequency and the gain of each
++       signal (the C program assumed 250 Hz and 200 adu/mV if the header did
++       not specify them, as legacy mode does). */
++    if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0.) {
++	(void)fprintf(stderr,
++		      "%s: sampling frequency of record %s is not specified\n",
++		      pname, record);
++	exit(3);
++    }
++    for (i = 0; i < nsig && !wfdbx_get_legacy(); i++) {
++	if (si[i].gain == 0.) {
++	    (void)fprintf(stderr,
++			  "%s: signal %d of record %s is uncalibrated\n",
++			  pname, i, record);
++	    exit(3);
++	}
++	if (si[i].adcres < 1) {	/* the EDF digital range needs it */
++	    (void)fprintf(stderr,
++	      "%s: ADC resolution of signal %d of record %s is not specified\n",
++			  pname, i, record);
++	    exit(3);
++	}
++    }
++
+     /* Open the output (EDF) file. */
+     if ((ofile = fopen(ofname, "wb")) == NULL) {
+ 	(void)fprintf(stderr, "%s: can't create %s\n", pname, ofname);
+@@ -201,7 +229,10 @@ char **argv;
+ 
+     /* Calculate physical and digital extrema. */
+     for (i = 0; i < nsig; i++) {
+-	if (si[i].adcres < 1) {	/* invalid ADC resolution in input .hea file */
++	/* (wfdb-x: the ADC resolution was checked above; the C program guessed
++	   it from the storage format if the header did not give it, as
++	   legacy mode does.) */
++	if (wfdbx_get_legacy() && si[i].adcres < 1) {	/* invalid ADC resolution in input .hea file */
+ 	    switch (si[i].fmt) { /* guess ADC resolution based on format */
+ 	      case 524:
+ 	      case 24: si[i].adcres = 24; break;
+@@ -313,7 +344,8 @@ char **argv;
+ 
+     /* Physical dimension (e.g., uV or degreeC). */
+     for (i = 0; i < nsig; i++, p += 8) {
+-	if (si[i].units == NULL) si[i].units = "mV";
++	if (si[i].units == NULL)	/* wfdb-x: unspecified units are shown as "nd" (C, legacy mode: mV) */
++	    si[i].units = wfdbx_get_legacy() ? "mV" : "nd";
+ 	else if (strlen(si[i].units) > 8) si[i].units[8] = '\0';
+ 	strncpy(p, si[i].units, strlen(si[i].units));
+     }
+diff --git a/convert/mit2wav.c b/convert/mit2wav.c
+index 4fc7431..901d6a7 100644
+--- a/convert/mit2wav.c
++++ b/convert/mit2wav.c
+@@ -140,6 +140,10 @@ main(int argc, char **argv)
+     static WFDB_Sample *x, *y;
+     static WFDB_Siginfo *s;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     /* Interpret the command line. */
+     pname = prog_name(argv[0]);
+     for (i = 1; i < argc; i++) {
+@@ -215,6 +219,13 @@ main(int argc, char **argv)
+     }
+     if ((nsig = isigopen(record, s, nsig)) <= 0)
+ 	exit(3);
++    if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0.) {
++	/* wfdb-x: no default frequency (except in legacy mode) */
++	(void)fprintf(stderr,
++		      "%s: sampling frequency of record %s is not specified\n",
++		      pname, record);
++	exit(3);
++    }
+ 
+     /* Check that the new record name is legal before proceeding.  Note that
+        this step creates a header file, which is overwritten after the
+diff --git a/convert/parsescp.c b/convert/parsescp.c
+index 1b46863..205d1c9 100644
+--- a/convert/parsescp.c
++++ b/convert/parsescp.c
+@@ -736,16 +736,30 @@ int write_wfdb_record()
+     }
+     sprintf(filename, "%s.dat", recname);
+ 
++    /* wfdb-x: the sampling frequency is the one given in the SCP file (the C
++       program always wrote 500 Hz, as legacy mode does); without one, no
++       record is written. */
++    if (!wfdbx_get_legacy()) {
++	if (sfreq <= 0.) {
++	    fprintf(stderr, "%s: sampling frequency not specified; record %s not "
++		    "written\n", pname, recname);
++	    return (0);
++	}
++	setsampfreq(sfreq);
++    }
+     if (newheader(recname) < 0)
+ 	return(0);
+ 
+-    setsampfreq(500.);	/* FIXME: we should calculate this! */
++    if (wfdbx_get_legacy())
++	setsampfreq(500.);	/* FIXME: we should calculate this! */
+     for (i = 0; i < 12; i++) {
+ 	s[i].fname = filename;
+ 	s[i].desc = leadname[i];
+ 	s[i].units = "mV";
+ 	s[i].fmt = 16;
+-	s[i].gain = 200;	/* FIXME: we should calculate this! */
++	s[i].gain = 200;	/* wfdb-x: exact, not assumed: the samples have
++				   been rescaled to units of 5000 nV (see
++				   gref and gres), i.e., 200 adu/mV */
+ 	s[i].adcres = 16;	/* FIXME: we should calculate this! */
+     }
+     if (osigfopen(s, 12) < 12)
+@@ -822,6 +836,10 @@ main(int argc, char **argv)
+     FILE *ofile, *vfile;
+     char *prog_name();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+ 
+     for (i = 1; i < argc; i++) {
+@@ -1954,10 +1972,12 @@ int Huffdecode(unsigned char *p, long len, int section)
+ 	       code in main() */
+ 	sfreq = 1.0e6/sampint;
+     }
+-    else {
++    else if (wfdbx_get_legacy()) {	/* wfdb-x: as in the C program */
+ 	printf("Error: sampling frequency not specified;  assuming 500 Hz\n");
+ 	sfreq = 500;
+     }
++    else	/* wfdb-x: the C program assumed 500 Hz */
++	printf("Error: sampling frequency not specified\n");
+     if (vflag) printf("  Encoding type: %d ", *(p+3));
+     switch (*(p+3)) {
+     case 0: if (vflag) printf("(amplitudes)\n"); enctype = 0; break;
+diff --git a/convert/rdedfann.c b/convert/rdedfann.c
+index 8af375f..27fad9c 100644
+--- a/convert/rdedfann.c
++++ b/convert/rdedfann.c
+@@ -48,6 +48,10 @@ main(int argc, char **argv)
+     WFDB_Siginfo *si;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+     for (i = 1; i < argc; i++) {
+ 	if (*argv[i] == '-') switch (*(argv[i]+1)) {
+diff --git a/convert/readid.c b/convert/readid.c
+index 425595a..d6c1840 100644
+--- a/convert/readid.c
++++ b/convert/readid.c
+@@ -30,6 +30,8 @@ _______________________________________________________________________________
+ #else
+ extern void exit();
+ #endif
++#include <wfdb/wfdb.h>	/* wfdb-x: for wfdbx_legacy_args */
++
+ 
+ g16(fp)
+ FILE *fp;
+@@ -49,6 +51,10 @@ char *argv[];
+     long dcount, acount;
+     static char buf[512], name[9];
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     if (argc < 3) {
+ 	(void)fprintf(stderr, "usage: %s data-block-size annot-block-size\n",
+ 		      argv[0]);
+diff --git a/convert/revise.c b/convert/revise.c
+index 12619f9..016977b 100644
+--- a/convert/revise.c
++++ b/convert/revise.c
+@@ -48,6 +48,10 @@ char *argv[];
+     char *record;
+     int nsig;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     if (argc < 2) {
+ 	(void)fprintf(stderr, "usage: %s record\n", argv[0]);
+ 	(void)fprintf(stderr,
+@@ -191,7 +195,8 @@ WFDB_Siginfo *siarray;
+ 
+ 	    /* Determine the ADC resolution. */
+ 	    siarray[s].adcres = (p = strtok((char *)NULL, sep)) ?
+-		                atoi(p) : WFDB_DEFRES;
++		                atoi(p) : (wfdbx_get_legacy() ? WFDB_DEFRES : 0);
++	    /* wfdb-x: C (and legacy mode) assumed WFDB_DEFRES */
+ 
+ 	    /* Determine the ADC zero. */
+ 	    siarray[s].adczero = (p = strtok((char *)NULL, sep)) ? atoi(p) : 0;
+diff --git a/convert/wav2mit.c b/convert/wav2mit.c
+index 6fdf1b5..49e1223 100644
+--- a/convert/wav2mit.c
++++ b/convert/wav2mit.c
+@@ -86,15 +86,32 @@ void help(void);
+ main(int argc, char **argv)
+ {
+     char buf[80], *ifname, *record = NULL;
+-    double sps, wgain;
++    char *Uunits = NULL;
++    double sps, Ggain = 0.;
++    int Gset = 0;
+     int bitspersample, bytespersecond, framelen, i, nsig, tag, wres;
+     long flen, len, wnsamp;
+     static WFDB_Siginfo *s;
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     /* Interpret the command line. */
+     pname = prog_name(argv[0]);
+     for (i = 1; i < argc; i++) {
+ 	if (*argv[i] == '-') switch (*(argv[i]+1)) {
++	  case 'G':	/* gain in adu per physical unit (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc || sscanf(argv[i], "%lf", &Ggain) != 1 ||
++		Ggain < 0.) {
++		(void)fprintf(stderr, "%s: gain (>= 0) must follow -G\n",
++			      pname);
++		exit(1);
++	    }
++	    Gset = 1;
++	    break;
+ 	  case 'h':	/* help requested */
+ 	    help();
+ 	    exit(1);
+@@ -122,7 +139,17 @@ main(int argc, char **argv)
+ 	    }
+ 	    record = argv[i];
+ 	    break;
++	  case 'U':	/* physical units (wfdb-x) */
++	    if (wfdbx_get_legacy())	/* not an option of the original */
++		goto unrecognized;
++	    if (++i >= argc) {
++		(void)fprintf(stderr, "%s: units must follow -U\n", pname);
++		exit(1);
++	    }
++	    Uunits = argv[i];
++	    break;
+ 	  default:
++	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
+ 	    (void)fprintf(stderr, "%s: unrecognized option %s\n", pname,
+ 			  argv[i]);
+ 	    exit(1);
+@@ -139,6 +166,19 @@ main(int argc, char **argv)
+ 	help();
+ 	exit(1);
+     }
++    /* wfdb-x: the gain and units must be given explicitly; the C program
++       wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, with no
++       units (millivolts).  (The sampling frequency and the resolution are
++       those given in the file.)  Legacy mode: as in the C program. */
++    if (!Gset && !wfdbx_get_legacy()) {
++	(void)fprintf(stderr, "%s: the gain must be specified (-G)\n", pname);
++	exit(1);
++    }
++    if (Ggain != 0. && Uunits == NULL && !wfdbx_get_legacy()) {
++	(void)fprintf(stderr, "%s: the units must be specified (-U)\n",
++		      pname);
++	exit(1);
++    }
+ 
+     /* If the record name was not specified, generate it from ifname. */
+     if (record == NULL) {
+@@ -198,11 +238,11 @@ main(int argc, char **argv)
+     bitspersample = in16();
+     if (bitspersample <= 8) {
+ 	wres = 8;
+-	wgain = 12.5;
++	if (wfdbx_get_legacy()) Ggain = 12.5;	/* wfdb-x: the C program's gain */
+     }
+     else if (bitspersample <= 16) {
+ 	wres = 16;
+-	wgain = 6400;
++	if (wfdbx_get_legacy()) Ggain = 6400;	/* wfdb-x: the C program's gain */
+     }
+     else {
+ 	fprintf(stderr, "%s: unsupported resolution (%d bits/sample) in %s\n",
+@@ -233,8 +273,8 @@ main(int argc, char **argv)
+     for (i = 0; i < nsig; i++) {
+ 	s[i].fname = ifname;
+ 	s[i].desc = NULL;
+-	s[i].units = NULL;
+-	s[i].gain = wgain;
++	s[i].units = Uunits;
++	s[i].gain = Ggain;
+ 	s[i].initval = 0;
+ 	s[i].group = 0;
+ 	s[i].fmt = (wres == 16) ? 16 : 80;
+@@ -304,6 +344,18 @@ char *prog_name(char *s)
+ }
+ 
+ static char *help_strings[] = {
++    "usage: %s -i FILE.wav -r RECORD [ OPTIONS ... ]\n",
++    "where FILE.wav is the name of the wav-format input signal file,",
++    "and OPTIONS may include:",
++    " -G GAIN    gain in adu per physical unit (required; 0: uncalibrated)",
++    " -h         print this usage summary",
++    " -r RECORD  create RECORD.hea (default: FILE.hea)",
++    " -U UNITS   physical units (required unless the gain is 0)",
++    NULL
++};
++
++/* wfdb-x: the help text of the original program, printed in legacy mode */
++static char *legacy_help_strings[] = {
+     "usage: %s -i FILE.wav -r RECORD [ OPTIONS ... ]\n",
+     "where FILE.wav is the name of the wav-format input signal file,",
+     "and OPTIONS may include:",
+@@ -315,8 +367,9 @@ static char *help_strings[] = {
+ void help()
+ {
+     int i;
++    char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;	/* wfdb-x */
+ 
+-    (void)fprintf(stderr, help_strings[0], pname);
+-    for (i = 1; help_strings[i] != NULL; i++)
+-	(void)fprintf(stderr, "%s\n", help_strings[i]);
++    (void)fprintf(stderr, hs[0], pname);
++    for (i = 1; hs[i] != NULL; i++)
++	(void)fprintf(stderr, "%s\n", hs[i]);
+ }
+diff --git a/convert/wfdb2mat.c b/convert/wfdb2mat.c
+index 263e0f4..3cdd374 100644
+--- a/convert/wfdb2mat.c
++++ b/convert/wfdb2mat.c
+@@ -126,6 +126,10 @@ char *argv[];
+     WFDB_Time from = 0L, maxl = 0L, t, to = 0L, lower, upper;
+     void help();
+ 
++    /* wfdb-x: --legacy as the first argument selects legacy mode (the
++       behavior of the original program; see lib/signal.c) */
++    (void)wfdbx_legacy_args(&argc, &argv);
++
+     pname = prog_name(argv[0]);
+     for (i = 1 ; i < argc; i++) {
+ 	if (*argv[i] == '-') switch (*(argv[i]+1)) {
+@@ -208,11 +212,22 @@ char *argv[];
+     SUALLOC(vi, nisig, sizeof(WFDB_Sample));
+     if ((nisig = isigopen(record, si, nisig)) <= 0)
+ 	exit(2);
+-    for (i = 0; i < nisig; i++)
+-	if (si[i].gain == 0.0) si[i].gain = WFDB_DEFGAIN;
++    /* wfdb-x: uncalibrated signals remain uncalibrated in the output (the C
++       program assumed 200 adu/mV), and the output header needs the sampling
++       frequency (the C program assumed 250 Hz).  Legacy mode: as in the C
++       program. */
++    if (wfdbx_get_legacy())
++	for (i = 0; i < nisig; i++)
++	    if (si[i].gain == 0.0) si[i].gain = WFDB_DEFGAIN;
+     if (highres)
+         setgvmode(WFDB_HIGHRES);
+     freq = sampfreq(NULL);
++    if (freq <= 0. && !wfdbx_get_legacy()) {
++	(void)fprintf(stderr,
++		      "%s: sampling frequency of record %s is not specified\n",
++		      pname, record);
++	exit(2);
++    }
+     if (from > 0L && (from = strtim(argv[from])) < 0L)
+ 	from = -from;
+     if (isigsettime(from) < 0)
+@@ -345,8 +360,10 @@ char *argv[];
+ 	so[i].baseline -= si[sig[i]].adczero;
+ 	/* handle possibly missing units strings */
+ 	if (so[i].units == NULL) {
+-	    /* in a .hea file, missing units can be assumed to be millivolts */
+-	    SSTRCPY(so[i].units, "mV");
++	    /* wfdb-x: missing units are not assumed to be millivolts (except in
++	       legacy mode: "in a .hea file, missing units can be assumed to
++	       be millivolts") */
++	    SSTRCPY(so[i].units, wfdbx_get_legacy() ? "mV" : "nd");
+ 	}
+ 	else if (strlen(so[i].units) == 0) {
+ 	    /* this can happen only in an EDF file; in this case, the signal
+diff --git a/lib/signal.c b/lib/signal.c
+index 901efc2..edf5fa8 100644
+--- a/lib/signal.c
++++ b/lib/signal.c
+@@ -185,6 +185,7 @@ void example(void)
+ #include "wfdblib.h"
+ 
+ #include <limits.h>
++#include <math.h>
+ #include <errno.h>
+ 
+ #ifdef iAPX286
+@@ -203,6 +204,55 @@ void example(void)
+ #define FLAC__StreamDecoder struct dummy
+ #endif
+ 
++/* wfdb-x: legacy mode.  By default, the library has no built-in signal
++   parameters (see docs/DIVERGENCES.md).  In legacy mode (wfdbx_set_legacy(1),
++   or --legacy as the first argument of an application, see
++   wfdbx_legacy_args), it behaves exactly as the original WFDB library 10.7.0,
++   with its built-in defaults: WFDB_DEFFREQ for a header without a sampling
++   frequency, an ADC resolution inferred from the format or WFDB_DEFRES,
++   1 sample per second in the time conversion functions, and WFDB_DEFGAIN
++   (and a baseline of 0 for invalid signal numbers) in the unit conversion
++   functions.  It exists for compatibility only. */
++static int legacy_mode = 0;
++
++/* wfdbx_set_legacy (a wfdb-x addition) turns legacy mode on (if on is
++   nonzero) or off, and returns the previous setting (1: on, 0: off). */
++FINT wfdbx_set_legacy(int on)
++{
++    int previous = legacy_mode;
++
++    legacy_mode = (on != 0);
++    return (previous);
++}
++
++/* wfdbx_get_legacy (a wfdb-x addition) returns 1 if legacy mode is on, 0
++   otherwise. */
++FINT wfdbx_get_legacy(void)
++{
++    return (legacy_mode);
++}
++
++/* wfdbx_legacy_args (a wfdb-x addition) is called by the applications at the
++   beginning of main, as wfdbx_legacy_args(&argc, &argv).  If the first
++   argument (argv[1]) is "--legacy", it removes it from the argument list (the
++   following arguments move up by one, argv[0] is unchanged, and argc is
++   decremented), turns legacy mode on, and returns 1; the application then
++   behaves exactly as the original one (options, outputs, messages, and exit
++   statuses).  Otherwise, it changes nothing and returns 0.  Only the first
++   argument is recognized. */
++FINT wfdbx_legacy_args(int *argc, char ***argv)
++{
++    char **v = *argv;
++
++    if (*argc < 2 || strcmp(v[1], "--legacy") != 0)
++	return (0);
++    v[1] = v[0];
++    *argv = v + 1;
++    (*argc)--;
++    (void)wfdbx_set_legacy(1);
++    return (1);
++}
++
+ /* Shared local data */
+ 
+ /* These variables are set by readheader, and contain information about the
+@@ -1075,7 +1125,10 @@ static int readheader(const char *record)
+ 	else
+ 	    ffreq = f;
+     }
+-    else if (ffreq == (WFDB_Frequency)0.)
++    /* wfdb-x: if the header does not specify the sampling frequency (and the
++       caller has not set one with setsampfreq), it remains unspecified (0);
++       the C library assumed WFDB_DEFFREQ (250 Hz), as legacy mode does. */
++    else if (legacy_mode && ffreq == (WFDB_Frequency)0.)
+ 	ffreq = WFDB_DEFFREQ;
+ 
+     /* Set the sampling rate to the frame rate for now.  This may be
+@@ -1290,12 +1343,12 @@ static int readheader(const char *record)
+ 	else
+ 	    hs->info.units = NULL;
+ 
+-	/* Determine the ADC resolution in bits.  If this number is
+-	   missing and cannot be inferred from the format, the default
+-	   value (from wfdb.h) is filled in. */
++	/* Determine the ADC resolution in bits.  wfdb-x: if this number is
++	   missing, it is unspecified (0); the C library inferred it from the
++	   format or assumed WFDB_DEFRES (12 bits), as legacy mode does. */
+ 	if (p = strtok((char *)NULL, sep))
+ 	    i = (unsigned)strtol(p, NULL, 10);
+-	else switch (hs->info.fmt) {
++	else if (legacy_mode) switch (hs->info.fmt) {
+ 	  case 80: i = 8; break;
+ 	  case 160: i = 16; break;
+ 	  case 212: i = 12; break;
+@@ -1303,6 +1356,8 @@ static int readheader(const char *record)
+ 	  case 311: i = 10; break;
+ 	  default: i = WFDB_DEFRES; break;
+ 	}
++	else
++	    i = 0;
+ 	hs->info.adcres = i;
+ 
+ 	/* Determine the ADC zero (assumed to be zero if missing). */
+@@ -3469,7 +3524,10 @@ FINT setifreq(WFDB_Frequency f)
+ 
+     if (g <= 0.0) {
+ 	ifreq = 0.0;
+-	wfdb_error("setifreq: no open input record\n");
++	if (nisig > 0 && !legacy_mode)	/* wfdb-x: the frequency is unspecified */
++	    wfdb_error("setifreq: sampling frequency is not specified\n");
++	else
++	    wfdb_error("setifreq: no open input record\n");
+ 	return (-1);
+     }
+     if (f > 0.0) {
+@@ -4325,13 +4383,42 @@ static char *ftimstr(WFDB_Time t, WFDB_Frequency f)
+     return (p);	
+ }
+ 
++/* wfdb-x: the time conversion functions need a sampling frequency; the C
++   library used 1 sample per second when none was specified.  Without one,
++   timstr and mstimstr report an error and return the time as a sample number
++   ("s" followed by the number, a valid strtim argument), and strtim reports
++   an error and returns 0 for time strings that need a frequency.  In legacy
++   mode, they use 1 sample per second, as the C library did. */
++static char nofreq_string[24];
++
++static char *nofreq_timstr(const char *fn, WFDB_Time t)
++{
++    wfdb_error("%s: sampling frequency is not specified\n", fn);
++    (void)sprintf(nofreq_string, "s%"WFDB_Pd_TIME, t < 0 ? -t : t);
++    return (nofreq_string);
++}
++
++/* wfdbx_time_needs_freq (a wfdb-x addition) returns 1 if strtim needs a
++   sampling frequency to convert the string, 0 otherwise. */
++FINT wfdbx_time_needs_freq(const char *string)
++{
++    while (*string==' ' || *string=='\t' || *string=='\n' || *string=='\r')
++	string++;
++    switch (*string) {
++      case 'e': case 'i': case 'o': case 's': return (0);
++      case 'c': return (cfreq > 0.);
++      default: return (1);
++    }
++}
++
+ FSTRING timstr(WFDB_Time t)
+ {
+     double f;
+ 
+     if (ifreq > 0.) f = ifreq;
+     else if (sfreq > 0.) f = sfreq;
+-    else f = 1.0;
++    else if (legacy_mode) f = 1.0;
++    else return (nofreq_timstr("timstr", t));
+ 
+     return ftimstr(t, f);
+ }
+@@ -4398,7 +4485,8 @@ FSTRING mstimstr(WFDB_Time t)
+ 
+     if (ifreq > 0.) f = ifreq;
+     else if (sfreq > 0.) f = sfreq;
+-    else f = 1.0;
++    else if (legacy_mode) f = 1.0;
++    else return (nofreq_timstr("mstimstr", t));
+ 
+     return fmstimstr(t, f);
+ }
+@@ -4475,7 +4563,11 @@ FSITIME strtim(const char *string)
+ 
+     if (ifreq > 0.) f = ifreq;
+     else if (sfreq > 0.) f = sfreq;
+-    else f = 1.0;
++    else if (!legacy_mode && wfdbx_time_needs_freq(string)) {
++	wfdb_error("strtim: sampling frequency is not specified\n");
++	return (0L);
++    }
++    else f = 1.0;	/* legacy mode; otherwise not used */
+ 
+     return fstrtim(string, f);
+ }
+@@ -4533,12 +4625,33 @@ FDATE strdat(const char *string)
+     return (date);
+ }
+ 
++/* wfdb-x: the unit conversion functions need the gain of the signal; the C
++   library assumed WFDB_DEFGAIN (200 adu per physical unit) for uncalibrated
++   signals (gain 0) and invalid signal numbers (with a baseline of 0), as
++   legacy mode does.  Otherwise, they report an error and return
++   WFDB_INVALID_SAMPLE (aduphys returns NaN). */
++static WFDB_Gain conversion_gain(const char *fn, WFDB_Signal s)
++{
++    if (legacy_mode) {
++	WFDB_Gain g = (s < nvsig) ? vsd[s]->info.gain : WFDB_DEFGAIN;
++
++	return ((g == 0.) ? WFDB_DEFGAIN : g);
++    }
++    if (s >= nvsig) {
++	wfdb_error("%s: invalid signal number %u\n", fn, s);
++	return (0.);
++    }
++    if (vsd[s]->info.gain == 0.)
++	wfdb_error("%s: signal %u is uncalibrated\n", fn, s);
++    return (vsd[s]->info.gain);
++}
++
+ FINT adumuv(WFDB_Signal s, WFDB_Sample a)
+ {
+     double x;
+-    WFDB_Gain g = (s < nvsig) ? vsd[s]->info.gain : WFDB_DEFGAIN;
++    WFDB_Gain g = conversion_gain("adumuv", s);
+ 
+-    if (g == 0.) g = WFDB_DEFGAIN;
++    if (g == 0.) return (WFDB_INVALID_SAMPLE);
+     x = a*1000./g;
+     if (x >= 0.0)
+ 	return ((int)(x + 0.5));
+@@ -4549,9 +4662,9 @@ FINT adumuv(WFDB_Signal s, WFDB_Sample a)
+ FSAMPLE muvadu(WFDB_Signal s, int v)
+ {
+     double x;
+-    WFDB_Gain g = (s < nvsig) ? vsd[s]->info.gain : WFDB_DEFGAIN;
++    WFDB_Gain g = conversion_gain("muvadu", s);
+ 
+-    if (g == 0.) g = WFDB_DEFGAIN;
++    if (g == 0.) return (WFDB_INVALID_SAMPLE);
+     x = g*v*0.001;
+     if (x >= 0.0)
+ 	return ((int)(x + 0.5));
+@@ -4562,34 +4675,20 @@ FSAMPLE muvadu(WFDB_Signal s, int v)
+ FDOUBLE aduphys(WFDB_Signal s, WFDB_Sample a)
+ {
+     double b;
+-    WFDB_Gain g;
++    WFDB_Gain g = conversion_gain("aduphys", s);
+ 
+-    if (s < nvsig) {
+-	b = vsd[s]->info.baseline;
+-	g = vsd[s]->info.gain;
+-	if (g == 0.) g = WFDB_DEFGAIN;
+-    }
+-    else {
+-	b = 0;
+-	g = WFDB_DEFGAIN;
+-    }
++    if (g == 0.) return (NAN);
++    b = (s < nvsig) ? vsd[s]->info.baseline : 0;	/* 0: legacy mode */
+     return ((a - b)/g);
+ }
+ 
+ FSAMPLE physadu(WFDB_Signal s, double v)
+ {
+     int b;
+-    WFDB_Gain g;
++    WFDB_Gain g = conversion_gain("physadu", s);
+ 
+-    if (s < nvsig) {
+-	b = vsd[s]->info.baseline;
+-	g = vsd[s]->info.gain;
+-	if (g == 0.) g = WFDB_DEFGAIN;
+-    }
+-    else {
+-	b = 0;
+-	g = WFDB_DEFGAIN;
+-    }
++    if (g == 0.) return (WFDB_INVALID_SAMPLE);
++    b = (s < nvsig) ? vsd[s]->info.baseline : 0;	/* 0: legacy mode */
+     v *= g;
+     if (v >= 0)
+ 	return ((int)(v + 0.5) + b);
+diff --git a/lib/wfdb.h0 b/lib/wfdb.h0
+index 271babb..75caa28 100644
+--- a/lib/wfdb.h0
++++ b/lib/wfdb.h0
+@@ -464,6 +464,10 @@ extern FINT wfdb_setannpos(int code, int newval);
+ extern FSTRING timstr(WFDB_Time t);
+ extern FSTRING mstimstr(WFDB_Time t);
+ extern FSITIME strtim(const char *time_string);
++extern FINT wfdbx_time_needs_freq(const char *time_string); /* wfdb-x */
++extern FINT wfdbx_set_legacy(int on);				/* wfdb-x */
++extern FINT wfdbx_get_legacy(void);				/* wfdb-x */
++extern FINT wfdbx_legacy_args(int *argc, char ***argv);		/* wfdb-x */
+ extern FSTRING datstr(WFDB_Date d);
+ extern FDATE strdat(const char *date_string);
+ extern FINT adumuv(WFDB_Signal s, WFDB_Sample a);
+@@ -538,7 +542,9 @@ extern FINT annopen(), isigopen(), osigopen(), wfdbinit(), findsig(), getspf(),
+     adumuv(), newheader(), setheader(), setmsheader(), getseginfo(),
+     wfdbputprolog(), setsampfreq(), setbasetime(), putinfo(), setinfo(),
+     setibsize(), setobsize(), calopen(), getcal(), putcal(), newcal(),
+-    wfdbgetskew(), sample_valid(), wfdb_me_fatal();
++    wfdbgetskew(), sample_valid(), wfdb_me_fatal(),
++    wfdbx_time_needs_freq(), wfdbx_set_legacy(), wfdbx_get_legacy(),
++    wfdbx_legacy_args();	/* wfdb-x */
+ extern FLONGINT wfdbgetstart();
+ extern FSAMPLE muvadu(), physadu(), sample();
+ extern FSTRING ecgstr(), annstr(), anndesc(), timstr(), mstimstr(),

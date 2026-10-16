@@ -1,0 +1,6 @@
+usage: md2a -o AHAFILE -r RECORD [ OPTIONS ... ]
+where AHAFILE is the name of the AHA-format output signal file,
+RECORD is the record name, and OPTIONS may include:
+ -h         print this usage summary
+ -n NEWREC  create a header file for the output signal file, so it
+             may be read as record NEWREC

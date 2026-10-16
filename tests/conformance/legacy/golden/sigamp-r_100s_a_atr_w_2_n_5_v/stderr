@@ -1,0 +1,2 @@
+sigamp: -a and -w options cannot be used together;
+  -w option is being ignored

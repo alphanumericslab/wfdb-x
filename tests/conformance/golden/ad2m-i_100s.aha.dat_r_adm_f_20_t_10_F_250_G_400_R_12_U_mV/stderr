@@ -1,0 +1,16 @@
+usage: ad2m -i AHAFILE [ OPTIONS ... ]
+where AHAFILE is the name of the AHA-format input signal file,
+and OPTIONS may include:
+ -c         process a compressed input file (default if AHAFILE ends
+             with .CMP or .cmp;  otherwise old AHA tape format assumed)
+ -f TIME    begin at specified TIME (default: 0, i.e., the beginning
+             of the input file)
+ -F FREQ    sampling frequency in Hz (required; AHA database: 250)
+ -G GAIN    gain in adu per physical unit (required; AHA database: 400)
+ -h         print this usage summary
+ -r RECORD  specify the name of the output RECORD (default: use the,            input file name, less path info and extension, as RECORD)
+ -R BITS    ADC resolution in bits (required; AHA database: 12)
+ -t TIME    stop at specified TIME (default: 35 minutes after the
+             starting time if RECORD=x2xx or x3xx, 3 hours if
+             RECORD=x0xx or x1xx, or the end of the input file)
+ -U UNITS   physical units (required unless the gain is 0; AHA: mV)

@@ -1,0 +1,2 @@
+usage: revise record
+ This program converts obsolete-format header files into new ones.

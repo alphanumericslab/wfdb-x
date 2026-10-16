@@ -1,0 +1,38 @@
+Record twog
+Starting time: not specified
+Length:     0:02.781 (1001 sample intervals)
+Sampling frequency: 360 Hz
+3 signals
+Group 0, Signal 0:
+ File: twog_a.dat
+ Description: A
+ Gain: 200 adu/mV
+ Initial value: 1020
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: 32102
+Group 1, Signal 1:
+ File: twog_b.dat
+ Description: B
+ Gain: 200 adu/mV
+ Initial value: 977
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: -2863
+Group 1, Signal 2:
+ File: twog_b.dat
+ Description: C
+ Gain: 200 adu/mV
+ Initial value: 316
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: -27441

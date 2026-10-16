@@ -1,0 +1,4 @@
+Checking input signals ... done
+getvec: unexpected EOF in signal 0
+getvec: unexpected EOF in signal 1
+getvec: unexpected EOF in signal 2

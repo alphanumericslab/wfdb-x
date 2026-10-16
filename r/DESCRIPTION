@@ -1,0 +1,31 @@
+Package: wfdbx
+Type: Package
+Title: Read and Write Physiologic Signal and Annotation Files (WFDB)
+Version: 1.0.0
+Authors@R: c(
+    person("George B.", "Moody", role = c("aut", "cph"),
+           comment = "original C library and tools (WFDB Software Package)"),
+    person("Benjamin", "Moody", role = "aut",
+           comment = "revisions of the original C library and tools, 2010-2022, including FLAC support"),
+    person("Edna S.", "Moody", role = c("aut", "cph"),
+           comment = "original C code of parsescp, with George B. Moody"),
+    person("T.", "Baker", role = "aut",
+           comment = "original C code of ecgcodes.h and rdann, with George B. Moody"),
+    person("Luca", "Citi", role = "ctb",
+           comment = "bug fix and -x option of the original rdedfann"),
+    person("Reza", "Sameni", role = c("aut", "cre", "cph"),
+           email = "reza.sameni@gmail.com",
+           comment = "the R implementation (wfdb-x)"))
+Description: The R implementation of wfdb-x, a reimplementation in pure R
+    of the WFDB Software Package 10.7.0 (the library and its command-line
+    tools) for the physiologic signal, annotation and header files used by
+    PhysioNet. It reads and writes the same files as the original C
+    implementation, and its tools produce byte-identical output.
+License: GPL (>= 2)
+URL: https://github.com/alphanumericslab/wfdb-x
+BugReports: https://github.com/alphanumericslab/wfdb-x/issues
+Depends: R (>= 4.1)
+Imports: tools
+Encoding: UTF-8
+ByteCompile: true
+NeedsCompilation: no

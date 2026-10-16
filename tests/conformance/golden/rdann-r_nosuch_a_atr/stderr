@@ -1,0 +1,2 @@
+init: can't open header for record nosuch
+rdann: sampling frequency of record nosuch is not specified (use -F)

@@ -1,0 +1,6 @@
+usage: time2sec [-r RECORD] TIME
+ where TIME (in hh:mm:ss format) is a time interval
+ to be converted into seconds.  Enclose TIME in
+ square brackets (e.g., [9:0:0]) to convert a time
+ of day to the elapsed time in seconds from the
+ beginning of the (optionally) specified RECORD.

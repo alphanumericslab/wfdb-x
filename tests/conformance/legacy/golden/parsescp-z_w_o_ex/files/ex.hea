@@ -1,0 +1,14 @@
+ex 12 500 5000     0:22
+ex.dat 16 200/mV 16 0 1 7500 0 I
+ex.dat 16 200/mV 16 0 -2 2966 0 II
+ex.dat 16 200/mV 16 0 -2 379 0 III
+ex.dat 16 200/mV 16 0 1 -2745 0 aVR
+ex.dat 16 200/mV 16 0 -2 4189 0 aVF
+ex.dat 16 200/mV 16 0 1 3612 0 aVL
+ex.dat 16 200/mV 16 0 12 19545 0 V1
+ex.dat 16 200/mV 16 0 19 24390 0 V2
+ex.dat 16 200/mV 16 0 14 -31407 0 V3
+ex.dat 16 200/mV 16 0 11 -16166 0 V4
+ex.dat 16 200/mV 16 0 11 -1479 0 V5
+ex.dat 16 200/mV 16 0 1 24051 0 V6
+#<age>: -1 <sex>: M

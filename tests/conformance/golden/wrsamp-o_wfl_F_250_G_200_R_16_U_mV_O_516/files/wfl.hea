@@ -1,0 +1,4 @@
+wfl 3 250 300
+wfl.dat 516 200/mV 16 0 0 -20686 0 col 0
+wfl.dat 516 200/mV 16 0 -100 -150 0 col 1
+wfl.dat 516 200/mV 16 0 0 6978 0 col 2

@@ -1,0 +1,7 @@
+usage: rdedfann -r RECORD [OPTIONS ...]
+where RECORD is the name of the input EDF+ record, and OPTIONS may include:
+ -F FREQ     set the sampling frequency to FREQ Hz
+
+ -h          print this usage summary
+ -v          print column headings
+ -x          print EDF+ annotation text in aux (default: print in anntyp)

@@ -1,0 +1,29 @@
+[package]
+name = "wfdbx"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.70"
+description = "wfdb-x: the WFDB Software Package (10.7.0) reimplemented in Rust, with byte-identical files and tool output"
+license = "LGPL-2.0-or-later AND GPL-2.0-or-later"
+readme = "README.md"
+repository = "https://github.com/alphanumericslab/wfdb-x"
+keywords = ["wfdb", "physionet", "ecg", "physiological-signals", "biosignals"]
+categories = ["science", "parser-implementations", "command-line-utilities"]
+autobins = true
+
+[lib]
+name = "wfdbx"
+path = "src/lib.rs"
+
+[dependencies]
+# None: the crate uses only the Rust standard library.
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+panic = "unwind"
+debug = false
+
+[profile.test]
+opt-level = 1

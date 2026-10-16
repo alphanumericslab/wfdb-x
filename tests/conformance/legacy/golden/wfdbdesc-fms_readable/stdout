@@ -1,0 +1,45 @@
+Record fms (a fixed-layout multi-segment record)
+----------------------------------------------
+The following data apply to the entire record:
+----------------------------------------------
+Starting time: [12:34:56.789 31/12/1999]
+Length:     0:12.004 (3001 sample intervals)
+Sampling frequency: 250 Hz
+3 signals
+----------------------------------------------
+The following data apply to the first segment:
+----------------------------------------------
+Segment length:     0:06.000 (1500 sample intervals)
+Group 0, Signal 0:
+ File: fmt16.dat
+ Description: sig0 fmt16
+ Gain: 100 adu/mV
+ Initial value: -7
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: -5
+ Checksum: 10465
+Group 0, Signal 1:
+ File: fmt16.dat
+ Description: sig1 fmt16
+ Gain: 150 adu/uV
+ Initial value: 32
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 1
+ Baseline: 5
+ Checksum: 14637
+Group 0, Signal 2:
+ File: fmt16.dat
+ Description: sig2 fmt16
+ Gain: 200 adu/mmHg
+ Initial value: -33
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 2
+ Baseline: 15
+ Checksum: -10315

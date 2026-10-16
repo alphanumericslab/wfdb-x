@@ -1,0 +1,6 @@
+fmt16_edfm 3 250/0.1 2500 12:34:56 31/12/1999
+fmt16_edfm.mat 16+192 100(-5)/mV 12 0 -7 10465 0 sig0 fmt16
+fmt16_edfm.mat 16+192 150(4)/uV 12 0 31 12137 0 sig1 fmt16
+fmt16_edfm.mat 16+192 200(13)/mmHg 12 0 -35 -15315 0 sig2 fmt16
+#Creator: wfdb2mat
+#Source: record fmt16.edf  Start: [12:34:56.000 31/12/1999]

@@ -1,0 +1,33 @@
+Record vlay (a variable-layout multi-segment record)
+
+Starting time: not specified
+Length:     0:12.804 (3201 sample intervals)
+Sampling frequency: 250 Hz
+3 signals
+Group 0, Signal 0:
+ File: [none]
+ Description: sig0 fmt16
+ Gain: 400 adu/mV
+ Initial value: 0
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: 10
+Group 0, Signal 1:
+ File: [none]
+ Description: sig1 fmt212
+ Gain: 400 adu/uV
+ Initial value: 0
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: 0
+Group 0, Signal 2:
+ File: [none]
+ Description: sig2 fmt16
+ Gain: 100 adu/mmHg
+ Initial value: 0
+ I/O: can be unbuffered
+ ADC resolution: 16 bits
+ ADC zero: 0
+ Baseline: 0

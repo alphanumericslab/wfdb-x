@@ -1,0 +1,5 @@
+xf 3 250/100 125 12:34:56.789 31/12/1999
+fmt16.dat 16 100/mV 12 0 69 12929 0 slow
+fmt16.dat 16 150(0)/uV 12 1 165 12138 0 medium
+fmt16.dat 16 200(0)/mmHg 12 2 -1314 27542 0 fast
+#Produced by xform from record mfreq, beginning at 0:0

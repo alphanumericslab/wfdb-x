@@ -1,0 +1,23 @@
+usage: rdsamp -r RECORD [OPTIONS ...]
+where RECORD is the name of the input record, and OPTIONS may include:
+ -c          use CSV (comma-separated value) output format
+ -f TIME     begin at specified time
+ -h          print this usage summary
+ -H          read multifrequency signals in high resolution mode
+ -l INTERVAL truncate output after the specified time interval (hh:mm:ss)
+ -p          print times and samples in physical units (default: raw units)
+ -P          same as -p, but with greater precision
+              -p and -P may be followed by a character to choose a time
+              format;  choices are:
+  -pd (or -Pd)  print time of day and date if known
+  -pe (or -Pe)  print elapsed time as <hours>:<minutes>:<seconds>
+  -ph (or -Ph)  print elapsed time in hours
+  -pm (or -Pm)  print elapsed time in minutes
+  -ps (or -Ps)  print elapsed time in seconds
+  -pS (or -PS)  print elapsed time in sample intervals
+ -s SIGNAL [SIGNAL ...]  print only the specified signal(s)
+ -S SIGNAL   search for a valid sample of the specified SIGNAL at or after
+		the time specified with -f, and begin printing then
+ -t TIME     stop at specified time
+ -v          print column headings
+ -X          output in WFDB-XML format

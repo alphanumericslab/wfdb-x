@@ -1,0 +1,5 @@
+snp 3 100 597
+snp.dat 16 200/mV 16 0 -2057 -19087 0 slow
+snp.dat 16 200/mV 16 0 1610 -31657 0 medium
+snp.dat 16 200/mV 16 0 -117 -30770 0 fast
+#Produced by snip from record mfreq, beginning at s3

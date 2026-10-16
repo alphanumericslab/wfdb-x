@@ -1,0 +1,25 @@
+usage: xform -i IREC [OPTIONS ...]
+where IREC is the name of the record to be converted, and OPTIONS may
+ include any of:
+ -a ANNOTATOR [ANNOTATOR ...]  copy annotations for the specified ANNOTATOR
+              from IREC;  two or more ANNOTATORs may follow -a
+ -c          clip output (default: wrap around if out-of-range)
+ -d          add dither to the input if changing sampling frequency or gain
+ -f TIME     begin at specified time
+ -h          print this usage summary
+ -H          open the input record in `high resolution' mode
+ -M          process multifrequency record without changing frequencies
+ -n NREC     create a header file, using record name NREC and signal
+              descriptions from IREC
+ -N NREC     as for -n, but copy signal descriptions from OREC
+ -o OREC     produce output signal file(s) as specified by the header file
+              for record OREC
+ -s SIGNAL [SIGNAL ...]  write only the specified signal(s)
+ -S SCRIPT   take answers to prompts from SCRIPT (a text file)
+ -t TIME     stop at specified time
+ -u          adjust annotation times if needed to make them unique
+Unless you use `-o' to specify an *existing* header that describes the
+desired signal files, you will be asked for output specifications.  Use
+`-n' to name the record to be created.  Use `-s' to select a subset of the
+input signals, or to re-order them in the output file;  arguments that
+follow `-s' are *input* signal numbers (0,1,2,...) or names.

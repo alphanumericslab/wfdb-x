@@ -1,0 +1,2 @@
+usage: wrann -r RECORD -a ANNOTATOR <TEXT-FILE
+TEXT-FILE should be in the format produced by `rdann'.

@@ -1,0 +1,14 @@
+warning (init):
+ record fmt16 duration differs from that of previously opened record
+Checking input signals ... done
+v[2] = 2576 (out of range)
+v[2] = -2518 (out of range)
+v[1] = -2059 (out of range)
+v[1] = 2139 (out of range)
+v[1] = -2066 (out of range)
+v[1] = 2250 (out of range)
+v[1] = -2179 (out of range)
+v[2] = 2785 (out of range)
+v[1] = -2218 (out of range)
+v[2] = 2907 (out of range)
+v[2] = -2976 (out of range)

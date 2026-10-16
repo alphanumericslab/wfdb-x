@@ -1,0 +1,5 @@
+nrm 2 360 10
+nrm.mat 16+192 200/nd 0 0 995 9957 0 record nr, signal 0
+nrm.mat 16+192 200/nd 0 0 1011 10104 0 record nr, signal 1
+#Creator: wfdb2mat
+#Source: record nr

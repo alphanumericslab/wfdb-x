@@ -1,0 +1,5 @@
+xf 3 100 0
+mfreq.dat 16 200/mV 16 0 138 0 0 slow
+mfreq.dat 16x2 200/mV 16 0 218 0 0 medium
+mfreq.dat 16x4 200/mV 16 0 219 0 0 fast
+#Produced by xform from record mfreq, beginning at 0:0

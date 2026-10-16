@@ -1,0 +1,25 @@
+Record nohdrlen
+Starting time: not specified
+Length:     1:26.400 (21600 sample intervals) [from signal file size]
+Sampling frequency: 250 Hz
+2 signals
+Group 0, Signal 0:
+ File: 100s.dat
+ Description: a
+ Gain: 200 adu/mV
+ Initial value: 995
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: 11 bits
+ ADC zero: 1024
+ Baseline: 1024
+Group 0, Signal 1:
+ File: 100s.dat
+ Description: b
+ Gain: 200 adu/mV
+ Initial value: 1011
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: 11 bits
+ ADC zero: 1024
+ Baseline: 1024

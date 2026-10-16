@@ -1,0 +1,27 @@
+Record flacmf
+Starting time: not specified
+Length:     0:21.605 (4321 sample intervals)
+Sampling frequency: 200 Hz
+2 signals
+Group 0, Signal 0:
+ File: flacmf.dat
+ Description: fa
+ Gain: 200 adu/mV
+ Initial value: -300
+ Storage format: 516 (2 samples per frame)
+ I/O: can be unbuffered
+ ADC resolution: 16 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: -4492
+Group 0, Signal 1:
+ File: flacmf.dat
+ Description: fb
+ Gain: 200 adu/mV
+ Initial value: 1700
+ Storage format: 516 (2 samples per frame)
+ I/O: can be unbuffered
+ ADC resolution: 16 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: -7866

@@ -1,0 +1,3 @@
+warning (init):
+ record fmt16 duration differs from that of previously opened record
+xform: 'to' time must be later than 'from' time

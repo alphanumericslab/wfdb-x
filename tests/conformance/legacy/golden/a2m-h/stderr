@@ -1,0 +1,17 @@
+usage: a2m -i AHAFILE [ OPTIONS ... ]
+where AHAFILE is the name of the AHA-format input annotation file,
+and OPTIONS may include:
+ -a ANNOTATOR  specify the output annotator name (default: 'atr')
+ -h            print this usage summary
+ -r RECORD     specify the name of the output RECORD (default: use the
+                input file name, less path info and extension, as RECORD)
+ -s TIME       shift annotations by TIME
+                (defaults: 0 for TYPE 0,
+                      5:0 for TYPE 1, (or TYPE 3 if RECORD=x2xx or x3xx)
+                   2:30:0 for TYPE 2, (or TYPE 3 if RECORD=x0xx or x1xx)
+ -t TYPE       specify type of file to be converted:
+                0 for files produced by WFDB applications in AHA format,
+                1 for short-format tape files,
+                2 for long-format tape files, or
+                3 for compressed files from AHA DB CD-ROMs or diskettes
+                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)

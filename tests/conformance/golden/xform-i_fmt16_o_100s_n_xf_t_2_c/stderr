@@ -1,0 +1,4 @@
+warning (init):
+ record 100s duration differs from that of previously opened record
+Checking input signals ... done
+xform: can't write output signals

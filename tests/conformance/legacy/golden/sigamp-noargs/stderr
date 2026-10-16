@@ -1,0 +1,23 @@
+usage: sigamp -r RECORD [OPTIONS ...]
+where OPTIONS may include any of:
+ -a ANN      specify annotator, measure amplitudes near QRS annotations
+ -d DT1 DT2  set measurement window relative to QRS annotations
+              defaults: DT1 = 0.05 (seconds before annotation);
+              DT2 = 0.05 (seconds after annotation)
+ -f TIME     begin at specified time
+ -h          print this usage summary
+ -H          read multifrequency signals in high resolution mode
+ -n NMAX     make up to NMAX measurements per signal (default: NMAX = 300)
+ -p          print results in physical units (default: ADC units)
+              -p may be followed by a character to choose a time format:
+  -pd         print time of day and date if known
+  -pe         print elapsed time as <hours>:<minutes>:<seconds>
+  -ph         print elapsed time in hours
+  -pm         print elapsed time in minutes
+  -ps         print elapsed time in seconds (default)
+  -pS         print elapsed time in sample intervals
+ -q          quick mode: print individual measurements only
+ -t TIME     stop at specified time
+ -v          verbose mode: print individual measurements and trimmed means
+ -w DTW      set RMS amplitude measurement window
+              default: DTW = 1 (second)

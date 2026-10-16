@@ -1,0 +1,7 @@
+xf 2 250/360 2500 12:35:06.789 31/12/1999
+fmt16.dat 16 100(512)/mV 12 0 -40 -14571 0 MLII
+fmt16.dat 16 150(768)/uV 12 1 -39 31805 0 V5
+# 69 M 1085 1629 x1
+# Aldomet, Inderal
+#Produced by xform from record 100, beginning at 0:0
+#Produced by xform from record 100s, beginning at 10

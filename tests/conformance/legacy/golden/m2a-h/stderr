@@ -1,0 +1,7 @@
+usage: m2a -r RECORD -a MIT-ANNOTATOR AHA-ANNOTATOR [ OPTIONS ... ]
+where RECORD is the record name, MIT-ANNOTATOR is the annotator name
+for the input annotation file, AHA-ANNOTATOR is the annotator name
+for the output (AHA format) annotation file, and OPTIONS may include:
+ -h        print this usage summary
+ -s TIME   shift annotation times backwards by the specified TIME,
+            and convert them to milliseconds

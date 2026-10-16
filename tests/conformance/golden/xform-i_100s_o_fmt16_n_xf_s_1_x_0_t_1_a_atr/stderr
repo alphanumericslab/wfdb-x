@@ -1,0 +1,4 @@
+xform: warning: record 100s doesn't have a signal 'x'
+warning (init):
+ record fmt16 duration differs from that of previously opened record
+Checking input signals ... done

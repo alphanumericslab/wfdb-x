@@ -1,0 +1,25 @@
+Record nf
+Starting time: not specified
+Length: 21600 sample intervals [from signal file size]
+Sampling frequency: not specified
+2 signals
+Group 0, Signal 0:
+ File: 100s.dat
+ Description: MLII
+ Gain: 200 adu/nd
+ Initial value: 995
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: 11 bits
+ ADC zero: 1024
+ Baseline: 1024
+Group 0, Signal 1:
+ File: 100s.dat
+ Description: V5
+ Gain: 200 adu/nd
+ Initial value: 1011
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: 11 bits
+ ADC zero: 1024
+ Baseline: 1024

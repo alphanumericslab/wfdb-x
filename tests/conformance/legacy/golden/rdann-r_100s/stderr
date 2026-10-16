@@ -1,0 +1,13 @@
+usage: rdann -r RECORD -a ANNOTATOR [OPTIONS ...]
+where RECORD and ANNOTATOR specify the input, and OPTIONS may include:
+ -c CHAN             print annotations with specified CHAN only
+ -e                  * show annotation times as elapsed times
+ -f TIME             start at specified TIME
+ -h                  print this usage summary
+ -n NUM              print annotations with specified NUM only
+ -p TYPE [TYPE ...]  print annotations of specified TYPEs only
+ -s SUBTYPE          print annotations with specified SUBTYPE only
+ -t TIME             stop at specified TIME
+ -v                  print column headings
+ -x                  * use alternate time format (seconds, minutes, hours)
+* Only one of -e and -x can be used.

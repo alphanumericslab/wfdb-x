@@ -1,0 +1,6 @@
+mfreqm 3 400/100 2400
+mfreqm.mat 16+192 200/mV 16 0 138 -1940 0 slow
+mfreqm.mat 16+192 200/mV 16 0 218 10820 0 medium
+mfreqm.mat 16+192 200/mV 16 0 219 -15996 0 fast
+#Creator: wfdb2mat
+#Source: record mfreq

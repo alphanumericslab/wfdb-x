@@ -1,0 +1,6 @@
+skewm 3 250 1500 12:34:56.789 31/12/1999
+skewm.mat 16+192 100(-5)/mV 12 0 -7 10422 0 sig0 skewed
+skewm.mat 16+192 150(4)/uV 12 0 20 16129 0 sig1 skewed
+skewm.mat 16+192 200(13)/mmHg 12 0 -32770 3688 0 sig2 skewed
+#Creator: wfdb2mat
+#Source: record skew  Start: [12:34:56.789 31/12/1999]

@@ -1,0 +1,18 @@
+usage: rr2ann -r RECORD -a ANNOTATOR [OPTIONS ...] <TEXT-FILE
+where RECORD and ANNOTATOR specify the output, and OPTIONS may include:
+ -F FREQ     use FREQ as the sampling frequency (effective only if no               header file exists;  default: 250)
+ -h          print this usage summary
+ -T          TEXT-FILE contains times of occurrence, not RR intervals
+ -x N        multiply input by N to obtain RR in sample intervals
+               (default: N = 1)
+ -w          copy annotation types from second column of input
+TEXT-FILE should contain a column of RR intervals (or times of occurrence,
+if the -T option is specified), in units of sample intervals (unless the
+-x option is used to specify a conversion factor).   The first token on
+each line is taken as an RR interval, and (if the -w option is specified)
+the second token is taken as an annotation mnemonic (N, V, etc.);  anything
+else on the same line is ignored, as are empty lines, spaces and tabs at
+the beginning of a line non-numeric tokens and anything following them on
+the same line, negative intervals, and zero intervals.  The output consists
+of a binary annotation file (RECORD.ANNOTATOR), and (if it does not exist
+already) a text header file (RECORD.hea).

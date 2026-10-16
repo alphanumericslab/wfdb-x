@@ -1,0 +1,1 @@
+Choose a name for the output record (up to 50 characters): Number of signals to be written (1-2) [2]: Output sampling frequency (Hz per signal, > 0) [360]: xform: the output sampling frequency must be > 0

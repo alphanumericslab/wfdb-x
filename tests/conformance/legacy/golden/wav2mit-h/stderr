@@ -1,0 +1,5 @@
+usage: wav2mit -i FILE.wav -r RECORD [ OPTIONS ... ]
+where FILE.wav is the name of the wav-format input signal file,
+and OPTIONS may include:
+ -h         print this usage summary
+ -r RECORD  create RECORD.hea (default: FILE.hea)

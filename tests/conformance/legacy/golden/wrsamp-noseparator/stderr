@@ -1,0 +1,2 @@
+wrsamp: no record separators in input
+Try specifying a different separator after the -r option.

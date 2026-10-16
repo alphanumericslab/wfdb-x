@@ -1,0 +1,38 @@
+Record mfreq
+Starting time: not specified
+Length:     0:06.000 (600 sample intervals)
+Sampling frequency: 100 Hz
+3 signals
+Group 0, Signal 0:
+ File: mfreq.dat
+ Description: slow
+ Gain: 200 adu/mV
+ Initial value: 138
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 16 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: -16869
+Group 0, Signal 1:
+ File: mfreq.dat
+ Description: medium
+ Gain: 200 adu/mV
+ Initial value: 218
+ Storage format: 16 (2 samples per frame)
+ I/O: can be unbuffered
+ ADC resolution: 16 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: 5410
+Group 0, Signal 2:
+ File: mfreq.dat
+ Description: fast
+ Gain: 200 adu/mV
+ Initial value: 219
+ Storage format: 16 (4 samples per frame)
+ I/O: can be unbuffered
+ ADC resolution: 16 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: -15996

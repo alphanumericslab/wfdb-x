@@ -1,0 +1,53 @@
+#ECG/1.0 description
+Record: ex (22 November 2002 09:10:00)
+Age: -1
+Sex: M
+Referring Dr: <referring physician missing>
+Comments: <comments missing>
+Cart ID: 51
+Department: <missing>
+Department #: <missing>
+Institution: <missing>
+Institution #: <missing>
+Bandwidth: 0-0 Hz
+Filtering: 60 Hz notch 50 Hz notch Artifact filter Baseline filter <undefined>
+
+RR interval: -1
+P onset: -1
+P end: -1
+QRS onset: -1
+QRS end: -1
+T end: -1
+P axis: 999
+QRS axis: 999
+T axis: 999
+Parameter  Units
+P duration    ms
+PR interval   ms
+QRS duration  ms
+QT interval   ms
+Q duration    ms
+R duration    ms
+S duration    ms
+R' duration   ms
+S' duration   ms
+Q amplitude   uV
+R amplitude   uV
+S amplitude   uV
+J amplitude   uV
+P+ amplitude  uV
+P- amplitude  uV
+T+ amplitude  uV
+T- amplitude  uV
+ST slope    uV/s
+P morphology  --
+T morphology  --
+Isoelec (I)   ms
+Isoelec (K)   ms
+Intrins defl  ms
+Quality       --
+ST (J+20ms)   uV
+ST (J+60ms)   uV
+ST (J+80ms)   uV
+ST (J+RRm/16) uV
+ST (J+RRm/8)  uV

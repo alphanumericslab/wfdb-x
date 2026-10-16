@@ -1,0 +1,27 @@
+Record 100s.edf
+Starting time: [04:39:57.000 15/10/2026]
+Length:     1:10.000 (7 sample intervals)
+Sampling frequency: 0.1 Hz
+2 signals
+Group 0, Signal 0:
+ File: 100s.edf
+ Description: MLII
+ Gain: 200 adu/mV
+ Initial value: 1024
+ Storage format: 16 (3600 samples per frame)
+ I/O: can be unbuffered
+ ADC resolution: 11 bits
+ ADC zero: 1024
+ Baseline: 1024
+ Checksum: 0
+Group 0, Signal 1:
+ File: 100s.edf
+ Description: V5
+ Gain: 200 adu/mV
+ Initial value: 1024
+ Storage format: 16 (3600 samples per frame)
+ I/O: can be unbuffered
+ ADC resolution: 11 bits
+ ADC zero: 1024
+ Baseline: 1024
+ Checksum: 0

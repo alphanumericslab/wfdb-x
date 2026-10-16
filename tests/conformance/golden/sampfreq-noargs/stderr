@@ -1,0 +1,7 @@
+usage: sampfreq [OPTION] RECORD
+ where RECORD is the name of the input record
+ and OPTION may be either of:
+  -a   list all signals and their sampling frequencies
+  -h   show this help
+  -H   show the maximum sampling frequency of a multifrequency record)
+ If no OPTION is used, show the base sampling frequency (frame rate).

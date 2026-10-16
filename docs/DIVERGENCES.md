@@ -1,0 +1,198 @@
+# Deliberate divergences from the C implementation
+
+wfdb-x reproduces the WFDB Software Package 10.7.0 exactly, with the one
+exception described here: **it has no built-in signal parameters**. It is
+deliberate, it is the same in all six implementations, and it is tested like
+everything else: the reference results of the conformance suite come from
+the C package with
+[`tests/reference/divergences.patch`](../tests/reference/divergences.patch)
+applied (see [`tests/reference/build_reference.sh`](../tests/reference/build_reference.sh)).
+The patch is the precise definition of the divergence; this page explains it.
+
+This design decision was made by Reza Sameni in October 2026, for the
+reasons below. Each source file affected by it says so in its header.
+
+## No built-in sampling frequency, gain, ADC resolution or units
+
+### Why
+
+The C package falls back on built-in values for four parameters of a
+signal whenever a record or the user does not give them:
+
+| Parameter | Built-in value in C | Where it came from |
+|---|---|---|
+| sampling frequency | 250 Hz (`WFDB_DEFFREQ`), 500 Hz in `parsescp` | the AHA database (250 Hz) |
+| gain | 200 adu/mV (`WFDB_DEFGAIN`); 400 adu/mV for AHA files; 12.5 or 6400 adu/mV for WAV files | the MIT-BIH and AHA digitizers |
+| ADC resolution | 12 bits (`WFDB_DEFRES`), or the storage width of the format | the 12-bit digitizers of these databases |
+| units | millivolts | ECG |
+
+These values describe the equipment with which the first PhysioNet
+databases were recorded, in the 1970s and 1980s, and they made sense for
+a package built around those databases. They do not describe modern
+recordings: today's acquisition systems sample at anything from a few hertz
+to tens of kilohertz, with gains, resolutions (often 16 or 24 bits) and
+units that depend on the device and on the signal, which is often not an
+ECG at all.
+
+A silent default is worse than an error. Every time, duration, interval,
+resampled signal and physical value computed from a wrong default is wrong,
+the error propagates to every file and result derived from it, and nothing
+in the output says that a value was assumed. wfdb-x therefore never assumes
+any of these four parameters: it uses the values given in the record, or
+values given explicitly by the user, and reports an error when an operation
+needs a value that is not available. Where an output must still show a
+missing unit, it shows `nd` ("not defined", a notation the C package
+already used for empty units) rather than `mV`.
+
+The only exception is `parsescp`, whose internal processing is defined for
+its own output: it writes a gain of 200 adu/mV because it rescales the SCP
+samples to units of 5 µV, so that value is exact, not assumed.
+
+### Reproducing the results of the original package
+
+To obtain the results of the original WFDB tools, give the values they
+assumed — explicitly. Nothing is defaulted internally.
+
+| Tool | Values to give |
+|---|---|
+| `wrsamp` (writing a record, `-o`) | `-F 250 -G 200 -U mV`, and `-R` with the storage width of the output format (`-R 12` for format 212, `-R 16` for 16, 61, 160 and 516, `-R 8` for 8, 80 and 508, `-R 10` for 310 and 311, `-R 24` for 24 and 524, `-R 32` for 32) |
+| `wav2mit` | `-G 12.5 -U mV` for 8-bit files, `-G 6400 -U mV` for 16-bit files (the frequency and resolution are those in the WAV file) |
+| `ad2m` | `-F 250 -G 400 -R 12 -U mV` (the AHA database) |
+| `ahaecg2mit` | `-F 250 -G 400 -R 12 -U mV` (the AHA database) |
+| `a2m`, `rr2ann`, `rdann`, `ann2rr`, `sortann`, `m2a`, for a record without a header (or without a frequency in its header) | `-F 250` |
+| `xform` (interactive) | the ADC resolution that C offered: the storage width of the output format, or 12 bits for 16-bit formats |
+| library | `setsampfreq(250)` before opening a record whose header gives no frequency |
+
+The output then contains the same samples, times and values as the
+original. One difference remains by construction: a header written with
+`-U mV` says `200/mV` where the C tools wrote `200` and left millivolts to be
+assumed.
+
+### What changes, in detail
+
+**Library**
+
+* A header that does not give a sampling frequency leaves it unspecified:
+  `sampfreq` returns 0 (C: 250), unless the caller has set one with
+  `setsampfreq` before opening the record (as in C).
+* A header that does not give an ADC resolution leaves it unspecified (0);
+  C inferred it from the format or assumed 12 bits. Missing units remain
+  unspecified (`NULL`), as in C, but are never taken to be millivolts.
+* Time conversions that need the frequency fail when it is unspecified:
+  `strtim` reports "sampling frequency is not specified" and returns 0 for
+  time strings other than sample numbers (`s...`), `e`, `i` and `o`;
+  `timstr` and `mstimstr` report the same error and return the time as a
+  sample number (`s` followed by the number). (C: 1 sample per second.)
+  The new function `wfdbx_time_needs_freq(string)` tells whether `strtim`
+  needs the frequency for a given string.
+* `setifreq` fails if the input frequency is unspecified.
+* `aduphys`, `physadu`, `adumuv` and `muvadu` fail for an uncalibrated
+  signal (gain 0) or an invalid signal number: they report the error and
+  return NaN (`aduphys`) or `WFDB_INVALID_SAMPLE` (the others). (C: gain
+  200, and baseline 0 for invalid signal numbers.)
+* The constants `WFDB_DEFFREQ`, `WFDB_DEFGAIN` and `WFDB_DEFRES` remain
+  defined, for compatibility, but the library does not use them.
+
+**Tools.** A tool that writes these parameters into a record requires them;
+a tool that needs a parameter missing from its input stops with an error
+only when the requested operation needs it:
+
+| Tool | Behavior |
+|---|---|
+| `wrsamp` | `-F`, `-G` and the new `-R BITS` are required when a record is written (`-o`), and the new `-U UNITS` for calibrated signals unless the input gives the units; `-G 0` declares the signals uncalibrated. `-G`, `-R` and `-U` take one value per signal (the last applies to the rest) |
+| `wav2mit` | new `-G GAIN` (required) and `-U UNITS` (required unless the gain is 0) |
+| `ad2m`, `ahaecg2mit` | new `-F FREQ`, `-G GAIN`, `-R BITS` and `-U UNITS`, all required (`-U` unless the gain is 0); `ahaecg2mit` locates the short-format part of a long-format file from `-F` |
+| `a2m`, `rr2ann`, `rdann`, `ann2rr`, `sortann`, `m2a` | `-F FREQ` (new except in `rr2ann`), used if the record has no header or the header has no frequency, and required then when times are converted (always for `a2m` and `rdann`; for time arguments and time output formats in `ann2rr` and `sortann`; for `-s` in `m2a`) |
+| `a2m` | converts annotation times given in milliseconds (AHA file types 1 to 3) at the record's sampling frequency; C assumed 4 ms per sample (250 Hz) whatever the record's frequency |
+| `rdsamp` | needs the frequency for time arguments, time columns (`-p` without `-pS`, or with `-v`) and XML output (`-X`), and the gain of each selected signal for physical units (`-p`); unspecified units are shown as `nd` |
+| `sigamp` | needs the frequency (its measurement windows are in seconds), and the gains for `-p` |
+| `snip`, `wfdb2mat`, `mit2wav`, `wfdbtime` | need the frequency |
+| `xform` | needs the frequency; refuses an output frequency of 0, rescaling an uncalibrated signal to a given gain, and rescaling by ADC resolution when a resolution is unspecified; offers an ADC resolution only if it comes from the input (or the previous output signal) and suits the output format, and stops if none is given |
+| `mit2edf` | needs the frequency, and the gain and ADC resolution of every signal (an EDF file stores physical and digital ranges); unspecified units are written as `nd` |
+| `wfdbdesc` | prints "not specified" for an unspecified frequency (with lengths in sample intervals only) and ADC resolution, "uncalibrated" for gain 0 (C: "uncalibrated; assume 200"), and `adu/nd` for unspecified units |
+| `wfdb2mat` | uncalibrated signals stay uncalibrated in the output header (C: 200 adu/mV); unspecified units are written as `nd` (C: `mV`) |
+| `revise` | a missing ADC resolution stays unspecified (C: 12 bits) |
+| `sampfreq` | prints 0 for a record whose header does not give a frequency (C: 250) |
+| `parsescp` | writes the sampling frequency given in the SCP file (C always wrote 500 Hz) and does not write a record if the file gives none (C assumed 500 Hz) |
+
+The messages are "`TOOL: sampling frequency of record RECORD is not
+specified`" (followed by "` (use -F)`" for the tools that have that option),
+"`TOOL: signal N of record RECORD is uncalibrated`", "`TOOL: ADC resolution
+of signal N of record RECORD is not specified`", and "`TOOL: the ... must be
+specified (-X)`" for a missing required option.
+
+**High-level API** (`read_record`, `read_annotations`, `write_record`, in
+every language):
+
+* `write_record` requires the sampling frequency (> 0), the gains, the ADC
+  resolutions, and the units of the calibrated signals; there are no
+  defaults. A gain of 0 declares a signal uncalibrated, which is allowed
+  only for samples given in ADC units.
+* `read_record` reports an unspecified frequency as 0 and fails for time
+  strings that need it; with physical units, it fails if a selected signal
+  is uncalibrated. Unspecified ADC resolutions are reported as 0 and
+  unspecified units as missing.
+* `read_annotations` takes an optional sampling frequency, used (like the
+  `-F` option of the tools) when the record has no header or its header
+  does not give one; without one, its result reports a frequency of 0, and
+  time strings that need the frequency fail.
+
+### What does not change
+
+* Values defined by a data format, not by an assumption about the signal:
+  the record lengths and time offsets of the AHA database formats (35
+  minutes, 3 hours, 5:00 and 2:30:00), and `md2a`'s default length.
+* Values read from the input: the sampling frequency and resolution of a
+  WAV file, and the parameters of an EDF file.
+* Analysis settings that are documented options, such as the measurement
+  windows of `sigamp`.
+
+## Legacy mode
+
+For compatibility, the C reference (with
+[`divergences.patch`](../tests/reference/divergences.patch)) can also behave
+exactly as the original package, on request; the default is the behavior
+described above.
+
+* **Tools.** `--legacy` as the *first* argument of any of the tools
+  (`rdsamp --legacy -r 100s -t 10`, `rdann --legacy -r 100s -a atr`, ...) is
+  removed before the options are parsed, and the tool then behaves exactly
+  as the original one: same options (the options added by wfdb-x, such as
+  `-F` in `rdann` or `-R` in `wrsamp`, are unrecognized), outputs, messages,
+  help texts and exit statuses. `--legacy` anywhere else is not recognized.
+* **Library.** `wfdbx_set_legacy(1)` turns legacy mode on and
+  `wfdbx_set_legacy(0)` off (each returns the previous setting), and
+  `wfdbx_get_legacy()` returns the current one; `wfdbx_legacy_args(&argc,
+  &argv)` is the function the tools call to recognize and remove `--legacy`.
+  In legacy mode, every library divergence listed above behaves as in the
+  original: a header without a frequency means 250 Hz, a missing ADC
+  resolution is inferred from the format or taken as 12 bits, the time
+  conversions use 1 sample per second when no frequency is known, `setifreq`
+  reports "no open input record", and the unit conversions assume a gain of
+  200 (and a baseline of 0 for invalid signal numbers).
+* **High-level API** (an addition of wfdb-x, not part of the C package).
+  `read_record`, `read_header`, `read_annotations`, `write_record` and the
+  related functions of each language take a legacy option. They behave as
+  wfdb-x's high-level API did before the redesign when the option is set
+  or when the library is in legacy mode (`wfdbx_set_legacy(1)`). With the
+  option, the library's legacy mode is on during the call, and the previous
+  setting is restored afterwards. In that mode, `write_record` uses a gain
+  of 200 and units are optional. Its default ADC resolution is the storage
+  width of the format (8 bits for formats 80 and 508, 10 for 310 and 311,
+  12 for 212, 24 for 24 and 524, 32 for 32), and 16 bits for every other
+  format. That differs from `wrsamp --legacy` only for format 8, which
+  gets 12 bits there, as in the original `wrsamp`.
+
+Legacy mode reproduces the original package exactly, and it is tested
+against its results: the legacy suite of the conformance tests
+([`tests/conformance/legacy`](../tests/conformance/legacy), 838 cases, run
+with `harness.py check --legacy`) runs the original package's cases with
+`--legacy` and compares them with results produced by the unmodified C
+package, and the library's legacy values are checked in
+[`tests/reference/api_expect.c`](../tests/reference/api_expect.c).
+
+It is kept for compatibility only. The values it assumes are exactly the
+silent defaults this project removed, so results produced with it carry the
+same risks: any time, interval, resampled signal or physical value computed
+from an assumed frequency, gain, resolution or unit is wrong if the
+assumption is, and nothing in the output says so.

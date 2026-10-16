@@ -1,0 +1,12 @@
+Checking input signals ...sigmap_init: loss of precision in signal 2 in segment fmt16
+ done
+v[0] = -32629 (out of range)
+v[0] = -32661 (out of range)
+v[0] = -32682 (out of range)
+v[0] = -32690 (out of range)
+v[0] = -32698 (out of range)
+v[0] = -32731 (out of range)
+v[0] = -32747 (out of range)
+v[0] = -32755 (out of range)
+v[0] = -32758 (out of range)
+v[0] = -32760 (out of range)

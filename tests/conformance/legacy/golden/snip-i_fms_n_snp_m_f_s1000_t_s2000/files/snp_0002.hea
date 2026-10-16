@@ -1,0 +1,5 @@
+snp_0002 3 250 500 12:34:56.789 31/12/1999
+snp_0002.dat 16 100(-5)/mV 12 0 -17 -14941 0 sig0 fmt212
+snp_0002.dat 16 150(5)/uV 12 1 14 24292 0 sig1 fmt212
+snp_0002.dat 16 200(15)/mmHg 12 2 3 -5538 0 sig2 fmt212
+#Produced by snip from record fms, beginning at s1000

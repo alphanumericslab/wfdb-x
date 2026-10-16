@@ -1,0 +1,11 @@
+
+WARNING (mit2edf): EDF+ requires the subject's gender, birthdate, and name, as
+ well as additional information about the recording that is not usually
+ available.  This information is not saved in the output file even if
+ available.  EDF+ also requires the use of standard names for signals and
+ for physical units;  these requirements are not enforced by this program.
+ To make the output file fully EDF+ compliant, its header must be edited
+ manually.
+
+WARNING:  The output file does not include EDF annotations, which are
+ required for EDF+.

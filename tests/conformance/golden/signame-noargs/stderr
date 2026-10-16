@@ -1,0 +1,5 @@
+usage: signame -r RECORD [OPTIONS ...]
+where RECORD is the name of the input record, and OPTIONS may include:
+ -h          print this usage summary
+ -s SIGNAL [SIGNAL ...]  print signal name(s) for the specified signal(s)
+If no -s option is given, the names of all signals in the record are output.

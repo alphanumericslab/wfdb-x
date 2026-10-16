@@ -1,0 +1,31 @@
+EDF version number: '0'
+Patient ID: 'X X X X'
+Recording ID: 'Startdate 02-MAR-2002 X X X'
+Recording date: '02.03.02'
+Recording time: '13.24.35'
+Number of bytes in header record: '768'
+Free space: 'EDF+C'
+Number of data records: '2'
+Duration of each data record in seconds: '1'
+Number of signals: '2'
+Signal 0 label: 'EEG Fpz-Cz'
+Signal 1 label: 'EDF Annotations'
+Signal 0 transducer type: 'AgAgCl electrode'
+Signal 0 physical dimension: 'uV'
+Signal 1 physical dimension: ''
+Signal 0 physical minimum: '-500'
+Signal 1 physical minimum: '-1'
+Signal 0 physical maximum: '500'
+Signal 1 physical maximum: '1'
+Signal 0 digital minimum: '-2048'
+Signal 1 digital minimum: '-32768'
+Signal 0 digital maximum: '2047'
+Signal 1 digital maximum: '32767'
+Signal 0 filtering information: 'HP:0.1Hz'
+Signal 0 number of samples per record: '100'
+Signal 1 number of samples per record: '30'
+
+OUTPUT:
+Base sampling frequency: 10 Hz
+ Signal 0 samples per second: 100 (10 samples per frame)
+ Signal 1 samples per second: 30 (3 samples per frame)

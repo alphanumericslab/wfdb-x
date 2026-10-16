@@ -1,0 +1,5 @@
+warning (init):
+ record flac16 duration differs from that of previously opened record
+Checking input signals ... done
+v[0] = 32767 (out of range)
+v[0] = -32767 (out of range)

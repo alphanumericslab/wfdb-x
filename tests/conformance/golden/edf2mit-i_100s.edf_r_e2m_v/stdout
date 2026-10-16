@@ -1,0 +1,32 @@
+EDF version number: '0'
+Patient ID: '100s'
+Recording ID: 'Startdate not recorded'
+Recording date: '15.10.26'
+Recording time: '04.39.57'
+Number of bytes in header record: '768'
+Number of data records: '7'
+Duration of each data record in seconds: '10'
+Number of signals: '2'
+Signal 0 label: 'MLII'
+Signal 1 label: 'V5'
+Signal 0 transducer type: 'transducer type not recorded'
+Signal 1 transducer type: 'transducer type not recorded'
+Signal 0 physical dimension: 'mV'
+Signal 1 physical dimension: 'mV'
+Signal 0 physical minimum: '-5.12'
+Signal 1 physical minimum: '-5.12'
+Signal 0 physical maximum: '5.115'
+Signal 1 physical maximum: '5.115'
+Signal 0 digital minimum: '0'
+Signal 1 digital minimum: '0'
+Signal 0 digital maximum: '2047'
+Signal 1 digital maximum: '2047'
+Signal 0 filtering information: 'prefiltering not recorded'
+Signal 1 filtering information: 'prefiltering not recorded'
+Signal 0 number of samples per record: '3600'
+Signal 1 number of samples per record: '3600'
+
+OUTPUT:
+Base sampling frequency: 360 Hz
+ Signal 0 samples per second: 360 (1 sample per frame)
+ Signal 1 samples per second: 360 (1 sample per frame)

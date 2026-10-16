@@ -1,0 +1,9 @@
+usage: sortann -r RECORD -a ANNOTATOR [OPTIONS ...]
+where RECORD and ANNOTATOR specify the input, and OPTIONS may include:
+ -f TIME    start at specified TIME
+ -F FREQ    sampling frequency, if the record header does not specify one
+ -h         print this usage summary
+ -o OUTANN  write output as annotator OUTANN (required with -f or -t)
+ -t TIME    stop at specified TIME
+The sorted output replaces the input if -o is omitted, the input is in
+the current directory, and the input is not already sorted.

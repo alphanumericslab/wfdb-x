@@ -1,0 +1,25 @@
+usage: ann2rr -r RECORD -a ANNOTATOR [OPTIONS ...]
+where RECORD and ANNOTATOR specify the input, and OPTIONS may include:
+ -A      print all intervals between annotations (default: print only RR
+          intervals; overrides -c, -p)
+ -c      print intervals between consecutive valid annotations only
+ -f TIME start at specified TIME
+ -h      print this usage summary
+ -i FMT  print intervals using format FMT (see below for values of FMT)
+ -p TYPE [TYPE ...]  print intervals ending with annotations of specified
+                      TYPEs only (use mnemonics such as N or V for TYPE)
+ -P TYPE [TYPE ...]  print intervals beginning with specified types only
+ -t TIME stop at specified TIME
+ -v FMT  print times of ends of intervals using format FMT (see below)
+ -V FMT  print times of beginnings of intervals using format FMT (see below)
+ -w      print annotations that end intervals
+ -W      print annotations that begin intervals
+By default, the output contains the RR intervals only, unless one or more
+of -v, -V, -w, or -W are used.  Intervals and times are printed in units of
+sample intervals, unless a format is specified using -i, -v, or -V.
+Formats can be 'h' (hours), 'm' (minutes), 's' (seconds), 't' (hh:mm:ss);
+when used with -v or -V, format 'T' yields dates and times if available,
+or the format can be omitted to obtain times in sample intervals.  Formats
+'h', 'm', and 's' may be followed by a number between 0 and 15, specifying
+the number of decimal places (default: 3).  For example, to obtain intervals
+--More--[A[2Kin seconds with 8 decimal places, use '-i s8'.

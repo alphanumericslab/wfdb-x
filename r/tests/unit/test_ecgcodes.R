@@ -1,0 +1,36 @@
+# Tests of the annotation codes and mapping functions (ecgcodes.R).
+#
+# Part of wfdb-x, Reza Sameni, Oct 2026.
+# GNU General Public License, version 2 or later (see LICENSE).
+
+expect_equal(NORMAL, 1, "NORMAL")
+expect_equal(PQ, WFON, "PQ")
+expect_equal(ecgcodes()$RONT, 41, "ecgcodes()")
+expect_equal(length(ecgcodes()), 50L, "ecgcodes() size")
+expect_equal(isann(c(0, 1, 49, 50)), c(FALSE, TRUE, TRUE, FALSE), "isann")
+expect_equal(isqrs(c(NORMAL, NOTE, PVC, 0, 60)), c(1, 0, 1, 0, 0), "isqrs")
+expect_equal(map1(c(APC, PVC, LEARN, NOTE)), c(NORMAL, PVC, LEARN, NOTQRS), "map1")
+expect_equal(map2(c(APC, ABERR, NPC, RONT)), c(SVPB, SVPB, SVPB, PVC), "map2")
+expect_equal(annpos(c(NORMAL, NOISE, RHYTHM, 60)), c(APSTD, APHIGH, APLOW, APUNDEF), "annpos")
+expect_equal(ammap(utf8ToInt("NVFQ[]")), c(NORMAL, PVC, FUSION, UNKNOWN, VFON, VFOFF), "ammap")
+expect_equal(ammap(c(68, 94)), c(0, 0), "ammap out of range")
+expect_equal(intToUtf8(mamap(c(NORMAL, PVC, NOTE, 0), 0), multiple = TRUE), c("N", "V", "O", "O"), "mamap")
+expect_equal(mamap(c(NOISE, NOISE, UNKNOWN), c(-1, 0, 0)), c(85, 79, 81), "mamap U")
+# the setters store a C char (KNOWN_C_BEHAVIORS.md)
+expect_equal(wfdb_setisqrs(2, 300), 44, "setisqrs char")
+expect_equal(isqrs(2), 44, "setisqrs stored")
+expect_equal(setmap1(NORMAL, 200), -56, "setmap1 signed char")
+expect_equal(setmap2(0, 5), NOTQRS, "setmap2 invalid code")
+expect_equal(setannpos(NORMAL, APLOW), APLOW, "setannpos")
+ecgmap_reset()
+expect_equal(isqrs(2), 1, "ecgmap_reset")
+# structures
+a <- annotation(time = 5, anntyp = NORMAL)
+expect_equal(names(a), c("time", "anntyp", "subtyp", "chan", "num", "aux"), "annotation fields")
+check(is.null(a$aux) && "aux" %in% names(a), "annotation aux NULL")
+s <- siginfo()
+expect_equal(length(s), 14L, "siginfo fields")
+expect_equal(s$spf, 1, "siginfo spf")
+expect_equal(anninfo("atr", WFDB_WRITE), list(name = "atr", stat = 1), "anninfo")
+expect_equal(names(calinfo()), c("low", "high", "scale", "sigtype", "units", "caltype"), "calinfo")
+expect_equal(seginfo(), list(recname = "", nsamp = 0, samp0 = 0), "seginfo")

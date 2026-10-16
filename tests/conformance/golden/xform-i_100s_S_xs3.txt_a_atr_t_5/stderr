@@ -1,0 +1,17 @@
+Choose a name for the output record (up to 50 characters): Number of signals to be written (1-2) [2]: Output sampling frequency (Hz per signal, > 0) [360]: Specify the name of the directory in which the output
+ signals should be written, or press <return> to write
+ them in the current directory: Any of these output formats may be used:
+    8   8-bit first differences
+   16   16-bit two's complement amplitudes (LSB first)
+   61   16-bit two's complement amplitudes (MSB first)
+   80   8-bit offset binary amplitudes
+  160   16-bit offset binary amplitudes
+  212   2 12-bit amplitudes bit-packed in 3 bytes
+  310   3 10-bit amplitudes bit-packed in 15 LS bits of each of 2 words
+  311   3 10-bit amplitudes bit-packed in 30 LS bits of 4 bytes
+   24   24-bit two's complement amplitudes (LSB first)
+   32   32-bit two's complement amplitudes (LSB first)
+  508  8-bit amplitudes with FLAC compression
+  516  16-bit amplitudes with FLAC compression
+  524  24-bit amplitudes with FLAC compression
+Choose an output format from the list above [212]:  Signal 0 gain (adu/nd) [200]:  Signal 0 ADC resolution in bits (8-32) [11]:  Signal 0 ADC zero level (adu) [1024]: Checking input signals ... done

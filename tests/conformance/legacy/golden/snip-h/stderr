@@ -1,0 +1,15 @@
+usage: snip -i IREC -n NREC [OPTIONS ...]
+where IREC is the name of the record to be converted, NREC is the name to
+be given to the record to be generated, and OPTIONS may include any of:
+ -a ANNOTATOR [ANNOTATOR ...]  copy annotations for the specified ANNOTATOR
+              from IREC;  two or more ANNOTATORs may follow -a
+ -f TIME     begin at specified time
+ -h          print this usage summary
+ -l DURATION snip only DURATION (hh:mm:ss or sNNNN; overrides -t)
+ -m          preserve segments of multsegment input, if possible
+ -O FORMAT   save output in the specified FORMAT (default: use best fit
+              to ADC resolution)
+ -s          suppress output of info strings in header
+ -t TIME     stop at specified time
+To change the sampling frequency, zero level, or gain, to select a
+subset of signals, or to re-order signals, use `xform'.

@@ -1,0 +1,6 @@
+Converting record fmt16 to out.edf (EDF mode)
+ Header block size: 1024 bytes
+ Data block size: 10 seconds (2500 frames or 15000 bytes)
+ Recording length: 0:06 (1 data blocks, 2500 frames, 15000 bytes)
+ Total length of file to be written: 16024 bytes
+

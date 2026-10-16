@@ -1,0 +1,14 @@
+ecg 12 500 5000     0:22
+ecg.dat 16 200/mV 16 0 -1 -2500 0 I
+ecg.dat 16 200/mV 16 0 -3 -2034 0 II
+ecg.dat 16 200/mV 16 0 -2 379 0 III
+ecg.dat 16 200/mV 16 0 2 2255 0 aVR
+ecg.dat 16 200/mV 16 0 -3 -811 0 aVF
+ecg.dat 16 200/mV 16 0 0 -1388 0 aVL
+ecg.dat 16 200/mV 16 0 21 -991 0 V1
+ecg.dat 16 200/mV 16 0 27 -1146 0 V2
+ecg.dat 16 200/mV 16 0 20 -1407 0 V3
+ecg.dat 16 200/mV 16 0 14 -1166 0 V4
+ecg.dat 16 200/mV 16 0 11 -1479 0 V5
+ecg.dat 16 200/mV 16 0 -4 -949 0 V6
+#<age>: -1 <sex>: M

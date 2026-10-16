@@ -1,0 +1,25 @@
+Record nr
+Starting time: not specified
+Length:     1:00.000 (21600 sample intervals)
+Sampling frequency: 360 Hz
+2 signals
+Group 0, Signal 0:
+ File: 100s.dat
+ Description: record nr, signal 0
+ Gain: 200 adu/nd
+ Initial value: 0
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: not specified
+ ADC zero: 0
+ Baseline: 0
+Group 0, Signal 1:
+ File: 100s.dat
+ Description: record nr, signal 1
+ Gain: 200 adu/nd
+ Initial value: 0
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: not specified
+ ADC zero: 0
+ Baseline: 0

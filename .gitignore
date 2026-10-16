@@ -1,0 +1,16 @@
+**/.DS_Store
+
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+/cpp/build/
+/rust/target/
+*.o
+*.so
+*.mex*
+cpp/build*/
+rust/target/
+.claude/worktrees/

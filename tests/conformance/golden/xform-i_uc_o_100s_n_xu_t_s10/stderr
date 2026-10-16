@@ -1,0 +1,2 @@
+Checking input signals ... done
+xform: signal 0 of record uc is uncalibrated; it cannot be rescaled to the specified gain

@@ -1,0 +1,4 @@
+snp 2 200 2000
+snp.dat 516 200/mV 16 0 200 -21960 0 fa
+snp.dat 516 200/mV 16 0 2200 -11549 0 fb
+#Produced by snip from record flacmf, beginning at 0

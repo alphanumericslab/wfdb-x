@@ -1,0 +1,54 @@
+# Exports of the wfdbx package, by module.  Internal functions (C emulation,
+# file objects, tools) are not exported; use wfdbx:::name to reach them.
+
+
+# wfdbio.R
+export(getwfdb, setwfdb, resetwfdb, wfdbquiet, wfdbverbose, wfdberror,
+       wfdbfile, wfdbmemerr, wfdb_me_fatal, wfdbversion, wfdbldflags, wfdbcflags,
+       wfdbdefwfdb, wfdbdefwfdbcal)
+export(WFDB_READ, WFDB_WRITE, WFDB_AHA_READ, WFDB_AHA_WRITE, WFDB_APPEND)
+
+# ecgcodes.R
+export(NOTQRS, NORMAL, LBBB, RBBB, ABERR, PVC, FUSION, NPC, APC, SVPB, VESC,
+       NESC, PACE, UNKNOWN, NOISE, ARFCT, STCH, TCH, SYSTOLE, DIASTOLE, NOTE,
+       MEASURE, PWAVE, BBB, PACESP, TWAVE, RHYTHM, UWAVE, LEARN, FLWAV, VFON,
+       VFOFF, AESC, SVESC, LINK, NAPC, PFUS, WFON, PQ, WFOFF, JPT, RONT,
+       ACMAX, APUNDEF, APSTD, APHIGH, APLOW, APATT, APAHIGH, APALOW, ecgcodes)
+export(isann, isqrs, setisqrs, map1, setmap1, map2, setmap2, ammap, mamap,
+       annpos, setannpos, wfdb_isann, wfdb_isqrs, wfdb_setisqrs, wfdb_map1,
+       wfdb_setmap1, wfdb_map2, wfdb_setmap2, wfdb_ammap, wfdb_mamap,
+       wfdb_annpos, wfdb_setannpos)
+export(siginfo, anninfo, annotation, calinfo, seginfo)
+
+# signal.R, wfdbinit.R, highlevel.R
+export(isigopen, osigopen, osigfopen, findsig, getspf, setgvmode, getgvmode,
+       setifreq, getifreq, getvec, getframe, getframes, putvec, putframes,
+       isigsettime, isgsettime, tnextvec, setibsize, setobsize, newheader,
+       setheader, setmsheader, getseginfo, wfdbgetskew, wfdbsetiskew,
+       wfdbsetskew, wfdbgetstart, wfdbsetstart, wfdbputprolog, setinfo,
+       putinfo, getinfo, wfdb_freeinfo, sampfreq, setsampfreq, setbasetime, timstr, mstimstr,
+       getcfreq, setcfreq, getbasecount, setbasecount, strtim, datstr, strdat,
+       wfdbx_time_needs_freq, wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
+       adumuv, muvadu, aduphys, physadu, wfdb_sample, sample_valid)
+export(WFDB_INVALID_SAMPLE, WFDB_DEFFREQ, WFDB_DEFGAIN, WFDB_DEFRES,
+       WFDB_LOWRES, WFDB_HIGHRES, WFDB_GVPAD, WFDB_MAXUSL, WFDB_MAXDSL,
+       WFDB_FMT_LIST)
+export(wfdbinit, wfdbquit, wfdbflush)
+export(read_record, read_header, write_record)
+
+# annot.R
+export(annopen, getann, ungetann, putann, iannsettime, iannclose, oannclose,
+       setafreq, getafreq, setiafreq, getiafreq, getiaorigfreq, aux_string,
+       annstr, strann, setannstr, anndesc, setanndesc, ecgstr, strecg,
+       setecgstr)
+
+# calib.R
+export(calopen, getcal, putcal, newcal, flushcal, WFDB_AC_COUPLED,
+       WFDB_DC_COUPLED, WFDB_CAL_SQUARE, WFDB_CAL_SINE, WFDB_CAL_SAWTOOTH,
+       WFDB_CAL_UNDEF)
+
+# highlevel_annot.R
+export(read_annotations, write_annotations)
+
+# cli.R
+export(wfdbx_tool, wfdbx_tools)

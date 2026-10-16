@@ -1,0 +1,19 @@
+init: illegal character 42 in record name
+
+usage: edf2mit [OPTIONS ...]
+where OPTIONS may include:
+ -b          input is in big-endian byte order (default: little-endian)
+ -h          print this usage summary
+ -i EDFILE   read the specified European Data Format file
+ -r RECORD   create the specified RECORD (default: input file name without
+              suffix)
+ -s SIGNAL [SIGNAL ...]  copy only the specified signal(s) (use signal
+              numbers, beginning with zero;  default: copy all signals)
+ -v          print debugging output
+This program reads an EDF file and creates MIT-format signal and header
+files containing the same data.
+
+Run edf2mit again, specifying a valid name for the output record,
+using the -r option as described above.
+
+  Valid record names may include letters, digits, and underscores only.

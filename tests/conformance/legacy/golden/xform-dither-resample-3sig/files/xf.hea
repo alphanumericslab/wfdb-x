@@ -1,0 +1,5 @@
+xf 3 125/250 212 12:34:56.789 31/12/1999
+xf.dat 8 100(-5)/mV 16 0 4 -6963 0 sig0 fmt16
+xf.dat 8 1000(33)/uV 24 1 349 -4143 0 sig1 fmt16
+xf.dat 8 100(7)/mmHg 24 100 76 16287 0 sig2 fmt16
+#Produced by xform from record prolog, beginning at 0:0

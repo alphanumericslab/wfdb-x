@@ -1,0 +1,43 @@
+usage: wrsamp [OPTIONS ...] [COLUMN ...]
+where COLUMN selects a field to be copied (leftmost field is column 0),
+and OPTIONS may include:
+ -c          check that each input line contains the same number of fields
+ -d          add dither to the input
+ -f N        start copying with line N (default: 0)
+ -F FREQ     specify frequency to be written to header file (required
+              with -o)
+ -G GAIN     specify gain(s) to be written to header file (required with
+              -o; 0 means uncalibrated)
+ -h          print this usage summary
+ -i FILE     read input from FILE (default: standard input)
+ -o RECORD   save output in RECORD.dat, and generate a header file for
+              RECORD (default: write to standard output in format 16, do
+              not generate a header file)
+ -O FORMAT   save output in the specified FORMAT (default: 16)
+ -r RSEP     interpret RSEP as the input line separator (default: linefeed)
+ -R BITS     specify ADC resolution(s) in bits (required with -o)
+ -s FSEP     interpret any character in FSEP as an input field separator
+             (default: space, tab, carriage-return, or comma)  
+ -t N        stop copying at line N (default: end of input file)
+ -U UNITS    specify units (required with -o for calibrated signals, unless
+              the input gives them)
+ -x SCALE    multiply inputs by SCALE factor(s) (default: 1)
+--More--[A[2K -z          don't copy column 0 unless explicitly specified
+
+The input is a text file with a sample of each signal on each line. Samples
+can be separated by tabs, spaces, commas, or any combination of these.
+Consecutive separators are equivalent to single separators.
+
+To specify different GAIN or SCALE values for each output signal, provide
+a quoted list of values, e.g., -G "100 50" defines the gain for signal 0
+as 100, and the gain for signal 1 (and any additional signals) as 50.
+
+If the first input line contains any alphabetic characters, it is assumed
+to contain column headings, which are copied as signal descriptions into
+RECORD.hea.  If the second input line also contains alphabetic characters,
+it is assumed to specify the physical units for each column, which are
+copied as units strings into RECORD.hea.  The first line containing samples
+is line 0.
+
+If no COLUMN is specified, all fields are copied in order; column 0 can be
+omitted in this case by using the '-z' option.

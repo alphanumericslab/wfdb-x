@@ -1,0 +1,2 @@
+sigamp: -d option must be used with -a;
+  -d option is being ignored

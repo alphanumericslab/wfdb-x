@@ -1,0 +1,9 @@
+usage: ahaecg2mit [-s] RECORD.XXX [RECORD.XXX]...
+ where RECORD.XXX is the name of the AHA DVD input file to be converted
+ ('RECORD' is one of the 4-digit AHA DB record names, and 'XXX' may be either
+ 'ecg' or 'txt', depending on the version of the AHA DVD.)
+ Output files are RECORD.hea (text), RECORD.atr (binary), RECORD.dat (binary).
+ Two or more input files may be converted in a single run.
+ Use -s to make short-format (35-minute) records from long-format (2.5 hour)
+ input files.  When using -s, the second digit in the output record name is
+ incremented by 2.

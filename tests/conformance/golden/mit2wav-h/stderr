@@ -1,0 +1,6 @@
+usage: mit2wav -o FILE.wav -r RECORD [ OPTIONS ... ]
+where FILE.wav is the name of the wav-format output signal file,
+RECORD is the record name, and OPTIONS may include:
+ -h         print this usage summary
+ -n NEWREC  create a header file for the output signal file, so it
+             may be read as record NEWREC

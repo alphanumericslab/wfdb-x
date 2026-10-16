@@ -1,0 +1,6 @@
+# Files of the source distribution besides the package (wfdb-x)
+include LICENSE LICENSE.LIB README.md
+recursive-include tests *.py
+recursive-include src/wfdbx/sample_data *
+recursive-include src/wfdbx/examples *.ipynb
+global-exclude __pycache__ *.py[cod]
