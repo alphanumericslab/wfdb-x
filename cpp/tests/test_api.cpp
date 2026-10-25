@@ -11,6 +11,7 @@
 #include <wfdbx/record.hpp>
 #include <wfdbx/wfdb.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -647,4 +648,165 @@ WFDBX_TEST(mnemonics)
     CHECK_EQ(*ecgstr(99), "[99]");
     CHECK(isqrs(NORMAL) && !isqrs(NOTE));
     CHECK(map1(APC) == NORMAL && map2(APC) == SVPB);
+}
+
+// ---------------------------------------------------------------------------
+// The output directory of the writers (wfdb-x: WriteOptions::dir and the dir
+// parameter of write_annotations())
+
+namespace {
+
+std::vector<std::string> list_dir(const std::string &d)
+{
+    std::vector<std::string> v;
+    for (const auto &e : fs::directory_iterator(d))
+        v.push_back(e.path().filename().string());
+    std::sort(v.begin(), v.end());
+    return v;
+}
+
+bool throws_with(void (*fn)(), const std::string &what)
+{
+    try {
+        fn();
+    } catch (const Error &e) {
+        return std::string(e.what()).find(what) != std::string::npos;
+    }
+    return false;
+}
+
+const std::vector<WFDB_Sample> dir_samples = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                                              10, 11, 12, 13, 14, 15, 16, 17,
+                                              18, 19};
+
+WriteOptions dir_options(const std::string &dir)
+{
+    WriteOptions w;
+    w.gains = {200};
+    w.adcres = {12};
+    w.units = {"mV"};
+    w.dir = dir;
+    return w;
+}
+
+} // namespace
+
+WFDBX_TEST(write_record_dir)
+{
+    DataDir d;
+    fs::create_directory("out");
+    auto prev = wfdbx_set_output_dir("elsewhere");
+    write_record("rec", dir_samples, 2, 360, dir_options("out"));
+    CHECK(wfdbx_get_output_dir() == "elsewhere");     // restored
+    wfdbx_set_output_dir(prev ? prev->c_str() : nullptr);
+    CHECK(list_dir("out") == (std::vector<std::string>{"rec.dat", "rec.hea"}));
+    CHECK(!fs::exists("rec.hea") && !fs::exists("rec.dat"));
+    std::string hea = slurp("out/rec.hea");
+    CHECK(hea.rfind("rec 2 360 10\r\nrec.dat 16 ", 0) == 0);
+    setwfdb("out");
+    CHECK(read_record("rec").samples == dir_samples);
+    setwfdb(".");
+    CHECK(read_record("out/rec").samples == dir_samples);
+    CHECK(!wfdbx_get_output_dir());
+    wfdbquiet();
+    CHECK(throws_with([] {
+        write_record("rec", dir_samples, 2, 360, dir_options("nosuch"));
+    }, "directory nosuch does not exist"));
+    CHECK(throws_with([] {
+        write_record("sub/rec", dir_samples, 2, 360, dir_options("out"));
+    }, "record name must not contain a directory when dir is given"));
+    // restored after an error, too
+    CHECK(throws_with([] {
+        WriteOptions w = dir_options("out");
+        w.gains.clear();
+        write_record("rec", dir_samples, 2, 360, w);
+    }, "gains must be specified"));
+    wfdbverbose();
+    CHECK(!wfdbx_get_output_dir());
+    CHECK(!fs::exists("nosuch"));
+    // the same in legacy mode
+    WriteOptions w;
+    w.dir = "out";
+    w.legacy = true;
+    write_record("leg", dir_samples, 2, 360, w);
+    CHECK(slurp("out/leg.hea").rfind("leg 2 360 10\r\nleg.dat 16 ", 0) == 0);
+    CHECK(!wfdbx_get_output_dir());
+}
+
+WFDBX_TEST(write_annotations_dir)
+{
+    DataDir d;
+    setafreq(0.0);  // (it survives wfdbquit)
+    fs::create_directory("out");
+    Annotations a;
+    a.samples = {30, 10, 20};
+    a.symbols = {"N", "V", "N"};
+    wfdbquiet();
+    write_annotations("rec", "atr", a, 0, "out");
+    wfdbverbose();
+    CHECK(list_dir("out") == std::vector<std::string>{"rec.atr"});
+    CHECK(!wfdbx_get_output_dir());
+    Annotations r = read_annotations("out/rec", "atr");    // sorted in place
+    CHECK(r.samples == (std::vector<WFDB_Time>{10, 20, 30}));
+    CHECK(r.symbols[0] == "V");
+    CHECK(throws_with([] {
+        write_annotations("rec", "atr", Annotations(), 0, "nosuch");
+    }, "directory nosuch does not exist"));
+    CHECK(throws_with([] {
+        write_annotations("x/rec", "atr", Annotations(), 0, "out");
+    }, "record name must not contain a directory when dir is given"));
+    CHECK(!wfdbx_get_output_dir());
+}
+
+// The dir checks come before any other validation (wfdb-x), with exactly
+// these messages.
+WFDBX_TEST(dir_checks_first)
+{
+    DataDir d;
+    fs::create_directory("out");
+    auto message = [](void (*fn)()) -> std::string {
+        try {
+            fn();
+        } catch (const Error &e) {
+            return e.what();
+        }
+        return "";
+    };
+    const std::string in_dir =
+        "record name must not contain a directory when dir is given";
+    const std::string missing = "directory nosuch does not exist";
+    // (no gains, resolutions or units, and fs 0)
+    CHECK_EQ(message([] {
+        WriteOptions o;
+        o.dir = "out";
+        write_record("sub/rec", {0, 1}, 2, 0, o);
+    }), in_dir);
+    CHECK_EQ(message([] {
+        WriteOptions o;
+        o.dir = "nosuch";
+        write_record("rec", {0, 1}, 2, 0, o);
+    }), missing);
+    CHECK_EQ(message([] {
+        WriteOptions o;
+        o.dir = "out";
+        write_record_physical("sub/rec", {0, 1}, 2, 0, o);
+    }), in_dir);
+    CHECK_EQ(message([] {
+        WriteOptions o;
+        o.dir = "nosuch";
+        write_record_physical("rec", {0, 1}, 2, 0, o);
+    }), missing);
+    CHECK_EQ(message([] {
+        WriteOptions o;
+        o.dir = "out";
+        write_record("rec", {0, 1}, 2, 360, o);
+    }), "write_record: gains must be specified");
+    CHECK_EQ(message([] {
+        write_annotations("x/rec", "atr", Annotations(), 0, "out");
+    }), in_dir);
+    CHECK_EQ(message([] {
+        write_annotations("rec", "atr", Annotations(), 0, "nosuch");
+    }), missing);
+    CHECK(fs::is_empty("out"));
+    CHECK(!wfdbx_get_output_dir());
 }

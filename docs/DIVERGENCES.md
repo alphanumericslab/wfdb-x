@@ -1,16 +1,21 @@
 # Deliberate divergences from the C implementation
 
-wfdb-x reproduces the WFDB Software Package 10.7.0 exactly, with the one
-exception described here: **it has no built-in signal parameters**. It is
-deliberate, it is the same in all six implementations, and it is tested like
-everything else: the reference results of the conformance suite come from
-the C package with
+wfdb-x reproduces the WFDB Software Package 10.7.0 exactly, with the
+exceptions described here: **it has no built-in signal parameters**, it
+**opens absolute paths directly**, it **sorts out-of-order annotation
+files itself** instead of running a separate program, and its sorting
+**does not lose annotations** as the original `sortann` does. They are deliberate,
+the same in all six implementations, and tested like everything else: the
+reference results of the conformance suite come from the C package with
 [`tests/reference/divergences.patch`](../tests/reference/divergences.patch)
 applied (see [`tests/reference/build_reference.sh`](../tests/reference/build_reference.sh)).
-The patch is the precise definition of the divergence; this page explains it.
+The patch is the precise definition of the divergences; this page explains
+them. The original behavior remains available in all cases, on request (see
+[Legacy mode](#legacy-mode)).
 
-This design decision was made by Reza Sameni in October 2026, for the
-reasons below. Each source file affected by it says so in its header.
+These design decisions were made by Reza Sameni in 2026 (the last
+three after a code review), for the reasons below. Each source file affected
+by them says so in its header.
 
 ## No built-in sampling frequency, gain, ADC resolution or units
 
@@ -147,6 +152,103 @@ every language):
 * Analysis settings that are documented options, such as the measurement
   windows of `sigamp`.
 
+## Absolute paths are opened directly
+
+The C library finds every file by joining its name to each entry of the
+WFDB path. It does not treat an absolute name specially, so `/data/rec` is
+looked for as `.//data/rec`, `/usr/local/database//data/rec`, and so on.
+That only works when the current directory is `/`; elsewhere, a record
+given by its absolute path is not found (the documented workaround is an
+empty WFDB path entry, `setwfdb(";")`, under which names are used as
+given).
+
+wfdb-x opens an absolute local name (one beginning with `/`, or on Windows
+`X:\`, `X:/`, `\\` or `/`) directly, before searching the path, and adds
+its directory to the WFDB path, as the C library already does for a URL,
+so that the signal files next to the header are found. If the direct open
+fails, the original search follows, so every name that opened before opens
+the same file now. `setwfdb(";")` works as before. Writing is unchanged.
+
+## Out-of-order annotation files are sorted in-process
+
+When an annotation file written by the library is not in time order, the C
+library sorts it when the file is closed by running the `sortann` program
+(`system("sortann -r. REC -a ANN")`), unless the environment variable
+`WFDBANNSORT` is 0. That makes the result depend on which `sortann`, if
+any, is found on the `PATH`, starts a separate process from inside a
+library, and passes the record and annotator names through a shell
+unquoted, so a name with a space or a shell character breaks it.
+
+wfdb-x sorts the file itself, in the same process. The file it writes is
+byte-for-byte the one `sortann` writes (except where the original loses
+annotations; see the next section): the same order (by time, then
+annotation number, then channel; a later annotation with the same time,
+number and channel replaces the earlier one), the same treatment of
+`NOTQRS` annotations (they are dropped) and of the time resolution, and the
+same encoding. The messages and the status of the library are the same
+(`Rearranging annotations for output annotator ANN ...done!`, or the
+`Use the command: sortann ...` advice when sorting is disabled or fails),
+except that the messages the separate `sortann` printed itself are gone:
+for a record without a header, for example, the original printed `init:
+can't open header for record REC` in the middle of that line, because
+`sortann` looked the header up. `WFDBANNSORT=0` still turns sorting off.
+
+In legacy mode the library runs `sortann`, as the original does, with one
+change: the program is started without a shell, its arguments passed
+directly (the MATLAB/Octave and R implementations, which can start programs
+only through a shell, quote them instead). Without a shell, a `sortann`
+that cannot be found is reported only by the library's own messages
+(`Annotations still need to be rearranged.` and the `Use the command: ...`
+advice); the shell's `sortann: not found` line is gone. When the library
+writes into an output directory (see [Additions](#additions)), the program
+is run in that directory, so that it finds the file.
+
+## Sorting does not lose annotations
+
+The original `sortann` silently loses annotations (see
+[`KNOWN_C_BEHAVIORS.md`](KNOWN_C_BEHAVIORS.md)): when an annotation at time
+0, with annotation number 0 and channel 0, arrives after later ones, it is
+dropped, and so are the annotations later inserted directly behind it
+(input sample times 5, 0, 3 give a file containing only 5). The search for the
+insertion point mistakes the list's empty head entry for an annotation at
+that location. The same happens when the library sorts a file it wrote,
+since it runs `sortann`.
+
+wfdb-x never compares the head entry with an annotation, so such an
+annotation is put at the beginning of the list, where it belongs (5, 0, 3
+give 0, 3, 5). Nothing else about the sorting changes: the order, the
+replacement of an annotation by a later one at the same time, number and
+channel, the dropping of `NOTQRS` annotations, and the messages are those
+of the original. This applies to the `sortann` tool and to the library's
+automatic sorting.
+
+In legacy mode, both lose these annotations as the original does. **Do not
+use legacy mode to sort annotation files** unless reproducing the
+original's results, losses included, is the point: nothing in the output
+says that annotations were dropped.
+
+## Additions
+
+These are new features, not changes of the original behavior, so they
+have no legacy counterpart:
+
+* **An output directory for the high-level writers.** `write_record` and
+  `write_annotations` take an output directory (`dir`). The files are
+  created there, and the header names the record and its signal file
+  without the directory, so the record opens from that directory under its
+  plain name. With the C library (and wfdb-x's C-style API and tools,
+  which follow it), writing to another directory means giving a record
+  name such as `out/rec`, which the header then records as `out/rec`, so
+  the record cannot be opened from inside `out/`; the alternative,
+  changing the current directory, is not safe in a multi-threaded program.
+  The library functions `wfdbx_set_output_dir(dir)` (returns the previous
+  setting) and `wfdbx_get_output_dir()` set and return the directory in
+  which output files are created; the high-level functions set it for the
+  duration of the call.
+* **Faster writing in Python** (and in the other implementations where
+  writing was slow): `write_record` writes whole arrays at once instead of
+  frame by frame, producing exactly the same files.
+
 ## Legacy mode
 
 For compatibility, the C reference (with
@@ -168,8 +270,11 @@ described above.
   original: a header without a frequency means 250 Hz, a missing ADC
   resolution is inferred from the format or taken as 12 bits, the time
   conversions use 1 sample per second when no frequency is known, `setifreq`
-  reports "no open input record", and the unit conversions assume a gain of
-  200 (and a baseline of 0 for invalid signal numbers).
+  reports "no open input record", the unit conversions assume a gain of
+  200 (and a baseline of 0 for invalid signal numbers), absolute names are
+  joined to the WFDB path entries, and out-of-order annotation files are
+  sorted by running `sortann` (without a shell), which loses annotations as
+  the original does.
 * **High-level API** (an addition of wfdb-x, not part of the C package).
   `read_record`, `read_header`, `read_annotations`, `write_record` and the
   related functions of each language take a legacy option. They behave as
@@ -185,7 +290,7 @@ described above.
 
 Legacy mode reproduces the original package exactly, and it is tested
 against its results: the legacy suite of the conformance tests
-([`tests/conformance/legacy`](../tests/conformance/legacy), 838 cases, run
+([`tests/conformance/legacy`](../tests/conformance/legacy), 858 cases, run
 with `harness.py check --legacy`) runs the original package's cases with
 `--legacy` and compares them with results produced by the unmodified C
 package, and the library's legacy values are checked in

@@ -97,19 +97,24 @@ end
 wfdbx.wfdbquit();
 assert(isequal(readfile('100s.rt'), readfile('100s.rt2')), 'putann = putann_bulk');
 
-% out-of-order annotations are sorted (by sortann, in a separate process)
-% when the file is closed
-if wfdbx.internal.is_octave()
-    old = getenv('WFDBANNSORT');
-    setenv('WFDBANNSORT', '1');
-    copyfile(fullfile(data, '100s.hea'), '100s.hea');
-    wfdbx.wfdbquiet();
-    wfdbx.write_annotations('100s', 'ooo', [300 100 200], 'codes', [1 5 1]);
-    wfdbx.wfdbverbose();
-    setenv('WFDBANNSORT', old);
-    r = wfdbx.read_annotations('100s', 'ooo');
-    assert_eq([r.samples, r.codes], [100 200 300; 5 1 1].', 'sorted by oannclose');
-end
+% out-of-order annotations are sorted when the file is closed
+old = getenv('WFDBANNSORT');
+setenv('WFDBANNSORT', '1');
+copyfile(fullfile(data, '100s.hea'), '100s.hea');
+wfdbx.wfdbquiet();
+wfdbx.write_annotations('100s', 'ooo', [300 100 200], 'codes', [1 5 1]);
+wfdbx.wfdbverbose();
+setenv('WFDBANNSORT', old);
+r = wfdbx.read_annotations('100s', 'ooo');
+assert_eq([r.samples, r.codes], [100 200 300; 5 1 1].', 'sorted by oannclose');
+
+% wfdb-x: out-of-order annotations are sorted in this process (in legacy
+% mode, by running sortann, as the C library)
+sort_in_process(C);
+sort_legacy_in_output_dir();
+sort_list_time0();
+sort_disabled(C);
+sort_keeps_other_annotators(C);
 
 % AHA format
 wfdbx.annopen('100s', wfdbx.anninfo('aha', wfdbx.WFDB_AHA_WRITE()));
@@ -210,6 +215,195 @@ assert_eq(char(readfile('cal2')), sprintf(['ECG\t- 1 square 1 mV\r\n' ...
     'Temp\t35 40 sawtooth 10 degC\r\n']), 'newcal output');
 wfdbx.flushcal();
 assert_eq(wfdbx.getcal([], []), -1, 'flushcal');
+end
+
+function T = tricky(C)
+% Ties in time, num and chan, duplicates (the last one is kept), NOTQRS
+% (dropped), aux strings, and a time 0 annotation that follows later ones
+% (lost by the original sortann, with the one at time 5 inserted after it,
+% as in legacy mode; see docs/KNOWN_C_BEHAVIORS.md): time, code, subtype,
+% chan, num, aux.
+T = {100, C.NORMAL, 0, 0, 0, []; 50, C.PVC, 0, 0, 0, '(VT'; ...
+    100, C.APC, 0, 1, 0, []; 100, C.NORMAL, 0, 0, 1, 'num 1'; ...
+    100, C.PVC, 0, 0, 0, 'replaces N'; 75, C.NOTQRS, 0, 2, 0, []; ...
+    75, C.NORMAL, 1, 2, 0, 'odd'; 10, C.NOTQRS, 0, 0, 0, []; ...
+    200, C.RHYTHM, 0, 0, 0, '(AFIB'; 150, C.NOISE, 0, 3, -1, []; ...
+    150, C.NOISE, 0, 3, 0, []; 20, C.NORMAL, 0, 0, 0, repmat('x', 1, 101); ...
+    0, C.NORMAL, 0, 0, 0, []; 5, C.NORMAL, 0, 1, 0, []; ...
+    5000, C.NORMAL, 0, 0, 0, []};
+end
+
+function b = write_tricky(C, name, legacy)
+% writes 100s.NAME (in the output directory, if one is set) and returns
+% the bytes of the file in the current directory, if any
+T = tricky(C);
+wfdbx.write_annotations('100s', name, [T{:, 1}], 'codes', [T{:, 2}], ...
+    'subtypes', [T{:, 3}], 'chans', [T{:, 4}], 'nums', [T{:, 5}], ...
+    'aux', T(:, 6), 'legacy', legacy);
+b = [];
+if isfile(['100s.' name])
+    b = readfile(['100s.' name]);
+end
+end
+
+function got = read_all(name, freq)
+% time, anntyp, chan, num of each annotation of 100s.NAME (times in ticks
+% of the time resolution FREQ)
+wfdbx.annopen('100s', wfdbx.anninfo(name, wfdbx.WFDB_READ()));
+wfdbx.setiafreq(0, freq);
+[~, A] = wfdbx.internal.getann_bulk(0, inf);
+wfdbx.wfdbquit();
+got = [A.time; A.anntyp; A.chan; A.num].';
+end
+
+function sort_in_process(C)
+old = getenv('WFDBANNSORT');
+setenv('WFDBANNSORT', '1');
+st = wfdbx.internal.ann_state();
+wfdbx.setannstr(42, 'Z');               % (a definition table in the file)
+c = onCleanup(@() sort_end(old)); %#ok<NASGU>
+wfdbx.wfdbquiet();
+wfdbx.setafreq(1000);                   % (a time resolution)
+modern = write_tricky(C, 'srt', false);
+% (the library's settings and tables are unchanged)
+assert_eq([wfdbx.getafreq(), find(st.modified) - 1], [1000 42], ...
+    'library state after the sort');
+assert_eq(wfdbx.annstr(42), 'Z', 'library table after the sort');
+rest = [20 C.NORMAL 0 0; 50 C.PVC 0 0; 75 C.NORMAL 2 0; ...
+    100 C.PVC 0 0; 100 C.APC 1 0; 100 C.NORMAL 0 1; 150 C.NOISE 3 -1; ...
+    150 C.NOISE 3 0; 200 C.RHYTHM 0 0; 5000 C.NORMAL 0 0];
+% wfdb-x: nothing is lost (the time-0 annotation that follows later ones,
+% and the one at time 5 inserted next to it, are kept)
+assert_eq(read_all('srt', 1000), [0 C.NORMAL 0 0; 5 C.NORMAL 1 0; rest], ...
+    'sorted in process');
+% the in-process sort and the sortann tool give the same bytes
+setenv('WFDBANNSORT', '0');
+wfdbx.setafreq(1000);
+write_tricky(C, 'uns', false);
+wfdbx.setafreq(0);
+assert_eq(wfdbx.apps.sortann({'-r', '100s', '-a', 'uns'}), 0, 'sortann');
+assert_eq(readfile('100s.uns'), modern, 'in-process sort = sortann tool');
+setenv('WFDBANNSORT', '1');
+% legacy mode: the sortann program (with --legacy, as the original) loses
+% them; so the modern result above was not produced by it
+if wfdbx.internal.is_octave()           % (the sortann driver for Octave)
+    wfdbx.setafreq(1000);
+    write_tricky(C, 'leg', true);
+    assert_eq(read_all('leg', 1000), rest, 'legacy sort loses time 0');
+end
+end
+
+function sort_legacy_in_output_dir()
+% legacy mode: the sortann program runs in the output directory (where
+% the file is), with --legacy; the result is that of the modern sort
+if ~wfdbx.internal.is_octave()          % (the sortann driver for Octave)
+    return;
+end
+old = getenv('WFDBANNSORT');
+setenv('WFDBANNSORT', '1');
+c = onCleanup(@() sort_end(old)); %#ok<NASGU>
+mkdir('out');
+t = [300 100 200 100 50];
+s = 'NVNAN';
+wfdbx.wfdbquiet();
+wfdbx.write_annotations('rec', 'leg', t, 'symbols', s, 'dir', 'out', ...
+    'legacy', true);
+wfdbx.write_annotations('rec', 'mod', t, 'symbols', s, 'dir', 'out');
+wfdbx.wfdbverbose();
+d = dir('out');
+assert_eq(sort({d(~[d.isdir]).name}), {'rec.leg', 'rec.mod'}, 'files in out');
+assert_eq(readfile(fullfile('out', 'rec.leg')), ...
+    readfile(fullfile('out', 'rec.mod')), 'legacy sort in out = modern');
+wfdbx.wfdbquiet();
+a = wfdbx.read_annotations('out/rec', 'leg', 'fs', 360);
+wfdbx.wfdbverbose();
+assert_eq(a.samples.', [50 100 200 300], 'legacy sort in out: times');
+assert_eq(a.symbols{2}, 'A', 'legacy sort in out: duplicate replaced');
+end
+
+function sort_list_time0()
+% wfdbx.internal.ann_sortlist: 5, 0, 3 -> 0, 3, 5 (legacy: 5 only)
+for legacy = [false true]
+    [order, in_order] = wfdbx.internal.ann_sortlist([5 0 3], [0 0 0], ...
+        [0 0 0], legacy);
+    t = [5 0 3];
+    if legacy
+        want = 5;
+    else
+        want = [0 3 5];
+    end
+    assert_eq([t(order), in_order], [want, 0], 'ann_sortlist 5 0 3');
+end
+% a later annotation at time 0 replaces a real one (both modes), and one
+% at time 0 on another channel is kept (both modes)
+for legacy = [false true]
+    order = wfdbx.internal.ann_sortlist([0 7 0 0], [0 0 0 0], [0 0 1 0], ...
+        legacy);
+    assert_eq(order, [4 3 2], 'ann_sortlist time-0 duplicate');
+end
+assert_eq(wfdbx.internal.ann_sortlist([5 0 3], [0 0 0], [0 0 0]), ...
+    [2 3 1], 'ann_sortlist default (modern)');
+end
+
+function sort_end(old)
+wfdbx.wfdbquit();
+wfdbx.wfdbverbose();
+wfdbx.wfdbx_set_output_dir([]);
+wfdbx.setafreq(0);
+wfdbx.setannstr(-42, '[42]');
+st = wfdbx.internal.ann_state();
+st.modified(43) = 0;
+setenv('WFDBANNSORT', old);
+end
+
+function sort_disabled(C)
+old = getenv('WFDBANNSORT');
+setenv('WFDBANNSORT', '0');
+c = onCleanup(@() setenv('WFDBANNSORT', old)); %#ok<NASGU>
+wfdbx.wfdbquiet();
+write_tricky(C, 'ns', false);
+wfdbx.wfdbverbose();
+assert_eq(wfdbx.wfdberror(), ...
+    sprintf('to rearrange annotations in the correct order.\n'), ...
+    'WFDBANNSORT=0 message');
+T = tricky(C);
+got = read_all('ns', 0);
+assert_eq(got(:, 1).', [T{:, 1}], 'WFDBANNSORT=0: not sorted');
+end
+
+function sort_keeps_other_annotators(C)
+% An input annotator and the signals stay open while an output annotator
+% is closed and sorted.
+assert_eq(wfdbx.isigopen('100s', 2), 2, 'isigopen');
+ai = [wfdbx.anninfo('atr', wfdbx.WFDB_READ()), ...
+    wfdbx.anninfo('o1', wfdbx.WFDB_WRITE()), ...
+    wfdbx.anninfo('o2', wfdbx.WFDB_WRITE())];
+assert_eq(wfdbx.annopen('100s', ai), 0, 'annopen');
+[~, first] = wfdbx.getann(0);
+x = wfdbx.annotation();
+for t = [30 10 20]
+    x.time = t;
+    x.anntyp = C.NORMAL;
+    wfdbx.putann(0, x);
+    x.anntyp = C.PVC;
+    wfdbx.putann(1, x);
+end
+wfdbx.wfdbquiet();
+wfdbx.oannclose(0);                     % sorted now; o2 becomes number 0
+wfdbx.wfdbverbose();
+[stat, a] = wfdbx.getann(0);
+assert_eq([stat, first.time, a.time], [0 18 77], 'input annotator kept');
+[stat, v] = wfdbx.getvec();
+assert_eq([stat, v], [2 995 1011], 'signals kept');
+x.time = 40;
+wfdbx.putann(0, x);
+wfdbx.wfdbquiet();
+wfdbx.wfdbquit();
+wfdbx.wfdbverbose();
+o1 = wfdbx.read_annotations('100s', 'o1');
+o2 = wfdbx.read_annotations('100s', 'o2');
+assert_eq([o1.samples.', o1.codes.'], [10 20 30, 1 1 1], 'o1 sorted');
+assert_eq(o2.samples.', [10 20 30 40], 'o2 sorted');
 end
 
 function check_file(name, hex, expected, laststat)

@@ -33,7 +33,7 @@ if ~ischar(wfdbx.internal.cgetenv('WFDBGVMODE'))
     setenv('WFDBGVMODE', '0');
 end
 p = wfdbx.internal.getiwfdb(p);
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 st.wfdbpath = p;
 wfdbx.internal.wfdb_parse_path(p);
 end

@@ -13,7 +13,7 @@ function s = annstr(code)
 
 ACMAX = 49;     % largest annotation code (lib/ecgcodes.h)
 if code >= 0 && code <= ACMAX
-    st = wfdbx.internal.annstate();
+    st = wfdbx.internal.ann_state();
     s = st.astring{code+1};
 else
     s = sprintf('[%d]', code);

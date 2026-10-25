@@ -11,7 +11,7 @@ function s = findsig(p)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if all(p >= '0' & p <= '9')
     s = wfdbx.internal.cint32(wfdbx.internal.strtol(p));
     if s < S.nisig || s < S.nvsig

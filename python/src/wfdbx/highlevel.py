@@ -40,6 +40,11 @@ never assumed (the original package assumed 250 Hz, 200 adu/mV, 12 bits and
 millivolts), because a silently assumed value corrupts every result derived
 from it. See docs/DIVERGENCES.md. The original behavior remains available
 with --legacy (see docs/DIVERGENCES.md).
+Design decision (Reza Sameni, after a code review, Oct 2026): the writers
+take a dir argument (the files are created in that directory, and the record
+opens from there under its plain name), and write_record encodes the samples
+of the common formats with NumPy, byte for byte as putvec (calling putvec
+once per frame was 10-30 times slower than reading).
 This library is free software; you can redistribute it and/or modify it under
 the terms of the GNU Library General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your option) any
@@ -47,10 +52,12 @@ later version.
 """
 
 import functools
+import os
 
 from . import _signal as sig
 from . import _annot as ann
 from . import _wfdbinit as init
+from . import _wfdbio as wio
 from ._wfdbio import WFDB_READ, WFDB_WRITE
 
 __all__ = ["Record", "Annotations", "read_record", "read_annotations",
@@ -163,6 +170,32 @@ def _legacy_option(func):
             return func(*args, **kw)
         finally:
             sig.wfdbx_set_legacy(previous)
+    return wrapper
+
+
+def _output_dir_option(func):
+    """Decorator for the dir keyword argument of the writers (wfdb-x): with
+    a directory, the files are created in it (it must exist), and the
+    record is named without the directory (so that it can be opened from
+    that directory under its plain name); the library's output directory
+    (wfdbx_set_output_dir) is set for the duration of the call, and the
+    previous one is restored afterwards (also on errors)."""
+    @functools.wraps(func)
+    def wrapper(record, *args, **kw):
+        d = kw.get("dir")
+        if not d:
+            return func(record, *args, **kw)
+        if "/" in record or os.sep in record or \
+                (os.altsep and os.altsep in record):
+            raise ValueError("record name must not contain a directory when "
+                             "dir is given")
+        if not os.path.isdir(d):
+            raise FileNotFoundError("directory %s does not exist" % d)
+        previous = wio.wfdbx_set_output_dir(d)
+        try:
+            return func(record, *args, **kw)
+        finally:
+            wio.wfdbx_set_output_dir(previous)
     return wrapper
 
 
@@ -427,10 +460,11 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
 
 
 @_legacy_option
+@_output_dir_option
 def write_record(record, signals, fs, fmt=16, gains=None,
                  baselines=None, adczeros=0, adcres=None, units=None,
                  names=None, base_time=None, comments=None, physical=False,
-                 samps_per_frame=None, *, legacy=False):
+                 samps_per_frame=None, *, dir=None, legacy=False):
     """Write signals as a new WFDB record (a header and one signal file).
 
     The signal file is named ``record + ".dat"`` and all signals are
@@ -466,6 +500,11 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                  multi-frequency record; ``signals`` then has
                  sum(samps_per_frame) columns, each row holding one frame
                  (the samples of signal 0, then of signal 1, ...)
+      dir        if given, the directory (which must exist) in which the
+                 files are created; the header then names the record and
+                 its signal file without the directory, so that the record
+                 opens from that directory under its plain name (record
+                 must not contain a directory)
       legacy     if True, behave as the original package: the gains
                  default to 200 (also for physical signals of gain 0), the
                  ADC resolutions to the sample width of the format (8 for
@@ -485,9 +524,11 @@ def write_record(record, signals, fs, fmt=16, gains=None,
       ValueError  if the gains or the ADC resolutions are not given (or a
                   resolution is < 1), if the units of a signal whose gain
                   is not 0 are not given, if fs is not > 0, if a signal
-                  given in physical units is uncalibrated (gain 0), or if
-                  the signals do not all have the same format
-      IOError     if the signal file or the header cannot be created
+                  given in physical units is uncalibrated (gain 0), if
+                  the signals do not all have the same format, or if
+                  record contains a directory and dir is given
+      IOError     if the signal file or the header cannot be created (a
+                  FileNotFoundError if dir does not exist)
 
     Example::
 
@@ -577,9 +618,7 @@ def write_record(record, signals, fs, fmt=16, gains=None,
     sig.setbasecount(0.0)
     if base_time is not None:
         sig.setbasetime(base_time)
-    putvec = sig.putvec
-    for row in x.tolist():
-        putvec(row)
+    sig._putframes(x)       # (as putvec for each frame, but faster)
     if sig.newheader(record) < 0:
         init.wfdbquit()
         raise IOError("can't create header for record %s" % record)
@@ -589,16 +628,18 @@ def write_record(record, signals, fs, fmt=16, gains=None,
 
 
 @_legacy_option
+@_output_dir_option
 def write_annotations(record, annotator, samples, symbols=None, codes=None,
                       subtypes=0, chans=0, nums=0, aux=None, fs=None, *,
-                      legacy=False):
+                      dir=None, legacy=False):
     """Write an annotation file (as wrann does).
 
     The annotations are written in the order given.  If they are not in
-    canonical (time) order, then, as in the C library, the file is
-    rearranged by running the sortann tool when it is closed, unless the
-    WFDBANNSORT environment variable is 0 (the library reports this on
-    the standard error output, unless wfdbquiet() is in effect).
+    canonical (time) order, the file is rearranged when it is closed (as
+    the sortann tool does; wfdb-x: in this process, whereas the C library,
+    as legacy mode, runs sortann), unless the WFDBANNSORT environment
+    variable is 0 (the library reports this on the standard error output,
+    unless wfdbquiet() is in effect).
 
     Arguments:
       record     record name
@@ -615,6 +656,8 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
                  longer than 255 bytes are truncated); default: none
       fs         if given, recorded in the file as its time resolution
                  (ticks per second)
+      dir        if given, the directory (which must exist) in which the
+                 file is created (record must not contain a directory)
       legacy     if True, the library's legacy mode is on during the call
                  (this function has no other legacy behavior)
 
@@ -622,8 +665,10 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
       None
 
     Raises:
-      ValueError  if neither symbols nor codes is given
-      IOError     if the annotation file cannot be created
+      ValueError  if neither symbols nor codes is given, or if record
+                  contains a directory and dir is given
+      IOError     if the annotation file cannot be created (a
+                  FileNotFoundError if dir does not exist)
 
     Example::
 

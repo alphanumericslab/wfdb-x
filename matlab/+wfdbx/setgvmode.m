@@ -18,7 +18,7 @@ WFDB_HIGHRES = 1;       % lib/wfdb.h
 WFDB_GVPAD = 2;
 DEFWFDBGVMODE = 0;      % WFDB_LOWRES (lib/wfdblib.h)
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if mode < 0
     p = wfdbx.internal.cgetenv('WFDBGVMODE');
     if ischar(p)

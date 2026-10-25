@@ -12,7 +12,7 @@ function stat = wfdbputprolog(buf, size, s)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 g = S.osd(s + 1).info.group;
 b = uint8(buf(1:min(end, size)));
 n = S.ogd{g + 1}.fp.write(b);

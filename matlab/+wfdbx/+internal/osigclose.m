@@ -8,7 +8,7 @@ function stat = osigclose()
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 stat = 0;
 ogd = S.ogd;
 for g = 1:min(S.nogroup, numel(ogd))

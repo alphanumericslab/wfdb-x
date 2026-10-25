@@ -3,7 +3,9 @@
 Each case is a dict with keys:
   id      unique identifier (used as the golden directory name)
   tool    name of the WFDB application
-  args    list of command-line arguments
+  args    list of command-line arguments ("{cwd}" in an argument stands for
+          the absolute path of the work directory, which is written as
+          "{cwd}" in the standard output and error)
   stdin   (optional) bytes or str supplied on the standard input
   files   (optional) {name: content} extra files created before running
   env     (optional) extra environment variables
@@ -793,3 +795,100 @@ for tool, args, files in [
 case("xform", ["-i", "fmt16", "-S", "xsa.txt", "-t", "s5000"],
      cid="xform-adcres-unspecified",
      files={"xsa.txt": "xf\n\n\n\n508\n\n" + "\n" * 12})
+
+# ---------------------------------------------------------------------------
+# Absolute record names ({cwd} is the absolute work directory).  wfdb-x opens
+# an input file named by an absolute path directly (and finds the signal and
+# annotation files next to its header); the C library searched the WFDB path
+# for it ("./" + the name), as legacy mode does, unless the WFDB path has an
+# empty component (";").  sub/sr: a record in a subdirectory.
+_SR = {"sub/sr.hea": _rd("100s.hea").replace(b"100s", b"sr"),
+       "sub/sr.dat": _rd("100s.dat"), "sub/sr.atr": _rd("100s.atr")}
+for tool, args, cid in [
+        ("rdsamp", "-r {cwd}/100s -t s5", "abspath-rdsamp"),
+        ("rdsamp", "-r {cwd}/sub/sr -t s5 -v", "abspath-rdsamp-subdir"),
+        ("rdsamp", "-r {cwd}/nosuch -t s5", "abspath-rdsamp-missing"),
+        ("rdann", "-r {cwd}/100s -a atr -t s1000", "abspath-rdann"),
+        ("rdann", "-r {cwd}/sub/sr -a atr -t s1000", "abspath-rdann-subdir"),
+        ("wfdbdesc", "{cwd}/100s", "abspath-wfdbdesc"),
+        ("wfdbdesc", "{cwd}/sub/sr", "abspath-wfdbdesc-subdir")]:
+    case(tool, args, cid=cid, files=_SR)
+case("rdsamp", "-r {cwd}/sub/sr -t s5", cid="abspath-rdsamp-wfdb-empty",
+     files=_SR, wfdb=";")
+
+# ---------------------------------------------------------------------------
+# Out-of-order annotations written by wrann, rearranged when the file is
+# closed (wfdb-x: in the same process; the C library ran sortann): ties in
+# time, num and chan, duplicates (the last one is kept), aux strings, an
+# unknown mnemonic (a NOTE), the time resolution of the record (360 Hz for
+# 100s; 1000.5 Hz for hr; none without a header), and a record in a
+# subdirectory.  (Annotations at time 0 are avoided: see sortann in
+# docs/KNOWN_C_BEHAVIORS.md.)
+def _ann_lines(rows):
+    return "".join("    0:00.000 %8d %5s %4d %4d %4d%s\n" %
+                   (t, m, s, c, n, "\t" + a if a else "")
+                   for t, m, s, c, n, a in rows)
+
+
+_SORT = _ann_lines([
+    (100, "N", 0, 0, 0, ""), (50, "V", 0, 0, 0, "(VT"),
+    (100, "A", 0, 1, 0, ""), (100, "N", 0, 0, 1, "num 1"),
+    (100, "V", 0, 0, 0, "replaces N"), (75, "N", 1, 2, 0, "odd"),
+    (75, "J", 0, 2, 0, ""), (200, "+", 0, 0, 0, "(AFIB"),
+    (150, "~", 0, 3, 0, ""), (150, "~", 0, 3, -1, ""),
+    (10, "Q", 0, 0, 0, ""), (300, "XYZ", 0, 0, 0, "note"),
+    (20, "N", 0, 0, 0, "x" * 101), (20, "|", 2, 1, 2, ""),
+    (5000, "N", 0, 0, 0, ""), (1, "N", 0, 0, 0, "")])
+_seed = [12345]
+
+
+def _rand(n):    # a small deterministic pseudo-random generator
+    _seed[0] = (_seed[0] * 1103515245 + 12345) % 2 ** 31
+    return _seed[0] % n
+
+
+_SORT_LONG = _ann_lines(
+    (1 + _rand(300), "NVA+~"[_rand(5)], _rand(3) - 1, _rand(3), _rand(3),
+     ["", "", "(N", "aux"][_rand(4)]) for _ in range(2000))
+_HR = {"hr.hea": "hr 1 1000.5 10\nhr.dat 16\n"}
+_SUB = {"sub/s.hea": "s 1 360 10\ns.dat 16\n"}
+for args, cid, kw in [
+        ("-r 100s -a srt", "annsort-ties", {}),
+        ("-r 100s -a srt", "annsort-ties-nosort",
+         {"env": {"WFDBANNSORT": "0"}}),
+        ("-r nohdr -a srt", "annsort-nohdr", {}),
+        ("-r hr -a srt", "annsort-hires", {"files": _HR}),
+        ("-r sub/s -a srt", "annsort-subdir", {"files": _SUB})]:
+    case("wrann", args, cid=cid, stdin=_SORT, **kw)
+case("wrann", "-r 100s -a srt", cid="annsort-long", stdin=_SORT_LONG)
+# ---------------------------------------------------------------------------
+# An out-of-order annotation at time 0 (num 0, chan 0), after later ones:
+# sortann lost it, and those inserted after it (5, 0, 3 -> 5), as legacy mode
+# does; wfdb-x keeps them (5, 0, 3 -> 0, 3, 5).  With aux strings, and with
+# several channels (a later time-0, chan 0 annotation replaces the first).
+# sortann on such a file (written with WFDBANNSORT=0): with -o, and in place.
+_T0 = _ann_lines([(5, "N", 0, 0, 0, ""), (0, "V", 0, 0, 0, ""),
+                  (3, "A", 0, 0, 0, "")])
+_T0_AUX = _ann_lines([
+    (100, "N", 0, 0, 0, ""), (50, "V", 0, 0, 0, "(VT"),
+    (0, "+", 0, 0, 0, "(N"), (20, "N", 0, 0, 0, ""),
+    (10, "A", 0, 0, 0, "note"), (200, "N", 0, 0, 0, "")])
+_T0_CHAN = _ann_lines([
+    (50, "N", 0, 0, 0, ""), (0, "V", 0, 0, 0, ""), (0, "A", 0, 2, 0, ""),
+    (0, "N", 0, 1, 0, ""), (25, "N", 0, 1, 0, ""), (0, "J", 0, 0, 0, "x"),
+    (60, "N", 0, 3, 0, "")])
+# (_T0_AUX as written by wrann with WFDBANNSORT=0)
+_T0_FILE = {"100s.t0": bytes.fromhex(
+    "005817fc23232074696d65207265736f6c7574696f6e3a203336300000ecffffffff"
+    "0100640400ecffffceff001403fc2856540000ecffffceff007002fc284e140400ec"
+    "fffff6ff002004fc6e6f7465be040000")}
+case("wrann", "-r 100s -a t0", cid="annsort-time0", stdin=_T0)
+case("wrann", "-r 100s -a t0", cid="annsort-time0-aux", stdin=_T0_AUX)
+case("wrann", "-r 100s -a t0", cid="annsort-time0-chan", stdin=_T0_CHAN)
+case("sortann", "-r 100s -a t0 -o srt", cid="sortann-time0", files=_T0_FILE)
+case("sortann", "-r 100s -a t0", cid="sortann-time0-inplace",
+     files=_T0_FILE)
+
+# An absolute record name (in legacy mode, the sortann program, run with
+# --legacy, does not find the file, as the original did not)
+case("wrann", "-r {cwd}/100s -a srt", cid="annsort-abspath", stdin=_SORT)

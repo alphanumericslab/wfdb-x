@@ -91,7 +91,7 @@ function tf = at_end()
 % is <= 0, so each later read finds the end again), no segment follows,
 % and no signal has samples left to count (so no "unexpected EOF" or
 % checksum message can be printed).
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 tf = false;
 if S.in_msrec
     return;

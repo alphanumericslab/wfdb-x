@@ -18,7 +18,7 @@ while nb > 0 && stat > 0
     if bp >= be
         n = ig.bsize;
         if n <= 0
-            S = wfdbx.internal.sigstate();
+            S = wfdbx.internal.sig_state();
             n = S.ibsize;
         end
         if isempty(ig.fp)

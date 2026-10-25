@@ -31,6 +31,7 @@ import argparse
 import difflib
 import hashlib
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -136,7 +137,11 @@ def run_case(case, cmd_prefix, extra_env=None):
         stdin = case.get("stdin")
         if isinstance(stdin, str):
             stdin = stdin.encode("latin-1")
-        p = subprocess.run(cmd_prefix + case["args"], cwd=wd, env=env,
+        # {cwd} in an argument stands for the (absolute) work directory, and
+        # the work directory in the outputs is written as {cwd}
+        cwd = os.path.realpath(wd)
+        args = [a.replace("{cwd}", cwd) for a in case["args"]]
+        p = subprocess.run(cmd_prefix + args, cwd=wd, env=env,
                            input=stdin if stdin is not None else b"",
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            timeout=case.get("timeout", 600))
@@ -145,10 +150,18 @@ def run_case(case, cmd_prefix, extra_env=None):
                  if k not in before or before[k] != v}
         for k in case.get("ignore_files", []):
             files.pop(k, None)
-        return {"stdout": p.stdout, "stderr": p.stderr,
+        return {"stdout": _uncwd(p.stdout, cwd, wd),
+                "stderr": _uncwd(p.stderr, cwd, wd),
                 "status": p.returncode, "files": files}
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _uncwd(out, *dirs):
+    """Write each of the given directories in out as {cwd}."""
+    for d in sorted(set(dirs), key=len, reverse=True):
+        out = out.replace(os.fsencode(d), b"{cwd}")
+    return out
 
 
 BIG = 65536     # larger golden blobs are stored as SHA-256 digests
@@ -193,8 +206,16 @@ def _read_blob(path):
         return f.read()
 
 
+def golden_name(cid):
+    """The directory name of a case: its id, with each capital letter written
+    as '^' and the letter in lower case (e.g. rdsamp-r_100s_S is stored as
+    rdsamp-r_100s_^s), so that ids differing only in case (-s and -S) get
+    distinct directories on case-insensitive file systems (macOS, Windows)."""
+    return re.sub(r"[A-Z]", lambda m: "^" + m.group(0).lower(), cid)
+
+
 def golden_dir(cid):
-    return os.path.join(GOLDEN, cid)
+    return os.path.join(GOLDEN, golden_name(cid))
 
 
 def save_golden(cid, res):

@@ -25,7 +25,7 @@ end
 if nargin < 1
     record = [];
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 record = wfdbx.internal.wfdb_striphea(record);
 if ischar(record)
     wfdbx.internal.wfdb_setirec(record);

@@ -210,7 +210,7 @@ function [buf, bp, be, stat] = fill(ig, buf)
 % Refill the input buffer (as fill() in the Python port).
 n = ig.bsize;
 if n <= 0
-    S = wfdbx.internal.sigstate();
+    S = wfdbx.internal.sig_state();
     n = S.ibsize;
 end
 if isempty(ig.fp)

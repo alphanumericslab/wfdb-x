@@ -20,10 +20,16 @@
 // give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
 // 12 bits and millivolts), because a silently assumed value corrupts every
 // result derived from it. See docs/DIVERGENCES.md.
+// Design decision (Reza Sameni, after a code review, Oct 2026): out-of-order
+// annotations at time 0 are no longer lost (the original insertion took them
+// for duplicates of the list head; see wfdbx::AnnList). The original behavior
+// remains available with --legacy (see docs/DIVERGENCES.md).
 // GNU General Public License, version 2 or later (see LICENSE).
 
 use wfdbx::cstd;
-use wfdbx::{ceprintf, csscanf, Anninfo, Annotation, NOTQRS, WFDB_DEFFREQ, WFDB_READ, WFDB_WRITE};
+use wfdbx::{
+    ceprintf, csscanf, AnnList, Anninfo, Annotation, NOTQRS, WFDB_DEFFREQ, WFDB_READ, WFDB_WRITE,
+};
 
 const HELP_STRINGS: &[&[u8]] = &[
     b"usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
@@ -48,120 +54,6 @@ fn help(pname: &[u8]) {
     for s in &HELP_STRINGS[1..] {
         if !(legacy && WFDBX_HELP_LINES.contains(s)) {
             ceprintf!(b"%s\n", s);
-        }
-    }
-}
-
-/// An entry of the doubly-linked annotation list of the C version. Node 0
-/// is the list head (`annlist`), whose annotation is all zeros and which
-/// takes part in comparisons exactly as in sortann.c; -1 is a null link.
-#[derive(Default)]
-struct Entry {
-    next: i64,
-    prev: i64,
-    annotation: Annotation,
-}
-
-struct AnnList {
-    list: Vec<Entry>,
-    lastp: i64,
-    in_order: bool,
-}
-
-impl AnnList {
-    fn new() -> AnnList {
-        AnnList {
-            list: vec![Entry {
-                next: -1,
-                prev: -1,
-                annotation: Annotation::default(),
-            }],
-            lastp: 0,
-            in_order: true,
-        }
-    }
-
-    fn insert(&mut self, pa: &Annotation) {
-        let l = &mut self.list;
-        let newp = l.len() as i64;
-        l.push(Entry {
-            next: -1,
-            prev: -1,
-            annotation: pa.clone(),
-        });
-        let nu = newp as usize;
-        let lastp = self.lastp;
-        let la = &l[lastp as usize].annotation;
-        if lastp == 0
-            || pa.time > la.time
-            || (pa.time == la.time && pa.num > la.num)
-            || (pa.time == la.time && pa.num == la.num && pa.chan > la.chan)
-        {
-            // this annotation is in order -- add to end of list
-            l[nu].prev = lastp;
-            l[lastp as usize].next = newp;
-            self.lastp = newp;
-            l[nu].next = -1;
-        } else {
-            self.in_order = false; // input was out-of-order
-
-            // Find the correct location in the list for this annotation.
-            // The search is linear, beginning at the end of the list.
-            let mut ap = lastp;
-            while ap != -1 {
-                let aa = &l[ap as usize].annotation;
-                if pa.time > aa.time
-                    || (pa.time == aa.time && pa.num > aa.num)
-                    || (pa.time == aa.time && pa.num == aa.num && pa.chan >= aa.chan)
-                {
-                    break;
-                }
-                ap = l[ap as usize].prev;
-            }
-            if ap == -1 {
-                // insert newp at the beginning of the list
-                l[nu].prev = -1;
-                l[nu].next = l[0].next;
-                let nx = l[nu].next;
-                l[0].next = newp;
-                l[nx as usize].prev = newp;
-            } else {
-                let aa = &l[ap as usize].annotation;
-                if pa.time == aa.time && pa.num == aa.num && pa.chan == aa.chan {
-                    // replace ap by newp
-                    l[nu].prev = l[ap as usize].prev;
-                    if l[nu].prev != -1 {
-                        let pv = l[nu].prev as usize;
-                        l[pv].next = newp;
-                    }
-                    l[nu].next = l[ap as usize].next;
-                    if l[nu].next != -1 {
-                        let nx = l[nu].next as usize;
-                        l[nx].prev = newp;
-                    } else {
-                        self.lastp = newp;
-                    }
-                    // If ap was the first entry of the list but its 'prev'
-                    // link does not lead back to the list head (an entry
-                    // inserted at the beginning gets a null link, and one
-                    // whose predecessor replaced the head is detached), C
-                    // leaves the head pointing to the freed entry (undefined
-                    // behavior): here the head is updated, so that the
-                    // duplicate is replaced (see docs/KNOWN_C_BEHAVIORS.md).
-                    if ap != 0 && l[0].next == ap {
-                        l[0].next = newp;
-                    }
-                } else {
-                    // insert newp immediately after ap
-                    l[nu].prev = ap;
-                    l[nu].next = l[ap as usize].next;
-                    if l[nu].next != -1 {
-                        let nx = l[nu].next as usize;
-                        l[nx].prev = newp;
-                    }
-                    l[ap as usize].next = newp;
-                }
-            }
         }
     }
 }
@@ -346,8 +238,9 @@ fn main() {
         }
     }
 
-    // Build a linked list of annotations in memory.
-    let mut list = AnnList::new();
+    // Build a linked list of annotations in memory (wfdbx::AnnList; wfdb-x:
+    // it no longer loses annotations at time 0, except in legacy mode).
+    let mut list = AnnList::with_legacy(legacy);
     while wfdbx::getann(0, &mut annot) == 0 {
         if annot.time < from || (to > 0 && annot.time >= to) {
             continue;
@@ -356,7 +249,7 @@ fn main() {
     }
     wfdbx::iannclose(0);
 
-    if list.in_order && ainame[1].is_none() {
+    if list.in_order() && ainame[1].is_none() {
         // If all of the annotations were in order, don't copy them unless
         // another annotator name was specified (using -o).
         ceprintf!(
@@ -380,13 +273,8 @@ fn main() {
         // open output annotation file
         cstd::exit(2);
     }
-    let mut ap = list.list[0].next;
-    while ap != -1 {
-        let e = &list.list[ap as usize];
-        if e.annotation.anntyp as i32 != NOTQRS {
-            wfdbx::putann(0, &e.annotation);
-        }
-        ap = e.next;
+    for a in list.iter().filter(|a| a.anntyp as i32 != NOTQRS) {
+        wfdbx::putann(0, a);
     }
     wfdbx::wfdbquit();
 

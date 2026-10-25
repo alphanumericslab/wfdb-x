@@ -138,10 +138,51 @@ int wfdb_oinfoclose();
 void wfdb_anclose();
 void wfdb_oaflush();
 
-// Run `sortann` to sort an annotation file (used by oannclose).  The
-// program is looked for in the directory of the running executable, then
-// in the PATH.  Returns the exit status.
-int run_sortann(const std::string &record, const std::string &annotator);
+// wfdb-x: the list of annotations built by the sortann program (insert_ann
+// in app/sortann.c), used by the sortann tool and by the in-process sorting
+// of oannclose.  Annotations are kept in the canonical order (time, then
+// num, then chan); one with the same time, num and chan as an annotation
+// already in the list replaces it.  The list reproduces the C algorithm (a
+// stable insertion, searching backwards from the end), except for its loss
+// of annotations: C also compared the list head (time, num and chan 0) with
+// the new annotation, so that an out-of-order annotation with time, num and
+// chan 0 "replaced" the head and was detached from the list, with any
+// annotation later inserted after it.  wfdb-x: the head is not compared (such
+// an annotation is inserted at the beginning); with `legacy`, it is, as in C
+// (the sortann tool in legacy mode).
+class AnnSortList {
+public:
+    explicit AnnSortList(bool legacy = false) : list_(1), legacy_(legacy) {}
+    // Insert a copy of annotation a.
+    void insert(const WFDB_Annotation &a);
+    // False if an annotation was inserted out of order.
+    bool in_order() const { return in_order_; }
+    // Call f(annotation) for each annotation of the list, in order.
+    template <class F> void for_each(F &&f) const {
+        for (long p = list_[0].next; p != -1; p = list_[p].next)
+            f(list_[p].annotation);
+    }
+
+private:
+    // Entry 0 is the list head, whose annotation is all zeros and which
+    // takes part in comparisons as in sortann.c; -1 is a null link.
+    struct Entry {
+        long next = -1, prev = -1;
+        WFDB_Annotation annotation;
+    };
+    std::vector<Entry> list_;
+    long last_ = 0;
+    bool in_order_ = true;
+    bool legacy_;
+};
+
+// Run the sortann program to sort an annotation file (used by oannclose in
+// legacy mode), as "sortann --legacy -r. RECORD -a ANNOTATOR", without a
+// shell, in the directory `workdir` if given (else the current one).  The
+// program is looked for in the directory of the running executable, then in
+// the PATH.  Returns its exit status (-1 if it could not be run).
+int run_sortann(const std::string &record, const std::string &annotator,
+                const std::optional<std::string> &workdir);
 
 } // namespace detail
 } // namespace wfdbx

@@ -1060,3 +1060,152 @@ def test_legacy_args():
             assert argv == before and w.wfdbx_get_legacy() == 0
     finally:
         w.wfdbx_set_legacy(0)
+
+
+# ---------------------------------------------------------------------------
+# t_outdir: the output directory (wfdbx_set_output_dir), the in-process
+# sorting of an annotation file written there, and absolute paths (wfdb-x)
+
+OREC_OAT = bytes.fromhex(
+    "00581efc232320616e6e6f746174696f6e207479706520646566696e6974696f"
+    "6e73005816fc3135205b31355d206d79206465736372697074696f6e005807fc"
+    "3432206e65772000005815fc232320656e64206f6620646566696e6974696f6e"
+    "730000ecffffffff0100050405140a040a040000")
+
+OREC_SRT = OREC_OAT[:-10] + bytes.fromhex("0a040a040a040000")  # (t_sortfix)
+
+
+def annopen_write(record, name):
+    assert w.annopen(record, [w.Anninfo(name, w.WFDB_WRITE)], 1) == 0
+
+
+def test_output_dir(datadir):
+    from wfdbx import _annot
+    try:
+        w.setcfreq(0.0)     # (these survive wfdbquit)
+        w.setafreq(0.0)
+        # (the annotation type table, as left by t_strings in api_expect.c)
+        w.setanndesc(15, "my description")
+        w.setannstr(42, "new")
+        w.setanndesc(42, "")
+        assert w.wfdbx_get_output_dir() is None
+        os.mkdir("odir")
+        assert w.wfdbx_set_output_dir("odir") is None
+        assert w.wfdbx_get_output_dir() == "odir"
+        si = [w.Siginfo(fname="orec.dat", desc="sig", gain=200, fmt=16,
+                        adcres=12)]
+        w.setsampfreq(100.0)
+        assert w.osigfopen(si, 1) == 1
+        for i in range(3):
+            w.putvec([10 * i - 7])
+        assert w.newheader("orec") == 0
+        assert w.annopen("orec", [w.Anninfo("oat", w.WFDB_WRITE)], 1) == 0
+        a = w.Annotation()
+        for i, t in enumerate([30, 10, 20, 10, 5]):  # out of order, duplicate
+            a.time = t
+            a.anntyp = w.PVC if i == 3 else w.NORMAL
+            w.putann(0, a)
+        w.wfdbquiet()
+        w.wfdbquit()
+        w.wfdbverbose()
+        assert w.wfdbx_set_output_dir("") == "odir"
+        assert w.wfdbx_get_output_dir() is None
+        assert w.wfdbx_set_output_dir("odir2") is None
+        assert w.wfdbx_set_output_dir(None) == "odir2"
+        assert w.wfdbx_get_output_dir() is None
+        assert readfile("odir/orec.hea") == \
+            b"orec 1 100 3\r\norec.dat 16 200 12 0 -7 9 0 sig\r\n"
+        assert readfile("odir/orec.dat") == bytes.fromhex("f9ff03000d00")
+        assert readfile("odir/orec.oat") == OREC_OAT
+        assert not os.path.exists("orec.hea")
+        # a missing output directory is created (as are the missing
+        # directories of any output file name)
+        w.wfdbx_set_output_dir("newdir")
+        assert w.osigfopen(si, 1) == 1
+        assert w.annopen("orec", [w.Anninfo("oat", w.WFDB_WRITE)], 1) == 0
+        w.wfdbquit()
+        w.wfdbx_set_output_dir(None)
+        assert (os.path.getsize("newdir/orec.dat"),
+                os.path.getsize("newdir/orec.oat")) == (0, 2)
+        # reading the record from the output directory
+        w.setwfdb("odir")
+        assert isig("orec") == 1
+        assert [vec(1) for _ in range(3)] == [[1, -7], [1, 3], [1, 13]]
+        assert w.annopen("orec", [w.Anninfo("oat", w.WFDB_READ)], 1) == 0
+        assert [ann(0) for _ in range(5)] == [
+            [0, 5, 1, 0, 0, 0], [0, 10, 5, 0, 0, 0], [0, 20, 1, 0, 0, 0],
+            [0, 30, 1, 0, 0, 0], [-1, 0, 0, 0, 0, 0]]
+        w.wfdbquit()
+        w.setwfdb(".")      # (resetwfdb in api_expect.c, with WFDB=.)
+        # t_sortfix: an out-of-order annotation at time 0 is not lost (it is
+        # in legacy mode, as by sortann), and in legacy mode with an output
+        # directory, sortann runs in that directory
+        a = w.Annotation(0, w.NORMAL)
+        w.wfdbquiet()
+        for legacy in (0, 1):
+            w.wfdbx_set_legacy(legacy)
+            annopen_write("100s", "l0" if legacy else "m0")
+            for t in (5, 0, 3):
+                a.time = t
+                w.putann(0, a)
+            w.wfdbquit()
+            w.wfdbx_set_output_dir("odir")
+            annopen_write("orec", "lsrt" if legacy else "msrt")
+            for t in (30, 10, 20):
+                a.time = t
+                w.putann(0, a)
+            w.wfdbquit()
+            w.wfdbx_set_output_dir(None)
+        w.wfdbx_set_legacy(0)
+        w.wfdbverbose()
+        for name, times in (("m0", [0, 3, 5]), ("l0", [5])):
+            assert w.annopen("100s", [w.Anninfo(name, w.WFDB_READ)], 1) == 0
+            assert [ann(0) for _ in times] == [[0, t, 1, 0, 0, 0]
+                                              for t in times]
+            assert ann(0)[0] == -1
+            w.wfdbquit()
+        assert readfile("odir/orec.msrt") == readfile("odir/orec.lsrt") == \
+            OREC_SRT
+    finally:
+        w.wfdbx_set_legacy(0)
+        w.wfdbx_set_output_dir(None)
+        w.wfdbverbose()
+        w.setanndesc(-42, "")
+        w.setannstr(-42, "[42]")
+        _annot._tstring[15] = None
+        _annot._tstring[42] = None
+        _annot._a.modified[:] = [0] * len(_annot._a.modified)
+
+
+def test_absolute_paths(datadir):
+    rec = os.path.join(os.path.realpath(datadir), "100s")
+    w.wfdbquiet()
+    try:
+        assert isig(rec) == 2
+        assert vec(2) == [2, 995, 1011]
+        assert w.wfdbfile("hea", rec) == rec + ".hea"
+        assert w.annopen(rec, [w.Anninfo("atr", w.WFDB_READ)], 1) == 0
+        assert ann(0) == [0, 18, 28, 0, 0, 0]
+        w.wfdbquit()
+        assert w.sampfreq(rec) == 360
+        w.wfdbquit()
+        assert isig(os.path.join(datadir, "nosuch")) == -1
+        w.wfdbquit()
+        # legacy mode: as in C, an absolute name is searched for in the WFDB
+        # path (here "./" + the name) ...
+        w.wfdbx_set_legacy(1)
+        assert isig(rec) == -1
+        assert w.annopen(rec, [w.Anninfo("atr", w.WFDB_READ)], 1) == -3
+        w.wfdbquit()
+        # ... unless the WFDB path has an empty component
+        w.setwfdb(";")
+        assert isig(rec) == 2
+        assert vec(2) == [2, 995, 1011]
+        w.wfdbquit()
+        w.wfdbx_set_legacy(0)
+        assert isig(rec) == 2
+        w.wfdbquit()
+    finally:
+        w.wfdbx_set_legacy(0)
+        w.resetwfdb()
+        w.wfdbverbose()

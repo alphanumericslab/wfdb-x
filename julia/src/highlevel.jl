@@ -31,6 +31,10 @@
 # bits and millivolts), because a silently assumed value corrupts every result
 # derived from it. See docs/DIVERGENCES.md. The original behavior remains
 # available with --legacy (see docs/DIVERGENCES.md).
+# Design decision (Reza Sameni, after a code review, Oct 2026): the writers
+# take a `dir` keyword argument (the files are created in that directory,
+# and the record opens from there under its plain name; see
+# `_with_output_dir`).
 # GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 """
@@ -215,6 +219,33 @@ function _with_legacy(f::Function, w::Wfdb, legacy::Bool)
         wfdbx_set_legacy(w, previous)
     end
 end
+
+# wfdb-x: the dir keyword argument of the writers. With a directory, run f()
+# with the library's output directory (wfdbx_set_output_dir) set to it,
+# restoring the previous one afterwards, also on errors; the record name must
+# not contain a directory, and the directory must exist (both checked before
+# anything is written). Without one (nothing or ""), just run f().
+function _with_output_dir(f::Function, w::Wfdb, record::ByteStr, dir)
+    d = dir === nothing ? "" : String(copy(cstr(bytes(dir))))
+    isempty(d) && return f()
+    rec = cstr(bytes(record))
+    (UInt8('/') in rec || (Sys.iswindows() && UInt8('\\') in rec)) &&
+        throw(WfdbError("record name must not contain a directory when dir is given"))
+    isdir(d) || throw(WfdbError("directory $d does not exist"))
+    previous = wfdbx_set_output_dir(w, d)
+    try
+        f()
+    finally
+        wfdbx_set_output_dir(w, previous)
+    end
+end
+
+const _DIR_DOC = """
+- `dir`: if given, the directory (which must exist) in which the files are
+  created; the header then names the record and its signal file without
+  the directory, so that the record opens from that directory under its
+  plain name (`record` must not contain a directory; wfdb-x addition, see
+  [`wfdbx_set_output_dir`](@ref))."""
 
 const _LEGACY_DOC = """
 `legacy=true` reproduces the original package (wfdb-x legacy mode, see
@@ -601,10 +632,11 @@ end
     write_record([w::Wfdb], record, samples::AbstractMatrix{<:Integer}, fs;
                  gains, adcres, units, fmt=16, baselines=nothing, adczeros=0,
                  names=nothing, samps_per_frame=nothing, base_time=nothing,
-                 comments=(), legacy=false)
+                 comments=(), dir=nothing, legacy=false)
 
-Write a new record in the current directory: the signal file `RECORD.dat`
-and the header file `RECORD.hea`. Existing files are overwritten.
+Write a new record in the current directory (or in `dir`): the signal file
+`RECORD.dat` and the header file `RECORD.hea`. Existing files are
+overwritten.
 
 `samples` holds the samples in ADC units, one row per frame. Normally it
 has one column per signal. For a multi-frequency record, pass
@@ -637,6 +669,7 @@ every signal).
   [`setbasetime`](@ref)); `nothing` for none.
 - `comments`: info strings written as comment lines after the signal
   lines of the header.
+$_DIR_DOC
 - `legacy`: see below.
 
 Returns `nothing`. Throws a [`WfdbError`](@ref) if `gains` is missing
@@ -644,8 +677,10 @@ Returns `nothing`. Throws a [`WfdbError`](@ref) if `gains` is missing
 missing or less than 1 (`"write_record: ADC resolution(s) must be
 specified"`), if the units of a signal with a non-zero gain are missing
 (`"write_record: units must be specified"`), if `fs` is not positive, if
-the number of columns does not match the signals, or if a file cannot be
-created.
+the number of columns does not match the signals, if a file cannot be
+created, if `dir` does not exist (`"directory DIR does not exist"`), or if
+`record` contains a directory and `dir` is given (`"record name must not
+contain a directory when dir is given"`).
 
 $_LEGACY_DOC (With it, `gains` defaults to 200, `adcres` to a resolution
 based on `fmt` (8 for formats 80 and 508, 10 for 310 and 311, 12 for 212,
@@ -668,12 +703,14 @@ new.dat 212 200/mV 11 0 1011 1171 0 V5
 function write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::Real;
                       fmt::Integer=16, gains=nothing, baselines=nothing, adczeros=0,
                       adcres=nothing, units=nothing, names=nothing, samps_per_frame=nothing,
-                      base_time=nothing, comments=(), legacy::Bool=false)
+                      base_time=nothing, comments=(), dir=nothing, legacy::Bool=false)
     legacy = _legacy(w, legacy)
     nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
     _with_legacy(w, legacy) do
-        _write_adc(w, record, samples, fs; nsig, fmt, gains, baselines, adczeros, adcres,
-                   units, names, samps_per_frame, base_time, comments, legacy)
+        _with_output_dir(w, record, dir) do
+            _write_adc(w, record, samples, fs; nsig, fmt, gains, baselines, adczeros, adcres,
+                       units, names, samps_per_frame, base_time, comments, legacy)
+        end
     end
 end
 write_record(record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::Real; kw...) =
@@ -688,7 +725,7 @@ Each value `v` is converted to ADC units as `round(v * gain) + baseline`
 (halfway cases rounded away from zero, as [`physadu`](@ref) does), using
 the `gains` and `baselines` options; `NaN` is written as an invalid sample.
 The keyword arguments are those of `write_record` (`gains`, `adcres` and
-`units` are required).
+`units` are required; `dir` as there).
 A gain of 0 (uncalibrated) is an error here (`"write_record: signal N is
 uncalibrated"`, `N` counting from 0): physical values cannot be converted
 without a gain (wfdb-x: the C library assumed 200 adu/mV, as
@@ -706,38 +743,41 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
                                fmt::Integer=16, gains=nothing, baselines=nothing,
                                adczeros=0, adcres=nothing, units=nothing, names=nothing,
                                samps_per_frame=nothing, base_time=nothing, comments=(),
-                               legacy::Bool=false)
+                               dir=nothing, legacy::Bool=false)
     legacy = _legacy(w, legacy)
-    nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
-    # Gain and baseline of each column of a frame
-    g = Float64[]
-    b = Int32[]
-    for k in 1:nsig
-        gain = _gain(gains, k, legacy)
-        if gain == 0.0
-            legacy || throw(WfdbError("write_record: signal $(k - 1) is uncalibrated"))
-            gain = WFDB_DEFGAIN     # wfdb-x: legacy mode (original behavior)
+    # wfdb-x: the dir checks come first
+    _with_output_dir(w, record, dir) do
+        nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
+        # Gain and baseline of each column of a frame
+        g = Float64[]
+        b = Int32[]
+        for k in 1:nsig
+            gain = _gain(gains, k, legacy)
+            if gain == 0.0
+                legacy || throw(WfdbError("write_record: signal $(k - 1) is uncalibrated"))
+                gain = WFDB_DEFGAIN     # wfdb-x: legacy mode (original behavior)
+            end
+            zero_ = Int32(_per_signal(adczeros, k, 0))
+            base = Int32(_per_signal(baselines, k, zero_))
+            for _ in 1:max(Int(_per_signal(samps_per_frame, k, 1)), 1)
+                push!(g, gain)
+                push!(b, base)
+            end
         end
-        zero_ = Int32(_per_signal(adczeros, k, 0))
-        base = Int32(_per_signal(baselines, k, zero_))
-        for _ in 1:max(Int(_per_signal(samps_per_frame, k, 1)), 1)
-            push!(g, gain)
-            push!(b, base)
+        isempty(g) && throw(WfdbError("write_record: no signals"))
+        legacy || _check_fs(fs)
+        size(samples, 2) == length(g) ||
+            throw(WfdbError("write_record: the number of columns is not the frame size ($(length(g)))"))
+        adc = Matrix{Int32}(undef, size(samples))
+        for c in 1:size(samples, 2), i in 1:size(samples, 1)
+            v = samples[i, c] * g[c]
+            adc[i, c] = isnan(v) ? WFDB_INVALID_SAMPLE :
+                        d2i((v >= 0.0 ? trunc(v + 0.5) : trunc(v - 0.5)) + b[c])
         end
-    end
-    isempty(g) && throw(WfdbError("write_record: no signals"))
-    legacy || _check_fs(fs)
-    size(samples, 2) == length(g) ||
-        throw(WfdbError("write_record: the number of columns is not the frame size ($(length(g)))"))
-    adc = Matrix{Int32}(undef, size(samples))
-    for c in 1:size(samples, 2), i in 1:size(samples, 1)
-        v = samples[i, c] * g[c]
-        adc[i, c] = isnan(v) ? WFDB_INVALID_SAMPLE :
-                    d2i((v >= 0.0 ? trunc(v + 0.5) : trunc(v - 0.5)) + b[c])
-    end
-    _with_legacy(w, legacy) do
-        _write_adc(w, record, adc, fs; nsig, fmt, gains, baselines, adczeros, adcres,
-                   units, names, samps_per_frame, base_time, comments, legacy)
+        _with_legacy(w, legacy) do
+            _write_adc(w, record, adc, fs; nsig, fmt, gains, baselines, adczeros, adcres,
+                       units, names, samps_per_frame, base_time, comments, legacy)
+        end
     end
 end
 write_record_physical(record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real; kw...) =
@@ -745,23 +785,30 @@ write_record_physical(record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real
 
 """
     write_annotations([w::Wfdb], record, annotator, ann::Annotations; fs=0.0,
-                      legacy=false)
+                      dir=nothing, legacy=false)
 
 Write the annotations `ann` to the annotation file `RECORD.ANNOTATOR` in
-the current directory (an existing file is overwritten), in MIT format.
+the current directory (or in `dir`; an existing file is overwritten), in
+MIT format.
 
 The type of each annotation is given by its mnemonic in `ann.symbols` if
 that entry is non-empty (see [`strann`](@ref)), otherwise by its code in
 `ann.codes`. Auxiliary data longer than 255 bytes are truncated. If the
 annotations are not in time order, the file is sorted when it is closed,
-as the C library does (by running `sortann`).
+as the `sortann` tool does (wfdb-x: in this process, whereas the C library,
+as legacy mode, runs `sortann`), unless the environment variable
+`WFDBANNSORT` is 0.
 
 If `fs > 0`, it is recorded in the file as the time resolution of the
 annotation times (ticks per second); otherwise no resolution is recorded,
 and readers use the record's sampling frequency. `ann.fs` is not used.
 
+`dir`: if given, the directory (which must exist) in which the file is
+created (`record` must not contain a directory; wfdb-x addition).
+
 Returns `nothing`. Throws a [`WfdbError`](@ref) if the file cannot be
-created.
+created, if `dir` does not exist, or if `record` contains a directory and
+`dir` is given.
 
 $_LEGACY_DOC (Writing annotations is the same in both modes.)
 
@@ -776,8 +823,10 @@ true
 ```
 """
 function write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations;
-                           fs::Real=0.0, legacy::Bool=false)
-    _with_legacy(() -> _write_annotations(w, record, annotator, ann, fs), w, legacy)
+                           fs::Real=0.0, dir=nothing, legacy::Bool=false)
+    _with_legacy(w, legacy) do
+        _with_output_dir(() -> _write_annotations(w, record, annotator, ann, fs), w, record, dir)
+    end
 end
 function _write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations,
                             fs::Real)

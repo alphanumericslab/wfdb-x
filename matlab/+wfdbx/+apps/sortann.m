@@ -33,6 +33,11 @@ function status = sortann(args)
 % not give are never assumed (the original package assumed 250 Hz,
 % 200 adu/mV, 12 bits and millivolts), because a silently assumed value
 % corrupts every result derived from it. See docs/DIVERGENCES.md.
+% Design decision (Reza Sameni, after a code review, Oct 2026): an
+% out-of-order annotation at time 0 is no longer lost (the original
+% compared it with the list head; see docs/KNOWN_C_BEHAVIORS.md). The
+% original behavior remains available with --legacy (see
+% docs/DIVERGENCES.md).
 % GNU General Public License, version 2 or later (see LICENSE).
 
 if nargin < 1
@@ -217,7 +222,10 @@ end
 [~, A] = wfdbx.internal.getann_bulk(0, inf);
 keep = ~(A.time < from | (to > 0 & A.time >= to));
 A = sel(A, keep);
-[order, in_order] = annlist(A.time, A.num, A.chan);
+% wfdb-x: the original insertion (which loses an out-of-order annotation
+% at time 0) in legacy mode only
+[order, in_order] = wfdbx.internal.ann_sortlist(A.time, A.num, A.chan, ...
+    legacy);
 wfdbx.iannclose(0);
 if in_order && ~ischar(out_name)
     ep('%s: input is already ordered -- no output written\n', pname);
@@ -245,94 +253,4 @@ A.subtyp = A.subtyp(k);
 A.chan = A.chan(k);
 A.num = A.num(k);
 A.aux = A.aux(k);
-end
-
-function [order, in_order] = annlist(t, num, chan)
-% The doubly-linked annotation list of sortann.c (same algorithm): returns
-% the indices of the annotations in list order.  Node 1 is the static
-% list head (an all-zero annotation, which takes part in comparisons).
-n = numel(t);
-in_order = 1;
-if n <= 1
-    order = 1:n;
-    return;
-end
-gt = t(2:end) > t(1:end-1) | (t(2:end) == t(1:end-1) & ...
-    (num(2:end) > num(1:end-1) | (num(2:end) == num(1:end-1) & ...
-    chan(2:end) > chan(1:end-1))));
-if all(gt)
-    order = 1:n;
-    return;
-end
-in_order = 0;
-T = [0, t];
-M = [0, num];
-C = [0, chan];
-nxt = zeros(1, n + 1);
-prv = zeros(1, n + 1);
-% the appended prefix
-f = find(~gt, 1);           % annotation f+1 is the first not appended
-nxt(1:f) = 2:f+1;
-prv(2:f+1) = 1:f;
-lastp = f + 1;
-for x = f+2:n+1
-    la = lastp;
-    tx = T(x); mx = M(x); cx = C(x);
-    if la == 1 || tx > T(la) || (tx == T(la) && (mx > M(la) || ...
-            (mx == M(la) && cx > C(la))))
-        prv(x) = la;
-        nxt(la) = x;
-        lastp = x;
-        nxt(x) = 0;
-        continue;
-    end
-    ap = la;
-    while ap ~= 0
-        ta = T(ap);
-        if tx > ta || (tx == ta && (mx > M(ap) || (mx == M(ap) && cx >= C(ap))))
-            break;
-        end
-        ap = prv(ap);
-    end
-    if ap == 0
-        prv(x) = 0;
-        nxt(x) = nxt(1);
-        nxt(1) = x;
-        prv(nxt(x)) = x;
-    elseif tx == T(ap) && mx == M(ap) && cx == C(ap)
-        prv(x) = prv(ap);
-        if prv(x) ~= 0
-            nxt(prv(x)) = x;
-        end
-        nxt(x) = nxt(ap);
-        if nxt(x) ~= 0
-            prv(nxt(x)) = x;
-        else
-            lastp = x;
-        end
-        % If ap was the first entry of the list but its 'prev' link does not
-        % lead back to the list head (an entry inserted at the beginning
-        % gets a null link, and one whose predecessor replaced the head is
-        % detached), C leaves the head pointing to the freed entry
-        % (undefined behavior): here the head is updated, so that the
-        % duplicate is replaced (see docs/KNOWN_C_BEHAVIORS.md).
-        if ap ~= 1 && nxt(1) == ap
-            nxt(1) = x;
-        end
-    else
-        prv(x) = ap;
-        nxt(x) = nxt(ap);
-        nxt(ap) = x;
-        prv(nxt(x)) = x;
-    end
-end
-order = zeros(1, n);
-k = 0;
-p = nxt(1);
-while p ~= 0
-    k = k + 1;
-    order(k) = p - 1;
-    p = nxt(p);
-end
-order = order(1:k);
 end

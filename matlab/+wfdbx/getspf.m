@@ -10,7 +10,7 @@ function n = getspf()
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if S.sfreq ~= S.ffreq
     n = fix(S.sfreq / S.ffreq + 0.5);
 else

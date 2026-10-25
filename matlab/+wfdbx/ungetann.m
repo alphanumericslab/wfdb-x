@@ -12,7 +12,7 @@ function stat = ungetann(an, annot)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 if an < 0 || an >= numel(st.iad) || isempty(st.iad{an+1})
     wfdbx.internal.wfdb_error('ungetann: annotator %d is not initialized\n', an);
     stat = -2;
@@ -27,19 +27,7 @@ if ia.pann.anntyp ~= 0
     stat = -1;
     return;
 end
-p = wfdbx.annotation();
-p.time = annot.time;
-p.anntyp = annot.anntyp;
-p.subtyp = annot.subtyp;
-p.chan = annot.chan;
-p.num = annot.num;
-p.aux = annot.aux;
-ia.pann = p;
-if annot.time == ia.prev_time
-    ia.pann_tt = ia.prev_tt;
-else
-    ia.pann_tt = annot.time / ia.tmul;
-end
+ia = wfdbx.internal.ann_unget(ia, annot);
 st.iad{an+1} = ia;
 stat = 0;
 end

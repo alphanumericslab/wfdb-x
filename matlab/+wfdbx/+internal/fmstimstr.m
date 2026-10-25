@@ -3,7 +3,7 @@ function s = fmstimstr(t, f)
 %   S = wfdbx.internal.fmstimstr(T, F) converts T (sample intervals at F
 %   Hz) to "hh:mm:ss.mmm" (elapsed time, T > 0 or no base time) or to
 %   "[hh:mm:ss.mmm dd/mm/yyyy]" (absolute time -T after the base time).
-%   The result is also saved as sigstate().time_string.
+%   The result is also saved as sig_state().time_string.
 
 % Copyright (C) 1989-2013 George B. Moody (original C implementation,
 % lib/signal.c; revised 2011-2022 by Benjamin Moody, who contributed this
@@ -11,7 +11,7 @@ function s = fmstimstr(t, f)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if t > 0 || (S.btime == 0 && S.bdate == 0)
     if t < 0
         t = -t;

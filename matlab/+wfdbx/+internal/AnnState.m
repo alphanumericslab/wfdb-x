@@ -1,6 +1,6 @@
 classdef AnnState < handle
 %ANNSTATE Global state of the WFDB annotation module (the statics of annot.c).
-%   The single instance is returned by wfdbx.internal.annstate().
+%   The single instance is returned by wfdbx.internal.ann_state().
 %   Properties:
 %
 %     iad             input annotators: cell row of structures (annotator

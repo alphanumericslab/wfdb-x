@@ -35,7 +35,7 @@ switch string(k)
     case {'e', 'i', 'o', 's'}
         r = 0;
     case 'c'
-        S = wfdbx.internal.sigstate();
+        S = wfdbx.internal.sig_state();
         r = double(S.cfreq > 0);
     otherwise
         r = 1;

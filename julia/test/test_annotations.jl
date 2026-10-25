@@ -429,3 +429,270 @@ end
         @test st == 0 && read("newrec.rr") == unhex("6404 3204 0000")
     end
 end
+
+# ---------------------------------------------------------------------------
+# Out-of-order output annotations: sorted when the file is closed (wfdb-x: in
+# the same process; in legacy mode, by running sortann, as the C library)
+
+# ties in time, num and chan, duplicates (the last one is kept), NOTQRS
+# (dropped), aux strings, and a time 0 annotation that precedes the others
+# (dropped by sortann; see docs/KNOWN_C_BEHAVIORS.md)
+TRICKY = [    # time, code, subtype, chan, num, aux
+    (100, W.NORMAL, 0, 0, 0, nothing), (50, W.PVC, 0, 0, 0, "(VT"),
+    (100, W.APC, 0, 1, 0, nothing), (100, W.NORMAL, 0, 0, 1, "num 1"),
+    (100, W.PVC, 0, 0, 0, "replaces N"), (75, W.NOTQRS, 0, 2, 0, nothing),
+    (75, W.NORMAL, 1, 2, 0, "odd"), (10, W.NOTQRS, 0, 0, 0, nothing),
+    (200, W.RHYTHM, 0, 0, 0, "(AFIB"), (150, W.NOISE, 0, 3, -1, nothing),
+    (150, W.NOISE, 0, 3, 0, nothing), (20, W.NORMAL, 0, 0, 0, "x"^101),
+    (0, W.NORMAL, 0, 0, 0, nothing), (5, W.NORMAL, 0, 1, 0, nothing),
+    (5000, W.NORMAL, 0, 0, 0, nothing)]
+
+tricky_annotations() = W.Annotations(
+    samples=[t[1] for t in TRICKY], codes=[t[2] for t in TRICKY],
+    subtypes=[t[3] for t in TRICKY], chans=[t[4] for t in TRICKY],
+    nums=[t[5] for t in TRICKY],
+    aux=Union{Nothing,Vector{UInt8}}[t[6] === nothing ? nothing : Vector{UInt8}(t[6])
+                                     for t in TRICKY])
+
+# Run f() with the standard output and error of the library captured (as
+# run_tool does; a sortann run by oannclose would then run in this process,
+# and its messages would be captured too); return what f wrote on the
+# standard error.
+function capture_stderr(f)
+    p = W.cproc()
+    p.out_capture = UInt8[]
+    p.err_capture = UInt8[]
+    try
+        f()
+        return String(copy(p.err_capture))
+    finally
+        p.out_capture = nothing
+        p.err_capture = nothing
+    end
+end
+
+rearranged(name) = "Rearranging annotations for output annotator $name ...done!\n"
+
+# (time in ticks of 1000 Hz, anntyp, chan, num) of the annotations of
+# 100s.NAME, read with a fresh library state.
+function read_ticks(name)
+    r = Wfdb()
+    W.setwfdb(r, ".")
+    @test W.annopen(r, "100s", ai1(name, WFDB_READ), 1) == 0
+    @test W.annstr(r, 42) == b"Z"   # (the definition table was kept)
+    W.setiafreq(r, 0, 1000.0)       # (times in ticks of the time resolution)
+    got = Tuple{Int64,Int32,Int32,Int32}[]
+    a = Annotation()
+    while W.getann(r, 0, a) == 0
+        push!(got, (a.time, a.anntyp, a.chan, a.num))
+    end
+    W.wfdbquit(r)
+    got
+end
+
+@testset "in-process sort" begin
+    with_data("sort") do w
+        W.setannstr(w, 42, "Z")     # (a definition table in the file)
+        # legacy mode: the sortann program (a separate process, with --legacy)
+        W.write_annotations(w, "100s", "leg", tricky_annotations(); fs=1000.0, legacy=true)
+        # modern mode: in this process, without any sortann (one would print
+        # "init: can't open header for record nohdr")
+        err = capture_stderr() do
+            W.write_annotations(w, "100s", "mod", tricky_annotations(); fs=1000.0)
+            cp("100s.hea", "nohdr.hea")
+            W.write_annotations(w, "nohdr", "mod", tricky_annotations(); fs=1000.0)
+            rm("nohdr.hea")
+            W.write_annotations(w, "nohdr", "mod", tricky_annotations(); fs=1000.0)
+        end
+        @test err == rearranged("mod")^3
+        modern = read("100s.mod")
+        @test read("nohdr.mod") == modern
+        # (the library's settings and tables are unchanged)
+        @test W.getafreq(w) == 0.0 && W.annstr(w, 42) == b"Z"
+        @test findall(w.ann.modified) == [43]
+        # the in-process sort and the sortann tool give the same bytes (and
+        # so do the legacy sort and the legacy tool)
+        withenv("WFDBANNSORT" => "0") do
+            W.wfdbquiet(w)
+            W.write_annotations(w, "100s", "uns", tricky_annotations(); fs=1000.0)
+            W.wfdbverbose(w)
+        end
+        cp("100s.uns", "100s.unl")
+        env = ("WFDB" => ".",)
+        st, out, err = W.run_tool("sortann", ["-r", "100s", "-a", "uns"]; env=env)
+        @test st == 0 && isempty(err) && read("100s.uns") == modern
+        st, out, err = W.run_tool("sortann", ["--legacy", "-r", "100s", "-a", "unl"]; env=env)
+        @test st == 0 && isempty(err) && read("100s.unl") == read("100s.leg")
+        # legacy mode (the original sortann): the annotation at time 0 is
+        # lost, and so is the one at time 5 inserted after it
+        rest = [(20, W.NORMAL, 0, 0), (50, W.PVC, 0, 0), (75, W.NORMAL, 2, 0),
+                (100, W.PVC, 0, 0), (100, W.APC, 1, 0), (100, W.NORMAL, 0, 1),
+                (150, W.NOISE, 3, -1), (150, W.NOISE, 3, 0), (200, W.RHYTHM, 0, 0),
+                (5000, W.NORMAL, 0, 0)]
+        @test read_ticks("leg") == rest
+        # wfdb-x: nothing is lost
+        got = read_ticks("mod")
+        @test got == vcat([(0, W.NORMAL, 0, 0), (5, W.NORMAL, 1, 0)], rest)
+        # NOTQRS annotations are dropped (by sortann too; wrann cannot write
+        # them)
+        @test !any(t -> t[2] == W.NOTQRS, got)
+    end
+end
+
+@testset "sort list: time 0" begin
+    for (legacy, want) in ((false, [0, 3, 5]), (true, [5]))
+        l = W._SortList(legacy)
+        for t in (5, 0, 3)
+            W._sortann_insert!(l, Annotation(time=t, anntyp=W.NORMAL % Int8))
+        end
+        times = Int64[]
+        ap = l.next[1]
+        while ap != -1
+            push!(times, l.ann[ap+1].time)
+            ap = l.next[ap+1]
+        end
+        @test times == want && !l.in_order
+    end
+    # a later annotation at time 0 replaces a real one (both modes), and an
+    # annotation at time 0 on another channel is kept (both modes)
+    for legacy in (false, true)
+        l = W._SortList(legacy)
+        for (t, c, typ) in ((0, 0, W.NORMAL), (7, 0, W.NORMAL), (0, 1, W.APC), (0, 0, W.PVC))
+            W._sortann_insert!(l, Annotation(time=t, anntyp=typ % Int8, chan=c % UInt8))
+        end
+        got = Tuple{Int64,Int,Int}[]
+        ap = l.next[1]
+        while ap != -1
+            x = l.ann[ap+1]
+            push!(got, (x.time, x.chan, x.anntyp))
+            ap = l.next[ap+1]
+        end
+        @test got == [(0, 0, W.PVC), (0, 1, W.APC), (7, 0, W.NORMAL)]
+    end
+end
+
+@testset "legacy sort in the output directory" begin
+    # legacy mode: the sortann program runs in the output directory (where
+    # the file is), with --legacy; the result is that of the modern sort
+    with_data("legdir") do w
+        mkdir("out")
+        ann = W.Annotations(samples=[300, 100, 200, 100, 50],
+                            symbols=[b"N", b"V", b"N", b"A", b"N"])
+        W.write_annotations(w, "rec", "leg", ann; dir="out", legacy=true)
+        W.write_annotations(w, "rec", "mod", ann; dir="out")
+        @test sort(readdir("out")) == ["rec.leg", "rec.mod"]
+        @test read("out/rec.leg") == read("out/rec.mod")
+        W.wfdbquiet(w)
+        a = W.read_annotations(w, "out/rec", "leg"; fs=360)
+        W.wfdbverbose(w)
+        @test a.samples == [50, 100, 200, 300] && a.symbols[2] == b"A"
+        # (the same with the captured output of run_tool, where sortann runs
+        # in this process)
+        err = capture_stderr() do
+            W.write_annotations(w, "rec", "cap", ann; dir="out", legacy=true)
+        end
+        @test err == "Rearranging annotations for output annotator cap ..." *
+                     "init: can't open header for record rec\ndone!\n"
+        @test read("out/rec.cap") == read("out/rec.mod")
+    end
+end
+
+@testset "write_annotations: dir checks first" begin
+    with_data("dirfirst") do w
+        mkdir("out")
+        ann = W.Annotations(samples=[1], symbols=[b"N"])
+        e = try
+            W.write_annotations(w, "x/rec", "atr", ann; dir="out")
+        catch err
+            err
+        end
+        @test e isa W.WfdbError && e.msg == "record name must not contain a directory when dir is given"
+        e = try
+            W.write_annotations(w, "rec", "atr", ann; dir="nosuch")
+        catch err
+            err
+        end
+        @test e isa W.WfdbError && e.msg == "directory nosuch does not exist"
+        # (then the other checks: an illegal annotator name)
+        W.wfdbquiet(w)
+        @test_throws W.WfdbError W.write_annotations(w, "rec", "a.b", ann; dir="out")
+        W.wfdbverbose(w)
+    end
+end
+
+@testset "sort disabled, read errors" begin
+    with_data("nosort") do w
+        withenv("WFDBANNSORT" => "0") do
+            err = capture_stderr() do
+                W.write_annotations(w, "100s", "ns", tricky_annotations())
+            end
+            @test err == "Use the command:\n  sortann -r 100s -a ns\n" *
+                         "to rearrange annotations in the correct order.\n"
+        end
+        @test W.annopen(w, "100s", ai1("ns", WFDB_READ), 1) == 0
+        times = Int64[]
+        a = Annotation()
+        while W.getann(w, 0, a) == 0
+            push!(times, a.time)
+        end
+        W.wfdbquit(w)
+        @test times == [t[1] for t in TRICKY]   # (as written)
+        # a truncated file (no end mark) cannot be sorted, and is not changed
+        data = read("100s.ns")
+        write("100s.tr", data[1:end-2])
+        W.wfdbquiet(w)
+        @test W._sort_ann_file(w, Vector{UInt8}("100s.tr"), Vector{UInt8}("tr")) == -1
+        W.wfdbverbose(w)
+        @test read("100s.tr") == data[1:end-2]
+        @test W._sort_ann_file(w, Vector{UInt8}("nosuch.tr"), Vector{UInt8}("tr")) == -1
+        # an ordered file is not rewritten
+        @test W._sort_ann_file(w, Vector{UInt8}("100s.atr"), Vector{UInt8}("atr")) == 0
+    end
+end
+
+@testset "sort keeps other annotators" begin
+    # an input annotator and the signals stay open while an output annotator
+    # is closed and sorted
+    with_data("keep") do w
+        @test W.isigopen(w, "100s", nothing, 2) == 2
+        ai = [Anninfo("atr", WFDB_READ), Anninfo("o1", WFDB_WRITE), Anninfo("o2", WFDB_WRITE)]
+        @test W.annopen(w, "100s", ai, 3) == 0
+        first = Annotation()
+        W.getann(w, 0, first)
+        for t in (30, 10, 20)
+            W.putann(w, 0, Annotation(time=t, anntyp=W.NORMAL % Int8))
+            W.putann(w, 1, Annotation(time=t, anntyp=W.PVC % Int8))
+        end
+        W.wfdbquiet(w)
+        W.oannclose(w, 0)       # sorted now; o2 becomes output annotator 0
+        W.wfdbverbose(w)
+        @test annv(w, 0)[1:2] == [0, 77] && first.time == 18
+        v = zeros(Int32, 2)
+        @test W.getvec(w, v) == 2 && v == [995, 1011]
+        W.putann(w, 0, Annotation(time=40, anntyp=W.PVC % Int8))
+        W.wfdbquiet(w)
+        W.wfdbquit(w)
+        W.wfdbverbose(w)
+        o1 = W.read_annotations(w, "100s", "o1")
+        o2 = W.read_annotations(w, "100s", "o2")
+        @test o1.samples == [10, 20, 30] && all(==(b"N"), o1.symbols)
+        @test o2.samples == [10, 20, 30, 40]
+    end
+end
+
+@testset "write_annotations dir" begin
+    with_data("dir") do w
+        mkdir("out")
+        ann = W.Annotations(samples=[30, 10, 20], symbols=[b"N", b"V", b"N"])
+        W.wfdbquiet(w)
+        W.write_annotations(w, "rec", "atr", ann; dir="out")
+        @test readdir("out") == ["rec.atr"]
+        @test W.wfdbx_get_output_dir(w) === nothing
+        a = W.read_annotations(w, "out/rec", "atr")     # sorted in place
+        W.wfdbverbose(w)
+        @test a.samples == [10, 20, 30] && a.symbols[1] == b"V"
+        @test_throws W.WfdbError W.write_annotations(w, "rec", "atr", ann; dir="nosuch")
+        @test_throws W.WfdbError W.write_annotations(w, "x/rec", "atr", ann; dir="out")
+        @test readdir("out") == ["rec.atr"]
+    end
+end

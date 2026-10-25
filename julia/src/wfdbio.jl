@@ -7,6 +7,12 @@
 # Remote (http, ftp) files are not supported: WFDB path components that are
 # URLs are skipped, as in the other implementations of wfdb-x.
 #
+# wfdb-x: wfdb_open opens an input file named by an absolute path directly
+# (the C library searched for it in each directory of the WFDB path), and
+# output files can be created in a directory set with wfdbx_set_output_dir;
+# decided by Reza Sameni after a code review, Oct 2026. The original
+# behavior remains available with --legacy (see docs/DIVERGENCES.md).
+#
 # Copyright (C) 1988-2013 George B. Moody (original C implementation,
 # lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
 # Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
@@ -769,8 +775,10 @@ mutable struct IoState
     filename::Vector{UInt8}     # name of the file most recently opened by wfdb_open
     irec::Vector{UInt8}         # current record name (for %r in the WFDB path)
     mem_behavior::Int32
+    output_dir::Union{Nothing,Vector{UInt8}}    # wfdb-x: see wfdbx_set_output_dir
 end
-IoState() = IoState(nothing, nothing, PathComponent[], true, false, UInt8[], UInt8[], UInt8[], Int32(1))
+IoState() = IoState(nothing, nothing, PathComponent[], true, false, UInt8[], UInt8[], UInt8[],
+                    Int32(1), nothing)
 
 function _spr1(record::Vector{UInt8}, ftype::Vector{UInt8})
     v = copy(record)
@@ -869,34 +877,38 @@ end
 const _PKGROOT = dirname(@__DIR__)
 
 """
-    run_sortann(record, annotator) -> Int
+    run_sortann(record, annotator; dir=nothing) -> Int
 
-Run `sortann -r. RECORD -a ANNOTATOR` to sort an annotation file (used by
-`oannclose`), as the C library runs the `sortann` program: in a separate
+Run `sortann --legacy -r. RECORD -a ANNOTATOR` to sort an annotation file
+(used by `oannclose` in legacy mode), as the C library runs the `sortann`
+program, in the directory `dir` if given (wfdb-x: the output directory,
+where the file is; `--legacy` makes the child behave as the original
+program): in a separate
 Julia process (the same `julia` binary and project, `bin/wfdbx.jl
 sortann`), after flushing the standard output. Returns its exit status (-1
 if it could not be run). When the output is captured (`run_tool`, during
 precompilation), `sortann` runs in-process with a fresh library state
 instead, and its output is captured too.
 """
-function run_sortann(record::ByteStr, annotator::ByteStr)
+function run_sortann(record::ByteStr, annotator::ByteStr; dir::OptByteStr=nothing)
     rec = bstr(cstr(bytes(record)))
     ann = bstr(cstr(bytes(annotator)))
-    args = String["-r.", rec, "-a", ann]
+    args = String["--legacy", "-r.", rec, "-a", ann]
+    wd = dir === nothing ? pwd() : bstr(cstr(bytes(dir)))
     cflush()
     p = cproc()
     if p.out_capture !== nothing
         isdefined(@__MODULE__, :sortann_main) || return -1
         out = p.out_capture
         err = p.err_capture
-        st, o, e = run_tool("sortann", args)
+        st, o, e = run_tool("sortann", args; dir=wd)
         append!(out, o)
         err === nothing ? cerr_write(e) : append!(err, e)
         return Int(st)
     end
     cmd = `$(Base.julia_cmd()) --startup-file=no --project=$(_PKGROOT) $(joinpath(_PKGROOT, "bin", "wfdbx.jl")) sortann $args`
     try
-        pr = run(ignorestatus(cmd))
+        pr = run(ignorestatus(Cmd(cmd; dir=wd)))
         return pr.exitcode == 0 && pr.termsignal != 0 ? -1 : Int(pr.exitcode)
     catch e
         e isa Base.IOError || rethrow()
@@ -1093,15 +1105,60 @@ wfdb_me_fatal(w::Wfdb) = w.io.mem_behavior
 wfdb_filename(w::Wfdb) = copy(w.io.filename)
 
 """
+    wfdbx_set_output_dir([w], dir) -> Union{Vector{UInt8},Nothing}
+
+wfdb-x addition: set the directory in which [`wfdb_open`](@ref) creates
+output files (`WFDB_WRITE` and `WFDB_APPEND` modes): each is created as
+`dir/NAME`, `NAME` being the name it would have otherwise (the record name
+and the file type; the record name may itself contain directories).
+`nothing` or an empty string means none (the default). Returns the previous
+setting (`nothing` if none). The directory is not checked: as for any
+output file, missing directories are created. The setting belongs to the
+library state `w` and is not reset by `wfdbquit`; it is the same in legacy
+mode. Header and signal file names recorded in headers are not changed.
+"""
+function wfdbx_set_output_dir(w::Wfdb, dir::OptByteStr)
+    previous = w.io.output_dir
+    d = dir === nothing ? UInt8[] : cstr(bytes(dir))
+    w.io.output_dir = isempty(d) ? nothing : copy(d)
+    previous
+end
+
+"""
+    wfdbx_get_output_dir([w]) -> Union{Vector{UInt8},Nothing}
+
+wfdb-x addition: the directory set by [`wfdbx_set_output_dir`](@ref), or
+`nothing`.
+"""
+wfdbx_get_output_dir(w::Wfdb) = w.io.output_dir === nothing ? nothing : copy(w.io.output_dir)
+
+# True if name is an absolute local path: one that begins with '/' (on
+# Windows also 'X:\', 'X:/' or '\\').
+function _is_absolute_path(name::Vector{UInt8})
+    if Sys.iswindows()
+        bs = UInt8('\\')
+        length(name) > 2 && UInt8('a') <= (name[1] | 0x20) <= UInt8('z') &&
+            name[2] == UInt8(':') && (name[3] == bs || name[3] == UInt8('/')) && return true
+        length(name) > 1 && name[1] == bs && name[2] == bs && return true
+    end
+    !isempty(name) && name[1] == UInt8('/')
+end
+
+"""
     wfdb_open([w], type, record, mode) -> Union{WfdbFile,Nothing}
 
 Find and open a WFDB file. For input (`mode` `WFDB_READ`), the file
 `RECORD.TYPE` is looked for in each directory of the WFDB path (with `%r` in
 a path component replaced by the current record name, `%Nr` by its first N
-characters), then with the type truncated to 3 characters. For output
+characters), then with the type truncated to 3 characters. wfdb-x: an
+absolute name (`/...`; on Windows also `X:\\...`, `X:/...`, `\\\\...`) is
+first opened directly, and its directory then added to the WFDB path; if it
+cannot be, or in legacy mode, the WFDB path is searched as in C. For output
 (`WFDB_WRITE`, `WFDB_APPEND`), it is created in the current directory (or
-the directory given in the record name). `record` `"-"` is the standard
-input or output. If `record` is empty or `nothing`, `type` is the file name.
+the directory given in the record name), within the output directory if
+one is set (see [`wfdbx_set_output_dir`](@ref)). `record` `"-"` is the
+standard input or output. If `record` is empty or `nothing`, `type` is the
+file name.
 """
 function wfdb_open(w::Wfdb, s::OptByteStr, record::OptByteStr, mode::Integer)
     io = w.io
@@ -1131,15 +1188,25 @@ function wfdb_open(w::Wfdb, s::OptByteStr, record::OptByteStr, mode::Integer)
         q < p && append!(r, @view rb[q:p-1])
     end
 
-    if mode == WFDB_WRITE
+    if mode == WFDB_WRITE || mode == WFDB_APPEND
         io.filename = _spr1(r, sb)
-        return wfdb_fopen(io.filename, "wb")
-    elseif mode == WFDB_APPEND
-        io.filename = _spr1(r, sb)
-        return wfdb_fopen(io.filename, "ab")
+        # wfdb-x: in the output directory, if one is set
+        io.output_dir === nothing || (io.filename = UInt8[io.output_dir; DSEP; io.filename])
+        return wfdb_fopen(io.filename, mode == WFDB_WRITE ? "wb" : "ab")
     end
 
     isempty(io.path_list) && getwfdb(w)
+    # wfdb-x: an absolute local path is opened directly (and its directory
+    # added to the WFDB path); if it cannot be, the WFDB path is searched as
+    # in the C library (and in legacy mode).
+    if _is_absolute_path(r) && wfdbx_get_legacy(w) == 0
+        io.filename = _spr1(r, sb)
+        f = wfdb_fopen(io.filename, "rb")
+        if f !== nothing
+            wfdb_addtopath(w, io.filename)
+            return f
+        end
+    end
     plist = [PathComponent(copy(c.prefix), c.ptype) for c in io.path_list]
     for c in plist
         # Substitute the record name for %r (or its first N characters for
@@ -1356,6 +1423,10 @@ wfdb_getirec() = wfdb_getirec(lib())
 wfdb_parse_path(p::OptByteStr) = wfdb_parse_path(lib(), p)
 wfdb_addtopath(s::ByteStr) = wfdb_addtopath(lib(), s)
 wfdbfile(s::OptByteStr, record::OptByteStr) = wfdbfile(lib(), s, record)
+wfdbx_set_output_dir(dir::OptByteStr) = wfdbx_set_output_dir(lib(), dir)
+wfdbx_get_output_dir() = wfdbx_get_output_dir(lib())
+
+export wfdbx_set_output_dir, wfdbx_get_output_dir
 
 # ---------------------------------------------------------------------------
 # Precompilation workload: file I/O and the WFDB path.

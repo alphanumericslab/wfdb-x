@@ -314,7 +314,7 @@ if fid < 0
     ok = false;
     return;
 end
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 st.stdin_file = wfdbx.internal.WFDBFile(fid, 0, '-', 0);
 end
 

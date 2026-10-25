@@ -108,6 +108,27 @@ results produced with it carry the same risks.
 Records are found using the WFDB path (the `WFDB` environment variable, as
 with the C library). Remote (http) records are not supported.
 
+**Absolute paths.** A record (or file) named by an absolute path
+(`rdsamp -r /data/mitdb/100`; on Windows also `C:\data\100`) is opened
+directly, and its directory is added to the WFDB path, so that the signal
+files next to the header are found; if it cannot be opened there, the WFDB
+path is searched as before. (The C library joined such a name with each
+directory of the WFDB path, so that it was found only from the root
+directory; legacy mode does the same.) In both modes, a WFDB path with an
+empty component, `setwfdb(";")` (or `WFDB=";"`), uses names as given.
+
+**Sorting annotation files.** When an annotation file is written out of
+order (`wrann`, `putann`, `write_annotations`), the library rearranges it
+when it is closed, in the same process, with exactly the result of `sortann
+-r. RECORD -a ANNOTATOR` (unless `WFDBANNSORT` is 0); the C library ran the
+`sortann` program through the shell. In legacy mode, the `sortann` program
+is run (from the directory of the running program, else from the `PATH`),
+without a shell, as `sortann --legacy` and in the output directory if one is
+set. Unlike the original, sorting (here and in `sortann`) no longer loses
+an out-of-order annotation at time 0 (with `num` and `chan` 0) and those
+inserted after it (input times 5, 0, 3 now give 0, 3, 5; legacy mode keeps
+the original behavior, which gives only 5).
+
 The tools are checked against the C tools by the conformance suite of
 wfdb-x (run from the repository root):
 
@@ -227,6 +248,38 @@ with `ReadOptions::legacy` and `WriteOptions::legacy`, the function behaves
 as in the original package, e.g. 250 Hz for a record without a frequency,
 gain 200 for uncalibrated signals, and the format's resolution by default).
 
+**Output directory.** `WriteOptions::dir` and the last argument of
+`write_annotations` (`Some(path)`) create the files in that directory,
+which must exist; the record name must then be a plain name (an error
+otherwise), and the header names the record and its signal file without the
+directory (`rec 2 360 ...`, `rec.dat ...`), so that the record opens from
+that directory under its plain name:
+
+```rust,no_run
+use std::path::Path;
+use wfdbx::{write_annotations, write_record, Annotations, WriteOptions};
+
+fn main() -> Result<(), wfdbx::record::Error> {
+    let opt = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        dir: Some("out".into()),                  // out/rec.hea, out/rec.dat
+        ..Default::default()
+    };
+    write_record("rec", &[0, 10, 5, 12], 2, 360.0, &opt)?;
+    let ann = Annotations { samples: vec![1], symbols: vec!["N".into()], ..Default::default() };
+    write_annotations("rec", "atr", &ann, 0.0, Some(Path::new("out")))
+}
+```
+
+The library's output directory (`wfdbx_set_output_dir(dir)`, which returns
+the previous value, and `wfdbx_get_output_dir()`; per instance, like the
+legacy setting) is set for the duration of the call and restored
+afterwards. With it set, `wfdb_open` creates every output file as
+`DIR/NAME`; the C-style API and the tools are otherwise unchanged
+(`newheader("out/rec")` still records `out/rec`).
+
 The free functions use the default instance; the same functions are
 methods of `Wfdb` (`w.read_record(...)`). Each call closes the records
 and annotators open in the instance it uses (it calls `wfdbquit` before
@@ -258,7 +311,8 @@ under the GNU General Public License, version 2 or later
 ([`LICENSE`](../LICENSE)). The original C implementation is by George B.
 Moody, Benjamin Moody and others (each file names the authors of the C code
 it ports; see [`docs/AUTHORS.md`](../docs/AUTHORS.md)). The Rust
-implementation was written by Reza Sameni (October 2026).
+implementation was developed by Reza Sameni (2026), with AI assistance (see
+the project README).
 
 ## For developers
 

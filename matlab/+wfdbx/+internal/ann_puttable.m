@@ -1,10 +1,16 @@
-function stat = ann_puttable(i)
+function [stat, oa] = ann_puttable(oa, n, freq, defs)
 %ANN_PUTTABLE Write the annotation table at the start of an output file.
-%   STAT = wfdbx.internal.ann_puttable(I) (put_ann_table in annot.c)
-%   writes, as NOTE annotations at time 0 of output annotator I, the time
-%   resolution set by wfdbx.setafreq (if it differs from the annotator's)
-%   and the mnemonics and descriptions redefined by wfdbx.setannstr and
-%   wfdbx.setanndesc, followed by a null annotation.
+%   [STAT, OA] = wfdbx.internal.ann_puttable(OA, N, FREQ, DEFS)
+%   (put_ann_table in annot.c) writes, as NOTE annotations at time 0 of the
+%   output annotator structure OA (number N, in messages), the time
+%   resolution FREQ (if it is > 0 and differs from the annotator's) and the
+%   mnemonics and descriptions of the codes marked as modified in the
+%   definition table DEFS (see wfdbx.internal.ann_defs), followed by a
+%   null annotation.  putann passes the time resolution set by
+%   wfdbx.setafreq and the library's table (redefined by wfdbx.setannstr
+%   and wfdbx.setanndesc); wfdb-x: the C function used these directly, and
+%   wfdbx.internal.ann_sortfile passes its own.  STAT is 0, or -1 on an
+%   error.
 
 % Copyright (C) 1989-2013 George B. Moody (original C implementation,
 % lib/annot.c; revised 2015-2020 by Benjamin Moody).
@@ -12,38 +18,38 @@ function stat = ann_puttable(i)
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 ACMAX = 49;     % largest annotation code (lib/ecgcodes.h)
-st = wfdbx.internal.annstate();
-oa = st.oad{i+1};
 flag = 0;
 annot = wfdbx.annotation();
 annot.anntyp = 22;                      % NOTE
 stat = -1;
-if st.oafreq ~= oa.afreq && st.oafreq > 0
+if freq ~= oa.afreq && freq > 0
     annot.aux = auxof(wfdbx.internal.csprintf('## time resolution: %.12g', ...
-        st.oafreq));
-    oa.afreq = st.oafreq;
-    st.oad{i+1} = oa;
-    if wfdbx.putann(i, annot) < 0
+        freq));
+    oa.afreq = freq;
+    [s, oa] = wfdbx.internal.ann_putword(oa, n, annot);
+    if s < 0
         return;
     end
     flag = 1;
 end
 for a = 0:ACMAX
-    if st.modified(a+1)
+    if defs.mod(a+1)
         if flag < 2
             annot.aux = auxof('## annotation type definitions');
-            if wfdbx.putann(i, annot) < 0
+            [s, oa] = wfdbx.internal.ann_putword(oa, n, annot);
+            if s < 0
                 return;
             end
         end
-        d = wfdbx.anndesc(a);
+        d = defs.tstr{a+1};
         if ischar(d)
-            s = sprintf('%d %s %s', a, wfdbx.annstr(a), d);
+            t = sprintf('%d %s %s', a, defs.astr{a+1}, d);
         else
-            s = sprintf('%d %s ', a, wfdbx.annstr(a));
+            t = sprintf('%d %s ', a, defs.astr{a+1});
         end
-        annot.aux = uint8([min(numel(s), 255), double(s)]);
-        if wfdbx.putann(i, annot) < 0
+        annot.aux = uint8([min(numel(t), 255), double(t)]);
+        [s, oa] = wfdbx.internal.ann_putword(oa, n, annot);
+        if s < 0
             return;
         end
         flag = 2;
@@ -51,14 +57,16 @@ for a = 0:ACMAX
 end
 if flag == 2
     annot.aux = auxof('## end of definitions');
-    if wfdbx.putann(i, annot) < 0
+    [s, oa] = wfdbx.internal.ann_putword(oa, n, annot);
+    if s < 0
         return;
     end
 end
 if flag
     annot.anntyp = 0;
     annot.aux = [];
-    if wfdbx.putann(i, annot) < 0
+    [s, oa] = wfdbx.internal.ann_putword(oa, n, annot);
+    if s < 0
         return;
     end
 end

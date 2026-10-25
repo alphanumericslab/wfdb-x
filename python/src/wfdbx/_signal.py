@@ -2285,6 +2285,137 @@ def putvec(vector):
     return stat
 
 
+# wfdb-x: a vectorized putvec, for write_record.  For each format below: the
+# range of the samples (after an invalid sample is replaced by the invalid
+# value of the format, as putvec does), and the number of samples encoded
+# together (2 for format 212, 3 for formats 310 and 311).
+_FAST_FMTS = {8: (INT_MIN, INT_MAX, 1), 16: (-1 << 15, (1 << 15) - 1, 1),
+              61: (-1 << 15, (1 << 15) - 1, 1),
+              24: (-1 << 23, (1 << 23) - 1, 1), 32: (INT_MIN, INT_MAX, 1),
+              80: (-1 << 7, (1 << 7) - 1, 1),
+              160: (-1 << 15, (1 << 15) - 1, 1),
+              212: (-1 << 11, (1 << 11) - 1, 2),
+              310: (-1 << 9, (1 << 9) - 1, 3), 311: (-1 << 9, (1 << 9) - 1, 3)}
+
+
+def _encode(fmt, v):
+    """The bytes written by putvec for the sample stream v (an int64 array;
+    for format 8, the first differences), whose length is a multiple of
+    the number of samples encoded together."""
+    import numpy as np
+    if fmt == 8:
+        return (v & 0xFF).astype(np.uint8).tobytes()
+    if fmt == 80:
+        return ((v + (1 << 7)) & 0xFF).astype(np.uint8).tobytes()
+    if fmt in (16, 61):
+        return (v & 0xFFFF).astype("<u2" if fmt == 16 else ">u2").tobytes()
+    if fmt == 160:
+        return ((v + (1 << 15)) & 0xFFFF).astype("<u2").tobytes()
+    if fmt == 32:
+        return (v & 0xFFFFFFFF).astype("<u4").tobytes()
+    if fmt == 24:
+        b = np.stack([v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF], axis=1)
+        return b.astype(np.uint8).tobytes()
+    if fmt == 212:
+        a, b = v[0::2], v[1::2]
+        data = (a & 0xFFF) | ((b << 4) & 0xF000)
+        out = np.stack([data & 0xFF, data >> 8, b & 0xFF], axis=1)
+        return out.astype(np.uint8).tobytes()
+    a, b, c = v[0::3], v[1::3], v[2::3]
+    if fmt == 310:
+        data = ((a << 1) & 0x7FE) | ((c << 11) & 0xF800)
+        datb = ((b << 1) & 0x7FE) | ((c << 6) & 0xF800)
+    else:   # 311
+        data = (a & 0x3FF) | ((b << 10) & 0xFC00)
+        datb = ((b >> 6) & 0xF) | ((c << 4) & 0x3FF0)
+    out = np.stack([data & 0xFF, data >> 8, datb & 0xFF, datb >> 8], axis=1)
+    return out.astype(np.uint8).tobytes()
+
+
+def _putframes(x):
+    """Write the frames of the 2-D array x (one frame per row, as a vector
+    of putvec) to the output signals, with the same result as putvec
+    called for each row (wfdb-x).
+
+    The frames are encoded together (with NumPy) if all output signals are
+    in one signal file whose format is one of _FAST_FMTS, x is an integer
+    array whose samples are within the range of the format (for format 8,
+    whose first differences are within -128..127), and the signal file has
+    no pending samples; the last frames that do not complete a group of
+    samples encoded together (formats 212, 310 and 311) are written by
+    putvec.  Otherwise, every frame is written by putvec.
+    """
+    import numpy as np
+    s_ = _s
+    nf = len(x)
+    osd = s_.osd[:s_.nosig]
+    fmt = osd[0].info.fmt if osd else None
+    spf = [os_.info.spf for os_ in osd]
+    fast = (nf > 0 and s_.nogroup == 1 and fmt in _FAST_FMTS and
+            all(os_.info.fmt == fmt and os_.info.group == 0 for os_ in osd) and
+            x.ndim == 2 and x.shape[1] == sum(spf) and x.dtype.kind in "iu" and
+            s_.ogd[0].count == 0 and s_.ogd[0].fp is not None)
+    if fast:
+        lo, hi, unit = _FAST_FMTS[fmt]
+        if x.dtype.kind == "u" and x.size and int(x.max()) > hi:
+            fast = False
+    if fast:
+        v = x.astype(np.int64)
+        inv = _INVALID_BY_FMT.get(fmt, WFDB_INVALID_SAMPLE)
+        v[v == WFDB_INVALID_SAMPLE] = inv
+        fast = v.size == 0 or (int(v.min()) >= lo and int(v.max()) <= hi)
+    if fast and fmt == 8:
+        # the first differences of each signal's samples (putvec clamps a
+        # difference outside -128..127, which is left to putvec)
+        d = np.empty_like(v)
+        c = 0
+        for k, os_ in enumerate(osd):
+            prev = int(x[0, c]) if os_.info.nsamp == 0 else os_.samp
+            seq = v[:, c:c + spf[k]].reshape(-1)
+            dk = np.diff(seq, prepend=prev)
+            d[:, c:c + spf[k]] = dk.reshape(nf, spf[k])
+            c += spf[k]
+        fast = int(d.min()) >= -128 and int(d.max()) <= 127
+    if not fast:
+        stat = 0
+        for row in x.tolist():
+            stat = putvec(row)
+        return stat
+    # Frames encoded together: all but the last ones that do not complete a
+    # group of samples (for formats 212, 310 and 311).
+    nbulk = nf
+    while (nbulk * v.shape[1]) % unit:
+        nbulk -= 1
+    og = s_.ogd[0]
+    stream = (d if fmt == 8 else v)[:nbulk].reshape(-1)
+    buf = og.buf + _encode(fmt, stream)
+    n = og.obuflen
+    i = 0
+    while len(buf) - i >= n:    # written as w8 writes, obuflen bytes at once
+        og.fp.write(bytes(buf[i:i + n]))
+        i += n
+    og.buf = bytearray(buf[i:])
+    stat = s_.nosig
+    if og.fp.ferror():
+        wfdb_error("putvec: write error in signal %d\n", 0)
+        stat = -1
+    c = 0
+    for k, os_ in enumerate(osd):
+        info = os_.info
+        if nbulk:
+            if info.nsamp == 0:
+                info.initval = int(x[0, c])
+            info.nsamp += nbulk
+            block = v[:nbulk, c:c + spf[k]]
+            info.cksum = int32(info.cksum + int(block.sum()))
+            os_.samp = int(block[-1, -1])
+        c += spf[k]
+    s_.ostime += nbulk
+    for row in x[nbulk:].tolist():
+        stat = putvec(row)
+    return stat
+
+
 def isigsettime(t):
     """Seek all input signals to sample number t.
 

@@ -198,8 +198,8 @@ signal uncalibrated, which is an error with `'physical'`), `'baselines'`
 (default: the ADC zeros), `'adczeros'` (default 0), `'adcres'` (required:
 there is no default resolution; >= 1), `'units'` (required for each
 signal whose gain is not 0; `[]` for none), `'names'`, `'base_time'`,
-`'comments'`, `'physical'`, `'samps_per_frame'`. The sampling frequency
-must be > 0.
+`'comments'`, `'physical'`, `'samps_per_frame'`, `'dir'` (see below). The
+sampling frequency must be > 0.
 
 ```matlab
 % a structure of column vectors (samples, codes, subtypes, chans, nums),
@@ -224,6 +224,49 @@ to its first null byte, and at most 255 bytes of it are written. With
 `read_annotations` gives the sampling frequency when the record has no
 header or its header does not give one (as `rdann -F`); without it,
 `ann.fs` is 0 and time strings that need a frequency are an error.
+
+### Directories, absolute paths and annotation order
+
+**Output directory.** `wfdbx.write_record(..., 'dir', 'out')` and
+`wfdbx.write_annotations(..., 'dir', 'out')` create their files in the
+directory `out` (which must exist: otherwise an error), and the header
+names the record and its signal file without the directory (`rec 2 360
+...`, `rec.dat ...`), so that the record opens from that directory under
+its plain name (`wfdbx.setwfdb('out')`, then `wfdbx.read_record('rec')`;
+or `wfdbx.read_record('out/rec')`). The record name must not contain a
+directory when `'dir'` is given (an error). In the library API,
+`wfdbx.wfdbx_set_output_dir('out')` makes every output file be created in
+`out` (it returns the previous directory; `wfdbx.wfdbx_set_output_dir([])`
+restores the default, files created as named, and
+`wfdbx.wfdbx_get_output_dir()` returns the current one); the writers set
+it for the duration of the call (and restore it, also on errors). The
+C-style API and the tools are otherwise unchanged:
+`wfdbx.newheader('out/rec')` and `wfdbx wrsamp -o out/rec` still record
+the name `out/rec`, as in C.
+
+**Absolute paths.** A record named by an absolute path
+(`wfdbx.read_record('/data/mitdb/100')`, `wfdbx rdsamp -r
+/data/mitdb/100`) is opened directly, and the files next to its header
+(signal and annotation files) are found there. The C library searched for
+such a name in each directory of the WFDB path (`./` + the name), so that
+it was found only from the root directory; it still does so in legacy
+mode. In both modes, an empty component in the WFDB path makes names be
+used as given: with `wfdbx.setwfdb(';')` (or `WFDB=";"`),
+`/data/mitdb/100` opens in legacy mode too.
+
+**Annotation order.** Annotations written out of canonical order (by
+time, then `num`, then `chan`) are rearranged when the file is closed, in
+the same process, with a result identical byte for byte to that of
+`sortann` (the last of several annotations with the same time, `num` and
+`chan` is kept, and `NOTQRS` annotations are dropped); `WFDBANNSORT=0`
+disables it. Unlike the original `sortann`, nothing is lost: an
+annotation at time 0 (`num` and `chan` 0) that follows later ones was
+dropped, with the annotations then inserted next to it; the `sortann`
+tool is fixed the same way. The C library ran the `sortann` program
+(found in the `PATH`), as legacy mode does (running the `sortann` tool of
+this package with `--legacy`, so with the original loss, in a new Octave
+or MATLAB process, through the shell, in the output directory if one is
+set).
 
 ## The WFDB library API
 
@@ -300,7 +343,9 @@ Sequential reading and writing, and annotation files, are processed with
 vector operations that are exactly equivalent to the sample-by-sample
 functions. In Octave 8, `rdsamp` prints a 650,000-frame, 2-signal format
 212 record in about 1 s (process start included); `getframes` reads it in
-0.13 s and `putframes` writes it in 0.12 s. The per-sample functions
+0.13 s and `putframes` writes it in 0.12 s; `write_record` (which uses
+`putframes`) writes 216,000 frames of 2 signals in about 0.08 s, and
+`read_record` reads them in about 0.07 s. The per-sample functions
 (`getvec`, `putvec`) are much slower (a fraction of a millisecond per
 call). MATLAB is expected to be faster.
 
@@ -329,4 +374,5 @@ GNU Library General Public License, version 2 or later
 under the GNU General Public License, version 2 or later
 ([`LICENSE`](../LICENSE)). Each file names the authors of the C code it
 ports; see [`docs/AUTHORS.md`](../docs/AUTHORS.md). The MATLAB/Octave
-implementation was written by Reza Sameni (October 2026).
+implementation was developed by Reza Sameni (2026), with AI assistance (see
+the project README).

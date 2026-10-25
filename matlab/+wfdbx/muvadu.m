@@ -21,7 +21,7 @@ function a = muvadu(s, v)
 
 WFDB_INVALID_SAMPLE = -32768;   % lib/wfdb.h
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 g = wfdbx.internal.conversion_gain(S, 'muvadu', s);
 if g == 0
     a = WFDB_INVALID_SAMPLE;

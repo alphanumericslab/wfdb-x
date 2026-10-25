@@ -2,7 +2,7 @@ function nsig = readheader(record)
 %READHEADER Read the header of a record (readheader in signal.c).
 %   N = wfdbx.internal.readheader(RECORD) reads the header file of RECORD
 %   (or an EDF file, if RECORD has an extension other than .hea) into the
-%   signal state (sigstate().hsd, the sampling and counter frequencies,
+%   signal state (sig_state().hsd, the sampling and counter frequencies,
 %   base time, number of samples, segment table).  It returns the number
 %   of signals, 0 for a multi-segment record's master header (or a record
 %   without signals), -1 if the header cannot be opened, -2 if it is
@@ -20,7 +20,7 @@ function nsig = readheader(record)
 % docs/DIVERGENCES.md).
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 sep = sprintf(' \t\n\r');
 if ~isempty(S.hheader)
     S.hheader.close();

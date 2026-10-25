@@ -29,9 +29,6 @@ function stat = annopen(record, aiarray, nann)
 if isa(record, 'string')   % MATLAB string
     record = char(record);
 end
-AUXBUFLEN = 771;    % size of the aux string buffer of an input annotator
-OBUFLEN = 4096;     % initial size of the output buffer (bytes)
-NOTQRS = 0;         % lib/ecgcodes.h
 WFDB_READ = 0;      % file modes (lib/wfdb.h)
 WFDB_WRITE = 1;
 WFDB_AHA_READ = 2;
@@ -43,7 +40,7 @@ end
 if nargin < 3
     nann = numel(aiarray);
 end
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 st.annclose_error = 0;
 if ~isempty(record) && record(1) == '+'
     record = record(2:end);
@@ -78,20 +75,8 @@ for i = 1:nann
             stat = -3;
             return;
         end
-        % The format is guessed from the first 16-bit word (read as C's
-        % 16-bit getc() pair: a missing byte reads as EOF, 0xff): an AHA
-        % file starts with a null byte followed by an AHA code other
-        % than '[' or ']'.
         D = f.readall();
-        if numel(D) >= 2
-            w = double(D(1)) + 256 * double(D(2));
-        elseif numel(D) == 1
-            w = double(D(1)) + 256 * 255;
-        else
-            w = 65535;
-        end
-        a = floor(w / 256);
-        if mod(w, 256) ~= 0 || wfdbx.ammap(a) == NOTQRS || a == '[' || a == ']'
+        if wfdbx.internal.ann_format(D) == WFDB_READ
             if ai.stat ~= WFDB_READ
                 wfdbx.internal.wfdb_error( ...
                     'warning (annopen, annotator %s, record %s):\n', ...
@@ -114,8 +99,8 @@ for i = 1:nann
             end
             istat = WFDB_AHA_READ;
         end
-        ia = new_ia(f, ai.name, istat, ...
-            wfdbx.internal.ann_parse(D, istat == WFDB_AHA_READ), AUXBUFLEN);
+        ia = wfdbx.internal.ann_iadata(f, ai.name, istat, ...
+            wfdbx.internal.ann_parse(D, istat == WFDB_AHA_READ));
         st.iad{end+1} = ia;
         wfdbx.internal.ann_gettable(numel(st.iad) - 1);
     else
@@ -131,40 +116,11 @@ for i = 1:nann
             stat = -4;
             return;
         end
-        oa.file = f;
-        oa.name = ai.name;
-        oa.stat = ai.stat;
+        oa = wfdbx.internal.ann_oadata(f, ai.name, ai.stat);
         oa.rname = record;
-        oa.ann = wfdbx.annotation();
-        oa.afreq = 0;
-        oa.seqno = 0;
-        oa.out_of_order = 0;
-        oa.table_written = 0;
-        oa.obuf = zeros(1, OBUFLEN, 'uint8');
-        oa.olen = 0;
+        oa.fname = wfdbx.wfdbfile([], []);  % wfdb-x: the file, for sorting
         st.oad{end+1} = oa;
     end
 end
 stat = 0;
-end
-
-function ia = new_ia(f, name, istat, P, auxbuflen)
-% A new input annotator structure (C's struct iadata).
-ia.file = f;
-ia.name = name;
-ia.stat = istat;
-ia.P = P;
-ia.k = 0;
-ia.ateof = 0;
-ia.tmul = 0;
-ia.afreq = 0;
-ia.ann = wfdbx.annotation();
-ia.ann_tt = 0;
-ia.pann = wfdbx.annotation();
-ia.pann_tt = 0;
-ia.prev_tt = 0;
-ia.prev_time = 0;
-ia.buf = zeros(1, auxbuflen);
-ia.index = 0;
-ia.auxpos = -1;
 end

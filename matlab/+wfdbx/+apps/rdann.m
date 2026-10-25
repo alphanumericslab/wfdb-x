@@ -290,7 +290,7 @@ while n < tph
     hprec = hprec + 1;
     n = n * 10;
 end
-emap = wfdbx.internal.ecgmap();
+emap = wfdbx.internal.ecg_map();
 qrs = emap.qrs;
 if from
     fa = argv{from+1};
@@ -374,7 +374,7 @@ wfdbx.setifreq(tps);
 wfdbx.setiafreq(0, tps);
 xfmt = sprintf('%%%d.%df %%%d.%df %%%d.%df', sprec + 6, sprec, ...
     mprec + 4, mprec, hprec + 2, hprec);
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 astr = st.astring;
 % (annotations are read 4096 at a time; one at a time from AHA files,
 % where reading an annotation may print a message, so that no annotation
@@ -529,7 +529,7 @@ function txt = fastlines(t, sn, at, sub, chan, num, aux, astr)
 ACMAX = 49;     % largest annotation code (lib/ecgcodes.h)
 txt = [];
 n = numel(t);
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if ~(all(t > 0) || (S.btime == 0 && S.bdate == 0))
     return;
 end

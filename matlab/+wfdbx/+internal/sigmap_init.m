@@ -15,7 +15,7 @@ WFDB_INVALID_SAMPLE = -32768;
 WFDB_SAMPLE_MIN = -2147483648;  % INT_MIN
 WFDB_SAMPLE_MAX = 2147483647;   % INT_MAX
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 stat = 0;
 if S.in_msrec && first_segment && ~isempty(S.segarray) && S.segarray(1).nsamp == 0
     S.need_sigmap = 1;

@@ -7,6 +7,8 @@ Foundation; either version 2 of the License, or (at your option) any later
 version.
 """
 
+import os
+
 import numpy as np
 import pytest
 
@@ -226,3 +228,140 @@ def test_read_header_legacy(datadir):
         f.write("nr 2 360 21600\n100s.dat 212 200\n100s.dat 212 200\n")
     assert [s.adcres for s in w.read_header("nr")] == [0, 0]
     assert [s.adcres for s in w.read_header("nr", legacy=True)] == [12, 12]
+
+
+# ---------------------------------------------------------------------------
+# The vectorized write_record (wfdb-x): byte for byte as putvec
+
+FAST_FMTS = [8, 16, 24, 32, 61, 80, 160, 212, 310, 311]
+MIN = {8: -(1 << 31), 16: -32768, 61: -32768, 160: -32768, 80: -128,
+       212: -2048, 310: -512, 311: -512, 24: -(1 << 23), 32: -(1 << 31)}
+
+
+def _write_both(monkeypatch, x, fmt, spf=None):
+    """Write x with write_record into fast/ and (with putvec for each frame,
+    as before) into slow/; return the bytes of both signal files and
+    headers, and the number of putvec calls of the fast path."""
+    import wfdbx._signal as sig
+    calls = [0]
+    putvec = sig.putvec
+
+    def counting_putvec(v):
+        calls[0] += 1
+        return putvec(v)
+
+    def slow(xx):
+        for row in xx.tolist():
+            putvec(row)
+
+    out = []
+    for d, frames in (("fast", None), ("slow", slow)):
+        os.makedirs(d, exist_ok=True)
+        with monkeypatch.context() as m:
+            m.setattr(sig, "putvec", counting_putvec)
+            if frames:
+                m.setattr(sig, "_putframes", frames)
+            w.write_record("r", x, 360, fmt=fmt, gains=200,
+                           adcres=RES[fmt], units="mV",
+                           samps_per_frame=spf, dir=d)
+        out.append((open(d + "/r.dat", "rb").read(),
+                    open(d + "/r.hea", "rb").read()))
+        if d == "fast":
+            fast_calls = calls[0]
+    return out[0], out[1], fast_calls
+
+
+@pytest.mark.parametrize("fmt", FAST_FMTS)
+@pytest.mark.parametrize("nsig", [1, 2, 3])
+@pytest.mark.parametrize("n", [1, 2, 3, 7, 1000])
+def test_fast_write_identical(datadir, monkeypatch, fmt, nsig, n):
+    rng = np.random.default_rng(fmt + 7 * nsig + n)
+    lo = MIN[fmt]
+    hi = -lo - 1
+    if fmt == 8:     # first differences within -128..127
+        d = rng.integers(-128, 128, size=(n, nsig))
+        d[0] = rng.integers(-1000, 1000, size=nsig)     # (the initial values)
+        x = np.cumsum(d, axis=0)
+    else:
+        x = rng.integers(lo, hi + 1, size=(n, nsig))
+        x.flat[::5] = lo       # edge values (lo is the invalid value) ...
+        x.flat[1::7] = hi
+        x.flat[2::11] = w.WFDB_INVALID_SAMPLE   # ... and invalid samples
+    fast, slow, calls = _write_both(monkeypatch, x, fmt)
+    assert fast == slow
+    unit = {212: 2, 310: 3, 311: 3}.get(fmt, 1)
+    assert calls < unit     # (only frames that do not complete a group)
+
+
+@pytest.mark.parametrize("fmt", [16, 212, 310, 8])
+def test_fast_write_multifrequency(datadir, monkeypatch, fmt):
+    rng = np.random.default_rng(fmt)
+    # signal 0 (2 samples per frame), then signal 1, in each frame
+    s0 = np.cumsum(rng.integers(-50, 51, size=202)).reshape(101, 2)
+    s1 = np.cumsum(rng.integers(-50, 51, size=(101, 1)), axis=0)
+    x = np.clip(np.hstack([s0, s1]), -500, 500)     # (formats 310 and 311)
+    fast, slow, calls = _write_both(monkeypatch, x, fmt, spf=[2, 1])
+    assert fast == slow and calls < 3
+
+
+@pytest.mark.parametrize("fmt", [8, 16, 212])
+def test_fast_write_fallback(datadir, monkeypatch, fmt):
+    # samples out of the range of the format (or, for format 8, too large
+    # differences): every frame is written by putvec
+    x = np.array([[0, 1], [40000, -5], [3, 2], [-70000, 9]])
+    fast, slow, calls = _write_both(monkeypatch, x, fmt)
+    assert fast == slow and calls == len(x)
+
+
+# ---------------------------------------------------------------------------
+# write_record(..., dir=...) (wfdb-x)
+
+def test_write_record_dir(datadir):
+    x = np.arange(20).reshape(10, 2)
+    os.mkdir("out")
+    prev = w.wfdbx_set_output_dir("elsewhere")
+    try:
+        w.write_record("rec", x, 360, gains=200, adcres=12, units="mV",
+                       dir="out")
+        assert w.wfdbx_get_output_dir() == "elsewhere"     # restored
+    finally:
+        w.wfdbx_set_output_dir(prev)
+    assert sorted(os.listdir("out")) == ["rec.dat", "rec.hea"]
+    assert not os.path.exists("rec.hea") and not os.path.exists("rec.dat")
+    hea = open("out/rec.hea").read().splitlines()
+    assert hea[0] == "rec 2 360 10"
+    assert hea[1].startswith("rec.dat 16 ")
+    w.setwfdb("out")
+    assert np.array_equal(w.read_record("rec").signals, x)
+    w.setwfdb(".")
+    assert np.array_equal(w.read_record("out/rec").signals, x)
+    assert w.wfdbx_get_output_dir() is None
+    with pytest.raises(FileNotFoundError):
+        w.write_record("rec", x, 360, gains=200, adcres=12, units="mV",
+                       dir="nosuch")
+    with pytest.raises(ValueError, match="must not contain a directory"):
+        w.write_record("sub/rec", x, 360, gains=200, adcres=12, units="mV",
+                       dir="out")
+    # restored after an error, too
+    with pytest.raises(ValueError):
+        w.write_record("rec", x, 360, dir="out")    # (no gains)
+    assert w.wfdbx_get_output_dir() is None
+    assert not os.path.exists("nosuch")
+    # the same in legacy mode
+    w.write_record("leg", x, 360, dir="out", legacy=True)
+    assert open("out/leg.hea").read().startswith("leg 2 360 10")
+
+
+def test_dir_checks_first(datadir):
+    # the dir checks come before any other validation (wfdb-x)
+    x = np.arange(4).reshape(2, 2)
+    os.mkdir("out")
+    with pytest.raises(ValueError) as e:
+        w.write_record("sub/rec", x, 0, dir="out")     # (no gains, fs 0)
+    assert str(e.value) == ("record name must not contain a directory when "
+                            "dir is given")
+    with pytest.raises(FileNotFoundError) as e:
+        w.write_record("rec", x, 0, dir="nosuch")
+    assert str(e.value) == "directory nosuch does not exist"
+    with pytest.raises(ValueError, match="gains must be specified"):
+        w.write_record("rec", x, 360, dir="out")

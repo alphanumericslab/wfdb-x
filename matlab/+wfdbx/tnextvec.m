@@ -11,7 +11,7 @@ function t = tnextvec(s, t)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 stat = 0;
 if S.in_msrec && S.need_sigmap
     if s >= S.nvsig

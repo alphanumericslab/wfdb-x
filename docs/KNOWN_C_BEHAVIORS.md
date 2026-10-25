@@ -73,7 +73,9 @@ These look surprising but are described in the documentation.
   `WFDBANNSORT=0`; `Rearranging annotations for output annotator ...
   done!` is printed on the standard error output. WPG ("Annotation
   Order", `wfdbquit`, `oannclose`) documents the mechanism and `WFDBANNSORT`;
-  the message text is not documented.
+  the message text is not documented. wfdb-x sorts in-process instead,
+  writing the file `sortann` writes; the separate process remains in legacy
+  mode (see [`DIVERGENCES.md`](DIVERGENCES.md)).
 - **Variable-layout multi-segment records** are rescaled to the gains and
   baselines of the layout segment. header(5): "the signals of a variable
   layout record are rearranged, shifted, and rescaled as needed". The
@@ -155,6 +157,19 @@ marked *bug* are almost certainly unintended by the C authors.
   `-P` (`must follow -P` for `-p`, and the reverse).
 - **`wrann`** keeps the values of the subtype, chan and num fields from
   the previous line when a line omits them.
+- **`sortann`** loses annotations: when an annotation at time 0 with `num`
+  0 and `chan` 0 arrives after later ones, it is dropped, and so is every
+  annotation inserted after it in the list (input sample times 5, 0, 3 give
+  a file with only 5; 5, 1, 3 are sorted correctly). The search for the
+  insertion point also compares the annotation with the list's empty head
+  entry, whose time, `num` and `chan` are 0, takes it for a duplicate of
+  that entry, and links it in the head's place, where the output loop
+  (which starts from the head) never reaches it; annotations later
+  inserted between it and the rest of the list are lost with it.
+  sortann(1) says only that the last of several annotations at
+  the same location is kept. The library's automatic sorting, which runs
+  `sortann`, loses them in the same way. *Bug.* Fixed in wfdb-x, except in
+  legacy mode (see [`DIVERGENCES.md`](DIVERGENCES.md)).
 - **`rr2ann`** reads each line with `sscanf("%lf")`. For an empty or
   all-blank line, `sscanf` returns `EOF` rather than 0, so the *previous*
   value is used again and an extra annotation is written. rr2ann(1) says

@@ -33,7 +33,7 @@ if y <= 0
     y = y - 1;
 end
 s = sprintf(' %02d/%02d/%d', d, m, y);
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 S.date_string = s;
 S.pdays = -1;
 end

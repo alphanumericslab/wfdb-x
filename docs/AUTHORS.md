@@ -2,9 +2,9 @@
 
 wfdb-x ports the C code of the WFDB Software Package, version 10.7.0
 (`third_party/wfdb-main.zip`), to Python, C++, MATLAB/Octave, Rust, Julia
-and R. **The wfdb-x reimplementations were written by Reza Sameni (Oct
-2026); the C code they port was written by George B. Moody, Benjamin Moody
-and the other authors credited below.** This file says who wrote the C code
+and R. **wfdb-x was developed by Reza Sameni (2026), with AI assistance in its
+implementation; the C code it ports was written by George B. Moody,
+Benjamin Moody and the other authors credited below.** This file says who wrote the C code
 that each part of wfdb-x is a port of.
 
 ## File headers
@@ -164,7 +164,8 @@ The guide also credits several pieces of work that wfdb-x doesn't port:
 ## wfdb-x
 
 The Python, C++, MATLAB/Octave, Rust, Julia and R reimplementations were
-written by Reza Sameni (Oct 2026). They are distributed under the same
+developed by Reza Sameni (2026), with AI assistance (see "How wfdb-x was
+developed" in the project README). They are distributed under the same
 licenses as the C code they port: the library under the GNU Library General
 Public License, version 2 or later (`LICENSE.LIB`), and the tools under the
 GNU General Public License, version 2 or later (`LICENSE`).

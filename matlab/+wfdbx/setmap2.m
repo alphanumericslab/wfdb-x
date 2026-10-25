@@ -13,7 +13,7 @@ function y = setmap2(a, x)
 
 ACMAX = 49;     % largest annotation code (lib/ecgcodes.h)
 if a > 0 && a <= ACMAX
-    m = wfdbx.internal.ecgmap();
+    m = wfdbx.internal.ecg_map();
     m.mp2(a + 1) = mod(x + 128, 256) - 128;
     y = m.mp2(a + 1);
 else

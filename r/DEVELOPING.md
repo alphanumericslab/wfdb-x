@@ -190,10 +190,14 @@ does not catch it), and flushes the standard output. R errors propagate to
 `cli_main`, which prints `wfdbx: error: MESSAGE` and returns 1
 (`WFDBX_DEBUG=1` adds the call stack). Messages that include the program
 name use `argv[1]`, the tool's name. Every `app_<tool>` function is a tool
-for `cli_main`, `wfdbx_tool` and `--list`. `oannclose` sorts out-of-order
-annotation files by running the `sortann` tool in a separate process,
-`system(paste(tool_command("sortann"), ...))`, as the C library does
-(`tool_command` gives `'Rscript' 'path/wfdbx.R' 'sortann'`).
+for `cli_main`, `wfdbx_tool` and `--list`. In legacy mode, `oannclose`
+sorts out-of-order annotation files by running the `sortann` tool in a
+separate process, `system(paste(tool_command("sortann"), ...))`, as the C
+library does (`tool_command` gives `'Rscript' 'path/wfdbx.R' 'sortann'`;
+base R has no way to run a program without a shell: `system2`, too, passes
+a command line to `/bin/sh`, so the arguments are quoted with
+`shell_quote`); in modern mode it sorts them in the same process
+(`.ann_sort_file`).
 
 ## Foundation internal API
 
@@ -239,17 +243,18 @@ the standard output (`"-"` for writing) go to `cout`.
 
 `wfdbio.R` — state `.wfdb_io` (`wfdbpath`, `path_prefix`, `path_type`,
 `error_print`, `error_flag`, `error_message` (raw), `wfdb_filename`,
-`irec`, `stdin_file`, `stdout_file`, `driver`; `wfdbio_reset()`):
+`irec`, `stdin_file`, `stdout_file`, `driver`, `output_dir`;
+`wfdbio_reset()`):
 `wfdb_error(fmt, ...)`, `wfdb_open(s, record, mode)`,
 `wfdb_fopen(fname, mode)` (`"rb"`, `"wb"`, `"ab"`), `wfdb_parse_path(p)`,
 `wfdb_addtopath(s)`, `getiwfdb(p)`, `wfdb_checkname(p, what)`,
 `wfdb_setirec(p)`, `wfdb_getirec()`, `wfdb_striphea(p)`,
-`tool_command(tool)`, `shell_quote(s)`; constants `WFDB_LOCAL`,
-`WFDB_NET`, `WFDB_READ`, ..., `WFDB_APPEND`, `DEFWFDB`, `DEFWFDBCAL`,
+`.is_absolute_path(s)`, `tool_command(tool)`, `shell_quote(s)`; constants
+`WFDB_LOCAL`, `WFDB_NET`, `WFDB_READ`, ..., `WFDB_APPEND`, `DEFWFDB`, `DEFWFDBCAL`,
 `WFDB_MAXRNL`, `WFDB_VERSION`. Public: `getwfdb`, `setwfdb`, `resetwfdb`,
 `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdbfile`, `wfdbmemerr`,
 `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
-`wfdbdefwfdbcal`.
+`wfdbdefwfdbcal`, `wfdbx_set_output_dir`, `wfdbx_get_output_dir`.
 
 `ecgcodes.R` — the code constants (`NORMAL`, ..., `ACMAX`, `APUNDEF`, ...;
 `ecgcodes()` returns them as a list); the vectorized mapping functions
@@ -376,8 +381,22 @@ annotation), `ann`, `ann_tt`, `pann` (pushback), `buf`, `index`,
 * The mnemonic and description tables, the flags of modified codes and
   the output time resolution (`setafreq`) survive `wfdbquit`, as in C;
   `annot_reset(tables = TRUE)` restores them (tests).
-* Out-of-order output files are sorted when closed by running
-  `tool_command("sortann") -r. RECORD -a ANNOTATOR` with `system()`.
+* Out-of-order output files are sorted when closed (wfdb-x) in the same
+  process by `.ann_sort_file(fname, aname)`: it reads the very file just
+  written (`oa$fname`, the name `wfdb_open` created, including any output
+  directory) into a private input annotator (`.ann_new_ia`; the
+  definitions go to a private table with the default mnemonics,
+  `.ann_read_table(ia, defs)`), orders the annotations with
+  `.ann_sort_order` (the `insert_ann` list of `sortann.c`, shared with the
+  `sortann` tool; wfdb-x: its head is never compared with an annotation,
+  so that an out-of-order time-0 annotation is not lost, unless `legacy =
+  TRUE`, which the tool passes in legacy mode), and rewrites the file with a private output annotator
+  (`.ann_new_oa`, `.ann_put_table(oa, n, freq, defs)`,
+  `.putann_bulk(..., oa = )`), byte for byte as `sortann` does; the
+  library's annotators and tables are not touched.  In legacy mode,
+  `.ann_run_sortann` runs `tool_command("sortann") --legacy -r. RECORD -a
+  ANNOTATOR` with `system()`, as the C library does (prefixed with
+  `cd 'OUTDIR' &&` when an output directory is set).
 * `calib.R`: the calibration list (`calopen`, `getcal` returning
   `list(stat, cal)`, `putcal`, `newcal`, `flushcal`).
 * `highlevel_annot.R`: `read_annotations` (a data frame with attributes

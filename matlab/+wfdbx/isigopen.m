@@ -38,7 +38,7 @@ end
 if nargin < 2
     nsig = 0;
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 si = wfdbx.siginfo(0);
 first_segment = 0;
 if ~isempty(record) && record(1) == '+'

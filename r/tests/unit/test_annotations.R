@@ -492,8 +492,184 @@ expect_equal(.fmstimstr_v(-tt, .tfreq()), vapply(-tt, mstimstr, ""), ".fmstimstr
 wfdbquit()
 
 # sortann's list: in-order input, and out-of-order input with duplicates
-so <- .sortann_order(c(1, 2, 2, 3), c(0, 0, 1, 0), c(0, 0, 0, 0))
+so <- .ann_sort_order(c(1, 2, 2, 3), c(0, 0, 1, 0), c(0, 0, 0, 0))
 expect_equal(so, list(order = 1:4, in_order = TRUE), "sortann order: in order")
-so <- .sortann_order(c(5, 1, 3, 3, 2), c(0, 0, 0, 0, 0), c(0, 0, 0, 0, 0))
+so <- .ann_sort_order(c(5, 1, 3, 3, 2), c(0, 0, 0, 0, 0), c(0, 0, 0, 0, 0))
 expect_equal(so, list(order = c(2L, 5L, 4L, 1L), in_order = FALSE), "sortann order: duplicates")
+
+# ---------------------------------------------------------------------------
+# Out-of-order output annotations: sorted when the file is closed (wfdb-x: in
+# this process; in legacy mode, by running sortann, as the C library)
+# (python test_annotations.py::test_sort_in_process and following)
+
+# ties in time, num and chan, duplicates (the last one is kept), NOTQRS
+# (dropped), aux strings, and a time 0 annotation that follows later ones
+# (lost by the original sortann, as in legacy mode; see
+# docs/KNOWN_C_BEHAVIORS.md)
+tricky <- data.frame(
+  time = c(100, 50, 100, 100, 100, 75, 75, 10, 200, 150, 150, 20, 0, 5, 5000),
+  code = c(NORMAL, PVC, APC, NORMAL, PVC, NOTQRS, NORMAL, NOTQRS, RHYTHM, NOISE, NOISE,
+           NORMAL, NORMAL, NORMAL, NORMAL),
+  sub = c(0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  chan = c(0, 0, 1, 0, 0, 2, 2, 0, 0, 3, 3, 0, 0, 1, 0),
+  num = c(0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0),
+  aux = c(NA, "(VT", NA, "num 1", "replaces N", NA, "odd", NA, "(AFIB", NA, NA,
+          strrep("x", 101), NA, NA, NA), stringsAsFactors = FALSE)
+write_tricky <- function(name, ...) {
+  write_annotations("100s", name, tricky$time, code = tricky$code, subtype = tricky$sub,
+                    chan = tricky$chan, num = tricky$num, aux = tricky$aux, ...)
+  rf(paste0("100s.", name))
+}
+read_all <- function(name) {
+  annopen("100s", list(anninfo(name, WFDB_READ)), 1)
+  A <- .getann_bulk(0, Inf)
+  wfdbquit()
+  A
+}
+read_ticks <- function(name) {        # (time in ticks of 1000 Hz, anntyp, chan, num)
+  annopen("100s", list(anninfo(name, WFDB_READ)), 1)
+  setiafreq(0, 1000)
+  A <- .getann_bulk(0, Inf)
+  wfdbquit()
+  cbind(A$time, A$anntyp, A$chan, A$num)
+}
+if (.mode == "source") .wfdb_io$driver <- file.path(dirname(.rdir), "inst", "bin", "wfdbx.R")
+setannstr(42, "Z")                        # (a definition table in the file)
+setafreq(1000)                            # (a time resolution)
+write_tricky("leg", legacy = TRUE)
+expect_equal(wfdberror(), "done!\n", "sort (legacy, sortann): done")
+setafreq(1000)
+# modern mode: no subprocess
+aenv <- environment(oannclose)
+run_sortann <- get(".ann_run_sortann", aenv)
+assign(".ann_run_sortann", function(...) stop("sortann run in modern mode"), envir = aenv)
+modern <- tryCatch(write_tricky("mod"), finally = assign(".ann_run_sortann", run_sortann, envir = aenv))
+expect_equal(wfdberror(), "done!\n", "sort (in process): done")
+expect_equal(.ann$annclose_error, -6, "sort (in process): annclose_error -6, as C")
+# (the library's settings and tables are unchanged)
+check(getafreq() == 1000 && annstr(42) == "Z" && identical(which(.ann$modified), 43L),
+      "sort (in process): library state unchanged")
+# the in-process sort and the sortann tool (wfdb-x) give the same bytes
+Sys.setenv(WFDBANNSORT = "0")
+wfdbquiet()
+write_tricky("uns")
+wfdbverbose()
+setafreq(0)
+expect_equal(app_sortann(c("-r", "100s", "-a", "uns")), 0, "sortann tool: status")
+Sys.unsetenv("WFDBANNSORT")
+expect_equal(rf("100s.uns"), modern, "sort: in process == sortann tool (byte for byte)")
+setafreq(0)
+annopen("100s", list(anninfo("leg", WFDB_READ)), 1)
+expect_equal(annstr(42), "Z", "sort: definition table kept")
+wfdbquit()
+# legacy mode (the original sortann): the annotation at time 0 is lost, and
+# so is the one at time 5 inserted after it
+rest <- cbind(c(20, 50, 75, 100, 100, 100, 150, 150, 200, 5000),
+              c(NORMAL, PVC, NORMAL, PVC, APC, NORMAL, NOISE, NOISE, RHYTHM, NORMAL),
+              c(0, 0, 2, 0, 1, 0, 3, 3, 0, 0), c(0, 0, 0, 0, 0, 1, -1, 0, 0, 0))
+expect_equal(read_ticks("leg"), rest, "sort (legacy): order, duplicates, NOTQRS, loss as sortann")
+# wfdb-x: nothing is lost
+expect_equal(read_ticks("mod"), rbind(c(0, NORMAL, 0, 0), c(5, NORMAL, 1, 0), rest),
+             "sort: nothing lost")
+setannstr(-42, "[42]")
+.ann$modified[43] <- FALSE
+
+# the list (insert_ann): 5, 0, 3 (wfdb-x: 0, 3, 5; legacy, as sortann: 5)
+for (lg in c(FALSE, TRUE)) {
+  so <- .ann_sort_order(c(5, 0, 3), c(0, 0, 0), c(0, 0, 0), legacy = lg)
+  expect_equal(so, list(order = if (lg) 1L else c(2L, 3L, 1L), in_order = FALSE),
+               paste("sort order: time 0 after later ones, legacy", lg))
+  # a later annotation at time 0 replaces a real one, and one at time 0 on
+  # another channel is kept (both modes)
+  so <- .ann_sort_order(c(0, 7, 0, 0), c(0, 0, 0, 0), c(0, 0, 1, 0), legacy = lg)
+  expect_equal(so$order, c(4L, 3L, 2L), paste("sort order: time 0 duplicates, legacy", lg))
+}
+
+# legacy mode with an output directory: the sortann program runs in that
+# directory (where the file is), with --legacy; the result is that of the
+# modern sort
+dir.create("lout")
+tt <- c(300, 100, 200, 100, 50)
+ss <- c("N", "V", "N", "A", "N")
+wfdbquiet()                               # (the child: no header for rec)
+write_annotations("rec", "leg", tt, symbol = ss, dir = "lout", legacy = TRUE)
+expect_equal(wfdberror(), "done!\n", "legacy sort in output dir: done")
+write_annotations("rec", "mod", tt, symbol = ss, dir = "lout")
+expect_equal(sort(list.files("lout")), c("rec.leg", "rec.mod"), "legacy sort in output dir: files")
+expect_equal(rf("lout/rec.leg"), rf("lout/rec.mod"), "legacy sort in output dir == modern")
+a <- read_annotations("lout/rec", "leg", fs = 360)
+wfdbverbose()
+check(identical(a$sample, c(50, 100, 200, 300)) && a$symbol[2L] == "A",
+      "legacy sort in output dir: sorted")
+
+# a file that cannot be read completely: not rewritten
+wf_bytes <- as.raw(c(10, 4, 5, 4, 1))     # (N at 10, N at 15, then a truncated word)
+writeBin(wf_bytes, "trunc.atr")
+wfdbquiet()
+expect_equal(.ann_sort_file("trunc.atr", "atr"), -1, "sort: truncated file fails")
+wfdbverbose()
+expect_equal(rf("trunc.atr"), wf_bytes, "sort: truncated file untouched")
+
+# WFDBANNSORT=0: not sorted
+Sys.setenv(WFDBANNSORT = "0")
+wfdbquiet()
+write_tricky("ns")
+expect_equal(wfdberror(), "to rearrange annotations in the correct order.\n",
+             "WFDBANNSORT=0: message")
+Sys.unsetenv("WFDBANNSORT")
+expect_equal(read_all("ns")$time, tricky$time, "WFDBANNSORT=0: file not sorted")
+wfdbverbose()
+
+# an input annotator and the signals stay open while an output annotator is
+# closed and sorted
+expect_equal(isigopen("100s", 2)$nsig, 2, "sort: isigopen")
+expect_equal(annopen("100s", list(anninfo("atr", WFDB_READ), anninfo("o1", WFDB_WRITE),
+                                  anninfo("o2", WFDB_WRITE))), 0, "sort: annopen")
+first <- getann(0)$annot
+for (t in c(30, 10, 20)) {
+  putann(0, annotation(t, NORMAL))
+  putann(1, annotation(t, PVC))
+}
+wfdbquiet()
+oannclose(0)                              # (sorted now; o2 becomes output annotator 0)
+wfdbverbose()
+r <- getann(0)
+check(r$stat == 0 && r$annot$time == 77 && first$time == 18, "sort: input annotator intact")
+r <- getvec()
+check(r$stat == 2 && identical(r$v[1:2], c(995, 1011)), "sort: signals intact")
+putann(0, annotation(40, PVC))
+wfdbquiet()
+wfdbquit()
+wfdbverbose()
+o1 <- read_annotations("100s", "o1")
+o2 <- read_annotations("100s", "o2")
+check(identical(o1$sample, c(10, 20, 30)) && all(o1$symbol == "N"), "sort: o1 sorted")
+expect_equal(o2$sample, c(10, 20, 30, 40), "sort: o2 sorted")
+
+# write_annotations(..., dir = ) (wfdb-x)
+dir.create("out")
+wfdbquiet()
+write_annotations("rec", "atr", c(30, 10, 20), symbol = c("N", "V", "N"), dir = "out")
+expect_equal(list.files("out"), "rec.atr", "write_annotations dir: file")
+expect_equal(wfdbx_get_output_dir(), NULL, "write_annotations dir: output dir restored")
+a <- read_annotations("out/rec", "atr")   # (sorted in place)
+wfdbverbose()
+check(identical(a$sample, c(10, 20, 30)) && a$symbol[1L] == "V", "write_annotations dir: sorted")
+expect_error(write_annotations("rec", "atr", 1, symbol = "N", dir = "nosuch"),
+             "write_annotations dir: missing dir")
+expect_error(write_annotations("x/rec", "atr", 1, symbol = "N", dir = "out"),
+             "write_annotations dir: record with a directory")
+expect_equal(wfdbx_get_output_dir(), NULL, "write_annotations dir: restored after errors")
+# the dir checks come first (wfdb-x)
+errmsg <- function(expr) tryCatch({
+  expr
+  ""
+}, error = function(e) conditionMessage(e))
+expect_equal(errmsg(write_annotations("x/rec", "atr", 1, dir = "out")),
+             "record name must not contain a directory when dir is given",
+             "write_annotations dir checks first: record")
+expect_equal(errmsg(write_annotations("rec", "atr", 1, dir = "nosuch")),
+             "directory nosuch does not exist", "write_annotations dir checks first: dir")
+expect_equal(errmsg(write_annotations("rec", "atr", 1, dir = "out")),
+             "symbol or code must be given", "write_annotations dir checks first: then the rest")
 }

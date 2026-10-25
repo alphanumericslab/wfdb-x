@@ -1,6 +1,6 @@
 classdef IOState < handle
 %IOSTATE Global state of the WFDB I/O layer (port of the statics of wfdbio.c).
-%   The single instance is returned by wfdbx.internal.iostate().  Fields:
+%   The single instance is returned by wfdbx.internal.io_state().  Fields:
 %
 %     wfdbpath       the WFDB path ([] until getwfdb/setwfdb is called)
 %     wfdbpath_init  the path found by the first getwfdb() (for resetwfdb)
@@ -14,6 +14,8 @@ classdef IOState < handle
 %     mem_behavior   the argument of the last wfdbmemerr() call
 %     stdin_file     the WFDBFile of the standard input, once opened
 %     stdout_file    the WFDBFile of the standard output, once opened
+%     output_dir     the directory in which output files are created ([]:
+%                    none; wfdb-x, see wfdbx.wfdbx_set_output_dir)
 
 % Copyright (C) 1988-2013 George B. Moody (original C implementation,
 % lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
@@ -33,5 +35,6 @@ classdef IOState < handle
         mem_behavior = 1
         stdin_file = []
         stdout_file = []
+        output_dir = []
     end
 end

@@ -9,6 +9,11 @@
 # give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
 # bits and millivolts), because a silently assumed value corrupts every result
 # derived from it. See docs/DIVERGENCES.md.
+# Design decision (Reza Sameni, after a code review, Oct 2026):
+# write_annotations takes a dir argument (the file is created in that
+# directory), and an out-of-order file is sorted in this process (see
+# annot.R).  The original behavior remains available with --legacy (see
+# docs/DIVERGENCES.md).
 # GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 # A time argument: a sample number, or a time string (strtim; absolute
@@ -116,16 +121,24 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' subtype, chan and num are recycled; aux is a character vector (NA for
 #' none) or NULL.  If fs is given, it is recorded as the time resolution of
 #' the file (setafreq).  Annotations out of order are sorted when the file
-#' is closed (by running sortann, as the C library does).  Returns
-#' invisibly the status of the last putann (0).  legacy: if TRUE, the
-#' library's legacy mode is on for the duration of the call (see
-#' read_annotations).
+#' is closed (as the sortann tool does; wfdb-x: in this process, whereas the
+#' C library, as legacy mode, runs sortann), unless the WFDBANNSORT
+#' environment variable is 0.  dir: if given, the directory (which must
+#' exist) in which the file is created (record must not contain a
+#' directory; wfdb-x).  Returns invisibly the status of the last putann
+#' (0).  legacy: if TRUE, the library's legacy mode is on for the duration
+#' of the call (see read_annotations).
 write_annotations <- function(record, annotator, sample, symbol = NULL, code = NULL,
                               subtype = 0, chan = 0, num = 0, aux = NULL, fs = NULL,
-                              legacy = FALSE) {
+                              dir = NULL, legacy = FALSE) {
   if (isTRUE(legacy)) {
     old <- wfdbx_set_legacy(TRUE)
     on.exit(wfdbx_set_legacy(old), add = TRUE)
+  }
+  if (!is.null(dir) && nzchar(dir)) {       # wfdb-x: see .hl_output_dir
+    .hl_check_output_dir(record, dir)
+    old_dir <- wfdbx_set_output_dir(dir)
+    on.exit(wfdbx_set_output_dir(old_dir), add = TRUE)
   }
   if (is.data.frame(sample)) {
     df <- sample

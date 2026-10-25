@@ -8,12 +8,16 @@
 # give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
 # bits and millivolts), because a silently assumed value corrupts every result
 # derived from it. See docs/DIVERGENCES.md.
+# wfdb-x: an out-of-order annotation at time 0 (num 0, chan 0) is no longer
+# lost (nor are those inserted after it), as it was by the original program
+# (decided by Reza Sameni, Oct 2026); --legacy keeps the original behavior.
 # GNU General Public License, version 2 or later (see LICENSE).
 #
 # The annotations are read in bulk; input that is already in order is
 # recognized with vector operations, and out-of-order input is sorted with
 # the doubly-linked list algorithm of sortann.c (which also determines
-# which duplicates are discarded).
+# which duplicates are discarded; .ann_sort_order in annot.R, which also
+# sorts output annotation files when they are closed).
 
 app_sortann <- function(args = character(0)) {
   app_run(.sortann_main, c("sortann", args))
@@ -31,83 +35,6 @@ app_sortann <- function(args = character(0)) {
          "the current directory, and the input is not already sorted.")
   h <- .app_help_text(h, h[3L])           # (-F)
   for (s in h) ceprintf("%s\n", s)
-}
-
-# The order of the annotations (indices into T, N, C: time, num, chan)
-# after inserting them in turn into the list of sortann.c; in_order is
-# FALSE if some annotation was inserted out of order.
-.sortann_order <- function(T, N, C) {
-  n <- length(T)
-  if (n == 0L) return(list(order = integer(0), in_order = TRUE))
-  if (n == 1L) return(list(order = 1L, in_order = TRUE))
-  k <- 2:n
-  gt <- T[k] > T[k - 1L] | (T[k] == T[k - 1L] & N[k] > N[k - 1L]) |
-    (T[k] == T[k - 1L] & N[k] == N[k - 1L] & C[k] > C[k - 1L])
-  if (all(gt)) return(list(order = seq_len(n), in_order = TRUE))
-  # node 1 is the list head (an all-zero annotation, which takes part in
-  # comparisons as in sortann.c); node j + 1 is annotation j; 0 is NULL
-  TT <- c(0, T)
-  NN <- c(0, N)
-  CC <- c(0, C)
-  nxt <- integer(n + 1L)
-  prv <- integer(n + 1L)
-  head <- 1L
-  lastp <- head
-  in_order <- TRUE
-  for (j in seq_len(n)) {
-    new <- j + 1L
-    t <- TT[new]
-    nm <- NN[new]
-    ch <- CC[new]
-    last <- lastp
-    if (last == head || t > TT[last] || (t == TT[last] && nm > NN[last]) ||
-        (t == TT[last] && nm == NN[last] && ch > CC[last])) {
-      prv[new] <- last
-      nxt[last] <- new
-      lastp <- new
-      nxt[new] <- 0L
-      next
-    }
-    in_order <- FALSE
-    ap <- last
-    while (ap != 0L) {
-      if (t > TT[ap] || (t == TT[ap] && nm > NN[ap]) ||
-          (t == TT[ap] && nm == NN[ap] && ch >= CC[ap])) break
-      ap <- prv[ap]
-    }
-    if (ap == 0L) {
-      prv[new] <- 0L
-      nxt[new] <- nxt[head]
-      nxt[head] <- new
-      prv[nxt[new]] <- new
-    } else if (t == TT[ap] && nm == NN[ap] && ch == CC[ap]) {
-      prv[new] <- prv[ap]
-      if (prv[new] != 0L) nxt[prv[new]] <- new
-      nxt[new] <- nxt[ap]
-      if (nxt[new] != 0L) prv[nxt[new]] <- new else lastp <- new
-      # If ap was the first entry of the list but its 'prev' link does not
-      # lead back to the list head (an entry inserted at the beginning gets
-      # a null link, and one whose predecessor replaced the head is
-      # detached), C leaves the head pointing to the freed entry (undefined
-      # behavior): here the head is updated, so that the duplicate is
-      # replaced (see docs/KNOWN_C_BEHAVIORS.md).
-      if (ap != head && nxt[head] == ap) nxt[head] <- new
-    } else {
-      prv[new] <- ap
-      nxt[new] <- nxt[ap]
-      nxt[ap] <- new
-      prv[nxt[new]] <- new
-    }
-  }
-  ord <- integer(n)
-  m <- 0L
-  p <- nxt[head]
-  while (p != 0L) {
-    m <- m + 1L
-    ord[m] <- p - 1L
-    p <- nxt[p]
-  }
-  list(order = ord[seq_len(m)], in_order = in_order)
 }
 
 .sortann_main <- function(argv) {
@@ -223,7 +150,8 @@ app_sortann <- function(args = character(0)) {
   A <- .getann_bulk(0, Inf)
   keep <- !(A$time < from | (to > 0 & A$time >= to))
   idx <- which(keep)
-  so <- .sortann_order(A$time[idx], A$num[idx], A$chan[idx])
+  so <- .ann_sort_order(A$time[idx], A$num[idx], A$chan[idx],
+                        legacy = wfdbx_get_legacy())   # (wfdb-x: no annotation lost)
   iannclose(0)
   if (so$in_order && is.null(out_name)) {
     ceprintf("%s: input is already ordered -- no output written\n", pname)

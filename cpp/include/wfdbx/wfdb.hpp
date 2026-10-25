@@ -352,8 +352,9 @@ int iannsettime(WFDB_Time t);
 void iannclose(WFDB_Annotator a);
 /// Close output annotator `a`; the following output annotators are
 /// renumbered.  If annotations were written out of order, the file is
-/// sorted by running sortann (unless the WFDBANNSORT environment variable
-/// is 0).
+/// sorted (unless the WFDBANNSORT environment variable is 0), with the result
+/// of `sortann -r. RECORD -a ANNOTATOR`.  wfdb-x: the file is sorted in this
+/// process; the C library (and legacy mode) runs the sortann program.
 void oannclose(WFDB_Annotator a);
 /// Set the time resolution (ticks per second) recorded in output annotation
 /// files (0: none, the sampling frequency of the record applies).  It is
@@ -451,6 +452,17 @@ int wfdbx_get_legacy();
 /// "--legacy", remove it (argv[0] is kept, argc is decremented), turn legacy
 /// mode on and return 1; otherwise change nothing and return 0.
 int wfdbx_legacy_args(int &argc, char **&argv);
+/// (wfdb-x addition) Set the directory in which output files are created:
+/// wfdb_open, for writing or appending, then creates the file DIR/NAME,
+/// where NAME is the name it would use otherwise (the record name and file
+/// type; the header still records the names as given).  nullptr or "" means
+/// none (the default: files are created as named).  Returns the previous
+/// value (std::nullopt if none).  Not reset by wfdbquit(); the same in
+/// legacy mode.
+std::optional<std::string> wfdbx_set_output_dir(const char *dir);
+/// (wfdb-x addition) The directory set by wfdbx_set_output_dir()
+/// (std::nullopt if none).
+std::optional<std::string> wfdbx_get_output_dir();
 /// Julian date `d` as " dd/mm/yyyy" (with a leading space).
 std::string datstr(WFDB_Date d);
 /// Julian date of a "dd/mm/yyyy" string, or 0 if it is invalid.
@@ -616,7 +628,10 @@ void resetwfdb();
 int setibsize(int input_buffer_size);
 int setobsize(int output_buffer_size);
 /// The path name of the file of `record` with type (suffix) `file_type`, as
-/// found in the WFDB path, or nullopt if it cannot be found.
+/// found in the WFDB path, or nullopt if it cannot be found.  wfdb-x: input
+/// files named by an absolute path are opened directly (C, and legacy mode:
+/// they are searched for in the WFDB path like any other name; an empty
+/// component, as in setwfdb(";"), uses names as given).
 std::optional<std::string> wfdbfile(const char *file_type, const char *record);
 /// Library version ("10.7.0").
 std::string wfdbversion();

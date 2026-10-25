@@ -6,7 +6,7 @@ function [stat, vector] = getskewedframe(S, vector)
 %   signals, -1 at the end of the record, -3 for a read error, -4 for a
 %   checksum error.  Segments of multi-segment records are switched as
 %   needed, and variable-layout segments are mapped with sigmap.  S is
-%   the signal state (wfdbx.internal.sigstate()).
+%   the signal state (wfdbx.internal.sig_state()).
 
 % Copyright (C) 1989-2013 George B. Moody (original C implementation,
 % lib/signal.c; revised 2011-2022 by Benjamin Moody).

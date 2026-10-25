@@ -20,7 +20,7 @@ function x = aduphys(s, a)
 % corrupts every result derived from it. See docs/DIVERGENCES.md.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 g = wfdbx.internal.conversion_gain(S, 'aduphys', s);
 if g == 0
     x = NaN;

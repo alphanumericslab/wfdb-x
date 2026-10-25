@@ -1,0 +1,8 @@
+init: can't open header for record {cwd}/100s
+Rearranging annotations for output annotator srt ...init: can't open header for record {cwd}/100s
+annopen: can't read annotator srt for record {cwd}/100s
+
+Annotations still need to be rearranged.
+Use the command:
+  sortann -r {cwd}/100s -a srt
+to rearrange annotations in the correct order.

@@ -3,14 +3,14 @@ function wfdb_parse_path(p)
 %   wfdbx.internal.wfdb_parse_path(P) parses the WFDB path P (components
 %   separated by white space or ';', or by ':' for local directories) and
 %   stores the components and their types (local or network) in
-%   wfdbx.internal.iostate() (path_prefix, path_type).
+%   wfdbx.internal.io_state() (path_prefix, path_type).
 
 % Copyright (C) 1988-2013 George B. Moody (original C implementation,
 % lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 prefix = cell(1, 0);
 ptype = zeros(1, 0);
 if ischar(p)

@@ -5,6 +5,15 @@ either MIT or AHA format.  An annotation's ``aux`` field, when present, is
 a ``bytes`` object whose first byte is the length of the data that follows,
 exactly as in the C library.
 
+wfdb-x: oannclose rearranges an out-of-order output annotation file itself,
+in the same process, with a result identical to that of the sortann program,
+which the C library ran through the shell (and found only if it was in the
+PATH); decided by Reza Sameni after a code review, Oct 2026.  The original
+behavior remains available with --legacy (see docs/DIVERGENCES.md).
+wfdb-x: the sort (as the sortann tool) no longer loses an out-of-order
+annotation at time 0 (num 0, chan 0), nor those inserted after it, as sortann
+did (decided by Reza Sameni, Oct 2026; --legacy keeps the original).
+
 Copyright (C) 1989-2013 George B. Moody (original C implementation,
 lib/annot.c; revised 2015-2020 by Benjamin Moody).
 Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
@@ -158,7 +167,7 @@ class _IAData:
 
 
 class _OAData:
-    __slots__ = ("file", "info", "ann", "afreq", "seqno", "rname",
+    __slots__ = ("file", "info", "ann", "afreq", "seqno", "rname", "fname",
                  "out_of_order", "table_written")
 
     def __init__(self):
@@ -168,6 +177,7 @@ class _OAData:
         self.afreq = 0.0
         self.seqno = 0
         self.rname = None
+        self.fname = None       # wfdb-x: the name of the file (as created)
         self.out_of_order = 0
         self.table_written = 0
 
@@ -182,6 +192,18 @@ class _AnnState:
 
 
 _a = _AnnState()
+
+
+class _AnnDefs:
+    """A table of annotation type definitions (wfdb-x): mnemonics,
+    descriptions, and flags marking the modified types.  _lib_defs (defined
+    below) is that of the library; _sort_ann_file uses one of its own."""
+    __slots__ = ("astr", "tstr", "mod")
+
+    def __init__(self, astr, tstr, mod):
+        self.astr = astr
+        self.tstr = tstr
+        self.mod = mod
 
 
 def _round_to_time(x):
@@ -203,14 +225,15 @@ def _cstr(b):
     return b if i < 0 else b[:i]
 
 
-def _get_ann_table(i):
-    ia = _a.iad[i]
+def _read_ann_table(ia, defs):
+    """The body of _get_ann_table (wfdb-x), for the input annotator ia and
+    the definition table defs (the library's, or that of _sort_ann_file)."""
     ia.tmul = 1.0
     ia.afreq = 0.0
     annot = Annotation()
-    if getann(i, annot) < 0:
+    if _getann_ia(ia, annot) < 0:
         return -1
-    while getann(i, annot) == 0 and annot.time == 0 and \
+    while _getann_ia(ia, annot) == 0 and annot.time == 0 and \
             annot.anntyp == NOTE and annot.subtyp == 0:
         if annot.aux is None or annot.aux[0] < 1:
             continue
@@ -240,20 +263,28 @@ def _get_ann_table(i):
             p2 += 1
         if p2 != p1:
             if p2 < n:
-                setanndesc(a, text[p2 + 1:])
+                _set_def_string(defs.tstr, defs.mod, a, text[p2 + 1:])
             else:
-                setanndesc(a, None)
-            setannstr(a, text[p1:p2])
+                _set_def_string(defs.tstr, defs.mod, a, None)
+            _set_def_string(defs.astr, defs.mod, a, text[p1:p2])
     if annot.time != 0 or annot.anntyp != NOTE or annot.subtyp != 0 or \
             annot.aux is None:
-        ungetann(i, annot)
+        _ungetann_ia(ia, annot)
+    return 0
+
+
+def _get_ann_table(i):
+    if _read_ann_table(_a.iad[i], _lib_defs) < 0:
+        return -1
     from ._signal import getifreq
     setiafreq(i, getifreq())
     return 0
 
 
-def _put_ann_table(i):
-    oa = _a.oad[i]
+def _put_ann_table(oa, n, freq, defs):
+    """Write the table to the output annotator oa (number n), with the time
+    resolution freq and the definition table defs (wfdb-x: the C library
+    used oad[n], oafreq, and the library's table)."""
     flag = 0
     annot = Annotation(0, NOTE, 0, 0, 0, None)
 
@@ -261,39 +292,56 @@ def _put_ann_table(i):
         b = s.encode("latin-1")
         return bytes((len(b) & 0xFF,)) + b
 
-    if _a.oafreq != oa.afreq and _a.oafreq > 0.0:
-        annot.aux = aux_of(sprintf(_TIME_RES + "%.12g", _a.oafreq))
-        oa.afreq = _a.oafreq
-        if putann(i, annot) < 0:
+    if freq != oa.afreq and freq > 0.0:
+        annot.aux = aux_of(sprintf(_TIME_RES + "%.12g", freq))
+        oa.afreq = freq
+        if _put_ann_word(oa, n, annot) < 0:
             return -1
         flag = 1
     for a in range(ACMAX + 1):
-        if _a.modified[a]:
+        if defs.mod[a]:
             if flag < 2:
                 annot.aux = aux_of("## annotation type definitions")
-                if putann(i, annot) < 0:
+                if _put_ann_word(oa, n, annot) < 0:
                     return -1
-            d = anndesc(a)
+            d = defs.tstr[a]
             if d is not None:
-                st = "%d %s %s" % (a, annstr(a), d)
+                st = "%d %s %s" % (a, defs.astr[a], d)
             else:
-                st = "%d %s " % (a, annstr(a))
+                st = "%d %s " % (a, defs.astr[a])
             b = st.encode("latin-1")
             n = len(b)      # the length byte saturates at 255, as in C
             annot.aux = bytes((255 if n > 255 else n,)) + b
-            if putann(i, annot) < 0:
+            if _put_ann_word(oa, n, annot) < 0:
                 return -1
             flag = 2
     if flag == 2:
         annot.aux = aux_of("## end of definitions")
-        if putann(i, annot) < 0:
+        if _put_ann_word(oa, n, annot) < 0:
             return -1
     if flag:
         annot.anntyp = 0
         annot.aux = None
-        if putann(i, annot) < 0:
+        if _put_ann_word(oa, n, annot) < 0:
             return -1
     return 0
+
+
+def _ann_file_format(ia):
+    """Read the first word of the input annotation file of ia, and return
+    its format: WFDB_READ (MIT format; any initial null annotations are then
+    read as well) or WFDB_AHA_READ.  (wfdb-x: this was part of annopen.)"""
+    # AHA-format files begin with a null byte and an ASCII character which
+    # is one of the legal AHA annotation codes other than '[' or ']'.
+    ia.word = ia.file.g16() & 0xFFFFFFFF
+    a = (ia.word >> 8) & 0xFF
+    if (ia.word & 0xFF) or ammap(a) == NOTQRS or a == ord("[") or \
+            a == ord("]"):
+        while (ia.word & CODE) == SKIP:
+            ia.tt += ia.file.g32()
+            ia.word = ia.file.g16() & 0xFFFFFFFF
+        return WFDB_READ
+    return WFDB_AHA_READ
 
 
 def annopen(record, aiarray, nann=None):
@@ -345,19 +393,13 @@ def annopen(record, aiarray, nann=None):
                            ai.name, record)
                 return -3
             ia.info.name = ai.name
-            ia.word = ia.file.g16() & 0xFFFFFFFF
-            a = (ia.word >> 8) & 0xFF
-            if (ia.word & 0xFF) or ammap(a) == NOTQRS or a == ord("[") or \
-                    a == ord("]"):
+            if _ann_file_format(ia) == WFDB_READ:
                 if ai.stat != WFDB_READ:
                     wfdb_error("warning (annopen, annotator %s, record %s):\n",
                                ai.name, record)
                     wfdb_error(" file appears to be in MIT format\n")
                     wfdb_error(" ... continuing under that assumption\n")
                 ia.info.stat = WFDB_READ
-                while (ia.word & CODE) == SKIP:
-                    ia.tt += ia.file.g32()
-                    ia.word = ia.file.g16() & 0xFFFFFFFF
             else:
                 if ai.stat != WFDB_AHA_READ:
                     wfdb_error("warning (annopen, annotator %s, record %s):\n",
@@ -379,6 +421,7 @@ def annopen(record, aiarray, nann=None):
                 return -4
             oa.info.name = ai.name
             oa.rname = record
+            oa.fname = wio.wfdbfile(None, None)     # wfdb-x: for sorting
             oa.ann.time = 0
             oa.info.stat = ai.stat
             oa.out_of_order = 0
@@ -402,7 +445,11 @@ def getann(n, annot):
     if n < 0 or n >= len(iad) or iad[n] is None or iad[n].file is None:
         wfdb_error("getann: can't read annotator %d\n", n)
         return -2
-    ia = iad[n]
+    return _getann_ia(iad[n], annot)
+
+
+def _getann_ia(ia, annot):
+    """The body of getann (wfdb-x), for the input annotator ia."""
     if ia.pann.anntyp:
         annot.assign(ia.pann)
         ia.pann.anntyp = 0
@@ -525,6 +572,12 @@ def ungetann(n, annot):
         wfdb_error("ungetann: annotation at %d, annotator %d not pushed "
                    "back\n", annot.time, n)
         return -1
+    return _ungetann_ia(ia, annot)
+
+
+def _ungetann_ia(ia, annot):
+    """The body of ungetann (wfdb-x), after its checks, for the input
+    annotator ia (whose pushback buffer is empty)."""
     ia.pann = annot.copy()
     if annot.time == ia.prev_time:
         ia.pann_tt = ia.prev_tt
@@ -546,11 +599,17 @@ def putann(n, annot):
         wfdb_error("putann: can't write annotation file %d\n", n)
         return -2
     oa = oad[n]
-    t = annot.time
     if not oa.table_written:
         oa.table_written = 1
-        if _put_ann_table(n) < 0:
+        if _put_ann_table(oa, n, _a.oafreq, _lib_defs) < 0:
             return -1
+    return _put_ann_word(oa, n, annot)
+
+
+def _put_ann_word(oa, n, annot):
+    """The body of putann (wfdb-x), after the table, for the output
+    annotator oa (number n, in messages)."""
+    t = annot.time
     f = oa.file
     delta = (t - oa.ann.time) & _U64
     achan = uint8(annot.chan)
@@ -723,6 +782,8 @@ _tstring = [
     "R-on-T premature ventricular contraction",
     None, None, None, None, None, None, None, None,
 ]
+_DEFAULT_DESCRIPTIONS = tuple(_tstring)     # wfdb-x: for _sort_ann_file
+_lib_defs = _AnnDefs(_astring, _tstring, _a.modified)
 
 
 def ecgstr(code):
@@ -786,13 +847,10 @@ def strann(s):
     return NOTQRS
 
 
-def setannstr(code, s):
-    """Redefine the mnemonic of an annotation code (see annstr()).
-
-    A positive code marks the new mnemonic to be recorded in output
-    annotation files; a negative code (-code) changes it for this program
-    only.  Returns 0 on success, or -1 if the code is illegal.
-    """
+def _set_def_string(table, mod, code, s):
+    """The body of setannstr and setanndesc (wfdb-x), for a string table (of
+    mnemonics or descriptions) and the modification flags (mod) of a
+    definition table.  Returns 0, or -1 if code is illegal."""
     mflag = 0
     if code > 0:
         mflag = 1
@@ -801,12 +859,24 @@ def setannstr(code, s):
     if code <= ACMAX:
         if s is None:
             s = ""
-        if _astring[code] is None or _astring[code] != s:
-            _astring[code] = s
+        if table[code] is None or table[code] != s:
+            table[code] = s
             if mflag:
-                _a.modified[code] = 1
+                mod[code] = 1
         return 0
-    wfdb_error("setannstr: illegal annotation code %d\n", code)
+    return -1
+
+
+def setannstr(code, s):
+    """Redefine the mnemonic of an annotation code (see annstr()).
+
+    A positive code marks the new mnemonic to be recorded in output
+    annotation files; a negative code (-code) changes it for this program
+    only.  Returns 0 on success, or -1 if the code is illegal.
+    """
+    if _set_def_string(_astring, _a.modified, code, s) == 0:
+        return 0
+    wfdb_error("setannstr: illegal annotation code %d\n", abs(code))
     return -1
 
 
@@ -828,20 +898,9 @@ def setanndesc(code, s):
     annotation files; a negative code (-code) changes it for this program
     only.  Returns 0 on success, or -1 if the code is illegal.
     """
-    mflag = 0
-    if code > 0:
-        mflag = 1
-    else:
-        code = -code
-    if code <= ACMAX:
-        if s is None:
-            s = ""
-        if _tstring[code] is None or _tstring[code] != s:
-            _tstring[code] = s
-            if mflag:
-                _a.modified[code] = 1
+    if _set_def_string(_tstring, _a.modified, code, s) == 0:
         return 0
-    wfdb_error("setanndesc: illegal annotation code %d\n", code)
+    wfdb_error("setanndesc: illegal annotation code %d\n", abs(code))
     return -1
 
 
@@ -922,8 +981,10 @@ def iannclose(n):
 
 
 def _run_sortann(rname, aname):
-    cmd = [sys.executable, "-m", "wfdbx.apps.sortann", "-r.", rname,
-           "-a", aname]
+    # wfdb-x: the child runs with --legacy (as the original program), and,
+    # with an output directory, in that directory (where the file is)
+    cmd = [sys.executable, "-m", "wfdbx.apps.sortann", "--legacy", "-r.",
+           rname, "-a", aname]
     # Let the child import this same wfdbx package even when it is not
     # installed (e.g. found through a sys.path entry added at run time).
     pkgroot = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -935,18 +996,176 @@ def _run_sortann(rname, aname):
     except (OSError, ValueError):
         pass
     try:
-        return subprocess.call(cmd, env=env)
+        return subprocess.call(cmd, env=env,
+                               cwd=wio.wfdbx_get_output_dir() or None)
     except OSError:
         return -1
+
+
+# ---------------------------------------------------------------------------
+# wfdb-x: in-process sorting of an output annotation file
+
+class _Node:
+    __slots__ = ("next", "prev", "ann")
+
+    def __init__(self, ann=None):
+        self.next = None
+        self.prev = None
+        self.ann = ann
+
+
+class _AnnList:
+    """The doubly-linked annotation list of sortann.c (same algorithm; used
+    by the sortann tool and by _sort_ann_file).
+
+    wfdb-x: unless legacy is true, the head is never compared with an
+    annotation: sortann.c compared it, and took an out-of-order annotation
+    at time 0 (num 0, chan 0) for a duplicate of it, linking it where the
+    output never reaches it (losing it, and the annotations later inserted
+    after it); here such an annotation is inserted at the beginning."""
+
+    def __init__(self, legacy=False):
+        # 'annlist' (a static sentinel whose annotation is all zeros, and
+        # which takes part in comparisons as in sortann.c only if legacy)
+        self.head = _Node(Annotation())
+        self.lastp = self.head
+        self.in_order = 1
+        self.legacy = legacy
+
+    def insert(self, pa):
+        head = self.head
+        newp = _Node(pa.copy())
+        last = self.lastp
+        la = last.ann
+        if last is head or pa.time > la.time or \
+                (pa.time == la.time and pa.num > la.num) or \
+                (pa.time == la.time and pa.num == la.num and
+                 pa.chan > la.chan):
+            newp.prev = last
+            last.next = newp
+            self.lastp = newp
+            newp.next = None
+            return
+        self.in_order = 0
+        ap = last
+        while ap is not None:
+            if ap is head and not self.legacy:      # wfdb-x (see above)
+                ap = None
+                break
+            aa = ap.ann
+            if pa.time > aa.time or \
+                    (pa.time == aa.time and pa.num > aa.num) or \
+                    (pa.time == aa.time and pa.num == aa.num and
+                     pa.chan >= aa.chan):
+                break
+            ap = ap.prev
+        if ap is None:
+            newp.prev = None
+            newp.next = head.next
+            head.next = newp
+            newp.next.prev = newp
+        elif pa.time == ap.ann.time and \
+                pa.num == ap.ann.num and pa.chan == ap.ann.chan:
+            newp.prev = ap.prev
+            if newp.prev is not None:
+                newp.prev.next = newp
+            newp.next = ap.next
+            if newp.next is not None:
+                newp.next.prev = newp
+            else:
+                self.lastp = newp
+            # If ap was the first entry of the list but its 'prev' link
+            # does not lead back to the list head (an entry inserted at the
+            # beginning gets a null link, and one whose predecessor replaced
+            # the head is detached), C leaves the head pointing to the freed
+            # entry (undefined behavior): here the head is updated, so that
+            # the duplicate is replaced (see docs/KNOWN_C_BEHAVIORS.md).
+            if head.next is ap:
+                head.next = newp
+        else:
+            newp.prev = ap
+            newp.next = ap.next
+            ap.next = newp
+            newp.next.prev = newp
+
+    def __iter__(self):
+        p = self.head.next
+        while p is not None:
+            yield p.ann
+            p = p.next
+
+
+def _sort_ann_file(fname, aname):
+    """Rearrange the annotations of the (closed) annotation file fname of
+    annotator aname in the canonical order (wfdb-x).
+
+    The result is identical, byte for byte, to that of the sortann program
+    (the wfdb-x one; the original lost an out-of-order annotation at time
+    0, see _AnnList) as the C library ran it ("sortann -r. RECORD -a
+    ANNOTATOR", see oannclose), but the header of the record is not looked
+    up.  As sortann
+    does, the file is read (with any time resolution and annotation type
+    definitions it contains), its annotations at nonnegative times are
+    inserted in an _AnnList (insert_ann in sortann.c), and, unless they were
+    already in order, the file is rewritten in MIT format, with the time
+    resolution of the input file (if any) and without the NOTQRS
+    annotations.  Its own reader, writer, and definition table are used (the
+    library's annotators and tables are not changed).  Returns 0 on success,
+    or -1 if the file cannot be read or written.
+    """
+    defs = _AnnDefs(list(_DEFAULT_MNEMONICS), list(_DEFAULT_DESCRIPTIONS),
+                    [0] * (ACMAX + 1))
+    ia = _IAData()
+    ia.file = wio.wfdb_fopen(fname, "rb")
+    if ia.file is None:
+        return -1
+    ia.info.name = aname
+    ia.info.stat = _ann_file_format(ia)
+    _read_ann_table(ia, defs)
+    alist = _AnnList()
+    annot = Annotation()
+    while True:
+        stat = _getann_ia(ia, annot)
+        if stat != 0:
+            break
+        if annot.time >= 0:     # (sortann's -f time is 0)
+            alist.insert(annot)
+    ia.file.close()
+    if stat != -1:              # -1: the logical end of the file
+        return -1
+    if alist.in_order:
+        return 0
+    oa = _OAData()
+    oa.info.name = aname
+    oa.info.stat = WFDB_WRITE
+    oa.file = wio.wfdb_fopen(fname, "wb")
+    if oa.file is None:
+        return -1
+    ok = True
+    for ann in alist:
+        if ann.anntyp == NOTQRS:
+            continue
+        if not oa.table_written:
+            oa.table_written = 1
+            ok = _put_ann_table(oa, 0, ia.afreq, defs) == 0
+        if not ok or _put_ann_word(oa, 0, ann) < 0:
+            ok = False
+            break
+    oa.file.p16(0)
+    if oa.file.ferror():
+        ok = False
+    if oa.file.close():
+        ok = False
+    return 0 if ok else -1
 
 
 def oannclose(n):
     """Close output annotator n, completing its file.
 
     If the annotations were not written in canonical order, the file is
-    rearranged by running the sortann tool, unless the WFDBANNSORT
-    environment variable is 0.  Output annotators with higher numbers are
-    renumbered down by one.
+    rearranged (in this process; in legacy mode, by running the sortann
+    tool), unless the WFDBANNSORT environment variable is 0.  Output
+    annotators with higher numbers are renumbered down by one.
     """
     oad = _a.oad
     if not (0 <= n < len(oad) and oad[n] is not None and
@@ -974,7 +1193,14 @@ def oannclose(n):
         if dosort:
             wfdb_error("Rearranging annotations for output annotator %s ...",
                        oa.info.name)
-            if _run_sortann(oa.rname, oa.info.name) == 0:
+            # wfdb-x: the file is sorted in this process; the C library ran
+            # the sortann program, as legacy mode does.
+            from ._signal import wfdbx_get_legacy
+            if wfdbx_get_legacy():
+                sorted_ok = _run_sortann(oa.rname, oa.info.name) == 0
+            else:
+                sorted_ok = _sort_ann_file(oa.fname, oa.info.name) == 0
+            if sorted_ok:
                 wfdb_error("done!\n")
                 oa.out_of_order = 0
             else:

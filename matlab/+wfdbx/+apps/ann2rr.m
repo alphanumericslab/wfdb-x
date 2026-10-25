@@ -338,9 +338,9 @@ if from > 0 && wfdbx.iannsettime(from) < 0
 end
 a0 = 0;
 t0 = from;
-emap = wfdbx.internal.ecgmap();
+emap = wfdbx.internal.ecg_map();
 qrs = emap.qrs;
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 astr = st.astring;
 out = @wfdbx.internal.cout;
 switch rrformat

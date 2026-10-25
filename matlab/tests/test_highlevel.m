@@ -375,6 +375,92 @@ s = wfdbx.read_annotations('100s', 'sc');
 assert_eq(s.symbols, {'N'; 'V'; 'N'}, 'symbols as a char vector');
 assert_eq(s.fs, 360, 'fs not carried over');
 assert_error(@() wfdbx.write_annotations('100s', 'zz', [1 2]), 'no codes');
+
+% --- wfdb-x: the 'dir' option of the writers
+write_dir();
+dir_checks_first();
+end
+
+function dir_checks_first()
+% the dir checks come before any other argument validation
+x = [1 2; 3 4];
+r = 'record name must not contain a directory when dir is given';
+assert_error_msg(@() wfdbx.write_record('x/rec', x, 360, 'dir', 'out'), ...
+    r, 'write_record: record checked first (no gains)');
+assert_error_msg(@() wfdbx.write_record('rec', x, -1, 'dir', 'nosuch'), ...
+    'directory nosuch does not exist', 'write_record: dir checked first');
+assert_error_msg(@() wfdbx.write_record('x/rec', x, 360, 'dir', 'nosuch', ...
+    'legacy', 'bad'), r, 'write_record: record checked before dir');
+assert_error_msg(@() wfdbx.write_record('rec', x, 360, 'dir', 'out'), ...
+    'gains must be specified', 'write_record: then the other checks');
+assert_error_msg(@() wfdbx.write_annotations('x/rec', 'atr', 1, ...
+    'dir', 'out'), r, 'write_annotations: record checked first');
+assert_error_msg(@() wfdbx.write_annotations('rec', 'atr', 1, ...
+    'dir', 'nosuch'), 'directory nosuch does not exist', ...
+    'write_annotations: dir checked first');
+assert_error_msg(@() wfdbx.write_annotations('rec', 'atr', 1, ...
+    'dir', 'out'), 'symbols or codes must be given', ...
+    'write_annotations: then the other checks');
+end
+
+function write_dir()
+x = reshape(0:19, 2, 10).';
+mkdir('out');
+prev = wfdbx.wfdbx_set_output_dir('elsewhere');
+wfdbx.write_record('rec', x, 360, 'gains', 200, 'adcres', 12, ...
+    'units', 'mV', 'dir', 'out');
+assert_eq(wfdbx.wfdbx_get_output_dir(), 'elsewhere', 'output dir restored');
+wfdbx.wfdbx_set_output_dir(prev);
+d = dir('out');
+assert_eq(sort({d(~[d.isdir]).name}), {'rec.dat', 'rec.hea'}, 'files in out');
+assert_true(~isfile('rec.hea') && ~isfile('rec.dat'), 'no files in .');
+hea = char(readfile(fullfile('out', 'rec.hea')));
+assert_eq(hea(1:find(hea == char(13), 1) - 1), 'rec 2 360 10', ...
+    'header names the plain record');
+assert_true(strncmp(hea(find(hea == char(10), 1) + 1:end), 'rec.dat 16 ', 11), ...
+    'header names the plain signal file');
+oldpath = wfdbx.getwfdb();
+wfdbx.setwfdb('out');
+r = wfdbx.read_record('rec');
+wfdbx.setwfdb(oldpath);
+assert_eq(r.signals, x, 'record read from out');
+r = wfdbx.read_record('out/rec');
+assert_eq(r.signals, x, 'record read as out/rec');
+assert_eq(wfdbx.wfdbx_get_output_dir(), [], 'no output dir');
+assert_error_msg(@() wfdbx.write_record('rec', x, 360, 'gains', 200, ...
+    'adcres', 12, 'units', 'mV', 'dir', 'nosuch'), ...
+    'directory nosuch does not exist', 'write_record missing dir');
+assert_error_msg(@() wfdbx.write_record('sub/rec', x, 360, 'gains', 200, ...
+    'adcres', 12, 'units', 'mV', 'dir', 'out'), ...
+    'record name must not contain a directory when dir is given', ...
+    'write_record record with a directory');
+% restored after an error, too
+assert_error(@() wfdbx.write_record('rec', x, 360, 'dir', 'out'), ...
+    'write_record without gains');
+assert_eq(wfdbx.wfdbx_get_output_dir(), [], 'output dir restored after an error');
+assert_true(~isfolder('nosuch') && ~isfolder('sub'), 'no directory created');
+% the same in legacy mode
+wfdbx.write_record('leg', x, 360, 'dir', 'out', 'legacy', true);
+hea = char(readfile(fullfile('out', 'leg.hea')));
+assert_true(strncmp(hea, 'leg 2 360 10', 12), 'dir in legacy mode');
+
+% write_annotations: an out-of-order file is sorted in place
+wfdbx.wfdbquiet();
+wfdbx.write_annotations('rec', 'atr', [30 10 20], 'symbols', 'NVN', ...
+    'dir', 'out');
+wfdbx.wfdbverbose();
+assert_true(isfile(fullfile('out', 'rec.atr')) && ~isfile('rec.atr'), ...
+    'annotation file in out');
+assert_eq(wfdbx.wfdbx_get_output_dir(), [], 'output dir restored (annotations)');
+a = wfdbx.read_annotations('out/rec', 'atr');
+assert_eq([a.samples, a.codes], [10 20 30; 5 1 1].', 'sorted in place');
+assert_error_msg(@() wfdbx.write_annotations('rec', 'atr', 1, ...
+    'symbols', 'N', 'dir', 'nosuch'), 'directory nosuch does not exist', ...
+    'write_annotations missing dir');
+assert_error_msg(@() wfdbx.write_annotations('x/rec', 'atr', 1, ...
+    'symbols', 'N', 'dir', 'out'), ...
+    'record name must not contain a directory when dir is given', ...
+    'write_annotations record with a directory');
 end
 
 function x = pseudo(n, nsig, hi, seed)

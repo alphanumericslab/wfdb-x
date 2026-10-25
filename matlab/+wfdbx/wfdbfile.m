@@ -25,7 +25,7 @@ end
 if isa(record, 'string')   % MATLAB string
     record = char(record);
 end
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 if ~ischar(s) && ~ischar(record)
     name = st.wfdb_filename;
     return;

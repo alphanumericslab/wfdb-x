@@ -12,7 +12,7 @@ function stat = isgsettime(g, t)
 
 LONG_MAX = 9223372036854775807;    % largest WFDB_Time
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 trem = 0;
 if t < 0
     if t < -LONG_MAX

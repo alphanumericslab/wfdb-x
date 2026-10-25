@@ -1,9 +1,9 @@
 function write_annotations(record, annotator, samples, varargin)
 %WRITE_ANNOTATIONS Write an annotation file from arrays.
 %   wfdbx.write_annotations(RECORD, ANNOTATOR, SAMPLES, NAME, VALUE, ...)
-%   writes the annotation file RECORD.ANNOTATOR (in the current
-%   directory), as wrann does, with one annotation at each of the sample
-%   numbers SAMPLES.  The other fields are given as name-value pairs:
+%   writes the annotation file RECORD.ANNOTATOR, as wrann does, with one
+%   annotation at each of the sample numbers SAMPLES.  The other fields
+%   are given as name-value pairs:
 %
 %     'symbols'   cell of mnemonics ('N', 'V', ...; wfdbx.strann), or a
 %                 char vector of one-character mnemonics ('NNVN'), or
@@ -12,15 +12,22 @@ function write_annotations(record, annotator, samples, varargin)
 %     'aux'       cell of auxiliary strings (char, [] for none; at most
 %                 255 bytes are written), or one char vector for all
 %     'fs'        time resolution to record in the file (ticks per second)
+%     'dir'       the directory (which must exist) in which the file is
+%                 created (default: the current directory, or the
+%                 directory part of RECORD; RECORD must not contain a
+%                 directory when 'dir' is given)
 %     'legacy'    true to run with the library's legacy mode
 %                 (wfdbx.wfdbx_set_legacy) on during the call (default
 %                 false; writing annotations does not depend on it)
 %
 %   SAMPLES and the other values may be row or column vectors.
 %
-%   Annotations that are not in canonical order are sorted when the file
-%   is closed (as by the C library).  An error is thrown if the file
-%   cannot be created.
+%   Annotations that are not in canonical order are rearranged when the
+%   file is closed, unless the environment variable WFDBANNSORT is 0 (as
+%   the sortann tool does; wfdb-x: in this process, whereas the C library,
+%   as legacy mode, runs sortann; see wfdbx.oannclose).  An error is
+%   thrown if the file cannot be created, or if 'dir' is given and does
+%   not exist or RECORD contains a directory.
 %
 %   The function calls wfdbx.wfdbquit before and after its work, so any
 %   signals or annotators opened with the low-level functions
@@ -30,17 +37,29 @@ function write_annotations(record, annotator, samples, varargin)
 %       wfdbx.write_annotations('100s', 'test', [100 460], ...
 %           'symbols', {'N', 'V'});
 %       ann = wfdbx.read_annotations('100s', 'test');
+%       wfdbx.write_annotations('100s', 'test', [100 460], ...
+%           'symbols', 'NV', 'dir', 'out');     % creates out/100s.test
 %
 %   See also wfdbx.read_annotations, wfdbx.annopen, wfdbx.putann.
 
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
+% Design decision (Reza Sameni, after a code review, Oct 2026): the
+% writers take a 'dir' option (the files are created in that directory,
+% and the record opens from there under its plain name), and an
+% out-of-order file is rearranged in this process (see wfdbx.oannclose).
+% The original behavior remains available with --legacy (see
+% docs/DIVERGENCES.md).
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 record = wfdbx.internal.strarg(record);
 annotator = wfdbx.internal.strarg(annotator);
 opt = struct('symbols', [], 'codes', [], 'subtypes', 0, 'chans', 0, ...
-    'nums', 0, 'aux', [], 'fs', [], 'legacy', false);
+    'nums', 0, 'aux', [], 'fs', [], 'dir', [], 'legacy', false);
 opt = wfdbx.internal.hl_options(opt, varargin, 'write_annotations');
+% wfdb-x: the 'dir' option (the library's output directory, for this
+% call), checked before the other arguments
+restore_dir = wfdbx.internal.hl_outdir(opt.dir, record, ...
+    'write_annotations'); %#ok<NASGU>
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'write_annotations'); %#ok<NASGU>
 if ischar(opt.symbols)
     opt.symbols = num2cell(opt.symbols);

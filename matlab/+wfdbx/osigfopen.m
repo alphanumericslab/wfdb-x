@@ -31,7 +31,7 @@ end
 if isempty(si) || nsig == 0
     return;
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if S.obsize <= 0
     S.obsize = 8192;
 end

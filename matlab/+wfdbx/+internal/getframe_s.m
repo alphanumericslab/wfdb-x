@@ -1,7 +1,7 @@
 function [stat, vector] = getframe_s(S, vector)
 %GETFRAME_S Read a frame of samples (getframe in signal.c).
 %   [STAT, V] = wfdbx.internal.getframe_s(S, V) is wfdbx.getframe(V), with
-%   the signal state S (wfdbx.internal.sigstate()) given by the caller.
+%   the signal state S (wfdbx.internal.sig_state()) given by the caller.
 
 % Copyright (C) 1989-2013 George B. Moody (original C implementation,
 % lib/signal.c; revised 2011-2022 by Benjamin Moody).

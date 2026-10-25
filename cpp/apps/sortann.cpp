@@ -9,6 +9,9 @@
 // give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
 // 12 bits and millivolts), because a silently assumed value corrupts every
 // result derived from it. See docs/DIVERGENCES.md.
+// wfdb-x: an out-of-order annotation at time 0 (num 0, chan 0) is no longer
+// lost (nor are those inserted after it), as it was by the original program
+// (decided by Reza Sameni, Oct 2026); --legacy keeps the original behavior.
 // GNU General Public License, version 2 or later (see LICENSE).
 //
 // This program rewrites annotation files with the annotations in time
@@ -25,10 +28,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <vector>
 
 #include <wfdbx/ecgcodes.hpp>
 #include <wfdbx/wfdb.hpp>
+
+// (for detail::AnnSortList, as revise.cpp uses the library's internals)
+#include "../src/wfdblib.hpp"
 
 using namespace wfdbx;
 
@@ -77,79 +82,6 @@ static void help()
         std::fprintf(stderr, "%s\n", hs[i]);
 }
 
-// The doubly-linked annotation list of the C version.  Node 0 is the list
-// head ('annlist'), whose annotation is all zeros and which takes part in
-// comparisons exactly as in sortann.c; -1 is a null link.
-struct AnnListEntry {
-    long next = -1, prev = -1;
-    WFDB_Annotation annotation;
-};
-
-static std::vector<AnnListEntry> annlist(1);
-static long lastp = 0;
-static int in_order = 1;
-
-static void insert_ann(const WFDB_Annotation *pa)
-{
-    long newp = static_cast<long>(annlist.size());
-    annlist.emplace_back();
-    annlist[newp].annotation = *pa;
-    const WFDB_Annotation &la = annlist[lastp].annotation;
-    if (lastp == 0 || pa->time > la.time ||
-        (pa->time == la.time && pa->num > la.num) ||
-        (pa->time == la.time && pa->num == la.num && pa->chan > la.chan)) {
-        // this annotation is in order -- add to end of list
-        annlist[newp].prev = lastp;
-        annlist[lastp].next = newp;
-        lastp = newp;
-        annlist[lastp].next = -1;
-    } else {
-        in_order = 0;   // set flag to indicate input was out-of-order
-        // Find the correct location in the list for this annotation.  The
-        // search is linear, beginning at the end of the list.
-        long ap = lastp;
-        while (ap != -1) {
-            const WFDB_Annotation &aa = annlist[ap].annotation;
-            if (pa->time > aa.time ||
-                (pa->time == aa.time && pa->num > aa.num) ||
-                (pa->time == aa.time && pa->num == aa.num &&
-                 pa->chan >= aa.chan))
-                break;
-            ap = annlist[ap].prev;
-        }
-        if (ap == -1) {
-            // insert newp at the beginning of the list
-            annlist[newp].prev = -1;
-            annlist[newp].next = annlist[0].next;
-            annlist[annlist[newp].next].prev = annlist[0].next = newp;
-        } else if (pa->time == annlist[ap].annotation.time &&
-                   pa->num == annlist[ap].annotation.num &&
-                   pa->chan == annlist[ap].annotation.chan) {
-            // replace ap by newp
-            if ((annlist[newp].prev = annlist[ap].prev) != -1)
-                annlist[annlist[newp].prev].next = newp;
-            if ((annlist[newp].next = annlist[ap].next) != -1)
-                annlist[annlist[newp].next].prev = newp;
-            else
-                lastp = newp;
-            // If ap was the first entry of the list but its 'prev' link does
-            // not lead back to the list head (an entry inserted at the
-            // beginning gets a null link, and one whose predecessor replaced
-            // the head is detached), C leaves the head pointing to the freed
-            // entry (undefined behavior): here the head is updated, so that
-            // the duplicate is replaced (see docs/KNOWN_C_BEHAVIORS.md).
-            if (ap != 0 && annlist[0].next == ap)
-                annlist[0].next = newp;
-        } else {    // insert newp immediately after ap
-            annlist[newp].prev = ap;
-            annlist[newp].next = annlist[ap].next;
-            if (annlist[newp].next != -1)
-                annlist[annlist[newp].next].prev = newp;
-            annlist[ap].next = newp;
-        }
-    }
-}
-
 // Exit after reporting an unrecognized option (wfdb-x: also the wfdb-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
@@ -173,6 +105,13 @@ int main(int argc, char **argv)
     double Ffreq = 0., sps, tps;
 
     pname = prog_name(argv[0]);
+
+    // The annotation list (insert_ann of the C version; wfdb-x: shared with
+    // the library, which sorts out-of-order output annotation files in the
+    // same way).  wfdb-x: an out-of-order annotation at time 0 (num 0, chan
+    // 0) is no longer lost; legacy mode: the original insertion, which loses
+    // it.
+    detail::AnnSortList annlist(wfdbx_get_legacy() != 0);
 
     // Interpret command-line options.
     for (i = 1; i < argc; i++) {
@@ -322,11 +261,11 @@ int main(int argc, char **argv)
     // Build a linked list of annotations in memory.
     while (getann(0, &annot) == 0) {
         if (annot.time < from || (to > 0 && annot.time >= to)) continue;
-        insert_ann(&annot);
+        annlist.insert(annot);
     }
     iannclose(0);
 
-    if (in_order && ainame[1] == nullptr) {
+    if (annlist.in_order() && ainame[1] == nullptr) {
         // If all of the annotations were in order, don't copy them unless
         // another annotator name was specified (using -o).
         std::fprintf(stderr,
@@ -343,9 +282,9 @@ int main(int argc, char **argv)
     ai[1].name = ainame[1];
     if (annopen(record, &ai[1], 1) < 0)     // open output annotation file
         std::exit(2);
-    for (long ap = annlist[0].next; ap != -1; ap = annlist[ap].next)
-        if (annlist[ap].annotation.anntyp != NOTQRS)
-            putann(0, &annlist[ap].annotation);
+    annlist.for_each([](const WFDB_Annotation &a) {
+        if (a.anntyp != NOTQRS) putann(0, &a);
+    });
     wfdbquit();
 
     std::exit(0);

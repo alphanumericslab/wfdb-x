@@ -21,7 +21,7 @@ p = k - 1;          % length of the directory part (as in C)
 if p == 0
     p = 1;
 end
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 if ~ischar(st.wfdbpath)
     wfdbx.getwfdb();
 end

@@ -10,6 +10,14 @@
 # Remote files (http://, https:// path components or record names) are not
 # supported, as in the C++ and MATLAB ports: wfdb_fopen() returns NULL for
 # URLs, so remote files are never found.
+#
+# wfdb-x: wfdb_open opens an input file named by an absolute path directly
+# (the C library searched for it in each directory of the WFDB path, so that
+# it was found only if the path contained an empty component or the current
+# directory was the root), and output files can be created in a directory
+# set with wfdbx_set_output_dir; decided by Reza Sameni after a code review,
+# Oct 2026.  The original behavior remains available with --legacy (see
+# docs/DIVERGENCES.md).
 
 WFDB_MAJOR <- 10
 WFDB_MINOR <- 7
@@ -50,6 +58,7 @@ wfdbio_reset <- function() {
   st$stdin_file <- NULL
   st$stdout_file <- NULL
   st$driver <- NULL            # path of inst/bin/wfdbx.R (set by the driver)
+  st$output_dir <- NULL        # wfdb-x: see wfdbx_set_output_dir
   invisible()
 }
 wfdbio_reset()
@@ -279,6 +288,35 @@ wfdbfile <- function(s, record) {
 # ---------------------------------------------------------------------------
 # Opening files
 
+#' Set the directory in which output files are created (a wfdb-x addition);
+#' returns the previous one (NULL if none).  When it is set, wfdb_open
+#' creates each output file (WFDB_WRITE or WFDB_APPEND mode) as
+#' dir/name, where name is the name it would use otherwise (the record name
+#' and the file type).  NULL or "" means none (the default: files are
+#' created as named).  Not reset by wfdbquit.
+wfdbx_set_output_dir <- function(dir) {
+  previous <- .wfdb_io$output_dir
+  .wfdb_io$output_dir <- if (is.null(dir) || !nzchar(dir)) NULL else dir
+  previous
+}
+
+#' The directory set by wfdbx_set_output_dir, or NULL.
+wfdbx_get_output_dir <- function() .wfdb_io$output_dir
+
+# wfdb-x: TRUE if s is an absolute local path: on POSIX systems, one that
+# begins with '/'; on MS-Windows, one that begins with 'X:\', 'X:/', '\\'
+# or '/'.
+.is_absolute_path <- function(s) {
+  if (.Platform$OS.type == "windows") {
+    if (startsWith(s, "\\\\")) return(TRUE)
+    b <- charToRaw(s)
+    if (length(b) >= 3L && grepl("[A-Za-z]", rawToChar(b[1L]), useBytes = TRUE) &&
+        b[2L] == charToRaw(":") && b[3L] %in% charToRaw("\\/"))
+      return(TRUE)
+  }
+  startsWith(s, "/")
+}
+
 .spr1 <- function(record, type) if (!nzchar(type)) record else paste0(record, ".", type)
 .spr2 <- function(record, type) {
   if (!nzchar(type)) paste0(record, ".") else
@@ -316,9 +354,11 @@ wfdbfile <- function(s, record) {
 }
 
 #' Find and open the WFDB file of type s (e.g. "hea", or "" for a file
-#' named by record) for a record; mode WFDB_READ, WFDB_WRITE or
-#' WFDB_APPEND.  Returns a WFDB_FILE (see wfdbfile.R) or NULL.  The record
-#' "-" is the standard input (reading) or output (writing).
+#' named by record) for a record; mode WFDB_READ (search the WFDB path; an
+#' absolute name is opened directly first, except in legacy mode),
+#' WFDB_WRITE or WFDB_APPEND (create the file as named, within the output
+#' directory if one is set).  Returns a WFDB_FILE (see wfdbfile.R) or NULL.
+#' The record "-" is the standard input (reading) or output (writing).
 wfdb_open <- function(s, record, mode) {
   if (is.null(s)) s <- ""
   st <- .wfdb_io
@@ -365,10 +405,23 @@ wfdb_open <- function(s, record, mode) {
   }
   if (mode == WFDB_WRITE || mode == WFDB_APPEND) {
     st$wfdb_filename <- .spr1(r, s)
+    # wfdb-x: in the output directory, if one was set
+    if (!is.null(st$output_dir)) st$wfdb_filename <- paste0(st$output_dir, "/", st$wfdb_filename)
     return(wfdb_fopen(st$wfdb_filename, if (mode == WFDB_WRITE) "wb" else "ab"))
   }
   if (length(st$path_prefix) == 0L) getwfdb()
   if (startsWith(r, "http://") || startsWith(r, "https://")) {
+    st$wfdb_filename <- .spr1(r, s)
+    f <- wfdb_fopen(st$wfdb_filename, "rb")
+    if (!is.null(f)) {
+      wfdb_addtopath(st$wfdb_filename)
+      return(f)
+    }
+  }
+  # wfdb-x: an absolute local path is opened directly (and, as for a URL,
+  # its directory is added to the WFDB path); if it cannot be, the WFDB path
+  # is searched as in the C library (and in legacy mode).
+  if (.is_absolute_path(r) && !wfdbx_get_legacy()) {
     st$wfdb_filename <- .spr1(r, s)
     f <- wfdb_fopen(st$wfdb_filename, "rb")
     if (!is.null(f)) {
@@ -493,8 +546,9 @@ wfdb_striphea <- function(p) {
 shell_quote <- function(s) paste0("'", gsub("'", "'\\''", s, fixed = TRUE), "'")
 
 #' The shell command that runs the wfdb-x tool `tool` (followed by its
-#' arguments, to be appended by the caller) in a new process; used to run
-#' sortann when an annotation file is closed, as the C library does.
+#' arguments, to be appended by the caller) in a new process; used (in
+#' legacy mode) to run sortann when an annotation file is closed, as the C
+#' library does.
 tool_command <- function(tool) {
   driver <- .wfdb_io$driver
   if (is.null(driver) || !file.exists(driver)) {

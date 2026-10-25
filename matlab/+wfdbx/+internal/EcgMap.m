@@ -1,6 +1,6 @@
 classdef EcgMap < handle
 %ECGMAP The modifiable annotation mapping tables (lib/ecgmap.h).
-%   The single instance is returned by wfdbx.internal.ecgmap().  Its
+%   The single instance is returned by wfdbx.internal.ecg_map().  Its
 %   properties hold, for each annotation code 0-49 (index code+1):
 %     qrs   1 if the code denotes a QRS complex (wfdbx.isqrs)
 %     mp1   wfdbx.map1 mapping

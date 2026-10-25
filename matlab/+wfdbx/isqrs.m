@@ -11,7 +11,7 @@ function y = isqrs(a)
 
 ACMAX = 49;     % largest annotation code (lib/ecgcodes.h)
 if a > 0 && a <= ACMAX
-    m = wfdbx.internal.ecgmap();
+    m = wfdbx.internal.ecg_map();
     y = m.qrs(a + 1);
 else
     y = 0;

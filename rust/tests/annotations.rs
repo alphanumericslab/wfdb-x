@@ -808,3 +808,306 @@ fn calibration() {
     w.wfdbverbose();
     w.flushcal();
 }
+
+// ---------------------------------------------------------------------------
+// wfdb-x: in-process sorting of out-of-order output annotation files
+
+/// Writes `rec.srt` with annotations out of order: ties in time with
+/// different num and chan, duplicates (time, num, chan), a NOTQRS
+/// annotation, aux strings, a negative time, a modified mnemonic and a time
+/// resolution. The input annotator `atr` of `100s` is open at the same time
+/// (as input annotator 0), and is read on after the output file is closed.
+/// Returns the times read from `atr`.
+fn write_tricky(w: &mut Wfdb, rec: &str) -> Vec<i64> {
+    w.setafreq(1000.5);
+    w.setannstr(42, "new");
+    assert_eq!(w.annopen("100s", &ai("atr", WFDB_READ), 1), 0);
+    let mut times = Vec::new();
+    let mut a = Annotation::default();
+    for _ in 0..10 {
+        assert_eq!(w.getann(0, &mut a), 0);
+        times.push(a.time);
+    }
+    let rec = format!("+{rec}");
+    assert_eq!(w.annopen(&rec[..], &ai("srt", WFDB_WRITE), 1), 0);
+    // (time, anntyp, num, chan, aux)
+    type Ann = (i64, i32, i8, u8, Option<&'static [u8]>);
+    let anns: &[Ann] = &[
+        (10, NORMAL, 0, 0, None),
+        (5, PVC, 0, 0, Some(b"first")),
+        (5, NORMAL, 1, 0, None),
+        (5, APC, 0, 2, Some(b"odd")),
+        (5, PVC, 0, 0, Some(b"second")), // replaces (5, 0, 0)
+        (3, NOTQRS, 0, 0, None),         // dropped by the sort
+        (-4, NORMAL, 0, 0, None),        // negative: dropped
+        (20, NORMAL, 0, 1, Some(b"hello world")),
+        (15, 42, 0, 0, None),
+        (5, NORMAL, 1, 0, Some(b"dup")), // replaces (5, 1, 0)
+        (7, NOTE, -3, 0, Some(b"note")),
+        (2, NORMAL, 0, 0, None),
+        (12, NORMAL, 0, 0, None),
+        (12, NORMAL, 0, 0, None),
+        (1, PVC, 2, 1, None),
+    ];
+    for &(time, anntyp, num, chan, x) in anns {
+        let a = Annotation {
+            time,
+            anntyp: anntyp as i8,
+            num,
+            chan,
+            aux: x.and_then(aux),
+            ..Default::default()
+        };
+        assert_eq!(w.putann(0, &a), 0);
+    }
+    w.oannclose(0);
+    while w.getann(0, &mut a) == 0 {
+        times.push(a.time);
+    }
+    w.wfdbquit();
+    w.setafreq(0.0);
+    times
+}
+
+/// Writes two annotations out of order to `rec.srt`, closes the file (with
+/// annopen) and returns the status of closing.
+fn write_two(w: &mut Wfdb, rec: &str) -> i32 {
+    assert_eq!(w.annopen(rec, &ai("srt", WFDB_WRITE), 1), 0);
+    for t in [5, 3] {
+        let a = Annotation {
+            time: t,
+            anntyp: NORMAL as i8,
+            ..Default::default()
+        };
+        w.putann(0, &a);
+    }
+    w.wfdbflush();
+    w.annopen(NULL, &[], 0)
+}
+
+#[test]
+fn sort_in_process() {
+    let d = DataDir::new("sort");
+    let sortann = PathBuf::from(env!("CARGO_BIN_EXE_sortann"));
+    let path = std::env::var_os("PATH");
+    let mut w = d.wfdb();
+    w.wfdbquiet();
+
+    // The atr times of 100s, as read without an output annotator.
+    let mut expected = Vec::new();
+    assert_eq!(w.annopen("100s", &ai("atr", WFDB_READ), 1), 0);
+    let mut a = Annotation::default();
+    while w.getann(0, &mut a) == 0 {
+        expected.push(a.time);
+    }
+    w.wfdbquit();
+
+    // WFDBANNSORT=0: the file is left as written.
+    std::env::set_var("WFDBANNSORT", "0");
+    assert_eq!(write_two(&mut w, "two"), -6);
+    assert_eq!(
+        std::fs::read("two.srt").unwrap(),
+        unhex("0504 00ec ffff feff 0004 0000")
+    );
+    assert_eq!(write_tricky(&mut w, "unsorted"), expected);
+    assert_eq!(
+        w.wfdberror(),
+        b"to rearrange annotations in the correct order.\n"
+    );
+    std::env::remove_var("WFDBANNSORT");
+
+    // The result of the sortann program on that file.
+    std::fs::copy("unsorted.srt", "child.srt").unwrap();
+    let st = std::process::Command::new(&sortann)
+        .args(["-r.", "child", "-a", "srt"])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let child = std::fs::read("child.srt").unwrap();
+    assert_ne!(child, std::fs::read("unsorted.srt").unwrap());
+
+    // Modern mode: sorted in this process, with no sortann program to be
+    // found (PATH empty), and without disturbing the open input annotator.
+    std::env::set_var("PATH", "");
+    let mut w2 = d.wfdb(); // (w has a modified mnemonic)
+    w2.wfdbquiet();
+    assert_eq!(write_two(&mut w2, "two"), -6); // as in C, also when sorted
+    assert_eq!(w2.wfdberror(), b"done!\n");
+    assert_eq!(std::fs::read("two.srt").unwrap(), unhex("0304 0204 0000"));
+    assert_eq!(write_tricky(&mut w, "modern"), expected);
+    assert_eq!(w.wfdberror(), b"done!\n");
+    assert_eq!(std::fs::read("modern.srt").unwrap(), child);
+
+    // Legacy mode: the sortann program is run (here not found: the file
+    // still needs to be sorted), then found in the PATH.
+    w.wfdbx_set_legacy(1);
+    write_tricky(&mut w, "legacy");
+    assert_eq!(
+        w.wfdberror(),
+        b"to rearrange annotations in the correct order.\n"
+    );
+    assert_eq!(
+        std::fs::read("legacy.srt").unwrap(),
+        std::fs::read("unsorted.srt").unwrap()
+    );
+    std::env::set_var("PATH", sortann.parent().unwrap());
+    assert_eq!(write_tricky(&mut w, "legacy"), expected);
+    assert_eq!(w.wfdberror(), b"done!\n");
+    assert_eq!(std::fs::read("legacy.srt").unwrap(), child);
+    w.wfdbx_set_legacy(0);
+    if let Some(p) = path {
+        std::env::set_var("PATH", p);
+    }
+
+    // The sorted file: in order, without the NOTQRS and negative-time
+    // annotations, with the replacements, the time resolution and the
+    // definition of code 42 (read with a fresh library state).
+    let mut w = d.wfdb();
+    assert_eq!(w.annopen("modern", &ai("srt", WFDB_READ), 1), 0);
+    assert_eq!(w.getiaorigfreq(0), 1000.5);
+    let mut got = Vec::new();
+    while w.getann(0, &mut a) == 0 {
+        let x = a
+            .aux
+            .as_ref()
+            .map(|x| String::from_utf8_lossy(cstd::cstr(&x[1..])).into_owned());
+        got.push((a.time, a.anntyp as i32, a.num, a.chan, x));
+    }
+    w.wfdbquit();
+    let s = |v: &str| Some(v.to_string());
+    assert_eq!(
+        got,
+        vec![
+            (1, PVC, 2, 1, None),
+            (2, NORMAL, 0, 0, None),
+            (5, PVC, 0, 0, s("second")),
+            (5, APC, 0, 2, s("odd")),
+            (5, NORMAL, 1, 0, s("dup")),
+            (7, NOTE, -3, 0, s("note")),
+            (10, NORMAL, 0, 0, None),
+            (12, NORMAL, 0, 0, None),
+            (15, 42, 0, 0, None),
+            (20, NORMAL, 0, 1, s("hello world")),
+        ]
+    );
+    assert_eq!(w.annstr(42), b"new");
+}
+
+/// A sort that fails (here: the file cannot be read back, its directory
+/// having been removed) leaves the annotations to be rearranged.
+#[cfg(unix)]
+#[test]
+fn sort_errors() {
+    let d = DataDir::new("sorterr");
+    let mut w = d.wfdb();
+    w.wfdbquiet();
+    assert_eq!(w.annopen("gone/rec", &ai("srt", WFDB_WRITE), 1), 0);
+    for t in [5, 3] {
+        let a = Annotation {
+            time: t,
+            anntyp: NORMAL as i8,
+            ..Default::default()
+        };
+        w.putann(0, &a);
+    }
+    w.wfdbflush();
+    std::fs::remove_dir_all("gone").unwrap();
+    assert_eq!(w.annopen(NULL, &[], 0), -6);
+    assert_eq!(
+        w.wfdberror(),
+        b"to rearrange annotations in the correct order.\n"
+    );
+}
+
+/// wfdb-x: the list no longer loses an out-of-order annotation at time 0
+/// (num and chan 0) and those inserted after it; the original insertion
+/// (legacy) does.
+#[test]
+fn annlist_time0() {
+    let list = |legacy: bool, anns: &[(i64, u8)]| {
+        let mut l = AnnList::with_legacy(legacy);
+        for &(time, chan) in anns {
+            l.insert(&Annotation {
+                time,
+                chan,
+                anntyp: NORMAL as i8,
+                ..Default::default()
+            });
+        }
+        assert!(!l.in_order());
+        l.iter().map(|a| (a.time, a.chan)).collect::<Vec<_>>()
+    };
+    let x = [(5, 0), (0, 0), (3, 0)];
+    assert_eq!(list(false, &x), [(0, 0), (3, 0), (5, 0)]);
+    assert_eq!(list(true, &x), [(5, 0)]);
+    // several channels; a later (0, 0, 0) replaces a real (0, 0, 0) entry
+    let x = [(5, 0), (0, 1), (0, 0), (2, 0), (0, 0), (0, 2)];
+    assert_eq!(list(false, &x), [(0, 0), (0, 1), (0, 2), (2, 0), (5, 0)]);
+    // (original: the (0, 0) entries replace the head; (0, 1) and what
+    // follows it remain reachable)
+    assert_eq!(list(true, &x), [(0, 1), (0, 2), (2, 0), (5, 0)]);
+    // (0, 0, chan > 0) was never lost
+    let x = [(5, 0), (0, 1), (3, 0)];
+    assert_eq!(list(false, &x), list(true, &x));
+    assert_eq!(AnnList::default().iter().count(), 0);
+}
+
+/// wfdb-x: the library sort keeps time-0 annotations, with the result of
+/// the sortann tool; in legacy mode, the sortann program run with --legacy
+/// loses them, as the original did.
+#[test]
+fn sort_time0() {
+    let d = DataDir::new("sort0");
+    let sortann = PathBuf::from(env!("CARGO_BIN_EXE_sortann"));
+    let path = std::env::var_os("PATH");
+    std::env::set_var("PATH", sortann.parent().unwrap());
+    let write = |w: &mut Wfdb, rec: &str| {
+        assert_eq!(w.annopen(rec, &ai("srt", WFDB_WRITE), 1), 0);
+        for (t, x) in [(5, None), (0, Some(&b"+ (N"[..])), (3, None)] {
+            let a = Annotation {
+                time: t,
+                anntyp: NORMAL as i8,
+                aux: x.and_then(aux),
+                ..Default::default()
+            };
+            w.putann(0, &a);
+        }
+        w.wfdbquit();
+    };
+    let times = |w: &mut Wfdb, rec: &str| {
+        assert_eq!(w.annopen(rec, &ai("srt", WFDB_READ), 1), 0);
+        let mut v = Vec::new();
+        let mut a = Annotation::default();
+        while w.getann(0, &mut a) == 0 {
+            v.push(a.time);
+        }
+        w.wfdbquit();
+        v
+    };
+    let mut w = d.wfdb();
+    w.wfdbquiet();
+    write(&mut w, "modern");
+    assert_eq!(times(&mut w, "modern"), [0, 3, 5]);
+    std::env::set_var("WFDBANNSORT", "0");
+    write(&mut w, "child");
+    std::env::remove_var("WFDBANNSORT");
+    let st = std::process::Command::new(&sortann)
+        .args(["-r.", "child", "-a", "srt"])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(st.success());
+    assert_eq!(
+        std::fs::read("modern.srt").unwrap(),
+        std::fs::read("child.srt").unwrap()
+    );
+    w.wfdbx_set_legacy(1);
+    write(&mut w, "legacy");
+    assert_eq!(w.wfdberror(), b"done!\n");
+    w.wfdbx_set_legacy(0);
+    assert_eq!(times(&mut w, "legacy"), [5]);
+    if let Some(p) = path {
+        std::env::set_var("PATH", p);
+    }
+}

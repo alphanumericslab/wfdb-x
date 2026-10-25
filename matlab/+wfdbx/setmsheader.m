@@ -18,7 +18,7 @@ if isa(record, 'string')   % MATLAB string
     record = char(record);
 end
 segment_name = wfdbx.internal.strarg(segment_name);
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if nargin < 3
     nsegments = numel(segment_name);
 end

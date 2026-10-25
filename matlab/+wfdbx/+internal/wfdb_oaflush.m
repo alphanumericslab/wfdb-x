@@ -8,7 +8,7 @@ function wfdb_oaflush()
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 for k = 1:numel(st.oad)
     oa = wfdbx.internal.ann_oflush(st.oad{k});
     oa.file.flush();

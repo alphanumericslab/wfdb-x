@@ -3688,31 +3688,29 @@ getframes <- function(n, minstat = 0) {
 
 # Bytes of the samples v in a byte-aligned format.
 .encode_stream <- function(fmt, v) {
-  b <- switch(as.character(fmt),
-    "8" = rbind(v),
-    "16" = {
-      x <- v %% 65536
-      rbind(x %% 256, x %/% 256)
-    },
-    "61" = {
-      x <- v %% 65536
-      rbind(x %/% 256, x %% 256)
-    },
-    "80" = rbind((v %% 256 + 128) %% 256),
-    "160" = {
-      x <- (v %% 65536 + 32768) %% 65536
-      rbind(x %% 256, x %/% 256)
-    },
+  # (16- and 32-bit words are written with writeBin, as signed integers)
+  i16 <- function(x) {
+    x <- x %% 65536
+    as.integer(x - 65536 * (x >= 32768))
+  }
+  w16 <- function(x, endian = "little") writeBin(i16(x), raw(), size = 2L, endian = endian)
+  switch(as.character(fmt),
+    "8" = as.raw(v),
+    "16" = w16(v),
+    "61" = w16(v, "big"),
+    "80" = as.raw((v %% 256 + 128) %% 256),
+    "160" = w16(v + 32768),
     "24" = {
       x <- v %% 16777216
-      rbind(x %% 256, (x %/% 256) %% 256, x %/% 65536)
+      as.vector(rbind(matrix(w16(x), 2L), as.raw(x %/% 65536)))
     },
     "32" = {
+      # (-2^31 becomes NA_integer_, whose bytes are those of INT_MIN)
       x <- v %% 4294967296
-      rbind(x %% 256, (x %/% 256) %% 256, (x %/% 65536) %% 256, x %/% 16777216)
+      x <- suppressWarnings(as.integer(x - 4294967296 * (x >= 2147483648)))
+      writeBin(x, raw(), size = 4L, endian = "little")
     },
-    rbind(v %% 256))
-  as.raw(as.vector(b))
+    as.raw(v %% 256))
 }
 
 # Bytes of the samples v in a bit-packed format (212, 310, 311), continuing

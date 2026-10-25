@@ -12,7 +12,7 @@ function wfdb_error(fmt, varargin)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 st.error_flag = true;
 st.error_message = wfdbx.internal.csprintf(fmt, varargin{:});
 if st.error_print

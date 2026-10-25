@@ -8,11 +8,16 @@
 // 12 bits and millivolts), because a silently assumed value corrupts every
 // result derived from it. See docs/DIVERGENCES.md. The original behavior
 // remains available with --legacy (see docs/DIVERGENCES.md).
+// Design decision (Reza Sameni, after a code review, Oct 2026): the writers
+// take an output directory (WriteOptions::dir, the `dir` parameter of
+// write_annotations()): the files are created in it, and the record opens
+// from there under its plain name.
 // GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #include "wfdbx/record.hpp"
 
 #include <cmath>
+#include <filesystem>
 #include <limits>
 
 namespace wfdbx {
@@ -38,6 +43,42 @@ public:
 private:
     bool on_;
     int prev_;
+};
+
+// wfdb-x: the library's output directory (wfdbx_set_output_dir) set to
+// `dir` for the lifetime of the object, if `dir` is not empty (restoring the
+// previous one afterwards, also when an exception is thrown); no change
+// otherwise.  Throws Error if `record` contains a directory or if `dir` does
+// not exist; the writers construct it first, so that these checks come
+// before any other validation (and before anything is written).
+class OutputDirScope {
+public:
+    OutputDirScope(const std::string &record, const std::string &dir)
+        : on_(!dir.empty())
+    {
+        if (!on_) return;
+#if defined(_WIN32)
+        const char *seps = "/\\";
+#else
+        const char *seps = "/";
+#endif
+        if (record.find_first_of(seps) != std::string::npos)
+            throw Error("record name must not contain a directory when dir "
+                        "is given");
+        std::error_code ec;
+        if (!std::filesystem::is_directory(dir, ec))
+            throw Error("directory " + dir + " does not exist");
+        prev_ = wfdbx_set_output_dir(dir.c_str());
+    }
+    ~OutputDirScope()
+    {
+        if (on_) wfdbx_set_output_dir(prev_ ? prev_->c_str() : nullptr);
+    }
+    OutputDirScope(const OutputDirScope &) = delete;
+    OutputDirScope &operator=(const OutputDirScope &) = delete;
+private:
+    bool on_;
+    std::optional<std::string> prev_;
 };
 
 template <typename T>
@@ -345,6 +386,7 @@ void write_record(const std::string &record,
                   const std::vector<WFDB_Sample> &samples, int nsig,
                   WFDB_Frequency fs, const WriteOptions &opt)
 {
+    OutputDirScope dir_scope(record, opt.dir);  // (its checks come first)
     write_adc(record, samples, nsig, fs, opt);
 }
 
@@ -352,6 +394,7 @@ void write_record_physical(const std::string &record,
                            const std::vector<double> &samples, int nsig,
                            WFDB_Frequency fs, const WriteOptions &options)
 {
+    OutputDirScope dir_scope(record, options.dir);  // (its checks come first)
     const WriteOptions opt = with_library_legacy(options);
     // Gain and baseline of each column of a frame
     std::vector<double> g;
@@ -388,8 +431,10 @@ void write_record_physical(const std::string &record,
 }
 
 void write_annotations(const std::string &record, const std::string &annotator,
-                       const Annotations &ann, WFDB_Frequency fs)
+                       const Annotations &ann, WFDB_Frequency fs,
+                       const std::string &dir)
 {
+    OutputDirScope dir_scope(record, dir);
     size_t n = ann.samples.size();
     wfdbquit();
     if (fs > 0) setafreq(fs);

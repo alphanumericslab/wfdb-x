@@ -62,6 +62,12 @@ if(WFDBX_BUILD_TESTS)
     target_compile_definitions(wfdbx_tests PRIVATE
       WFDBX_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
     add_test(NAME unit COMMAND wfdbx_tests)
+    if(WFDBX_BUILD_TOOLS)
+      # (the legacy annotation sorting tests run the sortann tool)
+      target_compile_definitions(wfdbx_tests PRIVATE
+        WFDBX_TOOLS_DIR="${CMAKE_BINARY_DIR}/bin")
+      add_dependencies(wfdbx_tests sortann)
+    endif()
   endif()
 endif()
 

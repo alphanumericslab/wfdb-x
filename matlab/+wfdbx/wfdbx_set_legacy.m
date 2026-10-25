@@ -28,7 +28,7 @@ function previous = wfdbx_set_legacy(on)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 previous = S.legacy_mode;
 S.legacy_mode = double(logical(on));
 end

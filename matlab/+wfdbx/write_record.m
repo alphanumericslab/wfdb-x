@@ -1,8 +1,8 @@
 function write_record(record, signals, fs, varargin)
 %WRITE_RECORD Write a matrix of samples as a WFDB record.
 %   wfdbx.write_record(RECORD, SIGNALS, FS) writes the NSAMPLES-by-NSIG
-%   matrix SIGNALS (integer samples in ADC units) as record RECORD, in the
-%   current directory: the signal file RECORD.dat and the header
+%   matrix SIGNALS (integer samples in ADC units) as record RECORD: the
+%   signal file RECORD.dat and the header
 %   RECORD.hea, with sampling frequency FS (Hz, > 0).  Each column is one
 %   signal (a single signal is a column vector).  The gains, the ADC
 %   resolutions and the units of the calibrated signals are required
@@ -35,6 +35,12 @@ function write_record(record, signals, fs, varargin)
 %                   multi-frequency record: SIGNALS then has
 %                   sum(samps_per_frame) columns, frame by frame (the spf
 %                   samples of signal 0, then those of signal 1, ...)
+%     'dir'         the directory (which must exist) in which the files
+%                   are created (default: the current directory, or the
+%                   directory part of RECORD); the header then names the
+%                   record and its signal file without the directory, so
+%                   that the record opens from that directory under its
+%                   plain name (RECORD must not contain a directory)
 %     'legacy'      true to behave as the original package (default
 %                   false): the library's legacy mode
 %                   (wfdbx.wfdbx_set_legacy) is on during the call, and
@@ -51,8 +57,12 @@ function write_record(record, signals, fs, varargin)
 %   An error is thrown if the gains are not given, if FS is not > 0, if
 %   the ADC resolutions are not given or are < 1, if the units of a
 %   signal whose gain is not 0 are not given, if
-%   'physical' is true and a gain is 0 (uncalibrated signal), or if the
+%   'physical' is true and a gain is 0 (uncalibrated signal), if 'dir' is
+%   given and does not exist or RECORD contains a directory, or if the
 %   files cannot be written.
+%
+%   The samples are written with wfdbx.putframes, which encodes them with
+%   vector operations, byte for byte as wfdbx.putvec would.
 %
 %   The function calls wfdbx.wfdbquit before and after its work, so any
 %   signals or annotators opened with the low-level functions
@@ -81,6 +91,9 @@ function write_record(record, signals, fs, varargin)
 % corrupts every result derived from it. See docs/DIVERGENCES.md.
 % The original behavior remains available with --legacy (see
 % docs/DIVERGENCES.md).
+% Design decision (Reza Sameni, after a code review, Oct 2026): the
+% writers take a 'dir' option (the files are created in that directory,
+% and the record opens from there under its plain name).
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 record = wfdbx.internal.strarg(record);
@@ -88,8 +101,11 @@ record = wfdbx.internal.strarg(record);
 opt = struct('fmt', 16, 'gains', [], 'baselines', [], 'adczeros', 0, ...
     'adcres', [], 'units', [], 'names', [], 'base_time', [], ...
     'comments', [], 'physical', false, 'samps_per_frame', [], ...
-    'legacy', false);
+    'dir', [], 'legacy', false);
 opt = wfdbx.internal.hl_options(opt, varargin, 'write_record');
+% wfdb-x: the 'dir' option (the library's output directory, for this
+% call), checked before the other arguments
+restore_dir = wfdbx.internal.hl_outdir(opt.dir, record, 'write_record'); %#ok<NASGU>
 restore = wfdbx.internal.hl_legacy(opt.legacy, 'write_record'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;

@@ -15,7 +15,7 @@ function stat = putinfo(s)
 if isa(s, 'string')   % MATLAB string
     s = char(s);
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if isempty(S.outinfo)
     if ~isempty(S.oheader)
         S.outinfo = S.oheader;

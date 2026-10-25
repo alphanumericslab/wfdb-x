@@ -21,7 +21,7 @@ function [stat, si] = setheader(record, si, nsig)
 if isa(record, 'string')   % MATLAB string
     record = char(record);
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if nargin < 3
     nsig = numel(si);
 end

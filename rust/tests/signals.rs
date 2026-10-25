@@ -1460,3 +1460,222 @@ fn legacy_high_level() {
     w.wfdbx_set_legacy(0);
     w.wfdbverbose();
 }
+
+// ---------------------------------------------------------------------------
+// wfdb-x: output directory of the writers, absolute record names
+
+#[test]
+fn write_record_dir() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    std::fs::create_dir("od").unwrap();
+    let x = [1i32, -2, 3, 4, 5, -6];
+    let mut o = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![12],
+        units: vec![Some("mV".into())],
+        fmt: 212,
+        dir: Some("od".into()),
+        ..Default::default()
+    };
+    w.wfdbx_set_output_dir("prev");
+    w.write_record("rec", &x, 2, 360.0, &o).unwrap();
+    assert_eq!(w.wfdbx_get_output_dir(), Some(b"prev".to_vec())); // restored
+    assert!(!std::path::Path::new("rec.hea").exists());
+    assert!(!std::path::Path::new("prev").exists());
+    // the header names the record and its signal file without the directory
+    let text = slurp("od/rec.hea");
+    assert!(text.starts_with(b"rec 2 360 3\r\nrec.dat 212 200/mV 12 "));
+    // the record opens from that directory under its plain name
+    w.setwfdb("od");
+    let r = w.read_record("rec", &ReadOptions::default()).unwrap();
+    assert_eq!(r.samples, x);
+    w.setwfdb(".");
+    // the same in legacy mode, and with write_record_physical
+    o.legacy = true;
+    w.write_record("lrec", &x, 2, 360.0, &o).unwrap();
+    assert!(slurp("od/lrec.hea").starts_with(b"lrec 2 360 3\r\n"));
+    o.legacy = false;
+    w.write_record_physical("ph", &[0.5, 1.0], 2, 100.0, &o)
+        .unwrap();
+    assert!(slurp("od/ph.hea").starts_with(b"ph 2 100 1\r\nph.dat "));
+    // errors (before anything is written); the output dir is restored
+    let e = w.write_record("od/rec2", &x, 2, 360.0, &o).unwrap_err();
+    assert_eq!(
+        e.message(),
+        "record name must not contain a directory when dir is given"
+    );
+    o.dir = Some("nosuch".into());
+    let e = w.write_record("rec2", &x, 2, 360.0, &o).unwrap_err();
+    assert_eq!(e.message(), "directory nosuch does not exist");
+    assert!(!std::path::Path::new("nosuch").exists());
+    o.dir = Some("od".into());
+    o.gains.clear();
+    assert!(w.write_record("rec2", &x, 2, 360.0, &o).is_err());
+    assert_eq!(w.wfdbx_get_output_dir(), Some(b"prev".to_vec()));
+    w.wfdbx_set_output_dir(NULL);
+    // without dir: as before (the header records the name as given)
+    o.gains = vec![200.0];
+    o.dir = None;
+    w.write_record("od/rec3", &x, 2, 360.0, &o).unwrap();
+    assert!(slurp("od/rec3.hea").starts_with(b"od/rec3 2 360 3\r\nod/rec3.dat "));
+}
+
+#[test]
+fn write_annotations_dir() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    std::fs::create_dir("od").unwrap();
+    let ann = Annotations {
+        samples: vec![30, 10, 20, 10],
+        symbols: vec!["N".into(), "V".into(), "N".into(), "A".into()],
+        ..Default::default()
+    };
+    // out of order: sorted in place, in the directory
+    let dir = std::path::Path::new("od");
+    w.write_annotations("rec", "srt", &ann, 0.0, Some(dir))
+        .unwrap();
+    assert_eq!(w.wfdbx_get_output_dir(), None);
+    assert!(!std::path::Path::new("rec.srt").exists());
+    w.write_annotations("rec", "srt", &ann, 0.0, None).unwrap();
+    assert_eq!(slurp("od/rec.srt"), slurp("rec.srt"));
+    w.setwfdb("od");
+    let r = w
+        .read_annotations("rec", "srt", None, None, Some(100.0), false)
+        .unwrap();
+    assert_eq!(r.samples, [10, 20, 30]);
+    assert_eq!(r.symbols, [b"A".to_vec(), b"N".to_vec(), b"N".to_vec()]);
+    w.setwfdb(".");
+    // errors
+    let e = w
+        .write_annotations("od/rec", "srt", &ann, 0.0, Some(dir))
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "record name must not contain a directory when dir is given"
+    );
+    let e = w
+        .write_annotations(
+            "rec",
+            "srt",
+            &ann,
+            0.0,
+            Some(std::path::Path::new("nosuch")),
+        )
+        .unwrap_err();
+    assert_eq!(e.message(), "directory nosuch does not exist");
+}
+
+#[test]
+fn absolute_record_names() {
+    let mut d = DataDir::new();
+    let abs = d.dir.join("100s");
+    let abs = abs.to_str().unwrap();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    w.setwfdb("/nonexistent-wfdbx-dir");
+    let opt = ReadOptions {
+        to: Some("10".into()),
+        ..Default::default()
+    };
+    // modern: the header is opened directly, the signal file found next to it
+    let r = w.read_record(abs, &opt).unwrap();
+    assert_eq!(r.samples.len(), 2 * 3600);
+    let a = w
+        .read_annotations(abs, "atr", None, None, None, false)
+        .unwrap();
+    assert_eq!(a.len(), 75);
+    // legacy: as in C, only the WFDB path is searched
+    let lo = ReadOptions {
+        legacy: true,
+        ..opt.clone()
+    };
+    assert!(w.read_record(abs, &lo).is_err());
+    w.setwfdb(";");
+    assert_eq!(w.read_record(abs, &lo).unwrap().samples, r.samples);
+}
+
+/// wfdb-x: in legacy mode, the sortann program is run in the output
+/// directory, and sorts the file in place there, with the modern result.
+#[test]
+fn legacy_sort_in_output_dir() {
+    let mut d = DataDir::new();
+    let sortann = PathBuf::from(env!("CARGO_BIN_EXE_sortann"));
+    let path = std::env::var_os("PATH");
+    std::env::set_var("PATH", sortann.parent().unwrap());
+    let w = &mut d.w;
+    w.wfdbquiet();
+    std::fs::create_dir("m").unwrap();
+    std::fs::create_dir("l").unwrap();
+    let ann = Annotations {
+        samples: vec![30, 10, 20, 10, 40, 35],
+        symbols: vec![
+            "N".into(),
+            "V".into(),
+            "N".into(),
+            "A".into(),
+            "N".into(),
+            "V".into(),
+        ],
+        aux: vec![
+            None,
+            Some(b"x".to_vec()),
+            None,
+            None,
+            Some(b"(VT".to_vec()),
+            None,
+        ],
+        ..Default::default()
+    };
+    let m = std::path::Path::new("m");
+    let l = std::path::Path::new("l");
+    w.write_annotations("rec", "srt", &ann, 0.0, Some(m))
+        .unwrap();
+    w.wfdbx_set_legacy(1);
+    w.write_annotations("rec", "srt", &ann, 0.0, Some(l))
+        .unwrap();
+    assert_eq!(w.wfdberror(), b"done!\n");
+    w.wfdbx_set_legacy(0);
+    assert!(!std::path::Path::new("rec.srt").exists());
+    assert_eq!(slurp("l/rec.srt"), slurp("m/rec.srt"));
+    w.setwfdb("l");
+    let r = w
+        .read_annotations("rec", "srt", None, None, Some(100.0), false)
+        .unwrap();
+    assert_eq!(r.samples, [10, 20, 30, 35, 40]);
+    if let Some(p) = path {
+        std::env::set_var("PATH", p);
+    }
+}
+
+/// wfdb-x: with dir, the dir checks come before any other check.
+#[test]
+fn dir_checks_first() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let sub = "record name must not contain a directory when dir is given";
+    let missing = "directory nosuch does not exist";
+    let bad = WriteOptions {
+        dir: Some("nosuch".into()),
+        ..Default::default() // no gains, ADC resolutions or units
+    };
+    for (rec, msg) in [("a/rec", sub), ("rec", missing)] {
+        let e = w.write_record(rec, &[0; 3], 2, -1.0, &bad).unwrap_err();
+        assert_eq!(e.message(), msg);
+        let e = w.write_record(rec, &[], 0, 0.0, &bad).unwrap_err();
+        assert_eq!(e.message(), msg);
+        let e = w
+            .write_record_physical(rec, &[0.0; 3], 2, -1.0, &bad)
+            .unwrap_err();
+        assert_eq!(e.message(), msg);
+        let dir = Some(std::path::Path::new("nosuch"));
+        let e = w
+            .write_annotations(rec, "bad name", &Annotations::default(), 0.0, dir)
+            .unwrap_err();
+        assert_eq!(e.message(), msg);
+    }
+    assert!(!std::path::Path::new("nosuch").exists());
+}

@@ -11,7 +11,7 @@ function n = setibsize(n)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if S.nisig
     wfdbx.internal.wfdb_error('setibsize: can''t change buffer size after isigopen\n');
     n = -1;

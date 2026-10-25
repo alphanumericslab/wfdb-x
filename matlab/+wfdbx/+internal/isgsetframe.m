@@ -10,7 +10,7 @@ function stat = isgsetframe(g, t)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 d = 1;
 % (C reads igd[g] even if g is not a signal group number: undefined
 % behavior, here the group number is then reported as incorrect)

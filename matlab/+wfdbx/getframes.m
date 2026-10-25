@@ -36,7 +36,7 @@ function [v, stat] = getframes(n, minstat)
 if nargin < 2
     minstat = 0;
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 nsig = max(S.nvsig, S.nisig);
 if nsig == 0 || S.nisig == 0
     % no signals: getvec reads nothing (0, or -1 at the end of a record)

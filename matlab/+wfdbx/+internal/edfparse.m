@@ -10,8 +10,8 @@ function nsig = edfparse(ifile)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
-io = wfdbx.internal.iostate();
+S = wfdbx.internal.sig_state();
+io = wfdbx.internal.io_state();
 edf_fname = io.wfdb_filename;
 magic = char(ifile.read(8));
 if strcmp(magic, '0       ')

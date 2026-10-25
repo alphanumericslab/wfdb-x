@@ -20,7 +20,7 @@ read_header(record, legacy = FALSE)
 write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
              adczeros = 0, adcres = NULL, units = NULL, names = NULL,
              base_time = NULL, comments = NULL, physical = FALSE,
-             samps_per_frame = NULL, legacy = FALSE)
+             samps_per_frame = NULL, dir = NULL, legacy = FALSE)
 }
 \arguments{
   \item{record}{the record name, a character string (for example
@@ -93,6 +93,13 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     \code{sum(samps_per_frame)} columns: the \code{samps_per_frame[1]}
     samples of the first signal, then those of the second signal, and so
     on.}
+  \item{dir}{if given, the directory (which must exist) in which the files
+    are created (wfdb-x).  The header then names the record and its signal
+    file without the directory, so that the record opens from that
+    directory under its plain name (for example with
+    \code{setwfdb(dir)}); \code{record} must not contain a directory.  The
+    library's output directory (\code{\link{wfdbx_set_output_dir}}) is set
+    for the duration of the call and restored afterwards, also on errors.}
   \item{legacy}{if \code{TRUE}, behave as the original package did (see
     Details), with the library's legacy mode (\code{\link{wfdbx_set_legacy}})
     on for the duration of the call; the previous setting is restored

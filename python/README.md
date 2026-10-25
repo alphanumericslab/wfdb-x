@@ -193,8 +193,8 @@ wfdbx.write_annotations("new", "atr", ann.samples, ann.symbols)
 | `read_record(record, channels=None, sampfrom=0, sampto=None, physical=False, highres=False, pad=False)` | Read signals into a `Record` (`signals` array of shape (samples, signals), plus `fs`, `names`, `units`, `gains`, `baselines`, `base_time`, `comments`, `siginfo`). |
 | `read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None)` | Read an annotation file into an `Annotations` object (`samples`, `codes`, `symbols`, `subtypes`, `chans`, `nums`, `aux`, `fs`). |
 | `read_header(record)` | Return the list of `Siginfo` objects (signal specifications) of a record, without reading any samples. |
-| `write_record(record, signals, fs, fmt=16, gains=..., adcres=..., units=..., ...)` | Write a header and a signal file (`record.dat`) from an array (`gains`, `adcres` and the `units` of calibrated signals are required). |
-| `write_annotations(record, annotator, samples, symbols=None, codes=None, ...)` | Write an annotation file. |
+| `write_record(record, signals, fs, fmt=16, gains=..., adcres=..., units=..., ..., dir=None)` | Write a header and a signal file (`record.dat`) from an array (`gains`, `adcres` and the `units` of calibrated signals are required), in the directory `dir` if given. |
+| `write_annotations(record, annotator, samples, symbols=None, codes=None, ..., dir=None)` | Write an annotation file (in the directory `dir` if given). |
 
 Notes:
 
@@ -231,6 +231,43 @@ Notes:
   C library API.
 
 See `help(wfdbx.read_record)` and the other docstrings for all the arguments.
+
+### Directories, absolute paths and annotation order
+
+**Output directory.** `write_record(..., dir="out")` and
+`write_annotations(..., dir="out")` create their files in the directory
+`out` (which must exist: otherwise `FileNotFoundError`), and the header names
+the record and its signal file without the directory (`rec 2 360 ...`,
+`rec.dat ...`), so that the record opens from that directory under its plain
+name (`setwfdb("out")`, then `read_record("rec")`; or `read_record("out/rec")`).
+The record name must not contain a directory when `dir` is given
+(`ValueError`). In the library API, `wfdbx_set_output_dir("out")` makes every
+output file be created in `out` (it returns the previous directory;
+`wfdbx_set_output_dir(None)` restores the default, files created as named,
+and `wfdbx_get_output_dir()` returns the current one); the writers set it for
+the duration of the call. The C-style API and the tools are otherwise
+unchanged: `newheader("out/rec")` and `wfdbx wrsamp -o out/rec` still record
+the name `out/rec`, as in C.
+
+**Absolute paths.** A record named by an absolute path
+(`read_record("/data/mitdb/100")`, `wfdbx rdsamp -r /data/mitdb/100`) is
+opened directly, and the files next to its header (signal and annotation
+files) are found there. The C library searched for such a name in each
+directory of the WFDB path (`./` + the name), so that it was found only from
+the root directory; it still does so in legacy mode. In both modes, an empty
+component in the WFDB path makes names be used as given: with
+`setwfdb(";")` (or `WFDB=";"`), `/data/mitdb/100` opens in legacy mode too.
+
+**Annotation order.** Annotations written out of canonical order (by time,
+then `num`, then `chan`) are rearranged when the file is closed, in the same
+process, with a result identical byte for byte to that of `sortann` (the
+last of several annotations with the same time, `num` and `chan` is kept,
+and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it. Unlike
+the original `sortann`, neither the sort nor the `sortann` tool loses an
+out-of-order annotation at time 0 (written after later ones), nor those
+inserted after it. The C library ran the `sortann` program (found in the
+`PATH`), as legacy mode does (running `python -m wfdbx.apps.sortann
+--legacy`, in the output directory if one is set), with the original loss.
 
 ## C library API
 
@@ -302,7 +339,10 @@ the libFLAC version and the processor).
 ## Performance
 
 Sequential reading uses a vectorized (NumPy) decoder that is exactly
-equivalent to the sample-by-sample path. For example, `rdsamp` prints a
+equivalent to the sample-by-sample path, and `write_record` a vectorized
+encoder (for formats 8, 16, 24, 32, 61, 80, 160, 212, 310 and 311, when the
+samples are within the range of the format) that writes the same bytes as
+`putvec` (216,000 frames of 2 signals in about 0.02 s, instead of 0.6 s). For example, `rdsamp` prints a
 650,000-sample, 2-signal format 212 record in about 0.9 s.
 
 ## Testing
@@ -337,7 +377,8 @@ The WFDB library and tools were written by George B. Moody, with revisions by
 Benjamin Moody and contributions from many others; `parsescp` was written by
 George B. Moody and Edna S. Moody. The header of each module names the authors
 of the C code it ports, and [`docs/AUTHORS.md`](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md) gives the
-details. The Python port was written by Reza Sameni (October 2026).
+details. The Python implementation was developed by Reza Sameni (2026),
+with AI assistance (see the project README).
 
 The library (`wfdbx`, except `wfdbx.apps`) is distributed under the GNU
 Library General Public License, version 2 or later; the command-line tools

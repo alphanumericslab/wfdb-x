@@ -17,7 +17,7 @@ function [stat, cal] = getcal(desc, units)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.calstate();
+st = wfdbx.internal.cal_state();
 L = st.list;
 for k = 1:numel(L)
     c = L(k);

@@ -14,7 +14,7 @@ function stat = iannsettime(t)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 stat = 0;
 niavalid = numel(st.iad);
 LONG_MIN = -9223372036854775808;   % (C: -t overflows)

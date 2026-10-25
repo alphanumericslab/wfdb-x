@@ -13,7 +13,7 @@ function v = sample(s, t)
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 BUFLN = 4096;
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 nsig = max(S.nvsig, S.nisig);
 if isempty(S.sbuf)
     S.sbuf = zeros(BUFLN, max(nsig, 1));

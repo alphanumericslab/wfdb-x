@@ -29,9 +29,9 @@ available; the code follows the MATLAB R2019b+ compatibility rules of
 | Tool | What it does | Cases | Python | C++ | MATLAB/Octave | Rust | Julia | R |
 |---|---|---:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **Signals** | | | | | | | | |
-| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 253 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 257 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wrsamp` | write a record from text (columns, scaling, any storage format) | 66 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbdesc` | describe the signals of a record (header contents) | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbdesc` | describe the signals of a record (header contents) | 44 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 41 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snip` | copy a segment of a record (any format) to a new record | 36 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `xform` | convert records: format, sampling frequency, gain, signal selection | 47 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -44,9 +44,9 @@ available; the code follows the MATLAB R2019b+ compatibility rules of
 | `wfdbtime` | convert between sample numbers, elapsed and absolute times | 8 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `time2sec` | convert a time string to seconds | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Annotations** | | | | | | | | |
-| `rdann` | print annotations (filters by time, type, subtype, channel, number) | 70 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrann` | write an annotation file from text (`rdann` format) | 11 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sortann` | sort an annotation file into time order | 15 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdann` | print annotations (filters by time, type, subtype, channel, number) | 72 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrann` | write an annotation file from text (`rdann` format) | 21 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sortann` | sort an annotation file into time order | 17 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ann2rr` | print RR intervals from annotations | 41 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rr2ann` | write an annotation file from RR intervals | 13 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Format converters** | | | | | | | | |
@@ -65,7 +65,7 @@ available; the code follows the MATLAB R2019b+ compatibility rules of
 | `makeid` | write a record ID block (for AHA conversions) | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `readid` | read a record ID block | 3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `revise` | convert an old-style header to the current format | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Total** | 33 tools | **908** | 908 | 908 | 908 | 908 | 908 | 908 |
+| **Total** | 33 tools | **928** | 928 | 928 | 928 | 928 | 928 | 928 |
 
 ## Library functions
 
@@ -134,6 +134,7 @@ The C library functions keep their C names in every implementation
 | `wfdbmemerr`, `wfdb_me_fatal` | behavior on memory errors | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_time_needs_freq` | whether `strtim` needs the sampling frequency for a string (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_set_legacy`, `wfdbx_get_legacy`, `wfdbx_legacy_args` | legacy mode: the original package's behavior, on request (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbx_set_output_dir`, `wfdbx_get_output_dir` | the directory in which output files are created, used by the high-level writers' `dir` option (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`, `wfdbdefwfdbcal` | version and configuration strings | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **High-level API (additions; each function takes a legacy option)** | | | | | | | |
 | `read_record`, `read_header` | read a record (or part of one) into an array | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

@@ -21,7 +21,7 @@ if isempty(f)
     stat = -1;
     return;
 end
-st = wfdbx.internal.calstate();
+st = wfdbx.internal.cal_state();
 L = st.list;
 for k = 1:numel(L)
     c = L(k);

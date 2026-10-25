@@ -200,3 +200,85 @@ fn default_instance() {
     assert_eq!(wfdbx::getwfdb(), b".");
     assert_eq!(wfdbx::with_default(wfdbx::Wfdb::getwfdb), b".");
 }
+
+/// wfdb-x: the output directory (`wfdbx_set_output_dir`).
+#[test]
+fn output_dir() {
+    let _env = env_lock();
+    let d = tmpdir("outdir");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    assert_eq!(w.wfdbx_get_output_dir(), None);
+    let od = b(&d.join("od"));
+    assert_eq!(w.wfdbx_set_output_dir(&od), None);
+    assert_eq!(w.wfdbx_get_output_dir(), Some(od.clone()));
+    // WFDB_WRITE and WFDB_APPEND create DIR/NAME (missing directories are
+    // created); the name may contain a directory.
+    let mut f = w.wfdb_open("hea", "sub/r", WFDB_WRITE).unwrap();
+    f.write(b"sub/r 0\n");
+    drop(f);
+    let mut name = od.clone();
+    name.extend_from_slice(b"/sub/r.hea");
+    assert_eq!(w.wfdb_filename(), &name[..]);
+    let mut f = w.wfdb_open("hea", "sub/r", WFDB_APPEND).unwrap();
+    f.write(b"#x\n");
+    drop(f);
+    assert_eq!(
+        std::fs::read(d.join("od/sub/r.hea")).unwrap(),
+        b"sub/r 0\n#x\n"
+    );
+    // Reading is unchanged; wfdbquit keeps the setting.
+    w.setwfdb(&b(&d));
+    assert!(w.wfdb_open("hea", "sub/r", WFDB_READ).is_none());
+    w.wfdbquit();
+    assert_eq!(w.wfdbx_get_output_dir(), Some(od.clone()));
+    // None or "" resets it; the previous value is returned.
+    assert_eq!(w.wfdbx_set_output_dir(""), Some(od.clone()));
+    assert_eq!(w.wfdbx_set_output_dir(NULL), None);
+    assert_eq!(w.wfdbx_get_output_dir(), None);
+    // The default instance has its own.
+    assert_eq!(wfdbx::wfdbx_set_output_dir("x"), None);
+    assert_eq!(wfdbx::wfdbx_set_output_dir(NULL), Some(b"x".to_vec()));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// wfdb-x: an absolute path is opened directly (and its directory added to
+/// the WFDB path); in legacy mode, as in C, only the WFDB path is searched,
+/// where an empty component (`setwfdb(";")`) uses names as given.
+#[test]
+fn absolute_paths() {
+    let _env = env_lock();
+    let d = tmpdir("abs");
+    std::fs::write(d.join("r.hea"), b"r 0\n").unwrap();
+    std::fs::write(d.join("r.dat"), b"").unwrap();
+    let mut rec = b(&d);
+    rec.extend_from_slice(b"/r");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.setwfdb("/nonexistent-wfdbx-dir");
+    let f = w.wfdb_open("hea", &rec, WFDB_READ);
+    assert!(f.is_some());
+    let mut name = rec.clone();
+    name.extend_from_slice(b".hea");
+    assert_eq!(w.wfdb_filename(), &name[..]);
+    // the directory was added to the WFDB path: r.dat is found by name
+    assert!(w.wfdb_open("dat", "r", WFDB_READ).is_some());
+    // a missing file falls back to the path search
+    assert!(w
+        .wfdb_open("hea", "/nonexistent-wfdbx-dir/r", WFDB_READ)
+        .is_none());
+    // legacy mode: the WFDB path only
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.wfdbx_set_legacy(1);
+    w.setwfdb("/nonexistent-wfdbx-dir");
+    assert!(w.wfdb_open("hea", &rec, WFDB_READ).is_none());
+    assert!(w.wfdbfile("hea", &rec).is_none());
+    // the setwfdb(";") idiom works in both modes
+    for legacy in [1, 0] {
+        w.wfdbx_set_legacy(legacy);
+        w.setwfdb(";");
+        assert_eq!(w.wfdbfile("hea", &rec), Some(name.clone()));
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}

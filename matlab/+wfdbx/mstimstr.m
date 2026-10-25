@@ -18,7 +18,7 @@ function s = mstimstr(t)
 % corrupts every result derived from it. See docs/DIVERGENCES.md.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if S.ifreq > 0
     f = S.ifreq;
 elseif S.sfreq > 0

@@ -47,6 +47,14 @@
 //! only: the values it assumes are exactly the silent defaults this project
 //! removed, so results produced with it carry the same risks.
 //!
+//! # Output directory
+//!
+//! [`WriteOptions::dir`] and the `dir` argument of [`write_annotations`]
+//! (wfdb-x) create the files in a directory, which must exist; the header
+//! then names the record and its signal file without the directory (see
+//! [`Wfdb::wfdbx_set_output_dir`], which these functions set for the
+//! duration of the call).
+//!
 //! Strings read from files (signal descriptions, comments, annotation
 //! mnemonics and aux strings) are byte strings, as everywhere in the
 //! library (WFDB files are not UTF-8); `Vec<u8>` fields can be set from
@@ -59,7 +67,15 @@
 // 12 bits and millivolts), because a silently assumed value corrupts every
 // result derived from it. See docs/DIVERGENCES.md. The original behavior
 // remains available with --legacy (see docs/DIVERGENCES.md).
+// Design decision (Reza Sameni, after a code review, Oct 2026): the writers
+// take an output directory (WriteOptions::dir, the dir argument of
+// write_annotations), so that a record can be written to a directory and
+// opened from there under its plain name (with a record name containing the
+// directory, the header records that name). This is an addition, the same in
+// legacy mode.
 // GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+
+use std::path::{Path, PathBuf};
 
 use crate::cstd::{self, d2i};
 use crate::types::*;
@@ -411,6 +427,13 @@ pub struct WriteOptions {
     /// in [`write_record_physical`]). For compatibility only: these are the
     /// silent defaults wfdb-x removed, with the same risks.
     pub legacy: bool,
+    /// wfdb-x: the directory (which must exist) in which the files are
+    /// created; `record` must then be a plain name, without a directory.
+    /// The header names the record and its signal file without the
+    /// directory, so that the record opens from that directory under its
+    /// plain name. Default: none (the current directory, or the directory
+    /// part of the record name).
+    pub dir: Option<PathBuf>,
 }
 
 impl Default for WriteOptions {
@@ -427,6 +450,7 @@ impl Default for WriteOptions {
             base_time: None,
             comments: Vec::new(),
             legacy: false,
+            dir: None,
         }
     }
 }
@@ -557,6 +581,37 @@ impl Wfdb {
         let previous = self.wfdbx_set_legacy(1);
         let r = f(self);
         self.wfdbx_set_legacy(previous);
+        r
+    }
+
+    /// Runs `f` with the library's output directory
+    /// ([`Wfdb::wfdbx_set_output_dir`]) set to `dir`, if given, restoring
+    /// the previous one afterwards (also when `f` fails). With `dir`,
+    /// `record` must not contain a directory, and `dir` must exist.
+    fn with_output_dir<T>(
+        &mut self,
+        dir: Option<&Path>,
+        record: &[u8],
+        f: impl FnOnce(&mut Wfdb) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let Some(dir) = dir.filter(|d| !d.as_os_str().is_empty()) else {
+            return f(self);
+        };
+        if record.contains(&b'/') || (cfg!(windows) && record.contains(&b'\\')) {
+            return Err(Error::new(
+                "record name must not contain a directory when dir is given",
+            ));
+        }
+        if !dir.is_dir() {
+            return Err(Error::new(format!(
+                "directory {} does not exist",
+                dir.display()
+            )));
+        }
+        let previous =
+            self.wfdbx_set_output_dir(&cstd::os_to_bytes(dir.as_os_str().to_os_string()));
+        let r = f(self);
+        self.wfdbx_set_output_dir(&previous);
         r
     }
 
@@ -917,7 +972,9 @@ impl Wfdb {
         opt: &WriteOptions,
     ) -> Result<(), Error> {
         let record = record.as_ref();
-        self.with_legacy(opt.legacy, |w| w.write_adc(record, samples, nsig, fs, opt))
+        self.with_output_dir(opt.dir.as_deref(), record, |w| {
+            w.with_legacy(opt.legacy, |w| w.write_adc(record, samples, nsig, fs, opt))
+        })
     }
 
     /// Writes a record from samples in physical units, using this instance
@@ -935,8 +992,10 @@ impl Wfdb {
         opt: &WriteOptions,
     ) -> Result<(), Error> {
         let record = record.as_ref();
-        self.with_legacy(opt.legacy, |w| {
-            w.write_physical(record, samples, nsig, fs, opt)
+        self.with_output_dir(opt.dir.as_deref(), record, |w| {
+            w.with_legacy(opt.legacy, |w| {
+                w.write_physical(record, samples, nsig, fs, opt)
+            })
         })
     }
 
@@ -1003,16 +1062,28 @@ impl Wfdb {
     ///
     /// # Errors
     ///
-    /// If the annotation file cannot be created.
+    /// If the annotation file cannot be created, or, with `dir`, if `dir`
+    /// does not exist or `record` contains a directory.
     pub fn write_annotations(
         &mut self,
         record: impl AsRef<[u8]>,
         annotator: impl AsRef<[u8]>,
         ann: &Annotations,
         fs: f64,
+        dir: Option<&Path>,
     ) -> Result<(), Error> {
         let record = record.as_ref();
         let annotator = annotator.as_ref();
+        self.with_output_dir(dir, record, |w| w.write_ann(record, annotator, ann, fs))
+    }
+
+    fn write_ann(
+        &mut self,
+        record: &[u8],
+        annotator: &[u8],
+        ann: &Annotations,
+        fs: f64,
+    ) -> Result<(), Error> {
         let n = ann.samples.len();
         self.wfdbquit();
         if fs > 0.0 {
@@ -1205,7 +1276,8 @@ pub fn read_annotations(
 /// # Arguments
 ///
 /// * `record`: the record name; the files are created in the current
-///   directory (or in the directory part of the name).
+///   directory (or in the directory part of the name), or in
+///   [`WriteOptions::dir`].
 /// * `samples`: the samples, frame by frame: `nsig` values per frame
 ///   (signal 0, signal 1, ...), or, for multi-frequency records, the sum of
 ///   the `samps_per_frame` values per frame.
@@ -1278,7 +1350,9 @@ pub fn write_record_physical(
 
 /// Writes the annotation file of `record` for `annotator` (as `wrann`
 /// does). The file is created in the current directory (or in the
-/// directory part of the record name).
+/// directory part of the record name), or, with `dir` (wfdb-x), in that
+/// directory, which must exist (`record` must then be a plain name, without
+/// a directory).
 ///
 /// The annotation type of each annotation is given by its `symbols` entry
 /// (a mnemonic such as `"N"` or `"V"`, converted with `strann`; an unknown
@@ -1286,8 +1360,10 @@ pub fn write_record_physical(
 /// that entry is empty or missing, by its `codes` entry. Missing
 /// `subtypes`, `chans`, `nums` and `aux` entries are 0 or absent; aux data
 /// longer than 255 bytes are truncated. The annotations should be in time
-/// order; otherwise the file is sorted when it is closed (by running the
-/// `sortann` program, as the C library does). If `fs > 0`, it is
+/// order; otherwise the file is sorted when it is closed, unless the
+/// environment variable `WFDBANNSORT` is 0 (wfdb-x: in this process, with
+/// the result of the `sortann` program; in library legacy mode, by running
+/// `sortann`, as the C library does). If `fs > 0`, it is
 /// recorded in the file as its time resolution (ticks per second); `ann.fs`
 /// is not used. Uses the default instance; see [`Wfdb::write_annotations`]
 /// for an explicit one.
@@ -1302,18 +1378,22 @@ pub fn write_record_physical(
 ///     symbols: vec!["N".into(), "V".into(), "N".into()],
 ///     ..Default::default()
 /// };
-/// write_annotations("example", "test", &ann, 0.0)?;
+/// write_annotations("example", "test", &ann, 0.0, None)?;
 /// # Ok::<(), wfdbx::record::Error>(())
 /// ```
 ///
 /// # Errors
 ///
-/// If the annotation file cannot be created.
+/// If the annotation file cannot be created, or, with `dir`, if `dir` does
+/// not exist (`directory DIR does not exist`) or `record` contains a
+/// directory (`record name must not contain a directory when dir is
+/// given`).
 pub fn write_annotations(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,
     ann: &Annotations,
     fs: f64,
+    dir: Option<&Path>,
 ) -> Result<(), Error> {
-    with_default(|w| w.write_annotations(record, annotator, ann, fs))
+    with_default(|w| w.write_annotations(record, annotator, ann, fs, dir))
 }

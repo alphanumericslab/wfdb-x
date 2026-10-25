@@ -16,7 +16,7 @@ if code >= 0 && code <= ACMAX
     if ~ischar(s)
         s = '';
     end
-    st = wfdbx.internal.annstate();
+    st = wfdbx.internal.ann_state();
     st.cstring{code+1} = s;
     stat = 0;
 else

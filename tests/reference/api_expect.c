@@ -28,6 +28,7 @@
 #include <math.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <wfdb/wfdb.h>
 #include <wfdb/ecgcodes.h>
 
@@ -1053,6 +1054,176 @@ static void t_legacy(void)
     printf("wfdbx_get_legacy: %d\n", wfdbx_get_legacy());
 }
 
+/* wfdb-x: the sort of an output annotation file (round 2): an out-of-order
+   annotation at time 0 is not lost (sortann lost it, as legacy mode does),
+   and in legacy mode with an output directory, the sortann program runs in
+   that directory (it must be in the PATH). */
+static void t_sortfix(void)
+{
+    WFDB_Anninfo ai;
+    WFDB_Annotation a;
+    static const long t1[] = { 5, 0, 3 }, t2[] = { 30, 10, 20 };
+    int i, legacy, st;
+    char name[32];
+
+    memset(&a, 0, sizeof(a));
+    a.anntyp = NORMAL;
+    ai.stat = WFDB_WRITE;
+    wfdbquiet();	/* ("Rearranging annotations ...") */
+    for (legacy = 0; legacy <= 1; legacy++) {
+	wfdbx_set_legacy(legacy);
+	ai.name = legacy ? "l0" : "m0";
+	annopen("100s", &ai, 1);
+	for (i = 0; i < 3; i++) {
+	    a.time = t1[i];
+	    putann(0, &a);
+	}
+	wfdbquit();
+	wfdbx_set_output_dir("odir");
+	ai.name = legacy ? "lsrt" : "msrt";
+	annopen("orec", &ai, 1);
+	for (i = 0; i < 3; i++) {
+	    a.time = t2[i];
+	    putann(0, &a);
+	}
+	wfdbquit();
+	wfdbx_set_output_dir(NULL);
+    }
+    wfdbx_set_legacy(0);
+    wfdbverbose();
+    for (legacy = 0; legacy <= 1; legacy++) {
+	ai.name = legacy ? "l0" : "m0";
+	ai.stat = WFDB_READ;
+	annopen("100s", &ai, 1);
+	while ((st = getann(0, &a)) == 0) {
+	    sprintf(name, "%s getann", ai.name);
+	    pann(name, st, &a);
+	}
+	wfdbquit();
+	sprintf(name, "odir/orec.%s", legacy ? "lsrt" : "msrt");
+	phex(name, name);
+	ai.stat = WFDB_WRITE;
+    }
+}
+
+/* wfdb-x: the output directory (wfdbx_set_output_dir), the in-process sorting
+   of an output annotation file written there, and input files named by
+   absolute paths (opened directly, except in legacy mode).  The values
+   printed do not depend on the current directory. */
+static void t_outdir(void)
+{
+    WFDB_Siginfo si;
+    WFDB_Sample v[2];
+    WFDB_Anninfo ai;
+    WFDB_Annotation a;
+    static const long t[] = { 30, 10, 20, 10, 5 };
+    char cwd[1024], abs[1100], hea[1110], *p;
+    int i, st;
+
+    setcfreq(0.0);	/* (these survive wfdbquit) */
+    setafreq(0.0);
+    pstr("wfdbx_get_output_dir initial", wfdbx_get_output_dir());
+    mkdir("odir", 0755);
+    pstr("wfdbx_set_output_dir odir", wfdbx_set_output_dir("odir"));
+    pstr("wfdbx_get_output_dir", wfdbx_get_output_dir());
+    memset(&si, 0, sizeof(si));
+    si.fname = "orec.dat";
+    si.desc = "sig";
+    si.gain = 200;
+    si.fmt = 16;
+    si.adcres = 12;
+    setsampfreq(100.0);
+    printf("osigfopen (output dir): %d\n", osigfopen(&si, 1));
+    for (i = 0; i < 3; i++) {
+	v[0] = 10 * i - 7;
+	putvec(v);
+    }
+    printf("newheader orec (output dir): %d\n", newheader("orec"));
+    ai.name = "oat";
+    ai.stat = WFDB_WRITE;
+    printf("annopen orec oat (output dir): %d\n", annopen("orec", &ai, 1));
+    memset(&a, 0, sizeof(a));
+    for (i = 0; i < 5; i++) {	/* out of order, with a duplicate */
+	a.time = t[i];
+	a.anntyp = i == 3 ? PVC : NORMAL;
+	putann(0, &a);
+    }
+    wfdbquiet();	/* ("Rearranging annotations ...") */
+    wfdbquit();
+    wfdbverbose();
+    pstr("wfdbx_set_output_dir empty", wfdbx_set_output_dir(""));
+    pstr("wfdbx_get_output_dir after empty", wfdbx_get_output_dir());
+    pstr("wfdbx_set_output_dir odir2", wfdbx_set_output_dir("odir2"));
+    pstr("wfdbx_set_output_dir NULL", wfdbx_set_output_dir(NULL));
+    pstr("wfdbx_get_output_dir after NULL", wfdbx_get_output_dir());
+    pfile("odir/orec.hea", "odir/orec.hea");
+    phex("odir/orec.dat", "odir/orec.dat");
+    phex("odir/orec.oat", "odir/orec.oat");
+    printf("orec.hea in the current directory: %ld\n", fsize("orec.hea"));
+    /* a missing output directory is created (as are the missing
+       directories of any output file name, by wfdb_fopen) */
+    wfdbx_set_output_dir("newdir");
+    printf("osigfopen (new output dir): %d\n", osigfopen(&si, 1));
+    printf("annopen (new output dir): %d\n", annopen("orec", &ai, 1));
+    wfdbquit();
+    wfdbx_set_output_dir(NULL);
+    printf("newdir/orec.dat newdir/orec.oat: %ld %ld\n",
+	   fsize("newdir/orec.dat"), fsize("newdir/orec.oat"));
+    /* reading the record from the output directory */
+    setwfdb("odir");
+    printf("isigopen orec (WFDB odir): %d\n", isigopen("orec", isi, 8));
+    for (i = 0; i < 3; i++) {
+	st = getvec(v);
+	pvec("orec getvec", st, v, 1);
+    }
+    ai.stat = WFDB_READ;
+    printf("annopen orec oat (WFDB odir): %d\n", annopen("orec", &ai, 1));
+    while ((st = getann(0, &a)) == 0)
+	pann("orec getann", st, &a);
+    wfdbquit();
+    resetwfdb();
+
+    /* absolute paths */
+    if (getcwd(cwd, sizeof(cwd)) == NULL) return;
+    sprintf(abs, "%s/100s", cwd);
+    wfdbquiet();
+    printf("isigopen absolute: %d\n", isigopen(abs, isi, 8));
+    st = getvec(v);
+    pvec("getvec absolute", st, v, 2);
+    sprintf(hea, "%s.hea", abs);
+    p = wfdbfile("hea", abs);
+    printf("wfdbfile absolute is the absolute name: %d\n",
+	   p != NULL && strcmp(p, hea) == 0);
+    ai.name = "atr";
+    printf("annopen absolute: %d\n", annopen(abs, &ai, 1));
+    st = getann(0, &a);
+    pann("getann absolute", st, &a);
+    wfdbquit();
+    printf("sampfreq absolute: %g\n", sampfreq(abs));
+    wfdbquit();
+    sprintf(abs, "%s/nosuch", cwd);
+    printf("isigopen absolute (missing): %d\n", isigopen(abs, isi, 8));
+    wfdbquit();
+    sprintf(abs, "%s/100s", cwd);
+    wfdbx_set_legacy(1);
+    printf("legacy isigopen absolute: %d\n", isigopen(abs, isi, 8));
+    printf("legacy annopen absolute: %d\n", annopen(abs, &ai, 1));
+    wfdbquit();
+    /* an empty WFDB path component: names are used as given */
+    setwfdb(";");
+    printf("legacy isigopen absolute (WFDB \";\"): %d\n",
+	   isigopen(abs, isi, 8));
+    st = getvec(v);
+    pvec("legacy getvec absolute (WFDB \";\")", st, v, 2);
+    wfdbquit();
+    wfdbx_set_legacy(0);
+    printf("isigopen absolute (WFDB \";\"): %d\n", isigopen(abs, isi, 8));
+    wfdbquit();
+    resetwfdb();
+    wfdbverbose();
+    t_sortfix();
+}
+
 int main(void)
 {
     printf("# expected values for the wfdb-x API unit tests (from the C "
@@ -1077,5 +1248,6 @@ int main(void)
     t_flacseek();
     t_nodefaults();
     t_legacy();
+    t_outdir();
     return 0;
 }

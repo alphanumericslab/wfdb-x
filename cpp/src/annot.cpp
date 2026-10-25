@@ -12,7 +12,16 @@
 // mnemonics and descriptions, and the time resolution record) are read by
 // annopen and written before the first annotation of each output file.
 // Output files whose annotations are not in canonical order are sorted when
-// they are closed, by running the sortann program.
+// they are closed, with the result of the sortann program.
+//
+// wfdb-x: oannclose rearranges an out-of-order output annotation file itself,
+// in the same process (sort_ann_file), with a result identical to that of the
+// sortann program, which the C library ran through the shell (and found only
+// if it was in the PATH); decided by Reza Sameni after a code review, Oct
+// 2026.  The original behavior remains available with --legacy (see
+// docs/DIVERGENCES.md); the program is then run without a shell.  The sort
+// also no longer loses an out-of-order annotation at time 0 (num 0, chan 0),
+// as sortann did (see AnnSortList); decided by Reza Sameni, Oct 2026.
 //
 // Copyright (C) 1989-2013 George B. Moody (original C implementation,
 // lib/annot.c; revised 2015-2020 by Benjamin Moody).
@@ -91,6 +100,7 @@ struct OAData {
     WFDB_Frequency afreq = 0;   // time resolution, in ticks/second
     int seqno = 0;              // annotation serial number (AHA only)
     std::string rname;          // record with which annotator is associated
+    std::string fname;          // wfdb-x: name of the file (as created)
     char out_of_order = 0;      // if > 0, annotations are not in order
     char table_written = 0;     // if > 0, table has been written
 };
@@ -100,7 +110,6 @@ struct AnnState {
     std::vector<std::unique_ptr<OAData>> oad;
     WFDB_Frequency oafreq = 0;  // time resolution for new output annotators
     int annclose_error = 0;     // if < 0, error while closing files
-    char modified[ACMAX + 1] = {};  // mnemonic or description modified
 };
 
 AnnState &as()
@@ -145,102 +154,6 @@ std::string make_aux(const std::string &s)
 {
     std::string a(1, static_cast<char>(s.size() & MAXAUX));
     return a + s;
-}
-
-int get_ann_table(WFDB_Annotator i)
-{
-    AnnState &st = as();
-    WFDB_Annotation annot;
-
-    st.iad[i]->tmul = 1.0;
-    st.iad[i]->afreq = 0.0;
-
-    if (getann(i, &annot) < 0)  // prime the pump
-        return -1;
-    while (getann(i, &annot) == 0 && annot.time == 0 &&
-           annot.anntyp == NOTE && annot.subtyp == 0) {
-        if (!annot.aux || annot.aux->empty() ||
-            static_cast<unsigned char>((*annot.aux)[0]) < 1)
-            continue;
-        std::string text = aux_text(*annot.aux);
-        if (text[0] == '#') {
-            constexpr size_t n = sizeof(TRES_PREFIX) - 1;
-            if (std::strncmp(text.c_str(), TRES_PREFIX, n) == 0)
-                std::sscanf(text.c_str() + n - 1, "%lf", &st.iad[i]->afreq);
-            continue;
-        }
-        char *buf = &text[0];
-        char *p1, *p2;
-        p1 = buf + std::strspn(buf, " \t");  // whitespace before code
-        int a = static_cast<int>(std::strtol(p1, &p2, 10));
-        if (a < 0 || a > ACMAX || p1 == p2) continue;
-        p2 = p2 + std::strcspn(p2, " \t");   // non-whitespace after code
-        p1 = p2 + std::strspn(p2, " \t");    // whitespace before mnemonic
-        p2 = p1 + std::strcspn(p1, " \t");   // non-whitespace (mnemonic)
-        if (p2 != p1) {
-            if (*p2)
-                setanndesc(a, p2 + 1);
-            else
-                setanndesc(a, nullptr);
-            *p2 = 0;
-            setannstr(a, p1);
-        }
-    }
-    if (annot.time != 0 || annot.anntyp != NOTE || annot.subtyp != 0 ||
-        !annot.aux) {
-        (void)ungetann(i, &annot);
-    }
-
-    setiafreq(i, getifreq());
-    return 0;
-}
-
-int put_ann_table(WFDB_Annotator i)
-{
-    AnnState &st = as();
-    int flag = 0;
-    WFDB_Annotation annot;
-
-    annot.time = 0;
-    annot.anntyp = NOTE;
-    annot.subtyp = annot.chan = annot.num = 0;
-    if (st.oafreq != st.oad[i]->afreq && st.oafreq > 0.) {
-        annot.aux = make_aux(strprintf("%s%.12g", TRES_PREFIX, st.oafreq));
-        st.oad[i]->afreq = st.oafreq;
-        if (putann(i, &annot) < 0) return -1;
-        flag = 1;
-    }
-    for (int a = 0; a <= ACMAX; a++)
-        if (st.modified[a]) {
-            if (flag < 2) {     // mark the beginning of the table
-                annot.aux = make_aux("## annotation type definitions");
-                if (putann(i, &annot) < 0) return -1;
-            }
-            std::string str;
-            std::optional<std::string> d = anndesc(a);
-            std::string m = annstr(a).value_or("");
-            if (d)
-                str = strprintf("%d %s %s", a, m.c_str(), d->c_str());
-            else
-                str = strprintf("%d %s ", a, m.c_str());
-            size_t n = str.size();
-            annot.aux = std::string(1, static_cast<char>(n > MAXAUX ? MAXAUX : n)) +
-                        str;
-            if (putann(i, &annot) < 0) return -1;
-            flag = 2;
-        }
-    if (flag == 2) {    // if a table was written, mark its end
-        annot.aux = make_aux("## end of definitions");
-        if (putann(i, &annot) < 0) return -1;
-    }
-
-    if (flag) {         // if a table was written, mark its end
-        annot.anntyp = 0;
-        annot.aux.reset();
-        if (putann(i, &annot) < 0) return -1;
-    }
-
-    return 0;
 }
 
 // Mnemonic and description tables
@@ -304,15 +217,27 @@ const char *const default_descriptions[ACMAX + 1] = {
     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
 };
 
+// wfdb-x: a table of annotation type definitions (mnemonics, descriptions,
+// and flags marking the modified types), initially the default one.  The
+// library has one (tables().defs); sort_ann_file uses one of its own.
+struct AnnDefs {
+    std::string astr[ACMAX + 1];                // mnemonic strings
+    std::optional<std::string> tstr[ACMAX + 1]; // descriptive strings
+    char mod[ACMAX + 1] = {};   // mod[i] is nonzero if setannstr() or
+                                // setanndesc() has modified type i
+    AnnDefs() {
+        for (int i = 0; i <= ACMAX; i++) {
+            astr[i] = default_mnemonics[i];
+            if (default_descriptions[i]) tstr[i] = default_descriptions[i];
+        }
+    }
+};
+
 struct Tables {
     std::string cstring[ACMAX + 1];     // ECG mnemonics for each code
-    std::string astring[ACMAX + 1];     // mnemonic strings for each code
-    std::optional<std::string> tstring[ACMAX + 1];  // descriptions
+    AnnDefs defs;                       // annotation type definitions
     Tables() {
-        for (int i = 0; i <= ACMAX; i++) {
-            cstring[i] = astring[i] = default_mnemonics[i];
-            if (default_descriptions[i]) tstring[i] = default_descriptions[i];
-        }
+        for (int i = 0; i <= ACMAX; i++) cstring[i] = default_mnemonics[i];
     }
 };
 
@@ -320,6 +245,161 @@ Tables &tables()
 {
     static Tables t;
     return t;
+}
+
+bool same_string(const std::string &a, const char *s) { return a == s; }
+bool same_string(const std::optional<std::string> &a, const char *s)
+{
+    return a && *a == s;
+}
+
+// wfdb-x: the body of setannstr and setanndesc, for a string table (of
+// mnemonics or descriptions) and the modification flags (mod) of a definition
+// table.  Returns 0, or -1 if code is illegal.
+template <class Str>
+int set_def_string(Str *table, char *mod, int code, const char *string)
+{
+    int mflag = 0;
+
+    if (code > 0)
+        mflag = 1;
+    else
+        code = -code;
+    if (code > ACMAX) return -1;
+    if (string == nullptr) string = "";
+    if (!same_string(table[code], string)) {
+        table[code] = std::string(string);
+        if (mflag) mod[code] = 1;
+    }
+    return 0;
+}
+
+int getann_ia(IAData *ia, WFDB_Annotation *annot);
+void ungetann_ia(IAData *ia, const WFDB_Annotation *annot);
+int put_ann_word(OAData *oa, WFDB_Annotator n, const WFDB_Annotation *annot);
+
+// wfdb-x: read_ann_table is the body of get_ann_table, for the input
+// annotator ia and the definition table defs (the library's, or that of
+// sort_ann_file).
+int read_ann_table(IAData *ia, AnnDefs &defs)
+{
+    WFDB_Annotation annot;
+
+    ia->tmul = 1.0;
+    ia->afreq = 0.0;
+
+    if (getann_ia(ia, &annot) < 0)  // prime the pump
+        return -1;
+    while (getann_ia(ia, &annot) == 0 && annot.time == 0 &&
+           annot.anntyp == NOTE && annot.subtyp == 0) {
+        if (!annot.aux || annot.aux->empty() ||
+            static_cast<unsigned char>((*annot.aux)[0]) < 1)
+            continue;
+        std::string text = aux_text(*annot.aux);
+        if (text[0] == '#') {
+            constexpr size_t n = sizeof(TRES_PREFIX) - 1;
+            if (std::strncmp(text.c_str(), TRES_PREFIX, n) == 0)
+                std::sscanf(text.c_str() + n - 1, "%lf", &ia->afreq);
+            continue;
+        }
+        char *buf = &text[0];
+        char *p1, *p2;
+        p1 = buf + std::strspn(buf, " \t");  // whitespace before code
+        int a = static_cast<int>(std::strtol(p1, &p2, 10));
+        if (a < 0 || a > ACMAX || p1 == p2) continue;
+        p2 = p2 + std::strcspn(p2, " \t");   // non-whitespace after code
+        p1 = p2 + std::strspn(p2, " \t");    // whitespace before mnemonic
+        p2 = p1 + std::strcspn(p1, " \t");   // non-whitespace (mnemonic)
+        if (p2 != p1) {
+            set_def_string(defs.tstr, defs.mod, a, *p2 ? p2 + 1 : nullptr);
+            *p2 = 0;
+            set_def_string(defs.astr, defs.mod, a, p1);
+        }
+    }
+    if (annot.time != 0 || annot.anntyp != NOTE || annot.subtyp != 0 ||
+        !annot.aux) {
+        ungetann_ia(ia, &annot);
+    }
+    return 0;
+}
+
+int get_ann_table(WFDB_Annotator i)
+{
+    if (read_ann_table(as().iad[i].get(), tables().defs) < 0) return -1;
+    setiafreq(i, getifreq());
+    return 0;
+}
+
+// wfdb-x: put_ann_table writes the table to the output annotator oa (number
+// n, in messages), with the time resolution freq and the definition table
+// defs (the C library used oad[n], oafreq, and the library's table).
+int put_ann_table(OAData *oa, WFDB_Annotator n, WFDB_Frequency freq,
+                  const AnnDefs &defs)
+{
+    int flag = 0;
+    WFDB_Annotation annot;
+
+    annot.time = 0;
+    annot.anntyp = NOTE;
+    annot.subtyp = annot.chan = annot.num = 0;
+    if (freq != oa->afreq && freq > 0.) {
+        annot.aux = make_aux(strprintf("%s%.12g", TRES_PREFIX, freq));
+        oa->afreq = freq;
+        if (put_ann_word(oa, n, &annot) < 0) return -1;
+        flag = 1;
+    }
+    for (int a = 0; a <= ACMAX; a++)
+        if (defs.mod[a]) {
+            if (flag < 2) {     // mark the beginning of the table
+                annot.aux = make_aux("## annotation type definitions");
+                if (put_ann_word(oa, n, &annot) < 0) return -1;
+            }
+            std::string str;
+            if (defs.tstr[a])
+                str = strprintf("%d %s %s", a, defs.astr[a].c_str(),
+                                defs.tstr[a]->c_str());
+            else
+                str = strprintf("%d %s ", a, defs.astr[a].c_str());
+            size_t len = str.size();
+            annot.aux = std::string(1, static_cast<char>(len > MAXAUX ? MAXAUX
+                                                                      : len)) +
+                        str;
+            if (put_ann_word(oa, n, &annot) < 0) return -1;
+            flag = 2;
+        }
+    if (flag == 2) {    // if a table was written, mark its end
+        annot.aux = make_aux("## end of definitions");
+        if (put_ann_word(oa, n, &annot) < 0) return -1;
+    }
+
+    if (flag) {         // if a table was written, mark its end
+        annot.anntyp = 0;
+        annot.aux.reset();
+        if (put_ann_word(oa, n, &annot) < 0) return -1;
+    }
+
+    return 0;
+}
+
+// Read the first word of the input annotation file of ia and return its
+// format: WFDB_READ (MIT format; any initial null annotations are then read
+// as well) or WFDB_AHA_READ.  (wfdb-x: this was part of annopen.)
+int ann_file_format(IAData *ia)
+{
+    // AHA-format files begin with a null byte and an ASCII character which
+    // is one of the legal AHA annotation codes other than '[' or ']'.  MIT
+    // annotation files cannot begin in this way.
+    ia->word = static_cast<unsigned>(ia->file->g16());
+    int a = static_cast<int>((ia->word >> 8) & 0xff);
+    if ((ia->word & 0xff) || wfdb_ammap(a) == NOTQRS || a == '[' || a == ']') {
+        // read any initial null annotation(s)
+        while ((ia->word & CODE) == SKIP) {
+            ia->tt += ia->file->g32();
+            ia->word = static_cast<unsigned>(ia->file->g16());
+        }
+        return WFDB_READ;
+    }
+    return WFDB_AHA_READ;
 }
 
 // Tables of <ecgmap.h>
@@ -467,14 +547,7 @@ int annopen(const char *record_arg, const WFDB_Anninfo *aiarray, unsigned nann)
             }
             ia->info.name = aiarray[i].name;
 
-            // Try to figure out what format the file is in.  AHA-format
-            // files begin with a null byte and an ASCII character which is
-            // one of the legal AHA annotation codes other than '[' or ']'.
-            // MIT annotation files cannot begin in this way.
-            ia->word = static_cast<unsigned>(ia->file->g16());
-            int a = static_cast<int>((ia->word >> 8) & 0xff);
-            if ((ia->word & 0xff) || wfdb_ammap(a) == NOTQRS || a == '[' ||
-                a == ']') {
+            if (ann_file_format(ia.get()) == WFDB_READ) {
                 if (aiarray[i].stat != WFDB_READ) {
                     wfdb_error("warning (annopen, annotator %s, record %s):\n",
                                name, record);
@@ -482,11 +555,6 @@ int annopen(const char *record_arg, const WFDB_Anninfo *aiarray, unsigned nann)
                     wfdb_error(" ... continuing under that assumption\n");
                 }
                 ia->info.stat = WFDB_READ;
-                // read any initial null annotation(s)
-                while ((ia->word & CODE) == SKIP) {
-                    ia->tt += ia->file->g32();
-                    ia->word = static_cast<unsigned>(ia->file->g16());
-                }
             } else {
                 if (aiarray[i].stat != WFDB_AHA_READ) {
                     wfdb_error("warning (annopen, annotator %s, record %s):\n",
@@ -513,6 +581,7 @@ int annopen(const char *record_arg, const WFDB_Anninfo *aiarray, unsigned nann)
             }
             oa->info.name = aiarray[i].name;
             oa->rname = record;
+            oa->fname = wfdb_filename();    // wfdb-x: for sort_ann_file
             oa->ann.time = 0;
             oa->info.stat = aiarray[i].stat;
             oa->out_of_order = 0;
@@ -642,7 +711,15 @@ int getann(WFDB_Annotator n, WFDB_Annotation *annot)
         wfdb_error("getann: can't read annotator %d\n", n);
         return -2;
     }
+    return getann_ia(ia, annot);
+}
 
+namespace detail {
+namespace {
+
+// wfdb-x: getann_ia is the body of getann, for the input annotator ia.
+int getann_ia(IAData *ia, WFDB_Annotation *annot)
+{
     if (ia->pann.anntyp) {      // an annotation was pushed back
         *annot = ia->pann;
         ia->pann.anntyp = 0;
@@ -672,6 +749,20 @@ int getann(WFDB_Annotator n, WFDB_Annotation *annot)
     return 0;
 }
 
+// wfdb-x: ungetann_ia is the body of ungetann (after the checks), for the
+// input annotator ia, whose pushback buffer is empty.
+void ungetann_ia(IAData *ia, const WFDB_Annotation *annot)
+{
+    ia->pann = *annot;
+    if (annot->time == ia->prev_time)
+        ia->pann_tt = ia->prev_tt;
+    else
+        ia->pann_tt = static_cast<double>(annot->time) / ia->tmul;
+}
+
+} // namespace
+} // namespace detail
+
 // ungetann: push back an annotation into an input stream
 int ungetann(WFDB_Annotator n, const WFDB_Annotation *annot)
 {
@@ -687,11 +778,7 @@ int ungetann(WFDB_Annotator n, const WFDB_Annotation *annot)
                    "not pushed back\n", annot->time, n);
         return -1;
     }
-    ia->pann = *annot;
-    if (annot->time == ia->prev_time)
-        ia->pann_tt = ia->prev_tt;
-    else
-        ia->pann_tt = static_cast<double>(annot->time) / ia->tmul;
+    ungetann_ia(ia, annot);
     return 0;
 }
 
@@ -706,11 +793,21 @@ int putann(WFDB_Annotator n, const WFDB_Annotation *annot)
         wfdb_error("putann: can't write annotation file %d\n", n);
         return -2;
     }
-    WFDB_Time t = annot->time;
     if (!oa->table_written) {
         oa->table_written = 1;
-        if (put_ann_table(n) < 0) return -1;
+        if (put_ann_table(oa, n, st.oafreq, tables().defs) < 0) return -1;
     }
+    return put_ann_word(oa, n, annot);
+}
+
+namespace detail {
+namespace {
+
+// wfdb-x: put_ann_word is the body of putann (after the table), for the
+// output annotator oa (number n, in messages).
+int put_ann_word(OAData *oa, WFDB_Annotator n, const WFDB_Annotation *annot)
+{
+    WFDB_Time t = annot->time;
     WFDBFile *f = oa->file.get();
     unsigned_time delta = static_cast<unsigned_time>(t) -
                           static_cast<unsigned_time>(oa->ann.time);
@@ -810,6 +907,9 @@ int putann(WFDB_Annotator n, const WFDB_Annotation *annot)
     return 0;
 }
 
+} // namespace
+} // namespace detail
+
 // iannsettime: seek so that for the next annotation read from each input
 // annotator, anntime >= t
 int iannsettime(WFDB_Time t)
@@ -884,7 +984,7 @@ int setecgstr(int code, const char *string)
 
 std::optional<std::string> annstr(int code)
 {
-    if (0 <= code && code <= ACMAX) return tables().astring[code];
+    if (0 <= code && code <= ACMAX) return tables().defs.astr[code];
     return strprintf("[%d]", code);
 }
 
@@ -893,55 +993,31 @@ int strann(const char *str)
     if (str == nullptr) str = "";
     Tables &tb = tables();
     for (int code = 1; code <= ACMAX; code++)
-        if (tb.astring[code] == str) return code;
+        if (tb.defs.astr[code] == str) return code;
     return NOTQRS;
 }
 
 int setannstr(int code, const char *string)
 {
-    int mflag = 0;
-
-    if (code > 0)
-        mflag = 1;
-    else
-        code = -code;
-    if (code <= ACMAX) {
-        if (string == nullptr) string = "";
-        Tables &tb = tables();
-        if (tb.astring[code] != string) {
-            tb.astring[code] = string;
-            if (mflag) as().modified[code] = 1;
-        }
-        return 0;
-    }
-    wfdb_error("setannstr: illegal annotation code %d\n", code);
+    AnnDefs &defs = tables().defs;
+    if (set_def_string(defs.astr, defs.mod, code, string) == 0) return 0;
+    wfdb_error("setannstr: illegal annotation code %d\n",
+               code > 0 ? code : -code);
     return -1;
 }
 
 std::optional<std::string> anndesc(int code)
 {
-    if (0 <= code && code <= ACMAX) return tables().tstring[code];
+    if (0 <= code && code <= ACMAX) return tables().defs.tstr[code];
     return std::string("illegal annotation code");
 }
 
 int setanndesc(int code, const char *string)
 {
-    int mflag = 0;
-
-    if (code > 0)
-        mflag = 1;
-    else
-        code = -code;
-    if (code <= ACMAX) {
-        if (string == nullptr) string = "";
-        Tables &tb = tables();
-        if (!tb.tstring[code] || *tb.tstring[code] != string) {
-            tb.tstring[code] = std::string(string);
-            if (mflag) as().modified[code] = 1;
-        }
-        return 0;
-    }
-    wfdb_error("setanndesc: illegal annotation code %d\n", code);
+    AnnDefs &defs = tables().defs;
+    if (set_def_string(defs.tstr, defs.mod, code, string) == 0) return 0;
+    wfdb_error("setanndesc: illegal annotation code %d\n",
+               code > 0 ? code : -code);
     return -1;
 }
 
@@ -1006,6 +1082,140 @@ void iannclose(WFDB_Annotator n)
     }
 }
 
+// ---------------------------------------------------------------------------
+// wfdb-x: in-process sorting of an output annotation file
+
+namespace detail {
+
+namespace {
+
+// AFTER(a, b): annotation a follows annotation b in the canonical order;
+// AFTER_OR_SAME(a, b): it does, or they have the same time, num and chan.
+bool after(const WFDB_Annotation &a, const WFDB_Annotation &b)
+{
+    return a.time > b.time || (a.time == b.time && a.num > b.num) ||
+           (a.time == b.time && a.num == b.num && a.chan > b.chan);
+}
+
+bool after_or_same(const WFDB_Annotation &a, const WFDB_Annotation &b)
+{
+    return a.time > b.time || (a.time == b.time && a.num > b.num) ||
+           (a.time == b.time && a.num == b.num && a.chan >= b.chan);
+}
+
+} // namespace
+
+void AnnSortList::insert(const WFDB_Annotation &pa)
+{
+    long newp = static_cast<long>(list_.size());
+    list_.emplace_back();
+    list_[newp].annotation = pa;
+    if (last_ == 0 || after(pa, list_[last_].annotation)) {
+        // this annotation is in order -- add to end of list
+        list_[newp].prev = last_;
+        list_[last_].next = newp;
+        last_ = newp;
+        list_[last_].next = -1;
+        return;
+    }
+    in_order_ = false;
+    // Find the correct location in the list for this annotation, searching
+    // backwards from the end of the list.
+    long ap = last_;
+    while (ap != -1) {
+        // wfdb-x: the list head is not an annotation; C compared it, and took
+        // an annotation at time 0 (num 0, chan 0) for a duplicate of it
+        // (losing it).  Legacy mode: as in C.
+        if (ap == 0 && !legacy_) {
+            ap = -1;
+            break;
+        }
+        if (after_or_same(pa, list_[ap].annotation)) break;
+        ap = list_[ap].prev;
+    }
+    if (ap == -1) {     // insert newp at the beginning of the list
+        list_[newp].prev = -1;
+        list_[newp].next = list_[0].next;
+        list_[list_[newp].next].prev = list_[0].next = newp;
+    } else if (pa.time == list_[ap].annotation.time &&
+               pa.num == list_[ap].annotation.num &&
+               pa.chan == list_[ap].annotation.chan) {  // replace ap by newp
+        if ((list_[newp].prev = list_[ap].prev) != -1)
+            list_[list_[newp].prev].next = newp;
+        if ((list_[newp].next = list_[ap].next) != -1)
+            list_[list_[newp].next].prev = newp;
+        else
+            last_ = newp;
+        // If ap was the first entry of the list but its prev link does not
+        // lead back to the head (an entry inserted at the beginning gets a
+        // null link, and one whose predecessor replaced the head is
+        // detached), C leaves the head pointing to the freed entry
+        // (undefined behavior): here the head is updated, so that the
+        // duplicate is replaced (see docs/KNOWN_C_BEHAVIORS.md).
+        if (list_[0].next == ap) list_[0].next = newp;
+    } else {    // insert newp immediately after ap
+        list_[newp].prev = ap;
+        list_[newp].next = list_[ap].next;
+        list_[list_[newp].next].prev = newp;
+        list_[ap].next = newp;
+    }
+}
+
+namespace {
+
+// Rearrange the annotations of the (closed) annotation file fname, of
+// annotator aname, into the canonical order, with a result identical, byte
+// for byte, to that of the sortann program as the C library ran it
+// ("sortann -r. RECORD -a ANNOTATOR", see oannclose), but without looking up
+// the header of the record.  As sortann does, read the file (with any time
+// resolution and annotation type definitions it contains, starting from the
+// default definitions), build an AnnSortList of its annotations (skipping
+// those at negative times), and, unless they were already in order, rewrite
+// the file in MIT format, with the time resolution of the input file (if
+// any) and without the NOTQRS annotations.  The reader, the writer and the
+// definition table are private (the library's annotators and tables are not
+// changed).  Returns 0 on success, or -1 if the file cannot be read or
+// written.
+int sort_ann_file(const std::string &fname, const std::string &aname)
+{
+    AnnDefs defs;
+    IAData ia;
+    if (!(ia.file = wfdb_fopen(fname.c_str(), "rb"))) return -1;
+    ia.info.name = aname;
+    ia.info.stat = ann_file_format(&ia);
+    (void)read_ann_table(&ia, defs);
+    AnnSortList list;
+    WFDB_Annotation annot;
+    int stat;
+    while ((stat = getann_ia(&ia, &annot)) == 0)
+        if (annot.time >= 0) list.insert(annot);
+    (void)ia.file->close();
+    bool ok = (stat == -1);     // -1: logical end of file
+
+    // Write the sorted annotations, unless they were already in order.
+    if (ok && !list.in_order()) {
+        OAData oa;
+        oa.info.name = aname;
+        oa.info.stat = WFDB_WRITE;
+        if (!(oa.file = wfdb_fopen(fname.c_str(), "wb"))) return -1;
+        list.for_each([&](const WFDB_Annotation &a) {
+            if (!ok || a.anntyp == NOTQRS) return;
+            if (!oa.table_written) {
+                oa.table_written = 1;
+                if (put_ann_table(&oa, 0, ia.afreq, defs) < 0) ok = false;
+            }
+            if (ok && put_ann_word(&oa, 0, &a) < 0) ok = false;
+        });
+        oa.file->p16(0);
+        if (oa.file->error()) ok = false;
+        if (oa.file->close()) ok = false;
+    }
+    return ok ? 0 : -1;
+}
+
+} // namespace
+} // namespace detail
+
 // oannclose: close output annotation file n
 void oannclose(WFDB_Annotator n)
 {
@@ -1040,7 +1250,16 @@ void oannclose(WFDB_Annotator n)
             if (dosort) {
                 wfdb_error("Rearranging annotations for output annotator %s ...",
                            oa->info.name.c_str());
-                if (run_sortann(oa->rname, oa->info.name) == 0) {
+                // wfdb-x: the file is sorted in this process
+                // (sort_ann_file); the C library ran the sortann program, as
+                // legacy mode does.
+                // (The program runs in the output directory, if one is set,
+                // where the file is.)
+                int status = wfdbx_get_legacy()
+                    ? run_sortann(oa->rname, oa->info.name,
+                                  wfdbx_get_output_dir())
+                    : sort_ann_file(oa->fname, oa->info.name);
+                if (status == 0) {
                     wfdb_error("done!\n");
                     oa->out_of_order = 0;
                 } else

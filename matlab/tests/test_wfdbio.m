@@ -18,7 +18,7 @@ write_file('pathfile', sprintf('. sub\r\n'));
 
 % Path parsing
 wfdbx.setwfdb('. sub;/x/y http://example.org/db');
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 assert_eq(st.path_prefix, {'.', 'sub', '/x/y', 'http://example.org/db'}, ...
     'parsed path');
 assert_eq(st.path_type, [0 0 0 1], 'path types');

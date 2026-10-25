@@ -10,7 +10,7 @@ function wfdbsetstart(s, nbytes)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if s < S.nosig
     S.ogd{S.osd(s + 1).info.group + 1}.start = nbytes;
 end

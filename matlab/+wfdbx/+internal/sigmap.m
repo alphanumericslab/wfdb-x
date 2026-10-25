@@ -13,7 +13,7 @@ WFDB_INVALID_SAMPLE = -32768;
 WFDB_SAMPLE_MIN = -2147483648;  % INT_MIN
 WFDB_SAMPLE_MAX = 2147483647;   % INT_MAX
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 smi = S.smi;
 tspf = S.tspf;
 idx = [smi(1:tspf).index] + 1;

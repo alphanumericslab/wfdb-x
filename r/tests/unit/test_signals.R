@@ -526,4 +526,215 @@ if (.mode == "source") {
   expect_equal(strtim("1e300"), -2^63, "strtim 1e300")
   expect_equal(strtim("1:1e300"), -2^63, "strtim 1:1e300")
   setsampfreq(0)
+
+  # ---- putframes == putvec, byte for byte, with edge values and invalid
+  # samples, and odd frame counts (padding of formats 212, 310, 311)
+  lo <- c("8" = -128, "16" = -32768, "61" = -32768, "80" = -128, "160" = -32768,
+          "212" = -2048, "310" = -512, "311" = -512, "24" = -8388608, "32" = -2147483648)
+  write_both <- function(x, fmt) {
+    out <- list()
+    for (fast in c(TRUE, FALSE)) {
+      wfdbquit()
+      si <- lapply(seq_len(ncol(x)), function(k)
+        siginfo(fname = "pf.dat", desc = "", gain = 200, fmt = fmt, adcres = 12))
+      osigfopen(si, ncol(x))
+      setsampfreq(360)
+      if (fast) putframes(x) else for (i in seq_len(nrow(x))) putvec(x[i, ])
+      newheader("pf")
+      wfdbquit()
+      out[[length(out) + 1L]] <- list(rf("pf.dat"), rf("pf.hea"))
+    }
+    out
+  }
+  ok <- TRUE
+  for (fmt in as.numeric(names(lo))) {
+    l <- lo[[as.character(fmt)]]
+    for (nsig in 1:3) {
+      for (n in c(1, 2, 3, 7, 1000)) {
+        set.seed(fmt + 7 * nsig + n)
+        if (fmt == 8) {
+          dd <- matrix(sample.int(256, n * nsig, replace = TRUE) - 129, n, nsig)
+          dd[1L, ] <- sample.int(2000, nsig) - 1000
+          x <- apply(dd, 2, cumsum)
+        } else {
+          x <- floor(runif(n * nsig, l, -l))
+          i <- seq_along(x) - 1
+          x[i %% 5 == 0] <- l
+          x[i %% 7 == 1] <- -l - 1
+          x[i %% 11 == 2] <- WFDB_INVALID_SAMPLE
+        }
+        x <- matrix(x, n, nsig)
+        o <- write_both(x, fmt)
+        if (!identical(o[[1L]], o[[2L]])) {
+          ok <- FALSE
+          cat("putframes != putvec: fmt", fmt, "nsig", nsig, "n", n, "\n")
+        }
+      }
+    }
+  }
+  check(ok, "putframes == putvec (signal files and headers, all formats)")
+
+  # ---- the output directory (wfdbx_set_output_dir; port of t_outdir in
+  # tests/reference/api_expect.c, python test_api.py::test_output_dir)
+  setcfreq(0)
+  setafreq(0)
+  # (the annotation type table, as left by t_strings in api_expect.c)
+  setanndesc(15, "my description")
+  setannstr(42, "new")
+  setanndesc(42, "")
+  expect_equal(wfdbx_get_output_dir(), NULL, "output dir: none by default")
+  dir.create("odir")
+  expect_equal(wfdbx_set_output_dir("odir"), NULL, "output dir: set")
+  expect_equal(wfdbx_get_output_dir(), "odir", "output dir: get")
+  si <- list(siginfo(fname = "orec.dat", desc = "sig", gain = 200, fmt = 16, adcres = 12))
+  setsampfreq(100)
+  expect_equal(osigfopen(si, 1), 1, "output dir: osigfopen")
+  for (i in 0:2) putvec(10 * i - 7)
+  expect_equal(newheader("orec"), 0, "output dir: newheader")
+  expect_equal(annopen("orec", list(anninfo("oat", WFDB_WRITE)), 1), 0, "output dir: annopen")
+  tt <- c(30, 10, 20, 10, 5)              # (out of order, a duplicate)
+  for (i in seq_along(tt)) putann(0, annotation(tt[i], if (i == 4) PVC else NORMAL))
+  wfdbquiet()
+  wfdbquit()
+  wfdbverbose()
+  expect_equal(wfdbx_set_output_dir(""), "odir", "output dir: previous value")
+  expect_equal(wfdbx_get_output_dir(), NULL, "output dir: '' is none")
+  expect_equal(wfdbx_set_output_dir("odir2"), NULL, "output dir: set again")
+  expect_equal(wfdbx_set_output_dir(NULL), "odir2", "output dir: NULL is none")
+  expect_equal(rf("odir/orec.hea"), charToRaw("orec 1 100 3\r\norec.dat 16 200 12 0 -7 9 0 sig\r\n"),
+               "output dir: header")
+  expect_equal(rf("odir/orec.dat"), as.raw(c(0xf9, 0xff, 0x03, 0x00, 0x0d, 0x00)),
+               "output dir: signal file")
+  h <- paste0("00581efc232320616e6e6f746174696f6e207479706520646566696e6974696f",
+              "6e73005816fc3135205b31355d206d79206465736372697074696f6e005807fc",
+              "3432206e65772000005815fc232320656e64206f6620646566696e6974696f6e",
+              "730000ecffffffff0100050405140a040a040000")
+  oat <- as.raw(strtoi(substring(h, seq(1, nchar(h), 2), seq(2, nchar(h), 2)), 16L))
+  expect_equal(rf("odir/orec.oat"), oat,
+               "output dir: sorted annotation file (as api_expect.c)")
+  check(!file.exists("orec.hea"), "output dir: nothing in the current directory")
+  # a missing output directory is created (as are the missing directories
+  # of any output file name)
+  wfdbx_set_output_dir("newdir")
+  osigfopen(si, 1)
+  annopen("orec", list(anninfo("oat", WFDB_WRITE)), 1)
+  wfdbquit()
+  wfdbx_set_output_dir(NULL)
+  expect_equal(file.size(c("newdir/orec.dat", "newdir/orec.oat")), c(0, 2),
+               "output dir: created")
+  # reading the record from the output directory
+  setwfdb("odir")
+  expect_equal(isig("orec"), 1, "output dir: isigopen")
+  expect_equal(lapply(1:3, function(i) vec(1)), list(c(1, -7), c(1, 3), c(1, 13)),
+               "output dir: getvec")
+  annopen("orec", list(anninfo("oat", WFDB_READ)), 1)
+  got <- lapply(1:5, function(i) {
+    r <- getann(0)
+    if (r$stat != 0) r$stat else c(r$annot$time, r$annot$anntyp)
+  })
+  expect_equal(got, list(c(5, NORMAL), c(10, PVC), c(20, NORMAL), c(30, NORMAL), -1),
+               "output dir: annotations")
+  wfdbquit()
+  setwfdb(".")
+  # t_sortfix: an out-of-order annotation at time 0 is not lost (it is in
+  # legacy mode, as by sortann), and in legacy mode with an output
+  # directory, sortann runs in that directory
+  if (.mode == "source") .wfdb_io$driver <- file.path(dirname(.rdir), "inst", "bin", "wfdbx.R")
+  wfdbquiet()
+  for (lg in c(FALSE, TRUE)) {
+    wfdbx_set_legacy(lg)
+    annopen("100s", list(anninfo(if (lg) "l0" else "m0", WFDB_WRITE)), 1)
+    for (t in c(5, 0, 3)) putann(0, annotation(t, NORMAL))
+    wfdbquit()
+    wfdbx_set_output_dir("odir")
+    annopen("orec", list(anninfo(if (lg) "lsrt" else "msrt", WFDB_WRITE)), 1)
+    for (t in c(30, 10, 20)) putann(0, annotation(t, NORMAL))
+    wfdbquit()
+    wfdbx_set_output_dir(NULL)
+  }
+  wfdbx_set_legacy(FALSE)
+  wfdbverbose()
+  for (nm in c("m0", "l0")) {
+    annopen("100s", list(anninfo(nm, WFDB_READ)), 1)
+    expect_equal(.getann_bulk(0, Inf)$time, if (nm == "m0") c(0, 3, 5) else 5,
+                 paste("t_sortfix:", nm))
+    wfdbquit()
+  }
+  osrt <- c(oat[seq_len(length(oat) - 10L)], as.raw(c(0x0a, 0x04, 0x0a, 0x04, 0x0a, 0x04, 0, 0)))
+  check(identical(rf("odir/orec.msrt"), osrt) && identical(rf("odir/orec.lsrt"), osrt),
+        "t_sortfix: legacy sort in the output directory == modern (as api_expect.c)")
+  annot_reset(tables = TRUE)
+
+  # ---- write_record(..., dir = ) (wfdb-x)
+  errmsg <- function(expr) tryCatch({
+    expr
+    ""
+  }, error = function(e) conditionMessage(e))
+  x <- matrix(0:19, 10, 2, byrow = TRUE)
+  dir.create("out")
+  prev <- wfdbx_set_output_dir("elsewhere")
+  write_record("rec", x, 360, gains = 200, adcres = 12, units = "mV", dir = "out")
+  expect_equal(wfdbx_get_output_dir(), "elsewhere", "write_record dir: output dir restored")
+  wfdbx_set_output_dir(prev)
+  expect_equal(sort(list.files("out")), c("rec.dat", "rec.hea"), "write_record dir: files")
+  check(!file.exists("rec.hea") && !file.exists("rec.dat"), "write_record dir: not in .")
+  hea <- readLines("out/rec.hea")
+  check(hea[1L] == "rec 2 360 10" && startsWith(hea[2L], "rec.dat 16 "),
+        "write_record dir: plain names in the header")
+  setwfdb("out")
+  check(all(read_record("rec")$signals == x), "write_record dir: read from dir")
+  setwfdb(".")
+  check(all(read_record("out/rec")$signals == x), "write_record dir: read as out/rec")
+  expect_equal(errmsg(write_record("rec", x, 360, gains = 200, adcres = 12, units = "mV",
+                                   dir = "nosuch")),
+               "directory nosuch does not exist", "write_record dir: missing dir")
+  expect_equal(errmsg(write_record("sub/rec", x, 360, gains = 200, adcres = 12, units = "mV",
+                                   dir = "out")),
+               "record name must not contain a directory when dir is given",
+               "write_record dir: record with a directory")
+  expect_error(write_record("rec", x, 360, dir = "out"), "write_record dir: no gains")
+  expect_equal(wfdbx_get_output_dir(), NULL, "write_record dir: restored after an error")
+  check(!file.exists("nosuch"), "write_record dir: missing dir not created")
+  write_record("leg", x, 360, dir = "out", legacy = TRUE)
+  # the dir checks come before any other validation (wfdb-x)
+  x2 <- matrix(0:3, 2, 2)
+  expect_equal(errmsg(write_record("sub/rec", x2, 0, dir = "out")),
+               "record name must not contain a directory when dir is given",
+               "write_record dir checks first: record")
+  expect_equal(errmsg(write_record("rec", x2, 0, dir = "nosuch")),
+               "directory nosuch does not exist", "write_record dir checks first: dir")
+  expect_equal(errmsg(write_record("rec", x2, 360, dir = "out")), "gains must be specified",
+               "write_record dir checks first: then the rest")
+  check(startsWith(readLines("out/leg.hea")[1L], "leg 2 360 10"), "write_record dir: legacy")
+
+  # ---- absolute paths (wfdb-x; python test_api.py::test_absolute_paths)
+  rec <- file.path(normalizePath("."), "100s")
+  wfdbquiet()
+  expect_equal(isig(rec), 2, "absolute path: isigopen")
+  expect_equal(vec(2), c(2, 995, 1011), "absolute path: getvec")
+  expect_equal(wfdbfile("hea", rec), paste0(rec, ".hea"), "absolute path: wfdbfile")
+  expect_equal(annopen(rec, list(anninfo("atr", WFDB_READ)), 1), 0, "absolute path: annopen")
+  r <- getann(0)
+  expect_equal(c(r$stat, r$annot$time, r$annot$anntyp), c(0, 18, 28), "absolute path: getann")
+  wfdbquit()
+  expect_equal(sampfreq(rec), 360, "absolute path: sampfreq")
+  wfdbquit()
+  expect_equal(isig(file.path(normalizePath("."), "nosuch")), -1, "absolute path: missing")
+  wfdbquit()
+  # legacy mode: as in C, an absolute name is searched for in the WFDB path
+  # (here "./" + the name) ...
+  wfdbx_set_legacy(TRUE)
+  expect_equal(isig(rec), -1, "absolute path: legacy isigopen")
+  expect_equal(annopen(rec, list(anninfo("atr", WFDB_READ)), 1), -3, "absolute path: legacy annopen")
+  wfdbquit()
+  # ... unless the WFDB path has an empty component
+  setwfdb(";")
+  expect_equal(isig(rec), 2, "absolute path: legacy, WFDB ';'")
+  expect_equal(vec(2), c(2, 995, 1011), "absolute path: legacy, WFDB ';' getvec")
+  wfdbquit()
+  wfdbx_set_legacy(FALSE)
+  expect_equal(isig(rec), 2, "absolute path: WFDB ';'")
+  wfdbquit()
+  setwfdb(".")
+  wfdbverbose()
 }

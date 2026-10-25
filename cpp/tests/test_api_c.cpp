@@ -13,14 +13,19 @@
 #include "tests.hpp"
 
 #include <wfdbx/ecgcodes.hpp>
+#include <wfdbx/record.hpp>
 #include <wfdbx/wfdb.hpp>
 
+#include "../src/wfdblib.hpp"   // (detail::AnnSortList)
+
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <random>
 #include <string>
 #include <utility>
@@ -1244,4 +1249,507 @@ WFDBX_TEST(c_legacy)
           si[3].adcres == 16 && si[4].adcres == 12);
     wfdbquit();
     wfdbverbose();
+}
+
+// ---------------------------------------------------------------------------
+// wfdb-x: the output directory (wfdbx_set_output_dir; t_outdir in
+// api_expect.c), the sorting of out-of-order output annotation files in this
+// process (legacy mode: by the sortann program), and input files named by
+// absolute paths
+
+namespace {
+
+// An environment variable set to `value` (unset if nullptr) for the lifetime
+// of the object, and restored afterwards.
+struct EnvVar {
+    std::string name;
+    std::optional<std::string> old;
+    EnvVar(const char *n, const char *value) : name(n) {
+        if (const char *p = std::getenv(n)) old = p;
+        set(value);
+    }
+    ~EnvVar() { set(old ? old->c_str() : nullptr); }
+    void set(const char *value) {
+#if defined(_WIN32)
+        _putenv_s(name.c_str(), value ? value : "");
+#else
+        if (value)
+            setenv(name.c_str(), value, 1);
+        else
+            unsetenv(name.c_str());
+#endif
+    }
+};
+
+// Out-of-order annotations with ties in time, num and chan, duplicates (the
+// last one is kept), NOTQRS (dropped), aux strings, and a time 0 annotation
+// that precedes the others (wfdb-x: kept; dropped by the original sortann,
+// with the one at time 5 inserted after it, see docs/KNOWN_C_BEHAVIORS.md).
+// The same as TRICKY in python/tests/test_annotations.py.
+Annotations tricky()
+{
+    struct Row { long long t; int code, sub, chan, num; const char *aux; };
+    static const std::string x101(101, 'x');
+    const Row rows[] = {
+        {100, NORMAL, 0, 0, 0, nullptr}, {50, PVC, 0, 0, 0, "(VT"},
+        {100, APC, 0, 1, 0, nullptr}, {100, NORMAL, 0, 0, 1, "num 1"},
+        {100, PVC, 0, 0, 0, "replaces N"}, {75, NOTQRS, 0, 2, 0, nullptr},
+        {75, NORMAL, 1, 2, 0, "odd"}, {10, NOTQRS, 0, 0, 0, nullptr},
+        {200, RHYTHM, 0, 0, 0, "(AFIB"}, {150, NOISE, 0, 3, -1, nullptr},
+        {150, NOISE, 0, 3, 0, nullptr}, {20, NORMAL, 0, 0, 0, x101.c_str()},
+        {0, NORMAL, 0, 0, 0, nullptr}, {5, NORMAL, 0, 1, 0, nullptr},
+        {5000, NORMAL, 0, 0, 0, nullptr}};
+    Annotations a;
+    for (const Row &r : rows) {
+        a.samples.push_back(r.t);
+        a.codes.push_back(r.code);
+        a.subtypes.push_back(r.sub);
+        a.chans.push_back(r.chan);
+        a.nums.push_back(r.num);
+        a.aux.push_back(r.aux ? std::optional<std::string>(r.aux)
+                              : std::nullopt);
+    }
+    return a;
+}
+
+// Write tricky() as annotator `name` of record `record` (time resolution
+// 1000), and return the contents of the file.
+std::string write_tricky(const std::string &record, const char *name)
+{
+    write_annotations(record, name, tricky(), 1000.0);
+    return slurp((record + "." + name).c_str());
+}
+
+// (time, anntyp, chan, num) of each annotation of annotator `name`, read in
+// ticks of the time resolution.
+std::vector<std::vector<long long>> read_back(const char *name)
+{
+    WFDB_Anninfo ai{name, WFDB_READ};
+    std::vector<std::vector<long long>> r;
+    if (annopen("100s", &ai, 1) != 0) return r;
+    setiafreq(0, 1000.0);
+    WFDB_Annotation a;
+    while (getann(0, &a) == 0) r.push_back({a.time, a.anntyp, a.chan, a.num});
+    wfdbquit();
+    return r;
+}
+
+// The sortann tool built with the library, if any.
+std::string tools_dir()
+{
+#ifdef WFDBX_TOOLS_DIR
+    return WFDBX_TOOLS_DIR;
+#else
+    return "";
+#endif
+}
+
+bool have_sortann()
+{
+    std::error_code ec;
+    return !tools_dir().empty() &&
+           (fs::exists(fs::path(tools_dir()) / "sortann", ec) ||
+            fs::exists(fs::path(tools_dir()) / "sortann.exe", ec));
+}
+
+} // namespace
+
+// This test modifies the annotation type table (a definition in the files),
+// which the library cannot undo, so it runs in a child process where
+// possible.
+static void sort_in_process()
+{
+    DataDir d;
+    setafreq(0.0);  // (it survives wfdbquit)
+    setannstr(42, "Z");
+    // Modern mode: sorted in this process (no sortann program can be found
+    // in the PATH, and the test program has none next to it).
+    std::string modern;
+    {
+        EnvVar path("PATH", "/nonexistent-wfdbx-dir");
+        wfdbquiet();
+        modern = write_tricky("100s", "srt");
+        wfdbverbose();
+        CHECK_EQ(wfdberror(), "done!\n");
+    }
+    // (the library's settings and tables are unchanged)
+    CHECK(getafreq() == 0 && annstr(42) == "Z" && !anndesc(42));
+    // The result, read back (in ticks of the time resolution).  wfdb-x:
+    // nothing is lost; the original sortann loses the annotation at time 0,
+    // and the one at time 5 inserted after it.
+    const std::vector<std::vector<long long>> rest = {
+        {20, NORMAL, 0, 0}, {50, PVC, 0, 0}, {75, NORMAL, 2, 0},
+        {100, PVC, 0, 0}, {100, APC, 1, 0}, {100, NORMAL, 0, 1},
+        {150, NOISE, 3, -1}, {150, NOISE, 3, 0}, {200, RHYTHM, 0, 0},
+        {5000, NORMAL, 0, 0}};
+    std::vector<std::vector<long long>> all = {{0, NORMAL, 0, 0},
+                                               {5, NORMAL, 1, 0}};
+    all.insert(all.end(), rest.begin(), rest.end());
+    CHECK(read_back("srt") == all);
+    CHECK(annstr(42) == "Z");
+
+    if (have_sortann()) {
+        // The in-process sort and the sortann tool give the same bytes.
+        {
+            EnvVar sort("WFDBANNSORT", "0");
+            wfdbquiet();
+            write_tricky("100s", "tool");
+            wfdbverbose();
+        }
+        std::string cmd = "\"" + (fs::path(tools_dir()) / "sortann").string() +
+                          "\" -r 100s -a tool";
+        CHECK_EQ(std::system(cmd.c_str()), 0);
+        CHECK(slurp("100s.tool") == modern);
+
+        // Legacy mode: the sortann program, as the original (--legacy),
+        // loss included.
+        EnvVar path("PATH", tools_dir().c_str());
+        LegacyOn legacy;
+        wfdbquiet();
+        std::string leg = write_tricky("100s", "leg");
+        wfdbverbose();
+        CHECK_EQ(wfdberror(), "done!\n");
+        CHECK(read_back("leg") == rest);
+        // It is run without a shell: names with spaces work.
+        fs::create_directory("sub dir");
+        fs::copy_file("100s.hea", "sub dir/100s.hea");
+        wfdbquiet();
+        CHECK(write_tricky("sub dir/100s", "leg") == leg);
+        wfdbverbose();
+        CHECK_EQ(wfdberror(), "done!\n");
+    } else
+        std::fprintf(stderr, "(sortann not built: legacy comparison skipped)\n");
+
+    // Legacy mode without a sortann program: the file stays unsorted.
+    {
+        EnvVar path("PATH", "/nonexistent-wfdbx-dir");
+        LegacyOn legacy;
+        wfdbquiet();
+        std::string unsorted = write_tricky("100s", "uns");
+        wfdbverbose();
+        CHECK(unsorted != modern);
+        CHECK_EQ(wfdberror(), "to rearrange annotations in the correct order.\n");
+    }
+    setannstr(-42, "[42]");
+}
+
+WFDBX_TEST(c_sort_in_process)
+{
+    isolated(sort_in_process);
+}
+
+WFDBX_TEST(c_sort_disabled)
+{
+    DataDir d;
+    setafreq(0.0);  // (it survives wfdbquit)
+    EnvVar sort("WFDBANNSORT", "0");
+    wfdbquiet();
+    Annotations in = tricky();
+    write_annotations("100s", "ns", in);
+    CHECK_EQ(wfdberror(), "to rearrange annotations in the correct order.\n");
+    Annotations a = read_annotations("100s", "ns");
+    wfdbverbose();
+    CHECK(a.samples == in.samples);
+}
+
+WFDBX_TEST(c_sort_keeps_other_annotators)
+{
+    // An input annotator and the signals stay open while an output annotator
+    // is closed and sorted.
+    DataDir d;
+    setafreq(0.0);  // (it survives wfdbquit)
+    REQUIRE(isigopen("100s", nullptr, 2) == 2);
+    WFDB_Anninfo ai[3] = {{"atr", WFDB_READ}, {"o1", WFDB_WRITE},
+                          {"o2", WFDB_WRITE}};
+    REQUIRE(annopen("100s", ai, 3) == 0);
+    WFDB_Annotation first, a;
+    getann(0, &first);
+    for (long long t : {30, 10, 20}) {
+        a.time = t;
+        a.anntyp = NORMAL;
+        putann(0, &a);
+        a.anntyp = PVC;
+        putann(1, &a);
+    }
+    wfdbquiet();
+    oannclose(0);   // sorted now; o2 becomes output annotator 0
+    wfdbverbose();
+    CHECK(getann(0, &a) == 0 && a.time == 77 && first.time == 18);
+    CHECK(vec(2) == (std::vector<int>{2, 995, 1011}));
+    a.time = 40;
+    a.anntyp = PVC;
+    putann(0, &a);
+    wfdbquiet();
+    wfdbquit();
+    wfdbverbose();
+    CHECK(read_annotations("100s", "o1").samples ==
+          (std::vector<WFDB_Time>{10, 20, 30}));
+    CHECK(read_annotations("100s", "o2").samples ==
+          (std::vector<WFDB_Time>{10, 20, 30, 40}));
+}
+
+// t_sortfix (api_expect.c, called by t_outdir): an out-of-order annotation at
+// time 0 is kept (legacy mode: lost, by the sortann program), and the legacy
+// sort runs in the output directory.
+static void sortfix()
+{
+    if (!have_sortann()) {
+        std::fprintf(stderr, "(sortann not built: sortfix skipped)\n");
+        return;
+    }
+    EnvVar path("PATH", tools_dir().c_str());
+    setwfdb(".");
+    WFDB_Anninfo ai;
+    WFDB_Annotation a;
+    const long long t1[] = {5, 0, 3}, t2[] = {30, 10, 20};
+    a.anntyp = NORMAL;
+    ai.stat = WFDB_WRITE;
+    wfdbquiet();    // ("Rearranging annotations ...")
+    for (int legacy = 0; legacy <= 1; legacy++) {
+        wfdbx_set_legacy(legacy);
+        ai.name = legacy ? "l0" : "m0";
+        annopen("100s", &ai, 1);
+        for (long long t : t1) {
+            a.time = t;
+            putann(0, &a);
+        }
+        wfdbquit();
+        wfdbx_set_output_dir("odir");
+        ai.name = legacy ? "lsrt" : "msrt";
+        annopen("orec", &ai, 1);
+        for (long long t : t2) {
+            a.time = t;
+            putann(0, &a);
+        }
+        wfdbquit();
+        wfdbx_set_output_dir(nullptr);
+    }
+    wfdbx_set_legacy(0);
+    wfdbverbose();
+    ai.stat = WFDB_READ;
+    ai.name = "m0";
+    CHECK_EQ(annopen("100s", &ai, 1), 0);
+    CHECK(ann(0) == (std::vector<long long>{0, 0, 1, 0, 0, 0}));
+    CHECK(ann(0) == (std::vector<long long>{0, 3, 1, 0, 0, 0}));
+    CHECK(ann(0) == (std::vector<long long>{0, 5, 1, 0, 0, 0}));
+    CHECK_EQ(ann(0)[0], -1);
+    wfdbquit();
+    ai.name = "l0";
+    CHECK_EQ(annopen("100s", &ai, 1), 0);
+    CHECK(ann(0) == (std::vector<long long>{0, 5, 1, 0, 0, 0}));
+    CHECK_EQ(ann(0)[0], -1);
+    wfdbquit();
+    const std::string srt =
+        unhex("0058 1efc") + "## annotation type definitions" +
+        unhex("0058 16fc") + "15 [15] my description" +
+        unhex("0058 07fc") + "42 new " + unhex("00 0058 15fc") +
+        "## end of definitions" +
+        unhex("00 00ec ffff ffff 0100 0a04 0a04 0a04 0000");
+    CHECK_EQ(slurp("odir/orec.msrt"), srt);
+    CHECK_EQ(slurp("odir/orec.lsrt"), srt);
+}
+
+// The expected values are those of t_outdir (api_expect.c, patched C
+// library).  It depends on the annotation type table left by t_strings (code
+// 15 description "my description", code 42 mnemonic "new" with description
+// ""), set up here, which the library cannot undo: it runs in a child
+// process where possible.
+static void outdir()
+{
+    DataDir d;
+    setcfreq(0.0);  // (these survive wfdbquit)
+    setafreq(0.0);
+    setanndesc(15, "my description");
+    setannstr(42, "new");
+    setanndesc(42, "");
+    CHECK(!wfdbx_get_output_dir());
+    fs::create_directory("odir");
+    CHECK(!wfdbx_set_output_dir("odir"));
+    CHECK(wfdbx_get_output_dir() == "odir");
+    WFDB_Siginfo si;
+    si.fname = "orec.dat";
+    si.desc = "sig";
+    si.gain = 200;
+    si.fmt = 16;
+    si.adcres = 12;
+    setsampfreq(100.0);
+    CHECK_EQ(osigfopen(&si, 1), 1);
+    for (int i = 0; i < 3; i++) {
+        WFDB_Sample v[1] = {10 * i - 7};
+        putvec(v);
+    }
+    CHECK_EQ(newheader("orec"), 0);
+    WFDB_Anninfo ai{"oat", WFDB_WRITE};
+    CHECK_EQ(annopen("orec", &ai, 1), 0);
+    WFDB_Annotation a;
+    const long long t[] = {30, 10, 20, 10, 5};    // out of order, a duplicate
+    for (int i = 0; i < 5; i++) {
+        a.time = t[i];
+        a.anntyp = i == 3 ? PVC : NORMAL;
+        putann(0, &a);
+    }
+    wfdbquiet();    // ("Rearranging annotations ...")
+    wfdbquit();
+    wfdbverbose();
+    CHECK(wfdbx_set_output_dir("") == "odir");
+    CHECK(!wfdbx_get_output_dir());
+    CHECK(!wfdbx_set_output_dir("odir2"));
+    CHECK(wfdbx_set_output_dir(nullptr) == "odir2");
+    CHECK(!wfdbx_get_output_dir());
+    CHECK_EQ(slurp("odir/orec.hea"),
+             "orec 1 100 3\r\norec.dat 16 200 12 0 -7 9 0 sig\r\n");
+    CHECK_EQ(slurp("odir/orec.dat"), unhex("f9ff03000d00"));
+    CHECK_EQ(slurp("odir/orec.oat"),
+             unhex("0058 1efc") + "## annotation type definitions" +
+             unhex("0058 16fc") + "15 [15] my description" +
+             unhex("0058 07fc") + "42 new " + unhex("00 0058 15fc") +
+             "## end of definitions" +
+             unhex("00 00ec ffff ffff 0100 0504 0514 0a04 0a04 0000"));
+    CHECK(!fs::exists("orec.hea"));
+    // A missing output directory is created (as are the missing directories
+    // of any output file name, by wfdb_fopen).
+    wfdbx_set_output_dir("newdir");
+    CHECK_EQ(osigfopen(&si, 1), 1);
+    CHECK_EQ(annopen("orec", &ai, 1), 0);
+    wfdbquit();
+    wfdbx_set_output_dir(nullptr);
+    CHECK(fs::file_size("newdir/orec.dat") == 0 &&
+          fs::file_size("newdir/orec.oat") == 2);
+    // reading the record from the output directory
+    setwfdb("odir");
+    CHECK_EQ(isig("orec"), 1);
+    CHECK(vec(1) == (std::vector<int>{1, -7}));
+    CHECK(vec(1) == (std::vector<int>{1, 3}));
+    CHECK(vec(1) == (std::vector<int>{1, 13}));
+    ai.stat = WFDB_READ;
+    CHECK_EQ(annopen("orec", &ai, 1), 0);
+    CHECK(ann(0) == (std::vector<long long>{0, 5, 1, 0, 0, 0}));
+    CHECK(ann(0) == (std::vector<long long>{0, 10, 5, 0, 0, 0}));
+    CHECK(ann(0) == (std::vector<long long>{0, 20, 1, 0, 0, 0}));
+    CHECK(ann(0) == (std::vector<long long>{0, 30, 1, 0, 0, 0}));
+    CHECK_EQ(ann(0)[0], -1);
+    wfdbquit();
+    resetwfdb();
+    sortfix();
+}
+
+WFDBX_TEST(c_outdir)
+{
+    isolated(outdir);
+    wfdbx_set_output_dir(nullptr);
+}
+
+WFDBX_TEST(c_absolute_paths)
+{
+    DataDir d;
+    std::string rec = (fs::canonical(fs::current_path()) / "100s").string();
+    WFDB_Siginfo si[8];
+    wfdbquiet();
+    CHECK_EQ(isigopen(rec.c_str(), si, 8), 2);
+    CHECK(vec(2) == (std::vector<int>{2, 995, 1011}));
+    CHECK(wfdbfile("hea", rec.c_str()) == rec + ".hea");
+    WFDB_Anninfo ai{"atr", WFDB_READ};
+    CHECK_EQ(annopen(rec.c_str(), &ai, 1), 0);
+    CHECK(ann(0) == (std::vector<long long>{0, 18, 28, 0, 0, 0}));
+    wfdbquit();
+    CHECK_EQ(sampfreq(rec.c_str()), 360);
+    wfdbquit();
+    std::string missing = (fs::current_path() / "nosuch").string();
+    CHECK_EQ(isigopen(missing.c_str(), si, 8), -1);
+    wfdbquit();
+    // The high-level functions, too (the signal file is found next to the
+    // header).
+    CHECK(read_record(rec).nsamples() == 21600);
+    {
+        // Legacy mode: as in C, an absolute name is searched for in the WFDB
+        // path (here "./" + the name) ...
+        LegacyOn legacy;
+        CHECK_EQ(isigopen(rec.c_str(), si, 8), -1);
+        CHECK_EQ(annopen(rec.c_str(), &ai, 1), -3);
+        wfdbquit();
+        // ... unless the WFDB path has an empty component.
+        setwfdb(";");
+        CHECK_EQ(isigopen(rec.c_str(), si, 8), 2);
+        CHECK(vec(2) == (std::vector<int>{2, 995, 1011}));
+        wfdbquit();
+    }
+    CHECK_EQ(isigopen(rec.c_str(), si, 8), 2);
+    wfdbquit();
+    resetwfdb();
+    wfdbverbose();
+}
+
+// The annotation list (wfdb-x: an out-of-order annotation at time 0, num 0,
+// chan 0 is not lost; legacy: as by the original sortann).
+WFDBX_TEST(c_annlist_time0)
+{
+    for (bool legacy : {false, true}) {
+        detail::AnnSortList list(legacy);
+        WFDB_Annotation a;
+        a.anntyp = NORMAL;
+        for (long long t : {5, 0, 3}) {
+            a.time = t;
+            list.insert(a);
+        }
+        std::vector<WFDB_Time> times;
+        list.for_each([&](const WFDB_Annotation &x) { times.push_back(x.time); });
+        CHECK(times == (legacy ? std::vector<WFDB_Time>{5}
+                               : std::vector<WFDB_Time>{0, 3, 5}));
+        CHECK(!list.in_order());
+    }
+    // A later annotation at time 0 replaces a real one (both modes), and an
+    // annotation at time 0 on another channel is kept (both modes).
+    for (bool legacy : {false, true}) {
+        detail::AnnSortList list(legacy);
+        struct { long long t; int chan, type; } in[] = {
+            {0, 0, NORMAL}, {7, 0, NORMAL}, {0, 1, APC}, {0, 0, PVC}};
+        for (const auto &r : in) {
+            WFDB_Annotation a;
+            a.time = r.t;
+            a.chan = static_cast<unsigned char>(r.chan);
+            a.anntyp = static_cast<char>(r.type);
+            list.insert(a);
+        }
+        std::vector<std::vector<long long>> got;
+        list.for_each([&](const WFDB_Annotation &x) {
+            got.push_back({x.time, x.chan, x.anntyp});
+        });
+        CHECK(got == (std::vector<std::vector<long long>>{
+                  {0, 0, PVC}, {0, 1, APC}, {7, 0, NORMAL}}));
+    }
+}
+
+// Legacy mode with an output directory: the sortann program runs there
+// (where the file is), with --legacy; the result is that of the modern sort.
+WFDBX_TEST(c_legacy_sort_in_output_dir)
+{
+    if (!have_sortann()) return;
+    DataDir d;
+    setafreq(0.0);  // (it survives wfdbquit)
+    fs::create_directory("out");
+    Annotations a;
+    a.samples = {300, 100, 200, 100, 50};
+    a.symbols = {"N", "V", "N", "A", "N"};
+    {
+        EnvVar path("PATH", tools_dir().c_str());
+        LegacyOn legacy;
+        wfdbquiet();
+        write_annotations("rec", "leg", a, 0, "out");
+        wfdbverbose();
+        CHECK_EQ(wfdberror(), "done!\n");
+    }
+    wfdbquiet();
+    write_annotations("rec", "mod", a, 0, "out");
+    wfdbverbose();
+    std::vector<std::string> files;
+    for (const auto &e : fs::directory_iterator("out"))
+        files.push_back(e.path().filename().string());
+    std::sort(files.begin(), files.end());
+    CHECK(files == (std::vector<std::string>{"rec.leg", "rec.mod"}));
+    CHECK(slurp("out/rec.leg") == slurp("out/rec.mod"));
+    wfdbquiet();    // (out/rec has no header)
+    Annotations r = read_annotations("out/rec", "leg", {}, {}, 360.0);
+    wfdbverbose();
+    CHECK(r.samples == (std::vector<WFDB_Time>{50, 100, 200, 300}));
+    CHECK(r.symbols.size() == 4 && r.symbols[1] == "A");
 }

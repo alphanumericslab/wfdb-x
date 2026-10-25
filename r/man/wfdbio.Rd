@@ -13,6 +13,8 @@
 \alias{wfdbcflags}
 \alias{wfdbdefwfdb}
 \alias{wfdbdefwfdbcal}
+\alias{wfdbx_set_output_dir}
+\alias{wfdbx_get_output_dir}
 \alias{WFDB_READ}
 \alias{WFDB_WRITE}
 \alias{WFDB_AHA_READ}
@@ -41,6 +43,8 @@ wfdbldflags()
 wfdbcflags()
 wfdbdefwfdb()
 wfdbdefwfdbcal()
+wfdbx_set_output_dir(dir)
+wfdbx_get_output_dir()
 }
 \arguments{
   \item{p}{the new WFDB path: a character string of directory names
@@ -52,6 +56,8 @@ wfdbdefwfdbcal()
   \item{s}{a file type (the extension of the file, such as \code{"hea"}
     or \code{"atr"}), or a file name if \code{record} is \code{NULL}.}
   \item{record}{a record name, or \code{NULL}.}
+  \item{dir}{the directory in which output files are created, or
+    \code{NULL} or \code{""} for none.}
   \item{behavior}{the behaviour on memory allocation errors.  It is only
     stored, to be returned by \code{wfdb_me_fatal}, since such errors are
     handled by R.}
@@ -74,6 +80,23 @@ wfdbdefwfdbcal()
   Remote directories (\samp{http://} URLs) are not supported and are
   skipped.  As in C, file names containing \samp{..} are refused.
 
+  wfdb-x: a record (or file) named by an absolute path, such as
+  \code{"/data/mitdb/100"}, is opened directly, and its directory is added
+  to the WFDB path, so that the other files of the record are found next
+  to its header; if it cannot be opened, the WFDB path is searched as in
+  C.  The C library (and legacy mode, see \code{\link{wfdbx_set_legacy}})
+  searched for it in each directory of the WFDB path, so that it was found
+  only if the path had an empty component: \code{setwfdb(";")} (names are
+  then used as given) works in both modes.
+
+  wfdb-x: \code{wfdbx_set_output_dir} sets a directory in which the
+  library creates its output files (headers, signal and annotation files):
+  a file that would be created as \file{name} is created as
+  \file{dir/name} (a missing directory is created).  The names recorded in
+  the files are unchanged.  It is not reset by \code{wfdbquit}; the
+  \code{dir} argument of \code{\link{write_record}} and
+  \code{\link{write_annotations}} sets it for the duration of the call.
+
   The library reports errors with a negative return value and a message
   on the standard error output.  \code{wfdbquiet} suppresses these
   messages and \code{wfdbverbose} enables them again; \code{wfdberror}
@@ -94,6 +117,9 @@ wfdbdefwfdbcal()
 
   \code{wfdberror} returns the last error message (with its newline), or a
   message giving the library version if there has been no error.
+
+  \code{wfdbx_set_output_dir} returns the previous output directory
+  (\code{NULL} if none), \code{wfdbx_get_output_dir} the current one.
 
   \code{wfdb_me_fatal} returns the value last given to \code{wfdbmemerr}
   (initially 1).

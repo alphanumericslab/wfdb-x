@@ -19,7 +19,7 @@ end
 if nargin < 1
     record = [];
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 if ischar(record)
     wfdbx.internal.wfdb_freeinfo();
 end

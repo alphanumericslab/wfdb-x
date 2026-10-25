@@ -11,7 +11,7 @@ function f = getiaorigfreq(an)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 if an >= 0 && an < numel(st.iad) && ~isempty(st.iad{an+1})
     f = st.iad{an+1}.afreq;
 else

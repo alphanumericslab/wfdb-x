@@ -21,7 +21,9 @@ their results with *golden* results produced by the C programs.
 
 Each case runs one tool with given arguments (and optionally standard input,
 extra input files, and environment variables) in a fresh copy of
-`tests/data`, with `WFDB=.`, `LC_ALL=C` and `TZ=UTC`. Blobs larger than 64 KB
+`tests/data`, with `WFDB=.`, `LC_ALL=C` and `TZ=UTC`. `{cwd}` in an argument
+stands for the absolute path of that work directory, which is written back as
+`{cwd}` in the recorded standard output and error. Blobs larger than 64 KB
 are stored as SHA-256 digests (`*.sha256`).
 
 FLAC-compressed signal files written by a tool are compared by their decoded

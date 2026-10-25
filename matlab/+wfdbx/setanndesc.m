@@ -12,28 +12,13 @@ function stat = setanndesc(code, s)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-ACMAX = 49;     % largest annotation code (lib/ecgcodes.h)
-mflag = 0;
-if code > 0
-    mflag = 1;
+st = wfdbx.internal.ann_state();
+[tab, mflags, stat] = wfdbx.internal.ann_setdef(st.tstring, st.modified, code, s);
+if stat == 0
+    st.tstring = tab;
+    st.modified = mflags;
 else
-    code = -code;
-end
-if code <= ACMAX
-    if ~ischar(s)
-        s = '';
-    end
-    st = wfdbx.internal.annstate();
-    old = st.tstring{code+1};
-    if ~ischar(old) || ~strcmp(old, s)
-        st.tstring{code+1} = s;
-        if mflag
-            st.modified(code+1) = 1;
-        end
-    end
-    stat = 0;
-else
-    wfdbx.internal.wfdb_error('setanndesc: illegal annotation code %d\n', code);
-    stat = -1;
+    wfdbx.internal.wfdb_error('setanndesc: illegal annotation code %d\n', ...
+        abs(code));
 end
 end

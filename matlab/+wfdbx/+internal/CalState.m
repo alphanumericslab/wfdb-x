@@ -1,6 +1,6 @@
 classdef CalState < handle
 %CALSTATE The calibration list of the WFDB library (statics of calib.c).
-%   The single instance is returned by wfdbx.internal.calstate().  Its
+%   The single instance is returned by wfdbx.internal.cal_state().  Its
 %   property list is a 1-by-N struct array of wfdbx.calinfo structures.
 
 % Copyright (C) 1991-2013 George B. Moody (original C implementation,

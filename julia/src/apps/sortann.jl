@@ -12,6 +12,10 @@
 # directory. If the input annotations are already in the correct order, no
 # output is written unless the -o option is used.
 #
+# wfdb-x: an out-of-order annotation at time 0 (num 0, chan 0) is no longer
+# lost (nor are those inserted after it), as it was by the original program
+# (decided by Reza Sameni, Oct 2026); --legacy keeps the original behavior.
+#
 # Copyright (C) 1997-2010 George B. Moody (original C program, app/sortann.c;
 # revised 2017-2018 by Benjamin Moody).
 # Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
@@ -35,81 +39,8 @@ const _SORTANN_HELP = (
 # wfdb-x: the help text of the original program, printed in legacy mode
 const _SORTANN_LEGACY_HELP = _help_without(_SORTANN_HELP, 4)
 
-# The doubly-linked annotation list of the C version. Node 0 is the list
-# head (annlist), whose annotation is all zeros and which takes part in
-# comparisons exactly as in sortann.c; -1 is a null link. Node k is stored
-# at index k+1.
-mutable struct _SortList
-    next::Vector{Int}
-    prev::Vector{Int}
-    ann::Vector{Annotation}
-    lastp::Int
-    in_order::Bool
-end
-_SortList() = _SortList([-1], [-1], [Annotation()], 0, true)
-
-_after(pa::Annotation, la::Annotation) =
-    pa.time > la.time || (pa.time == la.time && pa.num > la.num) ||
-    (pa.time == la.time && pa.num == la.num && pa.chan > la.chan)
-
-function _sortann_insert!(l::_SortList, pa::Annotation)
-    nx, pv, an = l.next, l.prev, l.ann
-    newp = length(an)
-    push!(nx, -1)
-    push!(pv, -1)
-    push!(an, copy(pa))
-    lastp = l.lastp
-    if lastp == 0 || _after(pa, an[lastp+1])
-        # this annotation is in order -- add to end of list
-        pv[newp+1] = lastp
-        nx[lastp+1] = newp
-        l.lastp = newp
-        nx[newp+1] = -1
-        return
-    end
-    l.in_order = false              # input was out-of-order
-    # Find the correct location in the list for this annotation. The search
-    # is linear, beginning at the end of the list.
-    ap = lastp
-    while ap != -1
-        aa = an[ap+1]
-        (_after(pa, aa) || (pa.time == aa.time && pa.num == aa.num && pa.chan == aa.chan)) &&
-            break
-        ap = pv[ap+1]
-    end
-    if ap == -1                     # insert newp at the beginning of the list
-        pv[newp+1] = -1
-        nx[newp+1] = nx[1]
-        nx[1] = newp
-        pv[nx[newp+1]+1] = newp
-    else
-        aa = an[ap+1]
-        if pa.time == aa.time && pa.num == aa.num && pa.chan == aa.chan
-            # replace ap by newp
-            pv[newp+1] = pv[ap+1]
-            pv[newp+1] != -1 && (nx[pv[newp+1]+1] = newp)
-            nx[newp+1] = nx[ap+1]
-            if nx[newp+1] != -1
-                pv[nx[newp+1]+1] = newp
-            else
-                l.lastp = newp
-            end
-            # If ap was the first entry of the list but its 'prev' link does
-            # not lead back to the list head (an entry inserted at the
-            # beginning gets a null link, and one whose predecessor replaced
-            # the head is detached), C leaves the head pointing to the freed
-            # entry (undefined behavior): here the head is updated, so that
-            # the duplicate is replaced (see docs/KNOWN_C_BEHAVIORS.md).
-            ap != 0 && nx[1] == ap && (nx[1] = newp)
-        else                        # insert newp immediately after ap
-            pv[newp+1] = ap
-            nx[newp+1] = nx[ap+1]
-            nx[newp+1] != -1 && (pv[nx[newp+1]+1] = newp)
-            nx[ap+1] = newp
-        end
-    end
-    nothing
-end
+# The annotation list (_SortList, _sortann_insert!) is defined in annot.jl
+# (wfdb-x: oannclose uses it too).
 
 function sortann_main(args::Vector{String})
     # wfdb-x: --legacy as the first argument selects legacy mode (the
@@ -239,7 +170,7 @@ function sortann_main(args::Vector{String})
     end
 
     # Build a linked list of annotations in memory.
-    list = _SortList()
+    list = _SortList(legacy)       # (wfdb-x: no annotation lost)
     while getann(0, annot) == 0
         (annot.time < from || (to > 0 && annot.time >= to)) && continue
         _sortann_insert!(list, annot)

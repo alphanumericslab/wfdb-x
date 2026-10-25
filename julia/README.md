@@ -136,7 +136,8 @@ write_annotations("100s", "cpy", ann; fs=360)
 ```
 
 Records are looked for in the WFDB path (the environment variable `WFDB`,
-or `setwfdb(path)`); files are written in the current directory. These
+or `setwfdb(path)`); files are written in the current directory, or in
+`dir` (see below). These
 functions throw a `WfdbError` on failure. Each one also accepts a `Wfdb`
 instance as its first argument, and uses that instance's state (resetting
 it with `wfdbquit`). Their docstrings (`?read_record` in the REPL) describe
@@ -154,6 +155,48 @@ frequency, and rejects time strings that need one, and its `siginfo` has
 `adcres == 0` and `units === nothing` where the header gives none;
 `physical` throws for an uncalibrated signal; `read_annotations` takes an
 optional `fs` for records without a frequency.
+
+### Directories, absolute paths and annotation order
+
+**Output directory.** `write_record(...; dir="out")`,
+`write_record_physical(...; dir="out")` and `write_annotations(...;
+dir="out")` create their files in the directory `out` (which must exist:
+otherwise a `WfdbError`, "directory out does not exist"), and the header
+names the record and its signal file without the directory (`rec 2 360
+...`, `rec.dat ...`), so that the record opens from that directory under
+its plain name (`setwfdb("out")`, then `read_record("rec")`; or
+`read_record("out/rec")`). The record name must not contain a directory
+when `dir` is given (a `WfdbError`). In the library API,
+`wfdbx_set_output_dir([w], "out")` makes every output file of that `Wfdb`
+instance be created in `out` (it returns the previous directory, as bytes,
+or `nothing`; `wfdbx_set_output_dir(nothing)` restores the default, files
+created as named, and `wfdbx_get_output_dir([w])` returns the current
+one); the writers set it for the duration of the call, and restore it
+afterwards, also on errors. The C-style API and the tools are otherwise
+unchanged: `newheader("out/rec")` and `wrsamp -o out/rec` still record the
+name `out/rec`, as in C.
+
+**Absolute paths.** A record named by an absolute path
+(`read_record("/data/mitdb/100")`, `rdsamp -r /data/mitdb/100`) is opened
+directly, and the files next to its header (signal and annotation files)
+are found there. The C library searched for such a name in each directory
+of the WFDB path (`./` + the name), so that it was found only from the root
+directory; it still does so in legacy mode. In both modes, an empty
+component in the WFDB path makes names be used as given: with
+`setwfdb(";")` (or `WFDB=";"`), `/data/mitdb/100` opens in legacy mode
+too.
+
+**Annotation order.** Annotations written out of canonical order (by time,
+then `num`, then `chan`) are rearranged when the file is closed, in the
+same process, with a result identical byte for byte to that of `sortann`
+(the last of several annotations with the same time, `num` and `chan` is
+kept, and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it.
+Unlike the original `sortann`, neither the sort nor the `sortann` tool
+loses an out-of-order annotation at time 0 (written after later ones), nor
+those inserted after it. The C library ran the `sortann` program (found in
+the `PATH`), as legacy mode does (running `bin/wfdbx.jl sortann --legacy`
+in a separate `julia` process, without a shell, in the output directory if
+one is set), with the original loss.
 
 ## C-style API
 
@@ -220,9 +263,9 @@ end
 
 The library supports every signal format, including EDF and the FLAC
 formats 508, 516 and 524, as well as multi-segment and multi-frequency
-records. It reads and writes MIT and AHA annotation files. As in C, an
-output annotation file whose annotations are out of order is sorted with
-`sortann` when it is closed. `getvecs(v, n)` reads `n` sample vectors at
+records. It reads and writes MIT and AHA annotation files. An output
+annotation file whose annotations are out of order is sorted when it is
+closed, as by `sortann` (see "Annotation order" above). `getvecs(v, n)` reads `n` sample vectors at
 once; the result is the same as `n` calls of `getvec`, but faster.
 
 The parts of the C standard library that affect output are emulated
@@ -247,7 +290,9 @@ about 0.21 s is Julia's own startup (`julia -e 'exit()'`). After that, the
 tools run at C speed. In one process, `rdsamp` prints a record of 648,000
 two-signal frames (format 212) in about 0.10 s in raw units and 0.13 s in
 physical units (`-p`). The C `rdsamp` takes about 0.13 s and 0.39 s on the
-same machine.
+same machine. `write_record` (which calls `putvec` for each frame) writes
+216,000 two-signal frames in 0.01-0.02 s in every format, about as fast as
+`read_record` reads them back.
 
 ## Testing
 
@@ -263,7 +308,8 @@ how to check that no tool compiles anything at run time.
 
 ## Authors and license
 
-The Julia implementation was written by Reza Sameni (October 2026). It ports
+The Julia implementation was developed by Reza Sameni (2026), with AI
+assistance (see the project README). It ports
 the C code of the WFDB Software Package, written by George B. Moody
 (1983-2014), with revisions by Benjamin Moody (2010-2022) and
 contributions from others. [`docs/AUTHORS.md`](../docs/AUTHORS.md) lists

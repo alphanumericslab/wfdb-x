@@ -14,7 +14,7 @@ ACMAX = 49;     % largest annotation code (lib/ecgcodes.h)
 if ~ischar(s)
     s = '';
 end
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 t = st.astring;
 for code = 1:ACMAX
     if strcmp(s, t{code+1})

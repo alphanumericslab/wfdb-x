@@ -165,6 +165,21 @@ of invalid samples (`pad`); `WriteOptions` takes one value for all signals,
 or one per signal. `write_record_physical()` takes samples in physical
 units.
 
+**Output directory.** `WriteOptions::dir` (and the last parameter of
+`write_annotations(record, annotator, ann, fs, dir)`) creates the files in
+an existing directory instead of the current one: `w.dir = "out";
+write_record("rec", ...)` writes `out/rec.hea` and `out/rec.dat`, and the
+header names the record and its signal file without the directory (`rec 2
+360 ...`, `rec.dat ...`), so that the record opens from that directory
+under its plain name (`setwfdb("out"); read_record("rec")`). The record
+name must not contain a directory then ("record name must not contain a
+directory when dir is given"), and a missing directory is an error
+("directory D does not exist"). The library's output directory
+(`wfdbx_set_output_dir()`, below) is set for the duration of the call and
+restored afterwards, also on errors; the same in legacy mode. Without
+`dir`, a record name with a directory (`out/rec`) is recorded with it in
+the header, as by the C library.
+
 There is no default sampling frequency, gain, ADC resolution or units (see
 [`docs/DIVERGENCES.md`](../docs/DIVERGENCES.md)):
 
@@ -273,6 +288,39 @@ bits), and one without units gives `units == std::nullopt`.
 needs the frequency for a string. `WFDB_DEFFREQ`, `WFDB_DEFGAIN` and
 `WFDB_DEFRES` remain defined but are not used.
 
+**Absolute paths.** An input file named by an absolute path
+(`isigopen("/data/mitdb/100", ...)`, `rdsamp -r /data/mitdb/100`) is opened
+directly, and its directory is added to the WFDB path, so that the signal
+files next to the header are found. The C library (and legacy mode)
+searched for it in each directory of the WFDB path, joining `./` and the
+name, so that it was found only from the root directory. In both modes,
+`setwfdb(";")` (or `WFDB=";"`), a WFDB path with an empty component, makes
+the library use names as given.
+
+**Sorting annotation files.** An output annotation file whose annotations
+were written out of order is sorted when it is closed (`oannclose()`,
+`wfdbquit()`; unless `WFDBANNSORT` is 0), in the same process, with a
+result identical, byte for byte, to that of `sortann -r. RECORD -a
+ANNOTATOR`. The messages and the status are those of C ("Rearranging
+annotations for output annotator ... done!"); the sortann program's own
+messages (e.g. "init: can't open header for record ...") are gone. Unlike
+the original sortann, the sort (and the `sortann` tool) never loses an
+out-of-order annotation at time 0 (num 0, chan 0), nor the annotations
+inserted after it. The C library ran the sortann program through the shell,
+finding it only in the PATH; legacy mode runs it too (looked for next to the
+executable, then in the PATH, as `sortann --legacy`, so that the original
+behavior is reproduced, loss included), without a shell (the arguments are
+passed directly, so names with spaces work), in the output directory if one
+is set.
+
+**Output directory.** `wfdbx_set_output_dir(dir)`, an addition, makes the
+library create its output files (headers, signal and annotation files, for
+writing or appending) as `dir/NAME`, `NAME` being the name it would use
+otherwise; the names recorded in headers are unchanged. It returns the
+previous value; `nullptr` or `""` means none (the default), and
+`wfdbx_get_output_dir()` reads it (`std::nullopt` if none). As for any
+output file, missing directories are created.
+
 ## FLAC-compressed signals
 
 Formats 508, 516 and 524 are handled by a built-in FLAC decoder and encoder
@@ -299,10 +347,10 @@ cmake --build cpp/build && cpp/build/wfdbx_tests             # unit tests
 python3 tests/conformance/harness.py check --impl cpp -j8   # conformance
 ```
 
-The unit tests (`tests/`, 54 tests) cover the library API, the high-level
+The unit tests (`tests/`, 69 tests) cover the library API, the high-level
 API and the FLAC codec, with expected values produced by the C library. The
-conformance suite ([`docs/conformance.md`](../docs/conformance.md), 908
-cases) runs every tool on test cases whose expected results were produced by
+conformance suite ([`docs/conformance.md`](../docs/conformance.md), 928
+cases, and 858 in legacy mode) runs every tool on test cases whose expected results were produced by
 the original C programs, and requires byte-identical results.
 
 ## Authors and license
@@ -310,7 +358,8 @@ the original C programs, and requires byte-identical results.
 The C code ported here was written by George B. Moody and others, and
 revised by Benjamin Moody; the header of each source file credits the
 authors of the C file it ports (see [`docs/AUTHORS.md`](../docs/AUTHORS.md)).
-The C++ implementation was written by Reza Sameni (October 2026).
+The C++ implementation was developed by Reza Sameni (2026), with AI
+assistance (see the project README).
 
 The library (`include/`, `src/`) is distributed under the GNU Library
 General Public License, version 2 or later; the command-line tools (`apps/`)

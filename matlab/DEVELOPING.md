@@ -187,7 +187,7 @@ output, which breaks the conformance tests. Check new names with
   The mapping functions `wfdbx.isann`, `isqrs`, `setisqrs`, `map1`,
   `setmap1`, `map2`, `setmap2`, `ammap`, `mamap`, `annpos`, `setannpos`
   are ports of the macros of `ecgmap.h`; their modifiable tables are held
-  by `wfdbx.internal.ecgmap()` (an `EcgMap` handle with fields `qrs`,
+  by `wfdbx.internal.ecg_map()` (an `EcgMap` handle with fields `qrs`,
   `mp1`, `mp2`, `annp`, indexed by code + 1). The function versions of
   the C library are also provided under their C names (`wfdbx.wfdb_isann`,
   ..., `wfdbx.wfdb_setannpos`, which call the functions above). The
@@ -231,9 +231,9 @@ values) for speed, with the same results.
 
 The C library's global state (open signals, annotators, WFDB path, time
 base, ...) is kept in handle objects held by `persistent` variables of
-accessor functions in `+wfdbx/+internal/` (e.g. `wfdbx.internal.sigstate()`
+accessor functions in `+wfdbx/+internal/` (e.g. `wfdbx.internal.sig_state()`
 returns the signal state object). `wfdbx.wfdbquit()` resets them as C does.
-The I/O state is `wfdbx.internal.iostate()` (an `IOState`: `wfdbpath`,
+The I/O state is `wfdbx.internal.io_state()` (an `IOState`: `wfdbpath`,
 `path_prefix`/`path_type`, `error_print`, `error_message`,
 `wfdb_filename`, `irec`, the standard stream objects, ...). Handle classes
 are defined in `+wfdbx/+internal/` (`IOState.m`, ...) and created by their
@@ -283,15 +283,15 @@ help text):
 | `cexit(status)` | `exit(status)` inside a tool (throws `wfdbx:exit`) |
 | `status = app_run(@main, argv)` | runs a tool's `main(argv)` (argv{1} = program name); handles `cexit`; flushes |
 | `status = cli_main(args)` | the command-line dispatcher used by both drivers |
-| `cmd = tool_command(tool)`, `shell_quote(s)` | shell command running a tool in a new process (for `sortann` from `oannclose`) |
+| `cmd = tool_command(tool)`, `shell_quote(s)` | shell command running a tool in a new process (for `sortann` from `oannclose`, in legacy mode) |
 | `is_octave()` | true in Octave |
-| `st = iostate()` | the I/O state (`IOState`) |
+| `st = io_state()` | the I/O state (`IOState`) |
 | `wfdb_error(fmt, ...)` | `wfdb_error`: saves the message; prints it unless `wfdbquiet` |
-| `f = wfdb_open(s, record, mode)` | `wfdb_open`: WFDB path search; returns a `WFDBFile` or `[]` |
+| `f = wfdb_open(s, record, mode)` | `wfdb_open`: WFDB path search (an absolute name is opened directly first, except in legacy mode); output files in the output directory, if one is set (`wfdbx.wfdbx_set_output_dir`, property `output_dir` of `IOState`); returns a `WFDBFile` or `[]` |
 | `f = wfdb_fopen(fname, mode)` | `wfdb_fopen` (`'rb'`, `'wb'`, `'ab'`) |
 | `wfdb_parse_path(p)`, `wfdb_addtopath(s)`, `getiwfdb(p)` | path handling |
 | `wfdb_checkname(p, what)`, `wfdb_setirec(p)`, `wfdb_getirec()`, `wfdb_striphea(p)` | the same |
-| `m = ecgmap()` | annotation mapping tables (`EcgMap`) |
+| `m = ecg_map()` | annotation mapping tables (`EcgMap`) |
 
 `WFDBFile` (the `WFDB_FILE`) methods: `read(n)`, `readall()`, `getc()`,
 `write(b)`, `putc(c)`, `printf(fmt, ...)`, `getline()`, `g16()`, `g32()`,
@@ -317,7 +317,7 @@ so remote files are never found.
 
 The module follows `python/src/wfdbx/_signal.py` function by function.
 
-**State.** `S = wfdbx.internal.sigstate()` (a `SigState`) holds the
+**State.** `S = wfdbx.internal.sig_state()` (a `SigState`) holds the
 statics of `signal.c` under their C names (`ffreq`, `sfreq`, `cfreq`,
 `btime`, `bdate`, `nsamples`, `segarray`, `segp`, `istime`, `ostime`,
 `gvmode`, `skewmax`, `dsbuf`, `tspf`, ...). Per-signal data are struct
@@ -347,7 +347,7 @@ as unsigned 16-bit values (only their low 16 bits matter in C).
 `rgetvec` (multi-frequency modes), `getframe_s` (deskewing) and `getvec`
 (resampling with `setifreq`) are layered as in C; `getvec` calls
 `getskewedframe` directly when none of them is needed. Internal functions
-take the state object `S` as an argument (a `sigstate()` call costs
+take the state object `S` as an argument (a `sig_state()` call costs
 about 10 microseconds).
 
 **Bulk reading.** `[v, stat] = wfdbx.getframes(n)` (the array first, as
@@ -435,7 +435,7 @@ signals, `getframes` takes 0.13 s, `putframes` 0.12 s, and `rdsamp`
 
 ## Annotations (lib/annot.c)
 
-State: `wfdbx.internal.annstate()` (an `AnnState`): `iad` and `oad`, cell
+State: `wfdbx.internal.ann_state()` (an `AnnState`): `iad` and `oad`, cell
 rows of structures for the open input and output annotators (annotator
 number `n`, 0-based as in C, is `iad{n+1}`), `oafreq`, `annclose_error`,
 and the mnemonic tables (`cstring`, `astring`, `tstring`, `modified`),
@@ -483,9 +483,24 @@ which `wfdbquit` does not reset. `wfdbx.wfdbquit` calls
   `wfdbx.internal.putann_bulk(an, A)` writes the annotations of a
   structure of rows `A` (as returned by `getann_bulk`) with exactly the
   effect of calling `putann` for each (vectorized for MIT format).
-  `oannclose` runs `sortann` in a separate process
-  (`wfdbx.internal.tool_command('sortann')`) when annotations were
-  written out of order, as C does.
+  When annotations were written out of order, `oannclose` rearranges
+  the file (`oa.fname`, the name with which it was created) in the same
+  process with `wfdbx.internal.ann_sortfile`, byte for byte as the
+  `sortann` tool: the file is decoded into a private input annotator
+  structure (`ann_format`, `ann_parse`, `ann_iadata`, `ann_readtable`
+  with a private definition table, `ann_defs`, `ann_getbulk`), ordered
+  by `ann_sortlist` (insert_ann of `sortann.c`, which the `sortann` tool
+  uses too), and written with a private output annotator structure
+  (`ann_oadata`, `ann_puttable`, `ann_putbulk`). These functions take and
+  return the annotator structures (the library functions `getann_bulk`,
+  `putann`, `putann_bulk`, `ann_gettable` call them for the annotators of
+  `ann_state()`), so the open annotators, the library's tables and
+  `setafreq` are not touched. `ann_sortlist` never compares the list head
+  as an annotation (the original did, losing an out-of-order annotation at
+  time 0); its `legacy` argument restores that, for the `sortann` tool in
+  legacy mode. In legacy mode, `oannclose` runs `sortann --legacy` in a
+  separate process (`wfdbx.internal.tool_command('sortann')`), as C does,
+  in the output directory if one is set (`cd 'DIR' && ...`).
 * The tools `rdann`, `ann2rr`, `wrann`, `rr2ann`, `sortann` read and write
   through the bulk functions and format their output with vector
   operations where the output fields have their usual widths (falling
@@ -501,7 +516,7 @@ which `wfdbquit` does not reset. `wfdbx.wfdbquit` calls
 
 `calopen`, `getcal` (`[stat, cal] = wfdbx.getcal(desc, units)`),
 `putcal`, `newcal`, `flushcal`; the list is the property `list` (a struct
-array of `wfdbx.calinfo()` structures) of `wfdbx.internal.calstate()`.
+array of `wfdbx.calinfo()` structures) of `wfdbx.internal.cal_state()`.
 
 ## FLAC (formats 508, 516, 524)
 
@@ -597,8 +612,9 @@ name use the tool's name.
 Octave starts in about 0.07 s, and running a small tool through
 `bin/wfdbx_cli.m` takes about 0.09 s in all; keep startup work minimal (no
 work at load time; state is created on first use).
-`oannclose` sorts out-of-order annotation files by running the `sortann`
-tool in a separate process (the same interpreter, `bin/wfdbx_cli.m`).
+In legacy mode, `oannclose` sorts out-of-order annotation files by
+running the `sortann` tool in a separate process (the same interpreter,
+`bin/wfdbx_cli.m`).
 
 ## Testing
 

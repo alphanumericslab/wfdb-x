@@ -10,7 +10,7 @@ function [nsig, si_out] = openosig(func, si_in, nsig)
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 si_out = wfdbx.siginfo(0);
 if S.obsize <= 0
     S.obsize = 8192;    % BUFSIZ

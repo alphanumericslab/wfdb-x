@@ -28,7 +28,7 @@ function stat = putframes(m)
 
 WFDB_INVALID_SAMPLE = -32768;
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 nosig = S.nosig;
 stat = nosig;
 nrows = size(m, 1);

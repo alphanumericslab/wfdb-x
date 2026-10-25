@@ -12,7 +12,7 @@ function msg = wfdberror()
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 if ~st.error_flag
     st.error_message = sprintf('WFDB library version %s (%s).\n', ...
         wfdbx.wfdbversion(), 'Jun 10 2022');

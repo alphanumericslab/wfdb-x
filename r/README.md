@@ -178,6 +178,47 @@ the environment variable `WFDB` sets its initial value. (As in C,
 `wfdbquit()` makes `getwfdb()` report the initial path again, but files are
 still searched for in the directories given to the last `setwfdb` call.)
 
+### Directories, absolute paths and annotation order
+
+**Output directory.** `write_record(..., dir = "out")` and
+`write_annotations(..., dir = "out")` create their files in the directory
+`out` (which must exist: otherwise an error, "directory out does not
+exist"), and the header names the record and its signal file without the
+directory (`rec 2 360 ...`, `rec.dat ...`), so that the record opens from
+that directory under its plain name (`setwfdb("out")`, then
+`read_record("rec")`; or `read_record("out/rec")`). The record name must not
+contain a directory when `dir` is given ("record name must not contain a
+directory when dir is given"). In the library API,
+`wfdbx_set_output_dir("out")` makes every output file be created in `out`
+(it returns the previous directory; `wfdbx_set_output_dir(NULL)` restores
+the default, files created as named, and `wfdbx_get_output_dir()` returns
+the current one); the writers set it for the duration of the call (and
+restore it, also on errors). The C-style API and the tools are otherwise
+unchanged: `newheader("out/rec")` and `wfdbx wrsamp -o out/rec` still record
+the name `out/rec`, as in C.
+
+**Absolute paths.** A record named by an absolute path
+(`read_record("/data/mitdb/100")`, `wfdbx rdsamp -r /data/mitdb/100`) is
+opened directly, and the files next to its header (signal and annotation
+files) are found there. The C library searched for such a name in each
+directory of the WFDB path (`./` + the name), so that it was found only from
+the root directory; it still does so in legacy mode. In both modes, an empty
+component in the WFDB path makes names be used as given: with
+`setwfdb(";")` (or `WFDB=";"`), `/data/mitdb/100` opens in legacy mode too.
+
+**Annotation order.** Annotations written out of canonical order (by time,
+then `num`, then `chan`) are rearranged when the file is closed, in the same
+R process, with a result identical byte for byte to that of `sortann` (the
+last of several annotations with the same time, `num` and `chan` is kept,
+and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it. Unlike
+the original `sortann`, neither the sort nor the `sortann` tool loses an
+out-of-order annotation at time 0 (written after later ones), nor those
+inserted after it. The C library ran the `sortann` program (found in the
+`PATH`), as legacy mode does (running the R `sortann` tool, `Rscript
+.../wfdbx.R sortann --legacy`, in a new process, in the output directory if
+one is set), with the original loss; base R cannot run a program without a
+shell, so its arguments are quoted for the shell.
+
 ## C library API
 
 The functions of the C library keep their C names and semantics (see the
@@ -240,7 +281,9 @@ start-up), `rdsamp` prints a 650,000-sample, 2-signal format 212 record in
 about 2 s, and `rdann` 400,000 annotations in about 4.5 s. Programs that
 read many short pieces of a record pay a fixed cost of about 0.05 ms per
 `getframes` call (`sigamp -w 0.01` makes 6,000 measurements of a 1-minute
-record in about 1.7 s).
+record in about 1.7 s). `write_record` encodes the samples with vector operations too (exactly as
+`putvec` on each frame): 216,000 frames of 2 signals are written in about
+0.03-0.08 s and read back with `read_record` in about 0.02-0.06 s.
 
 ## Limitations
 
@@ -271,7 +314,8 @@ by Benjamin Moody and contributions from many others; `parsescp` was written
 by George B. Moody and Edna S. Moody, and `lib/ecgcodes.h` and `rdann` by T.
 Baker and G. Moody. The header of each source file names the authors of the
 C code it ports, and [`docs/AUTHORS.md`](../docs/AUTHORS.md) gives the
-details. The R implementation was written by Reza Sameni (October 2026).
+details. The R implementation was developed by Reza Sameni (2026), with AI
+assistance (see the project README).
 
 The library is distributed under the GNU Library General Public License,
 version 2 or later ([LICENSE.LIB](../LICENSE.LIB)); the command-line tools

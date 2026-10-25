@@ -91,9 +91,17 @@ aux_string(aux)
   annotator.
 
   Annotations must be written in time order.  If they are not, the file
-  is sorted when it is closed by running the \command{sortann} tool in a
-  separate R process, as the C library does, unless the environment
-  variable \env{WFDBANNSORT} is \code{0}.
+  is sorted when it is closed, unless the environment variable
+  \env{WFDBANNSORT} is \code{0}: wfdb-x: in the same R process, with a
+  result identical to that of the \command{sortann} tool (the time
+  resolution and the annotation type definitions of the file are kept,
+  \code{NOTQRS} annotations are dropped, and of several annotations with
+  the same time, \code{num} and \code{chan}, the last one written is
+  kept; unlike the original \command{sortann}, an out-of-order annotation
+  at time 0 is not lost).  The C library, as legacy mode
+  (\code{\link{wfdbx_set_legacy}}), runs the \command{sortann} tool (with
+  \option{--legacy}, in the output directory if one is set) in a separate
+  process, with the original loss.
 }
 \value{
   \code{annopen} returns 0 on success, or -3 (an input annotator cannot

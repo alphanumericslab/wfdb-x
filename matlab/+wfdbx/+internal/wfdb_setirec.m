@@ -13,7 +13,7 @@ if ~isempty(k)
     p = p(k+1:end);
 end
 if ~strcmp(p, '-')
-    st = wfdbx.internal.iostate();
+    st = wfdbx.internal.io_state();
     st.irec = p(1:min(end, 50));        % WFDB_MAXRNL
 end
 end

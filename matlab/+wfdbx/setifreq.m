@@ -19,7 +19,7 @@ function stat = setifreq(f)
 % corrupts every result derived from it. See docs/DIVERGENCES.md.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 g = S.sfreq;
 if g <= 0
     S.ifreq = 0;

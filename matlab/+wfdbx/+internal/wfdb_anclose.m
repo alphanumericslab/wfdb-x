@@ -8,7 +8,7 @@ function wfdb_anclose()
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 for an = numel(st.iad):-1:1
     wfdbx.iannclose(an - 1);
 end

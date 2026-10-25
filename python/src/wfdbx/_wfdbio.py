@@ -4,6 +4,12 @@ This module implements the WFDB path, file lookup (``wfdb_open``), error
 reporting (``wfdb_error``/``wfdberror``), and the small binary helpers used
 by the signal and annotation modules.
 
+wfdb-x: wfdb_open opens an input file named by an absolute path directly (the
+C library searched for it in each directory of the WFDB path), and output
+files can be created in a directory set with wfdbx_set_output_dir; decided
+by Reza Sameni after a code review, Oct 2026.  The original behavior remains
+available with --legacy (see docs/DIVERGENCES.md).
+
 Copyright (C) 1988-2013 George B. Moody (original C implementation,
 lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
 Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
@@ -29,7 +35,7 @@ __all__ = [
     "wfdbversion", "wfdbldflags", "wfdbcflags", "wfdbdefwfdb",
     "wfdbdefwfdbcal", "wfdb_open", "wfdb_fopen", "wfdb_checkname",
     "wfdb_striphea", "wfdb_setirec", "wfdb_getirec", "wfdb_addtopath",
-    "wfdb_parse_path",
+    "wfdb_parse_path", "wfdbx_set_output_dir", "wfdbx_get_output_dir",
 ]
 
 WFDB_MAJOR = 10
@@ -205,6 +211,7 @@ class _IOState:
         self.wfdb_filename = None
         self.irec = ""
         self.mem_behavior = 1
+        self.output_dir = None       # wfdb-x: see wfdbx_set_output_dir
 
 
 _io = _IOState()
@@ -479,6 +486,43 @@ def get_filename():
 # ---------------------------------------------------------------------------
 # Opening files
 
+def wfdbx_set_output_dir(d):
+    """Set the directory in which output files are created (a wfdb-x
+    addition); return the previous one (None if none).
+
+    When it is set, wfdb_open creates each output file (WFDB_WRITE or
+    WFDB_APPEND mode) as ``d + "/" + name``, where ``name`` is the name it
+    would use otherwise (the record name and the file type).  None or an
+    empty string means none (the default: files are created as named).
+    """
+    previous = _io.output_dir
+    _io.output_dir = d if d else None
+    return previous
+
+
+def wfdbx_get_output_dir():
+    """Return the directory set by wfdbx_set_output_dir, or None."""
+    return _io.output_dir
+
+
+def _legacy():
+    from ._signal import wfdbx_get_legacy   # (imported here: an import cycle)
+    return wfdbx_get_legacy()
+
+
+def _is_absolute_path(name):
+    """True if name is an absolute local path: on POSIX systems, one that
+    begins with '/'; on MS-Windows, one that begins with 'X:\\', 'X:/',
+    '\\\\' or '/'."""
+    if os.name == "nt":
+        if len(name) > 2 and name[0].isascii() and name[0].isalpha() and \
+                name[1] == ":" and name[2] in "\\/":
+            return True
+        if name.startswith("\\\\"):
+            return True
+    return name.startswith("/")
+
+
 def _spr1(record, ftype):
     return record if ftype == "" else record + "." + ftype
 
@@ -506,10 +550,12 @@ def _std_stream(read):
 def wfdb_open(s, record, mode):
     """Find and open a WFDB file of type s for a record.
 
-    ``mode`` is WFDB_READ (search the WFDB path), WFDB_WRITE (create the
-    file in the current directory, or under the directory part of
-    ``record``) or WFDB_APPEND.  The record name "-" means the standard
-    input or output.  Returns a WFDBFile, or None on failure.
+    ``mode`` is WFDB_READ (search the WFDB path; an absolute name is opened
+    directly first, except in legacy mode), WFDB_WRITE (create the file in
+    the current directory, or under the directory part of ``record``, within
+    the output directory if one is set) or WFDB_APPEND.  The record name
+    "-" means the standard input or output.  Returns a WFDBFile, or None on
+    failure.
     """
     if s is None:
         s = ""
@@ -532,15 +578,24 @@ def wfdb_open(s, record, mode):
             q -= 1
         if q < p:
             r = record + record[q:p]
-    if mode == WFDB_WRITE:
+    if mode in (WFDB_WRITE, WFDB_APPEND):
         _io.wfdb_filename = _spr1(r, s)
-        return wfdb_fopen(_io.wfdb_filename, "wb")
-    elif mode == WFDB_APPEND:
-        _io.wfdb_filename = _spr1(r, s)
-        return wfdb_fopen(_io.wfdb_filename, "ab")
+        if _io.output_dir:      # wfdb-x: in the output directory, if set
+            _io.wfdb_filename = _io.output_dir + DSEP + _io.wfdb_filename
+        return wfdb_fopen(_io.wfdb_filename,
+                          "wb" if mode == WFDB_WRITE else "ab")
     if not _io.path_list:
         getwfdb()
     if r.startswith("http://") or r.startswith("https://"):
+        _io.wfdb_filename = _spr1(r, s)
+        f = wfdb_fopen(_io.wfdb_filename, "rb")
+        if f is not None:
+            wfdb_addtopath(_io.wfdb_filename)
+            return f
+    # wfdb-x: an absolute local path is opened directly (and, as for a URL,
+    # its directory is added to the WFDB path); if it cannot be, the WFDB
+    # path is searched as in the C library (and in legacy mode).
+    if _is_absolute_path(r) and not _legacy():
         _io.wfdb_filename = _spr1(r, s)
         f = wfdb_fopen(_io.wfdb_filename, "rb")
         if f is not None:

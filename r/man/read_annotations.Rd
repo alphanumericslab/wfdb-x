@@ -15,7 +15,7 @@ read_annotations(record, annotator, sampfrom = 0, sampto = NULL, fs = NULL,
 
 write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
                   subtype = 0, chan = 0, num = 0, aux = NULL, fs = NULL,
-                  legacy = FALSE)
+                  dir = NULL, legacy = FALSE)
 }
 \arguments{
   \item{record}{the record name, a character string (for example
@@ -50,6 +50,11 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
     no default.  \code{write_annotations}: if given, the time resolution of
     the annotation times (ticks per second), recorded in the file; by
     default the times are in samples of the record.}
+  \item{dir}{\code{write_annotations}: if given, the directory (which must
+    exist) in which the file is created (\code{record} must not contain a
+    directory; wfdb-x).  The library's output directory
+    (\code{\link{wfdbx_set_output_dir}}) is set for the duration of the
+    call and restored afterwards, also on errors.}
   \item{legacy}{if \code{TRUE}, behave as the original package did, with
     the library's legacy mode (\code{\link{wfdbx_set_legacy}}) on for the
     duration of the call (the previous setting is restored afterwards,
@@ -78,9 +83,10 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
   Either \code{symbol} or \code{code} must be given, unless \code{sample}
   is a data frame (if both are given, \code{code} is used).  Annotations
   may be given in any order: if they are not in time order, the file is
-  sorted when it is closed, by running the \command{sortann} tool, as the
-  C library does (unless the environment variable \env{WFDBANNSORT} is
-  \code{0}).
+  sorted when it is closed, exactly as the \command{sortann} tool does
+  (unless the environment variable \env{WFDBANNSORT} is \code{0}); wfdb-x:
+  in the same R process, whereas the C library, as legacy mode, runs the
+  \command{sortann} tool.
 
   Annotation files may begin with \dQuote{modification labels}, which
   define non-standard mnemonics or the time resolution of the file.  They

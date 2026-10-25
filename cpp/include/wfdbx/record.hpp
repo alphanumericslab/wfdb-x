@@ -20,6 +20,13 @@
 // conversions that need a missing value throw Error (see
 // docs/DIVERGENCES.md).
 //
+// Output directory (wfdb-x): with WriteOptions::dir (or the `dir` parameter
+// of write_annotations()), the files are created in that directory, and the
+// header names the record and its signal file without it, so that the record
+// opens from there under its plain name.  The library's output directory
+// (wfdbx_set_output_dir()) is set for the duration of the call and restored
+// afterwards, also on errors.
+//
 // Legacy mode: with the `legacy` option (ReadOptions::legacy,
 // WriteOptions::legacy, the `legacy` parameter of read_header() and
 // read_annotations()), a function behaves exactly as in the original
@@ -46,6 +53,9 @@
 // give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
 // 12 bits and millivolts), because a silently assumed value corrupts every
 // result derived from it. See docs/DIVERGENCES.md.
+// Design decision (Reza Sameni, after a code review, Oct 2026): the writers
+// take an output directory (the record then opens from there under its plain
+// name).
 // GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #ifndef WFDBX_RECORD_HPP
@@ -236,6 +246,12 @@ struct WriteOptions {
     std::vector<int> samps_per_frame;
     std::optional<std::string> base_time;   ///< e.g. "12:00:00 01/01/2020"
     std::vector<std::string> comments;  ///< info strings (header comments)
+    /// If not empty, the directory (which must exist) in which the files are
+    /// created; the header then names the record and its signal file without
+    /// the directory, so that the record opens from that directory under its
+    /// plain name (the record name must not contain a directory).  The same
+    /// in legacy mode.  (wfdb-x addition; see wfdbx_set_output_dir().)
+    std::string dir;
     /// Legacy mode (original behavior, for compatibility only): gains
     /// default to WFDB_DEFGAIN (200; write_record_physical() also uses it
     /// for a gain of 0), ADC resolutions to a value based on the format, and
@@ -253,7 +269,10 @@ struct WriteOptions {
 /// specified or < 1 ("ADC resolution(s) must be specified"), if the units of
 /// a signal whose gain is not 0 are not specified ("units must be
 /// specified"), if samples.size() is not a
-/// multiple of the frame size, or if the files cannot be created.
+/// multiple of the frame size, if the files cannot be created, or, with
+/// opt.dir, if the directory does not exist ("directory D does not exist") or
+/// the record name contains one ("record name must not contain a directory
+/// when dir is given").
 void write_record(const std::string &record,
                   const std::vector<WFDB_Sample> &samples, int nsig,
                   WFDB_Frequency fs, const WriteOptions &opt = {});
@@ -274,9 +293,14 @@ void write_record_physical(const std::string &record,
 /// truncated to 255 bytes.  If fs > 0, it is recorded as the time
 /// resolution of the file (ann.fs is not used).  Annotations should be in
 /// time order; otherwise the file is sorted when it is closed (see
-/// oannclose()).  Throws Error if the file cannot be created.
+/// oannclose(); wfdb-x: in this process, whereas the C library, as legacy
+/// mode, runs sortann).  If `dir` is not empty, the file is created in that
+/// directory, which must exist (the record name must not contain a
+/// directory).  Throws Error if the file cannot be created, or for a `dir`
+/// as write_record() does.
 void write_annotations(const std::string &record, const std::string &annotator,
-                       const Annotations &ann, WFDB_Frequency fs = 0);
+                       const Annotations &ann, WFDB_Frequency fs = 0,
+                       const std::string &dir = {});
 
 } // namespace wfdbx
 

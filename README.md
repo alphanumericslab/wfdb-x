@@ -1,5 +1,5 @@
 # WFDB-X
-## A cross-language implementation of the WFDB Software Package, in Python, C++, MATLAB/Octave, Rust, Julia and R, with identical behavior.**
+## A cross-language implementation of the WFDB Software Package, in Python, C++, MATLAB/Octave, Rust, Julia and R, with identical behavior.
 
 The [WFDB Software Package](https://physionet.org/content/wfdb/) (by George
 B. Moody and contributors) is the reference C library and set of
@@ -29,8 +29,6 @@ implementation for testing.
 
 ## Why wfdb-x
 
-*A note from Reza Sameni, the author of wfdb-x.*
-
 For more than four decades, the WFDB Software Package has been the common
 ground of physiologic signal processing. PhysioNet distributes its
 databases in WFDB format, and these databases are among the most widely
@@ -56,7 +54,9 @@ in C++; a file written in R is exactly the file the original tools write.
 Researchers can then choose a language for their work, and move between
 languages, without changing their results.
 
-## One deliberate difference: no built-in signal parameters
+## Deliberate differences from the original
+
+### No built-in signal parameters
 
 The original package silently assumes a sampling frequency (250 Hz), a gain
 (200 adu/mV), an ADC resolution (12 bits) and units (millivolts) whenever a
@@ -85,6 +85,29 @@ exactly and is tested against its results, but it is kept for compatibility
 only: the values it assumes are exactly the silent defaults described above,
 so results produced with it carry the same risks.
 
+### Smaller differences, after a code review
+
+* **Absolute paths open directly.** The original finds a record given as
+  `/data/rec` only when the current directory is `/` (or with the WFDB path
+  `;`), because it joins every name to each WFDB path entry. wfdb-x opens an
+  absolute name as given, and then finds the record's other files next to
+  its header.
+* **Annotation files are sorted in-process.** When an annotation file is
+  written out of time order, the original sorts it by running the `sortann`
+  program through a shell, so the result depends on which `sortann` is on
+  the `PATH`. wfdb-x sorts it itself and writes exactly the file `sortann`
+  writes.
+* **Sorting does not lose annotations.** The original `sortann` silently
+  drops an annotation at sample 0 that arrives after later ones, and the
+  annotations later inserted directly behind it. wfdb-x keeps them, in the `sortann`
+  tool and in the automatic sorting.
+
+All three are documented in [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md), and
+the original behavior of each remains available in legacy mode. The
+high-level functions that write records and annotation files also gained
+an output directory (`dir`), so that a record can be written into another
+directory without changing the current one.
+
 ## What "identical behavior" means, and how it is checked
 
 For the same input, a wfdb-x tool produces **byte for byte** the same
@@ -98,7 +121,7 @@ This is verified by tests whose expected results were all produced by the
 original C code, not written by hand:
 
 * **Conformance suite** ([`tests/conformance/`](tests/conformance/),
-  described in [`docs/conformance.md`](docs/conformance.md)): 908
+  described in [`docs/conformance.md`](docs/conformance.md)): 928
   command-line test cases, run by a language-independent harness. Their
   expected results were produced by the C programs, built from
   `third_party/` with FLAC support and with
@@ -183,12 +206,10 @@ sources and reviewed and tested by human engineers.
 
 AI-written code calls for strong verification, and wfdb-x is built around
 it: every implementation is checked against the outputs of the original C
-tools and library on the conformance suite (908 cases, plus 838 for legacy
+tools and library on the conformance suite (928 cases, plus 858 for legacy
 mode), against the other five implementations, and by its own unit tests.
 Reports of any difference from the original package are welcome as GitHub
 issues.
-
-— [Reza Sameni](https://sameni.info)
 
 ## Versions
 
@@ -200,10 +221,12 @@ that wfdb-x implements, 10.7.0, which the library still reports as in C
 
 ## Authors and license
 
-The wfdb-x reimplementations were written by Reza Sameni (Oct 2026), as
-ports of the C code of the WFDB Software Package, written by George B.
-Moody, Benjamin Moody and the other contributors credited, file by file, in
-[`docs/AUTHORS.md`](docs/AUTHORS.md).
+wfdb-x was developed by [Reza Sameni](https://sameni.info) (2026), with
+AI assistance in its implementation (see
+[How wfdb-x was developed](#how-wfdb-x-was-developed)). It is a
+reimplementation of the WFDB Software Package, whose C library and tools
+were written by George B. Moody, Benjamin Moody and the other contributors
+credited, file by file, in [`docs/AUTHORS.md`](docs/AUTHORS.md).
 
 wfdb-x uses the same licenses as the original WFDB Software Package:
 

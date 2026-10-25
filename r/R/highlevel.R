@@ -21,6 +21,11 @@
 # wfdbx_set_legacy turned it on) applies.  It is kept for compatibility only:
 # the values it assumes are exactly the silent defaults this project removed,
 # so results produced with it carry the same risks.
+#
+# Design decision (Reza Sameni, after a code review, Oct 2026): the writers
+# (write_record, write_annotations) take a dir argument (the files are
+# created in that directory, and the record opens from there under its plain
+# name).
 # GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 # A time argument: a sample number, or a WFDB time string (absolute times
@@ -42,6 +47,28 @@
   old <- wfdbx_set_legacy(TRUE)
   on.exit(wfdbx_set_legacy(old))
   expr
+}
+
+# The dir argument of the writers (wfdb-x): with a directory (not NULL or
+# ""), check record and dir, and set the library's output directory
+# (wfdbx_set_output_dir) for the duration of the call that evaluates expr
+# (the previous one is restored afterwards, also on errors).  The record is
+# then named without the directory, so that it can be opened from that
+# directory under its plain name.
+.hl_output_dir <- function(record, dir, expr) {
+  if (is.null(dir) || !nzchar(dir)) return(expr)
+  .hl_check_output_dir(record, dir)
+  old <- wfdbx_set_output_dir(dir)
+  on.exit(wfdbx_set_output_dir(old))
+  expr
+}
+
+.hl_check_output_dir <- function(record, dir) {
+  if (grepl("/", record, fixed = TRUE) ||
+      (.Platform$OS.type == "windows" && grepl("\\", record, fixed = TRUE)))
+    stop("record name must not contain a directory when dir is given")
+  if (!dir.exists(dir)) stop("directory ", dir, " does not exist")
+  invisible()
 }
 
 #' The siginfo lists of the signals of a record (no signals are opened).
@@ -196,6 +223,11 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' then signals has sum(samps_per_frame) columns, frame by frame.
 #' comments: info strings added to the header.
 #'
+#' dir: if given, the directory (which must exist) in which the files are
+#' created; the header then names the record and its signal file without
+#' the directory, so that the record opens from that directory under its
+#' plain name (record must not contain a directory).  (wfdb-x)
+#'
 #' legacy: if TRUE, behave as the original package (default gains of 200
 #' adu/mV, ADC resolutions based on the format, no units required), with the
 #' library's legacy mode on for the duration of the call.  Kept for
@@ -204,7 +236,8 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          adczeros = 0, adcres = NULL, units = NULL, names = NULL,
                          base_time = NULL, comments = NULL, physical = FALSE,
-                         samps_per_frame = NULL, legacy = FALSE) .hl_legacy(legacy, {
+                         samps_per_frame = NULL, dir = NULL,
+                         legacy = FALSE) .hl_legacy(legacy, .hl_output_dir(record, dir, {
   legacy <- wfdbx_get_legacy()
   # wfdb-x: no default sampling frequency, gain, ADC resolution or units
   # (C: 250 Hz, 200 adu/mV, a resolution based on the format, millivolts;
@@ -312,4 +345,4 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   for (c in comments) putinfo(c)
   wfdbquit()
   invisible()
-})
+}))

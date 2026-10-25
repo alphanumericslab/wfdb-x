@@ -109,7 +109,7 @@ if ~isempty(from) && from ~= 0 && wfdbx.iannsettime(from) < 0
     wfdbx.wfdbquit();
     error('wfdbx:read_annotations', 'can''t seek in annotator %s', annotator);
 end
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 if ~isempty(to) && st.iad{1}.P.aha
     % (one at a time: reading an AHA annotation may print a message, and
     % C reads no annotation after the first one at or after 'to')

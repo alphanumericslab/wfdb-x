@@ -13,12 +13,22 @@
 //! annotation mnemonics and descriptions, and the time resolution record)
 //! are read by `annopen` and written before the first annotation of each
 //! output file. Output files whose annotations are not in canonical order
-//! are sorted when they are closed, by running the `sortann` program
-//! ([`crate::wfdbio::run_sortann`]).
+//! are sorted when they are closed, in this process, with the result of the
+//! `sortann` program (in legacy mode, by running `sortann`,
+//! [`crate::wfdbio::run_sortann`], as the C library does).
 //
 // Copyright (C) 1989-2013 George B. Moody (original C implementation,
 // lib/annot.c; revised 2015-2020 by Benjamin Moody).
 // Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
+// Design decision (Reza Sameni, after a code review, Oct 2026): oannclose
+// rearranges an out-of-order output annotation file itself, in the same
+// process (sort_ann_file), with a result identical to that of the sortann
+// program, which the C library ran through the shell (and found only if it
+// was in the PATH). The sort (AnnList, shared with the sortann tool) no
+// longer loses out-of-order annotations at time 0, which the original
+// insertion took for duplicates of its list head (decided by Reza Sameni,
+// Oct 2026). The original behavior remains available with --legacy (see
+// docs/DIVERGENCES.md).
 // GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 use crate::cformat;
@@ -26,7 +36,7 @@ use crate::cstd;
 use crate::ecgcodes::{wfdb_ammap, wfdb_mamap, ACMAX, NOTE, NOTQRS};
 use crate::types::*;
 use crate::wfdb::{with_default, OptBytes, Wfdb, NULL};
-use crate::wfdbio::{run_sortann, wfdb_striphea, WfdbFile};
+use crate::wfdbio::{run_sortann, wfdb_fopen, wfdb_striphea, WfdbFile};
 
 // Annotation word format
 const CODE: u32 = 0o176000; // annotation code segment of word
@@ -109,6 +119,8 @@ struct OaData {
     seqno: i32,
     /// Record with which the annotator is associated.
     rname: Vec<u8>,
+    /// wfdb-x: name of the file (as created), for `sort_ann_file`.
+    fname: Vec<u8>,
     /// If true, annotations are not in order.
     out_of_order: bool,
     /// If true, the table has been written.
@@ -181,6 +193,113 @@ const DEFAULT_DESCRIPTIONS: [Option<&[u8]>; NCODES] = [
     None,
 ];
 
+impl IaData {
+    /// A new input annotator reading `file` (its format is still to be
+    /// determined: see [`ann_file_format`]).
+    fn new(file: WfdbFile, info: Anninfo) -> IaData {
+        IaData {
+            file,
+            info,
+            ann: Annotation::default(),
+            pann: Annotation::default(),
+            afreq: 0.0,
+            word: 0,
+            ateof: 0,
+            auxstr: [0; AUXBUFLEN],
+            index: 0,
+            auxpos: -1,
+            tmul: 0.0,
+            tt: 0.0,
+            ann_tt: 0.0,
+            pann_tt: 0.0,
+            prev_tt: 0.0,
+            prev_time: 0,
+        }
+    }
+}
+
+impl OaData {
+    /// A new output annotator writing `file` (named `fname`) for record
+    /// `rname`.
+    fn new(file: WfdbFile, info: Anninfo, rname: Vec<u8>, fname: Vec<u8>) -> OaData {
+        OaData {
+            file,
+            info,
+            ann: Annotation::default(),
+            afreq: 0.0,
+            seqno: 0,
+            rname,
+            fname,
+            out_of_order: false,
+            table_written: false,
+        }
+    }
+}
+
+/// wfdb-x: a table of annotation type definitions: mnemonics, descriptions,
+/// and flags marking the modified types. [`AnnState`] holds that of the
+/// library; `sort_ann_file` uses one of its own.
+#[derive(Clone, Debug)]
+struct AnnDefs {
+    /// Mnemonic strings for each code.
+    astring: Vec<Vec<u8>>,
+    /// Descriptions for each code.
+    tstring: Vec<Option<Vec<u8>>>,
+    /// Mnemonic or description modified (by `setannstr`, `setanndesc`, or
+    /// a definition read from a file).
+    modified: [bool; NCODES],
+}
+
+impl Default for AnnDefs {
+    /// The default definitions (none modified).
+    fn default() -> Self {
+        AnnDefs {
+            astring: DEFAULT_MNEMONICS.iter().map(|s| s.to_vec()).collect(),
+            tstring: DEFAULT_DESCRIPTIONS
+                .iter()
+                .map(|s| s.map(<[u8]>::to_vec))
+                .collect(),
+            modified: [false; NCODES],
+        }
+    }
+}
+
+impl AnnDefs {
+    /// The body of `setannstr` (`desc` false) and `setanndesc` (`desc`
+    /// true): with a positive code, the change is marked as a modification;
+    /// with a negative one (-code is modified), it is not. Returns 0, or -1
+    /// if the code is illegal.
+    fn set(&mut self, desc: bool, code: i32, s: &[u8]) -> i32 {
+        let mflag = code > 0;
+        let code = if mflag { code } else { code.wrapping_neg() };
+        if !(0..=ACMAX).contains(&code) {
+            return -1;
+        }
+        let c = code as usize;
+        let changed = if desc {
+            self.tstring[c].as_deref() != Some(s)
+        } else {
+            self.astring[c] != s
+        };
+        if changed {
+            if desc {
+                self.tstring[c] = Some(s.to_vec());
+            } else {
+                self.astring[c] = s.to_vec();
+            }
+            if mflag {
+                self.modified[c] = true;
+            }
+        }
+        0
+    }
+}
+
+/// Error messages produced by the annotator functions that do not have
+/// access to the library instance, to be reported by the caller
+/// ([`Wfdb::report`]).
+type Msgs = Vec<Vec<u8>>;
+
 /// The state of `annot.c` (part of [`Wfdb`]): input and output annotators,
 /// mnemonic and description tables, annotation time resolution, ...
 ///
@@ -195,14 +314,10 @@ pub struct AnnState {
     /// If < 0, error while closing files (-6: annotations out of order,
     /// -7: write error).
     annclose_error: i32,
-    /// Mnemonic or description modified.
-    modified: [bool; NCODES],
     /// ECG mnemonics for each code.
     cstring: Vec<Vec<u8>>,
-    /// Mnemonic strings for each code.
-    astring: Vec<Vec<u8>>,
-    /// Descriptions for each code.
-    tstring: Vec<Option<Vec<u8>>>,
+    /// Annotation type definitions (mnemonics and descriptions).
+    defs: AnnDefs,
 }
 
 impl Default for AnnState {
@@ -212,13 +327,8 @@ impl Default for AnnState {
             oad: Vec::new(),
             oafreq: 0.0,
             annclose_error: 0,
-            modified: [false; NCODES],
             cstring: DEFAULT_MNEMONICS.iter().map(|s| s.to_vec()).collect(),
-            astring: DEFAULT_MNEMONICS.iter().map(|s| s.to_vec()).collect(),
-            tstring: DEFAULT_DESCRIPTIONS
-                .iter()
-                .map(|s| s.map(<[u8]>::to_vec))
-                .collect(),
+            defs: AnnDefs::default(),
         }
     }
 }
@@ -377,6 +487,308 @@ fn getann_next(ia: &mut IaData) -> Option<Vec<u8>> {
     msg
 }
 
+/// Reads the first word of the input annotation file of `ia` and returns its
+/// format: [`WFDB_READ`] (MIT format; any initial null annotations are then
+/// read as well) or [`WFDB_AHA_READ`]. (wfdb-x: this was part of annopen.)
+fn ann_file_format(ia: &mut IaData) -> i32 {
+    // Try to figure out what format the file is in. AHA-format files begin
+    // with a null byte and an ASCII character which is one of the legal AHA
+    // annotation codes other than '[' or ']'. MIT annotation files cannot
+    // begin in this way.
+    ia.word = ia.file.g16() as u32;
+    let a = ((ia.word >> 8) & 0xff) as i32;
+    if (ia.word & 0xff) != 0 || wfdb_ammap(a) == NOTQRS || a == b'[' as i32 || a == b']' as i32 {
+        // read any initial null annotation(s)
+        while (ia.word & CODE) == SKIP {
+            ia.tt += ia.file.g32() as f64;
+            ia.word = ia.file.g16() as u32;
+        }
+        return WFDB_READ;
+    }
+    WFDB_AHA_READ
+}
+
+/// The body of getann, for the input annotator `ia` (wfdb-x). Error
+/// messages are added to `msgs`.
+fn getann_ia(ia: &mut IaData, annot: &mut Annotation, msgs: &mut Msgs) -> i32 {
+    if ia.pann.anntyp != 0 {
+        // an annotation was pushed back
+        *annot = ia.pann.clone();
+        ia.pann.anntyp = 0;
+        ia.prev_time = annot.time;
+        ia.prev_tt = ia.pann_tt;
+        return 0;
+    }
+
+    if ia.ateof != 0 {
+        if ia.ateof != -1 {
+            return -1; // reached logical EOF
+        }
+        msgs.push(cformat!(
+            b"getann: unexpected EOF in annotator %s\n",
+            ia.info.name
+        ));
+        return -3;
+    }
+    let aux = annot.aux.take();
+    *annot = ia.ann.clone();
+    ia.prev_time = annot.time;
+    ia.prev_tt = ia.ann_tt;
+    let retpos = ia.auxpos;
+    let msg = getann_next(ia);
+    if retpos >= 0 {
+        // reuse the caller's buffer
+        let mut v = aux.unwrap_or_default();
+        v.clear();
+        v.extend_from_slice(&aux_from_buffer(ia, retpos as usize));
+        annot.aux = Some(v);
+    } else {
+        annot.aux = None;
+    }
+    msgs.extend(msg);
+    0
+}
+
+/// The body of ungetann (after the checks), for the input annotator `ia`,
+/// whose pushback buffer is empty (wfdb-x).
+fn ungetann_ia(ia: &mut IaData, annot: &Annotation) {
+    ia.pann = annot.clone();
+    if annot.time == ia.prev_time {
+        ia.pann_tt = ia.prev_tt;
+    } else {
+        ia.pann_tt = annot.time as f64 / ia.tmul;
+    }
+}
+
+/// The body of get_ann_table (wfdb-x), for the input annotator `ia` and the
+/// definition table `defs` (the library's, or that of `sort_ann_file`):
+/// reads the modification labels at the beginning of the file (the time
+/// resolution goes into `ia.afreq`, the definitions into `defs`). Error
+/// messages are added to `msgs`.
+fn read_ann_table(ia: &mut IaData, defs: &mut AnnDefs, msgs: &mut Msgs) -> i32 {
+    ia.tmul = 1.0;
+    ia.afreq = 0.0;
+
+    let mut annot = Annotation::default();
+    if getann_ia(ia, &mut annot, msgs) < 0 {
+        // prime the pump
+        return -1;
+    }
+    while getann_ia(ia, &mut annot, msgs) == 0
+        && annot.time == 0
+        && annot.anntyp as i32 == NOTE
+        && annot.subtyp == 0
+    {
+        let aux = match &annot.aux {
+            Some(a) if !a.is_empty() && a[0] >= 1 => a.clone(),
+            _ => continue,
+        };
+        let text = aux_text(&aux);
+        if text.first() == Some(&b'#') {
+            if text.starts_with(TIME_RESOLUTION) {
+                crate::csscanf!(&text[TIME_RESOLUTION.len()..], b"%lf", &mut ia.afreq);
+            }
+            continue;
+        }
+        let span = |s: &[u8], from: usize| {
+            from + s[from..]
+                .iter()
+                .take_while(|&&c| c == b' ' || c == b'\t')
+                .count()
+        };
+        let cspan = |s: &[u8], from: usize| {
+            from + s[from..]
+                .iter()
+                .take_while(|&&c| c != b' ' && c != b'\t')
+                .count()
+        };
+        let p1 = span(text, 0); // whitespace before code
+        let (a, end) = cstd::strtol(&text[p1..], 10);
+        let a = a as i32;
+        if !(0..=ACMAX).contains(&a) || end == 0 {
+            continue;
+        }
+        let p2 = cspan(text, p1 + end); // non-whitespace after code
+        let p1 = span(text, p2); // whitespace before mnemonic
+        let p2 = cspan(text, p1); // non-whitespace (mnemonic)
+        if p2 != p1 {
+            defs.set(true, a, text.get(p2 + 1..).unwrap_or(b""));
+            defs.set(false, a, &text[p1..p2]);
+        }
+    }
+    if annot.time != 0 || annot.anntyp as i32 != NOTE || annot.subtyp != 0 || annot.aux.is_none() {
+        ungetann_ia(ia, &annot);
+    }
+    0
+}
+
+/// put_ann_table (wfdb-x: for the output annotator `oa`, number `n`, with
+/// the time resolution `freq` and the definition table `defs`; the C
+/// library used `oad[n]`, `oafreq`, and the library's table): writes the
+/// modification labels. Error messages are added to `msgs`.
+fn put_ann_table(oa: &mut OaData, n: u32, freq: f64, defs: &AnnDefs, msgs: &mut Msgs) -> i32 {
+    // 0: nothing written yet; 1: time resolution written; 2: at least one
+    // table entry written.
+    let mut flag = 0;
+    let mut annot = Annotation {
+        time: 0,
+        anntyp: NOTE as i8,
+        ..Default::default()
+    };
+    if freq != oa.afreq && freq > 0.0 {
+        annot.aux = Some(make_aux(&cformat!(b"## time resolution: %.12g", freq)));
+        oa.afreq = freq;
+        if put_ann_word(oa, n, &annot, msgs) < 0 {
+            return -1;
+        }
+        flag = 1;
+    }
+    for a in 0..NCODES {
+        if defs.modified[a] {
+            if flag < 2 {
+                // mark the beginning of the table
+                annot.aux = Some(make_aux(b"## annotation type definitions"));
+                if put_ann_word(oa, n, &annot, msgs) < 0 {
+                    return -1;
+                }
+            }
+            let m = &defs.astring[a];
+            let s = match &defs.tstring[a] {
+                Some(d) => cformat!(b"%d %s %s", a as i32, m, d),
+                None => cformat!(b"%d %s ", a as i32, m),
+            };
+            annot.aux = Some(make_aux(&s[..s.len().min(usize::from(u8::MAX))]));
+            if put_ann_word(oa, n, &annot, msgs) < 0 {
+                return -1;
+            }
+            flag = 2;
+        }
+    }
+    if flag == 2 {
+        // if a table was written, mark its end
+        annot.aux = Some(make_aux(b"## end of definitions"));
+        if put_ann_word(oa, n, &annot, msgs) < 0 {
+            return -1;
+        }
+    }
+    if flag != 0 {
+        // if a table was written, mark its end
+        annot.anntyp = 0;
+        annot.aux = None;
+        if put_ann_word(oa, n, &annot, msgs) < 0 {
+            return -1;
+        }
+    }
+    0
+}
+
+/// The body of putann (after the table; wfdb-x), for the output annotator
+/// `oa` (number `n`, in messages). Error messages are added to `msgs`.
+fn put_ann_word(oa: &mut OaData, n: u32, annot: &Annotation, msgs: &mut Msgs) -> i32 {
+    let t = annot.time;
+    let f = &mut oa.file;
+    let mut delta: u64 = (t as u64).wrapping_sub(oa.ann.time as u64);
+    if !(annot.chan > oa.ann.chan
+        || annot.num > oa.ann.num
+        || t > oa.ann.time
+        || (t == 0 && oa.ann.time == 0))
+    {
+        oa.out_of_order = true;
+    }
+    // aux length (a null aux, or an empty string, has none)
+    let auxlen = match &annot.aux {
+        Some(a) if !a.is_empty() => a[0] as usize,
+        _ => 0,
+    };
+    if oa.info.stat == WFDB_AHA_WRITE {
+        // AHA-format output file
+        f.putc(0);
+        f.putc(wfdb_mamap(annot.anntyp as i32, annot.subtyp as i32) as u8);
+        f.p32(t);
+        oa.seqno = oa.seqno.wrapping_add(1);
+        f.p16(oa.seqno as u32);
+        f.putc(annot.subtyp as u8);
+        f.putc(annot.anntyp as u8);
+        let len = auxlen.min(AUXLEN);
+        let aux: &[u8] = annot.aux.as_deref().unwrap_or(b"");
+        for k in 1..=len {
+            f.putc(aux.get(k).copied().unwrap_or(0));
+        }
+        for _ in len..AUXLEN {
+            f.putc(0);
+        }
+    } else {
+        // MIT-format output file. Do not allow annotations to be
+        // written at the minimum or maximum possible time value.
+        if t == WFDB_TIME_MIN || t == WFDB_TIME_MAX {
+            msgs.push(cformat!(
+                b"putann: time overflow in annotation file %d\n",
+                n
+            ));
+            return -1;
+        }
+        if t > oa.ann.time {
+            while delta > MAXSKIP as u64 {
+                f.p16(SKIP);
+                f.p32(MAXSKIP);
+                delta = delta.wrapping_sub(MAXSKIP as u64);
+            }
+        } else {
+            while delta.wrapping_neg() > (-MINSKIP) as u64 {
+                f.p16(SKIP);
+                f.p32(MINSKIP);
+                delta = delta.wrapping_sub(MINSKIP as u64);
+            }
+        }
+        if annot.anntyp == 0 {
+            // putann must not write a word of zeroes that would be
+            // interpreted as an EOF, so it writes a SKIP to the location
+            // just before the desired one; thus annwd is never 0.
+            f.p16(SKIP);
+            f.p32(delta.wrapping_sub(1) as i64);
+            delta = 1;
+        } else if delta > MAXRR {
+            // skip forward by more than MAXRR, or skip backward by any
+            // distance
+            f.p16(SKIP);
+            f.p32(delta as i64);
+            delta = 0;
+        }
+        let annwd =
+            (delta as i32 as u32).wrapping_add((annot.anntyp as i32 as u32).wrapping_shl(CS));
+        f.p16(annwd);
+        if annot.subtyp != 0 {
+            f.p16(SUB + (DATA & annot.subtyp as i32 as u32));
+        }
+        if annot.chan != oa.ann.chan {
+            f.p16(CHN + (DATA & annot.chan as u32));
+        }
+        if annot.num != oa.ann.num {
+            f.p16(NUM + (DATA & annot.num as i32 as u32));
+        }
+        if auxlen != 0 {
+            f.p16(AUX + auxlen as u32);
+            let aux = annot.aux.as_deref().unwrap_or(b"");
+            let mut data: Vec<u8> = aux[1..].iter().take(auxlen).copied().collect();
+            data.resize(auxlen, 0);
+            f.write(&data);
+            if auxlen & 1 != 0 {
+                f.putc(0);
+            }
+        }
+    }
+    if f.error() {
+        msgs.push(cformat!(
+            b"putann: write error on annotation file %s\n",
+            oa.info.name
+        ));
+        return -1;
+    }
+    oa.ann = annot.clone();
+    oa.ann.time = t;
+    0
+}
+
 impl Wfdb {
     // -----------------------------------------------------------------------
     // Private functions (for the use of other WFDB library functions only)
@@ -400,132 +812,23 @@ impl Wfdb {
         }
     }
 
-    fn get_ann_table(&mut self, i: u32) -> i32 {
-        let iu = i as usize;
-        self.ann.iad[iu].tmul = 1.0;
-        self.ann.iad[iu].afreq = 0.0;
-
-        let mut annot = Annotation::default();
-        if self.getann(i, &mut annot) < 0 {
-            // prime the pump
-            return -1;
+    /// Reports the error messages `msgs` (with `wfdb_error`).
+    fn report(&mut self, msgs: Msgs) {
+        for m in msgs {
+            self.wfdb_error(m);
         }
-        while self.getann(i, &mut annot) == 0
-            && annot.time == 0
-            && annot.anntyp as i32 == NOTE
-            && annot.subtyp == 0
-        {
-            let aux = match &annot.aux {
-                Some(a) if !a.is_empty() && a[0] >= 1 => a.clone(),
-                _ => continue,
-            };
-            let text = aux_text(&aux);
-            if text.first() == Some(&b'#') {
-                if text.starts_with(TIME_RESOLUTION) {
-                    let mut f = self.ann.iad[iu].afreq;
-                    crate::csscanf!(&text[TIME_RESOLUTION.len()..], b"%lf", &mut f);
-                    self.ann.iad[iu].afreq = f;
-                }
-                continue;
-            }
-            let span = |s: &[u8], from: usize| {
-                from + s[from..]
-                    .iter()
-                    .take_while(|&&c| c == b' ' || c == b'\t')
-                    .count()
-            };
-            let cspan = |s: &[u8], from: usize| {
-                from + s[from..]
-                    .iter()
-                    .take_while(|&&c| c != b' ' && c != b'\t')
-                    .count()
-            };
-            let p1 = span(text, 0); // whitespace before code
-            let (a, end) = cstd::strtol(&text[p1..], 10);
-            let a = a as i32;
-            if !(0..=ACMAX).contains(&a) || end == 0 {
-                continue;
-            }
-            let p2 = cspan(text, p1 + end); // non-whitespace after code
-            let p1 = span(text, p2); // whitespace before mnemonic
-            let p2 = cspan(text, p1); // non-whitespace (mnemonic)
-            if p2 != p1 {
-                if p2 < text.len() {
-                    self.setanndesc(a, &text[p2 + 1..]);
-                } else {
-                    self.setanndesc(a, NULL);
-                }
-                self.setannstr(a, &text[p1..p2]);
-            }
-        }
-        if annot.time != 0
-            || annot.anntyp as i32 != NOTE
-            || annot.subtyp != 0
-            || annot.aux.is_none()
-        {
-            self.ungetann(i, &annot);
-        }
-
-        let f = self.getifreq();
-        self.setiafreq(i, f);
-        0
     }
 
-    fn put_ann_table(&mut self, i: u32) -> i32 {
-        let iu = i as usize;
-        // 0: nothing written yet; 1: time resolution written; 2: at least
-        // one table entry written.
-        let mut flag = 0;
-        let mut annot = Annotation {
-            time: 0,
-            anntyp: NOTE as i8,
-            ..Default::default()
-        };
-        let oafreq = self.ann.oafreq;
-        if oafreq != self.ann.oad[iu].afreq && oafreq > 0.0 {
-            annot.aux = Some(make_aux(&cformat!(b"## time resolution: %.12g", oafreq)));
-            self.ann.oad[iu].afreq = oafreq;
-            if self.putann(i, &annot) < 0 {
-                return -1;
-            }
-            flag = 1;
+    fn get_ann_table(&mut self, i: u32) -> i32 {
+        let mut msgs = Msgs::new();
+        let st = &mut self.ann;
+        let status = read_ann_table(&mut st.iad[i as usize], &mut st.defs, &mut msgs);
+        self.report(msgs);
+        if status < 0 {
+            return -1;
         }
-        for a in 0..NCODES {
-            if self.ann.modified[a] {
-                if flag < 2 {
-                    // mark the beginning of the table
-                    annot.aux = Some(make_aux(b"## annotation type definitions"));
-                    if self.putann(i, &annot) < 0 {
-                        return -1;
-                    }
-                }
-                let m = self.annstr(a as i32);
-                let s = match self.anndesc(a as i32) {
-                    Some(d) => cformat!(b"%d %s %s", a as i32, m, d),
-                    None => cformat!(b"%d %s ", a as i32, m),
-                };
-                annot.aux = Some(make_aux(&s[..s.len().min(usize::from(u8::MAX))]));
-                if self.putann(i, &annot) < 0 {
-                    return -1;
-                }
-                flag = 2;
-            }
-        }
-        if flag == 2 {
-            // if a table was written, mark its end
-            annot.aux = Some(make_aux(b"## end of definitions"));
-            if self.putann(i, &annot) < 0 {
-                return -1;
-            }
-        }
-        if flag != 0 {
-            // if a table was written, mark its end
-            annot.anntyp = 0;
-            annot.aux = None;
-            if self.putann(i, &annot) < 0 {
-                return -1;
-            }
-        }
+        let f = self.getifreq();
+        self.setiafreq(i, f);
         0
     }
 
@@ -542,7 +845,8 @@ impl Wfdb {
     /// these numbers are the `n` arguments of `getann`, `putann`, ...
     /// Unless `record` begins with `+`, previously opened annotators are
     /// closed first. Input files are found in the WFDB path; output files
-    /// are created in the current directory.
+    /// are created in the current directory (wfdb-x: or in the output
+    /// directory, see [`Wfdb::wfdbx_set_output_dir`]).
     ///
     /// # Returns
     ///
@@ -613,7 +917,7 @@ impl Wfdb {
                 WFDB_READ | WFDB_AHA_READ => {
                     // standard (MIT-format) or AHA-format input file
                     self.wfdb_setirec(&record);
-                    let Some(mut file) = self.wfdb_open(&name, &record, WFDB_READ) else {
+                    let Some(file) = self.wfdb_open(&name, &record, WFDB_READ) else {
                         let msg = cformat!(
                             b"annopen: can't read annotator %s for record %s\n",
                             name,
@@ -622,20 +926,12 @@ impl Wfdb {
                         self.wfdb_error(msg);
                         return -3;
                     };
-                    // Try to figure out what format the file is in.
-                    // AHA-format files begin with a null byte and an ASCII
-                    // character which is one of the legal AHA annotation
-                    // codes other than '[' or ']'. MIT annotation files
-                    // cannot begin in this way.
-                    let mut word = file.g16() as u32;
-                    let a = ((word >> 8) & 0xff) as i32;
-                    let mut tt = 0.0;
-                    let stat;
-                    if (word & 0xff) != 0
-                        || wfdb_ammap(a) == NOTQRS
-                        || a == b'[' as i32
-                        || a == b']' as i32
-                    {
+                    let info = Anninfo {
+                        name: ai.name.clone(),
+                        stat: ai.stat,
+                    };
+                    let mut ia = IaData::new(file, info);
+                    if ann_file_format(&mut ia) == WFDB_READ {
                         if ai.stat != WFDB_READ {
                             let msg = cformat!(
                                 b"warning (annopen, annotator %s, record %s):\n",
@@ -646,12 +942,7 @@ impl Wfdb {
                             self.wfdb_error(" file appears to be in MIT format\n");
                             self.wfdb_error(" ... continuing under that assumption\n");
                         }
-                        stat = WFDB_READ;
-                        // read any initial null annotation(s)
-                        while (word & CODE) == SKIP {
-                            tt += file.g32() as f64;
-                            word = file.g16() as u32;
-                        }
+                        ia.info.stat = WFDB_READ;
                     } else {
                         if ai.stat != WFDB_AHA_READ {
                             let msg = cformat!(
@@ -663,29 +954,9 @@ impl Wfdb {
                             self.wfdb_error(" file appears to be in AHA format\n");
                             self.wfdb_error(" ... continuing under that assumption\n");
                         }
-                        stat = WFDB_AHA_READ;
+                        ia.info.stat = WFDB_AHA_READ;
                     }
-                    self.ann.iad.push(IaData {
-                        file,
-                        info: Anninfo {
-                            name: ai.name.clone(),
-                            stat,
-                        },
-                        ann: Annotation::default(), // any pushed-back annot is invalid
-                        pann: Annotation::default(),
-                        afreq: 0.0,
-                        word,
-                        ateof: 0,
-                        auxstr: [0; AUXBUFLEN],
-                        index: 0,
-                        auxpos: -1,
-                        tmul: 0.0,
-                        tt,
-                        ann_tt: 0.0,
-                        pann_tt: 0.0,
-                        prev_tt: 0.0,
-                        prev_time: 0,
-                    });
+                    self.ann.iad.push(ia);
                     let n = (self.ann.iad.len() - 1) as u32;
                     self.get_ann_table(n);
                 }
@@ -705,19 +976,15 @@ impl Wfdb {
                         self.wfdb_error(msg);
                         return -4;
                     };
-                    self.ann.oad.push(OaData {
-                        file,
-                        info: Anninfo {
-                            name: ai.name.clone(),
-                            stat: ai.stat,
-                        },
-                        ann: Annotation::default(),
-                        afreq: 0.0,
-                        seqno: 0,
-                        rname: record.clone(),
-                        out_of_order: false,
-                        table_written: false,
-                    });
+                    let info = Anninfo {
+                        name: ai.name.clone(),
+                        stat: ai.stat,
+                    };
+                    // wfdb-x: the name of the file, for sort_ann_file
+                    let fname = self.wfdb_filename().to_vec();
+                    self.ann
+                        .oad
+                        .push(OaData::new(file, info, record.clone(), fname));
                 }
             }
         }
@@ -747,43 +1014,10 @@ impl Wfdb {
             self.wfdb_error(cformat!(b"getann: can't read annotator %d\n", n));
             return -2;
         };
-
-        if ia.pann.anntyp != 0 {
-            // an annotation was pushed back
-            *annot = ia.pann.clone();
-            ia.pann.anntyp = 0;
-            ia.prev_time = annot.time;
-            ia.prev_tt = ia.pann_tt;
-            return 0;
-        }
-
-        if ia.ateof != 0 {
-            if ia.ateof != -1 {
-                return -1; // reached logical EOF
-            }
-            let msg = cformat!(b"getann: unexpected EOF in annotator %s\n", ia.info.name);
-            self.wfdb_error(msg);
-            return -3;
-        }
-        let aux = annot.aux.take();
-        *annot = ia.ann.clone();
-        ia.prev_time = annot.time;
-        ia.prev_tt = ia.ann_tt;
-        let retpos = ia.auxpos;
-        let msg = getann_next(ia);
-        if retpos >= 0 {
-            // reuse the caller's buffer
-            let mut v = aux.unwrap_or_default();
-            v.clear();
-            v.extend_from_slice(&aux_from_buffer(ia, retpos as usize));
-            annot.aux = Some(v);
-        } else {
-            annot.aux = None;
-        }
-        if let Some(m) = msg {
-            self.wfdb_error(m);
-        }
-        0
+        let mut msgs = Msgs::new();
+        let status = getann_ia(ia, annot, &mut msgs);
+        self.report(msgs);
+        status
     }
 
     /// C `ungetann(n, &annot)`: pushes back an annotation into input
@@ -804,12 +1038,7 @@ impl Wfdb {
             ));
             return -1;
         }
-        ia.pann = annot.clone();
-        if annot.time == ia.prev_time {
-            ia.pann_tt = ia.prev_tt;
-        } else {
-            ia.pann_tt = annot.time as f64 / ia.tmul;
-        }
+        ungetann_ia(ia, annot);
         0
     }
 
@@ -822,113 +1051,20 @@ impl Wfdb {
             self.wfdb_error(cformat!(b"putann: can't write annotation file %d\n", n));
             return -2;
         }
-        let t = annot.time;
-        if !self.ann.oad[nu].table_written {
-            self.ann.oad[nu].table_written = true;
-            if self.put_ann_table(n) < 0 {
-                return -1;
-            }
+        let mut msgs = Msgs::new();
+        let oafreq = self.ann.oafreq;
+        let st = &mut self.ann;
+        let oa = &mut st.oad[nu];
+        let mut status = 0;
+        if !oa.table_written {
+            oa.table_written = true;
+            status = put_ann_table(oa, n, oafreq, &st.defs, &mut msgs);
         }
-        let oa = &mut self.ann.oad[nu];
-        let f = &mut oa.file;
-        let mut delta: u64 = (t as u64).wrapping_sub(oa.ann.time as u64);
-        if !(annot.chan > oa.ann.chan
-            || annot.num > oa.ann.num
-            || t > oa.ann.time
-            || (t == 0 && oa.ann.time == 0))
-        {
-            oa.out_of_order = true;
+        if status == 0 {
+            status = put_ann_word(oa, n, annot, &mut msgs);
         }
-        // aux length (a null aux, or an empty string, has none)
-        let auxlen = match &annot.aux {
-            Some(a) if !a.is_empty() => a[0] as usize,
-            _ => 0,
-        };
-        if oa.info.stat == WFDB_AHA_WRITE {
-            // AHA-format output file
-            f.putc(0);
-            f.putc(wfdb_mamap(annot.anntyp as i32, annot.subtyp as i32) as u8);
-            f.p32(t);
-            oa.seqno = oa.seqno.wrapping_add(1);
-            f.p16(oa.seqno as u32);
-            f.putc(annot.subtyp as u8);
-            f.putc(annot.anntyp as u8);
-            let len = auxlen.min(AUXLEN);
-            let aux: &[u8] = annot.aux.as_deref().unwrap_or(b"");
-            for k in 1..=len {
-                f.putc(aux.get(k).copied().unwrap_or(0));
-            }
-            for _ in len..AUXLEN {
-                f.putc(0);
-            }
-        } else {
-            // MIT-format output file. Do not allow annotations to be
-            // written at the minimum or maximum possible time value.
-            if t == WFDB_TIME_MIN || t == WFDB_TIME_MAX {
-                self.wfdb_error(cformat!(
-                    b"putann: time overflow in annotation file %d\n",
-                    n
-                ));
-                return -1;
-            }
-            if t > oa.ann.time {
-                while delta > MAXSKIP as u64 {
-                    f.p16(SKIP);
-                    f.p32(MAXSKIP);
-                    delta = delta.wrapping_sub(MAXSKIP as u64);
-                }
-            } else {
-                while delta.wrapping_neg() > (-MINSKIP) as u64 {
-                    f.p16(SKIP);
-                    f.p32(MINSKIP);
-                    delta = delta.wrapping_sub(MINSKIP as u64);
-                }
-            }
-            if annot.anntyp == 0 {
-                // putann must not write a word of zeroes that would be
-                // interpreted as an EOF, so it writes a SKIP to the location
-                // just before the desired one; thus annwd is never 0.
-                f.p16(SKIP);
-                f.p32(delta.wrapping_sub(1) as i64);
-                delta = 1;
-            } else if delta > MAXRR {
-                // skip forward by more than MAXRR, or skip backward by any
-                // distance
-                f.p16(SKIP);
-                f.p32(delta as i64);
-                delta = 0;
-            }
-            let annwd =
-                (delta as i32 as u32).wrapping_add((annot.anntyp as i32 as u32).wrapping_shl(CS));
-            f.p16(annwd);
-            if annot.subtyp != 0 {
-                f.p16(SUB + (DATA & annot.subtyp as i32 as u32));
-            }
-            if annot.chan != oa.ann.chan {
-                f.p16(CHN + (DATA & annot.chan as u32));
-            }
-            if annot.num != oa.ann.num {
-                f.p16(NUM + (DATA & annot.num as i32 as u32));
-            }
-            if auxlen != 0 {
-                f.p16(AUX + auxlen as u32);
-                let aux = annot.aux.as_deref().unwrap_or(b"");
-                let mut data: Vec<u8> = aux[1..].iter().take(auxlen).copied().collect();
-                data.resize(auxlen, 0);
-                f.write(&data);
-                if auxlen & 1 != 0 {
-                    f.putc(0);
-                }
-            }
-        }
-        if f.error() {
-            let msg = cformat!(b"putann: write error on annotation file %s\n", oa.info.name);
-            self.wfdb_error(msg);
-            return -1;
-        }
-        oa.ann = annot.clone();
-        oa.ann.time = t;
-        0
+        self.report(msgs);
+        status
     }
 
     /// C `iannsettime(t)`: skips ahead (or rewinds) the input annotators so
@@ -1030,7 +1166,7 @@ impl Wfdb {
     /// code (`[N]` for codes outside 0..=ACMAX).
     pub fn annstr(&mut self, code: i32) -> Vec<u8> {
         if (0..=ACMAX).contains(&code) {
-            self.ann.astring[code as usize].clone()
+            self.ann.defs.astring[code as usize].clone()
         } else {
             cformat!(b"[%d]", code)
         }
@@ -1041,7 +1177,7 @@ impl Wfdb {
     pub fn strann(&mut self, s: impl OptBytes) -> i32 {
         let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
         (1..=ACMAX)
-            .find(|&code| self.ann.astring[code as usize] == s)
+            .find(|&code| self.ann.defs.astring[code as usize] == s)
             .unwrap_or(NOTQRS)
     }
 
@@ -1051,19 +1187,11 @@ impl Wfdb {
     /// a negative code (-code is modified), it is not. Returns 0, or -1 if
     /// the code is outside 0..=ACMAX.
     pub fn setannstr(&mut self, code: i32, s: impl OptBytes) -> i32 {
-        let mflag = code > 0;
-        let code = if mflag { code } else { code.wrapping_neg() };
-        if (0..=ACMAX).contains(&code) {
-            let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
-            let c = code as usize;
-            if self.ann.astring[c] != s {
-                self.ann.astring[c] = s.to_vec();
-                if mflag {
-                    self.ann.modified[c] = true;
-                }
-            }
+        let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
+        if self.ann.defs.set(false, code, s) == 0 {
             return 0;
         }
+        let code = if code > 0 { code } else { code.wrapping_neg() };
         self.wfdb_error(cformat!(b"setannstr: illegal annotation code %d\n", code));
         -1
     }
@@ -1073,7 +1201,7 @@ impl Wfdb {
     /// 0..=ACMAX).
     pub fn anndesc(&mut self, code: i32) -> Option<Vec<u8>> {
         if (0..=ACMAX).contains(&code) {
-            self.ann.tstring[code as usize].clone()
+            self.ann.defs.tstring[code as usize].clone()
         } else {
             Some(b"illegal annotation code".to_vec())
         }
@@ -1083,19 +1211,11 @@ impl Wfdb {
     /// annotation code (see [`Wfdb::setannstr`] for the sign of `code`).
     /// Returns 0, or -1 if the code is outside 0..=ACMAX.
     pub fn setanndesc(&mut self, code: i32, s: impl OptBytes) -> i32 {
-        let mflag = code > 0;
-        let code = if mflag { code } else { code.wrapping_neg() };
-        if (0..=ACMAX).contains(&code) {
-            let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
-            let c = code as usize;
-            if self.ann.tstring[c].as_deref() != Some(s) {
-                self.ann.tstring[c] = Some(s.to_vec());
-                if mflag {
-                    self.ann.modified[c] = true;
-                }
-            }
+        let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
+        if self.ann.defs.set(true, code, s) == 0 {
             return 0;
         }
+        let code = if code > 0 { code } else { code.wrapping_neg() };
         self.wfdb_error(cformat!(b"setanndesc: illegal annotation code %d\n", code));
         -1
     }
@@ -1177,9 +1297,11 @@ impl Wfdb {
     }
 
     /// C `oannclose(n)`: close output annotator `n`, writing its end mark.
-    /// If its annotations were not written in canonical order, they are
-    /// sorted by running `sortann` (unless the environment variable
-    /// `WFDBANNSORT` is 0).
+    /// If its annotations were not written in canonical order, the file is
+    /// rearranged (unless the environment variable `WFDBANNSORT` is 0):
+    /// wfdb-x: in this process, with the result of the `sortann` program
+    /// (see [`AnnList`]); in legacy mode, as in C, by running `sortann`
+    /// ([`run_sortann`]).
     pub fn oannclose(&mut self, n: u32) {
         let nu = n as usize;
         if nu >= self.ann.oad.len() {
@@ -1223,7 +1345,15 @@ impl Wfdb {
                     b"Rearranging annotations for output annotator %s ...",
                     name
                 ));
-                if run_sortann(&oa.rname, &name) == 0 {
+                // wfdb-x: the file is sorted in this process (sort_ann_file);
+                // the C library ran the sortann program, as legacy mode does.
+                let sorted = if self.wfdbx_get_legacy() != 0 {
+                    let dir = self.wfdbx_get_output_dir();
+                    run_sortann(&oa.rname, &name, dir.as_deref()) == 0
+                } else {
+                    self.sort_ann_file(&oa.fname, &name) == 0
+                };
+                if sorted {
                     self.wfdb_error("done!\n");
                     out_of_order = false;
                 } else {
@@ -1245,6 +1375,273 @@ impl Wfdb {
                 self.ann.annclose_error = -6;
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// In-process sorting of output annotation files (wfdb-x)
+
+/// The annotation list of the `sortann` program (`insert_ann` in
+/// `app/sortann.c`), used by the `sortann` tool and by `oannclose`.
+///
+/// Annotations are inserted in canonical order (time, then `num`, then
+/// `chan`) with the algorithm of `insert_ann`, including its rule for
+/// duplicates: an annotation with the same time, `num` and `chan` as one
+/// already in the list replaces it (but only when the duplicate is found
+/// while repairing out-of-order input).
+///
+/// wfdb-x: the (all-zero) list head is never compared as an annotation: an
+/// out-of-order annotation that precedes all entries is inserted at the
+/// beginning of the list. In C, and with [`AnnList::with_legacy`]`(true)`,
+/// an annotation at time 0 with `num` and `chan` 0 that precedes all
+/// entries "replaces" the head, and neither it nor any annotation later
+/// inserted after it is in the list (input times 5, 0, 3 give only 5; see
+/// `docs/KNOWN_C_BEHAVIORS.md`, "sortann loses annotations"). Where C has
+/// undefined behavior (a replaced first entry that is not linked back to
+/// the head), the head is updated, in both modes.
+#[derive(Debug)]
+pub struct AnnList {
+    /// Entry 0 is the list head (`annlist`), whose annotation is all zeros
+    /// and which takes part in comparisons exactly as in sortann.c.
+    list: Vec<AnnEntry>,
+    /// The last entry (initially the head).
+    lastp: usize,
+    in_order: bool,
+    /// The original insertion (with its loss of annotations).
+    legacy: bool,
+}
+
+/// An entry of an [`AnnList`] (`None`: a null link).
+#[derive(Debug)]
+struct AnnEntry {
+    next: Option<usize>,
+    prev: Option<usize>,
+    annotation: Annotation,
+}
+
+/// `a` follows `b` in canonical order (sortann.c; `or_same`: or they have
+/// the same time, num and chan).
+fn after(a: &Annotation, b: &Annotation, or_same: bool) -> bool {
+    a.time > b.time
+        || (a.time == b.time && a.num > b.num)
+        || (a.time == b.time
+            && a.num == b.num
+            && (a.chan > b.chan || (or_same && a.chan == b.chan)))
+}
+
+impl Default for AnnList {
+    fn default() -> Self {
+        AnnList::new()
+    }
+}
+
+impl AnnList {
+    /// An empty list (with the wfdb-x insertion).
+    pub fn new() -> AnnList {
+        AnnList::with_legacy(false)
+    }
+
+    /// An empty list; with `legacy`, the original insertion of sortann.c,
+    /// which loses annotations (see [`AnnList`]).
+    pub fn with_legacy(legacy: bool) -> AnnList {
+        AnnList {
+            list: vec![AnnEntry {
+                next: None,
+                prev: None,
+                annotation: Annotation::default(),
+            }],
+            lastp: 0,
+            in_order: true,
+            legacy,
+        }
+    }
+
+    /// Whether all annotations were inserted in order (sortann then writes
+    /// nothing).
+    pub fn in_order(&self) -> bool {
+        self.in_order
+    }
+
+    /// The annotations of the list, in order.
+    pub fn iter(&self) -> impl Iterator<Item = &Annotation> + '_ {
+        let mut p = self.list[0].next;
+        std::iter::from_fn(move || {
+            let e = &self.list[p?];
+            p = e.next;
+            Some(&e.annotation)
+        })
+    }
+
+    /// Inserts a copy of `pa` (`insert_ann`).
+    pub fn insert(&mut self, pa: &Annotation) {
+        let l = &mut self.list;
+        let newp = l.len();
+        l.push(AnnEntry {
+            next: None,
+            prev: None,
+            annotation: pa.clone(),
+        });
+        let lastp = self.lastp;
+        if lastp == 0 || after(pa, &l[lastp].annotation, false) {
+            // this annotation is in order -- add to end of list
+            l[newp].prev = Some(lastp);
+            l[lastp].next = Some(newp);
+            self.lastp = newp;
+            return;
+        }
+        self.in_order = false; // input was out-of-order
+
+        // Find the correct location in the list for this annotation. The
+        // search is linear, beginning at the end of the list.
+        let mut ap = Some(lastp);
+        while let Some(a) = ap {
+            if a == 0 && !self.legacy {
+                // wfdb-x: the head is not an annotation (C compared it, and
+                // took a (0, 0, 0) annotation for its duplicate)
+                ap = None;
+                break;
+            }
+            if after(pa, &l[a].annotation, true) {
+                break;
+            }
+            ap = l[a].prev;
+        }
+        match ap {
+            None => {
+                // insert newp at the beginning of the list
+                let nx = l[0].next;
+                l[newp].next = nx;
+                l[0].next = Some(newp);
+                if let Some(nx) = nx {
+                    l[nx].prev = Some(newp);
+                }
+            }
+            Some(a) => {
+                let aa = &l[a].annotation;
+                if pa.time == aa.time && pa.num == aa.num && pa.chan == aa.chan {
+                    // replace ap by newp
+                    let (pv, nx) = (l[a].prev, l[a].next);
+                    l[newp].prev = pv;
+                    if let Some(pv) = pv {
+                        l[pv].next = Some(newp);
+                    }
+                    l[newp].next = nx;
+                    match nx {
+                        Some(nx) => l[nx].prev = Some(newp),
+                        None => self.lastp = newp,
+                    }
+                    // If ap was the first entry of the list but its 'prev'
+                    // link does not lead back to the list head (an entry
+                    // inserted at the beginning gets a null link, and one
+                    // whose predecessor replaced the head is detached), C
+                    // leaves the head pointing to the freed entry (undefined
+                    // behavior): here the head is updated, so that the
+                    // duplicate is replaced (see docs/KNOWN_C_BEHAVIORS.md).
+                    if a != 0 && l[0].next == Some(a) {
+                        l[0].next = Some(newp);
+                    }
+                } else {
+                    // insert newp immediately after ap
+                    let nx = l[a].next;
+                    l[newp].prev = Some(a);
+                    l[newp].next = nx;
+                    if let Some(nx) = nx {
+                        l[nx].prev = Some(newp);
+                    }
+                    l[a].next = Some(newp);
+                }
+            }
+        }
+    }
+}
+
+impl Wfdb {
+    /// wfdb-x: rearranges the annotations of the (closed) annotation file
+    /// `fname` of annotator `aname` in canonical order, with a result
+    /// identical, byte for byte, to that of the sortann program as the C
+    /// library ran it (`sortann -r. RECORD -a ANNOTATOR`, see `oannclose`),
+    /// but without looking up the header of the record. As sortann does, it
+    /// reads the file (with any time resolution and annotation type
+    /// definitions it contains), inserts its annotations at nonnegative
+    /// times in an [`AnnList`], and, unless they were already in order,
+    /// rewrites the file in MIT format, with the time resolution of the
+    /// input file (if any) and without the `NOTQRS` annotations. It uses its
+    /// own reader, writer and definition table (the annotators and tables
+    /// of the instance are not changed). Returns 0, or -1 if the file
+    /// cannot be read or written.
+    fn sort_ann_file(&mut self, fname: &[u8], aname: &[u8]) -> i32 {
+        let mut msgs = Msgs::new();
+        let status = sort_ann_file(fname, aname, &mut msgs);
+        self.report(msgs);
+        status
+    }
+}
+
+/// The body of [`Wfdb::sort_ann_file`]; error messages are added to `msgs`.
+fn sort_ann_file(fname: &[u8], aname: &[u8], msgs: &mut Msgs) -> i32 {
+    // Read the file, starting from the default definition table.
+    let mut defs = AnnDefs::default();
+    let Some(file) = wfdb_fopen(fname, b"rb") else {
+        return -1;
+    };
+    let info = Anninfo {
+        name: aname.to_vec(),
+        stat: 0,
+    };
+    let mut ia = IaData::new(file, info);
+    ia.info.stat = ann_file_format(&mut ia);
+    read_ann_table(&mut ia, &mut defs, msgs);
+    let mut list = AnnList::new();
+    let mut annot = Annotation::default();
+    let status = loop {
+        let st = getann_ia(&mut ia, &mut annot, msgs);
+        if st != 0 {
+            break st;
+        }
+        if annot.time >= 0 {
+            // (sortann's -f time is 0)
+            list.insert(&annot);
+        }
+    };
+    let _ = ia.file.close();
+    if status != -1 {
+        return -1; // not the logical end of the file
+    }
+    if list.in_order() {
+        return 0;
+    }
+
+    // Write the sorted annotations.
+    let Some(file) = wfdb_fopen(fname, b"wb") else {
+        return -1;
+    };
+    let info = Anninfo {
+        name: aname.to_vec(),
+        stat: WFDB_WRITE,
+    };
+    let mut oa = OaData::new(file, info, Vec::new(), fname.to_vec());
+    let mut ok = true;
+    for a in list.iter().filter(|a| a.anntyp as i32 != NOTQRS) {
+        if !oa.table_written {
+            oa.table_written = true;
+            ok = put_ann_table(&mut oa, 0, ia.afreq, &defs, msgs) == 0;
+        }
+        if !ok || put_ann_word(&mut oa, 0, a, msgs) < 0 {
+            ok = false;
+            break;
+        }
+    }
+    oa.file.p16(0);
+    if oa.file.error() {
+        ok = false;
+    }
+    if oa.file.close() != 0 {
+        ok = false;
+    }
+    if ok {
+        0
+    } else {
+        -1
     }
 }
 
@@ -1379,9 +1776,9 @@ mod tests {
         assert_eq!(w.setannstr(50, "x"), -1);
         assert_eq!(w.setannstr(-5, "PVC"), 0);
         assert_eq!(w.strann("PVC"), 5);
-        assert!(!w.ann.modified[5]);
+        assert!(!w.ann.defs.modified[5]);
         assert_eq!(w.setanndesc(5, "desc"), 0);
-        assert!(w.ann.modified[5]);
+        assert!(w.ann.defs.modified[5]);
         assert_eq!(w.strecg("V"), 5);
     }
 }

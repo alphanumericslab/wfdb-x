@@ -7,6 +7,15 @@
 // Remote (http, ftp) files are not supported by the C++ implementation;
 // WFDB path components that are URLs are ignored.
 //
+// wfdb-x: wfdb_open opens an input file named by an absolute path directly
+// (the C library searched for it in each directory of the WFDB path, so that
+// it was found only if the path had an empty component or the current
+// directory was the root), and output files can be created in a directory
+// set with wfdbx_set_output_dir; the sortann program (legacy mode, see
+// annot.cpp) is run without a shell, in the output directory if one is set.  Decided by Reza Sameni after a code
+// review, Oct 2026.  The original behavior remains available with --legacy
+// (see docs/DIVERGENCES.md).
+//
 // Copyright (C) 1988-2013 George B. Moody (original C implementation,
 // lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
 // C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
@@ -15,6 +24,7 @@
 #include "wfdblib.hpp"
 
 #include <cerrno>
+#include <climits>
 #include <cstdlib>
 #include <cstring>
 #include <sys/stat.h>
@@ -27,6 +37,7 @@
 #include <windows.h>
 #define MKDIR(d) _mkdir(d)
 #else
+#include <sys/wait.h>
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
@@ -63,6 +74,9 @@ struct IOState {
     std::string filename;       // name of the file most recently opened
     std::string irec;           // current record name (for %r)
     int mem_behavior = 1;
+    // wfdb-x: the directory in which wfdb_open creates output files (none:
+    // files are created as named; see wfdbx_set_output_dir)
+    std::optional<std::string> output_dir;
 };
 
 IOState &io()
@@ -131,6 +145,21 @@ bool is_directory(const char *name)
 {
     struct stat st;
     return stat(name, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR;
+}
+
+// wfdb-x: true if s is an absolute local path: on POSIX systems, a path
+// beginning with '/'; on MS-Windows, one beginning with 'X:\', 'X:/', '\\'
+// or '/'.
+bool is_absolute_path(const std::string &s)
+{
+#if defined(_WIN32)
+    if (s.size() >= 3 &&
+        ((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
+        s[1] == ':' && (s[2] == '\\' || s[2] == '/'))
+        return true;
+    if (s.size() >= 2 && s[0] == '\\' && s[1] == '\\') return true;
+#endif
+    return !s.empty() && s[0] == '/';
 }
 
 } // namespace
@@ -296,15 +325,26 @@ FilePtr wfdb_open(const char *s, const char *record, int mode)
         if (q < p) r += std::string(record + q, record + p);
     }
 
-    if (mode == WFDB_WRITE) {
+    if (mode == WFDB_WRITE || mode == WFDB_APPEND) {
         st.filename = spr1(r, s);
-        return wfdb_fopen(st.filename.c_str(), "wb");
-    } else if (mode == WFDB_APPEND) {
-        st.filename = spr1(r, s);
-        return wfdb_fopen(st.filename.c_str(), "ab");
+        // wfdb-x: in the output directory, if one was set
+        if (st.output_dir) st.filename = *st.output_dir + DSEP + st.filename;
+        return wfdb_fopen(st.filename.c_str(), mode == WFDB_WRITE ? "wb" : "ab");
     }
 
     if (st.path_list.empty()) getwfdb();
+
+    // wfdb-x: an absolute local path is opened directly (and its directory
+    // is added to the WFDB path, so that the files next to it are found); if
+    // it cannot be, the WFDB path is searched as in the C library (and in
+    // legacy mode).
+    if (!wfdbx_get_legacy() && is_absolute_path(r)) {
+        st.filename = spr1(r, s);
+        if (FilePtr f = wfdb_fopen(st.filename.c_str(), "rb")) {
+            wfdb_addtopath(st.filename.c_str());
+            return f;
+        }
+    }
 
     std::vector<PathComponent> plist = st.path_list;
     for (const PathComponent &c : plist) {
@@ -462,9 +502,85 @@ void wfdb_addtopath(const char *s)
 }
 
 // ---------------------------------------------------------------------------
-// The sortann helper used by oannclose
+// The sortann program, run by oannclose in legacy mode
 
-int run_sortann(const std::string &record, const std::string &annotator)
+namespace {
+
+#if defined(_WIN32)
+// An argument of a command line, quoted as the MS-Windows C runtime parses it
+// (_spawnvp joins its arguments with spaces, without quoting them).
+std::string quote_arg(const std::string &a)
+{
+    if (!a.empty() && a.find_first_of(" \t\"") == std::string::npos)
+        return a;
+    std::string q = "\"";
+    size_t backslashes = 0;
+    for (char c : a) {
+        if (c == '\\') {
+            backslashes++;
+            continue;
+        }
+        q.append(c == '"' ? 2 * backslashes + 1 : backslashes, '\\');
+        backslashes = 0;
+        q += c;
+    }
+    q.append(2 * backslashes, '\\');
+    return q + "\"";
+}
+#endif
+
+// Run the program prog (looked for in the PATH unless it contains a
+// directory) with the arguments args (args[0] being the program name), without
+// a shell, in the directory workdir if given (else the current one), and wait
+// for it.  Returns its exit status, or -1 if it could not be run or did not
+// exit normally.
+int run_program(const std::string &prog, const std::vector<std::string> &args,
+                const std::optional<std::string> &workdir)
+{
+    std::fflush(stdout);
+    std::fflush(stderr);
+#if defined(_WIN32)
+    std::string cmdline;
+    for (const std::string &a : args)
+        cmdline += (cmdline.empty() ? "" : " ") + quote_arg(a);
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+    if (!CreateProcessA(prog.find_first_of("/\\") != std::string::npos
+                            ? prog.c_str() : nullptr,
+                        &cmdline[0], nullptr, nullptr, FALSE, 0, nullptr,
+                        workdir ? workdir->c_str() : nullptr, &si, &pi))
+        return -1;
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 0;
+    BOOL ok = GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return ok ? static_cast<int>(code) : -1;
+#else
+    std::vector<char *> argv;
+    for (const std::string &a : args) argv.push_back(const_cast<char *>(a.c_str()));
+    argv.push_back(nullptr);
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {     // the child: change directory, then run the program
+        if (workdir && chdir(workdir->c_str()) != 0) _exit(127);
+        execvp(prog.c_str(), argv.data());
+        _exit(127);
+    }
+    int status;
+    while (waitpid(pid, &status, 0) < 0)
+        if (errno != EINTR) return -1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+#endif
+}
+
+} // namespace
+
+int run_sortann(const std::string &record, const std::string &annotator,
+                const std::optional<std::string> &workdir)
 {
     std::string exe;
 #if defined(__linux__)
@@ -474,7 +590,10 @@ int run_sortann(const std::string &record, const std::string &annotator)
 #elif defined(__APPLE__)
     char buf[4096];
     uint32_t size = sizeof(buf);
-    if (_NSGetExecutablePath(buf, &size) == 0) exe = buf;
+    char real[PATH_MAX];
+    // (absolute, as the program may run in another directory)
+    if (_NSGetExecutablePath(buf, &size) == 0)
+        exe = realpath(buf, real) ? real : buf;
 #elif defined(_WIN32)
     char buf[4096];
     DWORD n = GetModuleFileNameA(nullptr, buf, sizeof(buf));
@@ -488,16 +607,13 @@ int run_sortann(const std::string &record, const std::string &annotator)
         candidate += ".exe";
 #endif
         struct stat sb;
-        if (stat(candidate.c_str(), &sb) == 0) prog = "\"" + candidate + "\"";
+        if (stat(candidate.c_str(), &sb) == 0) prog = candidate;
     }
-    std::string cmd = prog + " -r. " + record + " -a " + annotator;
-    std::fflush(stdout);
-    std::fflush(stderr);
-    int status = std::system(cmd.c_str());
-#if !defined(_WIN32)
-    if (status != -1 && WIFEXITED(status)) status = WEXITSTATUS(status);
-#endif
-    return status;
+    // wfdb-x: the arguments are passed directly (the C library ran the
+    // command "sortann -r. RECORD -a ANNOTATOR" through the shell), with
+    // --legacy first, so that the program also behaves as the original.
+    return run_program(prog, {prog, "--legacy", "-r.", record, "-a", annotator},
+                       workdir);
 }
 
 } // namespace detail
@@ -566,6 +682,17 @@ void wfdb_error(const char *format, ...)
         std::fflush(stderr);
     }
 }
+
+std::optional<std::string> wfdbx_set_output_dir(const char *dir)
+{
+    IOState &st = io();
+    std::optional<std::string> previous = std::move(st.output_dir);
+    st.output_dir.reset();
+    if (dir && *dir) st.output_dir = dir;
+    return previous;
+}
+
+std::optional<std::string> wfdbx_get_output_dir() { return io().output_dir; }
 
 void wfdbmemerr(int behavior) { io().mem_behavior = behavior; }
 

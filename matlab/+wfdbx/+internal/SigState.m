@@ -1,6 +1,6 @@
 classdef SigState < handle
 %SIGSTATE Global state of the WFDB signal module (the statics of signal.c).
-%   The single instance is returned by wfdbx.internal.sigstate().  Its
+%   The single instance is returned by wfdbx.internal.sig_state().  Its
 %   properties have the names of the static variables of lib/signal.c (as
 %   in the Python port's _SigState).  Per-signal data are struct arrays:
 %

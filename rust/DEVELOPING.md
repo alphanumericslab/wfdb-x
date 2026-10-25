@@ -192,11 +192,14 @@ statuses and files. `argv` is taken with `std::env::args_os()` and kept as
 bytes (`cstd::args()`). Messages that include the program name use the
 tool's name (`argv[0]`'s last component, as in C).
 
-`oannclose` sorts out-of-order annotation files by running the `sortann`
+`oannclose` sorts out-of-order annotation files in the same process
+(`sort_ann_file` in `annot.rs`, with the list of `sortann`,
+`annot::AnnList`, which the `sortann` tool uses too), with private reader,
+writer and definition table objects. In legacy mode it runs the `sortann`
 tool (from the directory of the running executable, else from `PATH`), as
 the C library runs `sortann`: `wfdbio::run_sortann(record, annotator)`
-runs `sortann -r. RECORD -a ANNOTATOR` after flushing the standard output
-and error, and returns its exit status.
+runs `sortann -r. RECORD -a ANNOTATOR` (without a shell) after flushing the
+standard output and error, and returns its exit status.
 
 A tool's `main` reads `let argv = cstd::args();`, writes with `cprintf!` /
 `ceprintf!`, and ends with `cstd::exit(status)` (see `src/bin/wfdbwhich.rs`

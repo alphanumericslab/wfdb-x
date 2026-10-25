@@ -8,6 +8,9 @@ ADC resolution or units. Values that the record or the user does not give are
 never assumed (the original package assumed 250 Hz, 200 adu/mV, 12 bits and
 millivolts), because a silently assumed value corrupts every result derived
 from it. See docs/DIVERGENCES.md.
+wfdb-x: an out-of-order annotation at time 0 (num 0, chan 0) is no longer lost
+(nor are those inserted after it), as it was by the original program (decided
+by Reza Sameni, Oct 2026); --legacy keeps the original behavior.
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option) any later
@@ -18,6 +21,7 @@ import os
 import sys
 
 import wfdbx as w
+from .._annot import _AnnList
 from ._common import (Exit, eprintf, freq_not_specified, freq_option, legacy,
                       legacy_help, legacy_sampfreq, run)
 
@@ -42,85 +46,6 @@ def help(pname):
     eprintf(hs[0], pname)
     for s in hs[1:]:
         eprintf("%s\n", s)
-
-
-class _Node:
-    __slots__ = ("next", "prev", "ann")
-
-    def __init__(self, ann=None):
-        self.next = None
-        self.prev = None
-        self.ann = ann
-
-
-class _AnnList:
-    """The doubly-linked annotation list of sortann.c (same algorithm)."""
-
-    def __init__(self):
-        # 'annlist' (a static sentinel whose annotation is all zeros, and
-        # which takes part in comparisons exactly as in sortann.c)
-        self.head = _Node(w.Annotation())
-        self.lastp = self.head
-        self.in_order = 1
-
-    def insert(self, pa):
-        head = self.head
-        newp = _Node(pa.copy())
-        last = self.lastp
-        la = last.ann
-        if last is head or pa.time > la.time or \
-                (pa.time == la.time and pa.num > la.num) or \
-                (pa.time == la.time and pa.num == la.num and
-                 pa.chan > la.chan):
-            newp.prev = last
-            last.next = newp
-            self.lastp = newp
-            newp.next = None
-            return
-        self.in_order = 0
-        ap = last
-        while ap is not None:
-            aa = ap.ann
-            if pa.time > aa.time or \
-                    (pa.time == aa.time and pa.num > aa.num) or \
-                    (pa.time == aa.time and pa.num == aa.num and
-                     pa.chan >= aa.chan):
-                break
-            ap = ap.prev
-        if ap is None:
-            newp.prev = None
-            newp.next = head.next
-            head.next = newp
-            newp.next.prev = newp
-        elif pa.time == ap.ann.time and \
-                pa.num == ap.ann.num and pa.chan == ap.ann.chan:
-            newp.prev = ap.prev
-            if newp.prev is not None:
-                newp.prev.next = newp
-            newp.next = ap.next
-            if newp.next is not None:
-                newp.next.prev = newp
-            else:
-                self.lastp = newp
-            # If ap was the first entry of the list but its 'prev' link
-            # does not lead back to the list head (an entry inserted at the
-            # beginning gets a null link, and one whose predecessor replaced
-            # the head is detached), C leaves the head pointing to the freed
-            # entry (undefined behavior): here the head is updated, so that
-            # the duplicate is replaced (see docs/KNOWN_C_BEHAVIORS.md).
-            if head.next is ap:
-                head.next = newp
-        else:
-            newp.prev = ap
-            newp.next = ap.next
-            ap.next = newp
-            newp.next.prev = newp
-
-    def __iter__(self):
-        p = self.head.next
-        while p is not None:
-            yield p.ann
-            p = p.next
 
 
 def _main(argv):
@@ -227,7 +152,7 @@ def _main(argv):
         elif frm or to:     # wfdb-x: no default sampling frequency
             freq_not_specified(pname, record, use_f=True)
             raise Exit(1)
-    alist = _AnnList()
+    alist = _AnnList(legacy())     # (wfdb-x: no annotation lost)
     annot = w.Annotation()
     while w.getann(0, annot) == 0:
         if annot.time < frm or (to > 0 and annot.time >= to):

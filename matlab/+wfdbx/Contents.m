@@ -29,6 +29,8 @@
 %   wfdbdefwfdbcal    - The default name of the calibration file.
 %   wfdbcflags, wfdbldflags - C compiler and linker flags (empty).
 %   wfdbmemerr, wfdb_me_fatal - Behavior on memory errors (compatibility).
+%   wfdbx_set_output_dir, wfdbx_get_output_dir - Directory in which output
+%                       files are created (wfdb-x).
 %
 % Signals
 %   isigopen          - Open the input signals of a record.

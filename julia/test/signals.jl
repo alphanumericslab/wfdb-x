@@ -1045,4 +1045,221 @@ end
     end
 end
 
+
+# ---------------------------------------------------------------------------
+# wfdb-x: the output directory (wfdbx_set_output_dir), the in-process sorting
+# of an annotation file written there, and absolute paths (as t_outdir in
+# api_expect.c and test_api.py)
+
+OREC_OAT = unhex(
+    "00581efc232320616e6e6f746174696f6e207479706520646566696e6974696f" *
+    "6e73005816fc3135205b31355d206d79206465736372697074696f6e005807fc" *
+    "3432206e65772000005815fc232320656e64206f6620646566696e6974696f6e" *
+    "730000ecffffffff0100050405140a040a040000")
+
+function annv_(w, n)
+    a = Annotation()
+    st = W.getann(w, n, a)
+    Int64[st, a.time, a.anntyp, a.subtyp, a.chan, a.num]
+end
+
+@testset "output directory" begin
+    with_data() do w
+        # (the annotation type table, as left by t_strings in api_expect.c)
+        W.setanndesc(w, 15, "my description")
+        W.setannstr(w, 42, "new")
+        W.setanndesc(w, 42, "")
+        @test W.wfdbx_get_output_dir(w) === nothing
+        mkdir("odir")
+        @test W.wfdbx_set_output_dir(w, "odir") === nothing
+        @test W.wfdbx_get_output_dir(w) == b"odir"
+        si = [Siginfo(fname=Vector{UInt8}("orec.dat"), desc=Vector{UInt8}("sig"), gain=200.0,
+                      fmt=16, adcres=12, spf=1)]
+        W.setsampfreq(w, 100.0)
+        @test W.osigfopen(w, si, 1) == 1
+        for i in 0:2
+            W.putvec(w, Int32[10i - 7])
+        end
+        @test W.newheader(w, "orec") == 0
+        @test W.annopen(w, "orec", [Anninfo("oat", WFDB_WRITE)], 1) == 0
+        a = Annotation()
+        for (i, t) in enumerate([30, 10, 20, 10, 5])    # out of order, a duplicate
+            a.time = t
+            a.anntyp = i == 4 ? W.PVC : W.NORMAL
+            W.putann(w, 0, a)
+        end
+        W.wfdbquiet(w)
+        W.wfdbquit(w)       # (the output directory is kept)
+        W.wfdbverbose(w)
+        @test W.wfdbx_set_output_dir(w, "") == b"odir"
+        @test W.wfdbx_get_output_dir(w) === nothing
+        @test W.wfdbx_set_output_dir(w, "odir2") === nothing
+        @test W.wfdbx_set_output_dir(w, nothing) == b"odir2"
+        @test W.wfdbx_get_output_dir(w) === nothing
+        @test read("odir/orec.hea") == b"orec 1 100 3\r\norec.dat 16 200 12 0 -7 9 0 sig\r\n"
+        @test read("odir/orec.dat") == unhex("f9ff03000d00")
+        @test read("odir/orec.oat") == OREC_OAT
+        @test !isfile("orec.hea")
+        # a missing output directory is created (as are the missing
+        # directories of any output file name)
+        W.wfdbx_set_output_dir(w, "newdir")
+        @test W.osigfopen(w, si, 1) == 1
+        @test W.annopen(w, "orec", [Anninfo("oat", WFDB_WRITE)], 1) == 0
+        W.wfdbquit(w)
+        W.wfdbx_set_output_dir(w, nothing)
+        @test (filesize("newdir/orec.dat"), filesize("newdir/orec.oat")) == (0, 2)
+        # the record is read from the output directory
+        W.setwfdb(w, "odir")
+        @test isig(w, "orec") == 1
+        @test [vec_(w, 1) for _ in 1:3] == [[1, -7], [1, 3], [1, 13]]
+        @test W.annopen(w, "orec", [Anninfo("oat", WFDB_READ)], 1) == 0
+        @test [annv_(w, 0) for _ in 1:5] == [[0, 5, 1, 0, 0, 0], [0, 10, 5, 0, 0, 0],
+                                             [0, 20, 1, 0, 0, 0], [0, 30, 1, 0, 0, 0],
+                                             [-1, 0, 0, 0, 0, 0]]
+        W.wfdbquit(w)
+        # t_sortfix: an out-of-order annotation at time 0 is not lost (it is
+        # in legacy mode, as by sortann), and in legacy mode with an output
+        # directory, sortann runs in that directory
+        W.setwfdb(w, ".")
+        a = Annotation(time=0, anntyp=W.NORMAL % Int8)
+        W.wfdbquiet(w)
+        for legacy in (false, true)
+            W.wfdbx_set_legacy(w, legacy)
+            @test W.annopen(w, "100s", [Anninfo(legacy ? "l0" : "m0", WFDB_WRITE)], 1) == 0
+            for t in (5, 0, 3)
+                a.time = t
+                W.putann(w, 0, a)
+            end
+            W.wfdbquit(w)
+            W.wfdbx_set_output_dir(w, "odir")
+            @test W.annopen(w, "orec", [Anninfo(legacy ? "lsrt" : "msrt", WFDB_WRITE)], 1) == 0
+            for t in (30, 10, 20)
+                a.time = t
+                W.putann(w, 0, a)
+            end
+            W.wfdbquit(w)
+            W.wfdbx_set_output_dir(w, nothing)
+        end
+        W.wfdbx_set_legacy(w, false)
+        W.wfdbverbose(w)
+        for (name, times) in (("m0", [0, 3, 5]), ("l0", [5]))
+            @test W.annopen(w, "100s", [Anninfo(name, WFDB_READ)], 1) == 0
+            @test [annv_(w, 0) for _ in times] == [[0, t, 1, 0, 0, 0] for t in times]
+            @test annv_(w, 0)[1] == -1
+            W.wfdbquit(w)
+        end
+        @test read("odir/orec.msrt") == read("odir/orec.lsrt") ==
+              [OREC_OAT[1:end-10]; unhex("0a040a040a040000")]
+        # the setting belongs to the library state
+        @test W.wfdbx_set_output_dir(w, "odir") === nothing
+        @test W.wfdbx_get_output_dir(Wfdb()) === nothing
+    end
+end
+
+@testset "absolute paths" begin
+    with_data() do w
+        rec = joinpath(realpath(pwd()), "100s")
+        W.wfdbquiet(w)
+        @test isig(w, rec) == 2
+        @test vec_(w, 2) == [2, 995, 1011]
+        @test W.wfdbfile(w, "hea", rec) == Vector{UInt8}(rec * ".hea")
+        @test W.annopen(w, rec, [Anninfo("atr", WFDB_READ)], 1) == 0
+        @test annv_(w, 0) == [0, 18, 28, 0, 0, 0]
+        W.wfdbquit(w)
+        @test W.sampfreq(w, rec) == 360
+        W.wfdbquit(w)
+        @test isig(w, joinpath(pwd(), "nosuch")) == -1
+        W.wfdbquit(w)
+        # legacy mode: as in C, an absolute name is searched for in the WFDB
+        # path (here "./" followed by the name) ...
+        W.wfdbx_set_legacy(w, true)
+        @test isig(w, rec) == -1
+        @test W.annopen(w, rec, [Anninfo("atr", WFDB_READ)], 1) == -3
+        W.wfdbquit(w)
+        # ... unless the WFDB path has an empty component (names as given)
+        W.setwfdb(w, ";")
+        @test isig(w, rec) == 2
+        @test vec_(w, 2) == [2, 995, 1011]
+        W.wfdbquit(w)
+        W.wfdbx_set_legacy(w, false)
+        @test isig(w, rec) == 2
+        W.wfdbverbose(w)
+    end
+end
+
+@testset "write_record: dir checks first" begin
+    with_data() do w
+        x = Int32[0 1; 2 3]
+        mkdir("out")
+        for f in (W.write_record, W.write_record_physical)
+            e = try     # (no gains, fs 0)
+                f(w, "sub/rec", x, 0.0; dir="out")
+            catch err
+                err
+            end
+            @test e isa W.WfdbError &&
+                  e.msg == "record name must not contain a directory when dir is given"
+            e = try
+                f(w, "rec", x, 0.0; dir="nosuch")
+            catch err
+                err
+            end
+            @test e isa W.WfdbError && e.msg == "directory nosuch does not exist"
+            e = try
+                f(w, "rec", x, 360.0; dir="out")
+            catch err
+                err
+            end
+            @test e isa W.WfdbError && e.msg == "write_record: gains must be specified"
+        end
+        @test isempty(readdir("out"))
+    end
+end
+
+@testset "write_record dir" begin
+    with_data() do w
+        x = Int32.(reshape(0:19, 10, 2))
+        mkdir("out")
+        W.wfdbx_set_output_dir(w, "elsewhere")
+        W.write_record(w, "rec", x, 360.0; gains=200.0, adcres=12, units="mV", dir="out")
+        @test W.wfdbx_get_output_dir(w) == b"elsewhere"     # restored
+        W.wfdbx_set_output_dir(w, nothing)
+        @test sort(readdir("out")) == ["rec.dat", "rec.hea"]
+        @test !isfile("rec.hea") && !isfile("rec.dat")
+        hea = split(String(read("out/rec.hea")), "\r\n")
+        @test hea[1] == "rec 2 360 10"
+        @test startswith(hea[2], "rec.dat 16 ")
+        W.setwfdb(w, "out")
+        @test W.read_record(w, "rec").samples == x
+        W.setwfdb(w, ".")
+        W.write_record_physical(w, "phys", Float64.(x) ./ 200, 360.0; gains=200.0, adcres=12,
+                                units="mV", dir="out")
+        @test read("out/phys.dat") == read("out/rec.dat")
+        # legacy mode: the same
+        W.write_record(w, "leg", x, 360.0; dir="out", legacy=true)
+        @test startswith(String(read("out/leg.hea")), "leg 2 360 10\r\nleg.dat 16 ")
+        e = try
+            W.write_record(w, "rec", x, 360.0; gains=200.0, adcres=12, units="mV", dir="nosuch")
+        catch err
+            err
+        end
+        @test e isa W.WfdbError && e.msg == "directory nosuch does not exist"
+        e = try
+            W.write_record(w, "sub/rec", x, 360.0; gains=200.0, adcres=12, units="mV",
+                           dir="out")
+        catch err
+            err
+        end
+        @test e isa W.WfdbError && e.msg == "record name must not contain a directory when dir is given"
+        @test !isdir("nosuch") && !isdir("out/sub")
+        # restored also on errors
+        @test W.wfdbx_get_output_dir(w) === nothing
+        W.wfdbx_set_output_dir(w, "keep")
+        @test_throws W.WfdbError W.write_record(w, "r2", x, 0.0; gains=200.0, adcres=12,
+                                                units="mV", dir="out")
+        @test W.wfdbx_get_output_dir(w) == b"keep"
+        W.wfdbx_set_output_dir(w, nothing)
+    end
+end
+
 end

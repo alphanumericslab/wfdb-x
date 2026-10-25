@@ -22,7 +22,7 @@ tests = {@t_version, @t_path, @t_bufsize, @t_signals, @t_amplitude, ...
     @t_sample, @t_frames, @t_groups, @t_segments, @t_skew, @t_output, ...
     @t_info, @t_msheader, @t_counter, @t_calib, @t_annot, @t_afreq, ...
     @t_ecgstr, @t_strings, @t_maps, @t_extra, @t_flacseek, ...
-    @t_strtim_range, @t_nodefaults, @t_legacy};
+    @t_strtim_range, @t_nodefaults, @t_legacy, @t_outdir, @t_abspath};
 for k = 1:numel(tests)
     wfdbx.wfdbquit();
     wfdbx.setwfdb('.');
@@ -45,7 +45,7 @@ assert_eq(wfdbx.wfdbdefwfdbcal(), 'wfdbcal', 'wfdbdefwfdbcal');
 assert_eq(wfdbx.wfdbldflags(), '', 'wfdbldflags');
 assert_eq(wfdbx.wfdbcflags(), '', 'wfdbcflags');
 % before any error (C prints its build date)
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 saved = st.error_flag;
 st.error_flag = false;
 msg = wfdbx.wfdberror();
@@ -70,7 +70,7 @@ end
 function t_path()
 % resetwfdb restores the path returned by the first getwfdb (here, as in a
 % fresh process with WFDB=. in the environment); wfdbquit calls it.
-st = wfdbx.internal.iostate();
+st = wfdbx.internal.io_state();
 saved = {st.wfdbpath, st.wfdbpath_init};
 st.wfdbpath = [];
 st.wfdbpath_init = [];
@@ -603,7 +603,7 @@ end
 function t_strings()
 % (the flags of modified codes and the NULL descriptions, which no library
 % function restores, are restored from a copy of the state)
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 saved = {st.astring, st.tstring, st.modified};
 q = onCleanup(@() strings_end(saved)); %#ok<NASGU>
 assert_eq(wfdbx.setannstr(5, 'pvc'), 0, 'setannstr 5');
@@ -664,7 +664,7 @@ end
 
 function strings_end(saved)
 wfdbx.wfdbverbose();
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 st.astring = saved{1};
 st.tstring = saved{2};
 st.modified = saved{3};
@@ -773,6 +773,185 @@ wfdbx.isigopen('multi', 8);
 assert_eq(wfdbx.isigsettime(100), 0, 'isigsettime multi 100');
 assert_eq(wfdbx.tnextvec(0, 21650), 23450, 'tnextvec multi 0 21650');
 assert_eq(vec(2), [2 969 996], 'multi getvec');
+end
+
+function t_outdir()
+% wfdb-x: the output directory (wfdbx_set_output_dir), and the in-process
+% sorting of an annotation file written there (t_outdir of api_expect.c)
+st = wfdbx.internal.ann_state();
+saved = {st.astring, st.tstring, st.modified};
+q = onCleanup(@() outdir_end(saved)); %#ok<NASGU>
+wfdbx.setcfreq(0);      % (these survive wfdbquit)
+wfdbx.setafreq(0);
+% (the annotation type table, as left by t_strings in api_expect.c)
+wfdbx.setanndesc(15, 'my description');
+wfdbx.setannstr(42, 'new');
+wfdbx.setanndesc(42, '');
+assert_eq(wfdbx.wfdbx_get_output_dir(), [], 'wfdbx_get_output_dir default');
+mkdir('odir');
+assert_eq(wfdbx.wfdbx_set_output_dir('odir'), [], 'wfdbx_set_output_dir');
+assert_eq(wfdbx.wfdbx_get_output_dir(), 'odir', 'wfdbx_get_output_dir');
+si = wfdbx.siginfo(1);
+si.fname = 'orec.dat';
+si.desc = 'sig';
+si.gain = 200;
+si.fmt = 16;
+si.adcres = 12;
+wfdbx.setsampfreq(100);
+assert_eq(wfdbx.osigfopen(si, 1), 1, 'osigfopen in odir');
+for i = 0:2
+    wfdbx.putvec(10 * i - 7);
+end
+assert_eq(wfdbx.newheader('orec'), 0, 'newheader in odir');
+assert_eq(wfdbx.annopen('orec', wfdbx.anninfo('oat', 1), 1), 0, ...
+    'annopen in odir');
+a = wfdbx.annotation();
+t = [30 10 20 10 5];                    % out of order, with a duplicate
+for i = 1:5
+    a.time = t(i);
+    a.anntyp = wfdbx.NORMAL();
+    if i == 4
+        a.anntyp = wfdbx.PVC();
+    end
+    wfdbx.putann(0, a);
+end
+wfdbx.wfdbquiet();
+wfdbx.wfdbquit();
+wfdbx.wfdbverbose();
+assert_eq(wfdbx.wfdbx_set_output_dir(''), 'odir', 'wfdbx_set_output_dir ''''');
+assert_eq(wfdbx.wfdbx_get_output_dir(), [], 'wfdbx_get_output_dir none');
+assert_eq(wfdbx.wfdbx_set_output_dir('odir2'), [], 'wfdbx_set_output_dir odir2');
+assert_eq(wfdbx.wfdbx_set_output_dir([]), 'odir2', 'wfdbx_set_output_dir []');
+assert_eq(wfdbx.wfdbx_get_output_dir(), [], 'wfdbx_get_output_dir none');
+assert_eq(char(readfile('odir/orec.hea')), ...
+    sprintf('orec 1 100 3\r\norec.dat 16 200 12 0 -7 9 0 sig\r\n'), ...
+    'odir/orec.hea');
+assert_eq(readfile('odir/orec.dat'), unhex('f9ff03000d00'), 'odir/orec.dat');
+assert_eq(readfile('odir/orec.oat'), [unhex('0058 1efc') ...
+    uint8('## annotation type definitions') unhex('0058 16fc') ...
+    uint8('15 [15] my description') unhex('0058 07fc') uint8('42 new ') ...
+    unhex('00 0058 15fc') uint8('## end of definitions') ...
+    unhex('0000 ecff ffff ff01 0005 0405 140a 040a 0400 00')], ...
+    'odir/orec.oat (sorted)');
+assert(~isfile('orec.hea'), 'no orec.hea in the current directory');
+% a missing output directory is created (as are the missing directories
+% of any output file name)
+wfdbx.wfdbx_set_output_dir('newdir');
+assert_eq(wfdbx.osigfopen(si, 1), 1, 'osigfopen in newdir');
+assert_eq(wfdbx.annopen('orec', wfdbx.anninfo('oat', 1), 1), 0, ...
+    'annopen in newdir');
+wfdbx.wfdbquit();
+wfdbx.wfdbx_set_output_dir([]);
+assert_eq([fsize('newdir/orec.dat'), fsize('newdir/orec.oat')], [0 2], ...
+    'files in newdir');
+% reading the record from the output directory
+wfdbx.setwfdb('odir');
+assert_eq(wfdbx.isigopen('orec', 8), 1, 'isigopen orec');
+assert_eq([vec(1); vec(1); vec(1)], [1 -7; 1 3; 1 13], 'getvec orec');
+assert_eq(wfdbx.annopen('orec', wfdbx.anninfo('oat', 0), 1), 0, ...
+    'annopen orec');
+assert_eq([ann(0); ann(0); ann(0); ann(0); ann(0)], [0 5 1 0 0 0; ...
+    0 10 5 0 0 0; 0 20 1 0 0 0; 0 30 1 0 0 0; -1 0 0 0 0 0], 'getann orec');
+wfdbx.wfdbquit();
+wfdbx.setwfdb('.');     % (resetwfdb in api_expect.c, with WFDB=.)
+% t_sortfix: an out-of-order annotation at time 0 is not lost (it is in
+% legacy mode, as by sortann), and in legacy mode with an output
+% directory, sortann runs in that directory
+if ~wfdbx.internal.is_octave()          % (the sortann driver for Octave)
+    return;
+end
+a = wfdbx.annotation();
+a.anntyp = wfdbx.NORMAL();
+wfdbx.wfdbquiet();
+names = {'m0', 'msrt'; 'l0', 'lsrt'};
+for legacy = 0:1
+    wfdbx.wfdbx_set_legacy(legacy);
+    assert_eq(wfdbx.annopen('100s', wfdbx.anninfo(names{legacy+1, 1}, 1), ...
+        1), 0, 'annopen t_sortfix');
+    for t = [5 0 3]
+        a.time = t;
+        wfdbx.putann(0, a);
+    end
+    wfdbx.wfdbquit();
+    wfdbx.wfdbx_set_output_dir('odir');
+    assert_eq(wfdbx.annopen('orec', wfdbx.anninfo(names{legacy+1, 2}, 1), ...
+        1), 0, 'annopen t_sortfix odir');
+    for t = [30 10 20]
+        a.time = t;
+        wfdbx.putann(0, a);
+    end
+    wfdbx.wfdbquit();
+    wfdbx.wfdbx_set_output_dir([]);
+end
+wfdbx.wfdbx_set_legacy(0);
+wfdbx.wfdbverbose();
+times = {[0 3 5], 5};
+for k = 1:2
+    assert_eq(wfdbx.annopen('100s', wfdbx.anninfo(names{k, 1}, 0), 1), 0, ...
+        'annopen t_sortfix read');
+    for t = times{k}
+        assert_eq(ann(0), [0 t 1 0 0 0], ['getann ' names{k, 1}]);
+    end
+    r = ann(0);
+    assert_eq(r(1), -1, ['end of ' names{k, 1}]);
+    wfdbx.wfdbquit();
+end
+srt = [unhex('0058 1efc') ...
+    uint8('## annotation type definitions') unhex('0058 16fc') ...
+    uint8('15 [15] my description') unhex('0058 07fc') uint8('42 new ') ...
+    unhex('00 0058 15fc') uint8('## end of definitions') ...
+    unhex('0000 ecff ffff ff01 000a 040a 040a 0400 00')];
+assert_eq(readfile('odir/orec.msrt'), srt, 'odir/orec.msrt');
+assert_eq(readfile('odir/orec.lsrt'), srt, 'odir/orec.lsrt (legacy, in odir)');
+end
+
+function outdir_end(saved)
+wfdbx.wfdbquit();
+wfdbx.wfdbx_set_legacy(0);
+wfdbx.wfdbx_set_output_dir([]);
+wfdbx.wfdbverbose();
+strings_end(saved);
+end
+
+function t_abspath()
+% wfdb-x: a record named by an absolute path is opened directly (in legacy
+% mode, it is searched for in the WFDB path, as in C)
+rec = [pwd() '/100s'];
+wfdbx.wfdbquiet();
+q = onCleanup(@() abspath_end()); %#ok<NASGU>
+assert_eq(wfdbx.isigopen(rec, 8), 2, 'isigopen absolute');
+assert_eq(vec(2), [2 995 1011], 'getvec absolute');
+assert_eq(wfdbx.wfdbfile('hea', rec), [rec '.hea'], 'wfdbfile absolute');
+assert_eq(wfdbx.annopen(rec, wfdbx.anninfo('atr', 0), 1), 0, ...
+    'annopen absolute');
+assert_eq(ann(0), [0 18 28 0 0 0], 'getann absolute');
+wfdbx.wfdbquit();
+assert_eq(wfdbx.sampfreq(rec), 360, 'sampfreq absolute');
+wfdbx.wfdbquit();
+assert_eq(wfdbx.isigopen([pwd() '/nosuch'], 8), -1, 'isigopen absolute nosuch');
+wfdbx.wfdbquit();
+% legacy mode: as in C, an absolute name is searched for in the WFDB path
+% (here './' + the name) ...
+wfdbx.wfdbx_set_legacy(1);
+assert_eq(wfdbx.isigopen(rec, 8), -1, 'isigopen absolute, legacy');
+assert_eq(wfdbx.annopen(rec, wfdbx.anninfo('atr', 0), 1), -3, ...
+    'annopen absolute, legacy');
+wfdbx.wfdbquit();
+% ... unless the WFDB path has an empty component
+wfdbx.setwfdb(';');
+assert_eq(wfdbx.isigopen(rec, 8), 2, 'isigopen absolute, legacy, WFDB ;');
+assert_eq(vec(2), [2 995 1011], 'getvec absolute, legacy, WFDB ;');
+wfdbx.wfdbquit();
+wfdbx.wfdbx_set_legacy(0);
+assert_eq(wfdbx.isigopen(rec, 8), 2, 'isigopen absolute, WFDB ;');
+wfdbx.wfdbquit();
+end
+
+function abspath_end()
+wfdbx.wfdbquit();
+wfdbx.wfdbx_set_legacy(0);
+wfdbx.setwfdb('.');
+wfdbx.wfdbverbose();
 end
 
 % ---------------------------------------------------------------------------

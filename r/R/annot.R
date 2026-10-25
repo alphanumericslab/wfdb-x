@@ -8,6 +8,17 @@
 # R implementation part of wfdb-x, Reza Sameni, Oct 2026.
 # GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 #
+# wfdb-x: oannclose rearranges an out-of-order output annotation file itself,
+# in the same process (.ann_sort_file), with a result identical to that of
+# the sortann program, which the C library ran through the shell (and found
+# only if it was in the PATH); decided by Reza Sameni after a code review,
+# Oct 2026.  The original behavior remains available with --legacy (see
+# docs/DIVERGENCES.md).
+# wfdb-x: the sort (as the sortann tool) no longer loses an out-of-order
+# annotation at time 0 (num 0, chan 0), nor those inserted after it, as
+# sortann did (decided by Reza Sameni, Oct 2026; --legacy keeps the
+# original).
+#
 # Design (as in the MATLAB/Octave port): an input annotation file is read
 # completely when it is opened and decoded with vector operations
 # (.ann_parse) into the sequence of values that the C library's "current
@@ -527,6 +538,11 @@ getann <- function(an) {
     wfdb_error("getann: can't read annotator %d\n", an)
     return(list(stat = -2, annot = NULL))
   }
+  .ann_getann_ia(ia)
+}
+
+# The body of getann (wfdb-x), for the input annotator ia.
+.ann_getann_ia <- function(ia) {
   P <- ia$P
   j <- ia$k + 1L
   if (ia$pann$anntyp == 0 && ia$ateof == 0 && ia$auxpos < 0L && j <= P$N && !P$aha &&
@@ -558,10 +574,11 @@ getann <- function(an) {
 #' strings are not returned (aux is an empty list).  With nofail = TRUE the
 #' failing call is not made: stat is then 1 if fewer than m annotations
 #' could be read (the next getann call will fail and print any message).
-.getann_bulk <- function(an, m, noaux = FALSE, nofail = FALSE) {
+#' ia: the input annotator (by default, number an; .ann_sort_file passes a
+#' private one).
+.getann_bulk <- function(an, m, noaux = FALSE, nofail = FALSE, ia = .ann_ia(an)) {
   res <- list(stat = 0, time = numeric(0), anntyp = numeric(0), subtyp = numeric(0),
               chan = numeric(0), num = numeric(0), aux = list())
-  ia <- .ann_ia(an)
   if (is.null(ia)) {
     if (m > 0) {
       wfdb_error("getann: can't read annotator %d\n", an)
@@ -709,6 +726,12 @@ ungetann <- function(an, annot) {
     wfdb_error("ungetann: annotation at %d, annotator %d not pushed back\n", annot$time, an)
     return(-1)
   }
+  .ann_ungetann_ia(ia, annot)
+}
+
+# The body of ungetann (wfdb-x), after its checks, for the input annotator
+# ia (whose pushback buffer is empty).
+.ann_ungetann_ia <- function(ia, annot) {
   a <- annotation()
   for (f in c("time", "anntyp", "subtyp", "chan", "num")) if (!is.null(annot[[f]])) a[[f]] <- annot[[f]]
   a["aux"] <- list(annot$aux)
@@ -763,14 +786,22 @@ iannsettime <- function(t) {
 
 # Read the modification labels at the start of input annotator i (0-based).
 .ann_gettable <- function(i) {
-  ia <- .ann$iad[[i + 1L]]
+  if (.ann_read_table(.ann$iad[[i + 1L]], .ann) < 0) return(-1)
+  setiafreq(i, getifreq())
+  0
+}
+
+# The body of .ann_gettable (wfdb-x), for the input annotator ia and the
+# definition table defs (an environment with the fields astring, tstring
+# and modified: .ann, the library's, or that of .ann_sort_file).
+.ann_read_table <- function(ia, defs) {
   ia$tmul <- 1
   ia$afreq <- 0
-  r <- getann(i)
+  r <- .ann_getann_ia(ia)
   if (r$stat < 0) return(-1)
   annot <- r$annot
   repeat {
-    r <- getann(i)
+    r <- .ann_getann_ia(ia)
     if (r$stat != 0) break
     annot <- r$annot
     if (!(annot$time == 0 && annot$anntyp == NOTE && annot$subtyp == 0)) break
@@ -797,55 +828,108 @@ iannsettime <- function(t) {
     while (p2 <= n && b[p2] != 32L && b[p2] != 9L) p2 <- p2 + 1L
     if (p2 != p1) {
       if (p2 <= n) {
-        setanndesc(a, if (p2 < n) rawToChar(as.raw(b[(p2 + 1L):n])) else "")
+        .ann_set_def(defs, "tstring", a, if (p2 < n) rawToChar(as.raw(b[(p2 + 1L):n])) else "")
       } else {
-        setanndesc(a, NULL)
+        .ann_set_def(defs, "tstring", a, NULL)
       }
-      setannstr(a, rawToChar(as.raw(b[p1:(p2 - 1L)])))
+      .ann_set_def(defs, "astring", a, rawToChar(as.raw(b[p1:(p2 - 1L)])))
     }
   }
   if (annot$time != 0 || annot$anntyp != NOTE || annot$subtyp != 0 || is.null(annot$aux))
-    ungetann(i, annot)
-  setiafreq(i, getifreq())
+    .ann_ungetann_ia(ia, annot)
   0
 }
 
-# Write the modification labels at the start of output annotator i.
-.ann_puttable <- function(i) {
-  oa <- .ann$oad[[i + 1L]]
+# Write the modification labels at the start of the output annotator oa
+# (number n, in messages), with the time resolution freq and the definition
+# table defs (see .ann_read_table).  (wfdb-x: the C library used oad[n],
+# oafreq and the library's table.)
+.ann_put_table <- function(oa, n, freq, defs) {
   flag <- 0
   annot <- annotation(0, NOTE, 0, 0, 0, NULL)
-  oafreq <- .ann$oafreq
-  if (oafreq != oa$afreq && oafreq > 0) {
-    annot$aux <- .aux_from(csprintf("## time resolution: %.12g", oafreq))
-    oa$afreq <- oafreq
-    if (putann(i, annot) < 0) return(-1)
+  if (freq != oa$afreq && freq > 0) {
+    annot$aux <- .aux_from(csprintf("## time resolution: %.12g", freq))
+    oa$afreq <- freq
+    if (.ann_put_word(oa, n, annot) < 0) return(-1)
     flag <- 1
   }
   for (a in 0:ACMAX) {
-    if (.ann$modified[a + 1L]) {
+    if (defs$modified[a + 1L]) {
       if (flag < 2) {
         annot$aux <- .aux_from("## annotation type definitions")
-        if (putann(i, annot) < 0) return(-1)
+        if (.ann_put_word(oa, n, annot) < 0) return(-1)
       }
-      d <- anndesc(a)
-      st <- if (!is.null(d)) csprintf("%d %s %s", a, annstr(a), d) else
-        csprintf("%d %s ", a, annstr(a))
+      d <- defs$tstring[a + 1L]
+      st <- if (!is.na(d)) csprintf("%d %s %s", a, defs$astring[a + 1L], d) else
+        csprintf("%d %s ", a, defs$astring[a + 1L])
       annot$aux <- c(as.raw(min(length(st), 255L)), st)
-      if (putann(i, annot) < 0) return(-1)
+      if (.ann_put_word(oa, n, annot) < 0) return(-1)
       flag <- 2
     }
   }
   if (flag == 2) {
     annot$aux <- .aux_from("## end of definitions")
-    if (putann(i, annot) < 0) return(-1)
+    if (.ann_put_word(oa, n, annot) < 0) return(-1)
   }
   if (flag) {
     annot$anntyp <- 0
     annot["aux"] <- list(NULL)
-    if (putann(i, annot) < 0) return(-1)
+    if (.ann_put_word(oa, n, annot) < 0) return(-1)
   }
   0
+}
+
+# The format of an annotation file whose bytes are D (raw): WFDB_READ (MIT)
+# or WFDB_AHA_READ, from its first word.  (wfdb-x: this was part of
+# annopen.)  AHA-format files begin with a null byte and an ASCII character
+# which is one of the legal AHA annotation codes other than '[' or ']'.
+.ann_file_format <- function(D) {
+  w <- if (length(D) >= 2L) as.integer(D[1L]) + 256L * as.integer(D[2L]) else
+    if (length(D) == 1L) as.integer(D[1L]) + 65280L else .A_WEOF
+  a <- w %/% 256L
+  if (w %% 256L != 0L || ammap(a) == NOTQRS || a == 91L || a == 93L) WFDB_READ else
+    WFDB_AHA_READ
+}
+
+# A new input annotator (an environment) for the file f (or NULL), named
+# name, whose contents D (raw) are in format stat.
+.ann_new_ia <- function(f, name, stat, D) {
+  ia <- new.env(parent = emptyenv())
+  ia$file <- f
+  ia$name <- name
+  ia$stat <- stat
+  ia$P <- .ann_parse(D, stat == WFDB_AHA_READ)
+  ia$k <- 0L
+  ia$ateof <- 0
+  ia$tmul <- 0
+  ia$afreq <- 0
+  ia$ann <- annotation()
+  ia$ann_tt <- 0
+  ia$pann <- annotation()
+  ia$pann_tt <- 0
+  ia$prev_tt <- 0
+  ia$prev_time <- 0
+  ia$buf <- integer(.A_AUXBUFLEN)
+  ia$index <- 0L
+  ia$auxpos <- -1L
+  ia
+}
+
+# A new output annotator (an environment) for the file f, named name, in
+# format stat; record: the record name, fname: the name of the file.
+.ann_new_oa <- function(f, name, stat, record = NULL, fname = NULL) {
+  oa <- new.env(parent = emptyenv())
+  oa$file <- f
+  oa$name <- name
+  oa$stat <- stat
+  oa$rname <- record
+  oa$fname <- fname
+  oa$ann <- annotation()
+  oa$afreq <- 0
+  oa$seqno <- 0
+  oa$out_of_order <- 0
+  oa$table_written <- 0
+  oa
 }
 
 #' Open the annotation files of a record.  aiarray is an anninfo() (or a
@@ -882,10 +966,7 @@ annopen <- function(record, aiarray, nann = NULL) {
         return(-3)
       }
       D <- wf_readall(f)
-      w <- if (length(D) >= 2L) as.integer(D[1L]) + 256L * as.integer(D[2L]) else
-        if (length(D) == 1L) as.integer(D[1L]) + 65280L else .A_WEOF
-      a <- w %/% 256L
-      if (w %% 256L != 0L || ammap(a) == NOTQRS || a == 91L || a == 93L) {
+      if (.ann_file_format(D) == WFDB_READ) {
         if (ai$stat != WFDB_READ) {
           wfdb_error("warning (annopen, annotator %s, record %s):\n", ai$name, record)
           wfdb_error(" file appears to be in MIT format\n")
@@ -900,24 +981,7 @@ annopen <- function(record, aiarray, nann = NULL) {
         }
         istat <- WFDB_AHA_READ
       }
-      ia <- new.env(parent = emptyenv())
-      ia$file <- f
-      ia$name <- ai$name
-      ia$stat <- istat
-      ia$P <- .ann_parse(D, istat == WFDB_AHA_READ)
-      ia$k <- 0L
-      ia$ateof <- 0
-      ia$tmul <- 0
-      ia$afreq <- 0
-      ia$ann <- annotation()
-      ia$ann_tt <- 0
-      ia$pann <- annotation()
-      ia$pann_tt <- 0
-      ia$prev_tt <- 0
-      ia$prev_time <- 0
-      ia$buf <- integer(.A_AUXBUFLEN)
-      ia$index <- 0L
-      ia$auxpos <- -1L
+      ia <- .ann_new_ia(f, ai$name, istat, D)
       iad <- .ann$iad
       iad[[length(iad) + 1L]] <- ia
       .ann$iad <- iad
@@ -929,16 +993,8 @@ annopen <- function(record, aiarray, nann = NULL) {
         wfdb_error("annopen: can't write annotator %s for record %s\n", ai$name, record)
         return(-4)
       }
-      oa <- new.env(parent = emptyenv())
-      oa$file <- f
-      oa$name <- ai$name
-      oa$stat <- ai$stat
-      oa$rname <- record
-      oa$ann <- annotation()
-      oa$afreq <- 0
-      oa$seqno <- 0
-      oa$out_of_order <- 0
-      oa$table_written <- 0
+      # (wfdb-x: the name of the file as created, for .ann_sort_file)
+      oa <- .ann_new_oa(f, ai$name, ai$stat, record, wfdbfile(NULL, NULL))
       oad <- .ann$oad
       oad[[length(oad) + 1L]] <- oa
       .ann$oad <- oad
@@ -967,8 +1023,9 @@ iannclose <- function(n) {
 }
 
 #' Close output annotator n (writing the end-of-file marker; if the
-#' annotations were written out of order, they are sorted by running the
-#' sortann tool, unless WFDBANNSORT is 0).
+#' annotations were written out of order, they are sorted, unless
+#' WFDBANNSORT is 0: in this process; in legacy mode, by running the
+#' sortann tool, as the C library does).
 oannclose <- function(n) {
   oa <- .ann_oa(n)
   if (is.null(oa) || is.null(oa$file)) return(invisible())
@@ -991,10 +1048,10 @@ oannclose <- function(n) {
     if (!is.null(p)) dosort <- strtol(p)[1L]
     if (dosort) {
       wfdb_error("Rearranging annotations for output annotator %s ...", oa$name)
-      cmd <- paste(tool_command("sortann"), "-r.", shell_quote(oa$rname), "-a",
-                   shell_quote(oa$name))
-      cout()
-      st <- tryCatch(suppressWarnings(system(cmd)), error = function(e) -1)
+      # wfdb-x: the file is sorted in this process; the C library ran the
+      # sortann program, as legacy mode does.
+      st <- if (wfdbx_get_legacy()) .ann_run_sortann(oa$rname, oa$name) else
+        .ann_sort_file(oa$fname, oa$name)
       if (st == 0) {
         wfdb_error("done!\n")
         oa$out_of_order <- 0
@@ -1013,6 +1070,160 @@ oannclose <- function(n) {
   oad[[n + 1L]] <- NULL
   .ann$oad <- oad
   invisible()
+}
+
+# Run the sortann tool on annotator aname of record rname in a new process
+# (legacy mode: as the C library's system("sortann -r. REC -a ANN")); its
+# exit status, or -1.  wfdb-x: base R cannot run a program without a shell
+# (system2, too, passes a command line to /bin/sh on POSIX systems), so the
+# arguments are quoted for the shell instead.  wfdb-x: the child runs with
+# --legacy (as the original program) and, with an output directory, in that
+# directory (where the file is).
+.ann_run_sortann <- function(rname, aname) {
+  cmd <- paste(tool_command("sortann"), "--legacy -r.", shell_quote(rname), "-a",
+               shell_quote(aname))
+  odir <- wfdbx_get_output_dir()
+  if (!is.null(odir)) cmd <- paste("cd", shell_quote(odir), "&&", cmd)
+  cout()
+  tryCatch(suppressWarnings(system(cmd)), error = function(e) -1)
+}
+
+# ---------------------------------------------------------------------------
+# wfdb-x: in-process sorting of an output annotation file
+
+# The order of the annotations (indices into T, N, C: time, num, chan)
+# after inserting them in turn into the list of sortann.c (insert_ann; used
+# by .ann_sort_file and the sortann tool); in_order is FALSE if some
+# annotation was inserted out of order.  wfdb-x: unless legacy is TRUE, the
+# head is never compared with an annotation: sortann.c compared it, and took
+# an out-of-order annotation at time 0 (num 0, chan 0) for a duplicate of
+# it, linking it where the output never reaches it (losing it, and the
+# annotations later inserted after it); here such an annotation is inserted
+# at the beginning.
+.ann_sort_order <- function(T, N, C, legacy = FALSE) {
+  n <- length(T)
+  if (n == 0L) return(list(order = integer(0), in_order = TRUE))
+  if (n == 1L) return(list(order = 1L, in_order = TRUE))
+  k <- 2:n
+  gt <- T[k] > T[k - 1L] | (T[k] == T[k - 1L] & N[k] > N[k - 1L]) |
+    (T[k] == T[k - 1L] & N[k] == N[k - 1L] & C[k] > C[k - 1L])
+  if (all(gt)) return(list(order = seq_len(n), in_order = TRUE))
+  # node 1 is the list head (an all-zero annotation, which takes part in
+  # comparisons as in sortann.c only if legacy); node j + 1 is annotation
+  # j; 0 is NULL
+  TT <- c(0, T)
+  NN <- c(0, N)
+  CC <- c(0, C)
+  nxt <- integer(n + 1L)
+  prv <- integer(n + 1L)
+  head <- 1L
+  lastp <- head
+  in_order <- TRUE
+  for (j in seq_len(n)) {
+    new <- j + 1L
+    t <- TT[new]
+    nm <- NN[new]
+    ch <- CC[new]
+    last <- lastp
+    if (last == head || t > TT[last] || (t == TT[last] && nm > NN[last]) ||
+        (t == TT[last] && nm == NN[last] && ch > CC[last])) {
+      prv[new] <- last
+      nxt[last] <- new
+      lastp <- new
+      nxt[new] <- 0L
+      next
+    }
+    in_order <- FALSE
+    ap <- last
+    while (ap != 0L) {
+      if (ap == head && !legacy) {        # wfdb-x (see above)
+        ap <- 0L
+        break
+      }
+      if (t > TT[ap] || (t == TT[ap] && nm > NN[ap]) ||
+          (t == TT[ap] && nm == NN[ap] && ch >= CC[ap])) break
+      ap <- prv[ap]
+    }
+    if (ap == 0L) {
+      prv[new] <- 0L
+      nxt[new] <- nxt[head]
+      nxt[head] <- new
+      prv[nxt[new]] <- new
+    } else if (t == TT[ap] && nm == NN[ap] && ch == CC[ap]) {
+      prv[new] <- prv[ap]
+      if (prv[new] != 0L) nxt[prv[new]] <- new
+      nxt[new] <- nxt[ap]
+      if (nxt[new] != 0L) prv[nxt[new]] <- new else lastp <- new
+      # If ap was the first entry of the list but its 'prev' link does not
+      # lead back to the list head (an entry inserted at the beginning gets
+      # a null link, and one whose predecessor replaced the head is
+      # detached), C leaves the head pointing to the freed entry (undefined
+      # behavior): here the head is updated, so that the duplicate is
+      # replaced (see docs/KNOWN_C_BEHAVIORS.md).
+      if (ap != head && nxt[head] == ap) nxt[head] <- new
+    } else {
+      prv[new] <- ap
+      nxt[new] <- nxt[ap]
+      nxt[ap] <- new
+      prv[nxt[new]] <- new
+    }
+  }
+  ord <- integer(n)
+  m <- 0L
+  p <- nxt[head]
+  while (p != 0L) {
+    m <- m + 1L
+    ord[m] <- p - 1L
+    p <- nxt[p]
+  }
+  list(order = ord[seq_len(m)], in_order = in_order)
+}
+
+# Rearrange the annotations of the (closed) annotation file fname of
+# annotator aname in the canonical order (wfdb-x).  The result is
+# identical, byte for byte, to that of the sortann program (the wfdb-x one;
+# the original lost an out-of-order annotation at time 0, see
+# .ann_sort_order) as the C library ran it ("sortann -r. RECORD -a ANNOTATOR", see oannclose), but the header
+# of the record is not looked up.  As sortann does, the file is read (with
+# any time resolution and annotation type definitions it contains), its
+# annotations at nonnegative times are ordered as insert_ann in sortann.c
+# does (.ann_sort_order), and, unless they were already in order, the file
+# is rewritten in MIT format, with the time resolution of the input file (if
+# any) and without the NOTQRS annotations.  Its own reader, writer and
+# definition table are used (the library's annotators and tables are not
+# changed).  Returns 0 on success, or -1 if the file cannot be read or
+# written.
+.ann_sort_file <- function(fname, aname) {
+  defs <- new.env(parent = emptyenv())   # (the default table)
+  defs$astring <- .ANN_DEFAULT_MNEMONICS
+  defs$tstring <- .ANN_DEFAULT_DESC
+  defs$modified <- logical(ACMAX + 1)
+  f <- wfdb_fopen(fname, "rb")
+  if (is.null(f)) return(-1)
+  D <- wf_readall(f)
+  wf_close(f)
+  ia <- .ann_new_ia(NULL, aname, .ann_file_format(D), D)
+  .ann_read_table(ia, defs)
+  A <- .getann_bulk(0, Inf, ia = ia)
+  if (A$stat != -1) return(-1)            # (-1: the logical end of the file)
+  idx <- which(A$time >= 0)               # (sortann's -f time is 0)
+  so <- .ann_sort_order(A$time[idx], A$num[idx], A$chan[idx])
+  if (so$in_order) return(0)
+  oa <- .ann_new_oa(wfdb_fopen(fname, "wb"), aname, WFDB_WRITE)
+  if (is.null(oa$file)) return(-1)
+  k <- idx[so$order]
+  k <- k[A$anntyp[k] != NOTQRS]
+  ok <- TRUE
+  if (length(k)) {
+    oa$table_written <- 1
+    ok <- .ann_put_table(oa, 0, ia$afreq, defs) == 0 &&
+      .putann_bulk(0, list(time = A$time[k], anntyp = A$anntyp[k], subtyp = A$subtyp[k],
+                           chan = A$chan[k], num = A$num[k], aux = A$aux[k]), oa = oa) >= 0
+  }
+  wf_p16(oa$file, 0)
+  if (wf_ferror(oa$file)) ok <- FALSE
+  if (wf_close(oa$file) != 0) ok <- FALSE
+  if (ok) 0 else -1
 }
 
 #' Close all annotators (called by wfdbquit).
@@ -1039,11 +1250,23 @@ putann <- function(an, annot) {
     wfdb_error("putann: can't write annotation file %d\n", an)
     return(-2)
   }
-  t <- annot$time
+  .ann_putann_oa(oa, an, annot)
+}
+
+# The body of putann (wfdb-x), for the output annotator oa (number an, in
+# messages).
+.ann_putann_oa <- function(oa, an, annot) {
   if (!oa$table_written) {
     oa$table_written <- 1
-    if (.ann_puttable(an) < 0) return(-1)
+    if (.ann_put_table(oa, an, .ann$oafreq, .ann) < 0) return(-1)
   }
+  .ann_put_word(oa, an, annot)
+}
+
+# The body of putann after the table (wfdb-x): write annot to the output
+# annotator oa (number an, in messages).
+.ann_put_word <- function(oa, an, annot) {
+  t <- annot$time
   f <- oa$file
   prev <- oa$ann
   pt <- prev$time
@@ -1137,8 +1360,9 @@ putann <- function(an, annot) {
 #' num and aux (a list of NULL or raw vectors, or NULL for none), as
 #' returned by .getann_bulk.  Returns the status of the last call (0 on
 #' success), or the first negative status.  MIT-format output is encoded
-#' with vector operations.
-.putann_bulk <- function(an, A) {
+#' with vector operations.  oa: the output annotator (by default, number an;
+#' .ann_sort_file passes a private one).
+.putann_bulk <- function(an, A, oa = .ann_oa(an)) {
   n <- length(A$time)
   stat <- 0
   if (n == 0L) return(0)
@@ -1148,17 +1372,18 @@ putann <- function(an, annot) {
   A$chan <- rep_n(A$chan)
   A$num <- rep_n(A$num)
   if (is.null(A$aux)) A$aux <- vector("list", n)
+  valid <- !is.null(oa) && !is.null(oa$file)
   scalar <- function(idx) {
     st <- 0
     for (k in idx) {
-      s <- putann(an, list(time = A$time[k], anntyp = A$anntyp[k], subtyp = A$subtyp[k],
-                           chan = A$chan[k], num = A$num[k], aux = A$aux[[k]]))
+      a <- list(time = A$time[k], anntyp = A$anntyp[k], subtyp = A$subtyp[k],
+                chan = A$chan[k], num = A$num[k], aux = A$aux[[k]])
+      s <- if (valid) .ann_putann_oa(oa, an, a) else putann(an, a)
       if (st == 0 || s < 0) st <- s
     }
     st
   }
-  oa <- .ann_oa(an)
-  if (is.null(oa) || is.null(oa$file)) return(scalar(seq_len(n)))
+  if (!valid) return(scalar(seq_len(n)))
   first <- 1L
   if (!oa$table_written) {
     stat <- scalar(1L)
@@ -1301,18 +1526,27 @@ strann <- function(s) {
 #' (written as a modification label at the start of output annotation
 #' files), a negative one (-code) does not.
 setannstr <- function(code, s) {
+  if (.ann_set_def(.ann, "astring", code, s) == 0) return(0)
+  wfdb_error("setannstr: illegal annotation code %d\n", abs(code))
+  -1
+}
+
+# The body of setannstr and setanndesc (wfdb-x), for the string table
+# defs[[field]] ("astring": mnemonics, "tstring": descriptions) and the
+# modification flags of a definition table defs (see .ann_read_table).
+# Returns 0, or -1 if code is illegal.
+.ann_set_def <- function(defs, field, code, s) {
   mflag <- code > 0
   if (!mflag) code <- -code
-  if (code <= ACMAX) {
-    if (is.null(s)) s <- ""
-    if (is.na(.ann$astring[code + 1]) || .ann$astring[code + 1] != s) {
-      .ann$astring[code + 1] <- s
-      if (mflag) .ann$modified[code + 1] <- TRUE
-    }
-    return(0)
+  if (code > ACMAX) return(-1)
+  if (is.null(s)) s <- ""
+  tab <- defs[[field]]
+  if (is.na(tab[code + 1]) || tab[code + 1] != s) {
+    tab[code + 1] <- s
+    defs[[field]] <- tab
+    if (mflag) defs$modified[code + 1] <- TRUE
   }
-  wfdb_error("setannstr: illegal annotation code %d\n", code)
-  -1
+  0
 }
 
 #' The description of an annotation code (NULL if it has none).
@@ -1326,17 +1560,8 @@ anndesc <- function(code) {
 
 #' Redefine the description of a code (see setannstr for negative codes).
 setanndesc <- function(code, s) {
-  mflag <- code > 0
-  if (!mflag) code <- -code
-  if (code <= ACMAX) {
-    if (is.null(s)) s <- ""
-    if (is.na(.ann$tstring[code + 1]) || .ann$tstring[code + 1] != s) {
-      .ann$tstring[code + 1] <- s
-      if (mflag) .ann$modified[code + 1] <- TRUE
-    }
-    return(0)
-  }
-  wfdb_error("setanndesc: illegal annotation code %d\n", code)
+  if (.ann_set_def(.ann, "tstring", code, s) == 0) return(0)
+  wfdb_error("setanndesc: illegal annotation code %d\n", abs(code))
   -1
 }
 

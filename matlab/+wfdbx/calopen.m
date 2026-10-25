@@ -38,7 +38,7 @@ if isempty(f)
     stat = -2;
     return;
 end
-st = wfdbx.internal.calstate();
+st = wfdbx.internal.cal_state();
 tab = char(9);
 ws = sprintf(' \t');
 while true

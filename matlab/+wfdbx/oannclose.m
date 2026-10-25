@@ -2,18 +2,28 @@ function oannclose(an)
 %OANNCLOSE Close an output annotator.
 %   wfdbx.oannclose(AN) writes the end of file marker of output annotator
 %   AN and closes it; the annotators opened after it are renumbered.  If
-%   annotations were written out of order, the file is sorted by running
-%   the sortann tool in a separate process (unless the environment
-%   variable WFDBANNSORT is 0), as the C library does.
+%   annotations were written out of order, the file is rearranged in
+%   canonical order (unless the environment variable WFDBANNSORT is 0),
+%   with a result identical to that of the sortann tool: wfdb-x does this
+%   in the same process (wfdbx.internal.ann_sortfile), while the C library
+%   (as legacy mode, wfdbx.wfdbx_set_legacy) runs sortann in a separate
+%   process (in legacy mode, the sortann tool with --legacy, in the output
+%   directory if one is set: wfdbx.wfdbx_set_output_dir).
 %
 %   See also wfdbx.annopen, wfdbx.putann, wfdbx.iannclose.
 
 % Copyright (C) 1989-2013 George B. Moody (original C implementation,
 % lib/annot.c; revised 2015-2020 by Benjamin Moody).
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
+% Design decision (Reza Sameni, after a code review, Oct 2026): an
+% out-of-order output annotation file is rearranged in this process, with
+% a result identical to that of the sortann program, which the C library
+% ran through the shell (and found only if it was in the PATH).  The
+% original behavior remains available with --legacy (see
+% docs/DIVERGENCES.md).
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
-st = wfdbx.internal.annstate();
+st = wfdbx.internal.ann_state();
 if ~(an >= 0 && an < numel(st.oad) && ~isempty(st.oad{an+1}))
     return;
 end
@@ -48,15 +58,28 @@ if oa.out_of_order
     if dosort
         wfdbx.internal.wfdb_error( ...
             'Rearranging annotations for output annotator %s ...', oa.name);
-        wfdbx.internal.cout();
-        q = @wfdbx.internal.shell_quote;
-        cmd = [wfdbx.internal.tool_command('sortann') ' -r. ' q(oa.rname) ...
-            ' -a ' q(oa.name)];
-        % The output of the command (messages only) is captured and
-        % copied to the standard error output: system() would print it on
-        % the standard output in MATLAB, and pass it through in Octave.
-        [s, msg] = system([cmd ' </dev/null 2>&1']);
-        wfdbx.internal.cerr(msg);
+        % wfdb-x: the file is sorted in this process; the C library ran
+        % the sortann program, as legacy mode does.
+        if wfdbx.wfdbx_get_legacy()
+            wfdbx.internal.cout();
+            % wfdb-x: the child runs with --legacy (as the original), and
+            % in the output directory if one is set (where the file is)
+            q = @wfdbx.internal.shell_quote;
+            cmd = [wfdbx.internal.tool_command('sortann') ' --legacy -r. ' ...
+                q(oa.rname) ' -a ' q(oa.name)];
+            odir = wfdbx.wfdbx_get_output_dir();
+            if ischar(odir)
+                cmd = ['cd ' q(odir) ' && ' cmd];
+            end
+            % The output of the command (messages only) is captured and
+            % copied to the standard error output: system() would print
+            % it on the standard output in MATLAB, and pass it through in
+            % Octave.
+            [s, msg] = system([cmd ' </dev/null 2>&1']);
+            wfdbx.internal.cerr(msg);
+        else
+            s = wfdbx.internal.ann_sortfile(oa.fname, oa.name);
+        end
         if s == 0
             wfdbx.internal.wfdb_error('done!\n');
             oa.out_of_order = 0;

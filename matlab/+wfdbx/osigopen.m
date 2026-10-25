@@ -16,7 +16,7 @@ function [nsig, si] = osigopen(record, nsig)
 if isa(record, 'string')   % MATLAB string
     record = char(record);
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 si = wfdbx.siginfo(0);
 if ~isempty(record) && record(1) == '+'
     record = record(2:end);

@@ -14,7 +14,7 @@ function stat = setinfo(record)
 if isa(record, 'string')   % MATLAB string
     record = char(record);
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 stat = wfdbx.internal.wfdb_oinfoclose();
 if ~ischar(record)
     return;

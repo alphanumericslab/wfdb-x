@@ -16,7 +16,7 @@ function stat = newheader(record)
 if isa(record, 'string')   % MATLAB string
     record = char(record);
 end
-S = wfdbx.internal.sigstate();
+S = wfdbx.internal.sig_state();
 record = wfdbx.internal.wfdb_striphea(record);
 if S.nosig > 0
     osi = [S.osd(1:S.nosig).info];
