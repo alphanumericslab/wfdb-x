@@ -1,0 +1,3 @@
+init: file ../100s named in the header of record sub/ms is not in the header's directory
+init: can't open header for record ../100s
+isigsettime: can't open segment ../100s

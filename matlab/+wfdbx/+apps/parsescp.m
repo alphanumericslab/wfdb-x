@@ -350,7 +350,7 @@ end
 c = cell(1, numel(b));
 c(pr) = num2cell(char(b(pr)));
 np = find(~pr);
-for k = np
+for k = reshape(np, 1, [])
     c{k} = sprintf('\\%03o', b(k));
 end
 s = [c{:}];
@@ -2231,7 +2231,7 @@ for i = 0:nleads - 1
         end
         out(je + 1) = inp(je + 1);
         if P.has_subz
-            for k = find(P.zset(1:max(nqrs, 0)) & P.ztype(1:max(nqrs, 0)) == 0)
+            for k = reshape(find(P.zset(1:max(nqrs, 0)) & P.ztype(1:max(nqrs, 0)) == 0), 1, [])
                 % restore unfiltered samples within protected zones
                 % and adjacent samples on either end of them
                 j0 = max(P.zt0(k) - 1, 0);
@@ -2248,7 +2248,7 @@ end
 % Add the reference beats back into the residuals.
 if P.bflag == 0 && nqrs > 0 && P.has_subz && nleads > 0
     rblen = P.rblen;
-    for k = find(P.zset(1:nqrs) & P.ztype(1:nqrs) == 0)
+    for k = reshape(find(P.zset(1:nqrs) & P.ztype(1:nqrs) == 0), 1, [])
         t0 = P.zt0(k);
         t1 = P.zt1(k);
         t2 = P.zt2(k);

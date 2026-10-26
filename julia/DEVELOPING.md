@@ -288,7 +288,7 @@ Two common causes:
 Check that a run compiles nothing:
 
 ```sh
-cd tests/data && WFDB=. julia --startup-file=no --trace-compile=stderr \
+cd tests/data && julia --startup-file=no --trace-compile=stderr \
     --project=../../julia ../../julia/bin/wfdbx.jl rdsamp -r 100s -t 1 >/dev/null
 ```
 

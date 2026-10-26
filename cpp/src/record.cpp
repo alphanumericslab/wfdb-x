@@ -16,6 +16,8 @@
 
 #include "wfdbx/record.hpp"
 
+#include "wfdblib.hpp"      // (wfdbx_set_checksum_quiet)
+
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -43,6 +45,45 @@ public:
 private:
     bool on_;
     int prev_;
+};
+
+// wfdb-x: getvec's checksum message not printed for the lifetime of the
+// object (read_record reports a checksum error itself).
+class ChecksumQuietScope {
+public:
+    ChecksumQuietScope() : prev_(detail::wfdbx_set_checksum_quiet(true)) {}
+    ~ChecksumQuietScope() { detail::wfdbx_set_checksum_quiet(prev_); }
+    ChecksumQuietScope(const ChecksumQuietScope &) = delete;
+    ChecksumQuietScope &operator=(const ChecksumQuietScope &) = delete;
+private:
+    bool prev_;
+};
+
+// wfdb-x: the library's input directory and network access (see
+// InputOptions) set for the lifetime of the object, for the options that are
+// set (restoring the previous settings afterwards, also when an exception is
+// thrown); no change otherwise.
+class InputScope {
+public:
+    explicit InputScope(const InputOptions &in) : in_(in)
+    {
+        if (in_.input_dir) prev_dir_ = wfdbx_set_input_dir(in_.input_dir->c_str());
+        if (in_.network) prev_net_ = wfdbx_set_network(*in_.network ? 1 : 0);
+    }
+    ~InputScope()
+    {
+        if (in_.network) wfdbx_set_network(prev_net_);
+        // (with no previous value, nullptr restores it: there is then no
+        // WFDBX_INPUT_DIR value either)
+        if (in_.input_dir)
+            wfdbx_set_input_dir(prev_dir_ ? prev_dir_->c_str() : nullptr);
+    }
+    InputScope(const InputScope &) = delete;
+    InputScope &operator=(const InputScope &) = delete;
+private:
+    InputOptions in_;
+    std::optional<std::string> prev_dir_;
+    int prev_net_ = 0;
 };
 
 // wfdb-x: the library's output directory (wfdbx_set_output_dir) set to
@@ -185,9 +226,11 @@ std::vector<std::string> Record::names() const
     return v;
 }
 
-std::vector<WFDB_Siginfo> read_header(const std::string &record, bool legacy)
+std::vector<WFDB_Siginfo> read_header(const std::string &record, bool legacy,
+                                      const InputOptions &input)
 {
     LegacyScope scope(legacy);
+    InputScope input_scope(input);
     wfdbquit();
     int n = isigopen(record.c_str(), nullptr, 0);
     if (n < 0) fail("can't read header for record " + record);
@@ -201,6 +244,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
 {
     const ReadOptions opt = with_library_legacy(options);
     LegacyScope scope(opt.legacy);
+    InputScope input_scope(opt);
     wfdbquit();
     int nsig = isigopen(record.c_str(), nullptr, 0);
     if (nsig <= 0) fail("can't read record " + record);
@@ -248,16 +292,39 @@ Record read_record(const std::string &record, const ReadOptions &options)
     std::optional<long long> remaining;
     if (to) remaining = *to > from ? *to - from : 0;
     std::vector<WFDB_Sample> buf;
-    while (!remaining || *remaining > 0) {
-        long long n = remaining ? std::min(block, *remaining) : block;
-        buf.resize(static_cast<size_t>(n) * nsig);
-        long long got = getvecs(buf.data(), n);
-        if (got > 0)
+    bool checksum_error = false;
+    {
+        ChecksumQuietScope quiet;
+        while (!remaining || *remaining > 0) {
+            long long n = remaining ? std::min(block, *remaining) : block;
+            buf.resize(static_cast<size_t>(n) * nsig);
+            int stat = 0;
+            long long got = getvecs(buf.data(), n, &stat);
+            if (got < 0) got = 0;
+            // wfdb-x: status -4 (checksum error) is returned with the last
+            // frame of the record, whose samples are filled in: the frame is
+            // kept, and the error is reported after the read (a warning).
+            if (got < n && stat == -4) {
+                got++;
+                checksum_error = true;
+            }
             all.insert(all.end(), buf.begin(), buf.begin() + got * nsig);
-        if (got < 0) got = 0;
-        if (remaining) *remaining -= got;
-        if (got < n) break;
+            if (remaining) *remaining -= got;
+            if (checksum_error) break;
+            if (got < n) {
+                // wfdb-x: another status below -1 (e.g. -3, unexpected EOF: a
+                // signal file shorter than its header says, or a decoder or
+                // I/O error) is an error, not the end of the data (-1).
+                if (stat < -1)
+                    fail("can't read signal data of record " + record +
+                         " (getvec status " + std::to_string(stat) + ")");
+                break;
+            }
+        }
     }
+    if (checksum_error && opt.checksum_warning)
+        wfdb_error("wfdb-x: checksum error in record %s: the signal data do "
+                   "not match the checksums in its header\n", record.c_str());
 
     size_t nframes = all.size() / nsig;
     rec.nsig = static_cast<int>(cols.size());
@@ -277,11 +344,13 @@ Record read_record(const std::string &record, const ReadOptions &options)
 Annotations read_annotations(const std::string &record,
                              const std::string &annotator,
                              const TimeSpec &from, const TimeSpec &to,
-                             std::optional<WFDB_Frequency> fs, bool legacy)
+                             std::optional<WFDB_Frequency> fs, bool legacy,
+                             const InputOptions &input)
 {
     if (fs && !(*fs > 0)) throw Error("read_annotations: fs must be > 0");
     legacy = legacy || wfdbx_get_legacy() != 0;    // or the library's mode
     LegacyScope scope(legacy);
+    InputScope input_scope(input);
     wfdbquit();
     // wfdb-x: no default sampling frequency (C assumed 250 Hz if the record
     // had no header); `fs` gives one, as rdann -F does.

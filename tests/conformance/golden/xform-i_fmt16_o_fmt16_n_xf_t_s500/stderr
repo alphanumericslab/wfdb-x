@@ -1,4 +1,2 @@
 Checking input signals ... done
-getvec: unexpected EOF in signal 0
-getvec: unexpected EOF in signal 1
-getvec: unexpected EOF in signal 2
+xform: can't write output signals (osigopen: output file fmt16.dat is also an input file)

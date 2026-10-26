@@ -37,6 +37,14 @@ else
 fi
 ./configure --prefix="$OUT" --without-netfiles $FLACOPT --without-xview \
     --static >"$OUT/configure.log" 2>&1
+# Evaluate floating-point expressions as written (one rounding per
+# operation): compilers that contract a*b+c into a fused multiply-add by
+# default (Clang, e.g. on ARM) would change results such as edf2mit's
+# baselines.  (gcc on x86-64, which produced the stored results, does not
+# contract without an -march that has FMA, so this changes nothing there.)
+for m in */Makefile; do
+    sed -i.orig 's/^CFLAGS = /CFLAGS = -ffp-contract=off /' "$m"
+done
 make install >"$OUT/make.log" 2>&1
 cc -O -DFLAC_RECORDS -o "$OUT/bin/gen_records" "$HERE/gen_records.c" \
     -I"$OUT/include" -L"$OUT/lib" -lwfdb \

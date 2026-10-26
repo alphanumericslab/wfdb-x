@@ -737,4 +737,169 @@ if (.mode == "source") {
   wfdbquit()
   setwfdb(".")
   wfdbverbose()
+
+  # ---- a signal file shorter than its header says (getvec status -3,
+  # unexpected EOF) is an error of read_record, not the end of the data;
+  # the low-level API is unchanged
+  wfdbquiet()
+  x <- matrix(c(1, 3, 5, 7, 2, 4, 6, 8), 4, 2)
+  for (name in c("tr", "ok"))
+    write_record(name, x, 100, gains = 100, adcres = 16, units = "mV")
+  writeBin(rf("tr.dat")[1:8], "tr.dat")     # 2 of the 4 frames (format 16)
+  emsg <- function(expr) tryCatch({
+    expr
+    ""
+  }, error = function(e) conditionMessage(e))
+  for (lg in c(FALSE, TRUE)) {
+    for (ph in c(FALSE, TRUE)) {
+      # (1) the error, and the library is left usable
+      expect_equal(emsg(read_record("tr", physical = ph, legacy = lg)),
+                   "can't read signal data of record tr (getvec status -3)",
+                   "truncated: error")
+      expect_equal(unname(read_record("ok", legacy = lg)$signals), x,
+                   "truncated: then a good record")
+    }
+    # reading only what the file holds is not an error
+    expect_equal(unname(read_record("tr", sampto = 2, legacy = lg)$signals),
+                 x[1:2, , drop = FALSE], "truncated: sampto 2")
+    # (2) a sub-interval, and sampto past the end of a record whose header
+    # gives its length (what there is, no error)
+    expect_equal(unname(read_record("ok", sampfrom = 1, sampto = 3, legacy = lg)$signals),
+                 x[2:3, , drop = FALSE], "sub-interval")
+    expect_equal(unname(read_record("ok", sampto = 10, legacy = lg)$signals), x,
+                 "sampto past the end")
+  }
+  # (3) the low-level API: getvec returns -3 at the end of the truncated
+  # file, getframes the frames read and that status
+  expect_equal(isigopen("tr", 2)$nsig, 2, "truncated: isigopen")
+  expect_equal(c(vec(2)[1], vec(2)[1], vec(2)[1]), c(2, 2, -3), "truncated: getvec")
+  wfdbquit()
+  isigopen("tr", 2)
+  g <- getframes(10)
+  expect_equal(g$stat, -3, "truncated: getframes status")
+  expect_equal(unname(g$v), x[1:2, , drop = FALSE], "truncated: getframes")
+  wfdbquit()
+  isigopen("ok", 2)
+  g <- getframes(10)
+  expect_equal(g$stat, -1, "complete: getframes status")
+  expect_equal(unname(g$v), x, "complete: getframes")
+  wfdbquit()
+  wfdbverbose()
+
+  # ---- a checksum error (getvec status -4) is a warning of read_record
+  # (every frame, the last one included, is returned), not an error;
+  # checksum_warning = FALSE turns it off; getvec's own message is not
+  # printed during the read (it is recorded); the low-level API is unchanged
+  CKSUM_MSG <- "checksum error in record ck: the signal data do not match the checksums in its header"
+  x <- matrix(c(1, 3, 5, 7, 2, 4, 6, 8), 4, 2)
+  write_record("ck", x, 100, gains = 100, adcres = 16, units = "mV")
+  b <- rf("ck.dat")
+  b[5:6] <- as.raw(c(9, 0))                # sample (1, 0): 3 -> 9
+  writeBin(b, "ck.dat")
+  y <- x
+  y[2, 1] <- 9
+  write_record("good", y, 100, gains = 100, adcres = 16, units = "mV")
+  # (count what the library prints on the standard error output)
+  senv <- environment(wfdb_error)
+  cerr0 <- get("cerr", senv)
+  printed <- character(0)
+  assign("cerr", function(x) printed <<- c(printed, if (is.raw(x)) rawToChar(x) else x), envir = senv)
+  catch <- function(expr) {
+    ws <- character(0)
+    val <- withCallingHandlers(expr, warning = function(w) {
+      ws <<- c(ws, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+    list(value = val, warnings = ws)
+  }
+  for (lg in c(FALSE, TRUE)) {
+    good <- read_record("good", legacy = lg)$signals
+    for (ph in c(FALSE, TRUE)) {
+      printed <- character(0)
+      r <- catch(read_record("ck", physical = ph, legacy = lg))
+      expect_equal(r$warnings, CKSUM_MSG, "checksum: the warning")
+      expect_equal(unname(r$value$signals), if (ph) y / 100 else y, "checksum: every frame")
+      expect_equal(dim(r$value$signals), dim(good), "checksum: same length as with good checksums")
+      check(!any(grepl("checksum", printed)), "checksum: getvec's message not printed")
+      expect_equal(wfdberror(), "getvec: checksum error in signal 0\n", "checksum: recorded")
+    }
+    r <- catch(read_record("ck", checksum_warning = FALSE, legacy = lg))
+    check(length(r$warnings) == 0L && identical(unname(r$value$signals), unname(good)),
+          "checksum_warning = FALSE: no warning, the same frames")
+    r <- catch(read_record("ck", sampto = 3, legacy = lg))
+    check(length(r$warnings) == 0L && identical(unname(r$value$signals), y[1:3, ]),
+          "checksum: not read to the end, no checksum")
+    expect_equal(emsg(read_record("tr", legacy = lg)),
+                 "can't read signal data of record tr (getvec status -3)",
+                 "checksum: the truncated case is still an error")
+  }
+  # low-level API unchanged: getvec 2, 2, 2, -4 (the last frame filled),
+  # getframes stops before it, and the message is printed
+  printed <- character(0)
+  isigopen("ck", 2)
+  sts <- vapply(1:4, function(i) {
+    r <- getvec()
+    v <<- r$v
+    r$stat
+  }, 0)
+  check(identical(sts, c(2, 2, 2, -4)) && identical(v[1:2], c(7, 8)), "checksum: getvec")
+  wfdbquit()
+  isigopen("ck", 2)
+  g <- getframes(10)
+  check(g$stat == -4 && identical(unname(g$v), y[1:3, ]), "checksum: getframes")
+  wfdbquit()
+  assign("cerr", cerr0, envir = senv)
+  expect_equal(printed, rep("getvec: checksum error in signal 0\n", 2),
+               "checksum: getvec's message printed by the C-style API")
+
+  # ---- an output signal file is never a signal file of the open input
+  # record (the files are compared, not their names); legacy mode: no check
+  fmt16 <- rf("fmt16.dat")
+  fmt212 <- rf("fmt212.dat")
+  spec16 <- function(fname) lapply(0:2, function(i)
+    siginfo(fname = fname, desc = sprintf("s%d", i), units = "mV", gain = 100, group = 0,
+            fmt = 16, adcres = 12))
+  hard <- file.link("fmt16.dat", "ahard16.dat")
+  cases <- list(c("fmt16", "fmt16.dat"), c("fmt16", "./fmt16.dat"), c("skew", "fmt16.dat"),
+                c("vlay", "fmt16.dat"), c("vlay", "fmt212.dat"))
+  if (hard) cases <- c(cases, list(c("fmt16", "ahard16.dat")))
+  wfdbquiet()
+  for (cs in cases) {
+    wfdbquit()
+    lab <- paste("alias:", cs[1L], cs[2L])
+    expect_equal(isigopen(cs[1L], 3)$nsig, 3, paste(lab, "isigopen"))
+    setsampfreq(250)
+    expect_equal(osigfopen(spec16(cs[2L]), 3), -3, paste(lab, "refused"))
+    expect_equal(wfdberror(), sprintf("osigfopen: output file %s is also an input file\n", cs[2L]),
+                 paste(lab, "message"))
+    expect_equal(getvec()$stat, 3, paste(lab, "the input is still readable"))
+  }
+  wfdbquit()
+  expect_equal(isigopen("fmt16", 3)$nsig, 3, "alias: osigopen isigopen")
+  expect_equal(osigopen("fmt16", 3)$nsig, -3, "alias: osigopen refused")
+  expect_equal(wfdberror(), "osigopen: output file fmt16.dat is also an input file\n",
+               "alias: osigopen message")
+  wfdbquit()
+  check(identical(rf("fmt16.dat"), fmt16) && identical(rf("fmt212.dat"), fmt212),
+        "alias: the inputs are intact")
+  # not an input file: another file, a file that does not exist yet
+  for (fname in c("fmt8.dat", "new.dat")) {
+    isigopen("vlay", 3)
+    setsampfreq(250)
+    expect_equal(osigfopen(spec16(fname), 3), 3, paste("alias: not an input file", fname))
+    wfdbquit()
+  }
+  setsampfreq(250)
+  expect_equal(osigfopen(spec16("fmt8.dat"), 3), 3, "alias: no input record open")
+  wfdbquit()
+  # legacy mode: the original behavior (the file is created, truncated)
+  wfdbx_set_legacy(TRUE)
+  isigopen("fmt16", 3)
+  setsampfreq(250)
+  expect_equal(osigfopen(spec16("fmt16.dat"), 3), 3, "alias: legacy, no check")
+  wfdbquit()
+  wfdbx_set_legacy(FALSE)
+  expect_equal(file.size("fmt16.dat"), 0, "alias: legacy truncates")
+  writeBin(fmt16, "fmt16.dat")
+  wfdbverbose()
 }

@@ -1176,7 +1176,7 @@ index 08ced06..78e2fd0 100644
  	    char b[5];
  	    (void)fprintf(stderr, "--More--");
 diff --git a/app/xform.c b/app/xform.c
-index b8ae037..04407a9 100644
+index b8ae037..c4d6261 100644
 --- a/app/xform.c
 +++ b/app/xform.c
 @@ -67,6 +67,10 @@ char *argv[];
@@ -1360,7 +1360,27 @@ index b8ae037..04407a9 100644
  	    } while (dfout[i].adcres < 8 || dfout[i].adcres > 32);
  	    (void)fprintf(stderr, " Signal %d ADC zero level (adu) [%d]: ",
  			  i, dfout[i].adczero);
-@@ -697,51 +767,75 @@ char *argv[];
+@@ -656,7 +726,18 @@ char *argv[];
+        sampling frequency differences. */
+     wfdbquiet();
+     if (orec && (osigopen(orec, dfout, (unsigned)nosig) != nosig)) {
+-	(void)fprintf(stderr, "%s: can't write output signals\n", pname);
++	/* wfdb-x: say why if an output file is one of the input files (the
++	   library's message, quieted above, is the last error) */
++	char *e = wfdberror();
++	size_t n = strlen(e), t = strlen(" is also an input file\n");
++
++	if (!wfdbx_get_legacy() &&
++	    strncmp(e, "osigopen: output file ", 22) == 0 && n > 22 + t &&
++	    strcmp(e + n - t, " is also an input file\n") == 0)
++	    (void)fprintf(stderr, "%s: can't write output signals (%.*s)\n",
++			  pname, (int)(n - 1), e);
++	else
++	    (void)fprintf(stderr, "%s: can't write output signals\n", pname);
+ 	exit(2);
+     }
+     wfdbverbose();
+@@ -697,51 +778,75 @@ char *argv[];
  	       appropriate number of bits will be dropped from or added to each
  	       signal.
  	   2.  If the output gain has been specified, the signal is scaled by
@@ -3429,18 +3449,26 @@ index d90ca9a..e22a915 100644
  	while (n < noaf-1) {
  	    oad[n] = oad[n+1];
 diff --git a/lib/signal.c b/lib/signal.c
-index 901efc2..edf5fa8 100644
+index 901efc2..18950fa 100644
 --- a/lib/signal.c
 +++ b/lib/signal.c
-@@ -185,6 +185,7 @@ void example(void)
+@@ -185,7 +185,15 @@ void example(void)
  #include "wfdblib.h"
  
  #include <limits.h>
 +#include <math.h>
  #include <errno.h>
++#ifdef _WIN32		/* wfdb-x: for file_id */
++#include <windows.h>
++#include <io.h>
++#else
++#include <sys/types.h>
++#include <sys/stat.h>
++#endif
  
  #ifdef iAPX286
-@@ -203,6 +204,55 @@ void example(void)
+ #define BROKEN_CC
+@@ -203,6 +211,77 @@ void example(void)
  #define FLAC__StreamDecoder struct dummy
  #endif
  
@@ -3493,10 +3521,80 @@ index 901efc2..edf5fa8 100644
 +    return (1);
 +}
 +
++/* wfdb-x: files named in a header.  In normal mode, the signal files named in
++   a header, and the segments (and layout header) named in the header of a
++   multi-segment record, are in the directory of that header (on disk or at
++   its URL), or below it: "a.dat" is <header directory>/a.dat; a name that is
++   absolute, begins with '~', is a URL, or contains a ".." component is
++   refused (except "~" as a segment, a null segment, and "-" as a signal file,
++   the standard input).  Nothing is searched (the C library searched the WFDB
++   path, whose first entries were the directories of the files opened
++   before).  Decided by Reza Sameni, Oct 2026: a search can silently open the
++   wrong file, and a header must not make the library read other local files
++   or contact other servers.  The original behavior remains available with
++   --legacy (see docs/DIVERGENCES.md). */
++static char *hdr_dir;		/* directory of the header read last by
++				   readheader (see wfdbx_dirname; NULL if
++				   unknown, i.e., for the standard input) */
++static char *msrec_dir, *msrec_name;
++				/* directory and name of the header of the
++				   current multi-segment record (msrec_name
++				   is NULL if there is none) */
++static int user_segments;	/* 1 while setmsheader reads the headers of
++				   the segments it was given */
++
  /* Shared local data */
  
  /* These variables are set by readheader, and contain information about the
-@@ -1075,7 +1125,10 @@ static int readheader(const char *record)
+@@ -766,6 +845,29 @@ static void read_edf_str(char *buf, int size, WFDB_FILE *ifile)
+     }
+ }
+ 
++/* wfdb-x: open_header opens the header (of type s: "hea", or NULL for a file
++   name) of a record, or of a segment named in the header of the current
++   multi-segment record, and notes its directory (see hdr_dir). */
++static WFDB_FILE *open_header(const char *s, const char *record)
++{
++    WFDB_FILE *f;
++
++    if (legacy_mode)
++	return (wfdb_open(s, record, WFDB_READ));
++    if (!in_msrec) {
++	SFREE(msrec_dir);
++	SFREE(msrec_name);
++    }
++    if (in_msrec && msrec_name && !user_segments)
++	f = wfdbx_open_in(msrec_dir, s, record, msrec_name);
++    else
++	f = wfdb_open(s, record, WFDB_READ);
++    SFREE(hdr_dir);
++    if (f && f->fp != stdin)
++	hdr_dir = wfdbx_dirname(wfdbfile(NULL, NULL));
++    return (f);
++}
++
+ /* get header information from an EDF file */
+ static int edfparse(WFDB_FILE *ifile)
+ {
+@@ -963,7 +1065,7 @@ static int readheader(const char *record)
+     while (q > record && *q != '.' && *q != '/' && *q != ':' && *q != '\\')
+ 	q--;
+     if (*q == '.') {
+-	if ((hheader = wfdb_open(NULL, record, WFDB_READ)) == NULL) {
++	if ((hheader = open_header(NULL, record)) == NULL) {
+ 	    wfdb_error("init: can't open %s\n", record);
+ 	    return (-1);
+ 	}
+@@ -972,7 +1074,7 @@ static int readheader(const char *record)
+     }
+ 
+     /* Otherwise, assume the file name is record.hea. */
+-    else if ((hheader = wfdb_open("hea", record, WFDB_READ)) == NULL) {
++    else if ((hheader = open_header("hea", record)) == NULL) {
+ 	wfdb_error("init: can't open header for record %s\n", record);
+ 	return (-1);
+     }
+@@ -1075,7 +1177,10 @@ static int readheader(const char *record)
  	else
  	    ffreq = f;
      }
@@ -3508,7 +3606,20 @@ index 901efc2..edf5fa8 100644
  	ffreq = WFDB_DEFFREQ;
  
      /* Set the sampling rate to the frame rate for now.  This may be
-@@ -1290,12 +1343,12 @@ static int readheader(const char *record)
+@@ -1128,6 +1233,12 @@ static int readheader(const char *record)
+ 
+     /* Special processing for master header of a multi-segment record. */
+     if (segments && !in_msrec) {
++	/* wfdb-x: the segments are in the directory of this header */
++	if (!legacy_mode) {
++	    SFREE(msrec_dir);
++	    if (hdr_dir) SSTRCPY(msrec_dir, hdr_dir);
++	    SSTRCPY(msrec_name, record);
++	}
+ 	msbtime = btime;
+ 	msbdate = bdate;
+ 	msnsamples = nsamples;
+@@ -1290,12 +1401,12 @@ static int readheader(const char *record)
  	else
  	    hs->info.units = NULL;
  
@@ -3525,7 +3636,7 @@ index 901efc2..edf5fa8 100644
  	  case 80: i = 8; break;
  	  case 160: i = 16; break;
  	  case 212: i = 12; break;
-@@ -1303,6 +1356,8 @@ static int readheader(const char *record)
+@@ -1303,6 +1414,8 @@ static int readheader(const char *record)
  	  case 311: i = 10; break;
  	  default: i = WFDB_DEFRES; break;
  	}
@@ -3534,7 +3645,199 @@ index 901efc2..edf5fa8 100644
  	hs->info.adcres = i;
  
  	/* Determine the ADC zero (assumed to be zero if missing). */
-@@ -3469,7 +3524,10 @@ FINT setifreq(WFDB_Frequency f)
+@@ -3098,7 +3211,10 @@ FINT isigopen(char *record, WFDB_Siginfo *siarray, int nsig)
+ 	if (hs->info.fmt == 0)
+ 	    ig->fp = NULL;	/* Don't open a file for a null signal. */
+ 	else { 
+-	    ig->fp = wfdb_open(hs->info.fname, (char *)NULL, WFDB_READ);
++	    /* wfdb-x: in the directory of the header */
++	    ig->fp = legacy_mode ?
++		wfdb_open(hs->info.fname, (char *)NULL, WFDB_READ) :
++		wfdbx_open_in(hdr_dir, NULL, hs->info.fname, record);
+ 	    /* Skip this group if the signal file can't be opened. */
+ 	    if (ig->fp == NULL) {
+ 	        SFREE(ig->buf);
+@@ -3200,6 +3316,164 @@ FINT isigopen(char *record, WFDB_Siginfo *siarray, int nsig)
+     return (s);
+ }
+ 
++/* wfdb-x: an output signal file is never one of the input files.  In normal
++   mode, openosig refuses to create (and so to truncate) an output signal file
++   that is the same file as a signal file of the open input record: a signal
++   file open for input, or a signal file of any segment of the open
++   multi-segment record (read from the segment's header; segments are opened
++   later, as they are reached).  "The same file" is decided by the files
++   themselves, not by their names: device and inode numbers on POSIX, volume
++   serial number and file index on MS-Windows.  Decided by Reza Sameni, Oct
++   2026: e.g., "xform -i vlay -o fmt16", fmt16 being a segment of vlay,
++   truncated fmt16.dat while reading it, with a platform-dependent result and
++   the input destroyed.  Legacy mode: no check (the original behavior). */
++struct file_id {
++#ifdef _WIN32
++    DWORD vol, hi, lo;
++#else
++    dev_t dev;
++    ino_t ino;
++#endif
++};
++
++/* file_id gets the identity of the open local file fp; it returns 1 on
++   success, 0 otherwise. */
++static int file_id(FILE *fp, struct file_id *id)
++{
++#ifdef _WIN32
++    BY_HANDLE_FILE_INFORMATION info;
++    HANDLE h = (HANDLE)_get_osfhandle(_fileno(fp));
++
++    if (h == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(h, &info))
++	return (0);
++    id->vol = info.dwVolumeSerialNumber;
++    id->hi = info.nFileIndexHigh;
++    id->lo = info.nFileIndexLow;
++#else
++    struct stat st;
++
++    if (fstat(fileno(fp), &st) != 0)
++	return (0);
++    id->dev = st.st_dev;
++    id->ino = st.st_ino;
++#endif
++    return (1);
++}
++
++static int same_id(const struct file_id *a, const struct file_id *b)
++{
++#ifdef _WIN32
++    return (a->vol == b->vol && a->hi == b->hi && a->lo == b->lo);
++#else
++    return (a->dev == b->dev && a->ino == b->ino);
++#endif
++}
++
++/* is_file (WFDB_FILE *f, struct file_id *id) returns 1 if f is a local file
++   (not the standard input, not a URL) whose identity is id. */
++static int is_file(WFDB_FILE *f, const struct file_id *id)
++{
++    struct file_id fid;
++
++    return (f && f->type == WFDB_LOCAL && f->fp && f->fp != stdin &&
++	    file_id(f->fp, &fid) && same_id(&fid, id));
++}
++
++static int is_url_name(const char *s)
++{
++    return (strncmp(s, "http://", 7) == 0 || strncmp(s, "https://", 8) == 0);
++}
++
++/* segment_has_file returns 1 if one of the signal files named in the header
++   of segment seg (of the open multi-segment record) is the file id.  The
++   header and the signal files are located as isigopen locates them in normal
++   mode; a header or signal file that cannot be found (or is at a URL) is not
++   the file id.  No message is printed. */
++static int segment_has_file(const char *seg, const struct file_id *id)
++{
++    WFDB_FILE *hf, *sf;
++    char *buf = NULL, *dir = NULL, *p, *q;
++    size_t bufsize = 0;
++    int found = 0, nsig = -1;
++    const char *sep = " \t\n\r";
++
++    if (strcmp(seg, "~") == 0 || !wfdbx_in_header_dir(seg) ||
++	(msrec_dir && is_url_name(msrec_dir)))
++	return (0);
++    if ((hf = (msrec_name ? wfdbx_open_in(msrec_dir, "hea", seg, msrec_name) :
++	       wfdb_open("hea", seg, WFDB_READ))) == NULL)
++	return (0);
++    if (hf->type == WFDB_LOCAL && hf->fp != stdin)
++	dir = wfdbx_dirname(wfdbfile(NULL, NULL));
++    while (!found && nsig != 0 && wfdb_getline(&buf, &bufsize, hf)) {
++	if ((p = strtok(buf, sep)) == NULL || *p == '#')
++	    continue;
++	if (nsig < 0) {		/* the record line */
++	    if (strchr(p, '/') ||	/* not a valid segment */
++		(q = strtok(NULL, sep)) == NULL ||
++		(nsig = strtol(q, NULL, 10)) <= 0)
++		break;
++	    continue;
++	}
++	nsig--;			/* a signal line: file name, format, ... */
++	if ((q = strtok(NULL, sep)) == NULL || strtol(q, NULL, 10) == 0 ||
++	    strcmp(p, "-") == 0 || !wfdbx_in_header_dir(p) ||
++	    dir == NULL || is_url_name(dir))
++	    continue;
++	if ((sf = wfdbx_open_in(dir, NULL, p, seg)) != NULL) {
++	    found = is_file(sf, id);
++	    (void)wfdb_fclose(sf);
++	}
++    }
++    SFREE(buf);
++    SFREE(dir);
++    (void)wfdb_fclose(hf);
++    return (found);
++}
++
++/* is_input_file returns 1 if the output signal file fname (as named in an
++   output signal specification, created by wfdb_open(fname, NULL,
++   WFDB_WRITE)) exists and is one of the signal files of the open input
++   record (see above). */
++static int is_input_file(const char *fname)
++{
++    char *path = wfdbx_output_file(fname);
++    struct file_id id;
++    int found = 0, ok;
++    WFDB_Group g;
++    WFDB_Seginfo *sp;
++#ifdef _WIN32
++    FILE *fp;
++#else
++    struct stat st;
++#endif
++
++    if (path == NULL)
++	return (0);
++#ifdef _WIN32
++    if ((fp = fopen(path, "rb")) != NULL) {
++	ok = file_id(fp, &id);
++	fclose(fp);
++    }
++    else
++	ok = 0;
++#else
++    if ((ok = (stat(path, &st) == 0))) {
++	id.dev = st.st_dev;
++	id.ino = st.st_ino;
++    }
++#endif
++    SFREE(path);
++    if (!ok)
++	return (0);	/* it does not exist: it is not an input file */
++    for (g = 0; g < nigroup && !found; g++)
++	found = igd[g] && is_file(igd[g]->fp, &id);
++    if (in_msrec && segarray)
++	for (sp = segarray; sp <= segend && !found; sp++)
++	    found = segment_has_file(sp->recname, &id);
++    return (found);
++}
++
+ static int openosig(const char *func, WFDB_Siginfo *si_out,
+ 		    const WFDB_Siginfo *si_in, unsigned int nsig)
+ {
+@@ -3269,6 +3543,14 @@ static int openosig(const char *func, WFDB_Siginfo *si_out,
+ 		    os->info.fmt = 16;
+ 	    }
+ 	    if (os->info.fmt != 0) {
++		/* wfdb-x: never an input file (see is_input_file) */
++		if (!legacy_mode && is_input_file(os->info.fname)) {
++		    wfdb_error("%s: output file %s is also an input file\n",
++			       func, os->info.fname);
++		    SFREE(og->buf);
++		    osigclose();
++		    return (-3);
++		}
+ 		/* An error in opening an output file is fatal. */
+ 		og->fp = wfdb_open(os->info.fname,(char *)NULL, WFDB_WRITE);
+ 		if (og->fp == NULL) {
+@@ -3469,7 +3751,10 @@ FINT setifreq(WFDB_Frequency f)
  
      if (g <= 0.0) {
  	ifreq = 0.0;
@@ -3546,7 +3849,17 @@ index 901efc2..edf5fa8 100644
  	return (-1);
      }
      if (f > 0.0) {
-@@ -4325,13 +4383,42 @@ static char *ftimstr(WFDB_Time t, WFDB_Frequency f)
+@@ -3971,7 +4256,9 @@ FINT setmsheader(char *record, char **segment_name, unsigned int nsegments)
+ 	}
+ 	in_msrec = 1;
+ 	nsamples = 0;
++	user_segments = 1;	/* wfdb-x: names given by the caller */
+ 	n = readheader(segment_name[i]);
++	user_segments = 0;
+ 	in_msrec = old_in_msrec;
+ 	if (n < 0) {
+ 	    wfdb_error("setmsheader: can't read segment %s header\n",
+@@ -4325,13 +4612,42 @@ static char *ftimstr(WFDB_Time t, WFDB_Frequency f)
      return (p);	
  }
  
@@ -3590,7 +3903,7 @@ index 901efc2..edf5fa8 100644
  
      return ftimstr(t, f);
  }
-@@ -4398,7 +4485,8 @@ FSTRING mstimstr(WFDB_Time t)
+@@ -4398,7 +4714,8 @@ FSTRING mstimstr(WFDB_Time t)
  
      if (ifreq > 0.) f = ifreq;
      else if (sfreq > 0.) f = sfreq;
@@ -3600,7 +3913,7 @@ index 901efc2..edf5fa8 100644
  
      return fmstimstr(t, f);
  }
-@@ -4475,7 +4563,11 @@ FSITIME strtim(const char *string)
+@@ -4475,7 +4792,11 @@ FSITIME strtim(const char *string)
  
      if (ifreq > 0.) f = ifreq;
      else if (sfreq > 0.) f = sfreq;
@@ -3613,7 +3926,7 @@ index 901efc2..edf5fa8 100644
  
      return fstrtim(string, f);
  }
-@@ -4533,12 +4625,33 @@ FDATE strdat(const char *string)
+@@ -4533,12 +4854,33 @@ FDATE strdat(const char *string)
      return (date);
  }
  
@@ -3649,7 +3962,7 @@ index 901efc2..edf5fa8 100644
      x = a*1000./g;
      if (x >= 0.0)
  	return ((int)(x + 0.5));
-@@ -4549,9 +4662,9 @@ FINT adumuv(WFDB_Signal s, WFDB_Sample a)
+@@ -4549,9 +4891,9 @@ FINT adumuv(WFDB_Signal s, WFDB_Sample a)
  FSAMPLE muvadu(WFDB_Signal s, int v)
  {
      double x;
@@ -3661,7 +3974,7 @@ index 901efc2..edf5fa8 100644
      x = g*v*0.001;
      if (x >= 0.0)
  	return ((int)(x + 0.5));
-@@ -4562,34 +4675,20 @@ FSAMPLE muvadu(WFDB_Signal s, int v)
+@@ -4562,34 +4904,20 @@ FSAMPLE muvadu(WFDB_Signal s, int v)
  FDOUBLE aduphys(WFDB_Signal s, WFDB_Sample a)
  {
      double b;
@@ -3702,11 +4015,21 @@ index 901efc2..edf5fa8 100644
      v *= g;
      if (v >= 0)
  	return ((int)(v + 0.5) + b);
+@@ -4689,6 +5017,9 @@ void wfdb_sigclose(void)
+     sfreq = ifreq = ffreq = (WFDB_Frequency)0;
+     pdays = (WFDB_Date)-1;
+     segments = in_msrec = skewmax = 0;
++    SFREE(msrec_dir);	/* wfdb-x */
++    SFREE(msrec_name);
++    SFREE(hdr_dir);
+     if (dsbuf) {
+ 	SFREE(dsbuf);
+ 	dsbi = -1;
 diff --git a/lib/wfdb.h0 b/lib/wfdb.h0
-index 271babb..7e37beb 100644
+index 271babb..129a345 100644
 --- a/lib/wfdb.h0
 +++ b/lib/wfdb.h0
-@@ -464,6 +464,12 @@ extern FINT wfdb_setannpos(int code, int newval);
+@@ -464,6 +464,16 @@ extern FINT wfdb_setannpos(int code, int newval);
  extern FSTRING timstr(WFDB_Time t);
  extern FSTRING mstimstr(WFDB_Time t);
  extern FSITIME strtim(const char *time_string);
@@ -3714,87 +4037,164 @@ index 271babb..7e37beb 100644
 +extern FINT wfdbx_set_legacy(int on);				/* wfdb-x */
 +extern FINT wfdbx_get_legacy(void);				/* wfdb-x */
 +extern FINT wfdbx_legacy_args(int *argc, char ***argv);		/* wfdb-x */
++extern FSTRING wfdbx_set_input_dir(const char *dir);		/* wfdb-x */
++extern FSTRING wfdbx_get_input_dir(void);			/* wfdb-x */
 +extern FSTRING wfdbx_set_output_dir(const char *dir);		/* wfdb-x */
 +extern FSTRING wfdbx_get_output_dir(void);			/* wfdb-x */
++extern FINT wfdbx_set_network(int on);				/* wfdb-x */
++extern FINT wfdbx_get_network(void);				/* wfdb-x */
  extern FSTRING datstr(WFDB_Date d);
  extern FDATE strdat(const char *date_string);
  extern FINT adumuv(WFDB_Signal s, WFDB_Sample a);
-@@ -538,11 +544,14 @@ extern FINT annopen(), isigopen(), osigopen(), wfdbinit(), findsig(), getspf(),
+@@ -538,11 +548,15 @@ extern FINT annopen(), isigopen(), osigopen(), wfdbinit(), findsig(), getspf(),
      adumuv(), newheader(), setheader(), setmsheader(), getseginfo(),
      wfdbputprolog(), setsampfreq(), setbasetime(), putinfo(), setinfo(),
      setibsize(), setobsize(), calopen(), getcal(), putcal(), newcal(),
 -    wfdbgetskew(), sample_valid(), wfdb_me_fatal();
 +    wfdbgetskew(), sample_valid(), wfdb_me_fatal(),
 +    wfdbx_time_needs_freq(), wfdbx_set_legacy(), wfdbx_get_legacy(),
-+    wfdbx_legacy_args();	/* wfdb-x */
++    wfdbx_legacy_args(), wfdbx_set_network(), wfdbx_get_network(); /* wfdb-x */
  extern FLONGINT wfdbgetstart();
  extern FSAMPLE muvadu(), physadu(), sample();
  extern FSTRING ecgstr(), annstr(), anndesc(), timstr(), mstimstr(),
 -    datstr(), getwfdb(), getinfo(), wfdberror(), wfdbfile();
 +    datstr(), getwfdb(), getinfo(), wfdberror(), wfdbfile(),
-+    wfdbx_set_output_dir(), wfdbx_get_output_dir();	/* wfdb-x */
++    wfdbx_set_input_dir(), wfdbx_get_input_dir(), wfdbx_set_output_dir(),
++    wfdbx_get_output_dir();	/* wfdb-x */
  extern FSITIME strtim(), tnextvec();
  extern FDATE strdat();
  extern FVOID setafreq(), setgvmode(), wfdb_freeinfo(), wfdbquit(), wfdbquiet(),
+diff --git a/lib/wfdbinit.c b/lib/wfdbinit.c
+index 41a154d..f1eac11 100644
+--- a/lib/wfdbinit.c
++++ b/lib/wfdbinit.c
+@@ -46,7 +46,11 @@ FVOID wfdbquit(void)
+     wfdb_anclose();	/* close annotation files, reset variables */
+     wfdb_oinfoclose();	/* close info file */
+     wfdb_sigclose();	/* close signals, reset variables */
+-    resetwfdb();	/* restore the WFDB path */
++    /* wfdb-x: in normal mode, the input directory is left as it is (in the
++       C library, resetwfdb restored the string returned by getwfdb, but
++       not the list of directories searched) */
++    if (wfdbx_get_legacy())
++	resetwfdb();	/* restore the WFDB path */
+     wfdb_sampquit();	/* release sample data buffer */
+     wfdb_freeinfo();	/* release info strings */
+ }
 diff --git a/lib/wfdbio.c b/lib/wfdbio.c
-index 10644e2..a3a178b 100644
+index 10644e2..8e72510 100644
 --- a/lib/wfdbio.c
 +++ b/lib/wfdbio.c
-@@ -38,6 +38,8 @@ This file contains definitions of the following WFDB library functions:
+@@ -38,6 +38,12 @@ This file contains definitions of the following WFDB library functions:
   wfdberror [4.5]	(returns the most recent WFDB library error message)
   wfdbfile [4.3]		(returns the complete pathname of a WFDB file)
   wfdbmemerr [10.4.6]    (set behavior on memory errors)
++ wfdbx_set_input_dir	(wfdb-x: sets the directory of input files)
++ wfdbx_get_input_dir	(wfdb-x: returns the directory of input files)
 + wfdbx_set_output_dir	(wfdb-x: sets the directory for output files)
 + wfdbx_get_output_dir	(wfdb-x: returns the directory for output files)
++ wfdbx_set_network	(wfdb-x: allows or forbids network access)
++ wfdbx_get_network	(wfdb-x: returns 1 if network access is allowed)
  
  These functions expose config strings needed by the WFDB Toolkit for Matlab:
   wfdbversion [10.4.20]  (return the string defined by VERSION)
-@@ -154,6 +156,14 @@ may not be available in certain older C libraries (e.g., UNIX version 7 and BSD
+@@ -154,10 +160,25 @@ may not be available in certain older C libraries (e.g., UNIX version 7 and BSD
  4.2).  This file includes a portable implementation of strtok(), which can be
  obtained if necessary by defining the symbol NOSTRTOK when compiling this
  module.
 +
-+wfdb-x: wfdb_open opens an input file named by an absolute path directly (the
-+C library searched for it in each directory of the WFDB path, so that it was
-+found only if the path contained an empty component or the current directory
-+was the root), and output files can be created in a directory set with
-+wfdbx_set_output_dir; decided by Reza Sameni after a code review, Oct 2026.
-+The original behavior remains available with --legacy (see
-+docs/DIVERGENCES.md).
++wfdb-x: files are found by explicit names instead of a search of the WFDB
++path: a relative name is read under the input directory and written under the
++output directory (wfdbx_set_input_dir, wfdbx_set_output_dir; by default, the
++current directory), and an absolute name, a ~ name or a URL is used as given;
++nothing else is searched.  A URL is opened only if network access was allowed
++(wfdbx_set_network or WFDBX_NETWORK); it is then read in full by the curl
++program.  Decided by Reza Sameni, Oct 2026: a search can silently open the
++wrong file (a stale copy earlier in the path) and fails in ways nobody
++notices, and the network must not be used without being asked for.  The
++original behavior remains available with --legacy (see docs/DIVERGENCES.md).
  */
  
  #include "wfdblib.h"
-@@ -231,6 +241,49 @@ FVOID wfdbverbose(void)
+ #include <time.h>
++#ifndef _WIN32
++#include <pwd.h>	/* wfdb-x: for expand_home */
++#include <unistd.h>
++#endif
+ 
+ /* WFDB library functions */
+ 
+@@ -177,15 +198,45 @@ static const char *wfdb_getiwfdb(char **p);
+ 
+ /* resetwfdb is called by wfdbquit, and can be called within an application,
+ to restore the WFDB path to the value that was returned by the first call
+-to getwfdb (or NULL if getwfdb was not called). */
++to getwfdb (or NULL if getwfdb was not called).
++
++wfdb-x: in normal mode, these functions set and return the input directory
++(see wfdbx_set_input_dir) instead of the WFDB path.  setwfdb(p): p, split
++into components as the WFDB path is, must contain at most one non-empty
++component, which becomes the input directory (none: the default); with more,
++setwfdb reports an error and changes nothing.  getwfdb returns the input
++directory, or "." if none is set.  resetwfdb restores the input directory
++set by the last setwfdb, if any (wfdbquit does not call it in normal mode).
++The WFDB environment variable, @FILE paths, %r and wfdb_addtopath are used
++only in legacy mode. */
++
++/* wfdb-x: the input directory (see wfdbx_set_input_dir) and the values used
++   by setwfdb and resetwfdb in normal mode. */
++static char *input_dir, *previous_input_dir, *env_input_dir;
++static char *setwfdb_input_dir;	/* the input directory set by setwfdb */
++static int input_dir_init, setwfdb_called;
++static void init_input_dir(void);
++static void put_input_dir(const char *dir);
++static int setwfdb_normal(const char *p);
+ 
+ FVOID resetwfdb(void)
+ {
++    /* wfdb-x: the input directory set by the last setwfdb, if any */
++    if (!wfdbx_get_legacy()) {
++	if (setwfdb_called)
++	    put_input_dir(setwfdb_input_dir);
++	return;
++    }
+     SSTRCPY(wfdbpath, wfdbpath_init);
+ }
+ 
+ FSTRING getwfdb(void)
+ {
++    /* wfdb-x: the input directory, or "." if none is set */
++    if (!wfdbx_get_legacy()) {
++	init_input_dir();
++	return (input_dir ? input_dir : ".");
++    }
+     if (wfdbpath == NULL) {
+ 	const char *p = getenv("WFDB");
+ 
+@@ -204,6 +255,11 @@ FVOID setwfdb(const char *p)
+ {
+     void wfdb_export_config(void);
+ 
++    /* wfdb-x: the path names a single input directory */
++    if (!wfdbx_get_legacy()) {
++	(void)setwfdb_normal(p);
++	return;
++    }
+     if (p == NULL && (p = getenv("WFDB")) == NULL) p = DEFWFDB;
+     SSTRCPY(wfdbpath, p);
+     wfdb_export_config();
+@@ -231,6 +287,266 @@ FVOID wfdbverbose(void)
  
  static char *wfdb_filename;
  
-+/* wfdb-x: the directory in which wfdb_open creates output files (NULL: none,
-+   files are created as named), and its previous value (see
-+   wfdbx_set_output_dir). */
-+static char *output_dir, *previous_output_dir;
-+
-+/* wfdbx_set_output_dir (a wfdb-x addition) sets the directory in which output
-+   files are created: wfdb_open, in WFDB_WRITE or WFDB_APPEND mode, then
-+   creates the file DIR/NAME, where NAME is the name it would use otherwise
-+   (the record name and file type, as before).  A NULL or empty dir means
-+   none (the default: files are created as named).  It returns the previous
-+   value (NULL if none), which remains valid until the next call. */
-+FSTRING wfdbx_set_output_dir(const char *dir)
-+{
-+    SFREE(previous_output_dir);
-+    previous_output_dir = output_dir;
-+    output_dir = NULL;
-+    if (dir && *dir)
-+	SSTRCPY(output_dir, dir);
-+    return (previous_output_dir);
-+}
-+
-+/* wfdbx_get_output_dir (a wfdb-x addition) returns the directory set by
-+   wfdbx_set_output_dir, or NULL if none. */
-+FSTRING wfdbx_get_output_dir(void)
-+{
-+    return (output_dir);
-+}
++/* wfdb-x: the settings that locate files (normal mode).  Each is read from its
++   environment variable (WFDBX_INPUT_DIR, WFDBX_OUTPUT_DIR, WFDBX_NETWORK)
++   when it is first needed; a call of its wfdbx_set_ function overrides it,
++   and a NULL or empty value (a negative one for the network) restores the
++   default, i.e., the value of the environment variable, if set. */
++static char *output_dir, *previous_output_dir, *env_output_dir;
++static int output_dir_init;
++static int network = -1, env_network;	/* network: -1 until first needed */
 +
 +/* wfdb-x: is_absolute_path returns 1 if s is an absolute local path: on POSIX
 +   systems, a path beginning with '/'; on MS-Windows, one beginning with
@@ -3811,10 +4211,526 @@ index 10644e2..a3a178b 100644
 +    return (*s == '/');
 +}
 +
++/* wfdb-x: is_url returns 1 if s is an http:// or https:// URL. */
++static int is_url(const char *s)
++{
++    return (strncmp(s, "http://", 7) == 0 || strncmp(s, "https://", 8) == 0);
++}
++
++/* wfdb-x: is_dsep returns 1 if c is a directory separator ('/', and on
++   MS-Windows also '\'). */
++static int is_dsep(int c)
++{
++#ifdef _WIN32
++    if (c == '\\') return (1);
++#endif
++    return (c == '/');
++}
++
++static void init_input_dir(void)
++{
++    const char *p;
++    static int wfdb_warned;
++
++    if (!input_dir_init) {
++	input_dir_init = 1;
++	if ((p = getenv("WFDBX_INPUT_DIR")) != NULL && *p) {
++	    SSTRCPY(env_input_dir, p);
++	    SSTRCPY(input_dir, p);
++	}
++    }
++    if (!wfdb_warned && !wfdbx_get_legacy()) {
++	wfdb_warned = 1;
++	if ((p = getenv("WFDB")) != NULL && *p)
++	    wfdb_error("wfdb-x: the WFDB environment variable is ignored; set "
++		       "WFDBX_INPUT_DIR instead (or use legacy mode)\n");
++    }
++}
++
++/* put_input_dir replaces the input directory (the default if dir is NULL or
++   empty), leaving previous_input_dir as it is. */
++static void put_input_dir(const char *dir)
++{
++    char *p = NULL;
++
++    init_input_dir();
++    if (dir && *dir) SSTRCPY(p, dir);
++    else if (env_input_dir) SSTRCPY(p, env_input_dir);
++    SFREE(input_dir);
++    input_dir = p;
++}
++
++/* wfdbx_set_input_dir (a wfdb-x addition) sets the input directory: in normal
++   mode, wfdb_open reads a file named by a relative name as DIR/NAME.  DIR may
++   be a local directory (relative to the current directory, or beginning with
++   ~) or the URL of a directory.  NULL or an empty string restores the default
++   (the value of WFDBX_INPUT_DIR if it is set, otherwise none: names are used
++   as given, relative to the current directory).  It returns the previous
++   value (NULL if none), which remains valid until the next call. */
++FSTRING wfdbx_set_input_dir(const char *dir)
++{
++    init_input_dir();
++    SFREE(previous_input_dir);
++    previous_input_dir = input_dir;
++    input_dir = NULL;
++    put_input_dir(dir);
++    return (previous_input_dir);
++}
++
++/* wfdbx_get_input_dir (a wfdb-x addition) returns the input directory, or
++   NULL if none is set. */
++FSTRING wfdbx_get_input_dir(void)
++{
++    init_input_dir();
++    return (input_dir);
++}
++
++static const char output_url_error[] =
++    "wfdbx_set_output_dir: the output directory must be a local directory\n";
++
++static void init_output_dir(void)
++{
++    const char *p;
++
++    if (output_dir_init) return;
++    output_dir_init = 1;
++    if ((p = getenv("WFDBX_OUTPUT_DIR")) != NULL && *p) {
++	if (is_url(p))
++	    wfdb_error(output_url_error);
++	else {
++	    SSTRCPY(env_output_dir, p);
++	    SSTRCPY(output_dir, p);
++	}
++    }
++}
++
++/* wfdbx_set_output_dir (a wfdb-x addition) sets the output directory, in
++   which output files are created: wfdb_open, in WFDB_WRITE or WFDB_APPEND
++   mode, then creates a file named by a relative name NAME (the record name and
++   file type, as before) as DIR/NAME (in legacy mode, any name).  NULL or an
++   empty string restores the default (the value of WFDBX_OUTPUT_DIR if it is
++   set, otherwise none: files are created as named).  It returns the previous
++   value (NULL if none), which remains valid until the next call.  A URL is
++   refused: the setting is unchanged, and the current value is returned. */
++FSTRING wfdbx_set_output_dir(const char *dir)
++{
++    init_output_dir();
++    if (dir && is_url(dir)) {
++	wfdb_error(output_url_error);
++	return (output_dir);
++    }
++    SFREE(previous_output_dir);
++    previous_output_dir = output_dir;
++    output_dir = NULL;
++    if (dir && *dir)
++	SSTRCPY(output_dir, dir);
++    else if (env_output_dir)
++	SSTRCPY(output_dir, env_output_dir);
++    return (previous_output_dir);
++}
++
++/* wfdbx_get_output_dir (a wfdb-x addition) returns the output directory, or
++   NULL if none is set. */
++FSTRING wfdbx_get_output_dir(void)
++{
++    init_output_dir();
++    return (output_dir);
++}
++
++/* wfdbx_set_network (a wfdb-x addition) allows (on > 0) or forbids (on == 0)
++   network access, i.e., opening URLs; a negative value restores the default
++   (allowed if the environment variable WFDBX_NETWORK is set to a non-zero
++   number, otherwise forbidden).  It returns the previous setting (1 or 0). */
++FINT wfdbx_set_network(int on)
++{
++    int previous = wfdbx_get_network();
++
++    network = (on < 0) ? env_network : (on != 0);
++    return (previous);
++}
++
++/* wfdbx_get_network (a wfdb-x addition) returns 1 if network access is
++   allowed, 0 otherwise. */
++FINT wfdbx_get_network(void)
++{
++    if (network < 0) {
++	const char *p = getenv("WFDBX_NETWORK");
++
++	env_network = (p != NULL && strtol(p, NULL, 10) != 0);
++	network = env_network;
++    }
++    return (network);
++}
++
++/* setwfdb_normal is setwfdb in normal mode: the path p, split into components
++   as by wfdb_parse_path, must name at most one input directory. */
++static const char *path_component(const char *q, const char **start,
++				  int *type);
++
++static int setwfdb_normal(const char *p)
++{
++    const char *q, *start;
++    char *d = NULL;
++    int n = 0, type;
++
++    for (q = p ? p : ""; *q; ) {
++	q = path_component(q, &start, &type);
++	if (q > start) {
++	    if (n++ == 0) {
++		SALLOC(d, q - start + 1, 1);
++		memcpy(d, start, q - start);
++	    }
++	}
++	if (*q) q++;
++    }
++    if (n > 1) {
++	wfdb_error("setwfdb: wfdb-x reads from a single input directory; use "
++		   "wfdbx_set_input_dir (or legacy mode for the WFDB search "
++		   "path)\n");
++	SFREE(d);
++	return (-1);
++    }
++    put_input_dir(d);
++    SFREE(setwfdb_input_dir);
++    setwfdb_input_dir = d;
++    setwfdb_called = 1;
++    return (0);
++}
++
++/* wfdb-x: expand_home returns (in allocated memory) the name s, with a
++   leading "~" or "~/" replaced by the home directory ($HOME, or the home
++   directory of the current user if HOME is not set; on MS-Windows,
++   %USERPROFILE%), and, on POSIX systems, "~user" by the home directory of
++   that user (if there is no such user, s is unchanged), as Python's
++   os.path.expanduser does. */
++static char *expand_home(const char *s)
++{
++    const char *home = NULL, *rest = s;
++    char *r = NULL;
++    size_t n;
++
++    if (*s == '~') {
++	for (rest = s + 1; *rest && !is_dsep(*rest); rest++)
++	    ;
++	if (rest == s + 1) {
++#ifdef _WIN32
++	    home = getenv("USERPROFILE");
++#else
++	    struct passwd *pw;
++
++	    if ((home = getenv("HOME")) == NULL && (pw = getpwuid(getuid())))
++		home = pw->pw_dir;
++#endif
++	}
++#ifndef _WIN32
++	else {
++	    char *user = NULL;
++	    struct passwd *pw;
++
++	    SALLOC(user, rest - s, 1);
++	    memcpy(user, s + 1, rest - s - 1);
++	    if ((pw = getpwnam(user)) != NULL)
++		home = pw->pw_dir;
++	    SFREE(user);
++	}
++#endif
++    }
++    if (home == NULL) {
++	SSTRCPY(r, s);
++	return (r);
++    }
++    for (n = strlen(home); n > 0 && is_dsep(home[n-1]); n--)
++	;
++    wfdb_asprintf(&r, "%.*s%s", (int)n, home, rest);
++    if (r && *r == '\0')
++	SSTRCPY(r, "/");
++    return (r);
++}
++
  /* wfdbfile returns the pathname or URL of a WFDB file. */
  
  FSTRING wfdbfile(const char *s, char *record)
-@@ -1065,15 +1118,14 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+@@ -494,10 +810,58 @@ OS- and compiler-dependent definitions:
+ /* wfdb_parse_path constructs a linked list of path components by splitting
+ its string input (usually the value of WFDB). */
+ 
++/* wfdb-x: path_component finds the next component of the path string q (from
++   q, after any whitespace): it sets *start to its beginning and *type to its
++   type (WFDB_LOCAL or WFDB_NET), and returns a pointer to its end (the
++   character that follows it).  (Formerly in the body of wfdb_parse_path;
++   also used by setwfdb in normal mode.) */
++static const char *path_component(const char *q, const char **start,
++				  int *type)
++{
++    int slashes, found_end;
++
++    /* Find the beginning of the next component (skip whitespace). */
++    while (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r')
++	q++;
++    *start = q--;
++    *type = WFDB_LOCAL;
++    /* Find the end of the current component. */
++    found_end = 0;
++    slashes = 0;
++    do {
++	switch (*++q) {
++	case ':':	/* might be a component delimiter, part of '://',
++			   a drive suffix (MS-DOS), or a directory separator
++			   (Mac) */
++	    if (*(q+1) == '/' && *(q+2) == '/') *type = WFDB_NET;
++#if PSEP == ':'
++	    /* Allow colons within the authority portion of the URL.
++	       For example, "http://[::1]:8080/database:/usr/database"
++	       is a database path with two components. */
++	    else if (*type != WFDB_NET || slashes > 2)
++		found_end = 1;
++#endif
++	    break;
++	case ';':	/* definitely a component delimiter */
++	case ' ':
++	case '\t':
++	case '\n':
++	case '\r':
++	case '\0':
++	    found_end = 1;
++	    break;
++	case '/':
++	    slashes++;
++	    break;
++	}
++    } while (!found_end);
++    return (q);
++}
++
+ int wfdb_parse_path(const char *p)
+ {
+     const char *q;
+-    int current_type, slashes, found_end;
++    int current_type;
+     struct wfdb_path_component *c0 = NULL, *c1 = wfdb_path_list;
+     static first_call = 1;
+ 
+@@ -516,41 +880,7 @@ int wfdb_parse_path(const char *p)
+ 
+     /* Now construct the wfdb_path_list from the contents of p. */
+     while (*q) {
+-	/* Find the beginning of the next component (skip whitespace). */
+-	while (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r')
+-	    q++;
+-	p = q--;
+-	current_type = WFDB_LOCAL;
+-	/* Find the end of the current component. */
+-	found_end = 0;
+-	slashes = 0;
+-	do {
+-	    switch (*++q) {
+-	    case ':':	/* might be a component delimiter, part of '://',
+-			   a drive suffix (MS-DOS), or a directory separator
+-			   (Mac) */
+-		if (*(q+1) == '/' && *(q+2) == '/') current_type = WFDB_NET;
+-#if PSEP == ':'
+-		/* Allow colons within the authority portion of the URL.
+-		   For example, "http://[::1]:8080/database:/usr/database"
+-		   is a database path with two components. */
+-		else if (current_type != WFDB_NET || slashes > 2)
+-		    found_end = 1;
+-#endif
+-		break;
+-	    case ';':	/* definitely a component delimiter */
+-	    case ' ':
+-	    case '\t':
+-	    case '\n':
+-	    case '\r':
+-	    case '\0':
+-		found_end = 1;
+-		break;
+-	    case '/':
+-		slashes++;
+-		break;
+-	    }
+-	} while (!found_end);
++	q = path_component(q, &p, &current_type);
+ 
+ 	/* current component begins at p, ends at q-1 */
+ 	SUALLOC(c1, 1, sizeof(struct wfdb_path_component));
+@@ -946,8 +1276,96 @@ int wfdb_fprintf(WFDB_FILE *wp, const char *format, ...)
+ 				 wfdb_asprintf(S, "%s.%.3s", RECORD, TYPE))
+ #endif
+ 
++/* wfdb-x: join returns (in allocated memory) dir + sep + name, with exactly
++   one separator between them ('/' in a URL, otherwise sep). */
++static char *join(const char *dir, const char *name, int sep)
++{
++    char *r = NULL;
++    size_t n = strlen(dir);
++
++    if (is_url(dir)) sep = '/';
++    if (n == 0 || dir[n-1] == sep || is_dsep(dir[n-1]))
++	wfdb_asprintf(&r, "%s%s", dir, name);
++    else
++	wfdb_asprintf(&r, "%s%c%s", dir, sep, name);
++    return (r);
++}
++
++/* wfdb-x: resolve returns (in allocated memory) the location of the file
++   named name in normal mode: an absolute name or a URL as given, a ~ name
++   expanded, and a relative name under the input directory (for reading) or
++   the output directory (for writing), if one is set. */
++static char *resolve(const char *name, int output)
++{
++    char *dir, *d, *r = NULL;
++
++    if (*name == '~')
++	return (expand_home(name));
++    if (is_absolute_path(name) || is_url(name)) {
++	SSTRCPY(r, name);
++	return (r);
++    }
++    if (output) {
++	init_output_dir();
++	dir = output_dir;
++    }
++    else {
++	init_input_dir();
++	dir = input_dir;
++    }
++    if (dir == NULL) {
++	SSTRCPY(r, name);
++	return (r);
++    }
++    d = expand_home(dir);
++    r = join(d, name, output ? DSEP : '/');
++    SFREE(d);
++    return (r);
++}
++
++/* wfdb-x: wfdbx_in_header_dir returns 1 if a file name found in a header
++   names a file in the header's directory or below it: a relative name that
++   does not begin with '~' and contains no ".." component (on MS-Windows, no
++   drive letter either). */
++int wfdbx_in_header_dir(const char *name)
++{
++    const char *p, *q;
++
++    if (is_absolute_path(name) || is_url(name) || *name == '~')
++	return (0);
++#ifdef _WIN32
++    if (*name && name[1] == ':')
++	return (0);
++#endif
++    for (p = name; ; p = q + 1) {
++	for (q = p; *q && !is_dsep(*q); q++)
++	    ;
++	if (q - p == 2 && p[0] == '.' && p[1] == '.')
++	    return (0);
++	if (*q == '\0')
++	    return (1);
++    }
++}
++
++/* wfdb-x: wfdbx_dirname returns (in allocated memory) the directory part of
++   the file name or URL s, including its final separator ("" if s has
++   none). */
++char *wfdbx_dirname(const char *s)
++{
++    const char *p;
++    char *r = NULL;
++
++    for (p = s + strlen(s); p > s && !is_dsep(p[-1]); p--)
++	;
++    SALLOC(r, p - s + 1, 1);
++    if (r) memcpy(r, s, p - s);
++    return (r);
++}
++
+ static char irec[WFDB_MAXRNL+1]; /* current record name, set by wfdb_setirec */
+ 
++static WFDB_FILE *open_at(const char *p, const char *s);
++
+ /* wfdb_open is used by other WFDB library functions to open a database file
+ for reading or writing.  wfdb_open accepts two string arguments and an integer
+ argument.  The first string specifies the file type ("hea", "atr", etc.),
+@@ -1004,6 +1422,55 @@ Pre-10.0.1 versions of this library that were compiled for environments other
+ than MS-DOS used file names in the format TYPE.RECORD.  This file name format
+ is no longer supported. */
+ 
++/* wfdb-x: expand_record returns (in allocated memory) the record name as
++   wfdb_open uses it: if the name ends with '/', another copy of its final
++   element is added (e.g., 'abc/123/' becomes 'abc/123/123'). */
++static char *expand_record(const char *record)
++{
++    char *p, *q, *r;
++    int rlen;
++
++    rlen = strlen(record);
++    p = (char *)(record + rlen - 1);
++    if (rlen > 1 && *p == '/') {
++	for (q = p-1; q > record; q--)
++	    if (*q == '/') { q++; break; }
++	if (q < p) {
++	    SUALLOC(r, rlen + p-q + 1, 1); /* p-q is length of final element */
++	    strcpy(r, record);
++	    strncpy(r + rlen, q, p-q);
++	}
++	else {
++	    SUALLOC(r, rlen + 1, 1);
++	    strcpy(r, record);
++	}
++    }
++    else {
++	SUALLOC(r, rlen + 1, 1);
++	strcpy(r, record);
++    }
++    return (r);
++}
++
++/* wfdb-x: wfdbx_output_file returns (in allocated memory) the name of the
++   local file that wfdb_open(name, NULL, WFDB_WRITE) creates in normal mode,
++   or NULL if it creates none (the standard output, or a URL). */
++char *wfdbx_output_file(const char *name)
++{
++    char *r, *p;
++
++    if (name == NULL || *name == '\0' || strcmp(name, "-") == 0)
++	return (NULL);
++    r = expand_record(name);
++    if (is_url(r)) {
++	SFREE(r);
++	return (NULL);
++    }
++    p = resolve(r, 1);
++    SFREE(r);
++    return (p);
++}
++
+ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+ {
+     char *wfdb, *p, *q, *r, *buf = NULL;
+@@ -1042,38 +1509,39 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+ 
+     /* If the record name ends with '/', expand it by adding another copy of
+        the final element (e.g., 'abc/123/' becomes 'abc/123/123'). */
+-    rlen = strlen(record);
+-    p = (char *)(record + rlen - 1);
+-    if (rlen > 1 && *p == '/') {
+-	for (q = p-1; q > record; q--)
+-	    if (*q == '/') { q++; break; }
+-	if (q < p) {
+-	    SUALLOC(r, rlen + p-q + 1, 1); /* p-q is length of final element */
+-	    strcpy(r, record);
+-	    strncpy(r + rlen, q, p-q);
+-	}
+-	else {
+-	    SUALLOC(r, rlen + 1, 1);
+-	    strcpy(r, record);
+-	}
+-    }
+-    else {
+-	SUALLOC(r, rlen + 1, 1);
+-	strcpy(r, record);
+-    }
++    r = expand_record(record);	/* wfdb-x: moved to expand_record */
+ 
      /* If the file is to be opened for output, use the current directory.
         An output file can be opened in another directory if the path to
         that directory is the first part of 'record'. */
@@ -3823,35 +4739,348 @@ index 10644e2..a3a178b 100644
  	spr1(&wfdb_filename, r, s);
  	SFREE(r);
 -	return (wfdb_fopen(wfdb_filename, WB));
--    }
--    else if (mode == WFDB_APPEND) {
--	spr1(&wfdb_filename, r, s);
--	SFREE(r);
--	return (wfdb_fopen(wfdb_filename, AB));
-+	/* wfdb-x: in the output directory, if one was set */
-+	if (output_dir)
++	init_output_dir();
++	if (!wfdbx_get_legacy()) {
++	    /* wfdb-x: a relative name in the output directory, if one is set;
++	       a URL cannot be written */
++	    if (is_url(wfdb_filename))
++		return (NULL);
++	    r = resolve(wfdb_filename, 1);
++	    SFREE(wfdb_filename);
++	    wfdb_filename = r;
++	}
++	/* wfdb-x: legacy mode: any name in the output directory, if set */
++	else if (output_dir)
 +	    wfdb_asprintf(&wfdb_filename, "%s%c%s", output_dir, DSEP,
 +			  wfdb_filename);
 +	return (wfdb_fopen(wfdb_filename, mode == WFDB_WRITE ? WB : AB));
      }
- 
-     /* Parse the WFDB path if not done previously. */
-@@ -1092,6 +1144,18 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
- 	}
+-    else if (mode == WFDB_APPEND) {
+-	spr1(&wfdb_filename, r, s);
++
++    /* wfdb-x: in normal mode, the file is opened at the one location that its
++       name designates (see resolve); nothing is searched. */
++    if (!wfdbx_get_legacy()) {
++	p = resolve(r, 0);
+ 	SFREE(r);
+-	return (wfdb_fopen(wfdb_filename, AB));
++	ifile = open_at(p, s);
++	SFREE(p);
++	return (ifile);
      }
  
-+    /* wfdb-x: an absolute local path is opened directly (and, as for a URL,
-+       its directory is added to the WFDB path); if it cannot be, the WFDB
-+       path is searched as in the C library (and in legacy mode). */
-+    if (!wfdbx_get_legacy() && is_absolute_path(r)) {
-+	spr1(&wfdb_filename, r, s);
-+	if ((ifile = wfdb_fopen(wfdb_filename, RB)) != NULL) {
-+	    wfdb_addtopath(wfdb_filename);
-+	    SFREE(r);
-+	    return (ifile);
-+	}
-+    }
-+
-     for (c0 = wfdb_path_list; c0; c0 = c0->next) {
- 	char *long_filename = NULL;
+     /* Parse the WFDB path if not done previously. */
+@@ -1190,6 +1658,54 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+     return (NULL);
+ }
  
++/* wfdb-x: open_at opens the file at location p (as resolved by resolve, or
++   in the directory of a header) for reading: it tries the two forms of the
++   name (see spr1 and spr2 above) there. */
++static WFDB_FILE *open_at(const char *p, const char *s)
++{
++    char *long_filename = NULL;
++    WFDB_FILE *ifile;
++
++    if (s == NULL) s = "";
++    spr1(&wfdb_filename, p, s);
++    if ((ifile = wfdb_fopen(wfdb_filename, RB)) != NULL)
++	return (ifile);
++    SSTRCPY(long_filename, wfdb_filename);
++    spr2(&wfdb_filename, p, s);
++    if (strcmp(wfdb_filename, long_filename))
++	ifile = wfdb_fopen(wfdb_filename, RB);
++    SFREE(long_filename);
++    return (ifile);
++}
++
++/* wfdb-x: wfdbx_open_in opens, for reading, a file named in the header of
++   record RECORD (a signal file, or a segment of a multi-segment record, of
++   type S): NAME, in the directory DIR of that header (as returned by
++   wfdbx_dirname; NULL if unknown, for a header read from the standard input:
++   then NAME is resolved as any relative name).  NAME must be in that
++   directory or below it; the signal file name "-" (the standard input) is
++   also accepted. */
++WFDB_FILE *wfdbx_open_in(const char *dir, const char *s, const char *name,
++			 const char *record)
++{
++    char *p = NULL;
++    WFDB_FILE *ifile;
++
++    if (strcmp(name, "-") == 0)
++	return (wfdb_open(s, name, WFDB_READ));
++    if (!wfdbx_in_header_dir(name)) {
++	wfdb_error("init: file %s named in the header of record %s is not "
++		   "in the header's directory\n", name, record);
++	return (NULL);
++    }
++    if (dir == NULL)
++	return (wfdb_open(s, name, WFDB_READ));
++    wfdb_asprintf(&p, "%s%s", dir, name);
++    ifile = open_at(p, s);
++    SFREE(p);
++    return (ifile);
++}
++
+ /* wfdb_checkname checks record and annotator names -- they must not be empty,
+    and they must contain only letters, digits, hyphens, tildes, underscores, and
+    directory separators. */
+@@ -2177,15 +2693,212 @@ int wfdb_fclose(WFDB_FILE *wp)
+     return (status);
+ }
+ 
++/* wfdb-x: remote files.  In normal mode, a URL (http:// or https://) is opened
++   only if network access is allowed (see wfdbx_set_network).  It is then read
++   in full (no range requests) by the system program curl, run without a
++   shell as
++       curl --silent --fail --location --connect-timeout 30
++            --speed-limit 1 --speed-time 30 URL
++   (following redirections, failing on an HTTP status of 400 or more, and
++   giving up if connecting takes 30 seconds or no data arrives for 30
++   seconds; there is no limit on the total time, since record files can be
++   large),
++   reading its standard output.  The result (the contents, or a failure) is
++   kept for the rest of the process, so that each URL is requested at most
++   once.  The file is read from a temporary copy. */
++
++struct fetched {
++    char *url;
++    char *data;
++    size_t len;
++    int ok;
++    struct fetched *next;
++};
++static struct fetched *fetched_list;
++
++#include <errno.h>
++#ifndef _WIN32
++#include <fcntl.h>
++#include <spawn.h>
++#include <sys/wait.h>
++extern char **environ;
++#else
++#include <fcntl.h>
++#include <io.h>
++#include <process.h>
++#endif
++
++/* run_curl reads the URL into *data (allocated; *len bytes).  It returns 1
++   on success, 0 on failure, or -1 if curl could not be started. */
++static int run_curl(const char *url, char **data, size_t *len)
++{
++    char *argv[12];
++    size_t size = 0;
++    int status;
++
++    argv[0] = "curl";
++    argv[1] = "--silent";
++    argv[2] = "--fail";
++    argv[3] = "--location";
++    argv[4] = "--connect-timeout";
++    argv[5] = "30";
++    argv[6] = "--speed-limit";
++    argv[7] = "1";
++    argv[8] = "--speed-time";
++    argv[9] = "30";
++    argv[10] = (char *)url;
++    argv[11] = NULL;
++    *data = NULL;
++    *len = 0;
++#ifndef _WIN32
++    {
++	int fd[2], err;
++	ssize_t n;
++	pid_t pid;
++	posix_spawn_file_actions_t fa;
++
++	if (pipe(fd) != 0)
++	    return (0);
++	posix_spawn_file_actions_init(&fa);
++	posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
++	posix_spawn_file_actions_adddup2(&fa, fd[1], 1);
++	posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
++	posix_spawn_file_actions_addclose(&fa, fd[0]);
++	posix_spawn_file_actions_addclose(&fa, fd[1]);
++	err = posix_spawnp(&pid, "curl", &fa, NULL, argv, environ);
++	posix_spawn_file_actions_destroy(&fa);
++	close(fd[1]);
++	if (err != 0) {
++	    close(fd[0]);
++	    return (-1);
++	}
++	for (;;) {
++	    if (*len == size) {
++		size = size ? 2 * size : 65536;
++		SREALLOC(*data, size, 1);
++	    }
++	    if ((n = read(fd[0], *data + *len, size - *len)) > 0)
++		*len += n;
++	    else if (n < 0 && errno == EINTR)
++		continue;
++	    else
++		break;
++	}
++	close(fd[0]);
++	while (waitpid(pid, &status, 0) < 0)
++	    if (errno != EINTR)
++		return (0);
++	if (!WIFEXITED(status))
++	    return (0);
++	status = WEXITSTATUS(status);
++    }
++#else
++    {
++	/* The standard output of curl goes to a temporary file, and its
++	   standard error to NUL (both redirected while it runs). */
++	FILE *tf = tmpfile();
++	int so, se, nul, c;
++
++	if (tf == NULL)
++	    return (0);
++	fflush(stdout);
++	fflush(stderr);
++	so = _dup(1);
++	se = _dup(2);
++	nul = _open("NUL", _O_WRONLY);
++	_dup2(_fileno(tf), 1);
++	if (nul >= 0) _dup2(nul, 2);
++	status = (int)_spawnvp(_P_WAIT, "curl", (const char *const *)argv);
++	_dup2(so, 1);
++	_dup2(se, 2);
++	_close(so);
++	_close(se);
++	if (nul >= 0) _close(nul);
++	if (status == -1) {
++	    fclose(tf);
++	    return (-1);
++	}
++	rewind(tf);
++	while ((c = getc(tf)) != EOF) {
++	    if (*len == size) {
++		size = size ? 2 * size : 65536;
++		SREALLOC(*data, size, 1);
++	    }
++	    (*data)[(*len)++] = c;
++	}
++	fclose(tf);
++    }
++#endif
++    if (status == 127)	/* the shell's code for "command not found" */
++	return (-1);
++    return (status == 0);
++}
++
++/* fetch_open opens a URL for reading. */
++static WFDB_FILE *fetch_open(const char *url)
++{
++    static int network_warned, curl_warned;
++    struct fetched *f;
++    WFDB_FILE *wp;
++    FILE *fp;
++
++    if (!wfdbx_get_network()) {
++	if (!network_warned) {
++	    network_warned = 1;
++	    wfdb_error("wfdb-x: network access is disabled; set "
++		       "WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open "
++		       "%s\n", url);
++	}
++	return (NULL);
++    }
++    for (f = fetched_list; f; f = f->next)
++	if (strcmp(f->url, url) == 0)
++	    break;
++    if (f == NULL) {
++	int stat;
++
++	SUALLOC(f, 1, sizeof(struct fetched));
++	SSTRCPY(f->url, url);
++	stat = run_curl(url, &f->data, &f->len);
++	if (stat < 0 && !curl_warned) {
++	    curl_warned = 1;
++	    wfdb_error("wfdb-x: network access needs the curl program, which "
++		       "was not found\n");
++	}
++	if ((f->ok = (stat > 0)) == 0) {
++	    SFREE(f->data);
++	    f->len = 0;
++	}
++	f->next = fetched_list;
++	fetched_list = f;
++    }
++    if (!f->ok || (fp = tmpfile()) == NULL)
++	return (NULL);
++    if (f->len > 0 && fwrite(f->data, 1, f->len, fp) != f->len) {
++	fclose(fp);
++	return (NULL);
++    }
++    rewind(fp);
++    SUALLOC(wp, 1, sizeof(WFDB_FILE));
++    wp->fp = fp;
++    wp->type = WFDB_FETCHED;
++    return (wp);
++}
++
+ WFDB_FILE *wfdb_fopen(char *fname, const char *mode)
+ {
+     char *p = fname;
+     WFDB_FILE *wp;
+ 
+-    if (p == NULL || strstr(p, ".."))
++    /* wfdb-x: in normal mode, names containing ".." are accepted, and an
++       http:// or https:// URL is fetched (see fetch_open); other names are
++       local files. */
++    if (p == NULL || (wfdbx_get_legacy() && strstr(p, "..")))
+ 	return (NULL);
++    if (!wfdbx_get_legacy() && is_url(p))
++	return (*mode == 'r' ? fetch_open(p) : NULL);
+     SUALLOC(wp, 1, sizeof(WFDB_FILE));
+-    if (strstr(p, "://")) {
++    if (wfdbx_get_legacy() && strstr(p, "://")) {
+ #if WFDB_NETFILES
+ 	if (wp->netfp = nf_fopen(fname, mode)) {
+ 	    wp->type = WFDB_NET;
+diff --git a/lib/wfdblib.h0 b/lib/wfdblib.h0
+index 49479a6..795a40a 100644
+--- a/lib/wfdblib.h0
++++ b/lib/wfdblib.h0
+@@ -209,6 +209,8 @@ struct WFDB_FILE {
+ /* Values for WFDB_FILE 'type' field */
+ #define WFDB_LOCAL	0	/* a local file, read via C standard I/O */
+ #define WFDB_NET	1	/* a remote file, read via libwww */
++#define WFDB_FETCHED	2	/* wfdb-x: a remote file, fetched in full and
++				   read via C standard I/O (see wfdbio.c) */
+ 
+ /* Composite data types */
+ typedef struct netfile netfile;
+@@ -296,6 +298,11 @@ extern void wfdb_p32(long x, WFDB_FILE *fp);
+ extern size_t wfdb_getline(char **buffer, size_t *buffer_size, WFDB_FILE *fp);
+ extern int wfdb_parse_path(const char *wfdb_path);
+ extern void wfdb_addtopath(const char *pathname);
++extern WFDB_FILE *wfdbx_open_in(const char *dir, const char *type,
++				const char *name, const char *record);
++extern char *wfdbx_dirname(const char *pathname);	/* wfdb-x */
++extern char *wfdbx_output_file(const char *name);	/* wfdb-x */
++extern int wfdbx_in_header_dir(const char *name);	/* wfdb-x */
+ #if __GNUC__ >= 3
+ __attribute__((__format__(__printf__, 2, 3)))
+ #endif
+@@ -338,15 +345,15 @@ extern void wfdb_oaflush(void);
+ 
+ #else        /* declare only function return types for non-ANSI C compilers */
+ 
+-extern char *wfdb_getirec();
++extern char *wfdb_getirec(), *wfdbx_dirname(), *wfdbx_output_file();
+ extern int wfdb_fclose(), wfdb_checkname(), wfdb_g16(), wfdb_parse_path(),
+-    wfdb_fprintf();
++    wfdb_fprintf(), wfdbx_in_header_dir();
+ extern long wfdb_g32();
+ extern void wfdb_striphea(), wfdb_p16(), wfdb_p32(), wfdb_addtopath(),
+     wfdb_setirec(), wfdb_sampquit(), wfdb_sigclose(),
+     wfdb_osflush(), wfdb_freeinfo(), wfdb_oinfoclose(),
+     wfdb_anclose(), wfdb_oaflush();
+-extern WFDB_FILE *wfdb_open(), *wfdb_fopen();
++extern WFDB_FILE *wfdb_open(), *wfdb_fopen(), *wfdbx_open_in();
+ 
+ extern char *wfdb_fgets();
+ extern int wfdb_feof(), wfdb_ferror(), wfdb_fflush(), wfdb_fseek(),

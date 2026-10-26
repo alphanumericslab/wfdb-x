@@ -1,10 +1,15 @@
 function si = read_header(record, varargin)
 %READ_HEADER Read the signal descriptions of a record.
 %   SI = wfdbx.read_header(RECORD) reads the header of record RECORD
-%   (found in the WFDB path) and returns a 1-by-NSIG wfdbx.siginfo struct
-%   array describing its signals (fname, desc, units, gain, fmt, spf,
-%   adcres, adczero, baseline, nsamp, ...).  No signal file is opened.
+%   (relative to the input directory, or a full path, ~ path or URL) and
+%   returns a 1-by-NSIG wfdbx.siginfo struct array describing its signals
+%   (fname, desc, units, gain, fmt, spf, adcres, adczero, baseline,
+%   nsamp, ...).  No signal file is opened.
 %   An error is thrown if the header cannot be read.
+%
+%   SI = wfdbx.read_header(RECORD, 'input_dir', DIR, 'network', NET)
+%   reads it with the input directory DIR and network access NET for
+%   this call (see wfdbx.read_record).
 %
 %   SI = wfdbx.read_header(RECORD, 'legacy', true) reads the header as the
 %   original package did, with the library's legacy mode
@@ -29,9 +34,11 @@ function si = read_header(record, varargin)
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 record = wfdbx.internal.strarg(record);
-opt = wfdbx.internal.hl_options(struct('legacy', false), varargin, ...
-    'read_header');
+opt = wfdbx.internal.hl_options(struct('input_dir', [], 'network', [], ...
+    'legacy', false), varargin, 'read_header');
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_header'); %#ok<NASGU>
+% wfdb-x: the input directory and network access for this call
+restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, 'read_header'); %#ok<NASGU>
 n = wfdbx.isigopen(record, 0);
 if n < 0
     wfdbx.wfdbquit();

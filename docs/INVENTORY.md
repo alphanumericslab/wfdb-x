@@ -29,24 +29,24 @@ available; the code follows the MATLAB R2019b+ compatibility rules of
 | Tool | What it does | Cases | Python | C++ | MATLAB/Octave | Rust | Julia | R |
 |---|---|---:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **Signals** | | | | | | | | |
-| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 257 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrsamp` | write a record from text (columns, scaling, any storage format) | 66 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbdesc` | describe the signals of a record (header contents) | 44 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 282 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrsamp` | write a record from text (columns, scaling, any storage format) | 67 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbdesc` | describe the signals of a record (header contents) | 47 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 41 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `snip` | copy a segment of a record (any format) to a new record | 36 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `xform` | convert records: format, sampling frequency, gain, signal selection | 47 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `snip` | copy a segment of a record (any format) to a new record | 39 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `xform` | convert records: format, sampling frequency, gain, signal selection | 53 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sampfreq` | print the sampling (or counter) frequency of a record | 21 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signame` | print signal names | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signum` | print the number of a named signal | 6 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbcat` | copy a WFDB file (found via the WFDB path) to the standard output | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbwhich` | print the path of a WFDB file | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbcat` | copy a WFDB file (found via the WFDB path) to the standard output | 7 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbwhich` | print the path of a WFDB file | 16 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Time conversion** | | | | | | | | |
 | `wfdbtime` | convert between sample numbers, elapsed and absolute times | 8 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `time2sec` | convert a time string to seconds | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Annotations** | | | | | | | | |
-| `rdann` | print annotations (filters by time, type, subtype, channel, number) | 72 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrann` | write an annotation file from text (`rdann` format) | 21 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sortann` | sort an annotation file into time order | 17 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdann` | print annotations (filters by time, type, subtype, channel, number) | 77 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrann` | write an annotation file from text (`rdann` format) | 26 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sortann` | sort an annotation file into time order | 19 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ann2rr` | print RR intervals from annotations | 41 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rr2ann` | write an annotation file from RR intervals | 13 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Format converters** | | | | | | | | |
@@ -65,7 +65,7 @@ available; the code follows the MATLAB R2019b+ compatibility rules of
 | `makeid` | write a record ID block (for AHA conversions) | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `readid` | read a record ID block | 3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `revise` | convert an old-style header to the current format | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Total** | 33 tools | **928** | 928 | 928 | 928 | 928 | 928 | 928 |
+| **Total** | 33 tools | **987** | 987 | 987 | 987 | 987 | 987 | 987 |
 
 ## Library functions
 
@@ -128,13 +128,15 @@ The C library functions keep their C names in every implementation
 | **Calibration** | | | | | | | |
 | `calopen`, `getcal`, `putcal`, `newcal`, `flushcal` | read and write calibration files | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **WFDB path, errors, configuration** | | | | | | | |
-| `getwfdb`, `setwfdb`, `resetwfdb` | the WFDB path used to find files | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `getwfdb`, `setwfdb`, `resetwfdb` | the input directory (one directory; the WFDB search path in legacy mode) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbfile` | path of a WFDB file | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdb_error` | error reporting | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbmemerr`, `wfdb_me_fatal` | behavior on memory errors | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_time_needs_freq` | whether `strtim` needs the sampling frequency for a string (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_set_legacy`, `wfdbx_get_legacy`, `wfdbx_legacy_args` | legacy mode: the original package's behavior, on request (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbx_set_output_dir`, `wfdbx_get_output_dir` | the directory in which output files are created, used by the high-level writers' `dir` option (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbx_set_output_dir`, `wfdbx_get_output_dir` | the output directory: every relative name written is created under it (`WFDBX_OUTPUT_DIR`; the high-level writers' `dir` option); addition, see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbx_set_input_dir`, `wfdbx_get_input_dir` | the input directory (a directory, `~...` or a URL): every relative name read is found under it (`WFDBX_INPUT_DIR`; the high-level readers' `input_dir` option); addition, see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbx_set_network`, `wfdbx_get_network` | network access, off by default (`WFDBX_NETWORK`; the high-level readers' `network` option); addition, see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`, `wfdbdefwfdbcal` | version and configuration strings | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **High-level API (additions; each function takes a legacy option)** | | | | | | | |
 | `read_record`, `read_header` | read a record (or part of one) into an array | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

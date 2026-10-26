@@ -169,6 +169,71 @@ WFDBX_TEST(getvecs_equals_getvec)
     wfdbverbose();
 }
 
+// A signal file shorter than its header says (getvec status -3,
+// unexpected EOF) is an error of read_record, not the end of the data; the
+// low-level API is unchanged.
+WFDBX_TEST(read_record_truncated_signal_file)
+{
+    DataDir d;
+    wfdbquiet();
+    const std::vector<WFDB_Sample> x = {1, 2, 3, 4, 5, 6, 7, 8};
+    WriteOptions w;
+    w.gains = {100};
+    w.adcres = {16};
+    w.units = {std::string("mV")};
+    write_record("tr", x, 2, 100, w);
+    write_record("ok", x, 2, 100, w);
+    fs::resize_file("tr.dat", 8);   // 2 of the 4 frames (format 16)
+    for (bool legacy : {false, true}) {
+        ReadOptions o;
+        o.legacy = legacy;
+        // (1) the error, and the library is left usable
+        std::string msg;
+        try {
+            read_record("tr", o);
+        } catch (const Error &e) {
+            msg = e.what();
+        }
+        CHECK_EQ(msg, std::string("can't read signal data of record tr "
+                                  "(getvec status -3)"));
+        CHECK(read_record("ok", o).samples == x);
+        // reading only what the file holds is not an error
+        ReadOptions o2 = o;
+        o2.to = 2;
+        CHECK(read_record("tr", o2).samples ==
+              std::vector<WFDB_Sample>(x.begin(), x.begin() + 4));
+        // (2) a sub-interval, and sampto past the end of a record whose
+        // header gives its length (what there is, no error)
+        o2.from = 1;
+        o2.to = 3;
+        CHECK(read_record("ok", o2).samples ==
+              std::vector<WFDB_Sample>(x.begin() + 2, x.begin() + 6));
+        o2.from = 0;
+        o2.to = 10;
+        CHECK(read_record("ok", o2).samples == x);
+    }
+    // (3) the low-level API: getvec returns -3 at the end of the truncated
+    // file, getvecs the frames read
+    std::vector<WFDB_Siginfo> si(2);
+    REQUIRE(isigopen("tr", si.data(), 2) == 2);
+    WFDB_Sample v[2];
+    CHECK_EQ(getvec(v), 2);
+    CHECK_EQ(getvec(v), 2);
+    CHECK_EQ(getvec(v), -3);
+    wfdbquit();
+    REQUIRE(isigopen("tr", si.data(), 2) == 2);
+    std::vector<WFDB_Sample> buf(20);
+    int stat = 0;
+    CHECK_EQ(getvecs(buf.data(), 10, &stat), 2LL);
+    CHECK_EQ(stat, -3);
+    wfdbquit();
+    REQUIRE(isigopen("ok", si.data(), 2) == 2);
+    CHECK_EQ(getvecs(buf.data(), 10, &stat), 4LL);
+    CHECK_EQ(stat, -1);
+    wfdbquit();
+    wfdbverbose();
+}
+
 WFDBX_TEST(physical_units)
 {
     DataDir d;

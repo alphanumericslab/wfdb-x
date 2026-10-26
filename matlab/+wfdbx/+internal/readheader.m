@@ -18,6 +18,15 @@ function nsig = readheader(record)
 % corrupts every result derived from it. See docs/DIVERGENCES.md.
 % The original behavior remains available with --legacy (see
 % docs/DIVERGENCES.md).
+% Design decision (Reza Sameni, Oct 2026): the signal files named in a
+% header, and the segments named in the header of a multi-segment record,
+% are in the directory of that header (on disk or at its URL) or below it;
+% a name that is absolute, begins with '~', is a URL or contains a '..'
+% component is refused ('~' as a segment, a null segment, and '-' as a
+% signal file remain).  Nothing is searched: a search can silently open
+% the wrong file, and a header must not make the library read other local
+% files or contact other servers.  The original behavior remains
+% available with --legacy (see docs/DIVERGENCES.md).
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 S = wfdbx.internal.sig_state();
@@ -50,7 +59,7 @@ while q > 0 && ~any(record(q + 1) == './:\')
     q = q - 1;
 end
 if q >= 0 && numel(record) > q && record(q + 1) == '.'
-    S.hheader = wfdbx.internal.wfdb_open([], record, 0);  % WFDB_READ
+    S.hheader = open_header(S, [], record);
     if isempty(S.hheader)
         wfdbx.internal.wfdb_error('init: can''t open %s\n', record);
         nsig = -1;
@@ -60,7 +69,7 @@ if q >= 0 && numel(record) > q && record(q + 1) == '.'
         return;
     end
 else
-    S.hheader = wfdbx.internal.wfdb_open('hea', record, 0);
+    S.hheader = open_header(S, 'hea', record);
     if isempty(S.hheader)
         wfdbx.internal.wfdb_error( ...
             'init: can''t open header for record %s\n', record);
@@ -226,6 +235,10 @@ if ischar(p) && S.btime == 0 && wfdbx.setbasetime(p) < 0
 end
 % The master header of a multi-segment record.
 if S.segments && ~S.in_msrec
+    if ~wfdbx.wfdbx_get_legacy()    % wfdb-x: the segments are next to it
+        S.msrec_dir = S.hdr_dir;
+        S.msrec_name = record;
+    end
     S.msbtime = S.btime;
     S.msbdate = S.bdate;
     S.msnsamples = S.nsamples;
@@ -495,4 +508,27 @@ end
 S.hsd = hsd;
 wfdbx.setgvmode(S.gvmode);
 nsig = s;
+end
+
+function f = open_header(S, s, record)
+% Open the header (of type s: 'hea', or [] for a file name) of a record,
+% or of a segment named in the header of the current multi-segment record
+% (wfdb-x: in that header's directory), and note its directory.
+if wfdbx.wfdbx_get_legacy()
+    f = wfdbx.internal.wfdb_open(s, record, 0);     % WFDB_READ
+    return;
+end
+if ~S.in_msrec
+    S.msrec_dir = [];
+    S.msrec_name = [];
+end
+if S.in_msrec && ischar(S.msrec_name) && ~S.user_segments
+    f = wfdbx.internal.open_in(S.msrec_dir, s, record, S.msrec_name);
+else
+    f = wfdbx.internal.wfdb_open(s, record, 0);     % WFDB_READ
+end
+S.hdr_dir = [];
+if ~isempty(f) && ~f.is_std
+    S.hdr_dir = wfdbx.internal.wfdb_dirname(wfdbx.wfdbfile([], []));
+end
 end

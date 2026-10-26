@@ -1,8 +1,8 @@
 function rec = read_record(record, varargin)
 %READ_RECORD Read the signals of a record into a matrix.
 %   REC = wfdbx.read_record(RECORD) reads all samples of all signals of
-%   record RECORD (found in the WFDB path, as by rdsamp) and returns a
-%   structure with the fields
+%   record RECORD (as rdsamp does: relative to the input directory, or a
+%   full path, ~ path or URL) and returns a structure with the fields
 %
 %     name        the record name
 %     fs          sampling frequency (Hz) of the returned samples (0 if
@@ -38,6 +38,13 @@ function rec = read_record(record, varargin)
 %                 one sample per frame, averaged)
 %     'pad'       true to replace invalid samples by the previous valid
 %                 sample (WFDB_GVPAD mode; default false)
+%     'input_dir' the input directory for this call (a local directory,
+%                 a ~ name or a URL; '' for the default; see
+%                 wfdbx.wfdbx_set_input_dir); default: the current setting
+%                 (by default, the current directory)
+%     'network'   true to allow reading URLs for this call (false to
+%                 forbid it; see wfdbx.wfdbx_set_network); default: the
+%                 current setting (by default, not allowed)
 %     'legacy'    true to behave as the original package (default false):
 %                 the library's legacy mode (wfdbx.wfdbx_set_legacy) is on
 %                 during the call (a header without a sampling frequency
@@ -47,11 +54,26 @@ function rec = read_record(record, varargin)
 %                 values it assumes are exactly the silent defaults wfdb-x
 %                 removed, so results produced with it carry the same
 %                 risks.
+%     'checksum_warning'  true (the default) to warn when the samples read
+%                 to the end of the record do not match the checksums in
+%                 its header (false: no warning); the data are returned
+%                 either way (see below)
 %
 %   An error is thrown if the record cannot be read, if a requested
 %   signal does not exist, if a time string needs the sampling frequency
 %   and the header does not specify it, or if 'physical' is true and a
-%   selected signal is uncalibrated (gain 0).  wfdb-x never assumes a
+%   selected signal is uncalibrated (gain 0).  An error is also thrown,
+%   'can't read signal data of record REC (getvec status S)', if reading
+%   stops with a getvec status below -1 (e.g. -3 for a signal file
+%   shorter than its header says, or a read or decoding error), also with
+%   'legacy'; reaching the end of the record before 'sampto' is not an
+%   error.  Nor is a checksum error (getvec status -4: the samples are
+%   complete, their sum does not match the header's checksums): every
+%   frame is returned, the last one included, with the warning
+%   'wfdbx:checksum' ("checksum error in record REC: the signal data do
+%   not match the checksums in its header"; option 'checksum_warning'),
+%   which replaces getvec's own message; this behavior is identical in
+%   all six implementations of wfdb-x.  wfdb-x never assumes a
 %   sampling frequency, a gain, an ADC resolution or units (C: 250 Hz,
 %   200 adu/mV, 12 bits, millivolts): an unspecified ADC resolution is
 %   reported as 0 (siginfo.adcres) and unspecified units as [].  See
@@ -74,6 +96,17 @@ function rec = read_record(record, varargin)
 %   See also wfdbx.write_record, wfdbx.read_header, wfdbx.getframes.
 
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
+% Design decision (Reza Sameni, Oct 2026): a checksum error (getvec
+% status -4: the samples are complete, their sum does not match the
+% header's checksums) is not an error of read_record but a warning
+% ('checksum_warning', false: none); the data are returned.
+% Design decision (Reza Sameni, Oct 2026): files are found by explicit
+% names (the input directory, the output directory, or a full path or
+% URL), not by a search of the WFDB path, and PhysioNet (or any server) is
+% accessed only if asked for ('network', true): a search can silently open
+% the wrong file, fails in ways nobody notices, and sent local paths and
+% record names to physionet.org.  The original behavior remains available
+% with --legacy (see docs/DIVERGENCES.md).
 % Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
 % gain, ADC resolution or units. Values that the record or the user does
 % not give are never assumed (the original package assumed 250 Hz,
@@ -85,9 +118,12 @@ function rec = read_record(record, varargin)
 
 record = wfdbx.internal.strarg(record);
 opt = struct('channels', [], 'sampfrom', 0, 'sampto', [], ...
-    'physical', false, 'highres', false, 'pad', false, 'legacy', false);
+    'physical', false, 'highres', false, 'pad', false, 'input_dir', [], ...
+    'network', [], 'legacy', false, 'checksum_warning', true);
 opt = wfdbx.internal.hl_options(opt, varargin, 'read_record');
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_record'); %#ok<NASGU>
+% wfdb-x: the input directory and network access for this call
+restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, 'read_record'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 opt.legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
 CHUNK = 65536;
@@ -175,16 +211,44 @@ if isempty(to)
 else
     remaining = max(to - from, 0);
 end
+cksum_error = false;
+S = wfdbx.internal.sig_state();
+S.cksum_quiet = true;       % (getvec's checksum message: see below)
+quiet = onCleanup(@() set_cksum_quiet(S, false)); %#ok<NASGU>
 while remaining > 0
     n = min(CHUNK, remaining);
-    x = wfdbx.getframes(n);
+    [x, stat, last] = wfdbx.getframes(n);
+    % wfdb-x: -4, a checksum error: the frames are complete (the last one,
+    % for which getvec returned -4, included), only their sum does not
+    % match the header: a warning (see below), not an error
+    if stat == -4
+        x = [x; last]; %#ok<AGROW>
+    end
     if ~isempty(x)
         blocks{end + 1} = x; %#ok<AGROW>
     end
     remaining = remaining - size(x, 1);
-    if size(x, 1) < n
+    if stat == -4
+        cksum_error = true;
         break;
     end
+    if size(x, 1) < n
+        % wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a signal
+        % file shorter than its header says, or a decoder or I/O error) is
+        % an error, not the end of the data (-1)
+        if stat < -1
+            wfdbx.wfdbquit();
+            error('wfdbx:read_record', ...
+                'can''t read signal data of record %s (getvec status %d)', ...
+                record, stat);
+        end
+        break;
+    end
+end
+S.cksum_quiet = false;
+if cksum_error && opt.checksum_warning
+    warning('wfdbx:checksum', ['checksum error in record %s: the signal ' ...
+        'data do not match the checksums in its header'], record);
 end
 if isempty(blocks)
     data = zeros(0, nsig);
@@ -222,4 +286,8 @@ rec.base_time = base_time;
 rec.sampfrom = from;
 rec.comments = comments;
 wfdbx.wfdbquit();
+end
+
+function set_cksum_quiet(S, on)
+S.cksum_quiet = on;
 end

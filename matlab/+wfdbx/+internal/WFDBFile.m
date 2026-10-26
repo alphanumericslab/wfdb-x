@@ -45,6 +45,8 @@ classdef WFDBFile < handle
         type = 0        % WFDB_LOCAL (0) or WFDB_NET (1)
         name = ''       % file name ('-' for the standard streams)
         is_std = false  % standard input or output
+        temp = ''       % wfdb-x: a temporary file deleted by close() (the
+                        % contents of a remote file; see fetch_open)
     end
 
     properties (Access = private)
@@ -256,6 +258,10 @@ classdef WFDBFile < handle
                     st = -1;
                 end
                 obj.fp = -1;
+                if ~isempty(obj.temp)
+                    delete(obj.temp);
+                    obj.temp = '';
+                end
             end
         end
 

@@ -29,7 +29,10 @@ void wfdbquit()
     wfdb_anclose();     // close annotation files, reset variables
     wfdb_oinfoclose();  // close info file
     wfdb_sigclose();    // close signals, reset variables
-    resetwfdb();        // restore the WFDB path
+    // wfdb-x: in normal mode, the input directory is left as it is (in the C
+    // library, resetwfdb restored the string returned by getwfdb, but not the
+    // list of directories searched)
+    if (wfdbx_get_legacy()) resetwfdb();    // restore the WFDB path
     wfdb_sampquit();    // release sample data buffer
     wfdb_freeinfo();    // release info strings
 }

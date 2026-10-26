@@ -2,9 +2,20 @@ function [nsig, si] = osigopen(record, nsig)
 %OSIGOPEN Open output signals as specified by the header of a record.
 %   [N, SI] = wfdbx.osigopen(RECORD, NSIG) opens the first NSIG output
 %   signals described by the header of RECORD (the signal files named
-%   there are created in the current directory).  Output signals open
-%   before are closed, unless RECORD begins with '+'.  N is NSIG, or a
-%   negative value on error; SI describes the signals opened.
+%   there are created as output files: under the output directory, if
+%   one is set).  Output signals open before are closed, unless RECORD
+%   begins with '+'.  N is NSIG, or a negative value on error; SI
+%   describes the signals opened.
+%
+%   wfdb-x: an output signal file is never one of the input files.  In
+%   normal mode, if a signal file to be created is the same file as a
+%   signal file of the open input record (one open for input, or one of
+%   any segment of the open multi-segment record; the files are compared,
+%   not their names: links and other spellings are recognized), it is
+%   neither created nor truncated: the message "osigopen: output file NAME is
+%   also an input file" is printed and -3 is returned, the input staying
+%   open.  Legacy mode does not check (the original truncated the input).
+%   This behavior is identical in all six implementations of wfdb-x.
 %
 %   See also wfdbx.osigfopen, wfdbx.putvec, wfdbx.newheader.
 

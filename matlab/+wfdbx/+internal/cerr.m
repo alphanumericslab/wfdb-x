@@ -13,8 +13,9 @@ wfdbx.internal.cout();
 if isempty(s)
     return;
 end
-fwrite(2, s, 'uint8');
+fid = wfdbx.internal.std_stream(2);
+fwrite(fid, s, 'uint8');
 if wfdbx.internal.is_octave()
-    fflush(2);
+    fflush(fid);
 end
 end

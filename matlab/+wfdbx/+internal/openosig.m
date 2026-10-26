@@ -8,6 +8,11 @@ function [nsig, si_out] = openosig(func, si_in, nsig)
 % Copyright (C) 1989-2013 George B. Moody (original C implementation,
 % lib/signal.c; revised 2011-2022 by Benjamin Moody).
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
+% Design decision (Reza Sameni, Oct 2026): in normal mode, an output
+% signal file that is the same file as a signal file of the open input
+% record is refused ("FUNC: output file NAME is also an input file", -3),
+% so that it is neither created nor truncated.  The original behavior
+% remains available with --legacy (see docs/DIVERGENCES.md).
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 S = wfdbx.internal.sig_state();
@@ -75,6 +80,15 @@ for s = 1:nsig
             end
         end
         if os.info.fmt ~= 0
+            % wfdb-x: never one of the input files (see is_input_file)
+            if ~S.legacy_mode && wfdbx.internal.is_input_file(os.info.fname)
+                wfdbx.internal.wfdb_error( ...
+                    '%s: output file %s is also an input file\n', func, ...
+                    os.info.fname);
+                wfdbx.internal.osigclose();
+                nsig = -3;
+                return;
+            end
             og.fp = wfdbx.internal.wfdb_open(os.info.fname, [], 1);   % WFDB_WRITE
             if isempty(og.fp)
                 wfdbx.internal.wfdb_error('%s: can''t open %s\n', func, os.info.fname);

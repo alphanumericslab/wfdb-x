@@ -36,7 +36,7 @@ end
 data = double(reshape(data, 1, []));
 c = 0;
 if bits == 8
-    for b = data
+    for b = reshape(data, 1, [])
         c = t8(bitxor(c, b) + 1);
     end
 elseif numel(data) < 64
@@ -46,7 +46,7 @@ elseif numel(data) < 64
     l = 0;
     th = floor(t16 / 256);
     tl = mod(t16, 256);
-    for b = data
+    for b = reshape(data, 1, [])
         k = bitxor(h, b) + 1;
         h = bitxor(l, th(k));
         l = tl(k);

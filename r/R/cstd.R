@@ -15,8 +15,9 @@
 #     where `end` is the index just past the number (end == pos when no
 #     conversion was performed).
 
-LONG_MAX <- 9223372036854775807     # (rounds to 2^63 as a double)
-LONG_MIN <- -9223372036854775808
+LONG_MAX <- 2^63     # 9223372036854775807, which rounds to 2^63 as a double
+LONG_MIN <- -2^63    # (powers of two are exact; R's reading of long decimal
+                     # literals is not correctly rounded on every platform)
 INT_MAX <- 2147483647
 INT_MIN <- -2147483648
 UINT_MAX <- 4294967295
@@ -1142,7 +1143,7 @@ csprintf_v <- function(fmt, ...) {
 .cfmt_int <- function(conv, flags, width, prec, lmod, x, signed) {
   bad <- !is.finite(x)
   if (signed) {
-    if (any(bad)) x[bad] <- if (lmod == 3L) -9223372036854775808 else -2147483648
+    if (any(bad)) x[bad] <- if (lmod == 3L) LONG_MIN else -2^31
     x <- trunc(x)
     if (lmod == 1L) x <- cint16(x) else if (lmod == 2L) x <- cint8(x)
     small <- abs(x) < 2147483648

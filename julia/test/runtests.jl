@@ -12,6 +12,10 @@ const W = WFDBX
 s(v) = String(copy(v))
 cf(fmt, args...) = s(W.cformat(fmt, args...))
 
+# Run f() and restore the environment variables of the library afterwards
+# (setwfdb exports WFDB in legacy mode).
+keeping_wfdb_env(f) = withenv(f, (k => get(ENV, k, nothing) for k in W._WFDB_ENV)...)
+
 function tmpdir(name)
     d = joinpath(tempdir(), "wfdbx-jltest-$name-$(getpid())")
     rm(d; force=true, recursive=true)
@@ -396,9 +400,11 @@ end
     @test W.read_to_end(f) == b"b\ncd\x01\x80\xff\xff"
 end
 
-@testset "wfdb_open modes" begin
+# (legacy mode: the WFDB path; see test_files.jl for normal mode)
+@testset "wfdb_open modes" begin keeping_wfdb_env() do
     d = tmpdir("open")
     w = Wfdb()
+    W.wfdbx_set_legacy(w, true)
     W.wfdbquiet(w)
     W.setwfdb(w, d * " .")
     rec = joinpath(d, "sub", "r1")
@@ -418,7 +424,7 @@ end
     @test endswith(s(W.wfdbfile(w, "hea", "sub/r2/")), "sub/r2/r2.hea")
     @test endswith(s(W.wfdbfile(w, nothing, nothing)), "r2.hea")
     @test W.wfdbfile(w, "sub", nothing) === nothing        # a directory
-    @test W.wfdb_fopen(joinpath(d, "sub"), "rb") === nothing
+    @test W.wfdb_fopen(w, joinpath(d, "sub"), "rb") === nothing
     @test W.wfdbfile(w, "sub/r1.hea", nothing) !== nothing
     @test W.wfdbfile(w, "sub/r1.hea", "") !== nothing
     @test W.wfdbfile(w, nothing, "sub/r1.hea") === nothing  # ".hea" stripped
@@ -427,31 +433,37 @@ end
     write(joinpath(d, "rec1", "rec1.hea"), "rec1 0\n")
     write(joinpath(d, "rec1", "rec1.abc"), "x")
     w2 = Wfdb()
+    W.wfdbx_set_legacy(w2, true)
     W.setwfdb(w2, joinpath(d, "%r"))
     W.wfdb_setirec(w2, "rec1")
     @test endswith(s(W.wfdbfile(w2, "hea", "rec1")), "rec1/rec1.hea")
     @test endswith(s(W.wfdbfile(w2, "abcdef", "rec1")), "rec1/rec1.abc")
     @test W.wfdbfile(w2, "hea", "nosuch") === nothing
-    @test W.wfdb_fopen("../x", "rb") === nothing
+    write(joinpath(d, "x"), "x")
+    @test W.wfdb_fopen(w, joinpath(d, "sub", "..", "x"), "rb") === nothing     # (legacy)
+    @test W.wfdb_fopen(Wfdb(), joinpath(d, "sub", "..", "x"), "rb") !== nothing
     # Output: missing directories are created.
     out = joinpath(d, "new", "dir", "file.txt")
-    f = W.wfdb_fopen(out, "wb")
+    f = W.wfdb_fopen(w, out, "wb")
     W.cfprintf(f, "x=%d\n", 42)
     W.putc(f, 1)
     @test W.ftell(f) == 6
     @test W.fclose(f) == 0
     @test read(out) == b"x=42\n\x01"
     rm(d; recursive=true)
-end
+end end
 
-@testset "WFDB path functions" begin
+# (legacy mode; setwfdb exports WFDB, restored afterwards)
+@testset "WFDB path functions" begin keeping_wfdb_env() do
     w = Wfdb()
+    W.wfdbx_set_legacy(w, true)
     W.setwfdb(w, "a b")
     @test W.getwfdb(w) == b"a b"
     @test W.cgetenv("WFDB") == b"a b"
     W.resetwfdb(w)
     @test W.getwfdb(w) == b"a b"
     w2 = Wfdb()
+    W.wfdbx_set_legacy(w2, true)
     first = W.getwfdb(w2)
     W.setwfdb(w2, "x")
     W.resetwfdb(w2)
@@ -487,7 +499,7 @@ end
     @test W.wfdb_getirec(w3) == b"rec"
     W.wfdb_setirec(w3, "-")
     @test W.wfdb_getirec(w3) == b"rec"
-end
+end end
 
 @testset "errors and versions" begin
     w = Wfdb()
@@ -658,7 +670,7 @@ end
         for f in readdir(data)
             cp(joinpath(data, f), joinpath(d, f))
         end
-        env = ("WFDB" => ".",)
+        env = ("WFDBX_INPUT_DIR" => ".",)
         @test W.run_tool("wfdbwhich", ["100s.hea"]; dir=d, env=env) == (0, b"./100s.hea\n", UInt8[])
         st, out, err = W.run_tool("wfdbwhich", ["dat", "nosuch"]; dir=d, env=env)
         @test st == 2 && isempty(out)
@@ -682,5 +694,6 @@ end
 include("signals.jl")
 include("test_annotations.jl")
 include("test_flac.jl")
+include("test_files.jl")
 
 end

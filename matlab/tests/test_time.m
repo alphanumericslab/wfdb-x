@@ -54,9 +54,5 @@ end
 function restore(oldpath)
 wfdbx.wfdbquit();
 wfdbx.wfdbverbose();
-if isempty(oldpath)
-    wfdbx.setwfdb('.');
-else
-    wfdbx.setwfdb(oldpath);
-end
+wfdbx.wfdbx_set_input_dir([]);
 end

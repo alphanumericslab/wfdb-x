@@ -1,0 +1,2 @@
+wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open {url}100s.hea
+init: can't open header for record 100s

@@ -45,8 +45,9 @@
     \item \code{\link{ecgcodes}} and \code{\link{isann}}: annotation codes
       and their classification;
     \item \code{\link{calopen}}: the calibration list;
-    \item \code{\link{getwfdb}}: the WFDB path (where files are searched
-      for), error messages and version information;
+    \item \code{\link{getwfdb}}: finding files (the input and output
+      directories, network access; the WFDB path in legacy mode), error
+      messages and version information;
     \item \code{\link{siginfo}}: the structures used by these functions.
   }
   The translation from C follows a few simple rules.  All numbers are
@@ -71,10 +72,15 @@
   They accept the same options and produce the same output, byte for
   byte, as the C programs.
 
-  Files are searched for in the directories of the WFDB path (see
-  \code{\link{getwfdb}}), which by default begins with the current
-  directory.  Records on remote servers (\samp{http://} URLs in the WFDB
-  path) are not supported.
+  Files are found by explicit names (see \code{\link{getwfdb}}): every
+  relative name is read under the input directory and written under the
+  output directory (by default, the current directory); a full path, a
+  \code{~} path or a URL is used as given; nothing else is searched.
+  Records on web servers (such as PhysioNet,
+  \samp{https://physionet.org/files/<database>/<version>/}) are read only
+  if network access is allowed (\code{\link{wfdbx_set_network}}).  Legacy
+  mode keeps the original search of the WFDB path, without network
+  access.
 }
 \section{License}{
   The library code is distributed under the GNU Library General Public

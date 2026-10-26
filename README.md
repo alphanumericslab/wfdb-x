@@ -85,13 +85,41 @@ exactly and is tested against its results, but it is kept for compatibility
 only: the values it assumes are exactly the silent defaults described above,
 so results produced with it carry the same risks.
 
-### Smaller differences, after a code review
+### Files are found only where they are named
 
-* **Absolute paths open directly.** The original finds a record given as
-  `/data/rec` only when the current directory is `/` (or with the WFDB path
-  `;`), because it joins every name to each WFDB path entry. wfdb-x opens an
-  absolute name as given, and then finds the record's other files next to
-  its header.
+The original finds a file by searching the WFDB path, a list of places
+tried in order; by default the current directory, an installation
+directory and, with network support, PhysioNet. `rdsamp -r 100` reads
+whichever `100` it finds first, or downloads it. A search like this can
+silently open the wrong file (a stale copy earlier on the path), turn a
+missing local file into a network request, send local paths and record
+names to a server (when looking for optional files), and let a downloaded
+header point the library at other local files.
+
+wfdb-x never searches. A full path (`/Users/...`), a `~` path or a URL is
+used as given; **any other name is read under the input directory and
+written under the output directory**, whatever they are set to (a local
+directory, or a URL for reading). Both default to the current directory.
+The files a header names (`100.dat`, `data/100.dat`) are found next to the
+header, and must stay inside its directory. Network access is off unless
+it is turned on.
+
+| Setting | Function | Environment variable | Default |
+|---|---|---|---|
+| input directory (a directory, `~...` or a URL) | `wfdbx_set_input_dir` | `WFDBX_INPUT_DIR` | the current directory |
+| output directory | `wfdbx_set_output_dir` | `WFDBX_OUTPUT_DIR` | the current directory |
+| network access | `wfdbx_set_network` | `WFDBX_NETWORK=1` | off |
+
+The cost is that PhysioNet has to be chosen explicitly, by setting the
+input directory to a database's URL and turning network access on:
+
+```sh
+WFDBX_NETWORK=1 WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/ \
+    rdsamp -r 100 -t 10
+```
+
+### Smaller differences, after code reviews
+
 * **Annotation files are sorted in-process.** When an annotation file is
   written out of time order, the original sorts it by running the `sortann`
   program through a shell, so the result depends on which `sortann` is on
@@ -99,14 +127,12 @@ so results produced with it carry the same risks.
   writes.
 * **Sorting does not lose annotations.** The original `sortann` silently
   drops an annotation at sample 0 that arrives after later ones, and the
-  annotations later inserted directly behind it. wfdb-x keeps them, in the `sortann`
-  tool and in the automatic sorting.
+  annotations later inserted directly behind it. wfdb-x keeps them, in the
+  `sortann` tool and in the automatic sorting.
 
-All three are documented in [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md), and
-the original behavior of each remains available in legacy mode. The
-high-level functions that write records and annotation files also gained
-an output directory (`dir`), so that a record can be written into another
-directory without changing the current one.
+All of these are documented in [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md),
+and the original behavior of each remains available in legacy mode (for
+finding files: the WFDB search path, without network access).
 
 ## What "identical behavior" means, and how it is checked
 
@@ -121,13 +147,19 @@ This is verified by tests whose expected results were all produced by the
 original C code, not written by hand:
 
 * **Conformance suite** ([`tests/conformance/`](tests/conformance/),
-  described in [`docs/conformance.md`](docs/conformance.md)): 928
+  described in [`docs/conformance.md`](docs/conformance.md)): 987
   command-line test cases, run by a language-independent harness. Their
   expected results were produced by the C programs, built from
   `third_party/` with FLAC support and with
   [`tests/reference/divergences.patch`](tests/reference/divergences.patch)
   applied ([`tests/reference/build_reference.sh`](tests/reference/build_reference.sh)).
-  Every implementation passes all of them.
+  Every implementation passes all of them on the reference platform, x86-64
+  Linux with glibc (Python 3.13, GCC 13, Rust 1.97, Julia 1.13, R 4.3 and
+  GNU Octave 8.4). The MATLAB/Octave code is tested with GNU Octave, also
+  through the MATLAB driver (`matlab/bin/wfdbx_matlab.sh`); it is written
+  for MATLAB too, but MATLAB itself has not been available to run the
+  tests. Other platforms can differ where the C behavior depends on the
+  platform (see [`docs/KNOWN_C_BEHAVIORS.md`](docs/KNOWN_C_BEHAVIORS.md)).
 * **Test records** ([`tests/data/`](tests/data/)): written by the C library
   itself ([`tests/reference/gen_records.c`](tests/reference/gen_records.c)).
   They cover every storage format, multi-frequency and multi-segment (fixed
@@ -154,7 +186,7 @@ requirements.
 |---|---|---|
 | Python | [`python/`](python/README.md) | `pip install wfdb-x` (PyPI), or `pip install ./python` |
 | C++ | [`cpp/`](cpp/README.md) | `cmake -S cpp -B cpp/build && cmake --build cpp/build` |
-| MATLAB / GNU Octave | [`matlab/`](matlab/README.md) | `addpath('/path/to/wfdb-x/matlab')` (tested with Octave) |
+| MATLAB / GNU Octave | [`matlab/`](matlab/README.md) | `addpath('/path/to/wfdb-x/matlab')` (tested with GNU Octave; MATLAB untested) |
 | Rust | [`rust/`](rust/README.md) | `cargo install --path rust` |
 | Julia | [`julia/`](julia/README.md) | `using Pkg; Pkg.develop(path="/path/to/wfdb-x/julia")` |
 | R | [`r/`](r/README.md) | `R CMD INSTALL r` |
@@ -206,7 +238,7 @@ sources and reviewed and tested by human engineers.
 
 AI-written code calls for strong verification, and wfdb-x is built around
 it: every implementation is checked against the outputs of the original C
-tools and library on the conformance suite (928 cases, plus 858 for legacy
+tools and library on the conformance suite (987 cases, plus 868 for legacy
 mode), against the other five implementations, and by its own unit tests.
 Reports of any difference from the original package are welcome as GitHub
 issues.

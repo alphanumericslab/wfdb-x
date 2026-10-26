@@ -860,7 +860,23 @@ fn main() {
     wfdbx::wfdbquiet();
     if let Some(orec) = orec {
         if wfdbx::osigopen(orec, &mut dfout[..nosig_u], nosig as u32) != nosig {
-            ceprintf!(b"%s: can't write output signals\n", pname);
+            // wfdb-x: say why if an output file is one of the input files
+            // (the library's message, quieted above, is the last error)
+            let e = wfdbx::wfdberror();
+            const TAIL: &[u8] = b" is also an input file\n";
+            if !legacy
+                && e.starts_with(b"osigopen: output file ")
+                && e.len() > 22 + TAIL.len()
+                && e.ends_with(TAIL)
+            {
+                ceprintf!(
+                    b"%s: can't write output signals (%s)\n",
+                    pname,
+                    &e[..e.len() - 1]
+                );
+            } else {
+                ceprintf!(b"%s: can't write output signals\n", pname);
+            }
             cstd::exit(2);
         }
     }

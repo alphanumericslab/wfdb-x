@@ -287,9 +287,15 @@ help text):
 | `is_octave()` | true in Octave |
 | `st = io_state()` | the I/O state (`IOState`) |
 | `wfdb_error(fmt, ...)` | `wfdb_error`: saves the message; prints it unless `wfdbquiet` |
-| `f = wfdb_open(s, record, mode)` | `wfdb_open`: WFDB path search (an absolute name is opened directly first, except in legacy mode); output files in the output directory, if one is set (`wfdbx.wfdbx_set_output_dir`, property `output_dir` of `IOState`); returns a `WFDBFile` or `[]` |
+| `f = wfdb_open(s, record, mode)` | `wfdb_open`: the one location a name designates (`resolve_name`, `open_at`); in legacy mode, the WFDB path search; returns a `WFDBFile` or `[]` |
+| `p = resolve_name(name, output)`, `f = open_at(p, s)`, `expand_home(n)`, `is_url(n)`, `is_absolute_path(n)` | wfdb-x name resolution: a relative name under the input (or output) directory, an absolute, `~` or URL name as given; the file at that location (both spellings) |
+| `f = open_in(dir, s, name, record)`, `wfdb_dirname(p)` | a file named in a header, in the header's directory, with the containment check |
+| `in_header_dir(name)`, `expand_record(r)`, `output_file(name)` | the containment rule; the trailing-'/' expansion of `wfdb_open`; the local file that an output name designates |
+| `is_input_file(fname)` | (signal module) true if an output signal file is a signal file of the open input record, segments included (Octave: `stat` device and inode; MATLAB: `java.nio.file.Files.isSameFile`); `openosig` refuses such a file in normal mode |
+| `init_input_dir(st)`, `init_output_dir(st)`, `put_input_dir(st, d)`, `path_components(p)` | the settings (environment variables read once), and the path scanner shared by `wfdb_parse_path` and `setwfdb` |
+| `f = fetch_open(url)` | a remote file (network access allowed), fetched once per session (`webread` in Octave, `websave` in MATLAB) and served from a temporary file deleted by `close()` |
 | `f = wfdb_fopen(fname, mode)` | `wfdb_fopen` (`'rb'`, `'wb'`, `'ab'`) |
-| `wfdb_parse_path(p)`, `wfdb_addtopath(s)`, `getiwfdb(p)` | path handling |
+| `wfdb_parse_path(p)`, `wfdb_addtopath(s)`, `getiwfdb(p)` | path handling (legacy mode) |
 | `wfdb_checkname(p, what)`, `wfdb_setirec(p)`, `wfdb_getirec()`, `wfdb_striphea(p)` | the same |
 | `m = ecg_map()` | annotation mapping tables (`EcgMap`) |
 
@@ -309,9 +315,17 @@ Public I/O functions in `+wfdbx/`: `getwfdb`, `setwfdb`, `resetwfdb`,
 `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
 `wfdbdefwfdbcal`.
 
-**Remote files** (`http://`, `https://` path components or record names)
-are not supported, as in the C++ port: `wfdb_fopen` returns `[]` for URLs,
-so remote files are never found.
+**Finding files** (wfdb-x): nothing is searched in normal mode. The
+settings (input directory, output directory, network access) are
+properties of `IOState` (`input_dir`, `output_dir`, `network`, ...), each
+read from its environment variable when first needed
+(`init_input_dir`, `init_output_dir`, `wfdbx_get_network`); `wfdbquit`
+does not reset them. The signal module notes the directory of the header
+read last (`SigState.hdr_dir`) and of the master header of a
+multi-segment record (`msrec_dir`, `msrec_name`), so that signal files and
+segments are opened next to their header (`open_in`). Remote files are
+read only in normal mode with network access on; legacy mode keeps the
+original code (`wfdb_fopen` refuses names containing `..` or `://`).
 
 ## Signals (lib/signal.c)
 

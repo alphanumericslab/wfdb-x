@@ -16,6 +16,13 @@ classdef SigState < handle
 %   siginfo.group) is igd{g+1}.  segarray is a wfdbx.seginfo struct array
 %   ([] if none) and segp the 0-based index of the current segment.
 %   hheader, oheader and outinfo are WFDBFile objects or [].
+%   wfdb-x: hdr_dir is the directory of the header read last
+%   (wfdbx.internal.wfdb_dirname; [] if unknown: the standard input);
+%   msrec_dir and msrec_name are the directory and name of the header of
+%   the current multi-segment record (msrec_name [] if there is none);
+%   user_segments is true while setmsheader reads the headers of the
+%   segments it was given; cksum_quiet is true while a high-level reader
+%   reads (getvec then records its checksum message without printing it).
 
 % Copyright (C) 1989-2013 George B. Moody (original C implementation,
 % lib/signal.c; revised 2011-2022 by Benjamin Moody).
@@ -26,6 +33,11 @@ classdef SigState < handle
         % header data
         hsd = []
         hheader = []
+        hdr_dir = []            % wfdb-x (see above)
+        msrec_dir = []
+        msrec_name = []
+        user_segments = false
+        cksum_quiet = false     % wfdb-x: true during a high-level read
         % timing
         ffreq = 0
         ifreq = 0

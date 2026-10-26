@@ -64,8 +64,9 @@ end
 end
 
 function write_out(data)
-fwrite(1, data, 'uint8');
+fid = wfdbx.internal.std_stream(1);
+fwrite(fid, data, 'uint8');
 if wfdbx.internal.is_octave()
-    fflush(1);
+    fflush(fid);
 end
 end

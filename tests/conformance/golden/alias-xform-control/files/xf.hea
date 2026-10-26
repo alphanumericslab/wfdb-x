@@ -1,0 +1,5 @@
+xf 3 250 180 12:35:02.069 31/12/1999
+f16c.dat 16 100(2)/mV 12 0 -32629 -10300 0 sig0 fmt16
+f16c.dat 16 150(0)/uV 12 1 -32768 0 0 sig1 fmt212
+f16c.dat 16 200(0)/mmHg 12 2 -1270 -17428 0 sig2 fmt16
+#Produced by xform from record vlay, beginning at s1320

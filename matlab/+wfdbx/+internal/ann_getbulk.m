@@ -104,7 +104,7 @@ tf = P.tokfirst;
 hasw = jr(tc(jr) > 0);                      % annotations with writes
 posrec = -ones(1, numel(jr));               % auxpos of each read
 if noaux
-    for j = hasw
+    for j = reshape(hasw, 1, [])
         for q = tf(j):tf(j) + tc(j) - 1
             [buf, index, p] = wfdbx.internal.ann_auxput(buf, index, P, q);
         end
@@ -118,7 +118,10 @@ else
     if ia.auxpos >= 0
         steps = [j0 + 1, steps];
     end
-    ev = unique([hasw, steps]);
+    % (a row: a for loop runs once per column, and MATLAB's unique can
+    % return a column, e.g. 0-by-1 for no elements, which would run the
+    % loop once with an empty value)
+    ev = reshape(unique([hasw(:); steps(:)]), 1, []);
     curpos = ia.auxpos;
     for s = ev
         if s <= N && s >= j0 + 1 && tc(s) > 0

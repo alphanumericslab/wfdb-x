@@ -47,6 +47,15 @@
 //! only: the values it assumes are exactly the silent defaults this project
 //! removed, so results produced with it carry the same risks.
 //!
+//! # Input directory and network access
+//!
+//! wfdb-x: [`ReadOptions::input_dir`] and [`ReadOptions::network`] set the
+//! input directory (a local directory or a URL) and network access for the
+//! duration of a call, restoring the previous settings afterwards (see
+//! [`Wfdb::wfdbx_set_input_dir`], [`Wfdb::wfdbx_set_network`]); for
+//! [`read_header`] and [`read_annotations`], use [`read_header_with`] and
+//! [`read_annotations_with`].
+//!
 //! # Output directory
 //!
 //! [`WriteOptions::dir`] and the `dir` argument of [`write_annotations`]
@@ -73,6 +82,12 @@
 // opened from there under its plain name (with a record name containing the
 // directory, the header records that name). This is an addition, the same in
 // legacy mode.
+// Design decision (Reza Sameni, Oct 2026): the readers take an input
+// directory and network access options (ReadOptions::input_dir, network):
+// files are found only where they are named (a search of the WFDB path can
+// silently open the wrong file), and the network is used only when asked
+// for. The original behavior remains available with --legacy (see
+// docs/DIVERGENCES.md).
 // GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 use std::path::{Path, PathBuf};
@@ -311,7 +326,7 @@ impl Record {
 
 /// Options of [`read_record`]. The default reads all signals of the whole
 /// record.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReadOptions {
     /// Signals to read, by number (`"0"`, `"1"`, ...) or name (as
     /// `findsig` accepts them); empty: all signals.
@@ -335,6 +350,35 @@ pub struct ReadOptions {
     /// For compatibility only: these are the silent defaults wfdb-x removed,
     /// with the same risks.
     pub legacy: bool,
+    /// wfdb-x: the input directory for the call (a local directory, `~...`,
+    /// or the URL of a directory; see [`Wfdb::wfdbx_set_input_dir`]); an
+    /// empty string means the default. `None`: the current setting.
+    pub input_dir: Option<String>,
+    /// wfdb-x: allow (`Some(true)`) or forbid (`Some(false)`) network
+    /// access for the call (see [`Wfdb::wfdbx_set_network`]). `None`: the
+    /// current setting.
+    pub network: Option<bool>,
+    /// wfdb-x: warn (on the standard error, through the library's message
+    /// path, so that `wfdbquiet` silences it) when the signal data do not
+    /// match the checksums in the header; the data are returned either way.
+    /// Default: true.
+    pub checksum_warning: bool,
+}
+
+impl Default for ReadOptions {
+    fn default() -> Self {
+        ReadOptions {
+            channels: Vec::new(),
+            from: None,
+            to: None,
+            highres: false,
+            pad: false,
+            legacy: false,
+            input_dir: None,
+            network: None,
+            checksum_warning: true,
+        }
+    }
 }
 
 /// The annotations of an annotation file, as parallel vectors (one entry
@@ -615,6 +659,25 @@ impl Wfdb {
         r
     }
 
+    /// Runs `f` with the input directory and network access of `opt`, if
+    /// given, restoring the previous settings afterwards (also when `f`
+    /// fails).
+    fn with_input<T>(&mut self, opt: &ReadOptions, f: impl FnOnce(&mut Wfdb) -> T) -> T {
+        let prev_dir = opt
+            .input_dir
+            .as_ref()
+            .map(|d| self.wfdbx_set_input_dir(d.as_bytes()));
+        let prev_net = opt.network.map(|n| self.wfdbx_set_network(i32::from(n)));
+        let r = f(self);
+        if let Some(n) = prev_net {
+            self.wfdbx_set_network(n);
+        }
+        if let Some(d) = prev_dir {
+            self.wfdbx_set_input_dir(&d);
+        }
+        r
+    }
+
     fn hl_fail<T>(&mut self, msg: String) -> Result<T, Error> {
         self.wfdbquit();
         Err(Error::new(msg))
@@ -638,8 +701,29 @@ impl Wfdb {
         record: impl AsRef<[u8]>,
         legacy: bool,
     ) -> Result<Vec<Siginfo>, Error> {
+        let opt = ReadOptions {
+            legacy,
+            ..Default::default()
+        };
+        self.read_header_with(record, &opt)
+    }
+
+    /// Reads the signal specifications of a record's header, with the
+    /// `legacy`, `input_dir` and `network` options of `opt` (the others are
+    /// not used), using this instance (see [`read_header`]).
+    ///
+    /// # Errors
+    ///
+    /// If the header cannot be read.
+    pub fn read_header_with(
+        &mut self,
+        record: impl AsRef<[u8]>,
+        opt: &ReadOptions,
+    ) -> Result<Vec<Siginfo>, Error> {
         let record = record.as_ref();
-        self.with_legacy(legacy, |w| w.read_header_impl(record))
+        self.with_legacy(opt.legacy, |w| {
+            w.with_input(opt, |w| w.read_header_impl(record))
+        })
     }
 
     fn read_header_impl(&mut self, record: &[u8]) -> Result<Vec<Siginfo>, Error> {
@@ -663,14 +747,21 @@ impl Wfdb {
     ///
     /// If the record or its signals cannot be opened, a signal of `opt` does
     /// not exist, the start time cannot be reached, or a time string of
-    /// `opt` needs the sampling frequency and the header does not give it.
+    /// `opt` needs the sampling frequency and the header does not give it;
+    /// also if reading stops with a `getvec` status below -1 (e.g. -3: a
+    /// signal file shorter than its header says, or a read or decoding
+    /// error), with the message "can't read signal data of record R (getvec
+    /// status S)" (also in legacy mode; reaching the end of the record
+    /// before `opt.to` is not an error).
     pub fn read_record(
         &mut self,
         record: impl AsRef<[u8]>,
         opt: &ReadOptions,
     ) -> Result<Record, Error> {
         let record = record.as_ref();
-        self.with_legacy(opt.legacy, |w| w.read_record_impl(record, opt))
+        self.with_legacy(opt.legacy, |w| {
+            w.with_input(opt, |w| w.read_record_impl(record, opt))
+        })
     }
 
     fn read_record_impl(&mut self, record: &[u8], opt: &ReadOptions) -> Result<Record, Error> {
@@ -740,13 +831,16 @@ impl Wfdb {
         const BLOCK: i64 = 65536; // frames read per getvecs call
         let mut remaining = to.map(|t| if t > from { t - from } else { 0 });
         let mut buf: Vec<i32> = Vec::new();
+        let mut checksum_error = false;
+        // (getvec's own checksum message is replaced by the warning below)
+        self.sig.cksum_quiet = true;
         while remaining.map_or(true, |r| r > 0) {
             let n = match remaining {
                 Some(r) => r.min(BLOCK),
                 None => BLOCK,
             };
             buf.resize(n as usize * nsig, 0);
-            let mut got = self.getvecs(&mut buf, n);
+            let (mut got, stat) = self.getvecs_status(&mut buf, n);
             if got > 0 {
                 all.extend_from_slice(&buf[..got as usize * nsig]);
             }
@@ -756,9 +850,33 @@ impl Wfdb {
             if let Some(r) = remaining.as_mut() {
                 *r -= got;
             }
-            if got < n {
+            if stat == -4 {
+                // wfdb-x: a checksum error: the frame read last is complete
+                // (it is the last one of the record) and is returned; a
+                // warning follows.
+                let g = got as usize * nsig;
+                all.extend_from_slice(&buf[g..g + nsig]);
+                checksum_error = true;
                 break;
             }
+            if got < n {
+                // wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a
+                // signal file shorter than its header says, or a decoder or
+                // I/O error) is an error, not the end of the data (-1).
+                if stat < -1 {
+                    self.sig.cksum_quiet = false;
+                    return self.hl_fail(format!(
+                        "can't read signal data of record {rname} (getvec status {stat})"
+                    ));
+                }
+                break;
+            }
+        }
+        self.sig.cksum_quiet = false;
+        if checksum_error && opt.checksum_warning {
+            self.wfdb_error(format!(
+                "wfdb-x: checksum error in record {rname}: the signal data do not match the checksums in its header\n"
+            ));
         }
 
         let nframes = all.len() / nsig;
@@ -800,9 +918,35 @@ impl Wfdb {
         fs: Option<f64>,
         legacy: bool,
     ) -> Result<Annotations, Error> {
+        let opt = ReadOptions {
+            from,
+            to,
+            legacy,
+            ..Default::default()
+        };
+        self.read_annotations_with(record, annotator, fs, &opt)
+    }
+
+    /// Reads an annotation file, with the `from`, `to`, `legacy`,
+    /// `input_dir` and `network` options of `opt` (the others are not
+    /// used), using this instance (see [`read_annotations`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Wfdb::read_annotations`].
+    pub fn read_annotations_with(
+        &mut self,
+        record: impl AsRef<[u8]>,
+        annotator: impl AsRef<[u8]>,
+        fs: Option<f64>,
+        opt: &ReadOptions,
+    ) -> Result<Annotations, Error> {
         let (record, annotator) = (record.as_ref(), annotator.as_ref());
-        self.with_legacy(legacy, |w| {
-            w.read_annotations_impl(record, annotator, from, to, fs)
+        let (from, to) = (opt.from.clone(), opt.to.clone());
+        self.with_legacy(opt.legacy, |w| {
+            w.with_input(opt, |w| {
+                w.read_annotations_impl(record, annotator, from, to, fs)
+            })
         })
     }
 
@@ -1144,7 +1288,9 @@ impl Wfdb {
 /// Reads the signals of a record: all of it, or the part and the signals
 /// selected by `opt`.
 ///
-/// The record is found in the WFDB path. Samples are returned in ADC
+/// The record is found as [`Wfdb::wfdb_open`] finds files (wfdb-x: under
+/// the input directory, [`ReadOptions::input_dir`], or as given; in legacy
+/// mode, in the WFDB path). Samples are returned in ADC
 /// units, frame by frame, one value per signal and frame as `getvec`
 /// returns them (for multi-frequency records, see
 /// [`ReadOptions::highres`]). Uses the default instance; see
@@ -1182,7 +1328,13 @@ impl Wfdb {
 /// If the record or its signals cannot be opened, a signal of `opt` does
 /// not exist, the start time cannot be reached, or a time string needs the
 /// sampling frequency and the header does not specify it (`sampling
-/// frequency of record R is not specified`).
+/// frequency of record R is not specified`); also if reading stops with a
+/// `getvec` status below -1 (e.g. -3: a signal file shorter than its header
+/// says, or a read or decoding error): `can't read signal data of record R
+/// (getvec status S)`, also in legacy mode (reaching the end of the record
+/// before `opt.to` is not an error). A checksum error (status -4) is not an
+/// error (wfdb-x): every frame is returned, with a warning on the standard
+/// error unless [`ReadOptions::checksum_warning`] is false.
 pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record, Error> {
     with_default(|w| w.read_record(record, opt))
 }
@@ -1219,10 +1371,28 @@ pub fn read_header(record: impl AsRef<[u8]>, legacy: bool) -> Result<Vec<Siginfo
     with_default(|w| w.read_header(record, legacy))
 }
 
+/// Reads the signal specifications of a record's header, as
+/// [`read_header`] does, with the `legacy`, `input_dir` and `network`
+/// options of `opt` (wfdb-x; the others are not used). Uses the default
+/// instance.
+///
+/// # Errors
+///
+/// If the header cannot be read.
+pub fn read_header_with(
+    record: impl AsRef<[u8]>,
+    opt: &ReadOptions,
+) -> Result<Vec<Siginfo>, Error> {
+    with_default(|w| w.read_header_with(record, opt))
+}
+
 /// Reads the annotation file of `record` written by `annotator` (for
 /// example `"atr"`), optionally from time `from` to time `to` (exclusive).
 ///
-/// The file is found in the WFDB path. Annotation times are sample
+/// The file is found as [`Wfdb::wfdb_open`] finds files (wfdb-x: under the
+/// input directory, or as given; see [`read_annotations_with`] for the
+/// `input_dir` and `network` options; in legacy mode, in the WFDB path).
+/// Annotation times are sample
 /// numbers. Uses the default instance; see [`Wfdb::read_annotations`] for
 /// an explicit one.
 ///
@@ -1268,6 +1438,35 @@ pub fn read_annotations(
     legacy: bool,
 ) -> Result<Annotations, Error> {
     with_default(|w| w.read_annotations(record, annotator, from, to, fs, legacy))
+}
+
+/// Reads an annotation file, as [`read_annotations`] does, with the
+/// `from`, `to`, `legacy`, `input_dir` and `network` options of `opt`
+/// (wfdb-x; the others are not used). Uses the default instance.
+///
+/// ```no_run
+/// use wfdbx::{read_annotations_with, ReadOptions};
+///
+/// // mitdb record 100, from PhysioNet
+/// let opt = ReadOptions {
+///     input_dir: Some("https://physionet.org/files/mitdb/1.0.0/".into()),
+///     network: Some(true),
+///     ..Default::default()
+/// };
+/// let ann = read_annotations_with("100", "atr", None, &opt)?;
+/// # Ok::<(), wfdbx::record::Error>(())
+/// ```
+///
+/// # Errors
+///
+/// As [`read_annotations`].
+pub fn read_annotations_with(
+    record: impl AsRef<[u8]>,
+    annotator: impl AsRef<[u8]>,
+    fs: Option<f64>,
+    opt: &ReadOptions,
+) -> Result<Annotations, Error> {
+    with_default(|w| w.read_annotations_with(record, annotator, fs, opt))
 }
 
 /// Writes a record (signal file `RECORD.dat` and header `RECORD.hea`) from

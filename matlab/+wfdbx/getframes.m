@@ -1,4 +1,4 @@
-function [v, stat] = getframes(n, minstat)
+function [v, stat, last] = getframes(n, minstat)
 %GETFRAMES Read up to N sample vectors at once (fast).
 %   [V, STAT] = wfdbx.getframes(N) is equivalent to calling wfdbx.getvec
 %   up to N times, stopping at the first negative status: V has one row
@@ -14,6 +14,12 @@ function [v, stat] = getframes(n, minstat)
 %   the number of signals in a segment that lacks some of them.)
 %   If no input signals are open, V is empty and STAT is the value
 %   returned by getvec (0, or -1).
+%
+%   [V, STAT, LAST] = wfdbx.getframes(...) also returns the sample vector
+%   (1-by-NSIG) filled by the getvec call that stopped the reading ([] if
+%   all N vectors were read, or if no input signals are open).  For a
+%   checksum error (STAT -4) it is the last frame of the record, read
+%   completely (wfdb-x; wfdbx.read_record returns it).
 %
 %   Whenever possible (signals in files of any format, including
 %   multi-frequency records in both getvec modes and FLAC files, without
@@ -40,13 +46,15 @@ S = wfdbx.internal.sig_state();
 nsig = max(S.nvsig, S.nisig);
 if nsig == 0 || S.nisig == 0
     % no signals: getvec reads nothing (0, or -1 at the end of a record)
-    [stat, v] = wfdbx.getvec();
+    stat = wfdbx.getvec();
     v = zeros(0, nsig);
+    last = [];
     return;
 end
 parts = {};
 got = 0;
 stat = nsig;
+last = [];
 vec = zeros(1, max(nsig, 1));
 acc = zeros(0, nsig);
 nrows = 0;
@@ -64,6 +72,7 @@ while got < n
     end
     [stat, vec] = wfdbx.getvec(vec);
     if stat < minstat || stat < 0
+        last = vec(1:nsig);
         break;
     end
     if nrows == size(acc, 1)

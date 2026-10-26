@@ -16,7 +16,9 @@ write_file(fullfile('sub', 'srec.hea'), sprintf('srec 0\n'));
 write_file(fullfile('sub', 'srec.atr'), uint8([0 4 1 2 255 128]));
 write_file('pathfile', sprintf('. sub\r\n'));
 
-% Path parsing
+% The WFDB path (legacy mode: wfdb-x reads from a single input directory;
+% see test_files)
+wfdbx.wfdbx_set_legacy(1);
 wfdbx.setwfdb('. sub;/x/y http://example.org/db');
 st = wfdbx.internal.io_state();
 assert_eq(st.path_prefix, {'.', 'sub', '/x/y', 'http://example.org/db'}, ...
@@ -57,6 +59,9 @@ wfdbx.internal.wfdb_setirec('a/sub');
 assert_eq(wfdbx.internal.wfdb_getirec(), 'sub', 'irec');
 assert_eq(wfdbx.wfdbfile('hea', 'srec'), 'sub/srec.hea', '%r substitution');
 wfdbx.setwfdb('. sub');
+wfdbx.setwfdb('.');
+setenv('WFDB', oldpath);    % (set by setwfdb in legacy mode, as in C)
+wfdbx.wfdbx_set_legacy(0);
 
 % Name checks
 wfdbx.wfdbquiet();
@@ -73,6 +78,7 @@ assert_eq(wfdbx.internal.wfdb_striphea('x.hea'), 'x', 'striphea');
 assert_eq(wfdbx.internal.wfdb_striphea('.hea'), '.hea', 'striphea short');
 
 % WFDBFile reading
+wfdbx.wfdbx_set_input_dir('sub');
 f = wfdbx.internal.wfdb_open('atr', 'srec', 0);
 assert(isa(f, 'wfdbx.internal.WFDBFile'), 'wfdb_open result');
 assert_eq(f.g16(), 1024, 'g16');
@@ -87,6 +93,7 @@ assert(f.feof(), 'eof');
 assert_eq(f.seek(-2, 2), 0, 'seek from end');
 assert_eq(f.read(10), uint8([255 128]), 'read short');
 f.close();
+wfdbx.wfdbx_set_input_dir([]);
 f = wfdbx.internal.wfdb_open('hea', 'rec', 0);
 assert_eq(f.getline(), sprintf('rec 1 360\n'), 'getline 1');
 assert_eq(f.getline(), sprintf('rec.dat 16 200 12 0 0 0 0 MLII\n'), 'getline 2');
@@ -134,11 +141,9 @@ end
 function restore(old, oldpath, d)
 cd(old);
 wfdbx.wfdbverbose();
-if isempty(oldpath)
-    wfdbx.setwfdb('.');
-else
-    wfdbx.setwfdb(oldpath);
-end
+wfdbx.wfdbx_set_legacy(0);
+wfdbx.wfdbx_set_input_dir([]);
+setenv('WFDB', oldpath);
 if isfolder(d)
     rmdir(d, 's');
 end

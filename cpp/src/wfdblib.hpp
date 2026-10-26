@@ -38,7 +38,9 @@ constexpr int DEFWFDBGVMODE = WFDB_LOWRES;
 
 // Path component types
 constexpr int WFDB_LOCAL = 0;   // a local file
-constexpr int WFDB_NET = 1;     // a remote file (not supported by the wfdb-x C++ library)
+constexpr int WFDB_NET = 1;     // a remote file read via libwww (not used by wfdb-x)
+constexpr int WFDB_FETCHED = 2; // wfdb-x: a remote file, fetched in full and
+                                // read from a temporary copy (see wfdbio.cpp)
 
 namespace detail {
 
@@ -56,14 +58,15 @@ std::string strprintf(const char *format, ...)
 
 class WFDBFile {
 public:
-    WFDBFile(std::FILE *fp, bool is_std) : fp_(fp), is_std_(is_std) {}
+    WFDBFile(std::FILE *fp, bool is_std, int type = WFDB_LOCAL)
+        : fp_(fp), is_std_(is_std), type_(type) {}
     WFDBFile(const WFDBFile &) = delete;
     WFDBFile &operator=(const WFDBFile &) = delete;
     ~WFDBFile() { close(); }
 
     std::FILE *fp() const { return fp_; }
     bool is_std() const { return is_std_; }
-    int type() const { return WFDB_LOCAL; }
+    int type() const { return type_; }
 
     int getc() { return WFDBX_GETC(fp_); }
     int putc(int c) { return WFDBX_PUTC(c, fp_); }
@@ -112,11 +115,15 @@ public:
 private:
     std::FILE *fp_;
     bool is_std_;
+    int type_;
 };
 
 using FilePtr = std::unique_ptr<WFDBFile>;
 
 // wfdbio.cpp
+// Turn the printing of library messages on or off (as wfdbverbose() and
+// wfdbquiet() do); returns the previous setting.
+bool wfdb_set_error_print(bool on);
 FilePtr wfdb_open(const char *file_type, const char *record, int mode);
 FilePtr wfdb_fopen(const char *fname, const char *mode);
 int wfdb_checkname(const char *name, const char *description);
@@ -127,9 +134,32 @@ int wfdb_parse_path(const char *wfdb_path);
 void wfdb_addtopath(const char *pathname);
 // Name of the file most recently opened by wfdb_open
 const std::string &wfdb_filename();
+// wfdb-x: open, for reading, a file named in the header of record `record` (a
+// signal file, or a segment of a multi-segment record, of type `type`):
+// `name`, in the directory `dir` of that header (as wfdbx_dirname() returns
+// it; nullopt if unknown, for a header read from the standard input: `name`
+// is then resolved as any relative name).  `name` must be in that directory
+// or below it (otherwise an error is reported); the signal file name "-"
+// (the standard input) is also accepted.
+FilePtr wfdbx_open_in(const std::optional<std::string> &dir, const char *type,
+                      const char *name, const char *record);
+// wfdb-x: the file that wfdb_open(name, nullptr, WFDB_WRITE) creates in
+// normal mode (under the output directory, if one is set); nullopt for "",
+// "-" (the standard output) or a URL.
+std::optional<std::string> wfdbx_output_file(const char *name);
+// wfdb-x: true if a file name found in a header names a file in the header's
+// directory or below it (see wfdbx_open_in).
+bool wfdbx_in_header_dir(const std::string &name);
+// wfdb-x: the directory part of a file name or URL, including its final
+// separator ("" if it has none).
+std::string wfdbx_dirname(const std::string &path);
 
 // signal.cpp
 void wfdb_sampquit();
+// wfdb-x: while on, getvec's message for a checksum error is recorded (see
+// wfdberror) but not printed (used by the high-level read_record, which
+// reports a checksum error itself).  Returns the previous setting.
+bool wfdbx_set_checksum_quiet(bool on);
 void wfdb_sigclose();
 void wfdb_osflush();
 int wfdb_oinfoclose();

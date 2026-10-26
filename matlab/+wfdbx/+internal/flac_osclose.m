@@ -12,13 +12,21 @@ function stat = flac_osclose(og)
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 fo = og.flac;
-while fo.nbuf > 0
-    fo = wfdbx.internal.flac_writeblock(og, fo, min(fo.nbuf, 4096));
-end
-if ~isempty(og.fp) && og.fp.seek(fo.header_pos + 8, 0) == 0
-    md5 = wfdbx.internal.md5(fo.md5data(1:fo.md5len));
-    og.fp.write(wfdbx.internal.flac_streaminfo(fo, fo.total, md5));
-    og.fp.seek(0, 2);
+try
+    while fo.nbuf > 0
+        fo = wfdbx.internal.flac_writeblock(og, fo, min(fo.nbuf, 4096));
+    end
+    if ~isempty(og.fp) && og.fp.seek(fo.header_pos + 8, 0) == 0
+        md5 = wfdbx.internal.md5(fo.md5data(1:fo.md5len));
+        og.fp.write(wfdbx.internal.flac_streaminfo(fo, fo.total, md5));
+        og.fp.seek(0, 2);
+    end
+catch err
+    % (the group is closed even if finishing it failed, so that a later
+    % wfdbquit does not try again)
+    og.flac = [];
+    og.buf = zeros(1, 0, 'uint8');
+    rethrow(err);
 end
 og.flac = [];
 og.buf = zeros(1, 0, 'uint8');

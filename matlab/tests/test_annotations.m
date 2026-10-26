@@ -13,7 +13,7 @@ mkdir(d);
 cleanup = onCleanup(@() restore(old, oldpath, d)); %#ok<NASGU>
 cd(d);
 wfdbx.wfdbquit();
-wfdbx.setwfdb(['. ' data]);
+copyfile(fullfile(data, '*'), d);   % (read from the current directory)
 C = wfdbx.ecgcodes();
 
 % high-level reading
@@ -436,7 +436,7 @@ end
 
 function restore(old, oldpath, d)
 wfdbx.wfdbquit();
-wfdbx.setwfdb(oldpath);
+wfdbx.wfdbx_set_input_dir([]);
 cd(old);
 rmdir(d, 's');
 end

@@ -329,7 +329,7 @@ k1 = find(ret0(k0+1:end), 1) + k0;
 if isempty(k1)
     k1 = K + 1;
 end
-for k = find(err(1:min(k1, K)))
+for k = reshape(find(err(1:min(k1, K))), 1, [])
     ep('Error: improperly formatted input!\n');
     ep(' n = %d, buf = |%s|, v[0] = %d, v[1] = %d, c = |%c|\n', ...
         nres(k), bufs{k}, V0(k), V1(k), mod(cend(k), 256));

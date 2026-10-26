@@ -145,7 +145,15 @@ for s = 1:nisig
         info.nsamp = info.nsamp - 1;
         if info.nsamp == 0 && mod(cks, 65536) ~= 0 && ~in_msrec && ...
                 ~isedf && fmt ~= 0
+            % wfdb-x: not printed during a high-level read (which warns
+            % instead), but recorded for wfdberror
+            io = wfdbx.internal.io_state();
+            pr = io.error_print;
+            if S.cksum_quiet
+                io.error_print = false;
+            end
             wfdbx.internal.wfdb_error('getvec: checksum error in signal %d\n', s - 1);
+            io.error_print = pr;
             stat = -4;
         end
     end

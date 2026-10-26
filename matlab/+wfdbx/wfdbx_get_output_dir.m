@@ -10,5 +10,6 @@ function d = wfdbx_get_output_dir()
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 st = wfdbx.internal.io_state();
+wfdbx.internal.init_output_dir(st);
 d = st.output_dir;
 end

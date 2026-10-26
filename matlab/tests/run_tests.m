@@ -7,9 +7,9 @@ function nfail = run_tests(pattern)
 %
 %   run_tests(PATTERN) runs only the tests whose names match the regular
 %   expression PATTERN.  NFAIL = run_tests(...) returns the number of
-%   failures.  When run non-interactively (octave --eval, or matlab -batch)
-%   and called without an output argument, it exits with status 1 if a test
-%   failed.
+%   failures.  Called without an output argument, it ends with an error if
+%   a test failed, so that octave --eval and matlab -batch exit with
+%   status 1.
 %
 %   Usage:
 %       octave-cli --no-gui --norc -q --eval "cd matlab/tests; run_tests"
@@ -49,20 +49,11 @@ for k = 1:numel(names)
 end
 fprintf('%d of %d tests passed\n', nrun - nfail, nrun);
 if nargout == 0
-    if nfail > 0 && batch_mode()
-        exit(1);
+    if nfail > 0
+        % (an error, rather than exit(1): matlab -batch and octave --eval
+        % then exit with status 1, without detecting how they were run)
+        error('wfdbx:tests', '%d of %d tests failed', nfail, nrun);
     end
     clear nfail
-end
-end
-
-function tf = batch_mode()
-if exist('OCTAVE_VERSION', 'builtin')
-    % octave --eval "...", or octave SCRIPT.m
-    a = argv();
-    tf = ~isguirunning() && (any(strcmp(a, '--eval')) || ...
-        any(cellfun(@(x) numel(x) > 2 && strcmp(x(end-1:end), '.m'), a)));
-else
-    tf = exist('batchStartupOptionUsed', 'file') && batchStartupOptionUsed;
 end
 end

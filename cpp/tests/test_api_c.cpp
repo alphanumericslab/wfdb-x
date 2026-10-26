@@ -38,6 +38,7 @@
 #endif
 
 using namespace wfdbx;
+using wfdbx_tests::EnvVar;
 namespace fs = std::filesystem;
 
 namespace {
@@ -213,18 +214,19 @@ WFDBX_TEST(c_version_and_errors)
 
 WFDBX_TEST(c_path_and_wfdbfile)
 {
-    DataDir d;
-    // resetwfdb (also called by wfdbquit) restores the path returned by the
-    // first call of getwfdb, if any (C gives "." when getwfdb was first
-    // called with WFDB=. in the environment); otherwise it does nothing.
+    DataDir d;  // (setwfdb("."))
+    // wfdb-x: setwfdb sets a single input directory ("a b" is an error);
+    // resetwfdb restores that of the last setwfdb, and wfdbquit leaves it as
+    // it is.
+    wfdbquiet();
     setwfdb("a b");
-    CHECK_EQ(getwfdb(), "a b");
+    wfdbverbose();
+    CHECK_EQ(getwfdb(), ".");
     resetwfdb();
-    std::string r1 = getwfdb();
+    CHECK_EQ(getwfdb(), ".");
     setwfdb("c");
     wfdbquit();
-    std::string r2 = getwfdb();
-    CHECK((r1 == "a b" && r2 == "c") || (r1 == r2 && r1 != "a b"));
+    CHECK_EQ(getwfdb(), "c");
     setwfdb(".");
     CHECK_EQ(getwfdb(), ".");
     CHECK(wfdbfile("hea", "100s") == "./100s.hea");
@@ -1259,27 +1261,6 @@ WFDBX_TEST(c_legacy)
 
 namespace {
 
-// An environment variable set to `value` (unset if nullptr) for the lifetime
-// of the object, and restored afterwards.
-struct EnvVar {
-    std::string name;
-    std::optional<std::string> old;
-    EnvVar(const char *n, const char *value) : name(n) {
-        if (const char *p = std::getenv(n)) old = p;
-        set(value);
-    }
-    ~EnvVar() { set(old ? old->c_str() : nullptr); }
-    void set(const char *value) {
-#if defined(_WIN32)
-        _putenv_s(name.c_str(), value ? value : "");
-#else
-        if (value)
-            setenv(name.c_str(), value, 1);
-        else
-            unsetenv(name.c_str());
-#endif
-    }
-};
 
 // Out-of-order annotations with ties in time, num and chan, duplicates (the
 // last one is kept), NOTQRS (dropped), aux strings, and a time 0 annotation
@@ -1629,7 +1610,7 @@ static void outdir()
     CHECK(ann(0) == (std::vector<long long>{0, 30, 1, 0, 0, 0}));
     CHECK_EQ(ann(0)[0], -1);
     wfdbquit();
-    resetwfdb();
+    setwfdb(".");   // (wfdb-x: the setting of the last setwfdb remains)
     sortfix();
 }
 

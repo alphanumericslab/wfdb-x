@@ -12,6 +12,15 @@ Copyright (C) 1989-2013 George B. Moody (original C implementation,
 lib/signal.c; revised 2011-2022 by Benjamin Moody, including FLAC support,
 2020).
 Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
+Design decision (Reza Sameni, Oct 2026): the signal files named in a header,
+and the segments named in the header of a multi-segment record, are in the
+directory of that header (on disk or at its URL) or below it; a name that
+is absolute, begins with '~', is a URL or contains a ".." component is
+refused ("~" as a segment, a null segment, and "-" as a signal file remain).
+Nothing is searched: a search can silently open the wrong file, and a header
+must not make the library read other local files or contact other servers.
+The original behavior remains available with --legacy (see
+docs/DIVERGENCES.md).
 Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency, gain,
 ADC resolution or units. Values that the record or the user does not give are
 never assumed (the original package assumed 250 Hz, 200 adu/mV, 12 bits and
@@ -26,6 +35,7 @@ later version.
 
 import math
 import os
+import re
 import time as _time
 
 from ._cstd import (LONG_MIN, LONG_MAX, INT_MAX, INT_MIN, UINT_MAX, strtol,
@@ -466,6 +476,15 @@ class _SigState:
         # header data
         self.hsd = []
         self.hheader = None
+        # wfdb-x: the directory of the header read last (see wio._dirname;
+        # None if unknown: the standard input), and the directory and name
+        # of the header of the current multi-segment record (msrec_name is
+        # None if there is none); user_segments while setmsheader reads the
+        # headers of the segments it was given
+        self.hdr_dir = None
+        self.msrec_dir = None
+        self.msrec_name = None
+        self.user_segments = False
         # timing
         self.ffreq = 0.0
         self.ifreq = 0.0
@@ -524,6 +543,9 @@ class _SigState:
         self.info_i = 0
         # variable-layout (sigmap)
         self.need_sigmap = 0
+        # wfdb-x: 1 while a high-level reader reads (getvec's checksum
+        # message is then not printed: the reader warns instead)
+        self.cksum_quiet = 0
         self.nvsig = 0
         self.tspf = 0
         self.vspfmax = 0
@@ -913,6 +935,25 @@ def _edfparse(ifile):
     return nsig
 
 
+def _open_header(s, record):
+    """Open the header (of type s: "hea", or None for a file name) of a
+    record, or of a segment named in the header of the current multi-segment
+    record (wfdb-x: in that header's directory), and note its directory."""
+    s_ = _s
+    if wfdbx_get_legacy():
+        return wfdb_open(s, record, WFDB_READ)
+    if not s_.in_msrec:
+        s_.msrec_dir = s_.msrec_name = None
+    if s_.in_msrec and s_.msrec_name is not None and not s_.user_segments:
+        f = wio._open_in(s_.msrec_dir, s, record, s_.msrec_name)
+    else:
+        f = wfdb_open(s, record, WFDB_READ)
+    s_.hdr_dir = None
+    if f is not None and not f.is_std:
+        s_.hdr_dir = wio._dirname(wio.get_filename())
+    return f
+
+
 def _readheader(record):
     s_ = _s
     sep = " \t\n\r"
@@ -936,14 +977,14 @@ def _readheader(record):
     while q > 0 and record[q] not in "./:\\":
         q -= 1
     if q >= 0 and record[q:q + 1] == ".":
-        s_.hheader = wfdb_open(None, record, WFDB_READ)
+        s_.hheader = _open_header(None, record)
         if s_.hheader is None:
             wfdb_error("init: can't open %s\n", record)
             return -1
         elif record[q + 1:] != "hea":
             return _edfparse(s_.hheader)
     else:
-        s_.hheader = wfdb_open("hea", record, WFDB_READ)
+        s_.hheader = _open_header("hea", record)
         if s_.hheader is None:
             wfdb_error("init: can't open header for record %s\n", record)
             return -1
@@ -1066,6 +1107,9 @@ def _readheader(record):
         return -2
     # master header of a multi-segment record
     if s_.segments and not s_.in_msrec:
+        if not wfdbx_get_legacy():   # wfdb-x: the segments are next to it
+            s_.msrec_dir = s_.hdr_dir
+            s_.msrec_name = record
         s_.msbtime = s_.btime
         s_.msbdate = s_.bdate
         s_.msnsamples = s_.nsamples
@@ -1636,7 +1680,13 @@ def _getskewedframe(vector, vstart=0):
             # The checksum in the header is the low 16 bits of the sum.
             if info.nsamp == 0 and (info.cksum & 0xFFFF) and \
                     not s_.in_msrec and not s_.isedf and fmt != 0:
+                # wfdb-x: not printed during a high-level read (which
+                # warns instead), but recorded for wfdberror
+                pr = wio._io.error_print
+                if s_.cksum_quiet:
+                    wio._io.error_print = False
                 wfdb_error("getvec: checksum error in signal %d\n", s)
+                wio._io.error_print = pr
                 stat = -4
     if s_.need_sigmap:
         out = [0] * s_.tspf
@@ -1794,7 +1844,10 @@ def isigopen(record, siarray=None, nsig=0):
         if hs.info.fmt == 0:
             ig.fp = None
         else:
-            ig.fp = wfdb_open(hs.info.fname, None, WFDB_READ)
+            # wfdb-x: in the directory of the header
+            ig.fp = wfdb_open(hs.info.fname, None, WFDB_READ) \
+                if wfdbx_get_legacy() else \
+                wio._open_in(s_.hdr_dir, None, hs.info.fname, record)
             if ig.fp is None:
                 si = sj
                 continue
@@ -1871,6 +1924,102 @@ def isigopen(record, siarray=None, nsig=0):
     return s
 
 
+# wfdb-x: an output signal file is never one of the input files.  In normal
+# mode, _openosig refuses to create (and so to truncate) an output signal
+# file that is the same file as a signal file of the open input record: a
+# signal file open for input, or a signal file of any segment of the open
+# multi-segment record (read from the segment's header; segments are opened
+# later, as they are reached).  "The same file" is decided by the files, not
+# by their names: device and inode numbers (os.fstat; on MS-Windows, the
+# volume serial number and file index).  Decided by Reza Sameni, Oct 2026:
+# e.g., "xform -i vlay -o fmt16", fmt16 being a segment of vlay, truncated
+# fmt16.dat while reading it, with a platform-dependent result and the input
+# destroyed.  Legacy mode: no check (the original behavior).
+def _file_id(f):
+    """The identity (device, inode) of the open local WFDBFile f (not the
+    standard input or output, not a URL), or None."""
+    if f is None or f.type != WFDB_LOCAL or f.is_std:
+        return None
+    try:
+        st = os.fstat(f.fp.fileno())
+    except (OSError, ValueError, AttributeError):
+        return None
+    return (st.st_dev, st.st_ino)
+
+
+def _segment_has_file(seg, fid):
+    """True if one of the signal files named in the header of segment seg
+    (of the open multi-segment record) is the file fid.  The header and the
+    signal files are located as isigopen locates them in normal mode; one
+    that cannot be found (or is at a URL) is not fid.  No message."""
+    s_ = _s
+    if seg == "~" or not wio._in_header_dir(seg) or \
+            (s_.msrec_dir and wio._is_url(s_.msrec_dir)):
+        return False
+    if s_.msrec_name is not None:
+        hf = wio._open_in(s_.msrec_dir, "hea", seg, s_.msrec_name)
+    else:
+        hf = wfdb_open("hea", seg, WFDB_READ)
+    if hf is None:
+        return False
+    d = None
+    if hf.type == WFDB_LOCAL and not hf.is_std:
+        d = wio._dirname(wio.get_filename())
+    found = False
+    nsig = -1
+    try:
+        while not found and nsig != 0:
+            line = hf.getline()
+            if not line:
+                break
+            tok = [t for t in re.split("[ \t\n\r]+", line) if t]
+            if not tok or tok[0].startswith("#"):
+                continue
+            if nsig < 0:            # the record line
+                if "/" in tok[0] or len(tok) < 2:
+                    break
+                nsig = strtol(tok[1])[0]
+                if nsig <= 0:
+                    break
+                continue
+            nsig -= 1               # a signal line: file name, format, ...
+            name = tok[0]
+            if len(tok) < 2 or strtol(tok[1])[0] == 0 or name == "-" or \
+                    not wio._in_header_dir(name) or d is None or \
+                    wio._is_url(d):
+                continue
+            sf = wio._open_in(d, None, name, seg)
+            if sf is not None:
+                found = _file_id(sf) == fid
+                sf.close()
+    finally:
+        hf.close()
+    return found
+
+
+def _is_input_file(fname):
+    """True if the output signal file fname (as named in an output signal
+    specification, created by wfdb_open(fname, None, WFDB_WRITE)) exists and
+    is one of the signal files of the open input record (see above)."""
+    s_ = _s
+    path = wio._output_file(fname)
+    if path is None:
+        return False
+    try:
+        st = os.stat(path)
+    except (OSError, ValueError):
+        return False        # it does not exist: it is not an input file
+    fid = (st.st_dev, st.st_ino)
+    for g in range(min(s_.nigroup, len(s_.igd))):
+        if _file_id(s_.igd[g].fp) == fid:
+            return True
+    if s_.in_msrec and s_.segarray:
+        for seg in s_.segarray[:s_.segend + 1]:
+            if _segment_has_file(seg.recname, fid):
+                return True
+    return False
+
+
 def _openosig(func, si_out, si_in, nsig):
     s_ = _s
     if s_.obsize <= 0:
@@ -1910,6 +2059,12 @@ def _openosig(func, si_out, si_in, nsig):
                 else:
                     os_.info.fmt = 16
             if os_.info.fmt != 0:
+                # wfdb-x: never an input file (see _is_input_file)
+                if not _legacy_mode and _is_input_file(os_.info.fname):
+                    wfdb_error("%s: output file %s is also an input file\n",
+                               func, os_.info.fname)
+                    _osigclose()
+                    return -3
                 og.fp = wfdb_open(os_.info.fname, None, WFDB_WRITE)
                 if og.fp is None:
                     wfdb_error("%s: can't open %s\n", func, os_.info.fname)
@@ -2726,7 +2881,9 @@ def setmsheader(record, segment_name, nsegments=None):
             return -2
         s_.in_msrec = 1
         s_.nsamples = 0
+        s_.user_segments = True     # wfdb-x: names given by the caller
         n = _readheader(segment_name[i])
+        s_.user_segments = False
         s_.in_msrec = old_in_msrec
         if n < 0:
             wfdb_error("setmsheader: can't read segment %s header\n",
@@ -3479,6 +3636,7 @@ def _wfdb_sigclose():
     s_.sfreq = s_.ifreq = s_.ffreq = 0.0
     s_.pdays = -1
     s_.segments = s_.in_msrec = s_.skewmax = 0
+    s_.hdr_dir = s_.msrec_dir = s_.msrec_name = None    # wfdb-x
     if s_.dsbuf is not None:
         s_.dsbuf = None
         s_.dsbi = -1
@@ -3754,6 +3912,14 @@ def getframes(n):
     all n frames were read).  This is equivalent to calling getvec() up to n
     times, stopping at the first negative return value.
     """
+    return _getframes(n)
+
+
+def _getframes(n, keep_checksum_frame=False):
+    """getframes; with keep_checksum_frame (wfdb-x, for the high-level
+    reader), the frame for which getvec() returns -4 (a checksum error: the
+    frame was read completely, it is the last one of the record) is
+    included in the array, and stat is -4."""
     import numpy as np
     s_ = _s
     nsig = s_.nvsig if s_.nvsig > s_.nisig else s_.nisig
@@ -3768,6 +3934,9 @@ def getframes(n):
             got += len(blk)
             continue
         stat = getvec(v)
+        if stat == -4 and keep_checksum_frame:
+            rows.append(np.array([v[:nsig]], np.int64))
+            got += 1
         if stat < 0:
             break
         rows.append(np.array([v[:nsig]], np.int64))

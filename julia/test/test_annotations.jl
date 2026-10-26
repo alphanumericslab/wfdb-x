@@ -16,10 +16,12 @@ function with_data(f, name)
         isfile(p) && cp(p, joinpath(d, x))
     end
     try
-        cd(d) do
-            w = Wfdb()
-            W.setwfdb(w, ".")
-            f(w)
+        keeping_wfdb_env() do
+            cd(d) do
+                w = Wfdb()
+                W.setwfdb(w, ".")
+                f(w)
+            end
         end
     finally
         rm(d; recursive=true, force=true)
@@ -406,7 +408,7 @@ end
 
 @testset "annotation tools in-process" begin
     with_data("tools") do w
-        env = ("WFDB" => ".",)
+        env = ("WFDBX_INPUT_DIR" => ".",)
         st, out, err = W.run_tool("rdann", ["-r", "100s", "-a", "atr", "-t", "0:01"]; env=env)
         @test st == 0 && isempty(err)
         @test startswith(String(copy(out)), "    0:00.050       18     +    0    0    0\t(N\n")
@@ -518,7 +520,7 @@ end
             W.wfdbverbose(w)
         end
         cp("100s.uns", "100s.unl")
-        env = ("WFDB" => ".",)
+        env = ("WFDBX_INPUT_DIR" => ".",)
         st, out, err = W.run_tool("sortann", ["-r", "100s", "-a", "uns"]; env=env)
         @test st == 0 && isempty(err) && read("100s.uns") == modern
         st, out, err = W.run_tool("sortann", ["--legacy", "-r", "100s", "-a", "unl"]; env=env)

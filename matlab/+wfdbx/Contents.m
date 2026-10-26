@@ -14,9 +14,9 @@
 %   write_annotations - Write an annotation file from arrays.
 %
 % WFDB path and files
-%   getwfdb           - The WFDB path.
-%   setwfdb           - Change the WFDB path.
-%   resetwfdb         - Restore the WFDB path to its initial value.
+%   getwfdb           - The input directory (legacy mode: the WFDB path).
+%   setwfdb           - Set the input directory (legacy: the WFDB path).
+%   resetwfdb         - Restore the input directory set by setwfdb.
 %   wfdbfile          - The pathname of a WFDB file.
 %   wfdbquit          - Close all WFDB files and reset the library.
 %   wfdbflush         - Write all buffered output annotations and samples.
@@ -29,8 +29,12 @@
 %   wfdbdefwfdbcal    - The default name of the calibration file.
 %   wfdbcflags, wfdbldflags - C compiler and linker flags (empty).
 %   wfdbmemerr, wfdb_me_fatal - Behavior on memory errors (compatibility).
+%   wfdbx_set_input_dir, wfdbx_get_input_dir - Directory from which input
+%                       files are read (wfdb-x).
 %   wfdbx_set_output_dir, wfdbx_get_output_dir - Directory in which output
 %                       files are created (wfdb-x).
+%   wfdbx_set_network, wfdbx_get_network - Allow or forbid network access
+%                       (wfdb-x).
 %
 % Signals
 %   isigopen          - Open the input signals of a record.

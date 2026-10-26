@@ -3,10 +3,13 @@
 
 Every test case runs one WFDB command-line tool in a fresh copy of
 tests/data, and records its standard output, standard error, exit status,
-and any files it creates or modifies.  Golden results are produced by the
-original C implementation (WFDB 10.7.0, built from third_party/) and stored
-in tests/conformance/golden/.  Each wfdb-x implementation must reproduce
-them byte for byte.
+and any files it creates or modifies.  HOME is the subdirectory home of that
+work directory; a case that uses {url} also gets a local HTTP server
+(127.0.0.1) serving a copy of it.  The work directory, HOME and the URL of
+the server are written as {cwd}, {home} and {url} in the recorded outputs.
+Golden results are produced by the original C implementation (WFDB 10.7.0,
+built from third_party/) and stored in tests/conformance/golden/.  Each
+wfdb-x implementation must reproduce them byte for byte.
 
 Usage:
   harness.py golden --cbin DIR [CASE ...]     regenerate golden results
@@ -52,10 +55,17 @@ from cases import CASES  # noqa: E402
 LEGACY = os.path.join(HERE, "legacy")
 
 
+# The default value of the WFDB environment variable in a case: none in the
+# modern suite (wfdb-x reads relative names from the current directory, the
+# work directory), "." in the legacy suite (the WFDB path).
+DEFAULT_WFDB = None
+
+
 def use_legacy_suite(prefix=True):
     """Select the legacy suite; with prefix, --legacy is passed to the tools
     (not to the unmodified C package, which produces its results)."""
-    global CASES, GOLDEN
+    global CASES, GOLDEN, DEFAULT_WFDB
+    DEFAULT_WFDB = "."
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "legacy_cases", os.path.join(LEGACY, "cases.py"))
@@ -112,35 +122,117 @@ def snapshot(d):
     return out
 
 
+class _Server:
+    """A local HTTP server (127.0.0.1, a free port) serving directory d, in a
+    thread; base is its URL, ending in "/"."""
+
+    def __init__(self, d):
+        import functools
+        import http.server
+        import threading
+
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+        self.httpd = http.server.ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            functools.partial(Handler, directory=d))
+        self.base = "http://127.0.0.1:%d/" % self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever,
+                                       daemon=True)
+        self.thread.start()
+
+    def close(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join()
+
+
+def _uses_url(case):
+    """True if the case refers to the local HTTP server ({url})."""
+    def has(x):
+        if isinstance(x, bytes):
+            return b"{url}" in x
+        return isinstance(x, str) and "{url}" in x
+    return any(has(x) for x in
+               list(case["args"]) + list(case.get("env", {}).values()) +
+               list(case.get("files", {}).values()) +
+               list(case.get("www_files", {}).values()) +
+               [case.get("stdin")])
+
+
 def run_case(case, cmd_prefix, extra_env=None):
     """Run a case; return dict with stdout, stderr, status, files."""
     work = tempfile.mkdtemp(prefix="wfdbx-")
+    server = None
     try:
         wd = os.path.join(work, "data")
         shutil.copytree(DATA, wd)
-        for name, content in case.get("files", {}).items():
-            os.makedirs(os.path.dirname(os.path.join(wd, name)),
-                        exist_ok=True)
-            with open(os.path.join(wd, name), "wb") as f:
-                f.write(content if isinstance(content, bytes)
-                        else content.encode("latin-1"))
+        cwd = os.path.realpath(wd)
+        # HOME is the (empty) subdirectory home of the work directory, so
+        # that ~ names are reproducible ({home})
+        home = os.path.join(cwd, "home")
+        os.makedirs(home, exist_ok=True)
+        # {url}: the base URL of a local HTTP server, serving a copy of the
+        # work directory (with the case's files and www_files), started for
+        # the cases that use it
+        www = os.path.join(work, "www")
+        url = None
+        if _uses_url(case):
+            os.makedirs(www)
+            server = _Server(www)
+            url = server.base
+
+        def subst(x):
+            if isinstance(x, bytes):
+                for k, v in (("{url}", url), ("{home}", home),
+                             ("{cwd}", cwd)):
+                    if v is not None:
+                        x = x.replace(k.encode(), os.fsencode(v))
+                return x
+            for k, v in (("{url}", url), ("{home}", home), ("{cwd}", cwd)):
+                if v is not None:
+                    x = x.replace(k, v)
+            return x
+
+        def put(d, files):
+            for name, content in files.items():
+                p = os.path.join(d, name)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "wb") as f:
+                    f.write(subst(content if isinstance(content, bytes)
+                                  else content.encode("latin-1")))
+
+        put(wd, case.get("files", {}))
+        if url:
+            shutil.copytree(wd, www, dirs_exist_ok=True)
+            put(www, case.get("www_files", {}))
         before = snapshot(wd)
         env = dict(os.environ)
-        for k in ("WFDB", "WFDBCAL", "WFDBANNSORT", "WFDBGVMODE"):
+        for k in ("WFDB", "WFDBCAL", "WFDBANNSORT", "WFDBGVMODE",
+                  "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR", "WFDBX_NETWORK"):
             env.pop(k, None)
-        env["WFDB"] = case.get("wfdb", ".")
+        wfdb = case.get("wfdb", DEFAULT_WFDB)
+        if wfdb is not None:
+            env["WFDB"] = wfdb
         env["LC_ALL"] = "C"
         env["TZ"] = "UTC"
-        env.update(case.get("env", {}))
+        env["HOME"] = home
+        # the local server is reached directly, never through a proxy
+        env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost"
+        env.update({k: subst(v) for k, v in case.get("env", {}).items()})
         if extra_env:
             env.update(extra_env)
         stdin = case.get("stdin")
         if isinstance(stdin, str):
             stdin = stdin.encode("latin-1")
+        if stdin is not None:
+            stdin = subst(stdin)
         # {cwd} in an argument stands for the (absolute) work directory, and
-        # the work directory in the outputs is written as {cwd}
-        cwd = os.path.realpath(wd)
-        args = [a.replace("{cwd}", cwd) for a in case["args"]]
+        # the work directory in the outputs is written as {cwd} (likewise
+        # {home} and {url})
+        args = [subst(a) for a in case["args"]]
         p = subprocess.run(cmd_prefix + args, cwd=wd, env=env,
                            input=stdin if stdin is not None else b"",
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -150,17 +242,24 @@ def run_case(case, cmd_prefix, extra_env=None):
                  if k not in before or before[k] != v}
         for k in case.get("ignore_files", []):
             files.pop(k, None)
-        return {"stdout": _uncwd(p.stdout, cwd, wd),
-                "stderr": _uncwd(p.stderr, cwd, wd),
+        places = [(url, "{url}"), (home, "{home}"),
+                  (os.path.join(wd, "home"), "{home}"),
+                  (cwd, "{cwd}"), (wd, "{cwd}")]
+        return {"stdout": _normalize(p.stdout, places),
+                "stderr": _normalize(p.stderr, places),
                 "status": p.returncode, "files": files}
     finally:
+        if server:
+            server.close()
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _uncwd(out, *dirs):
-    """Write each of the given directories in out as {cwd}."""
-    for d in sorted(set(dirs), key=len, reverse=True):
-        out = out.replace(os.fsencode(d), b"{cwd}")
+def _normalize(out, places):
+    """Write each of the given places (path or URL, placeholder) in out as
+    its placeholder, the longest first."""
+    for d, ph in sorted(set(p for p in places if p[0]),
+                        key=lambda p: len(p[0]), reverse=True):
+        out = out.replace(os.fsencode(d), ph.encode())
     return out
 
 

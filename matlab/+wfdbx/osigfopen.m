@@ -9,6 +9,16 @@ function stat = osigfopen(si, nsig)
 %   NSIG signals of SI.  Returns the number of signals opened, or a
 %   negative value on error (and 0 if SI is empty).
 %
+%   wfdb-x: an output signal file is never one of the input files.  In
+%   normal mode, if a signal file to be created is the same file as a
+%   signal file of the open input record (one open for input, or one of
+%   any segment of the open multi-segment record; the files are compared,
+%   not their names: links and other spellings are recognized), it is
+%   neither created nor truncated: the message "osigfopen: output file NAME is
+%   also an input file" is printed and -3 is returned, the input staying
+%   open.  Legacy mode does not check (the original truncated the input).
+%   This behavior is identical in all six implementations of wfdb-x.
+%
 %   Example:
 %       si = wfdbx.siginfo(2);
 %       [si.fname] = deal('out.dat'); [si.fmt] = deal(16);

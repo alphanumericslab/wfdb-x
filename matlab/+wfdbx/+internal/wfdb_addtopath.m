@@ -3,7 +3,8 @@ function wfdb_addtopath(s)
 %   wfdbx.internal.wfdb_addtopath(S) moves (or adds) the directory part of
 %   the file name S to the beginning of the WFDB path (after '.', if '.' is
 %   the first component), so that the other files of a record found there
-%   are found in the same place.  Called by wfdb_open for every file found.
+%   are found in the same place.  Called by wfdb_open for every file found
+%   in legacy mode (wfdb-x: nothing is searched otherwise).
 
 % Copyright (C) 1988-2013 George B. Moody (original C implementation,
 % lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).

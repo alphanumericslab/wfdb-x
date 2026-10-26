@@ -25,6 +25,9 @@ S.ffreq = 0;
 S.pdays = -1;
 S.segments = 0;
 S.in_msrec = 0;
+S.hdr_dir = [];         % wfdb-x
+S.msrec_dir = [];
+S.msrec_name = [];
 S.skewmax = 0;
 if S.has_dsbuf
     S.dsbuf = [];

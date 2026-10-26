@@ -24,7 +24,9 @@ wfdbquit <- function() {
   wfdb_anclose()
   .wfdb_oinfoclose()
   .wfdb_sigclose()
-  resetwfdb()
+  # wfdb-x: the input and output directories are left as they are (in
+  # legacy mode, the WFDB path is reset, as in C)
+  if (wfdbx_get_legacy()) resetwfdb()
   .wfdb_sampquit()
   wfdb_freeinfo()
   invisible()

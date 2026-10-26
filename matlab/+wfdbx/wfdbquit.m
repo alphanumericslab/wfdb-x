@@ -2,7 +2,9 @@ function wfdbquit()
 %WFDBQUIT Close all WFDB files and reset the library.
 %   wfdbx.wfdbquit() closes all annotation and signal files (writing any
 %   buffered output and completing output files), and resets the library
-%   state (the WFDB path is reset to its initial value).  Programs that
+%   state.  The input and output directories are left as they are
+%   (wfdb-x; in legacy mode, the WFDB path is reset to its initial value,
+%   as by wfdbx.resetwfdb).  Programs that
 %   write files must call it (or wfdbx.wfdbflush) before they end.
 %
 %   See also wfdbx.wfdbflush, wfdbx.wfdbinit.
@@ -17,7 +19,9 @@ if wfdbx.internal.pkg_has('internal.wfdb_anclose')
 end
 wfdbx.internal.wfdb_oinfoclose();
 wfdbx.internal.wfdb_sigclose();
-wfdbx.resetwfdb();
+if wfdbx.wfdbx_get_legacy()     % wfdb-x: only in legacy mode
+    wfdbx.resetwfdb();
+end
 wfdbx.internal.wfdb_sampquit();
 wfdbx.internal.wfdb_freeinfo();
 end

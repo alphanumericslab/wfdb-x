@@ -57,12 +57,79 @@ cpp/build/bin/rdsamp -r 100s -t 10 -v -p
 | Annotations | `rdann`, `wrann`, `sortann`, `ann2rr`, `rr2ann` |
 | Format converters | `edf2mit`, `mit2edf`, `rdedfann`, `wav2mit`, `mit2wav`, `wfdb2mat`, `a2m`, `m2a`, `ad2m`, `md2a`, `ahaecg2mit`, `makeid`, `readid`, `revise`, `parsescp` |
 
-Records are found using the WFDB path (the `WFDB` environment variable), as
-with the C library. Remote (http, ftp) records are not supported.
+The tools find their files as described in [Finding files](#finding-files)
+(they have no new options: they use the environment variables).
 
 The sources in `apps/` follow the C programs line by line, so that each can
 be compared with its original; `apps/cemul.hpp` holds the few helpers that
 reproduce the reference platform's behavior where C leaves it undefined.
+
+## Finding files
+
+Every relative name is read under the input directory and written under the
+output directory — whatever you set as the input directory, a local
+directory or a URL, prefixes it; a name given as a full path
+(`/Users/...`), a `~` path or a URL is used as given; nothing else is
+searched. A file of a record is named `RECORD.TYPE` (`100s.hea`,
+`mitdb/100.atr`), so `rdsamp -r data/100` reads `data/100.hea` under the
+input directory; `..` is allowed in these names. By default there is no
+input or output directory: names are relative to the current directory.
+
+| Setting | Functions | Environment variable | Default |
+|---|---|---|---|
+| input directory (a directory, `~/...`, or a URL) | `wfdbx_set_input_dir(dir)` (returns the previous value), `wfdbx_get_input_dir()` | `WFDBX_INPUT_DIR` | none: the current directory |
+| output directory (local) | `wfdbx_set_output_dir(dir)`, `wfdbx_get_output_dir()` | `WFDBX_OUTPUT_DIR` | none: the current directory |
+| network access | `wfdbx_set_network(on)` (returns the previous setting), `wfdbx_get_network()` | `WFDBX_NETWORK` (a nonzero number: on) | off |
+
+An environment variable is read when its setting is first needed; a call of
+the function overrides it, and `nullptr` or `""` (a negative value for the
+network) restores the default, i.e. the variable's value. A URL output
+directory is refused ("wfdbx_set_output_dir: the output directory must be a
+local directory"; the setting is unchanged, and its value is returned).
+`setwfdb(dir)` sets the input directory too (a single directory: a path with
+several is an error; it splits its argument at spaces, as the original does, so a directory whose name contains a space must be set with `wfdbx_set_input_dir`, which takes the name as it is), `getwfdb()` returns it (`"."` if none is set), and
+`wfdbquit()` leaves it as it is. The `WFDB` environment variable is ignored,
+with a warning.
+
+The signal files named in a header, and the segments of a multi-segment
+record, are in the directory of that header (on disk or at its URL), or
+below it: `a.dat` is `<header directory>/a.dat`, and `data/a.dat` is
+`<header directory>/data/a.dat`. A name that is absolute, starts with `~`,
+is a URL or contains a `..` component is refused ("init: file NAME named in
+the header of record REC is not in the header's directory"); `~` as a
+segment (a gap) and `-` as a signal file (the standard input) keep their
+meaning. Annotation, `.info` and calibration (`WFDBCAL`) files follow the
+general rule, with the record name as given.
+
+Network access is off by default; a URL is then not opened (the first time,
+"wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call
+wfdbx_set_network(1) to open URL"). With it on, a URL is read in full by
+the system program `curl` (run without a shell; redirections are followed,
+an HTTP error fails, and reading gives up if connecting takes 30 s or no data arrives for 30 s, with no limit on the total time; "wfdb-x: network access needs the curl
+program, which was not found" if there is none), once per process. There
+is no default URL. The files of a PhysioNet database are under
+`https://physionet.org/files/<database>/<version>/`:
+
+```cpp
+wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/");
+wfdbx_set_network(1);
+wfdbx::Record rec = wfdbx::read_record("100");   // or isigopen("100", ...)
+```
+
+or, for the tools, `WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/
+WFDBX_NETWORK=1 rdsamp -r 100 -t 10`. The high-level readers take the same
+settings for one call (`ReadOptions::input_dir` and `ReadOptions::network`,
+an `InputOptions` argument of `read_header()` and `read_annotations()`).
+
+The C library searched for each file in the directories of the WFDB path
+(by default `.`, then `/usr/local/database`, then PhysioNet), so a stale
+copy earlier in the path could silently be opened instead of the intended
+file, a header could make the library read other local files, and the
+network could be used without being asked for. Legacy mode keeps that
+search (the `WFDB` variable, `setwfdb()`, `@file`, `%r`), without network
+access (as the C library built without libcurl): URLs are not opened, and
+names containing `..` are refused. The output directory applies in legacy
+mode too; the input directory does not.
 
 ## No built-in signal parameters
 
@@ -126,8 +193,8 @@ results produced with it carry the same risks.
 `<wfdbx/record.hpp>` reads and writes whole records and annotation files
 in a few calls. Results are returned by value (`std::vector`s and
 `std::string`s that own their data), and errors are reported by throwing
-`wfdbx::Error`. Records are found in the WFDB path; files are written
-relative to the current directory.
+`wfdbx::Error`. Files are found as described in
+[Finding files](#finding-files).
 
 ```cpp
 #include <cstdio>
@@ -171,7 +238,8 @@ an existing directory instead of the current one: `w.dir = "out";
 write_record("rec", ...)` writes `out/rec.hea` and `out/rec.dat`, and the
 header names the record and its signal file without the directory (`rec 2
 360 ...`, `rec.dat ...`), so that the record opens from that directory
-under its plain name (`setwfdb("out"); read_record("rec")`). The record
+under its plain name (`opt.input_dir = "out"; read_record("rec", opt)`).
+The record
 name must not contain a directory then ("record name must not contain a
 directory when dir is given"), and a missing directory is an error
 ("directory D does not exist"). The library's output directory
@@ -218,6 +286,24 @@ try {
     std::fprintf(stderr, "%s\n", e.what());   // "can't read record nosuchrecord"
 }
 ```
+
+`read_record()` throws "can't read signal data of record REC (getvec status
+S)" when reading stops with a getvec status below -1, e.g. -3 for a signal
+file shorter than its header says, instead of returning the samples read so
+far; reaching the end of the record is not an error. This applies in legacy
+mode too, since the high-level API is a wfdb-x addition (`getvec`, `getvecs`
+and the tools are unchanged).
+
+A checksum error (getvec status -4: the signal data are complete, but their
+sums do not match the checksums in the header) is not an error of
+`read_record()`: it returns every frame, the last one included (the same
+frames as for the record with correct checksums), and prints the warning
+"wfdb-x: checksum error in record REC: the signal data do not match the
+checksums in its header" on `stderr`, as a library message (`wfdbquiet()`
+silences it; getvec's own "getvec: checksum error in signal N" is not
+printed during the read). `ReadOptions::checksum_warning = false` turns the
+warning off. Any other status below -1 is still an error. This behavior is
+identical in all six wfdb-x implementations.
 
 These functions use the global state of the library (they call
 `wfdbquit()`), so they should not be interleaved with calls of the WFDB
@@ -268,7 +354,9 @@ wfdbquit();
 
 `getvecs(buffer, n)`, an addition, reads `n` frames at once with the
 semantics of `n` calls of `getvec` (`buffer` must hold `n` times as many
-values as `getvec` returns). Annotation codes are declared in
+values as `getvec` returns); `getvecs(buffer, n, &status)` also gives the
+status of the last `getvec` call (e.g. -1 at the end of the data, -3 for an
+unexpected end of file). Annotation codes are declared in
 `<wfdbx/ecgcodes.hpp>`, and the mapping macros of `<wfdb/ecgmap.h>` are
 functions in `<wfdbx/ecgmap.hpp>`. As in C, the library keeps global state
 and is not thread-safe.
@@ -288,14 +376,21 @@ bits), and one without units gives `units == std::nullopt`.
 needs the frequency for a string. `WFDB_DEFFREQ`, `WFDB_DEFGAIN` and
 `WFDB_DEFRES` remain defined but are not used.
 
-**Absolute paths.** An input file named by an absolute path
-(`isigopen("/data/mitdb/100", ...)`, `rdsamp -r /data/mitdb/100`) is opened
-directly, and its directory is added to the WFDB path, so that the signal
-files next to the header are found. The C library (and legacy mode)
-searched for it in each directory of the WFDB path, joining `./` and the
-name, so that it was found only from the root directory. In both modes,
-`setwfdb(";")` (or `WFDB=";"`), a WFDB path with an empty component, makes
-the library use names as given.
+**An output signal file is never an input file.** `osigfopen()` and
+`osigopen()` (so every tool and `write_record()`) refuse to create an
+output signal file that is the same file as a signal file of the open input
+record — a file open for input, or a signal file of any segment of an open
+multi-segment record, including segments not reached yet — with the error
+"osigfopen: output file NAME is also an input file" (`osigopen: ...`) and
+status -3; nothing is created or truncated, and the input stays readable.
+"The same file" is decided by the files themselves (device and inode
+numbers; volume serial number and file index on Windows), so another name,
+`./NAME` or a hard link is detected too. `xform` then prints "xform: can't
+write output signals (osigopen: output file NAME is also an input file)".
+The C library truncated the input while reading it (e.g. `xform -i vlay -o
+fmt16`, record `fmt16` being a segment of `vlay`), with a
+platform-dependent result; legacy mode keeps that behavior. This behavior
+is identical in all six wfdb-x implementations.
 
 **Sorting annotation files.** An output annotation file whose annotations
 were written out of order is sorted when it is closed (`oannclose()`,
@@ -313,13 +408,11 @@ behavior is reproduced, loss included), without a shell (the arguments are
 passed directly, so names with spaces work), in the output directory if one
 is set.
 
-**Output directory.** `wfdbx_set_output_dir(dir)`, an addition, makes the
-library create its output files (headers, signal and annotation files, for
-writing or appending) as `dir/NAME`, `NAME` being the name it would use
-otherwise; the names recorded in headers are unchanged. It returns the
-previous value; `nullptr` or `""` means none (the default), and
-`wfdbx_get_output_dir()` reads it (`std::nullopt` if none). As for any
-output file, missing directories are created.
+**Input and output directories, network access.** See
+[Finding files](#finding-files). The output directory applies to every file
+the library creates (headers, signal and annotation files, for writing or
+appending); the names recorded in headers are unchanged, and missing
+directories are created.
 
 ## FLAC-compressed signals
 
@@ -347,10 +440,10 @@ cmake --build cpp/build && cpp/build/wfdbx_tests             # unit tests
 python3 tests/conformance/harness.py check --impl cpp -j8   # conformance
 ```
 
-The unit tests (`tests/`, 69 tests) cover the library API, the high-level
+The unit tests (`tests/`, 80 tests) cover the library API, the high-level
 API and the FLAC codec, with expected values produced by the C library. The
-conformance suite ([`docs/conformance.md`](../docs/conformance.md), 928
-cases, and 858 in legacy mode) runs every tool on test cases whose expected results were produced by
+conformance suite ([`docs/conformance.md`](../docs/conformance.md), 987
+cases, and 868 in legacy mode) runs every tool on test cases whose expected results were produced by
 the original C programs, and requires byte-identical results.
 
 ## Authors and license

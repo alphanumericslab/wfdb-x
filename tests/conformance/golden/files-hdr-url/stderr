@@ -1,0 +1,2 @@
+init: file {url}100s.dat named in the header of record sub/bad is not in the header's directory
+isigopen: none of the signals for record sub/bad is readable

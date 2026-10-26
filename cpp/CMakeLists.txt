@@ -15,11 +15,15 @@ endif()
 option(WFDBX_BUILD_TOOLS "Build the command-line tools" ON)
 option(WFDBX_BUILD_TESTS "Build the unit tests" ON)
 
+# Floating-point expressions are evaluated as written, one rounding per
+# operation, as in the reference results: compilers that contract a*b+c into
+# a fused multiply-add by default (Clang, e.g. Apple Clang on ARM) round
+# differently, which changes values such as the baselines written by edf2mit.
 if(MSVC)
-  add_compile_options(/W3 /utf-8)
+  add_compile_options(/W3 /utf-8 /fp:precise)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
-  add_compile_options(-Wall -Wextra -Wpedantic)
+  add_compile_options(-Wall -Wextra -Wpedantic -ffp-contract=off)
 endif()
 
 # The library

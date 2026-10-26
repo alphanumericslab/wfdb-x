@@ -6,8 +6,8 @@ first minute of MIT-BIH Arrhythmia Database record 100, with its beat
 annotations), so that examples run without a network connection::
 
     import wfdbx
-    wfdbx.setwfdb(". " + wfdbx.sample_data_dir())   # current dir, then samples
-    rec = wfdbx.read_record("100s", physical=True)
+    rec = wfdbx.read_record("100s", physical=True,
+                            input_dir=wfdbx.sample_data_dir())
 
 ``copy_examples(dest)`` copies the example notebooks to a directory where
 they can be opened and run (``wfdbx --examples DIR`` does the same from the

@@ -12,5 +12,7 @@
 % MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
 % GNU General Public License, version 2 or later (see LICENSE).
 
+% (no command history: Octave would save it under the home directory)
+history_save(false);
 addpath(fileparts(fileparts(mfilename('fullpath'))));
 exit(wfdbx.internal.cli_main(argv()'));

@@ -1181,7 +1181,7 @@ static void t_outdir(void)
     while ((st = getann(0, &a)) == 0)
 	pann("orec getann", st, &a);
     wfdbquit();
-    resetwfdb();
+    setwfdb(".");	/* (in wfdb-x, the setting of the last setwfdb remains) */
 
     /* absolute paths */
     if (getcwd(cwd, sizeof(cwd)) == NULL) return;
@@ -1224,6 +1224,286 @@ static void t_outdir(void)
     t_sortfix();
 }
 
+/* Write a file (a string). */
+static void putfile(const char *name, const char *s)
+{
+    FILE *f = fopen(name, "wb");
+
+    if (f) {
+	fputs(s, f);
+	fclose(f);
+    }
+}
+
+/* Copy a file. */
+static void copyfile(const char *from, const char *to)
+{
+    FILE *f = fopen(from, "rb"), *g = fopen(to, "wb");
+    int c;
+
+    if (f && g)
+	while ((c = getc(f)) != EOF)
+	    putc(c, g);
+    if (f) fclose(f);
+    if (g) fclose(g);
+}
+
+/* wfdb-x: finding files (normal mode): the input directory, setwfdb and
+   getwfdb, names (".." allowed, ~ expanded), the output directory, files
+   named in headers (in the header's directory; containment), "~" segments,
+   and network access (off by default; the message is printed once; curl
+   missing).  It must run with WFDBX_INPUT_DIR, WFDBX_OUTPUT_DIR and
+   WFDBX_NETWORK unset.  The values printed do not depend on the current
+   directory; HOME is set to the current directory. */
+static void t_files(void)
+{
+    WFDB_Sample v[2];
+    WFDB_Anninfo ai;
+    WFDB_Annotation a;
+    char cwd[1024], buf[1200], *p, *path;
+    int i, st;
+
+    if (getcwd(cwd, sizeof(cwd)) == NULL) return;
+    wfdbquiet();
+    /* the input directory */
+    pstr("wfdbx_set_input_dir NULL", wfdbx_set_input_dir(NULL));
+    pstr("wfdbx_get_input_dir", wfdbx_get_input_dir());
+    pstr("getwfdb (no input directory)", getwfdb());
+    pstr("wfdbx_set_input_dir fsub", wfdbx_set_input_dir("fsub"));
+    pstr("wfdbx_get_input_dir", wfdbx_get_input_dir());
+    pstr("getwfdb", getwfdb());
+    pstr("wfdbx_set_input_dir empty", wfdbx_set_input_dir(""));
+    pstr("wfdbx_get_input_dir after empty", wfdbx_get_input_dir());
+    mkdir("fsub", 0755);
+    mkdir("fsub/data", 0755);
+    copyfile("100s.dat", "fsub/sr.dat");
+    copyfile("100s.atr", "fsub/sr.atr");
+    putfile("fsub/sr.hea", "sr 2 360 21600\n"
+	    "sr.dat 212 200 11 1024 995 21537 0 MLII\n"
+	    "sr.dat 212 200 11 1024 1011 -3962 0 V5\n");
+    copyfile("fmt16.dat", "fsub/data/a.dat");
+    putfile("fsub/dd.hea", "dd 1 360 10\ndata/a.dat 16 200 12 0 0 0 0 s\n");
+    wfdbx_set_input_dir("fsub");
+    printf("isigopen sr (input dir fsub): %d\n", isigopen("sr", isi, 8));
+    st = getvec(v);
+    pvec("getvec sr", st, v, 2);
+    ai.name = "atr";
+    ai.stat = WFDB_READ;
+    printf("annopen sr (input dir fsub): %d\n", annopen("sr", &ai, 1));
+    st = getann(0, &a);
+    pann("getann sr", st, &a);
+    pstr("wfdbfile hea sr", wfdbfile("hea", S("sr")));
+    pstr("wfdbfile hea 100s (not searched)", wfdbfile("hea", S("100s")));
+    pstr("wfdbfile sr.dat", wfdbfile("sr.dat", NULL));
+    wfdbquit();
+    pstr("wfdbx_get_input_dir after wfdbquit", wfdbx_get_input_dir());
+    wfdbx_set_input_dir("fsub/");
+    pstr("wfdbfile hea sr (input dir fsub/)", wfdbfile("hea", S("sr")));
+    wfdbx_set_input_dir(NULL);
+    pstr("wfdbfile hea fsub/sr", wfdbfile("hea", S("fsub/sr")));
+    pstr("wfdbfile hea fsub/../100s", wfdbfile("hea", S("fsub/../100s")));
+    /* setwfdb in normal mode */
+    setwfdb("fsub");
+    pstr("setwfdb fsub: wfdbx_get_input_dir", wfdbx_get_input_dir());
+    setwfdb(" ;fsub; ");
+    pstr("setwfdb \" ;fsub; \": wfdbx_get_input_dir", wfdbx_get_input_dir());
+    setwfdb("a b");
+    pstr("setwfdb \"a b\": wfdberror", wfdberror());
+    pstr("setwfdb \"a b\": wfdbx_get_input_dir", wfdbx_get_input_dir());
+    setwfdb("a:b");
+    pstr("setwfdb a:b: wfdbx_get_input_dir", wfdbx_get_input_dir());
+    setwfdb("http://127.0.0.1:1/db");
+    pstr("setwfdb URL: getwfdb", getwfdb());
+    setwfdb(";");
+    pstr("setwfdb \";\": wfdbx_get_input_dir", wfdbx_get_input_dir());
+    pstr("setwfdb \";\": getwfdb", getwfdb());
+    setwfdb("fsub");
+    wfdbx_set_input_dir("x");
+    resetwfdb();
+    pstr("resetwfdb: wfdbx_get_input_dir", wfdbx_get_input_dir());
+    wfdbx_set_input_dir("x");
+    wfdbquit();		/* (leaves the input directory as it is) */
+    pstr("wfdbquit: wfdbx_get_input_dir", wfdbx_get_input_dir());
+    setwfdb(NULL);
+    pstr("setwfdb NULL: wfdbx_get_input_dir", wfdbx_get_input_dir());
+    /* legacy mode: the WFDB path; ".." is refused; the input directory is
+       not used */
+    wfdbx_set_legacy(1);
+    setwfdb(".");
+    wfdbx_set_input_dir("fsub");
+    pstr("legacy wfdbfile hea fsub/../100s",
+	 wfdbfile("hea", S("fsub/../100s")));
+    pstr("legacy wfdbfile hea sr", wfdbfile("hea", S("sr")));
+    pstr("legacy getwfdb", getwfdb());
+    wfdbx_set_input_dir(NULL);
+    wfdbx_set_legacy(0);
+    /* ~ names */
+    setenv("HOME", cwd, 1);
+    sprintf(buf, "%s/100s.hea", cwd);
+    p = wfdbfile("hea", S("~/100s"));
+    printf("wfdbfile hea ~/100s is $HOME/100s.hea: %d\n",
+	   p != NULL && strcmp(p, buf) == 0);
+    printf("isigopen ~/fsub/sr: %d\n", isigopen(S("~/fsub/sr"), isi, 8));
+    wfdbquit();
+    pstr("wfdbfile hea ~nosuchuser-wfdbx/100s",
+	 wfdbfile("hea", S("~nosuchuser-wfdbx/100s")));
+    /* the output directory */
+    pstr("wfdbx_set_output_dir URL",
+	 wfdbx_set_output_dir("http://127.0.0.1:1/out"));
+    pstr("wfdberror", wfdberror());
+    pstr("wfdbx_set_output_dir odir3", wfdbx_set_output_dir("odir3"));
+    pstr("wfdbx_set_output_dir URL (odir3)",
+	 wfdbx_set_output_dir("https://127.0.0.1:1/out"));
+    pstr("wfdbx_get_output_dir", wfdbx_get_output_dir());
+    memset(&a, 0, sizeof(a));
+    a.anntyp = NORMAL;
+    ai.name = "fx";
+    ai.stat = WFDB_WRITE;
+    printf("annopen fsub/sr (output dir odir3): %d\n",
+	   annopen("fsub/sr", &ai, 1));
+    putann(0, &a);
+    sprintf(buf, "%s/fsub/sr", cwd);
+    printf("annopen absolute (output dir odir3): %d\n", annopen(buf, &ai, 1));
+    putann(0, &a);
+    wfdbquit();
+    printf("odir3/fsub/sr.fx fsub/sr.fx: %ld %ld\n", fsize("odir3/fsub/sr.fx"),
+	   fsize("fsub/sr.fx"));
+    wfdbx_set_output_dir("~/odir4");
+    printf("annopen sr (output dir ~/odir4): %d\n", annopen("sr", &ai, 1));
+    putann(0, &a);
+    wfdbquit();
+    printf("odir4/sr.fx: %ld\n", fsize("odir4/sr.fx"));
+    printf("annopen URL: %d\n",
+	   annopen("http://127.0.0.1:1/sr", &ai, 1));
+    wfdbquit();
+    wfdbx_set_output_dir(NULL);
+    /* files named in headers */
+    printf("isigopen fsub/dd: %d\n", isigopen("fsub/dd", isi, 8));
+    for (i = 0; i < 3; i++) {
+	st = getvec(v);
+	pvec("getvec fsub/dd", st, v, 1);
+    }
+    wfdbquit();
+    {
+	static const char *bad[] = { "../100s.dat", "/100s.dat", "~/100s.dat",
+	    "http://127.0.0.1:1/100s.dat", "data/../../100s.dat", ".." };
+
+	for (i = 0; i < 6; i++) {
+	    sprintf(buf, "bad 2 360 10\n%s 16\ndata/a.dat 16\n", bad[i]);
+	    putfile("fsub/bad.hea", buf);
+	    sprintf(buf, "isigopen fsub/bad (%s)", bad[i]);
+	    printf("%s: %d\n", buf, isigopen("fsub/bad", isi, 8));
+	    pstr("wfdberror", wfdberror());
+	    wfdbquit();
+	}
+    }
+    putfile("fsub/ok.hea", "ok 1 360 10\nx..y.dat 16\n");
+    copyfile("fmt16.dat", "fsub/x..y.dat");
+    printf("isigopen fsub/ok (x..y.dat): %d\n", isigopen("fsub/ok", isi, 8));
+    wfdbquit();
+    /* segments: a null segment (~), and a segment outside the directory */
+    putfile("fsub/ms.hea", "ms/3 1 360 20\nms_0 0\n~ 10\ndd 10\n");
+    putfile("fsub/ms_0.hea", "ms_0 1 360 0\n~ 0 200 12 0 0 0 0 s\n");
+    printf("isigopen fsub/ms: %d\n", isigopen("fsub/ms", isi, 8));
+    for (i = 0; i < 12; i++) {
+	st = getvec(v);
+	if (i == 0 || i >= 9) pvec("getvec fsub/ms", st, v, 1);
+    }
+    wfdbquit();
+    putfile("fsub/ms2.hea", "ms2/2 1 360 20\ndd 10\n../fsub/dd 10\n");
+    printf("isigopen fsub/ms2: %d\n", isigopen("fsub/ms2", isi, 8));
+    printf("isigsettime 10 (segment ../fsub/dd): %d\n", isigsettime(10));
+    wfdbquit();
+    /* network access (off by default) */
+    printf("wfdbx_get_network: %d\n", wfdbx_get_network());
+    pstr("wfdbfile hea URL (network off)",
+	 wfdbfile("hea", S("http://127.0.0.1:1/x")));
+    pstr("wfdberror", wfdberror());
+    pstr("wfdbfile hea URL (network off, again)",
+	 wfdbfile("hea", S("http://127.0.0.1:1/y")));
+    pstr("wfdberror (unchanged)", wfdberror());
+    printf("wfdbx_set_network 1: %d\n", wfdbx_set_network(1));
+    printf("wfdbx_get_network: %d\n", wfdbx_get_network());
+    pstr("wfdbfile hea URL (network on, no server)",
+	 wfdbfile("hea", S("http://127.0.0.1:1/x")));
+    pstr("wfdberror (unchanged)", wfdberror());
+    if ((path = getenv("PATH")) != NULL)
+	path = strdup(path);
+    setenv("PATH", "/nonexistent-wfdbx", 1);
+    pstr("wfdbfile hea URL (no curl)",
+	 wfdbfile("hea", S("http://127.0.0.1:1/z")));
+    pstr("wfdberror", wfdberror());
+    if (path) {
+	setenv("PATH", path, 1);
+	free(path);
+    }
+    printf("wfdbx_set_network -1: %d\n", wfdbx_set_network(-1));
+    printf("wfdbx_get_network: %d\n", wfdbx_get_network());
+    printf("wfdbx_set_network 0: %d\n", wfdbx_set_network(0));
+    wfdbverbose();
+}
+
+/* wfdb-x: an output signal file that is a signal file of the open input
+   record is refused (normal mode); legacy mode: no check */
+static void alias_spec(WFDB_Siginfo *si, char *fname)
+{
+    int i;
+
+    for (i = 0; i < 3; i++) {
+	memset(&si[i], 0, sizeof(si[i]));
+	si[i].fname = fname;
+	si[i].desc = "s";
+	si[i].units = "mV";
+	si[i].gain = 100;
+	si[i].fmt = 16;
+	si[i].adcres = 12;
+	si[i].group = 0;
+    }
+}
+
+static void t_alias(void)
+{
+    static char *names[][2] = {
+	{ "fmt16", "fmt16.dat" }, { "fmt16", "./fmt16.dat" },
+	{ "fmt16", "ahard16.dat" }, { "skew", "fmt16.dat" },
+	{ "vlay", "fmt16.dat" }, { "vlay", "fmt212.dat" },
+	{ "vlay", "fmt8.dat" }, { "vlay", "anew.dat" } };
+    WFDB_Siginfo si[3];
+    WFDB_Sample v[3];
+    int i, st;
+
+    wfdbquiet();
+    link("fmt16.dat", "ahard16.dat");
+    for (i = 0; i < 8; i++) {
+	wfdbquit();
+	printf("alias isigopen %s: %d\n", names[i][0],
+	       isigopen(S(names[i][0]), isi, 3));
+	setsampfreq(250.0);
+	alias_spec(si, names[i][1]);
+	st = osigfopen(si, 3);
+	printf("alias osigfopen %s (%s open): %d\n", names[i][1], names[i][0],
+	       st);
+	if (st < 0) pstr("wfdberror", wfdberror());
+	printf("alias getvec: %d\n", getvec(v));
+    }
+    wfdbquit();
+    printf("alias isigopen fmt16: %d\n", isigopen(S("fmt16"), isi, 3));
+    printf("alias osigopen fmt16: %d\n", osigopen(S("fmt16"), si, 3));
+    pstr("wfdberror", wfdberror());
+    wfdbquit();
+    printf("alias sizes fmt16.dat fmt212.dat: %ld %ld\n", fsize("fmt16.dat"),
+	   fsize("fmt212.dat"));
+    wfdbx_set_legacy(1);
+    printf("alias legacy isigopen fmt16: %d\n", isigopen(S("fmt16"), isi, 3));
+    setsampfreq(250.0);
+    alias_spec(si, "fmt16.dat");
+    printf("alias legacy osigfopen fmt16.dat: %d\n", osigfopen(si, 3));
+    wfdbquit();
+    wfdbx_set_legacy(0);
+    printf("alias legacy size fmt16.dat: %ld\n", fsize("fmt16.dat"));
+    wfdbverbose();
+}
+
 int main(void)
 {
     printf("# expected values for the wfdb-x API unit tests (from the C "
@@ -1249,5 +1529,7 @@ int main(void)
     t_nodefaults();
     t_legacy();
     t_outdir();
+    t_files();
+    t_alias();
     return 0;
 }

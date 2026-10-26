@@ -24,6 +24,17 @@
 // 12 bits and millivolts), because a silently assumed value corrupts every
 // result derived from it. See docs/DIVERGENCES.md. The original behavior
 // remains available with --legacy (see docs/DIVERGENCES.md).
+// Design decision (Reza Sameni, Oct 2026): the signal files named in a
+// header, and the segments of a multi-segment record, are in the directory of
+// that header (on disk or at its URL) or below it; names that leave it are
+// refused, and nothing is searched (the C library searched the WFDB path):
+// a search can silently open the wrong file, and a header must not make the
+// library read other local files or contact other servers. The original
+// behavior remains available with --legacy (see docs/DIVERGENCES.md).
+// Design decision (Reza Sameni, Oct 2026): an output signal file is never
+// one of the input files of the open record (osigfopen and osigopen refuse
+// it): the original truncated the file it was reading. The original behavior
+// remains available with --legacy (see docs/DIVERGENCES.md).
 // GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 // (A line-by-line port of C: index loops are kept as in the C source.)
@@ -37,7 +48,7 @@ use crate::cstd::{self, d2i, d2l, Strtok, INT_MAX, SEEK_CUR, SEEK_END, SEEK_SET}
 use crate::flac;
 use crate::types::*;
 use crate::wfdb::{with_default, OptBytes, Wfdb};
-use crate::wfdbio::{wfdb_striphea, WfdbFile};
+use crate::wfdbio::{in_header_dir, is_url, path_id, wfdb_striphea, FileId, WfdbFile};
 use crate::{cformat, csscanf};
 
 /// `BUFSIZ` of the reference platform (default buffer sizes).
@@ -204,6 +215,21 @@ pub struct SigState {
     bcount: f64,
     prolog_bytes: i64,
 
+    // wfdb-x: files named in a header (see open_header)
+    /// Directory of the header read last by readheader (see
+    /// `wfdbx_dirname`; `None` if unknown, i.e. for the standard input).
+    hdr_dir: Option<Vec<u8>>,
+    /// Directory and name of the header of the current multi-segment
+    /// record (`msrec_name` is `None` if there is none).
+    msrec_dir: Option<Vec<u8>>,
+    msrec_name: Option<Vec<u8>>,
+    /// True while setmsheader reads the headers of the segments it was
+    /// given.
+    user_segments: bool,
+    /// wfdb-x: true during a high-level read: getvec's checksum message is
+    /// recorded but not printed.
+    pub(crate) cksum_quiet: bool,
+
     // Multi-segment records
     segments: i32,
     in_msrec: i32,
@@ -304,6 +330,11 @@ impl Default for SigState {
             nsamples: 0,
             bcount: 0.0,
             prolog_bytes: 0,
+            hdr_dir: None,
+            msrec_dir: None,
+            msrec_name: None,
+            user_segments: false,
+            cksum_quiet: false,
             segments: 0,
             in_msrec: 0,
             msbtime: 0,
@@ -1389,6 +1420,36 @@ impl Wfdb {
         nsig
     }
 
+    /// wfdb-x: opens the header (of type `s`: `"hea"`, or `None` for a file
+    /// name) of a record, or of a segment named in the header of the
+    /// current multi-segment record (in the directory of that header), and
+    /// notes its directory (`hdr_dir`). Legacy mode: `wfdb_open` (the WFDB
+    /// path).
+    fn open_header(&mut self, s: Option<&[u8]>, record: &[u8]) -> Option<WfdbFile> {
+        if self.sig.legacy {
+            return self.wfdb_open(s, record, WFDB_READ);
+        }
+        if self.sig.in_msrec == 0 {
+            self.sig.msrec_dir = None;
+            self.sig.msrec_name = None;
+        }
+        let f = match (
+            &self.sig.msrec_name,
+            self.sig.in_msrec != 0 && !self.sig.user_segments,
+        ) {
+            (Some(name), true) => {
+                let (dir, name) = (self.sig.msrec_dir.clone(), name.clone());
+                self.wfdbx_open_in(dir.as_deref(), s, record, &name)
+            }
+            _ => self.wfdb_open(s, record, WFDB_READ),
+        };
+        self.sig.hdr_dir = match &f {
+            Some(f) if !f.is_std() => Some(crate::wfdbio::wfdbx_dirname(self.wfdb_filename())),
+            _ => None,
+        };
+        f
+    }
+
     fn readheader_err(&mut self, msg: Vec<u8>, ret: i32) -> i32 {
         self.wfdb_error(msg);
         ret
@@ -1428,7 +1489,7 @@ impl Wfdb {
             qq -= 1;
         }
         if record.get(qq) == Some(&b'.') {
-            match self.wfdb_open(crate::wfdb::NULL, record, WFDB_READ) {
+            match self.open_header(None, record) {
                 None => {
                     let msg = cformat!(b"init: can't open %s\n", record);
                     return self.readheader_err(msg, -1);
@@ -1443,7 +1504,7 @@ impl Wfdb {
             }
         } else {
             // Otherwise, assume the file name is record.hea.
-            match self.wfdb_open("hea", record, WFDB_READ) {
+            match self.open_header(Some(b"hea"), record) {
                 None => {
                     let msg = cformat!(b"init: can't open header for record %s\n", record);
                     return self.readheader_err(msg, -1);
@@ -1541,11 +1602,13 @@ impl Wfdb {
 
         // For local files, be sure that the name (p) within the header file
         // matches the name (record) provided as an argument to this function.
+        // (wfdb-x: a remote header, a fetched URL, is not checked, as the C
+        // library did not check remote files.)
         let is_std = self
             .sig
             .hheader
             .as_ref()
-            .is_some_and(super::wfdbio::WfdbFile::is_std);
+            .is_some_and(|f| f.is_std() || f.is_remote());
         let plen = p.len();
         if !is_std && !(record.len() >= plen && record[..plen] == p[..]) {
             // If there is a mismatch, check to see if the record argument
@@ -1664,6 +1727,11 @@ impl Wfdb {
         // Special processing for master header of a multi-segment record.
         if self.sig.segments != 0 && self.sig.in_msrec == 0 {
             let st = &mut self.sig;
+            // wfdb-x: the segments are in the directory of this header
+            if !st.legacy {
+                st.msrec_dir = st.hdr_dir.clone();
+                st.msrec_name = Some(record.to_vec());
+            }
             st.msbtime = st.btime;
             st.msbdate = st.bdate;
             st.msnsamples = st.nsamples;
@@ -2910,7 +2978,13 @@ impl Wfdb {
                         && fmt != 0
                     {
                         let msg = cformat!(b"getvec: checksum error in signal %d\n", s as i32);
-                        self.wfdb_error(msg);
+                        // wfdb-x: not printed during a high-level read (it
+                        // prints its own warning), but recorded
+                        if self.sig.cksum_quiet {
+                            self.wfdb_error_unprinted(msg);
+                        } else {
+                            self.wfdb_error(msg);
+                        }
                         stat = -4;
                     }
                 }
@@ -3033,6 +3107,95 @@ impl Wfdb {
     // -----------------------------------------------------------------------
     // Opening output signals
 
+    /// wfdb-x: whether the signal file `fname` of a header line names one of
+    /// the signal files of the segment `seg` of the open multi-segment
+    /// record (located as isigopen locates them in normal mode, without
+    /// changing `hdr_dir`): a header or signal file that cannot be found, or
+    /// is at a URL, is not. No message is printed.
+    fn segment_has_file(&mut self, seg: &[u8], id: &FileId) -> bool {
+        if seg == b"~" || !in_header_dir(seg) || self.sig.msrec_dir.as_deref().is_some_and(is_url) {
+            return false;
+        }
+        let hf = match self.sig.msrec_name.clone() {
+            Some(name) => {
+                let dir = self.sig.msrec_dir.clone();
+                self.wfdbx_open_in(dir.as_deref(), "hea", seg, &name)
+            }
+            None => self.wfdb_open("hea", seg, WFDB_READ),
+        };
+        let Some(mut hf) = hf else {
+            return false;
+        };
+        let dir = if hf.is_std() || hf.is_remote() {
+            None
+        } else {
+            Some(crate::wfdbio::wfdbx_dirname(self.wfdb_filename()))
+        };
+        let mut line = Vec::new();
+        let mut nsig: i64 = -1;
+        while nsig != 0 && hf.getline(&mut line) > 0 {
+            let mut tok = line
+                .split(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r'))
+                .filter(|t| !t.is_empty());
+            let Some(p) = tok.next() else { continue };
+            if p[0] == b'#' {
+                continue;
+            }
+            if nsig < 0 {
+                // the record line
+                nsig = match tok.next() {
+                    Some(q) if !p.contains(&b'/') => strtol10(q),
+                    _ => 0, // not a valid segment
+                };
+                if nsig <= 0 {
+                    break;
+                }
+                continue;
+            }
+            nsig -= 1; // a signal line: file name, format, ...
+            let fmt = tok.next().map_or(0, strtol10);
+            let Some(d) = dir.as_deref() else { continue };
+            if fmt == 0 || p == b"-" || !in_header_dir(p) || is_url(d) {
+                continue;
+            }
+            let p = p.to_vec();
+            if let Some(sf) = self.wfdbx_open_in(Some(d), crate::wfdb::NULL, &p, seg) {
+                if sf.file_id().as_ref() == Some(id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// wfdb-x: whether the output signal file `fname` (as named in an output
+    /// signal specification, created by `wfdb_open(fname, NULL,
+    /// WFDB_WRITE)`) exists and is one of the signal files of the open input
+    /// record: an open input signal file, or a signal file of a segment of
+    /// the open multi-segment record. Files are compared by identity (device
+    /// and inode numbers), not by name.
+    fn is_input_file(&mut self, fname: &[u8]) -> bool {
+        let Some(id) = self.wfdbx_output_file(fname).and_then(|p| path_id(&p)) else {
+            return false; // it does not exist: it is not an input file
+        };
+        let ng = (self.sig.nigroup as usize).min(self.sig.igd.len());
+        if self.sig.igd[..ng]
+            .iter()
+            .any(|g| g.fp.as_ref().and_then(WfdbFile::file_id).as_ref() == Some(&id))
+        {
+            return true;
+        }
+        if self.sig.in_msrec != 0 && self.sig.have_segarray {
+            let end = (self.sig.segend + 1).max(0) as usize;
+            let segs: Vec<Vec<u8>> = self.sig.segarray[..end.min(self.sig.segarray.len())]
+                .iter()
+                .map(|sg| cstd::cstr(&sg.recname).to_vec())
+                .collect();
+            return segs.iter().any(|seg| self.segment_has_file(seg, &id));
+        }
+        false
+    }
+
     fn openosig(
         &mut self,
         func: &[u8],
@@ -3121,8 +3284,19 @@ impl Wfdb {
                     }
                 }
                 if os.info.fmt != 0 {
-                    // An error in opening an output file is fatal.
                     let fname = os.info.fname.clone();
+                    // wfdb-x: never an input file (see is_input_file)
+                    if !self.sig.legacy
+                        && self.is_input_file(fname.as_deref().map_or(&b""[..], cstd::cstr))
+                    {
+                        let msg =
+                            cformat!(b"%s: output file %s is also an input file\n", func, fname);
+                        self.wfdb_error(msg);
+                        self.sig.ogd[gi].buf = Vec::new();
+                        self.osigclose();
+                        return -3;
+                    }
+                    // An error in opening an output file is fatal.
                     let f = self.wfdb_open(
                         fname.as_ref().map(|v| cstd::cstr(v)),
                         crate::wfdb::NULL,
@@ -3205,6 +3379,9 @@ impl Wfdb {
         st.pdays = -1;
         st.segments = 0;
         st.in_msrec = 0;
+        st.msrec_dir = None; // wfdb-x
+        st.msrec_name = None;
+        st.hdr_dir = None;
         st.skewmax = 0;
         if st.have_dsbuf {
             st.dsbuf = Vec::new();
@@ -3323,8 +3500,10 @@ impl Wfdb {
     /// C `isigopen(record, siarray, nsig)`: opens the input signals of a
     /// record.
     ///
-    /// The header of `record` is found in the WFDB path, and up to `nsig`
-    /// signals are opened; `siarray` receives their [`Siginfo`]. Input
+    /// The header of `record` is found as [`Wfdb::wfdb_open`] finds files
+    /// (wfdb-x: the signal files it names are in its directory; legacy mode:
+    /// all are found in the WFDB path), and up to `nsig` signals are
+    /// opened; `siarray` receives their [`Siginfo`]. Input
     /// signals open before are closed first, unless the record name begins
     /// with `+`. With `nsig <= 0`, up to `-nsig` elements of `siarray` are
     /// filled in from the header, without opening the signals (with
@@ -3484,11 +3663,19 @@ impl Wfdb {
                 st.igd[gi].fp = None; // Don't open a file for a null signal.
             } else {
                 let fname = st.hsd[si].info.fname.clone();
-                let f = self.wfdb_open(
-                    fname.as_ref().map(|v| cstd::cstr(v)),
-                    crate::wfdb::NULL,
-                    WFDB_READ,
-                );
+                let fname = fname.as_ref().map(|v| cstd::cstr(v));
+                // wfdb-x: in the directory of the header
+                let f = if self.sig.legacy {
+                    self.wfdb_open(fname, crate::wfdb::NULL, WFDB_READ)
+                } else {
+                    let dir = self.sig.hdr_dir.clone();
+                    self.wfdbx_open_in(
+                        dir.as_deref(),
+                        crate::wfdb::NULL,
+                        fname.unwrap_or(b""),
+                        &record,
+                    )
+                };
                 let ig = &mut self.sig.igd[gi];
                 ig.fp = f;
                 // Skip this group if the signal file can't be opened.
@@ -3635,7 +3822,8 @@ impl Wfdb {
     ///
     /// The number of output signals opened (`> 0`; it should be `nsig`),
     /// or: -1 if the header cannot be read, -2 if it is incorrect, -3 if
-    /// the output signal files cannot be opened.
+    /// the output signal files cannot be opened (or, wfdb-x, one of them is
+    /// one of the input files, as for [`Wfdb::osigfopen`]).
     pub fn osigopen(&mut self, record: impl OptBytes, siarray: &mut [Siginfo], nsig: u32) -> i32 {
         let rec_arg = record.opt_bytes().map(cstd::cstr).unwrap_or(b"").to_vec();
         // Close previously opened output signals unless otherwise requested.
@@ -3683,9 +3871,11 @@ impl Wfdb {
     /// The number of output signals opened (`> 0`; it should be `nsig`),
     /// or: -2 if a signal specification is incorrect (file name or
     /// description too long, illegal format or block size, incorrect signal
-    /// group), -3 if a signal file cannot be opened. With `nsig == 0` (or
-    /// an empty `siarray`): 0, or -4 on a write error while closing the
-    /// previous output signals.
+    /// group), -3 if a signal file cannot be opened, or (wfdb-x, except in
+    /// legacy mode) is one of the signal files of the open input record
+    /// (`osigfopen: output file F is also an input file`; the file is not
+    /// touched). With `nsig == 0` (or an empty `siarray`): 0, or -4 on a
+    /// write error while closing the previous output signals.
     pub fn osigfopen(&mut self, siarray: &[Siginfo], nsig: u32) -> i32 {
         // Close any open output signals.
         let stat = self.osigclose();
@@ -4057,8 +4247,17 @@ impl Wfdb {
     /// record), or the negative status of `getvec` if the first read
     /// failed.
     pub fn getvecs(&mut self, out: &mut [i32], n: i64) -> i64 {
+        self.getvecs_status(out, n).0
+    }
+
+    /// As [`Wfdb::getvecs`], also returning the value returned by the last
+    /// `getvec` call: the negative status of the first vector that could
+    /// not be read (-1 at the end of the data, `< -1` on an error, e.g. -3
+    /// for an unexpected end of file), or the number of values per vector
+    /// if all `n` were read (0 if `n <= 0`). Not part of the C library.
+    pub fn getvecs_status(&mut self, out: &mut [i32], n: i64) -> (i64, i32) {
         if n <= 0 {
-            return 0;
+            return (0, 0);
         }
         let mut stat = 0;
         let mut k: i64 = 0;
@@ -4114,9 +4313,9 @@ impl Wfdb {
             }
         }
         if k == 0 && stat < 0 {
-            stat as i64
+            (stat as i64, stat)
         } else {
-            k
+            (k, stat)
         }
     }
 
@@ -4694,7 +4893,9 @@ impl Wfdb {
             }
             self.sig.in_msrec = 1;
             self.sig.nsamples = 0;
+            self.sig.user_segments = true; // wfdb-x: names given by the caller
             let n = self.readheader(&name);
+            self.sig.user_segments = false;
             self.sig.in_msrec = old_in_msrec;
             if n < 0 {
                 let msg = cformat!(b"setmsheader: can't read segment %s header\n", name);
@@ -5796,6 +5997,11 @@ pub fn getframe(vector: &mut [i32]) -> i32 {
 /// C `getvecs` on the default instance (see [`Wfdb::getvecs`]).
 pub fn getvecs(out: &mut [i32], n: i64) -> i64 {
     with_default(|w| w.getvecs(out, n))
+}
+
+/// `getvecs_status` on the default instance (see [`Wfdb::getvecs_status`]).
+pub fn getvecs_status(out: &mut [i32], n: i64) -> (i64, i32) {
+    with_default(|w| w.getvecs_status(out, n))
 }
 
 /// C `putvec` on the default instance (see [`Wfdb::putvec`]).

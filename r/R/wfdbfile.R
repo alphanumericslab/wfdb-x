@@ -9,7 +9,9 @@
 #
 # A WFDB_FILE is an environment (is_wfdb_file(); C NULL is NULL),
 # created by wfdb_fopen() / wfdb_open() (wfdbio.R).  Fields: `name` (file
-# name, "-" for the standard streams), `type` (WFDB_LOCAL = 0), `is_std`,
+# name, "-" for the standard streams), `type` (WFDB_LOCAL = 0, or WFDB_NET
+# = 1 for a remote file read into memory, wfdb-x), `is_std`, `size` (of a
+# remote file),
 # `mode` ("r", "w" or "a").  The functions below take it as their first
 # argument:
 #
@@ -89,6 +91,10 @@ wf_flush_all <- function() {
   }
   invisible()
 }
+
+# The size of the file of f (NA if unknown); f$size is set for a remote file
+# held in memory (wfdb-x).
+.wf_size <- function(f) if (is.null(f$size)) suppressWarnings(file.size(f$name)) else f$size
 
 #' TRUE if x is a WFDB_FILE.
 is_wfdb_file <- function(x) is.environment(x) && isTRUE(x$wfdb_file)
@@ -174,7 +180,7 @@ wf_readall <- function(f) {
   f$blen <- 0L
   f$bpos <- 1L
   repeat {
-    sz <- suppressWarnings(file.size(f$name))
+    sz <- .wf_size(f)
     want <- if (is.na(sz)) 1048576 else max(sz - f$bstart, 0) + 1   # (1 MiB, or the rest)
     x <- tryCatch(readBin(f$con, "raw", want), error = function(e) raw(0))
     if (length(x) == 0L) break
@@ -317,7 +323,7 @@ wf_seek <- function(f, offset, whence = 0) {
   if (f$mode == "r") {
     cur <- f$bstart + f$bpos - 1
     target <- if (whence == 0) offset else if (whence == 1) cur + offset else {
-      sz <- suppressWarnings(file.size(f$name))
+      sz <- .wf_size(f)
       if (is.na(sz)) return(-1)
       sz + offset
     }

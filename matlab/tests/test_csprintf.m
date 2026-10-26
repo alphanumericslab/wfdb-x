@@ -39,7 +39,7 @@ cases = {
     {'1.235 -0.000000', '%.3lf %lf', 1.23456, -0};
     {'nan', '%g', NaN};
     {'-nan', '%g', -NaN};
-    {'-nan', '%g', zeros(1)/0};
+    {'-nan', '%g', typecast(uint64(18444492273895866368), 'double')};  % (bits 0xFFF8000000000000; the sign of 0/0 depends on the processor)
     {'inf', '%f', Inf};
     {'-inf', '%f', -Inf};
     {'  inf|', '%5.2f|', Inf};

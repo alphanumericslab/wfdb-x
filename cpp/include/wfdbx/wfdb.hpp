@@ -212,9 +212,16 @@ using Seginfo = WFDB_Seginfo;
 // ---------------------------------------------------------------------------
 // Functions
 //
-// Records and other input files are searched for in the directories of the
-// WFDB path (see setwfdb()).  Output files are created as "<record>.<type>"
-// (e.g. "100s.hea", "100s.atr"), relative to the current directory.
+// wfdb-x: files are found by explicit names (nothing is searched).  A file of
+// a record is named "<record>.<type>" (e.g. "100s.hea", "100s.atr").  A
+// relative name is read under the input directory (wfdbx_set_input_dir(); a
+// local directory or a URL) and written under the output directory
+// (wfdbx_set_output_dir()), by default the current directory; an absolute
+// name, a "~" name or a URL is used as given.  The signal files and segments
+// named in a header are in the directory of that header (or below it).  URLs
+// are opened only with network access (wfdbx_set_network()).  Legacy mode:
+// as the C library, records are searched for in the directories of the WFDB
+// path (see setwfdb()), without network access.
 
 /// @name Opening and closing records
 /// @{
@@ -261,7 +268,8 @@ int wfdbinit(const char *record, const WFDB_Anninfo *aiarray, unsigned nann,
              WFDB_Siginfo *siarray, unsigned nsig);
 /// Close all open files (flushing buffered output and terminating output
 /// annotation files), release the library's buffers and reset the state of
-/// the open record; the WFDB path is restored (see resetwfdb()).  Headers
+/// the open record; in legacy mode, the WFDB path is restored (see
+/// resetwfdb(); wfdb-x: the input directory is left as it is).  Headers
 /// are not written: call newheader() or setheader() first.  Call wfdbquit()
 /// before exiting after writing files.
 void wfdbquit();
@@ -457,12 +465,47 @@ int wfdbx_legacy_args(int &argc, char **&argv);
 /// where NAME is the name it would use otherwise (the record name and file
 /// type; the header still records the names as given).  nullptr or "" means
 /// none (the default: files are created as named).  Returns the previous
-/// value (std::nullopt if none).  Not reset by wfdbquit(); the same in
-/// legacy mode.
+/// value (std::nullopt if none).  Not reset by wfdbquit().
+///
+/// In normal mode, only relative names are created there (joined with one
+/// '/'; a leading "~" in `dir` is expanded); absolute and "~" names are used
+/// as given, and URLs cannot be written.  In legacy mode, every name is
+/// created there.  nullptr or "" restores the default: the value of the
+/// environment variable WFDBX_OUTPUT_DIR, if set (read when first needed),
+/// otherwise none (files are created as named).  Returns the previous value
+/// (std::nullopt if none).  A URL is refused (error "wfdbx_set_output_dir:
+/// the output directory must be a local directory"): the setting is
+/// unchanged and its current value is returned.  Not reset by wfdbquit().
 std::optional<std::string> wfdbx_set_output_dir(const char *dir);
-/// (wfdb-x addition) The directory set by wfdbx_set_output_dir()
-/// (std::nullopt if none).
+/// (wfdb-x addition) The output directory (std::nullopt if none).
 std::optional<std::string> wfdbx_get_output_dir();
+/// (wfdb-x addition) Set the input directory: in normal mode, a file named
+/// by a relative name NAME is read as DIR/NAME (with exactly one '/').  DIR
+/// may be a local directory (relative to the current directory, or
+/// beginning with "~", expanded when a file is opened) or the URL of a
+/// directory (e.g. "https://physionet.org/files/mitdb/1.0.0/", which needs
+/// network access).  nullptr or "" restores the default: the value of the
+/// environment variable WFDBX_INPUT_DIR, if set (read when first needed),
+/// otherwise none (names are used as given, relative to the current
+/// directory).  Returns the previous value (std::nullopt if none).  Not used
+/// in legacy mode (the WFDB path is searched); not reset by wfdbquit().
+std::optional<std::string> wfdbx_set_input_dir(const char *dir);
+/// (wfdb-x addition) The input directory (std::nullopt if none).
+std::optional<std::string> wfdbx_get_input_dir();
+/// (wfdb-x addition) Allow (`on` > 0) or forbid (`on` == 0) network access,
+/// i.e. opening http:// and https:// URLs; a negative value restores the
+/// default (allowed if the environment variable WFDBX_NETWORK is a nonzero
+/// number, otherwise forbidden).  Returns the previous setting (1 or 0).  A
+/// URL is read in full by the system program curl (run without a shell;
+/// redirections are followed, an HTTP status >= 400 fails, and reading
+/// gives up if connecting takes 30 s or no data arrives for 30 s, with no
+/// limit on the total time);
+/// each URL is requested at most once per process.  With network access
+/// forbidden, opening a URL fails (the first time, with the error "wfdb-x:
+/// network access is disabled; ...").  Never used in legacy mode.
+int wfdbx_set_network(int on);
+/// (wfdb-x addition) 1 if network access is allowed, 0 otherwise.
+int wfdbx_get_network();
 /// Julian date `d` as " dd/mm/yyyy" (with a leading space).
 std::string datstr(WFDB_Date d);
 /// Julian date of a "dd/mm/yyyy" string, or 0 if it is invalid.
@@ -611,27 +654,34 @@ void wfdb_error(const char *format, ...)
 /// compatibility; it has no other effect.
 int wfdb_me_fatal();
 void wfdbmemerr(int exit_on_error);
-/// Set the WFDB path, the list of directories where input files are
-/// searched for (separated by spaces, ';' or ':'; "@file" reads the path
-/// from a file); nullptr: $WFDB, or the default.  The value is also
-/// exported as the WFDB environment variable.  Remote (http, ftp) components
-/// are ignored.
+/// wfdb-x: in normal mode, set the input directory (see
+/// wfdbx_set_input_dir()): `database_path`, split into components as the
+/// WFDB path is (at spaces, ';', and ':' outside URLs), must have at most one
+/// non-empty component, which becomes the input directory (none, as in ""
+/// or ";": the default); with more, an error is reported ("setwfdb: wfdb-x
+/// reads from a single input directory; ...") and nothing changes.
+/// Legacy mode: as in C, set the WFDB path, the list of directories where
+/// input files are searched for ("@file" reads the path from a file);
+/// nullptr: $WFDB, or the default; the value is also exported as the WFDB
+/// environment variable; remote components are not used.
 void setwfdb(const char *database_path);
-/// The current WFDB path.
+/// wfdb-x: in normal mode, the input directory, or "." if none is set.
+/// Legacy mode: the current WFDB path.
 std::string getwfdb();
-/// Restore the initial WFDB path (from $WFDB or the default), if the path
-/// had been read before it was changed by setwfdb().
+/// wfdb-x: in normal mode, restore the input directory set by the last
+/// setwfdb(), if any.  Legacy mode: restore the initial WFDB path (from $WFDB
+/// or the default), if the path had been read before it was changed by
+/// setwfdb().
 void resetwfdb();
 /// Set the input or output buffer size (bytes) of signal files opened
 /// afterwards (0: the default).  Returns the new size, -1 if signals are
 /// already open, -2 if the size is negative.
 int setibsize(int input_buffer_size);
 int setobsize(int output_buffer_size);
-/// The path name of the file of `record` with type (suffix) `file_type`, as
-/// found in the WFDB path, or nullopt if it cannot be found.  wfdb-x: input
-/// files named by an absolute path are opened directly (C, and legacy mode:
-/// they are searched for in the WFDB path like any other name; an empty
-/// component, as in setwfdb(";"), uses names as given).
+/// The path name (or URL) of the file of `record` with type (suffix)
+/// `file_type`, or nullopt if it cannot be opened.  wfdb-x: the file is at
+/// the one location its name designates (see "Opening and closing records");
+/// legacy mode: as found in the WFDB path.
 std::optional<std::string> wfdbfile(const char *file_type, const char *record);
 /// Library version ("10.7.0").
 std::string wfdbversion();
@@ -649,8 +699,12 @@ std::string wfdbdefwfdbcal();
 /// Read up to `n` getvec() results into `out`, with exactly the semantics
 /// of n calls of getvec() but faster.  `out` must have room for n times the
 /// number of values returned by getvec().  Returns the number read (>= 0),
-/// or the negative value returned by getvec() if none could be read.
-long long getvecs(WFDB_Sample *out, long long n);
+/// or the negative value returned by getvec() if none could be read.  If
+/// `status` is not null, it receives the value returned by the last getvec()
+/// call: the negative status of the first frame that could not be read
+/// (-1 at the end of the data, < -1 on an error, e.g. -3 for an unexpected
+/// end of file), or the number of values per frame if all n were read.
+long long getvecs(WFDB_Sample *out, long long n, int *status = nullptr);
 /// @}
 
 } // namespace wfdbx

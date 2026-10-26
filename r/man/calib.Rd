@@ -27,8 +27,10 @@ newcal(cfname)
 flushcal()
 }
 \arguments{
-  \item{cfname}{the name of a calibration file.  \code{calopen} looks for
-    it in the WFDB path (see \code{\link{getwfdb}}); by default it reads
+  \item{cfname}{the name of a calibration file.  \code{calopen} reads
+    it under the input directory (see \code{\link{getwfdb}}; in legacy
+    mode, it looks for it in the WFDB path); a missing file is not an
+    error; by default it reads
     the file named by the environment variable \env{WFDBCAL}, or
     \file{wfdbcal}.  A leading \code{"+"} appends the entries of the file
     to the list instead of replacing it.}

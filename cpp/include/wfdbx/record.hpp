@@ -3,8 +3,13 @@
 // These functions read and write whole records and annotation files with a
 // few calls.  They are built on the WFDB library API (<wfdbx/wfdb.hpp>), so
 // they read and write exactly what the WFDB library and the command-line
-// tools do; records are found in the WFDB path, and files are written
-// relative to the current directory.
+// tools do.  Files are found by explicit names (wfdb-x: nothing is searched):
+// a relative record name is read under the input directory (the
+// `input_dir` option, or wfdbx_set_input_dir(); by default the current
+// directory) and written under the output directory (the `dir` option of the
+// writers, or wfdbx_set_output_dir()); an absolute name, a "~" name or a URL
+// is used as given.  URLs need network access (the `network` option, or
+// wfdbx_set_network()).
 //
 // Errors are reported by throwing wfdbx::Error.  The functions call
 // wfdbquit() before and after their work, closing any record opened with the
@@ -19,6 +24,13 @@
 // resolution is read as 0 and unspecified units as std::nullopt, and
 // conversions that need a missing value throw Error (see
 // docs/DIVERGENCES.md).
+//
+// Input directory and network access (wfdb-x): with the `input_dir` and
+// `network` options of the readers (ReadOptions::input_dir and
+// ReadOptions::network, an InputOptions argument of read_header() and
+// read_annotations()), the setting is changed for the duration of the call
+// and restored afterwards, also on errors; unset options keep the current
+// settings.
 //
 // Output directory (wfdb-x): with WriteOptions::dir (or the `dir` parameter
 // of write_annotations()), the files are created in that directory, and the
@@ -56,6 +68,11 @@
 // Design decision (Reza Sameni, after a code review, Oct 2026): the writers
 // take an output directory (the record then opens from there under its plain
 // name).
+// Design decision (Reza Sameni, Oct 2026): files are found only where they are
+// named (no search path), and the readers take an input directory and the
+// permission to use the network, because a search can silently open the
+// wrong file, and the network must not be used without being asked for. The
+// original behavior remains available with --legacy (see docs/DIVERGENCES.md).
 // GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #ifndef WFDBX_RECORD_HPP
@@ -107,6 +124,19 @@ private:
     std::optional<std::string> s_;
 };
 
+/// Where the readers find files (wfdb-x): each option that is set changes the
+/// library's setting for the duration of the call (restored afterwards, also
+/// on errors); unset options keep the current settings.
+struct InputOptions {
+    /// The input directory (see wfdbx_set_input_dir()): a local directory or
+    /// the URL of a directory; "" means the default (WFDBX_INPUT_DIR, or the
+    /// current directory).
+    std::optional<std::string> input_dir;
+    /// Network access (see wfdbx_set_network()): true allows opening URLs,
+    /// false forbids it.
+    std::optional<bool> network;
+};
+
 /// Signals of a record (or of a part of one), read by read_record().
 struct Record {
     std::string name;           ///< record name, as given to read_record()
@@ -147,8 +177,9 @@ struct Record {
     std::vector<std::string> names() const;
 };
 
-/// Options of read_record().
-struct ReadOptions {
+/// Options of read_record().  The InputOptions (input_dir, network) say
+/// where the files are found.
+struct ReadOptions : InputOptions {
     /// Signals to return, in this order, by number ("0", "1", ...) or
     /// description (as findsig() accepts them); empty: all signals.
     std::vector<std::string> channels;
@@ -160,6 +191,14 @@ struct ReadOptions {
     bool highres = false;
     /// Replace invalid samples by the previous valid sample (WFDB_GVPAD).
     bool pad = false;
+    /// wfdb-x: if the signal data do not match the checksums of the header
+    /// (getvec status -4), the data are returned all the same (every frame),
+    /// and, if this is true (the default), the warning "wfdb-x: checksum
+    /// error in record REC: the signal data do not match the checksums in
+    /// its header" is printed on stderr as a library message (silenced by
+    /// wfdbquiet(); getvec's own checksum message is not printed during the
+    /// read).
+    bool checksum_warning = true;
     /// Legacy mode (original behavior, for compatibility only: a header
     /// without a frequency means 250 Hz, a missing resolution is inferred
     /// from the format, and physical() assumes 200 adu/unit for uncalibrated
@@ -170,7 +209,13 @@ struct ReadOptions {
 /// Read the signals of `record` from opt.from to opt.to (the samples
 /// available, if the record ends before opt.to).  Throws Error if the record
 /// cannot be read or has no signals, if a requested signal does not exist,
-/// or if opt.from cannot be reached.  If the header does not specify the
+/// or if opt.from cannot be reached; also if reading stops with a getvec
+/// status below -1 (e.g. -3: a signal file shorter than its header says,
+/// or a read or decoding error), with the message "can't read signal data
+/// of record R (getvec status S)" (also in legacy mode; reaching the end of
+/// the record before opt.to is not an error).  wfdb-x: a checksum error
+/// (status -4) is not an error: every frame is returned, with a warning
+/// (see ReadOptions::checksum_warning).  If the header does not specify the
 /// sampling frequency, rec.fs is 0, and a time string in opt.from or opt.to
 /// that needs it throws Error ("sampling frequency of record R is not
 /// specified").
@@ -178,11 +223,13 @@ Record read_record(const std::string &record, const ReadOptions &opt = {});
 
 /// Read the signal specifications of the header of `record` (one entry per
 /// signal; empty if the record has none).  The signal files are not opened.
+/// `input` says where the header is found (see InputOptions).
 /// Throws Error if the header cannot be read.  With `legacy` (for
 /// compatibility only), the header is read as by the original package (250
 /// Hz if it has no frequency, ADC resolutions inferred from the format).
 std::vector<WFDB_Siginfo> read_header(const std::string &record,
-                                      bool legacy = false);
+                                      bool legacy = false,
+                                      const InputOptions &input = {});
 
 /// An annotation file, as parallel arrays: annotation i is samples[i],
 /// codes[i], symbols[i], ...  Returned by read_annotations(); also the input
@@ -204,7 +251,8 @@ struct Annotations {
 
 /// Read the annotations of `annotator` for `record` (as rdann does), from
 /// time `from` (default: the start) up to `to`, exclusive (default: the
-/// end).  The sampling frequency is that of the record's header; if the
+/// end); `input` says where the files are found (see InputOptions).  The
+/// sampling frequency is that of the record's header; if the
 /// record has no header, or its header does not specify one, `fs` (if
 /// given) is used, as by the -F option of rdann (wfdb-x: there is no default
 /// frequency).  A given `fs` must be > 0 (otherwise Error "read_annotations:
@@ -220,7 +268,8 @@ Annotations read_annotations(const std::string &record,
                              const TimeSpec &from = {},
                              const TimeSpec &to = {},
                              std::optional<WFDB_Frequency> fs = std::nullopt,
-                             bool legacy = false);
+                             bool legacy = false,
+                             const InputOptions &input = {});
 
 /// Options of write_record() and write_record_physical().  Each per-signal
 /// vector may hold one value (used for every signal) or one value per

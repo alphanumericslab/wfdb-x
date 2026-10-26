@@ -59,13 +59,17 @@
 #' strings that need the sampling frequency (wfdbx_time_needs_freq) are an
 #' error.
 #'
+#' input_dir, network: the input directory and the network permission for
+#' this call (see read_record; wfdb-x).
+#'
 #' legacy: if TRUE, behave as the original package (250 Hz for a record
 #' without a header, or whose header does not specify the frequency, unless
 #' fs is given), with the library's legacy mode on for the duration of the
 #' call.  Kept for compatibility only: the values it assumes are exactly the
 #' silent defaults this project removed.
 read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs = NULL,
-                             legacy = FALSE) .hl_legacy(legacy, {
+                             input_dir = NULL, network = NULL,
+                             legacy = FALSE) .hl_legacy(legacy, .hl_input(input_dir, network, {
   legacy <- wfdbx_get_legacy()
   if (!is.null(fs) && (length(fs) != 1L || !is.numeric(fs) || is.na(fs) || fs <= 0))
     stop("fs must be > 0")
@@ -111,7 +115,7 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
   attr(res, "fs") <- afs
   wfdbquit()
   res
-})
+}))
 
 #' Write an annotation file (as wrann does).
 #'

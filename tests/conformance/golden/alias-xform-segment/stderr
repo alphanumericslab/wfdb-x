@@ -1,0 +1,3 @@
+Checking input signals ...sigmap_init: loss of precision in signal 2 in segment fmt16
+ done
+xform: can't write output signals (osigopen: output file fmt212.dat is also an input file)

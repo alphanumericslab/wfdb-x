@@ -365,3 +365,115 @@ def test_dir_checks_first(datadir):
     assert str(e.value) == "directory nosuch does not exist"
     with pytest.raises(ValueError, match="gains must be specified"):
         w.write_record("rec", x, 360, dir="out")
+
+
+def _write_truncated_record():
+    """Records tr (its .dat truncated to 2 of its 4 frames) and ok."""
+    x = np.array([[1, 2], [3, 4], [5, 6], [7, 8]])
+    for name in ("tr", "ok"):
+        w.write_record(name, x, 100, gains=100, adcres=16, units="mV")
+    with open("tr.dat", "r+b") as f:
+        f.truncate(8)              # 2 frames of 2 format-16 samples
+    return x
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_read_record_truncated_signal_file(datadir, legacy):
+    x = _write_truncated_record()
+    # (1) unexpected EOF (getvec status -3) is an error, not the end of data
+    for phys in (False, True):
+        with pytest.raises(IOError) as e:
+            w.read_record("tr", physical=phys, legacy=legacy)
+        assert str(e.value) == \
+            "can't read signal data of record tr (getvec status -3)"
+        # the library is left usable: a good record reads normally
+        assert (w.read_record("ok", legacy=legacy).signals == x).all()
+    # reading only what the file holds is not an error
+    assert (w.read_record("tr", sampto=2, legacy=legacy).signals ==
+            x[:2]).all()
+    # (2) complete reads, sub-intervals, and sampto past the end of a
+    # record whose header gives its length (what there is, no error)
+    assert (w.read_record("ok", legacy=legacy).signals == x).all()
+    assert (w.read_record("ok", sampfrom=1, sampto=3,
+                          legacy=legacy).signals == x[1:3]).all()
+    assert (w.read_record("ok", sampto=10, legacy=legacy).signals ==
+            x).all()
+    # (3) the low-level API is unchanged: getframes returns the frames read
+    # and the status, getvec returns -3 at the end of the truncated file
+    w.wfdbquit()
+    assert w.isigopen("tr", None, 2) == 2
+    arr, stat = w.getframes(10)
+    assert stat == -3 and (arr == x[:2]).all()
+    w.wfdbquit()
+    w.isigopen("tr", [], 2)
+    v = [0, 0]
+    assert [w.getvec(v) for _ in range(3)] == [2, 2, -3]
+    w.wfdbquit()
+    w.isigopen("ok", [], 2)
+    arr, stat = w.getframes(10)
+    assert stat == -1 and (arr == x).all()
+    w.wfdbquit()
+
+
+_CKSUM_MSG = ("checksum error in record ck: the signal data do not match the "
+              "checksums in its header")
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_read_record_checksum_warning(datadir, legacy, capfd):
+    """A checksum error (getvec status -4) is a warning of read_record (the
+    data, all of them, are returned), not an error; checksum_warning=False
+    turns it off.  The library's getvec message is not printed then."""
+    import warnings
+    x = np.array([[1, 2], [3, 4], [5, 6], [7, 8]])
+    w.write_record("ck", x, 100, gains=100, adcres=16, units="mV")
+    with open("ck.dat", "r+b") as f:     # sample (1, 0): 3 -> 9
+        f.seek(4)
+        f.write(bytes([9, 0]))
+    y = x.copy()
+    y[1, 0] = 9
+    # (the same samples with correct checksums: every frame, the last one
+    # included, is returned in both cases)
+    w.write_record("good", y, 100, gains=100, adcres=16, units="mV")
+    good = w.read_record("good", legacy=legacy).signals
+    capfd.readouterr()
+    for phys in (False, True):
+        with pytest.warns(RuntimeWarning) as rec:
+            r = w.read_record("ck", physical=phys, legacy=legacy)
+        assert [str(m.message) for m in rec] == [_CKSUM_MSG]
+        assert rec[0].filename == __file__     # (points at the caller)
+        expect = y / 100.0 if phys else y
+        assert r.signals.shape == (4, 2) and (r.signals == expect).all()
+        assert len(r.signals) == len(good)
+        assert "checksum" not in capfd.readouterr().err
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        r = w.read_record("ck", checksum_warning=False, legacy=legacy)
+        assert r.signals.shape == good.shape and (r.signals == good).all()
+        # not read to the end: no checksum is verified
+        assert (w.read_record("ck", sampto=3, legacy=legacy).signals ==
+                y[:3]).all()
+        assert (w.read_record("ck", sampfrom=1, sampto="e",
+                              checksum_warning=False,
+                              legacy=legacy).signals == y[1:]).all()
+    assert capfd.readouterr().err == ""
+    # the truncated case is still an error
+    _write_truncated_record()
+    with pytest.raises(IOError, match=r"getvec status -3"):
+        w.read_record("tr", legacy=legacy)
+    # the low-level API is unchanged: getvec returns -4 for the last frame
+    # (filled), getframes stops before it, and the message is printed
+    w.wfdbquit()
+    capfd.readouterr()
+    w.isigopen("ck", [], 2)
+    v = [0, 0]
+    assert [w.getvec(v) for _ in range(4)] == [2, 2, 2, -4]
+    assert v == [7, 8]
+    w.wfdbquit()
+    w.isigopen("ck", [], 2)
+    arr, stat = w.getframes(10)
+    assert stat == -4 and (arr == y[:3]).all()
+    w.wfdbquit()
+    assert capfd.readouterr().err == \
+        "getvec: checksum error in signal 0\n" * 2
+

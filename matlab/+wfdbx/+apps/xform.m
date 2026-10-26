@@ -896,7 +896,18 @@ wfdbx.wfdbquiet();
 if ischar(orec)
     [n, dfout] = wfdbx.osigopen(orec, nosig);
     if n ~= nosig
-        wfdbx.internal.ceprintf('%s: can''t write output signals\n', pname);
+        % wfdb-x: say why if an output file is one of the input files (the
+        % library's message, quieted above, is the last error)
+        e = wfdbx.wfdberror();
+        tail = ' is also an input file';
+        tail(end + 1) = char(10);
+        if ~legacy && strncmp(e, 'osigopen: output file ', 22) && ...
+                numel(e) > 22 + 23 && strcmp(e(end-22:end), tail)
+            wfdbx.internal.ceprintf('%s: can''t write output signals (%s)\n', ...
+                pname, e(1:end-1));
+        else
+            wfdbx.internal.ceprintf('%s: can''t write output signals\n', pname);
+        end
         status = 2;
         return;
     end

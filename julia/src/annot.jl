@@ -1138,7 +1138,7 @@ end
 # cannot be read or written.
 function _sort_ann_file(w::Wfdb, fname::Vector{UInt8}, aname::Vector{UInt8})
     defs = _default_defs()
-    file = wfdb_fopen(fname, "rb")
+    file = wfdb_fopen(w, fname, "rb")
     file === nothing && return -1
     ia = _IaData(file, aname)
     ia.info.stat = _ann_file_format(ia)
@@ -1152,7 +1152,7 @@ function _sort_ann_file(w::Wfdb, fname::Vector{UInt8}, aname::Vector{UInt8})
     fclose(file)
     stat == -1 || return -1         # -1: the logical end of the file
     list.in_order && return 0
-    f = wfdb_fopen(fname, "wb")
+    f = wfdb_fopen(w, fname, "wb")
     f === nothing && return -1
     oa = _OaData(f, Anninfo(copy(aname), WFDB_WRITE), Annotation(), 0.0, 0, UInt8[], copy(fname),
                  false, false)

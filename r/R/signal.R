@@ -13,6 +13,15 @@
 # bits and millivolts), because a silently assumed value corrupts every result
 # derived from it. See docs/DIVERGENCES.md. The original behavior remains
 # available with --legacy (see docs/DIVERGENCES.md).
+# Design decision (Reza Sameni, Oct 2026): the signal files named in a
+# header, and the segments named in the header of a multi-segment record,
+# are in the directory of that header (on disk or at its URL) or below it; a
+# name that is absolute, begins with '~', is a URL or contains a ".."
+# component is refused ("~" as a segment, a null segment, and "-" as a
+# signal file remain).  Nothing is searched: a search can silently open the
+# wrong file, and a header must not make the library read other local files
+# or contact other servers.  The original behavior remains available with
+# --legacy (see docs/DIVERGENCES.md).
 # GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 #
 # The C library's global (file-scope) state is kept in the environment
@@ -37,8 +46,8 @@
 WFDB_INVALID_SAMPLE <- -32768
 WFDB_SAMPLE_MIN <- -2147483648
 WFDB_SAMPLE_MAX <- 2147483647
-WFDB_TIME_MAX <- 9223372036854775807     # (WFDB_Time is a 64-bit long)
-WFDB_TIME_MIN <- -9223372036854775808
+WFDB_TIME_MAX <- 2^63     # (WFDB_Time is a 64-bit long; 2^63 - 1 as a double)
+WFDB_TIME_MIN <- -2^63
 WFDB_MAXUSL <- 50
 WFDB_MAXDSL <- 100
 WFDB_FMT_LIST <- c(0, 8, 16, 61, 80, 160, 212, 310, 311, 24, 32, 508, 516, 524)
@@ -74,6 +83,17 @@ sig_reset <- function() {
   st$prolog_bytes <- 0
   st$segments <- 0
   st$in_msrec <- 0
+  # wfdb-x: the directory of the header read last (see .dirname; NULL if
+  # unknown: the standard input), and the directory and name of the header
+  # of the current multi-segment record (msrec_name is NULL if there is
+  # none); user_segments while setmsheader reads the headers it was given
+  st$hdr_dir <- NULL
+  st$msrec_dir <- NULL
+  st$msrec_name <- NULL
+  st$user_segments <- FALSE
+  # wfdb-x: TRUE while a high-level reader reads (getvec's checksum message
+  # is then not printed: the reader warns instead)
+  st$cksum_quiet <- FALSE
   st$msbtime <- 0
   st$msbdate <- 0
   st$msnsamples <- 0
@@ -825,6 +845,19 @@ wfdbx_legacy_args <- function(argv) {
   nsig
 }
 
+# Open the header (of type s: "hea", or NULL for a file name) of a record,
+# or of a segment named in the header of the current multi-segment record
+# (wfdb-x: in that header's directory), and note its directory.
+.open_header <- function(s, record) {
+  st <- .sig
+  if (wfdbx_get_legacy()) return(wfdb_open(s, record, WFDB_READ))
+  if (!st$in_msrec) st$msrec_dir <- st$msrec_name <- NULL
+  f <- if (st$in_msrec && !is.null(st$msrec_name) && !st$user_segments)
+    .open_in(st$msrec_dir, s, record, st$msrec_name) else wfdb_open(s, record, WFDB_READ)
+  st$hdr_dir <- if (!is.null(f) && !f$is_std) .dirname(.wfdb_io$wfdb_filename) else NULL
+  f
+}
+
 .readheader <- function(record) {
   st <- .sig
   sep <- " \t\n\r"
@@ -850,7 +883,7 @@ wfdbx_legacy_args <- function(argv) {
   q <- n
   while (q > 1L && !(rb[q] %in% c(46L, 47L, 58L, 92L))) q <- q - 1L
   if (n >= 1L && rb[q] == 46L) {
-    st$hheader <- wfdb_open(NULL, record, WFDB_READ)
+    st$hheader <- .open_header(NULL, record)
     if (is.null(st$hheader)) {
       wfdb_error("init: can't open %s\n", record)
       return(-1)
@@ -858,7 +891,7 @@ wfdbx_legacy_args <- function(argv) {
     ext <- if (q < n) rb[(q + 1L):n] else integer(0)
     if (!identical(ext, .b("hea"))) return(.edfparse(st$hheader))
   } else {
-    st$hheader <- wfdb_open("hea", record, WFDB_READ)
+    st$hheader <- .open_header("hea", record)
     if (is.null(st$hheader)) {
       wfdb_error("init: can't open header for record %s\n", record)
       return(-1)
@@ -996,6 +1029,10 @@ wfdbx_legacy_args <- function(argv) {
   if (!is.null(p) && st$btime == 0 && setbasetime(p) < 0) return(-2)
   # master header of a multi-segment record
   if (st$segments && !st$in_msrec) {
+    if (!wfdbx_get_legacy()) {        # wfdb-x: the segments are next to it
+      st$msrec_dir <- st$hdr_dir
+      st$msrec_name <- record
+    }
     st$msbtime <- st$btime
     st$msbdate <- st$bdate
     st$msnsamples <- st$nsamples
@@ -1563,7 +1600,12 @@ wfdbx_legacy_args <- function(argv) {
       info$nsamp <- info$nsamp - 1
       if (info$nsamp == 0 && (info$cksum %% 65536) != 0 && !st$in_msrec &&
           !st$isedf && fmt != 0) {
+        # wfdb-x: not printed during a high-level read (which warns
+        # instead), but recorded for wfdberror
+        pr <- .wfdb_io$error_print
+        if (st$cksum_quiet) .wfdb_io$error_print <- FALSE
         wfdb_error("getvec: checksum error in signal %d\n", s)
+        .wfdb_io$error_print <- pr
         stat <- -4
       }
     }
@@ -1758,7 +1800,9 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
     if (hs$info$fmt == 0) {
       ig$fp <- NULL
     } else {
-      ig$fp <- wfdb_open(hs$info$fname, NULL, WFDB_READ)
+      # wfdb-x: in the directory of the header
+      ig$fp <- if (wfdbx_get_legacy()) wfdb_open(hs$info$fname, NULL, WFDB_READ) else
+        .open_in(st$hdr_dir, NULL, hs$info$fname, record)
       if (is.null(ig$fp)) {
         si <- sj
         next
@@ -1841,6 +1885,120 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
   list(nsig = s, si = sio)
 }
 
+# wfdb-x: an output signal file is never one of the input files.  In normal
+# mode, .openosig refuses to create (and so to truncate) an output signal
+# file that is the same file as a signal file of the open input record: a
+# signal file open for input, or a signal file of any segment of the open
+# multi-segment record (read from the segment's header; segments are opened
+# later, as they are reached).  "The same file" is decided by the files, not
+# by their names.  Base R has no device and inode numbers (file.info() does
+# not report them), so: the same path once links and relative components
+# are resolved (normalizePath; case-insensitive on MS-Windows), or else, on
+# POSIX systems, for files of equal size and modification time only (other
+# hard links of the same file), the device and inode numbers given by the
+# stat program (GNU "stat -L -c", or BSD "stat -L -f").  Decided by Reza
+# Sameni, Oct 2026: e.g., "xform -i vlay -o fmt16", fmt16 being a segment of
+# vlay, truncated fmt16.dat while reading it, with a platform-dependent
+# result and the input destroyed.  Legacy mode: no check (the original
+# behavior).  The behavior is that of the other implementations (device and
+# inode numbers).
+
+# The identity of an existing local file: list(path (normalized), size,
+# mtime), or NULL if it does not exist (or is a directory).
+.file_key <- function(path) {
+  if (is.null(path) || !file.exists(path) || dir.exists(path)) return(NULL)
+  fi <- file.info(path, extra_cols = FALSE)
+  np <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (.Platform$OS.type == "windows") np <- tolower(np)
+  list(path = path, norm = np, size = fi$size, mtime = as.numeric(fi$mtime))
+}
+
+# Device and inode numbers of a file ("dev:ino"), from the stat program, or
+# NA.
+.file_inode <- function(path) {
+  for (fmt in list(c("-L", "-c", "%d:%i"), c("-L", "-f", "%d:%i"))) {
+    r <- tryCatch(suppressWarnings(system2("stat", c(fmt, shell_quote(path)), stdout = TRUE,
+                                           stderr = FALSE)),
+                  error = function(e) character(0))
+    if (length(r) == 1L && grepl("^[0-9]+:[0-9]+$", r)) return(r)
+  }
+  NA_character_
+}
+
+.same_file <- function(a, b) {
+  if (is.null(a) || is.null(b)) return(FALSE)
+  if (identical(a$norm, b$norm)) return(TRUE)
+  if (.Platform$OS.type == "windows" || !identical(a$size, b$size) ||
+      !identical(a$mtime, b$mtime)) return(FALSE)
+  ia <- .file_inode(a$path)
+  !is.na(ia) && identical(ia, .file_inode(b$path))
+}
+
+# The identity (.file_key) of the open local WFDB_FILE f (not a standard
+# stream, not a remote file), or NULL.
+.open_file_key <- function(f) {
+  if (is.null(f) || f$type != WFDB_LOCAL || f$is_std || is.null(f$con)) return(NULL)
+  .file_key(f$name)
+}
+
+# TRUE if one of the signal files named in the header of segment seg (of the
+# open multi-segment record) is the file of key k.  The header and the
+# signal files are located as isigopen locates them in normal mode; one
+# that cannot be found (or is at a URL) is not k.  No message.
+.segment_has_file <- function(seg, k) {
+  st <- .sig
+  if (identical(seg, "~") || !.in_header_dir(seg) ||
+      (!is.null(st$msrec_dir) && .is_url(st$msrec_dir))) return(FALSE)
+  hf <- if (!is.null(st$msrec_name)) .open_in(st$msrec_dir, "hea", seg, st$msrec_name) else
+    wfdb_open("hea", seg, WFDB_READ)
+  if (is.null(hf)) return(FALSE)
+  on.exit(wf_close(hf))
+  d <- if (hf$type == WFDB_LOCAL && !hf$is_std) .dirname(.wfdb_io$wfdb_filename) else NULL
+  nsig <- -1
+  repeat {
+    line <- wf_getline(hf)
+    if (length(line) == 0L) break
+    tok <- strsplit(rawToChar(line[line != as.raw(0L)]), "[ \t\n\r]+", useBytes = TRUE)[[1L]]
+    tok <- tok[nzchar(tok)]
+    if (length(tok) == 0L || startsWith(tok[1L], "#")) next
+    if (nsig < 0) {                       # the record line
+      if (grepl("/", tok[1L], fixed = TRUE) || length(tok) < 2L) break
+      nsig <- strtol(tok[2L])[1L]
+      if (nsig <= 0) break
+      next
+    }
+    nsig <- nsig - 1                      # a signal line: file name, format, ...
+    name <- tok[1L]
+    if (length(tok) >= 2L && strtol(tok[2L])[1L] != 0 && name != "-" &&
+        .in_header_dir(name) && !is.null(d) && !.is_url(d)) {
+      sf <- .open_in(d, NULL, name, seg)
+      if (!is.null(sf)) {
+        found <- .same_file(.open_file_key(sf), k)
+        wf_close(sf)
+        if (found) return(TRUE)
+      }
+    }
+    if (nsig == 0) break
+  }
+  FALSE
+}
+
+# TRUE if the output signal file fname (as named in an output signal
+# specification, created by wfdb_open(fname, NULL, WFDB_WRITE)) exists and
+# is one of the signal files of the open input record (see above).
+.is_input_file <- function(fname) {
+  st <- .sig
+  k <- .file_key(.output_file(fname))
+  if (is.null(k)) return(FALSE)        # it does not exist: not an input file
+  for (g in seq_len(min(st$nigroup, length(st$igd))))
+    if (.same_file(.open_file_key(st$igd[[g]]$fp), k)) return(TRUE)
+  if (st$in_msrec && length(st$segarray)) {
+    for (sg in st$segarray[seq_len(st$segend + 1)])
+      if (.segment_has_file(sg$recname, k)) return(TRUE)
+  }
+  FALSE
+}
+
 .openosig <- function(func, si_in, nsig, want_si = FALSE) {
   st <- .sig
   if (st$obsize <= 0) st$obsize <- .BUFSIZ
@@ -1882,6 +2040,12 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
         }
       }
       if (os$info$fmt != 0) {
+        # wfdb-x: never an input file (see .is_input_file)
+        if (!wfdbx_get_legacy() && .is_input_file(os$info$fname)) {
+          wfdb_error("%s: output file %s is also an input file\n", func, os$info$fname)
+          .osigclose()
+          return(list(stat = -3, si = si_out))
+        }
         og$fp <- wfdb_open(os$info$fname, NULL, WFDB_WRITE)
         if (is.null(og$fp)) {
           wfdb_error("%s: can't open %s\n", func, os$info$fname)
@@ -2462,7 +2626,9 @@ setmsheader <- function(record, segment_name, nsegments = length(segment_name)) 
     }
     st$in_msrec <- 1
     st$nsamples <- 0
+    st$user_segments <- TRUE          # wfdb-x: names given by the caller
     n <- .readheader(sn)
+    st$user_segments <- FALSE
     st$in_msrec <- old_in_msrec
     if (n < 0) {
       wfdb_error("setmsheader: can't read segment %s header\n", sn)
@@ -3121,6 +3287,7 @@ sample_valid <- function() .sig$sample_vflag
   st$sfreq <- st$ifreq <- st$ffreq <- 0
   st$pdays <- -1
   st$segments <- st$in_msrec <- st$skewmax <- 0
+  st$hdr_dir <- st$msrec_dir <- st$msrec_name <- NULL    # wfdb-x
   if (!is.null(st$dsbuf)) {
     st$dsbuf <- NULL
     st$dsbi <- -1
@@ -3552,7 +3719,13 @@ wfdb_freeinfo <- function() {
 #' (that vector is not included), as a C loop "while (getvec(v) >= minstat)"
 #' does.  (In a variable-layout record, getvec returns a positive value
 #' smaller than the number of signals in a segment that lacks some of them.)
-getframes <- function(n, minstat = 0) {
+getframes <- function(n, minstat = 0) .getframes(n, minstat)
+
+# getframes; with keep_checksum_frame (wfdb-x, for the high-level reader),
+# the vector for which getvec returns -4 (a checksum error: the frame was
+# read completely, it is the last one of the record) is included in the
+# matrix, and stat is -4.  (.bulk_frames never decodes that frame.)
+.getframes <- function(n, minstat = 0, keep_checksum_frame = FALSE) {
   st <- .sig
   nsig <- max(st$nvsig, st$nisig)
   if (nsig == 0 || st$nisig == 0) {
@@ -3581,6 +3754,13 @@ getframes <- function(n, minstat = 0) {
       r <- .getvec(st$gvec)
       st$gvec <- r$v
       stat <- r$stat
+      if (stat == -4 && keep_checksum_frame) {
+        if (nrows > 0) parts[[length(parts) + 1L]] <- acc[seq_len(nrows), , drop = FALSE]
+        parts[[length(parts) + 1L]] <- matrix(r$v[seq_len(nsig)], 1L, nsig)
+        nrows <- 0
+        got <- got + 1
+        break
+      }
       if (stat < minstat || stat < 0) break
       if (is.null(acc) || nrows == nrow(acc)) {
         if (nrows > 0) {

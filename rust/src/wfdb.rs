@@ -11,7 +11,7 @@
 //!
 //! | field | type | module |
 //! |---|---|---|
-//! | `io` | `IoState` | `wfdbio.rs` (WFDB path, errors, current record name) |
+//! | `io` | `IoState` | `wfdbio.rs` (input/output directories, network access, WFDB path, errors, current record name) |
 //! | `sig` | `SigState` | `signal.rs` (headers, signals, time base, info) |
 //! | `ann` | `AnnState` | `annot.rs` (annotators, mnemonic tables) |
 //! | `cal` | `CalState` | `calib.rs` (calibration list) |
@@ -94,7 +94,9 @@ pub struct Wfdb {
 
 impl Wfdb {
     /// Creates a new library state, as at the start of a C program (no open
-    /// records; the WFDB path is read from the environment on first use).
+    /// records; the settings that locate files, wfdb-x: `WFDBX_INPUT_DIR`,
+    /// `WFDBX_OUTPUT_DIR`, `WFDBX_NETWORK`, or in legacy mode the WFDB path,
+    /// are read from the environment on first use).
     pub fn new() -> Wfdb {
         Wfdb::default()
     }

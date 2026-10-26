@@ -570,7 +570,7 @@ end
 function s = mnems(astr, a, zero)
 % the mnemonics of codes a ([0] for 0 if zero); {} if one of them is empty
 s = cell(1, numel(a));
-for c = unique(a)
+for c = reshape(unique(a), 1, [])
     if zero && c == 0
         m = '[0]';
     else

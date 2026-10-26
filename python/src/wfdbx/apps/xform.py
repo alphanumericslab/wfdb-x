@@ -548,7 +548,16 @@ def _main(argv):
     if orec is not None:
         dfout = []
         if w.osigopen(orec, dfout, nosig) != nosig:
-            eprintf("%s: can't write output signals\n", pname)
+            # wfdb-x: say why if an output file is one of the input files
+            # (the library's message, quieted above, is the last error)
+            e = w.wfdberror()
+            if not legacy() and e.startswith("osigopen: output file ") and \
+                    len(e) > 22 + 23 and \
+                    e.endswith(" is also an input file\n"):
+                eprint("%s: can't write output signals (%s)\n" %
+                       (pname, e[:-1]))
+            else:
+                eprintf("%s: can't write output signals\n", pname)
             raise Exit(2)
     w.wfdbverbose()
     for k in range(nosig):

@@ -31,13 +31,15 @@ def wfdbquit():
     """Close all files and reset the library state.
 
     Output annotation files and signal files are completed (headers are
-    not written: use newheader() first).  The WFDB path is reset to its
-    initial value.
+    not written: use newheader() first).  The input and output directories
+    are left as they are (wfdb-x; in legacy mode, the WFDB path is reset to
+    its initial value, as by resetwfdb()).
     """
     _annot._wfdb_anclose()
     _signal._wfdb_oinfoclose()
     _signal._wfdb_sigclose()
-    _wfdbio.resetwfdb()
+    if _signal.wfdbx_get_legacy():
+        _wfdbio.resetwfdb()
     _signal._wfdb_sampquit()
     _signal._wfdb_freeinfo()
 

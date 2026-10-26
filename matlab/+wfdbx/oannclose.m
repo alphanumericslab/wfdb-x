@@ -67,6 +67,11 @@ if oa.out_of_order
             q = @wfdbx.internal.shell_quote;
             cmd = [wfdbx.internal.tool_command('sortann') ' --legacy -r. ' ...
                 q(oa.rname) ' -a ' q(oa.name)];
+            if ~isempty(getenv('WFDBX_STDOUT')) || ~isempty(getenv('WFDBX_STDERR'))
+                % (the child writes its own standard output and error, not
+                % the files of the MATLAB driver: see std_stream)
+                cmd = ['WFDBX_STDOUT= WFDBX_STDERR= ' cmd];
+            end
             odir = wfdbx.wfdbx_get_output_dir();
             if ischar(odir)
                 cmd = ['cd ' q(odir) ' && ' cmd];

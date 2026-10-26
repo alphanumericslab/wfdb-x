@@ -129,7 +129,12 @@ while si_ < navail && s < nsig
     if hs.info.fmt == 0
         ig.fp = [];
     else
-        ig.fp = wfdbx.internal.wfdb_open(hs.info.fname, [], 0);    % WFDB_READ
+        if S.legacy_mode
+            ig.fp = wfdbx.internal.wfdb_open(hs.info.fname, [], 0); % WFDB_READ
+        else    % wfdb-x: in the directory of the header
+            ig.fp = wfdbx.internal.open_in(S.hdr_dir, [], hs.info.fname, ...
+                record);
+        end
         if isempty(ig.fp)
             si_ = sj;
             continue;

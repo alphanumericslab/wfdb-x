@@ -26,7 +26,7 @@ One crate, `wfdbx` (`rust/Cargo.toml`):
 | `src/wfdb.rs` | the `Wfdb` struct, the default instance (`with_default`), `OptBytes`/`NULL` |
 | `src/types.rs` | types, constants (`WFDB_*`, `DEFWFDB`, ...) and structures (`Siginfo`, `Calinfo`, `Anninfo`, `Annotation`, `Seginfo`) of `wfdb.h` |
 | `src/cstd.rs`, `src/cstd/` | C standard library emulation: `printf` formatting (glibc-exact; `printf.rs`, `float.rs`), `strtol`, `strtod`, `atoi`, `atof`, `sscanf`, `strtok`, `fgets` line splitting (`parse.rs`), glibc `rand` (`rand.rs`), standard streams, `exit`, `argv`, environment (`stdio.rs`) |
-| `src/wfdbio.rs` | port of `lib/wfdbio.c`: WFDB path, `wfdb_open`, errors, `WfdbFile` |
+| `src/wfdbio.rs` | port of `lib/wfdbio.c`: finding files (input/output directories, network access via `curl`, the WFDB path of legacy mode), `wfdb_open`, errors, `WfdbFile` |
 | `src/signal.rs` | port of `lib/signal.c` |
 | `src/annot.rs` | port of `lib/annot.c` (and the annotation code mnemonics) |
 | `src/calib.rs` | port of `lib/calib.c` |
@@ -106,7 +106,15 @@ pub fn sampfreq(record: impl OptBytes) -> f64 {
   (the message is formatted by the caller; `wfdb_error_fmt(fmt, &[Arg])`
   also exists).
 * Files: `self.wfdb_open(type, record, WFDB_READ)` returns
-  `Option<WfdbFile>`; `wfdb_fopen(name, mode)` is a free function.
+  `Option<WfdbFile>`; `self.wfdb_fopen(name, mode)` opens a file by name
+  (a URL is fetched in normal mode); inside the library, never call the free
+  functions `wfdb_open`/`wfdb_fopen` (they borrow the default instance), and
+  use `wfdbio::local_fopen` for a local file that must not depend on the
+  settings. Files named in a header are opened with
+  `self.wfdbx_open_in(header_dir, ...)` (normal mode: in the header's
+  directory, with the containment check). The messages printed once per
+  process (the WFDB warning, network off, curl missing) and the cache of
+  fetched URLs are process-wide; all settings are per instance.
 
 ## Data representation
 

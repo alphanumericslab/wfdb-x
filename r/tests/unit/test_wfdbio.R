@@ -23,6 +23,10 @@ wf(file.path("sub", "srec.hea"), "srec 0\n")
 wf(file.path("sub", "srec.atr"), c(0, 4, 1, 2, 255, 128))
 wf("pathfile", ". sub\r\n")
 
+# The WFDB path (legacy mode: wfdb-x reads from a single input directory,
+# see test_files.R)
+wfdbx_set_legacy(TRUE)
+on.exit(wfdbx_set_legacy(FALSE), add = TRUE)
 wfdbio_reset()
 setwfdb(". sub;/x/y http://example.org/db")
 st <- .wfdb_io
@@ -111,6 +115,8 @@ wf_clearerr(f)
 check(!wf_feof(f), "clearerr")
 wf_close(f)
 
+wfdbx_set_legacy(FALSE)
+
 # a file larger than the read buffer
 big <- as.raw(rep_len(0:255, 200000))
 writeBin(big, "big.dat")
@@ -166,7 +172,8 @@ expect_equal(rf("ow.dat"), as.raw(c(1, 2, 99, 98, 5:10, 0, 0, 0, 7)), "overwrite
 # resetwfdb (also called by wfdbquit) restores the path returned by the first
 # getwfdb (only if getwfdb was called before setwfdb), and restores the
 # string only: the search path is not parsed again (as in C,
-# docs/KNOWN_C_BEHAVIORS.md)
+# docs/KNOWN_C_BEHAVIORS.md).  (Legacy mode: in normal mode, see test_files.R.)
+wfdbx_set_legacy(TRUE)
 wfdbio_reset()
 Sys.setenv(WFDB = ".")
 expect_equal(getwfdb(), ".", "getwfdb from WFDB")
@@ -186,6 +193,8 @@ wfdbquit()
 expect_equal(getwfdb(), "x", "wfdbquit without a first getwfdb")
 setwfdb(".")
 expect_equal(wfdbfile("hea", "rec"), "./rec.hea", "path parsed by setwfdb")
+wfdbx_set_legacy(FALSE)
+if (is.na(oldpath)) Sys.unsetenv("WFDB") else Sys.setenv(WFDB = oldpath)
 wfdbio_reset()
 
 # wfdbmemerr / wfdb_me_fatal

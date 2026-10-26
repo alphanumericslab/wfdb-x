@@ -14,8 +14,24 @@ classdef IOState < handle
 %     mem_behavior   the argument of the last wfdbmemerr() call
 %     stdin_file     the WFDBFile of the standard input, once opened
 %     stdout_file    the WFDBFile of the standard output, once opened
+%   wfdb-x: the settings that locate files (each is read from its
+%   environment variable when first needed; see wfdbx.wfdbx_set_input_dir,
+%   wfdbx.wfdbx_set_output_dir, wfdbx.wfdbx_set_network):
+%     input_dir      the input directory ([]: none)
+%     env_input_dir  the value of WFDBX_INPUT_DIR ([] if unset or empty)
+%     input_dir_init true once WFDBX_INPUT_DIR has been read
+%     wfdb_warned    true once the "WFDB is ignored" message was considered
+%     setwfdb_called, setwfdb_input_dir   whether setwfdb was called in
+%                    normal mode, and the input directory it set (resetwfdb)
 %     output_dir     the directory in which output files are created ([]:
-%                    none; wfdb-x, see wfdbx.wfdbx_set_output_dir)
+%                    none)
+%     env_output_dir, output_dir_init     the same for WFDBX_OUTPUT_DIR
+%     network        1 if URLs may be opened, 0 if not ([]: not read yet)
+%     env_network    the default from WFDBX_NETWORK (0 or 1)
+%     network_warned true once the "network access is disabled" message
+%                    was printed
+%     fetched_urls, fetched_data   the URLs fetched (cell row) and their
+%                    contents (uint8 rows; [] for a failure)
 
 % Copyright (C) 1988-2013 George B. Moody (original C implementation,
 % lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
@@ -35,6 +51,19 @@ classdef IOState < handle
         mem_behavior = 1
         stdin_file = []
         stdout_file = []
+        input_dir = []
+        env_input_dir = []
+        input_dir_init = false
+        wfdb_warned = false
+        setwfdb_called = false
+        setwfdb_input_dir = []
         output_dir = []
+        env_output_dir = []
+        output_dir_init = false
+        network = []
+        env_network = 0
+        network_warned = false
+        fetched_urls = cell(1, 0)
+        fetched_data = cell(1, 0)
     end
 end

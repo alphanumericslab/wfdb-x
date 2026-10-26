@@ -14,7 +14,7 @@ mkdir(d);
 cleanup = onCleanup(@() restore(old, oldpath, d)); %#ok<NASGU>
 cd(d);
 wfdbx.wfdbquit();
-wfdbx.setwfdb(['. ' data]);
+copyfile(fullfile(data, '*'), d);   % (read from the current directory)
 INV = wfdbx.WFDB_INVALID_SAMPLE();
 
 % --- MATLAB strings are accepted as text arguments (none in Octave)
@@ -379,6 +379,148 @@ assert_error(@() wfdbx.write_annotations('100s', 'zz', [1 2]), 'no codes');
 % --- wfdb-x: the 'dir' option of the writers
 write_dir();
 dir_checks_first();
+
+% --- wfdb-x: a signal file shorter than its header says
+truncated_signal_file();
+checksum_warning();
+end
+
+function truncated_signal_file()
+% A signal file shorter than its header says (getvec status -3, unexpected
+% EOF) is an error of read_record, not the end of the data; the low-level
+% API is unchanged.
+wfdbx.wfdbquiet();
+x = [1 2; 3 4; 5 6; 7 8];
+wfdbx.write_record('tr', x, 100, 'gains', 100, 'adcres', 16, 'units', 'mV');
+wfdbx.write_record('ok', x, 100, 'gains', 100, 'adcres', 16, 'units', 'mV');
+b = readfile('tr.dat');
+fid = fopen('tr.dat', 'wb');
+fwrite(fid, b(1:8), 'uint8');      % 2 of the 4 frames (format 16)
+fclose(fid);
+for legacy = [false true]
+    for phys = [false true]
+        % (1) the error, and the library is left usable
+        m = '';
+        try
+            wfdbx.read_record('tr', 'physical', phys, 'legacy', legacy);
+        catch err
+            m = err.message;
+        end
+        assert_eq(m, 'can''t read signal data of record tr (getvec status -3)', ...
+            'truncated: error');
+        r = wfdbx.read_record('ok', 'legacy', legacy);
+        assert_eq(r.signals, x, 'truncated: then a good record');
+    end
+    % reading only what the file holds is not an error
+    r = wfdbx.read_record('tr', 'sampto', 2, 'legacy', legacy);
+    assert_eq(r.signals, x(1:2, :), 'truncated: sampto 2');
+    % (2) a sub-interval, and sampto past the end of a record whose header
+    % gives its length (what there is, no error)
+    r = wfdbx.read_record('ok', 'sampfrom', 1, 'sampto', 3, 'legacy', legacy);
+    assert_eq(r.signals, x(2:3, :), 'sub-interval');
+    r = wfdbx.read_record('ok', 'sampto', 10, 'legacy', legacy);
+    assert_eq(r.signals, x, 'sampto past the end');
+end
+% (3) the low-level API: getvec returns -3 at the end of the truncated
+% file, getframes the frames read and that status
+assert_eq(wfdbx.isigopen('tr', 2), 2, 'truncated: isigopen');
+st = zeros(1, 3);
+for k = 1:3
+    st(k) = wfdbx.getvec();
+end
+assert_eq(st, [2 2 -3], 'truncated: getvec');
+wfdbx.wfdbquit();
+wfdbx.isigopen('tr', 2);
+[v, stat] = wfdbx.getframes(10);
+assert_eq(stat, -3, 'truncated: getframes status');
+assert_eq(v, x(1:2, :), 'truncated: getframes');
+wfdbx.wfdbquit();
+wfdbx.isigopen('ok', 2);
+[v, stat] = wfdbx.getframes(10);
+assert_eq(stat, -1, 'complete: getframes status');
+assert_eq(v, x, 'complete: getframes');
+wfdbx.wfdbquit();
+wfdbx.wfdbverbose();
+end
+
+function checksum_warning()
+% A checksum error (getvec status -4) is a warning of read_record (the
+% data, all of them, are returned), not an error; 'checksum_warning',
+% false turns it off.  The library's getvec message is not printed then
+% (but recorded).
+msg = ['checksum error in record ck: the signal data do not match the ' ...
+    'checksums in its header'];
+x = [1 2; 3 4; 5 6; 7 8];
+wfdbx.write_record('ck', x, 100, 'gains', 100, 'adcres', 16, 'units', 'mV');
+fid = fopen('ck.dat', 'r+b');       % sample (1, 0): 3 -> 9
+fseek(fid, 4, 'bof');
+fwrite(fid, [9 0], 'uint8');
+fclose(fid);
+y = x;
+y(2, 1) = 9;
+% (the same samples with correct checksums: every frame, the last one
+% included, is returned in both cases)
+wfdbx.write_record('good', y, 100, 'gains', 100, 'adcres', 16, 'units', 'mV');
+for legacy = [false true]
+    good = wfdbx.read_record('good', 'legacy', legacy);
+    for phys = [false true]
+        lastwarn('');
+        wfdbx.wfdbquiet();      % (wfdberror shows what would be printed)
+        r = read_quietly('ck', {'physical', phys, 'legacy', legacy});
+        wfdbx.wfdbverbose();
+        [m, id] = lastwarn();
+        assert_eq({m, id}, {msg, 'wfdbx:checksum'}, 'checksum warning');
+        if phys
+            assert_eq(r.signals, y / 100, 'checksum: physical');
+        else
+            assert_eq(r.signals, y, 'checksum: all frames');
+        end
+        assert_eq(size(r.signals), size(good.signals), 'checksum: length');
+        assert_eq(wfdbx.wfdberror(), sprintf('getvec: checksum error in signal 0\n'), ...
+            'getvec message recorded');
+        S = wfdbx.internal.sig_state();
+        assert_eq(S.cksum_quiet, false, 'message printed again after the read');
+    end
+    lastwarn('');
+    r = wfdbx.read_record('ck', 'checksum_warning', false, 'legacy', legacy);
+    assert_eq(r.signals, good.signals, 'checksum_warning false: same frames');
+    % not read to the end: no checksum is verified
+    r = wfdbx.read_record('ck', 'sampto', 3, 'legacy', legacy);
+    assert_eq(r.signals, y(1:3, :), 'checksum: sampto 3');
+    r = wfdbx.read_record('ck', 'sampfrom', 1, 'sampto', 'e', ...
+        'checksum_warning', false, 'legacy', legacy);
+    assert_eq(r.signals, y(2:end, :), 'checksum: sampfrom 1');
+    assert_eq(lastwarn(), '', 'no warning');
+    % the truncated case is still an error
+    wfdbx.wfdbquiet();
+    assert_error_msg(@() wfdbx.read_record('tr', 'legacy', legacy), ...
+        'can''t read signal data of record tr (getvec status -3)', ...
+        'checksum: truncated still an error');
+    wfdbx.wfdbverbose();
+end
+% the low-level API is unchanged: getvec returns -4 for the last frame
+% (filled), getframes stops before it (LAST is that frame), and the
+% message is printed
+wfdbx.wfdbquiet();
+wfdbx.isigopen('ck', 2);
+st = zeros(1, 4);
+for k = 1:4
+    [st(k), v] = wfdbx.getvec();
+end
+assert_eq([st, v], [2 2 2 -4 7 8], 'checksum: getvec');
+wfdbx.wfdbquit();
+wfdbx.isigopen('ck', 2);
+[v, stat, last] = wfdbx.getframes(10);
+assert_eq(stat, -4, 'checksum: getframes status');
+assert_eq(v, y(1:3, :), 'checksum: getframes');
+assert_eq(last, [7 8], 'checksum: getframes LAST');
+wfdbx.wfdbquit();
+wfdbx.wfdbverbose();
+end
+
+function r = read_quietly(record, args)
+% read_record, without displaying its warning (lastwarn is still set)
+txt = evalc('r = wfdbx.read_record(record, args{:});'); %#ok<NASGU>
 end
 
 function dir_checks_first()
@@ -514,7 +656,7 @@ end
 
 function restore(old, oldpath, d)
 wfdbx.wfdbquit();
-wfdbx.setwfdb(oldpath);
+wfdbx.wfdbx_set_input_dir([]);
 cd(old);
 rmdir(d, 's');
 end

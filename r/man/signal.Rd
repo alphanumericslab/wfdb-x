@@ -198,7 +198,14 @@ wfdbflush()
     \code{osigfopen} creates the signal files described by a list of
     \code{siginfo} lists (field \code{fname} is the file name, \code{fmt}
     the format); \code{osigopen} does the same as described by the header
-    of an existing record.  \code{putvec} writes one sample vector,
+    of an existing record.  wfdb-x: neither creates an output signal file
+    that is one of the signal files of the open input record (one open
+    for input, or one of any segment of an open multi-segment record;
+    the files are compared, not their names): it reports
+    \samp{osigfopen: output file NAME is also an input file} (or
+    \samp{osigopen: ...}) and returns -3, without creating or truncating
+    the file (not in legacy mode; identical in all six implementations).
+    \code{putvec} writes one sample vector,
     \code{putframes} one per row of a matrix (exactly as many calls of
     \code{putvec}).  \code{newheader} then writes the header file of the
     record (call it after writing the samples, so that it contains the
@@ -309,7 +316,7 @@ wfdbflush()
   \code{\link{read_record}} and \code{\link{write_record}} for whole
   records; \code{\link{siginfo}} for the structures; \code{\link{timstr}}
   for time conversions; \code{\link{annopen}} for annotations;
-  \code{\link{getwfdb}} for the WFDB path.
+  \code{\link{getwfdb}} for finding files.
 }
 \examples{
 old <- setwd(tempdir())

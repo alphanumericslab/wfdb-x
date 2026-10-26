@@ -57,9 +57,10 @@ aux_string(aux)
 }
 \details{
   \code{annopen} opens the annotation files
-  \file{\var{record}.\var{name}} of a record: input files are looked for
-  in the WFDB path (see \code{\link{getwfdb}}), output files are created
-  in the current directory.  \code{getann(an)} then returns the next
+  \file{\var{record}.\var{name}} of a record: input files are read under
+  the input directory, output files are created under the output directory
+  (by default, the current directory; see \code{\link{getwfdb}}; in
+  legacy mode, input files are searched for in the WFDB path).  \code{getann(an)} then returns the next
   annotation of input annotator \code{an}, and \code{putann(an, annot)}
   writes an annotation to output annotator \code{an}.
   \code{ungetann} pushes one annotation back, to be returned by the next

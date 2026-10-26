@@ -13,9 +13,10 @@
 \usage{
 read_record(record, channels = NULL, sampfrom = 0, sampto = NULL,
             physical = FALSE, highres = FALSE, pad = FALSE,
-            legacy = FALSE)
+            input_dir = NULL, network = NULL, legacy = FALSE,
+            checksum_warning = TRUE)
 
-read_header(record, legacy = FALSE)
+read_header(record, input_dir = NULL, network = NULL, legacy = FALSE)
 
 write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
              adczeros = 0, adcres = NULL, units = NULL, names = NULL,
@@ -25,8 +26,10 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
 \arguments{
   \item{record}{the record name, a character string (for example
     \code{"100s"}).  When reading, the header file
-    \file{\var{record}.hea} is looked for in the directories of the WFDB
-    path (see \code{\link{getwfdb}}); a name with another extension,
+    \file{\var{record}.hea} is read under the input directory, unless the
+    name is a full path, a \code{~} path or a URL (wfdb-x: nothing is
+    searched; see \code{\link{getwfdb}}), and its signal files next to
+    it; a name with another extension,
     such as \code{"rec.edf"}, is read as an EDF file.  When writing, the
     files are created in the current directory.}
   \item{channels}{the signals to read: signal numbers (starting at 0, as
@@ -100,6 +103,18 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     \code{setwfdb(dir)}); \code{record} must not contain a directory.  The
     library's output directory (\code{\link{wfdbx_set_output_dir}}) is set
     for the duration of the call and restored afterwards, also on errors.}
+  \item{input_dir}{the input directory for this call (a local directory, a
+    \code{~} name or a URL; see \code{\link{wfdbx_set_input_dir}}), or
+    \code{NULL} (the default) for the current setting.  The previous value
+    is restored afterwards, also on errors (wfdb-x).}
+  \item{network}{\code{TRUE} to allow reading URLs for this call,
+    \code{FALSE} to forbid it (see \code{\link{wfdbx_set_network}}), or
+    \code{NULL} (the default) for the current setting (by default, not
+    allowed).  The previous value is restored afterwards (wfdb-x).}
+  \item{checksum_warning}{\code{read_record}: if \code{TRUE} (the
+    default), warn when the samples read to the end of the record do not
+    match the checksums in its header (see Value); \code{FALSE}: no
+    warning.  The data are returned either way.}
   \item{legacy}{if \code{TRUE}, behave as the original package did (see
     Details), with the library's legacy mode (\code{\link{wfdbx_set_legacy}})
     on for the duration of the call; the previous setting is restored
@@ -171,7 +186,18 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
 
   All three functions signal an error (with \code{stop}) if the record
   cannot be read or written; the WFDB library may also print a message on
-  the standard error output.
+  the standard error output.  \code{read_record} also signals an error,
+  \code{"can't read signal data of record REC (getvec status S)"}, when
+  reading stops with a \code{getvec} status below -1 (e.g. -3 for a signal
+  file shorter than its header says), also in legacy mode; reaching the
+  end of the record before \code{sampto} is not an error.  A checksum
+  error (status -4: the samples are complete, their sum does not match the
+  checksums in the header) is not an error either: every frame, the last
+  one included, is returned, with the warning (\code{warning}, unless
+  \code{checksum_warning = FALSE}) \code{"checksum error in record REC:
+  the signal data do not match the checksums in its header"}; getvec's own
+  message is not printed during the read (wfdb-x; identical in all six
+  implementations).
 }
 \seealso{
   \code{\link{read_annotations}} for annotation files;

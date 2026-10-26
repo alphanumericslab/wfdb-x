@@ -14,6 +14,16 @@
 #     write_record("new", rec.samples, rec.fs; gains=[200.0], adcres=11,
 #                  units="mV", names=["a", "b"])
 #
+# Finding files: every relative name is read under the input directory and
+# written under the output directory -- whatever is set as the input
+# directory, a local directory or a URL, prefixes it; a name given as a
+# full path (/Users/...), a ~ path or a URL is used as given; nothing else
+# is searched. The readers take `input_dir=` (the input directory for the
+# call) and `network=` (allow URLs for the call), the writers `dir=` (the
+# output directory); see also wfdbx_set_input_dir, wfdbx_set_output_dir and
+# wfdbx_set_network. The signal files of a record are in the directory of
+# its header.
+#
 # wfdb-x: no sampling frequency, gain, ADC resolution or units are ever
 # assumed (the C library assumed 250 Hz, 200 adu/mV, 12 bits or a resolution
 # based on the format, and millivolts): see docs/DIVERGENCES.md. Each
@@ -31,6 +41,17 @@
 # bits and millivolts), because a silently assumed value corrupts every result
 # derived from it. See docs/DIVERGENCES.md. The original behavior remains
 # available with --legacy (see docs/DIVERGENCES.md).
+# Design decision (Reza Sameni, Oct 2026): files are found by explicit names
+# (the input directory, the output directory, or a full path or URL), not by
+# a search of the WFDB path, and PhysioNet (or any server) is accessed only
+# if asked for (network=true): a search can silently open the wrong file,
+# fails in ways nobody notices, and (in another port) sent local paths and
+# record names to physionet.org. The original behavior remains available
+# with --legacy (see docs/DIVERGENCES.md).
+# Design decision (Reza Sameni, Oct 2026): a checksum error (getvec status
+# -4: the samples are complete, their sum does not match the header's
+# checksums) is not an error of read_record but a warning
+# (checksum_warning=false: none); the data are returned.
 # Design decision (Reza Sameni, after a code review, Oct 2026): the writers
 # take a `dir` keyword argument (the files are created in that directory,
 # and the record opens from there under its plain name; see
@@ -240,6 +261,30 @@ function _with_output_dir(f::Function, w::Wfdb, record::ByteStr, dir)
     end
 end
 
+# wfdb-x: the input_dir and network keyword arguments of the readers: if
+# given (not nothing), the library's input directory (wfdbx_set_input_dir)
+# and network permission (wfdbx_set_network) are set for the duration of
+# f(), and the previous values restored afterwards (also on errors).
+function _with_input_options(f::Function, w::Wfdb, input_dir, network)
+    previous_dir = input_dir === nothing ? nothing : wfdbx_set_input_dir(w, input_dir)
+    previous_net = network === nothing ? nothing : wfdbx_set_network(w, network)
+    try
+        f()
+    finally
+        network === nothing || wfdbx_set_network(w, previous_net)
+        input_dir === nothing || wfdbx_set_input_dir(w, previous_dir)
+    end
+end
+
+const _INPUT_DOC = """
+- `input_dir`: the input directory for this call (a local directory, a `~`
+  name or a URL; `""` for the default; see
+  [`wfdbx_set_input_dir`](@ref)); `nothing` (the default) keeps the current
+  setting (by default, the current directory).
+- `network`: `true` to allow reading URLs for this call, `false` to forbid
+  it (see [`wfdbx_set_network`](@ref)); `nothing` (the default) keeps the
+  current setting (by default, not allowed)."""
+
 const _DIR_DOC = """
 - `dir`: if given, the directory (which must exist) in which the files are
   created; the header then names the record and its signal file without
@@ -271,12 +316,17 @@ function _resolve_time(w::Wfdb, t::ByteStr, rname::String)
 end
 
 """
-    read_header([w::Wfdb], record; legacy=false) -> Vector{Siginfo}
+    read_header([w::Wfdb], record; input_dir=nothing, network=nothing,
+                legacy=false) -> Vector{Siginfo}
 
-Read the header file of `record` and return the description of each of its
+Read the header file of `record` (a name relative to the input directory,
+or a full path, `~` path or URL) and return the description of each of its
 signals (file name, format, gain, baseline, units, description, ...; see
 [`Siginfo`](@ref)). The signal files are not opened. A record with no
 signals gives an empty vector.
+
+# Keyword arguments
+$_INPUT_DOC
 
 Throws a [`WfdbError`](@ref) if the header cannot be found or read.
 
@@ -295,8 +345,12 @@ julia> si[1].fmt, si[1].gain, si[1].adcres, si[1].nsamp
 (212, 200.0, 11, 21600)
 ```
 """
-read_header(w::Wfdb, record::ByteStr; legacy::Bool=false) =
-    _with_legacy(() -> _read_header(w, record), w, legacy)
+function read_header(w::Wfdb, record::ByteStr; input_dir::OptByteStr=nothing,
+                     network::Union{Nothing,Bool}=nothing, legacy::Bool=false)
+    _with_legacy(w, legacy) do
+        _with_input_options(() -> _read_header(w, record), w, input_dir, network)
+    end
+end
 function _read_header(w::Wfdb, record::ByteStr)
     wfdbquit(w)
     n = isigopen(w, record, nothing, 0)
@@ -313,11 +367,14 @@ const READ_BLOCK = 65536
 
 """
     read_record([w::Wfdb], record; channels=nothing, from=0, to=nothing,
-                highres=false, pad=false, legacy=false) -> Record
+                highres=false, pad=false, input_dir=nothing, network=nothing,
+                legacy=false, checksum_warning=true) -> Record
 
 Read the signals of `record` (all of them, or a time interval and a subset
 of the signals) and return them as a [`Record`](@ref). The samples are in
-ADC units; use [`physical`](@ref) to convert them.
+ADC units; use [`physical`](@ref) to convert them. `record` is a name
+relative to the input directory, or a full path, `~` path or URL; the
+signal files are in the directory of its header.
 
 # Keyword arguments
 - `channels`: the signals to return, in the order given, by number (`0` is
@@ -338,13 +395,24 @@ ADC units; use [`physical`](@ref) to convert them.
   then the high-resolution frequency.
 - `pad`: replace each invalid sample by the previous valid sample of the
   same signal (`WFDB_GVPAD`).
+$_INPUT_DOC
+- `checksum_warning`: if `true` (the default), warn (`@warn "checksum error
+  in record REC: the signal data do not match the checksums in its
+  header"`) when the samples read to the end of the record do not match
+  the checksums in its header; the data (every frame) are returned either
+  way (`false`: no warning). (wfdb-x: getvec's own message, `getvec:
+  checksum error in signal N`, is not printed during the read.)
 - `legacy`: see below.
 
 Throws a [`WfdbError`](@ref) if the record cannot be read or has no
 signals, if a signal in `channels` does not exist, if `from` is beyond
 the end of the record, or if `from` or `to` is a time string that needs
 the sampling frequency of a record that does not specify one (`"sampling
-frequency of record R is not specified"`).
+frequency of record R is not specified"`); also if reading stops with a
+`getvec` status below -1 (e.g. -3: a signal file shorter than its header
+says, or a read or decoding error), with the message `"can't read signal
+data of record R (getvec status S)"`, also in legacy mode (reaching the end
+of the record before `to` is not an error).
 
 $_LEGACY_DOC (With it, a header without a sampling frequency gives 250 Hz,
 and time strings are converted at 250 Hz, or at 1 sample per second without
@@ -368,13 +436,23 @@ julia> v5 = read_record("100s"; channels=["V5"], from="0:1", to="0:2");
 
 julia> size(v5.samples), v5.sampfrom
 ((360, 1), 360)
+
+julia> rec = read_record("100"; input_dir="https://physionet.org/files/mitdb/1.0.0/",
+                         network=true);     # (from PhysioNet)
 ```
 """
 function read_record(w::Wfdb, record::ByteStr; channels=nothing, from=0, to=nothing,
-                     highres::Bool=false, pad::Bool=false, legacy::Bool=false)
-    _with_legacy(() -> _read_record(w, record, channels, from, to, highres, pad), w, legacy)
+                     highres::Bool=false, pad::Bool=false, input_dir::OptByteStr=nothing,
+                     network::Union{Nothing,Bool}=nothing, legacy::Bool=false,
+                     checksum_warning::Bool=true)
+    _with_legacy(w, legacy) do
+        _with_input_options(w, input_dir, network) do
+            _read_record(w, record, channels, from, to, highres, pad, checksum_warning)
+        end
+    end
 end
-function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Bool, pad::Bool)
+function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Bool, pad::Bool,
+                      checksum_warning::Bool)
     rname = _lossy(record)
     wfdbquit(w)
     nsig = isigopen(w, record, nothing, 0)
@@ -408,14 +486,36 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     all = Int32[]
     buf = Int32[]
     remaining = t1 === nothing ? nothing : max(t1 - t0, Int64(0))
-    while remaining === nothing || remaining > 0
-        n = remaining === nothing ? Int64(READ_BLOCK) : min(remaining, Int64(READ_BLOCK))
-        resize!(buf, n * nsig)
-        got = max(getvecs(w, buf, n), Int64(0))
-        append!(all, view(buf, 1:got*nsig))
-        remaining === nothing || (remaining -= got)
-        got < n && break
+    cksum_error = false
+    w.sig.cksum_quiet = true
+    try
+        while remaining === nothing || remaining > 0
+            n = remaining === nothing ? Int64(READ_BLOCK) : min(remaining, Int64(READ_BLOCK))
+            resize!(buf, n * nsig)
+            got, stat = getvecs_status(w, buf, n; keep_checksum_frame=true)
+            got = max(got, Int64(0))
+            append!(all, view(buf, 1:got*nsig))
+            remaining === nothing || (remaining -= got)
+            # wfdb-x: -4, a checksum error: the frames are complete (the last
+            # one included), only their sum does not match the header: a
+            # warning (see below), not an error
+            if stat == -4
+                cksum_error = true
+                break
+            end
+            if got < n
+                # wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a
+                # signal file shorter than its header says, or a decoder or
+                # I/O error) is an error, not the end of the data (-1).
+                stat < -1 && _hl_fail(w, "can't read signal data of record $rname (getvec status $stat)")
+                break
+            end
+        end
+    finally
+        w.sig.cksum_quiet = false
     end
+    (cksum_error && checksum_warning) &&
+        @warn "checksum error in record $rname: the signal data do not match the checksums in its header"
     nframes = length(all) ÷ nsig
     frames = reshape(all, nsig, nframes)
     samples = Matrix{Int32}(undef, nframes, length(cols))
@@ -436,7 +536,8 @@ read_record(record::ByteStr; kw...) = read_record(lib(), record; kw...)
 
 """
     read_annotations([w::Wfdb], record, annotator; from=nothing, to=nothing,
-                     fs=nothing, legacy=false) -> Annotations
+                     fs=nothing, input_dir=nothing, network=nothing,
+                     legacy=false) -> Annotations
 
 Read the annotation file of `record` written by `annotator` (the file
 `RECORD.ANNOTATOR`, e.g. `100s.atr` for annotator `"atr"`) and return its
@@ -452,6 +553,8 @@ record's header.
 its header does not specify one (like the `-F` option of `rdann`). Without
 it, the result's `fs` is the time resolution recorded in the annotation
 file, or 0 (wfdb-x: the C tools assumed 250 Hz; see `docs/DIVERGENCES.md`).
+
+`input_dir` and `network`: as for [`read_record`](@ref).
 
 Throws a [`WfdbError`](@ref) if the annotation file cannot be read, if `fs`
 is given and is not positive, or if `from` or `to` is a time string that
@@ -476,10 +579,16 @@ julia> length(read_annotations("100s", "atr"; from="0:10", to="0:20"))
 ```
 """
 function read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr; from=nothing,
-                          to=nothing, fs::Union{Nothing,Real}=nothing, legacy::Bool=false)
+                          to=nothing, fs::Union{Nothing,Real}=nothing,
+                          input_dir::OptByteStr=nothing, network::Union{Nothing,Bool}=nothing,
+                          legacy::Bool=false)
     fs === nothing || fs > 0.0 || throw(WfdbError("read_annotations: fs must be > 0"))
     legacy = _legacy(w, legacy)
-    _with_legacy(() -> _read_annotations(w, record, annotator, from, to, fs, legacy), w, legacy)
+    _with_legacy(w, legacy) do
+        _with_input_options(w, input_dir, network) do
+            _read_annotations(w, record, annotator, from, to, fs, legacy)
+        end
+    end
 end
 function _read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, from, to,
                            fs::Union{Nothing,Real}, legacy::Bool)

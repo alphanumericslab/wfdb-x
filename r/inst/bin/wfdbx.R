@@ -18,7 +18,11 @@
 local({
   args <- commandArgs(trailingOnly = TRUE)
   fa <- grep("^--file=", commandArgs(FALSE), value = TRUE)
-  script <- if (length(fa)) normalizePath(sub("^--file=", "", fa[1L]), mustWork = FALSE) else ""
+  # (R writes each space of the script's path as "~+~" in --file=)
+  script <- if (length(fa)) {
+    normalizePath(gsub("~+~", " ", sub("^--file=", "", fa[1L]), fixed = TRUE),
+                  mustWork = FALSE)
+  } else ""
   # The tools handle bytes: no multibyte locale, C collation.
   invisible(Sys.setlocale("LC_CTYPE", "C"))
   invisible(Sys.setlocale("LC_COLLATE", "C"))
@@ -34,8 +38,18 @@ local({
     env <- NULL
     cache <- NULL
     if (!nzchar(Sys.getenv("WFDBX_NO_CACHE"))) {
+      # (in the home directory of the user from the password database, not
+      # $HOME, which a caller may set to another directory: the conformance
+      # tests give each case its own HOME)
       base <- Sys.getenv("XDG_CACHE_HOME")
-      if (!nzchar(base)) base <- file.path(Sys.getenv("HOME"), ".cache")
+      if (!nzchar(base)) {
+        home <- Sys.getenv("HOME")
+        user <- Sys.info()[["user"]]
+        pw <- tryCatch(suppressWarnings(readLines("/etc/passwd")), error = function(e) character(0))
+        pw <- strsplit(pw[startsWith(pw, paste0(user, ":"))], ":", fixed = TRUE)
+        if (length(pw) && length(pw[[1L]]) >= 6L && nzchar(pw[[1L]][6L])) home <- pw[[1L]][6L]
+        base <- file.path(home, ".cache")
+      }
       cache <- file.path(base, "R", "wfdbx",
                          paste0("src", gsub("[^A-Za-z0-9]+", "_", normalizePath(rdir)), ".rds"))
       if (file.exists(cache)) {

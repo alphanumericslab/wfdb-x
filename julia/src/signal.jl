@@ -19,6 +19,15 @@
 # lib/signal.c; revised 2011-2022 by Benjamin Moody, including FLAC support,
 # 2020).
 # Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
+# Design decision (Reza Sameni, Oct 2026): the signal files named in a
+# header, and the segments named in the header of a multi-segment record,
+# are in the directory of that header (on disk or at its URL) or below it; a
+# name that is absolute, begins with '~', is a URL or contains a ".."
+# component is refused ("~" as a segment, a null segment, and "-" as a
+# signal file remain). Nothing is searched: a search can silently open the
+# wrong file, and a header must not make the library read other local files
+# or contact other servers. The original behavior remains available with
+# --legacy (see docs/DIVERGENCES.md).
 # Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
 # gain, ADC resolution or units. Values that the record or the user does not
 # give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
@@ -296,6 +305,20 @@ mutable struct SigState
 
     # wfdb-x: legacy mode (the original library's built-in defaults)
     legacy::Bool
+
+    # wfdb-x: the directory of the header read last (see wfdbx_dirname;
+    # nothing if unknown: the standard input), and the directory and name of
+    # the header of the current multi-segment record (msrec_name is nothing
+    # if there is none); user_segments while setmsheader reads the headers
+    # of the segments it was given
+    hdr_dir::Union{Nothing,Vector{UInt8}}
+    msrec_dir::Union{Nothing,Vector{UInt8}}
+    msrec_name::Union{Nothing,Vector{UInt8}}
+    user_segments::Bool
+
+    # wfdb-x: true while a high-level reader reads (getvec's checksum
+    # message is then not printed: the reader warns instead)
+    cksum_quiet::Bool
 end
 
 SigState() = SigState(
@@ -309,6 +332,8 @@ SigState() = SigState(
     0, 0, 0, 0, 0, 0, Int32[], Int32[], 0,
     UInt8[], -1,
     0,
+    false,
+    nothing, nothing, nothing, false,
     false)
 
 # ---------------------------------------------------------------------------
@@ -1087,7 +1112,7 @@ function readheader(w::Wfdb, record0::AbstractVector{UInt8})
         q -= 1
     end
     if q >= 1 && record[q] == UInt8('.')
-        f = wfdb_open(w, nothing, record, WFDB_READ)
+        f = _open_header(w, nothing, record)
         if f === nothing
             wfdb_error(w, "init: can't open %s\n", record)
             return Int32(-1)
@@ -1098,7 +1123,7 @@ function readheader(w::Wfdb, record0::AbstractVector{UInt8})
         end
     else
         # Otherwise, assume the file name is record.hea.
-        f = wfdb_open(w, "hea", record, WFDB_READ)
+        f = _open_header(w, "hea", record)
         if f === nothing
             wfdb_error(w, "init: can't open header for record %s\n", record)
             return Int32(-1)
@@ -1106,6 +1131,25 @@ function readheader(w::Wfdb, record0::AbstractVector{UInt8})
         st.hheader = f
     end
     readheader_body(w, record, st.linebuf)
+end
+
+# Open the header (of type s: "hea", or nothing for a file name) of a
+# record, or of a segment named in the header of the current multi-segment
+# record (wfdb-x: in that header's directory), and note its directory.
+function _open_header(w::Wfdb, s::OptByteStr, record::Vector{UInt8})
+    st = w.sig
+    wfdbx_get_legacy(w) != 0 && return wfdb_open(w, s, record, WFDB_READ)
+    if st.in_msrec == 0
+        st.msrec_dir = nothing
+        st.msrec_name = nothing
+    end
+    f = if st.in_msrec != 0 && st.msrec_name !== nothing && !st.user_segments
+        wfdbx_open_in(w, st.msrec_dir, s, record, st.msrec_name)
+    else
+        wfdb_open(w, s, record, WFDB_READ)
+    end
+    st.hdr_dir = (f === nothing || is_std(f)) ? nothing : wfdbx_dirname(wfdb_filename(w))
+    f
 end
 
 # Read a line of the open header (0 at end of file).
@@ -1159,7 +1203,8 @@ function readheader_body(w::Wfdb, record::Vector{UInt8}, line::Vector{UInt8})
 
     # For local files, be sure that the name (p) within the header file
     # matches the name (record) provided as an argument to this function.
-    isstd = st.hheader !== nothing && is_std(st.hheader)
+    # (wfdb-x: not for remote files either, as in C)
+    isstd = st.hheader !== nothing && (is_std(st.hheader) || file_type(st.hheader) != WFDB_LOCAL)
     plen = length(p)
     if !isstd && !(length(record) >= plen && view(record, 1:plen) == p)
         # If there is a mismatch, check to see if the record argument
@@ -1256,6 +1301,10 @@ function readheader_body(w::Wfdb, record::Vector{UInt8}, line::Vector{UInt8})
 
     # Special processing for master header of a multi-segment record.
     if st.segments != 0 && st.in_msrec == 0
+        if wfdbx_get_legacy(w) == 0     # wfdb-x: the segments are next to it
+            st.msrec_dir = st.hdr_dir === nothing ? nothing : copy(st.hdr_dir)
+            st.msrec_name = copy(record)
+        end
         st.msbtime = st.btime
         st.msbdate = st.bdate
         st.msnsamples = st.nsamples
@@ -2169,7 +2218,12 @@ function getskewedframe(w::Wfdb, vecstart::Vector{Int32}, off::Int)
             info.nsamp -= 1
             if info.nsamp == 0 && (cksum & Int32(0xffff)) != 0 && st.in_msrec == 0 &&
                st.isedf == 0 && fmt != 0
+                # wfdb-x: not printed during a high-level read (which warns
+                # instead), but recorded for wfdberror
+                pr = w.io.error_print
+                st.cksum_quiet && (w.io.error_print = false)
                 wfdb_error(w, "getvec: checksum error in signal %d\n", Int32(s - 1))
+                w.io.error_print = pr
                 stat = Int32(-4)
             end
         end
@@ -2270,6 +2324,97 @@ end
 # ---------------------------------------------------------------------------
 # Opening output signals
 
+# wfdb-x: an output signal file is never one of the input files. In normal
+# mode, openosig refuses to create (and so to truncate) an output signal file
+# that is the same file as a signal file of the open input record: a signal
+# file open for input, or a signal file of any segment of the open
+# multi-segment record (read from the segment's header; segments are opened
+# later, as they are reached). "The same file" is decided by the files, not
+# by their names: device and inode numbers (fstat; on Windows, those that
+# Julia's stat gives). Decided by Reza Sameni, Oct 2026: e.g., "xform -i vlay
+# -o fmt16", fmt16 being a segment of vlay, truncated fmt16.dat while reading
+# it, with a platform-dependent result and the input destroyed. Legacy mode:
+# no check (the original behavior).
+
+# The identity (device, inode) of the open local file f (not the standard
+# input or output, not a URL), or nothing.
+function _file_id(f::Union{Nothing,WfdbFile})
+    (f === nothing || f.kind != _K_FILE || f.remote || f.fd < 0 || f.closed) && return nothing
+    s = try
+        stat(Base.RawFD(f.fd))
+    catch
+        return nothing
+    end
+    ispath(s) ? (s.device, s.inode) : nothing
+end
+
+# The tokens of a header line (separated by spaces, tabs, CR and LF).
+_header_tokens(line::Vector{UInt8}) =
+    [t for t in Base.split(String(copy(line)), (' ', '\t', '\n', '\r')) if !isempty(t)]
+
+# True if one of the signal files named in the header of segment seg (of the
+# open multi-segment record) is the file fid. The header and the signal
+# files are located as isigopen locates them in normal mode; one that
+# cannot be found (or is at a URL) is not fid. No message.
+function _segment_has_file(w::Wfdb, seg::Vector{UInt8}, fid)
+    st = w.sig
+    (seg == b"~" || !_in_header_dir(seg) || (st.msrec_dir !== nothing && _is_url(st.msrec_dir))) &&
+        return false
+    hf = st.msrec_name !== nothing ? wfdbx_open_in(w, st.msrec_dir, "hea", seg, st.msrec_name) :
+         wfdb_open(w, "hea", seg, WFDB_READ)
+    hf === nothing && return false
+    d = (file_type(hf) == WFDB_LOCAL && !is_std(hf)) ? wfdbx_dirname(wfdb_filename(w)) : nothing
+    found = false
+    nsig = -1
+    line = UInt8[]
+    try
+        while !found && nsig != 0
+            getline!(hf, line) == 0 && break
+            tok = _header_tokens(line)
+            (isempty(tok) || startswith(tok[1], '#')) && continue
+            if nsig < 0             # the record line
+                ('/' in tok[1] || length(tok) < 2) && break
+                nsig = strtol(tok[2], 10)[1]
+                nsig <= 0 && break
+                continue
+            end
+            nsig -= 1               # a signal line: file name, format, ...
+            name = Vector{UInt8}(codeunits(tok[1]))
+            (length(tok) < 2 || strtol(tok[2], 10)[1] == 0 || name == b"-" ||
+             !_in_header_dir(name) || d === nothing || _is_url(d)) && continue
+            sf = wfdbx_open_in(w, d, nothing, name, seg)
+            if sf !== nothing
+                found = _file_id(sf) == fid
+                fclose(sf)
+            end
+        end
+    finally
+        fclose(hf)
+    end
+    found
+end
+
+# True if the output signal file fname (as named in an output signal
+# specification, created by wfdb_open(fname, nothing, WFDB_WRITE)) exists
+# and is one of the signal files of the open input record (see above).
+function _is_input_file(w::Wfdb, fname::OptByteStr)
+    st = w.sig
+    path = wfdbx_output_file(w, fname)
+    path === nothing && return false
+    s = stat(String(copy(path)))
+    ispath(s) || return false       # it does not exist: it is not an input file
+    fid = (s.device, s.inode)
+    for g in 1:min(st.nigroup, length(st.igd))
+        _file_id(st.igd[g].fp) == fid && return true
+    end
+    if st.in_msrec != 0 && st.have_segarray && !isempty(st.segarray)
+        for k in 1:min(Int(st.segend) + 1, length(st.segarray))
+            _segment_has_file(w, copy(cstr(st.segarray[k].recname)), fid) && return true
+        end
+    end
+    false
+end
+
 function openosig(w::Wfdb, func::String, si_out::Union{Nothing,AbstractVector{Siginfo}},
                   si_in::AbstractVector{Siginfo}, nsig::Int)
     nsig == 0 && return Int32(0)
@@ -2338,6 +2483,13 @@ function openosig(w::Wfdb, func::String, si_out::Union{Nothing,AbstractVector{Si
                 end
             end
             if info.fmt != 0
+                # wfdb-x: never an input file (see _is_input_file)
+                if wfdbx_get_legacy(w) == 0 && _is_input_file(w, info.fname)
+                    wfdb_error(w, "%s: output file %s is also an input file\n", func, info.fname)
+                    og.buf = UInt8[]
+                    osigclose(w)
+                    return Int32(-3)
+                end
                 # An error in opening an output file is fatal.
                 fname = info.fname
                 f = wfdb_open(w, fname === nothing ? nothing : cstr(fname), nothing, WFDB_WRITE)
@@ -2409,6 +2561,7 @@ function wfdb_sigclose(w::Wfdb)
     st.segments = 0
     st.in_msrec = 0
     st.skewmax = 0
+    st.hdr_dir = st.msrec_dir = st.msrec_name = nothing     # wfdb-x
     if st.have_dsbuf
         st.dsbuf = Int32[]
         st.have_dsbuf = false
@@ -2663,8 +2816,10 @@ function isigopen(w::Wfdb, record::OptByteStr, siarray::SiginfoArg, nsig::Intege
         if fmt == 0
             ig.fp = nothing     # Don't open a file for a null signal.
         else
-            fname = hs.info.fname
-            ig.fp = wfdb_open(w, fname === nothing ? nothing : cstr(fname), nothing, WFDB_READ)
+            fname = hs.info.fname === nothing ? UInt8[] : copy(cstr(hs.info.fname))
+            # wfdb-x: in the directory of the header
+            ig.fp = wfdbx_get_legacy(w) != 0 ? wfdb_open(w, fname, nothing, WFDB_READ) :
+                    wfdbx_open_in(w, st.hdr_dir, nothing, fname, rec)
             # Skip this group if the signal file can't be opened.
             if ig.fp === nothing
                 ig.buf = UInt8[]
@@ -3110,8 +3265,22 @@ Returns the number of vectors read (`>= 0`), or the negative status of
 `getvec` if the first call failed. (An addition to the C library, with a
 fast path for the common case.)
 """
-function getvecs(w::Wfdb, out::Vector{Int32}, n::Integer)
-    n <= 0 && return Int64(0)
+getvecs(w::Wfdb, out::Vector{Int32}, n::Integer) = getvecs_status(w, out, n)[1]
+
+"""
+    getvecs_status([w], out::Vector{Int32}, n) -> (Int64, Int32)
+
+As [`getvecs`](@ref), also returning the value returned by the last
+`getvec` call: the negative status of the first vector that could not be
+read (-1 at the end of the data, `< -1` on an error, e.g. -3 for an
+unexpected end of file), or the number of values per vector if all `n` were
+read (0 if `n <= 0`). (An addition to the C library.) With
+`keep_checksum_frame=true` (wfdb-x, for the high-level reader), the vector
+for which `getvec` returns -4 (a checksum error: it was read completely, it
+is the last one of the record) is included in the count and in `out`.
+"""
+function getvecs_status(w::Wfdb, out::Vector{Int32}, n::Integer; keep_checksum_frame::Bool=false)
+    n <= 0 && return (Int64(0), Int32(0))
     st = w.sig
     stat = Int32(0)
     k = Int64(0)
@@ -3126,17 +3295,22 @@ function getvecs(w::Wfdb, out::Vector{Int32}, n::Integer)
                 tmp = zeros(Int32, need)
                 stat = getskewedframe(w, tmp, 0)
                 st.istime += 1
-                stat < 0 && break
+                keep = stat == -4 && keep_checksum_frame
+                stat < 0 && !keep && break
                 m = min(max(length(out) - pos, 0), stride)
                 copyto!(out, pos + 1, tmp, 1, m)
                 k += 1
-                m < stride && break
+                (keep || m < stride) && break
                 pos += stride
                 continue
             end
             stat = getskewedframe(w, out, pos)
             st.istime += 1
-            stat < 0 && break
+            if stat < 0
+                # wfdb-x: the frame of a checksum error is complete
+                (stat == -4 && keep_checksum_frame) && (k += 1)
+                break
+            end
             pos += stride
             k += 1
         end
@@ -3150,12 +3324,15 @@ function getvecs(w::Wfdb, out::Vector{Int32}, n::Integer)
         while k < n
             pos + stride > length(out) && break
             stat = _call_at(getvec_at, w, out, pos)
-            stat < 0 && break
+            if stat < 0
+                (stat == -4 && keep_checksum_frame) && (k += 1)
+                break
+            end
             pos += stride
             k += 1
         end
     end
-    (k == 0 && stat < 0) ? Int64(stat) : k
+    ((k == 0 && stat < 0) ? Int64(stat) : k, Int32(stat))
 end
 
 # The value written for an invalid sample (the lowest of the format).
@@ -3629,7 +3806,9 @@ function setmsheader(w::Wfdb, record::ByteStr, segment_name::AbstractVector, nse
         end
         st.in_msrec = 1
         st.nsamples = 0
+        st.user_segments = true     # wfdb-x: names given by the caller
         n = readheader(w, name)
+        st.user_segments = false
         st.in_msrec = old_in_msrec
         if n < 0
             wfdb_error(w, "setmsheader: can't read segment %s header\n", name)
@@ -4500,6 +4679,7 @@ getifreq() = getifreq(lib())
 getvec(vector::Vector{Int32}) = getvec(lib(), vector)
 getframe(vector::Vector{Int32}) = getframe(lib(), vector)
 getvecs(out::Vector{Int32}, n::Integer) = getvecs(lib(), out, n)
+getvecs_status(out::Vector{Int32}, n::Integer) = getvecs_status(lib(), out, n)
 putvec(vector::AbstractVector{Int32}) = putvec(lib(), vector)
 isigsettime(t::Integer) = isigsettime(lib(), t)
 isgsettime(g::Integer, t::Integer) = isgsettime(lib(), g, t)
@@ -4550,7 +4730,7 @@ wfdb_osflush() = wfdb_osflush(lib())
 wfdb_oinfoclose() = wfdb_oinfoclose(lib())
 
 export isigopen, osigopen, osigfopen, findsig, getspf, setgvmode, getgvmode, setifreq,
-       getifreq, getvec, getframe, getvecs, putvec, isigsettime, isgsettime, tnextvec,
+       getifreq, getvec, getframe, getvecs, getvecs_status, putvec, isigsettime, isgsettime, tnextvec,
        setibsize, setobsize, newheader, setheader, getseginfo, setmsheader, wfdbgetskew,
        wfdbsetiskew, wfdbsetskew, wfdbgetstart, wfdbsetstart, wfdbputprolog, setinfo,
        putinfo, getinfo, wfdb_freeinfo, sampfreq, setsampfreq, setbasetime, timstr,

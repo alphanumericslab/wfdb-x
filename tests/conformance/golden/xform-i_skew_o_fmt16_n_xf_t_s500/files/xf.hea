@@ -1,5 +1,1 @@
-xf 3 250 0 12:34:56.789 31/12/1999
-fmt16.dat 16 100(-5)/mV 12 0 -7 0 0 sig0 skewed
-fmt16.dat 16 150(5)/uV 12 1 32 0 0 sig1 skewed
-fmt16.dat 16 200(15)/mmHg 12 2 -33 0 0 sig2 skewed
-#Produced by xform from record skew, beginning at 0:0
+xf 0 250 0 12:34:56.789 31/12/1999

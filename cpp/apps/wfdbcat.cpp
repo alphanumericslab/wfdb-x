@@ -1,4 +1,4 @@
-// wfdbcat.cpp: copy WFDB files (found in the WFDB path) to the standard
+// wfdbcat.cpp: copy WFDB files to the standard
 // output (C++ port of app/wfdbcat.c)
 //
 // Copyright (C) 2000 George B. Moody (original C program, app/wfdbcat.c;
@@ -6,17 +6,16 @@
 // C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
 // GNU General Public License, version 2 or later (see LICENSE).
 //
-// The C program opens each file with wfdb_open(), which is not part of the
-// public API; this port finds it with wfdbfile() (which is wfdb_open()
-// followed by wfdb_fclose()) and then reads it with stdio.
+// Like the C program, this port opens each file with the library's internal
+// wfdb_open() (so that a URL is read as the library reads it).
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <optional>
-#include <string>
 
 #include <wfdbx/wfdb.hpp>
+
+#include "../src/wfdblib.hpp"
 
 using namespace wfdbx;
 
@@ -39,7 +38,6 @@ int main(int argc, char **argv)
     int i = 0;
     size_t n;
     static char buf[BUFSIZE];
-    std::FILE *ifile = nullptr;
 
     pname = prog_name(argv[0]);
     if (argc < 2 || (argc == 2 && std::strcmp(argv[1], "-h") == 0)) {
@@ -48,15 +46,14 @@ int main(int argc, char **argv)
     }
 
     for (i = 1; i < argc; i++) {
-        std::optional<std::string> fname = wfdbfile(argv[i], nullptr);
-        if (!fname || (ifile = std::fopen(fname->c_str(), "rb")) == nullptr) {
+        detail::FilePtr ifile = detail::wfdb_open(argv[i], nullptr, WFDB_READ);
+        if (!ifile) {
             std::fflush(stdout);
             std::fprintf(stderr, "%s: `%s' not found\n", pname, argv[i]);
         } else {
-            while ((n = std::fread(buf, 1, sizeof(buf), ifile)) &&
+            while ((n = ifile->read(buf, 1, sizeof(buf))) &&
                    (n == std::fwrite(buf, 1, n, stdout)))
                 ;
-            std::fclose(ifile);
         }
     }
 

@@ -748,7 +748,16 @@ function xform_main(args::Vector{String})
     # sampling frequency differences.
     wfdbquiet()
     if orec !== nothing && osigopen(orec, dfout, nosig) != nosig
-        ceprintf("%s: can't write output signals\n", pname)
+        # wfdb-x: say why if an output file is one of the input files (the
+        # library's message, quieted above, is the last error)
+        e = wfdberror()
+        es = String(copy(e))
+        if !legacy && startswith(es, "osigopen: output file ") && length(e) > 22 + 23 &&
+           endswith(es, " is also an input file\n")
+            ceprintf("%s: can't write output signals (%s)\n", pname, e[1:end-1])
+        else
+            ceprintf("%s: can't write output signals\n", pname)
+        end
         cexit(2)
     end
     wfdbverbose()

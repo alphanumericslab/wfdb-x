@@ -33,7 +33,9 @@ from ._wfdbio import (
     getwfdb, setwfdb, resetwfdb, wfdbquiet, wfdbverbose, wfdberror,
     wfdb_error, wfdbfile, wfdbmemerr, wfdb_me_fatal, wfdbversion,
     wfdbldflags, wfdbcflags,
-    wfdbdefwfdb, wfdbdefwfdbcal, wfdbx_set_output_dir, wfdbx_get_output_dir,
+    wfdbdefwfdb, wfdbdefwfdbcal, wfdbx_set_input_dir, wfdbx_get_input_dir,
+    wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network,
+    wfdbx_get_network,
 )
 from ._signal import (
     Siginfo, Seginfo, WFDB_INVALID_SAMPLE, WFDB_DEFFREQ, WFDB_DEFGAIN,

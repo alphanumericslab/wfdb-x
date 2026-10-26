@@ -4,12 +4,18 @@ Each case is a dict with keys:
   id      unique identifier (used as the golden directory name)
   tool    name of the WFDB application
   args    list of command-line arguments ("{cwd}" in an argument stands for
-          the absolute path of the work directory, which is written as
-          "{cwd}" in the standard output and error)
+          the absolute path of the work directory, "{home}" for the home
+          directory, i.e., the subdirectory home of the work directory, and
+          "{url}" for the base URL, ending in "/", of a local HTTP server
+          that serves a copy of the work directory; each is written back as
+          the placeholder in the standard output and error)
   stdin   (optional) bytes or str supplied on the standard input
   files   (optional) {name: content} extra files created before running
+  www_files (optional) {name: content} files only on the HTTP server
   env     (optional) extra environment variables
-  wfdb    (optional) value of the WFDB environment variable (default ".")
+  wfdb    (optional) value of the WFDB environment variable (default: not
+          set; "." in the legacy suite)
+The placeholders are also replaced in stdin, env, files and www_files.
 
 Part of wfdb-x, Reza Sameni, Oct 2026.
 This program is free software; you can redistribute it and/or modify it under
@@ -813,8 +819,144 @@ for tool, args, cid in [
         ("wfdbdesc", "{cwd}/100s", "abspath-wfdbdesc"),
         ("wfdbdesc", "{cwd}/sub/sr", "abspath-wfdbdesc-subdir")]:
     case(tool, args, cid=cid, files=_SR)
+# (WFDB is ignored, and its warning appears only when the input directory is
+# needed, i.e., not for an absolute name)
 case("rdsamp", "-r {cwd}/sub/sr -t s5", cid="abspath-rdsamp-wfdb-empty",
      files=_SR, wfdb=";")
+
+# ---------------------------------------------------------------------------
+# Finding files (wfdb-x): a relative name is read under the input directory
+# (WFDBX_INPUT_DIR: a directory, ~ name or URL; by default the current
+# directory) and written under the output directory (WFDBX_OUTPUT_DIR); an
+# absolute name, a ~ name ({home} is HOME) or a URL is used as given; nothing
+# is searched, and ".." is allowed.  Files named in a header are in the
+# header's directory (or below it).  URLs ({url}: a local HTTP server serving
+# a copy of the work directory) are opened only with WFDBX_NETWORK=1.
+_HOME_SR = {"home/hr/" + k[4:]: v for k, v in _SR.items()}
+_NET = {"WFDBX_NETWORK": "1"}
+_DD = {"dd.hea": "dd 1 360 10\ndata/a.dat 16\n",
+       "data/a.dat": _rd("fmt16.dat")}
+_NETREC = {"net/rec.hea": "rec 1 360 10\ndata/a.dat 16\n",
+           "net/data/a.dat": _rd("fmt16.dat"),
+           "net/nodat.hea": "nodat 1 360 10\nnodat.dat 16\n"}
+_VLAY = {"sub/" + n: _rd(n) for n in ("vlay.hea", "vlay_0.hea", "fmt16.hea",
+                                      "fmt16.dat", "fmt212.hea",
+                                      "fmt212.dat")}
+
+
+def _bad(name):     # a header naming a signal file outside its directory
+    return {"sub/bad.hea": "bad 1 360 10\n%s 16 200 11 0 0 0 0 s\n" % name}
+
+
+for tool, args, cid, kw in [
+        ("rdsamp", "-r sub/sr -t s3", "files-rel-subdir", {"files": _SR}),
+        ("rdsamp", "-r sub/../100s -t s3", "files-rel-dotdot",
+         {"files": _SR}),
+        ("rdann", "-r sub/../100s -a atr -t s1000", "files-rel-dotdot-rdann",
+         {"files": _SR}),
+        ("wfdbwhich", "hea {cwd}/sub/sr", "files-abs-wfdbwhich",
+         {"files": _SR}),
+        ("rdsamp", "-r ~/hr/sr -t s3", "files-home-rdsamp",
+         {"files": _HOME_SR}),
+        ("rdann", "-r ~/hr/sr -a atr -t s1000", "files-home-rdann",
+         {"files": _HOME_SR}),
+        ("wfdbwhich", "hea ~/hr/sr", "files-home-wfdbwhich",
+         {"files": _HOME_SR}),
+        ("rdsamp", "-r dd -t s3", "files-hdr-subdir", {"files": _DD}),
+        ("rdsamp", "-r sr -t s3", "files-inputdir-rel",
+         {"files": _SR, "env": {"WFDBX_INPUT_DIR": "sub"}}),
+        ("wfdbwhich", "hea sr", "files-inputdir-rel-wfdbwhich",
+         {"files": _SR, "env": {"WFDBX_INPUT_DIR": "sub"}}),
+        ("wfdbwhich", "hea nosuch", "files-inputdir-rel-wfdbwhich-missing",
+         {"env": {"WFDBX_INPUT_DIR": "sub"}}),
+        ("rdann", "-r sr -a atr -t s1000", "files-inputdir-abs",
+         {"files": _SR, "env": {"WFDBX_INPUT_DIR": "{cwd}/sub"}}),
+        ("wfdbdesc", "sr", "files-inputdir-home",
+         {"files": _HOME_SR, "env": {"WFDBX_INPUT_DIR": "~/hr"}}),
+        ("rdsamp", "-r 100s -t s3", "files-inputdir-home-missing",
+         {"env": {"WFDBX_INPUT_DIR": "~/hr"}}),
+        ("rdsamp", "-r 100s -t s3 -v", "files-inputdir-url",
+         {"env": dict(_NET, WFDBX_INPUT_DIR="{url}")}),
+        ("rdann", "-r 100s -a atr -t s1000", "files-inputdir-url-rdann",
+         {"env": dict(_NET, WFDBX_INPUT_DIR="{url}")}),
+        ("wfdbdesc", "sr", "files-inputdir-url-subdir",
+         {"files": _SR, "env": dict(_NET, WFDBX_INPUT_DIR="{url}sub")}),
+        ("rdsamp", "-r {url}100s -t s3", "files-url-rdsamp", {"env": _NET}),
+        ("rdann", "-r {url}100s -a atr -t s1000", "files-url-rdann",
+         {"env": _NET}),
+        ("wfdbdesc", "{url}100s", "files-url-wfdbdesc", {"env": _NET}),
+        ("rdsamp", "-r {url}multi -f s21598 -t s21602", "files-url-multi",
+         {"env": _NET}),
+        ("rdsamp", "-r {url}vlay -f s1499 -t s1502", "files-url-null-segment",
+         {"env": _NET}),
+        ("rdsamp", "-r {url}net/rec -t s3", "files-url-subdir",
+         {"env": _NET, "www_files": _NETREC}),
+        ("rdsamp", "-r {url}net/nodat -t s3", "files-url-signal-404",
+         {"env": _NET, "www_files": _NETREC}),
+        ("rdsamp", "-r {url}nosuch -t s3", "files-url-404", {"env": _NET}),
+        ("wfdbcat", "{url}100s.hea", "files-url-wfdbcat", {"env": _NET}),
+        ("rdsamp", "-r {url}100s -t s3", "files-url-network-off", {}),
+        ("wfdbcat", "{url}100s.hea {url}100s.atr fmt16.hea",
+         "files-url-network-off-once", {}),
+        ("rdsamp", "-r 100s -t s3", "files-inputdir-url-network-off",
+         {"env": {"WFDBX_INPUT_DIR": "{url}"}}),
+        ("rdsamp", "-r sub/bad -t s3", "files-hdr-dotdot",
+         {"files": _bad("../100s.dat")}),
+        ("rdsamp", "-r sub/bad -t s3", "files-hdr-dotdot-inner",
+         {"files": _bad("x/../../100s.dat")}),
+        ("rdsamp", "-r sub/bad -t s3", "files-hdr-abs",
+         {"files": _bad("{cwd}/100s.dat")}),
+        ("rdsamp", "-r sub/bad -t s3", "files-hdr-home",
+         {"files": dict(_bad("~/100s.dat"), **{"home/100s.dat":
+                                               _rd("100s.dat")})}),
+        ("rdsamp", "-r sub/bad -t s3", "files-hdr-url",
+         {"files": _bad("{url}100s.dat"), "env": _NET}),
+        ("rdsamp", "-r sub/ms -f s1800 -t s1803", "files-hdr-segment-dotdot",
+         {"files": {"sub/ms.hea":
+                    "ms/2 2 360 3600\n100s 1800\n../100s 1800\n",
+                    "sub/100s.hea": _rd("100s.hea"),
+                    "sub/100s.dat": _rd("100s.dat")}}),
+        ("rdsamp", "-r sub/sib -t s3", "files-hdr-sibling",
+         {"files": {"sub/sib.hea": "sib 2 360 21600\n"
+                    "100s.dat 212 200 11 1024 995 21537 0 MLII\n"
+                    "100s.dat 212 200 11 1024 1011 -3962 0 V5\n"}}),
+        ("wfdbwhich", "-r sub/sr sr.atr", "files-wfdbwhich-r",
+         {"files": _SR}),
+        ("rdsamp", "-r sub/vlay -f s1499 -t s1502", "files-null-segment",
+         {"files": _VLAY}),
+        ("rdsamp", "-r 100s -t s3", "files-wfdb-ignored", {"wfdb": "."}),
+        ("rdsamp", "-r sr -t s3", "files-wfdb-ignored-sub",
+         {"files": _SR, "wfdb": "sub"}),
+        ("wfdbwhich", "hea nosuch", "files-wfdbwhich-missing", {}),
+        ("wfdbcat", "sr.hea", "files-inputdir-wfdbcat",
+         {"files": _SR, "env": {"WFDBX_INPUT_DIR": "sub"}}),
+        ("sortann", "-rsub sr -a atr -o srt", "files-sortann-setwfdb",
+         {"files": _SR}),
+        ("sortann", ["-rsub .", "sr", "-a", "atr", "-o", "srt"],
+         "files-sortann-setwfdb-two", {"files": _SR}),
+        ("wrsamp", "-o w1 -F 250 -G 200 -R 16 -U mV", "files-outputdir-wrsamp",
+         {"stdin": _TXT, "env": {"WFDBX_OUTPUT_DIR": "out"}}),
+        ("wrann", "-r 100s -a cpy", "files-outputdir-wrann",
+         {"stdin": _rd("100s.atr.txt"), "env": {"WFDBX_OUTPUT_DIR": "out"}}),
+        ("wrann", "-r 100s -a ooo", "files-outputdir-wrann-sort",
+         {"stdin": _rd("ooo.txt"), "env": {"WFDBX_OUTPUT_DIR": "~/out"}}),
+        ("wrann", "-r {cwd}/sub/sr -a cpy", "files-outputdir-wrann-abs",
+         {"files": _SR, "stdin": _rd("100s.atr.txt"),
+          "env": {"WFDBX_OUTPUT_DIR": "out"}}),
+        ("xform", "-i 100s -o fmt16 -n xo -t s10 -a atr",
+         "files-outputdir-xform",
+         {"env": {"WFDBX_OUTPUT_DIR": "out"}}),
+        ("xform", "-i sr -o sr -n xo -t s10", "files-inputdir-outputdir-xform",
+         {"files": _SR, "env": {"WFDBX_INPUT_DIR": "sub",
+                                "WFDBX_OUTPUT_DIR": "out"}}),
+        ("snip", "-i 100s -n snp -a atr -t s100", "files-outputdir-snip",
+         {"env": {"WFDBX_OUTPUT_DIR": "out"}}),
+        ("wrann", "-r 100s -a cpy", "files-outputdir-url",
+         {"stdin": _rd("100s.atr.txt"),
+          "env": {"WFDBX_OUTPUT_DIR": "{url}"}}),
+        ("wrann", "-r {url}100s -a cpy", "files-write-url",
+         {"stdin": _rd("100s.atr.txt"), "env": _NET})]:
+    case(tool, args, cid=cid, **kw)
 
 # ---------------------------------------------------------------------------
 # Out-of-order annotations written by wrann, rearranged when the file is
@@ -892,3 +1034,31 @@ case("sortann", "-r 100s -a t0", cid="sortann-time0-inplace",
 # An absolute record name (in legacy mode, the sortann program, run with
 # --legacy, does not find the file, as the original did not)
 case("wrann", "-r {cwd}/100s -a srt", cid="annsort-abspath", stdin=_SORT)
+
+# ---------------------------------------------------------------------------
+# An output signal file that is one of the input files (the files are
+# compared, not their names) is refused ("osigfopen: output file F is also an
+# input file", hidden by xform's wfdbquiet; the original truncated the file
+# being read): directly, under another name (./fmt16.dat), through a segment
+# of a multi-segment record that is not open yet (fmt212, vlay's last
+# segment), and with snip.  The control writes the same conversion to a
+# record of its own (the segment-alias case is xform-i_vlay_o_fmt16_...).
+_F16 = _rd("fmt16.hea").decode()
+_ALIAS = {
+    "al.hea": _F16.replace("fmt16.dat", "./fmt16.dat").replace(
+        "fmt16 3", "al 3", 1).encode(),
+    "f16c.hea": _F16.replace("fmt16.dat", "f16c.dat").replace(
+        "fmt16 3", "f16c 3", 1).encode(),
+    "sn.hea": b"sn 2 360 21600\nsnp.dat 212 200 11 1024 995 21537 0 MLII\n"
+              b"snp.dat 212 200 11 1024 1011 -3962 0 V5\n",
+    "snp.dat": _rd("100s.dat")}
+case("xform", "-i 100s -o 100s -n xf -t 1", cid="alias-xform-direct",
+     files=_ALIAS)
+case("xform", "-i fmt16 -o al -n xf -t s500", cid="alias-xform-name",
+     files=_ALIAS)
+case("xform", "-i vlay -o fmt212 -n xf -f s1320", cid="alias-xform-segment",
+     files=_ALIAS)
+case("xform", "-i vlay -o f16c -n xf -f s1320", cid="alias-xform-control",
+     files=_ALIAS)
+case("snip", "-i sn -n snp -t 1", cid="alias-snip", files=_ALIAS)
+case("snip", "-i sn -n snq -t 1", cid="alias-snip-control", files=_ALIAS)

@@ -36,7 +36,7 @@ use crate::cstd;
 use crate::ecgcodes::{wfdb_ammap, wfdb_mamap, ACMAX, NOTE, NOTQRS};
 use crate::types::*;
 use crate::wfdb::{with_default, OptBytes, Wfdb, NULL};
-use crate::wfdbio::{run_sortann, wfdb_fopen, wfdb_striphea, WfdbFile};
+use crate::wfdbio::{local_fopen, run_sortann, wfdb_striphea, WfdbFile};
 
 // Annotation word format
 const CODE: u32 = 0o176000; // annotation code segment of word
@@ -844,9 +844,11 @@ impl Wfdb {
     /// numbered from 0 in the order given, and so are output annotators;
     /// these numbers are the `n` arguments of `getann`, `putann`, ...
     /// Unless `record` begins with `+`, previously opened annotators are
-    /// closed first. Input files are found in the WFDB path; output files
-    /// are created in the current directory (wfdb-x: or in the output
-    /// directory, see [`Wfdb::wfdbx_set_output_dir`]).
+    /// closed first. Files are found as [`Wfdb::wfdb_open`] finds them
+    /// (wfdb-x: input files under the input directory, output files under
+    /// the output directory, or as named; legacy mode: input files in the
+    /// WFDB path, output files in the current directory or the output
+    /// directory).
     ///
     /// # Returns
     ///
@@ -1581,7 +1583,7 @@ impl Wfdb {
 fn sort_ann_file(fname: &[u8], aname: &[u8], msgs: &mut Msgs) -> i32 {
     // Read the file, starting from the default definition table.
     let mut defs = AnnDefs::default();
-    let Some(file) = wfdb_fopen(fname, b"rb") else {
+    let Some(file) = local_fopen(fname, b"rb", false) else {
         return -1;
     };
     let info = Anninfo {
@@ -1612,7 +1614,7 @@ fn sort_ann_file(fname: &[u8], aname: &[u8], msgs: &mut Msgs) -> i32 {
     }
 
     // Write the sorted annotations.
-    let Some(file) = wfdb_fopen(fname, b"wb") else {
+    let Some(file) = local_fopen(fname, b"wb", false) else {
         return -1;
     };
     let info = Anninfo {

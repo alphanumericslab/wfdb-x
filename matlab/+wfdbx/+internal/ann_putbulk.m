@@ -43,7 +43,7 @@ if oa.stat ~= WFDB_WRITE || any(abs(d) > MAXSKIP) || ...
         any(t <= LONG_MIN | t >= LONG_MAX) || ...
         oa.file.is_std
     a = wfdbx.annotation();
-    for k = idx
+    for k = reshape(idx, 1, [])
         a.time = A.time(k);
         a.anntyp = A.anntyp(k);
         a.subtyp = A.subtyp(k);
@@ -69,7 +69,7 @@ if any(~(achan > pchan | anum > pnum | t > pt | (t == 0 & pt == 0)))
 end
 aux = A.aux(idx);
 auxln = zeros(1, m);
-for k = find(~cellfun('isempty', aux))
+for k = reshape(find(~cellfun('isempty', aux)), 1, [])
     auxln(k) = double(aux{k}(1));
 end
 z = typ == 0;
@@ -111,7 +111,7 @@ p(k) = p(k) + 2;
 k = find(ha);
 B = putw(B, p(k), AUX + auxln(k));
 p(k) = p(k) + 2;
-for q = k
+for q = reshape(k, 1, [])
     x = double(aux{q}(2:min(end, auxln(q) + 1)));
     B(p(q)+1:p(q)+numel(x)) = x;
 end

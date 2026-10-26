@@ -1,14 +1,22 @@
 """Low-level I/O for the WFDB library (port of lib/wfdbio.c).
 
-This module implements the WFDB path, file lookup (``wfdb_open``), error
-reporting (``wfdb_error``/``wfdberror``), and the small binary helpers used
-by the signal and annotation modules.
+This module implements file lookup (``wfdb_open``: the input and output
+directories, and the WFDB path in legacy mode), access to remote files,
+error reporting (``wfdb_error``/``wfdberror``), and the small binary helpers
+used by the signal and annotation modules.
 
-wfdb-x: wfdb_open opens an input file named by an absolute path directly (the
-C library searched for it in each directory of the WFDB path), and output
-files can be created in a directory set with wfdbx_set_output_dir; decided
-by Reza Sameni after a code review, Oct 2026.  The original behavior remains
-available with --legacy (see docs/DIVERGENCES.md).
+Design decision (Reza Sameni, Oct 2026): files are found by explicit names
+instead of a search of the WFDB path.  A relative name is read under the
+input directory and written under the output directory
+(``wfdbx_set_input_dir``, ``wfdbx_set_output_dir``; by default, the current
+directory); an absolute name, a ~ name or a URL is used as given; nothing
+else is searched.  A URL is opened only if network access was allowed
+(``wfdbx_set_network`` or WFDBX_NETWORK).  Reasons: a search can silently
+open the wrong file (a stale copy earlier in the path) and fails in ways
+nobody notices, it sent local paths and record names to physionet.org, and
+the network must not be used without being asked for.  The original behavior
+remains available with --legacy (see docs/DIVERGENCES.md); it reads no
+remote files (as the reference C build, compiled without network support).
 
 Copyright (C) 1988-2013 George B. Moody (original C implementation,
 lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
@@ -23,7 +31,7 @@ import io
 import os
 import sys
 
-from ._cstd import sprintf
+from ._cstd import sprintf, strtol
 
 __all__ = [
     "WFDB_MAJOR", "WFDB_MINOR", "WFDB_RELEASE", "WFDB_VERSION",
@@ -35,7 +43,9 @@ __all__ = [
     "wfdbversion", "wfdbldflags", "wfdbcflags", "wfdbdefwfdb",
     "wfdbdefwfdbcal", "wfdb_open", "wfdb_fopen", "wfdb_checkname",
     "wfdb_striphea", "wfdb_setirec", "wfdb_getirec", "wfdb_addtopath",
-    "wfdb_parse_path", "wfdbx_set_output_dir", "wfdbx_get_output_dir",
+    "wfdb_parse_path", "wfdbx_set_input_dir", "wfdbx_get_input_dir",
+    "wfdbx_set_output_dir", "wfdbx_get_output_dir", "wfdbx_set_network",
+    "wfdbx_get_network",
 ]
 
 WFDB_MAJOR = 10
@@ -56,11 +66,13 @@ WFDB_AHA_READ = 2       # AHA-format input annotation file
 WFDB_AHA_WRITE = 3      # AHA-format output annotation file
 WFDB_APPEND = 4         # for output info files
 
+# The default WFDB path (wfdbdefwfdb; used in legacy mode only, which opens
+# no URLs: there is no default URL anywhere in wfdb-x)
 DEFWFDB = ". /usr/local/database http://physionet.org/physiobank/database"
 DEFWFDBCAL = "wfdbcal"
 WFDB_MAXRNL = 50        # maximum length of a record name
 MAXNEST = 10            # maximum nesting of indirect (@FILE) WFDB paths
-NET_TIMEOUT = 60        # timeout (seconds) for reading a remote file
+NET_TIMEOUT = 30        # timeout (seconds) for reading a remote file
 
 DSEP = "/"              # directory separator
 _ENC = "latin-1"        # text encoding: one character per byte
@@ -211,7 +223,22 @@ class _IOState:
         self.wfdb_filename = None
         self.irec = ""
         self.mem_behavior = 1
-        self.output_dir = None       # wfdb-x: see wfdbx_set_output_dir
+        # wfdb-x: the settings that locate files (see wfdbx_set_input_dir,
+        # wfdbx_set_output_dir and wfdbx_set_network); each is read from its
+        # environment variable when first needed (None: not yet)
+        self.input_dir = None
+        self.env_input_dir = None
+        self.input_dir_init = False
+        self.wfdb_warned = False
+        self.setwfdb_called = False  # the input directory set by setwfdb:
+        self.setwfdb_input_dir = None
+        self.output_dir = None
+        self.env_output_dir = None
+        self.output_dir_init = False
+        self.network = None
+        self.env_network = False
+        self.network_warned = False
+        self.fetched = {}            # URL -> contents (bytes), or None
 
 
 _io = _IOState()
@@ -235,19 +262,32 @@ def _stderr_write(s):
 # WFDB path handling
 
 def resetwfdb():
-    """Restore the WFDB path to the value first returned by getwfdb()."""
+    """Restore the WFDB path to the value first returned by getwfdb().
+
+    wfdb-x: in normal mode, restore the input directory set by the last
+    setwfdb(), if any (wfdbquit() does not call resetwfdb in normal mode).
+    """
+    if not _legacy():
+        if _io.setwfdb_called:
+            _put_input_dir(_io.setwfdb_input_dir)
+        return
     if _io.wfdbpath_init is not None:
         _io.wfdbpath = _io.wfdbpath_init
 
 
 def getwfdb():
-    """Return the WFDB path: the list of places searched for WFDB files.
+    """Return the input directory, or "." if none is set.
 
-    The path is taken from the WFDB environment variable, or is DEFWFDB if
-    WFDB is not set.  Its components (directories or URL prefixes) are
-    separated by spaces or semicolons (or colons, other than in URLs).  A
+    wfdb-x: files are not searched for (see wfdbx_set_input_dir).  In
+    legacy mode, return the WFDB path, the list of places searched for WFDB
+    files: it is taken from the WFDB environment variable, or is DEFWFDB if
+    WFDB is not set; its components (directories or URL prefixes) are
+    separated by spaces or semicolons (or colons, other than in URLs), and a
     value "@file" means that the path is read from that file.
     """
+    if not _legacy():
+        _init_input_dir()
+        return _io.input_dir if _io.input_dir else "."
     if _io.wfdbpath is None:
         p = os.environ.get("WFDB")
         if p is None:
@@ -260,13 +300,24 @@ def getwfdb():
 
 
 def setwfdb(p):
-    """Change the WFDB path (see getwfdb()).
+    """Set the input directory (a C-compatible form of wfdbx_set_input_dir).
 
+    wfdb-x: ``p`` is split into components as the WFDB path is (at spaces,
+    semicolons, and colons other than in URLs); it must contain at most one
+    non-empty component, which becomes the input directory (a directory, a
+    ~ name or a URL; none, e.g. "" or ";", or None: the default).  With more
+    than one, an error is reported and nothing changes: wfdb-x reads from a
+    single input directory.  resetwfdb() restores the value set by the last
+    setwfdb().
+
+    In legacy mode, set the WFDB path (see getwfdb()) as the C library does:
     ``p`` replaces the current path; None restores the value of the WFDB
-    environment variable (or DEFWFDB).  As in C, the WFDB environment
-    variable is also set to ``p``, so that programs started afterwards
-    inherit it.
+    environment variable (or DEFWFDB); the WFDB environment variable is also
+    set to ``p``, so that programs started afterwards inherit it.
     """
+    if not _legacy():
+        _setwfdb_normal(p)
+        return
     if p is None:
         p = os.environ.get("WFDB")
         if p is None:
@@ -275,6 +326,20 @@ def setwfdb(p):
     p = _getiwfdb(p)
     _io.wfdbpath = p
     wfdb_parse_path(p)
+
+
+def _setwfdb_normal(p):
+    dirs = [c for c, _ in _path_components(p or "") if c]
+    if len(dirs) > 1:
+        wfdb_error("setwfdb: wfdb-x reads from a single input directory; use "
+                   "wfdbx_set_input_dir (or legacy mode for the WFDB search "
+                   "path)\n")
+        return -1
+    d = dirs[0] if dirs else None
+    _put_input_dir(d)
+    _io.setwfdb_input_dir = d
+    _io.setwfdb_called = True
+    return 0
 
 
 def _export_config(p):
@@ -305,11 +370,10 @@ def _getiwfdb(p):
     return p
 
 
-def wfdb_parse_path(p):
-    """Split a WFDB path string into the components searched by wfdb_open()."""
-    _io.path_list = []
-    if p is None:
-        return 0
+def _path_components(p):
+    """Split a WFDB path string into its components: a list of
+    (prefix, type) pairs, type being WFDB_LOCAL or WFDB_NET."""
+    out = []
     n = len(p)
     q = 0
     while q < n:
@@ -331,14 +395,23 @@ def wfdb_parse_path(p):
                 break
             elif c == "/":
                 slashes += 1
-        _io.path_list.append([p[start:q], current_type])
+        out.append((p[start:q], current_type))
         if q < n:
             q += 1
+    return out
+
+
+def wfdb_parse_path(p):
+    """Split a WFDB path string into the components searched by wfdb_open()
+    (legacy mode)."""
+    _io.path_list = [] if p is None else \
+        [list(c) for c in _path_components(p)]
     return 0
 
 
 def wfdb_addtopath(s):
-    """Move the directory of file s to the front of the WFDB path.
+    """Move the directory of file s to the front of the WFDB path (used in
+    legacy mode only).
 
     The directory is placed first (after '.', if '.' is first), so that the
     other files of the same record are found there.  Nothing is done if
@@ -459,9 +532,10 @@ def wfdbfile(s, record):
     """Return the pathname (or URL) of a WFDB file, or None if it is not found.
 
     ``s`` is the file type (e.g. "hea", "dat", "atr") and ``record`` the
-    record name; the file is searched for in the WFDB path.  If both are
-    None, the name of the file most recently opened by the library is
-    returned.
+    record name; the file is looked up as by wfdb_open (wfdb-x: under the
+    input directory, for a relative name; in legacy mode, in the WFDB path).
+    If both are None, the name of the file most recently opened by the
+    library is returned.
     """
     if s is None and record is None:
         return _io.wfdb_filename
@@ -486,23 +560,131 @@ def get_filename():
 # ---------------------------------------------------------------------------
 # Opening files
 
-def wfdbx_set_output_dir(d):
-    """Set the directory in which output files are created (a wfdb-x
-    addition); return the previous one (None if none).
+def _is_url(name):
+    """True if name is an http:// or https:// URL."""
+    return name.startswith("http://") or name.startswith("https://")
 
-    When it is set, wfdb_open creates each output file (WFDB_WRITE or
-    WFDB_APPEND mode) as ``d + "/" + name``, where ``name`` is the name it
-    would use otherwise (the record name and the file type).  None or an
-    empty string means none (the default: files are created as named).
+
+def _is_dsep(c):
+    """True if c is a directory separator ('/', and on MS-Windows '\\')."""
+    return c == "/" or (os.name == "nt" and c == "\\")
+
+
+def _init_input_dir():
+    if not _io.input_dir_init:
+        _io.input_dir_init = True
+        v = os.environ.get("WFDBX_INPUT_DIR")
+        if v:
+            _io.env_input_dir = _io.input_dir = v
+    if not _io.wfdb_warned and not _legacy():
+        _io.wfdb_warned = True
+        if os.environ.get("WFDB"):
+            wfdb_error("wfdb-x: the WFDB environment variable is ignored; "
+                       "set WFDBX_INPUT_DIR instead (or use legacy mode)\n")
+
+
+def _put_input_dir(d):
+    _init_input_dir()
+    _io.input_dir = d if d else _io.env_input_dir
+
+
+def wfdbx_set_input_dir(d):
+    """Set the input directory (a wfdb-x addition); return the previous one
+    (None if none).
+
+    A file named by a relative name (a record name, an annotation file, a
+    signal file named on the command line, ...) is read as ``d + "/" +
+    name``.  ``d`` may be a local directory (relative to the current
+    directory, or a ~ name) or the URL of a directory (e.g.
+    "https://physionet.org/files/mitdb/1.0.0/"; see wfdbx_set_network).
+    Names given as absolute paths, ~ names or URLs are used as given;
+    nothing else is searched.  None or "" restores the default: the value of
+    the environment variable WFDBX_INPUT_DIR if it is set, otherwise none
+    (names are used as given, relative to the current directory).  Not
+    used in legacy mode (which searches the WFDB path).
     """
+    _init_input_dir()
+    previous = _io.input_dir
+    _put_input_dir(d)
+    return previous
+
+
+def wfdbx_get_input_dir():
+    """Return the input directory (see wfdbx_set_input_dir), or None."""
+    _init_input_dir()
+    return _io.input_dir
+
+
+_OUTPUT_URL_ERROR = ("wfdbx_set_output_dir: the output directory must be a "
+                     "local directory\n")
+
+
+def _init_output_dir():
+    if not _io.output_dir_init:
+        _io.output_dir_init = True
+        v = os.environ.get("WFDBX_OUTPUT_DIR")
+        if v:
+            if _is_url(v):
+                wfdb_error(_OUTPUT_URL_ERROR)
+            else:
+                _io.env_output_dir = _io.output_dir = v
+
+
+def wfdbx_set_output_dir(d):
+    """Set the output directory (a wfdb-x addition); return the previous one
+    (None if none).
+
+    Output files (WFDB_WRITE or WFDB_APPEND mode) named by a relative name
+    (the record name and the file type) are created as ``d + "/" + name``
+    (in legacy mode, any name); ``d`` may be relative to the current
+    directory or a ~ name.  None or "" restores the default: the value of
+    the environment variable WFDBX_OUTPUT_DIR if it is set, otherwise none
+    (files are created as named).  A URL is refused: an error is reported,
+    the setting is unchanged, and its current value is returned.
+    """
+    _init_output_dir()
+    if d and _is_url(d):
+        wfdb_error(_OUTPUT_URL_ERROR)
+        return _io.output_dir
     previous = _io.output_dir
-    _io.output_dir = d if d else None
+    _io.output_dir = d if d else _io.env_output_dir
     return previous
 
 
 def wfdbx_get_output_dir():
-    """Return the directory set by wfdbx_set_output_dir, or None."""
+    """Return the output directory (see wfdbx_set_output_dir), or None."""
+    _init_output_dir()
     return _io.output_dir
+
+
+def wfdbx_set_network(on):
+    """Allow (on true) or forbid (on false) network access, i.e., opening
+    URLs (a wfdb-x addition); return the previous setting (1 or 0).
+
+    None or a negative number restores the default: allowed if the
+    environment variable WFDBX_NETWORK is set to a non-zero number,
+    otherwise forbidden.  Remote files are read in full (urllib; redirects
+    are followed, an HTTP status of 400 or more is a failure, and reading
+    gives up if connecting takes 30 s or no data arrives for 30 s, with no
+    limit on the total time) and kept for the rest of the process (each URL is requested at most
+    once).  Never in legacy mode, which reads no remote files.
+    """
+    previous = wfdbx_get_network()
+    if on is None or (not isinstance(on, bool) and on < 0):
+        _io.network = _io.env_network
+    else:
+        _io.network = bool(on)
+    return previous
+
+
+def wfdbx_get_network():
+    """Return 1 if network access is allowed (see wfdbx_set_network), else
+    0."""
+    if _io.network is None:
+        v = os.environ.get("WFDBX_NETWORK")
+        _io.env_network = v is not None and strtol(v, 10)[0] != 0
+        _io.network = _io.env_network
+    return 1 if _io.network else 0
 
 
 def _legacy():
@@ -547,25 +729,129 @@ def _std_stream(read):
     return _stdout_file
 
 
-def wfdb_open(s, record, mode):
-    """Find and open a WFDB file of type s for a record.
-
-    ``mode`` is WFDB_READ (search the WFDB path; an absolute name is opened
-    directly first, except in legacy mode), WFDB_WRITE (create the file in
-    the current directory, or under the directory part of ``record``, within
-    the output directory if one is set) or WFDB_APPEND.  The record name
-    "-" means the standard input or output.  Returns a WFDBFile, or None on
-    failure.
-    """
-    if s is None:
-        s = ""
-    if record is None or record == "":
-        if s:
-            record, s = s, ""
+def _expand_home(name):
+    """Return name with a leading "~" or "~/" replaced by the home directory
+    ($HOME, or that of the current user if HOME is not set; on MS-Windows,
+    %USERPROFILE%), and, on POSIX systems, "~user" by the home directory of
+    that user (unchanged if there is no such user), as os.path.expanduser
+    does on POSIX systems."""
+    if not name.startswith("~"):
+        return name
+    i = 1
+    while i < len(name) and not _is_dsep(name[i]):
+        i += 1
+    home = None
+    if i == 1:
+        if os.name == "nt":
+            home = os.environ.get("USERPROFILE")
         else:
-            return None
-    if record == "-":
-        return _std_stream(mode == WFDB_READ)
+            home = os.environ.get("HOME")
+            if home is None:
+                try:
+                    import pwd
+                    home = pwd.getpwuid(os.getuid()).pw_dir
+                except (ImportError, KeyError):
+                    home = None
+    elif os.name != "nt":
+        try:
+            import pwd
+            home = pwd.getpwnam(name[1:i]).pw_dir
+        except (ImportError, KeyError):
+            home = None
+    if home is None:
+        return name
+    while home and _is_dsep(home[-1]):
+        home = home[:-1]
+    return (home + name[i:]) or "/"
+
+
+def _join(d, name, sep):
+    """d + sep + name, with exactly one separator ('/' in a URL)."""
+    if _is_url(d):
+        sep = "/"
+    if not d or d[-1] == sep or _is_dsep(d[-1]):
+        return d + name
+    return d + sep + name
+
+
+def _resolve(name, output):
+    """The location of the file named name (normal mode): an absolute name
+    or a URL as given, a ~ name expanded, and a relative name under the
+    input directory (for reading) or the output directory (for writing), if
+    one is set."""
+    if name.startswith("~"):
+        return _expand_home(name)
+    if _is_absolute_path(name) or _is_url(name):
+        return name
+    if output:
+        _init_output_dir()
+        d = _io.output_dir
+    else:
+        _init_input_dir()
+        d = _io.input_dir
+    if not d:
+        return name
+    return _join(_expand_home(d), name, DSEP if output else "/")
+
+
+def _in_header_dir(name):
+    """True if a file name found in a header names a file in the header's
+    directory or below it: a relative name that does not begin with '~'
+    and has no ".." component (on MS-Windows, no drive letter either)."""
+    if _is_absolute_path(name) or _is_url(name) or name.startswith("~"):
+        return False
+    if os.name == "nt":
+        if name[1:2] == ":":
+            return False
+        name = name.replace("\\", "/")
+    return ".." not in name.split("/")
+
+
+def _dirname(name):
+    """The directory part of a file name or URL, including its final
+    separator ("" if it has none)."""
+    i = len(name)
+    while i > 0 and not _is_dsep(name[i - 1]):
+        i -= 1
+    return name[:i]
+
+
+def _open_at(p, s):
+    """Open the file at location p for reading, trying both forms of its
+    name (see _spr1 and _spr2) there."""
+    s = s or ""
+    _io.wfdb_filename = _spr1(p, s)
+    f = wfdb_fopen(_io.wfdb_filename, "rb")
+    if f is not None:
+        return f
+    long_filename = _io.wfdb_filename
+    _io.wfdb_filename = _spr2(p, s)
+    if _io.wfdb_filename != long_filename:
+        return wfdb_fopen(_io.wfdb_filename, "rb")
+    return None
+
+
+def _open_in(d, s, name, record):
+    """Open, for reading, a file named in the header of a record (a signal
+    file, or a segment of type s): name, in the directory d of that header
+    (as given by _dirname; None if unknown, for a header read from the
+    standard input: then name is resolved as any relative name).  The name
+    must be in that directory or below it; the signal file name "-" (the
+    standard input) is also accepted."""
+    if name == "-":
+        return wfdb_open(s, name, WFDB_READ)
+    if not _in_header_dir(name):
+        wfdb_error("init: file %s named in the header of record %s is not "
+                   "in the header's directory\n", name, record)
+        return None
+    if d is None:
+        return wfdb_open(s, name, WFDB_READ)
+    return _open_at(d + name, s)
+
+
+def _expand_record(record):
+    """The record name as wfdb_open uses it: a name ending with '/' gets
+    another copy of its final element ('abc/123/' -> 'abc/123/123')."""
     rlen = len(record)
     r = record
     if rlen > 1 and record[-1] == "/":
@@ -578,24 +864,65 @@ def wfdb_open(s, record, mode):
             q -= 1
         if q < p:
             r = record + record[q:p]
+    return r
+
+
+def _output_file(name):
+    """wfdb-x: the name of the local file that wfdb_open(name, None,
+    WFDB_WRITE) creates in normal mode, or None if it creates none (the
+    standard output, or a URL)."""
+    if not name or name == "-":
+        return None
+    r = _expand_record(name)
+    if _is_url(r):
+        return None
+    return _resolve(r, True)
+
+
+def wfdb_open(s, record, mode):
+    """Open a WFDB file of type s for a record.
+
+    ``mode`` is WFDB_READ, WFDB_WRITE (create the file) or WFDB_APPEND.  The
+    file name is the record name and the type, joined by a '.' (or either of
+    them alone if the other is empty).  The record name "-" means the
+    standard input or output.  wfdb-x: a relative name is read under the
+    input directory (wfdbx_set_input_dir) and written under the output
+    directory (wfdbx_set_output_dir); an absolute name, a ~ name or a URL is
+    used as given (a URL can only be read, and only if network access is
+    allowed: wfdbx_set_network).  Nothing is searched.  In legacy mode,
+    an input file is searched for in the WFDB path (see getwfdb), and an
+    output file is created as named (in the output directory, if one is
+    set).  Returns a WFDBFile, or None on failure.
+    """
+    if s is None:
+        s = ""
+    if record is None or record == "":
+        if s:
+            record, s = s, ""
+        else:
+            return None
+    if record == "-":
+        return _std_stream(mode == WFDB_READ)
+    r = _expand_record(record)
     if mode in (WFDB_WRITE, WFDB_APPEND):
         _io.wfdb_filename = _spr1(r, s)
-        if _io.output_dir:      # wfdb-x: in the output directory, if set
+        _init_output_dir()
+        if not _legacy():
+            # wfdb-x: a relative name in the output directory, if one is
+            # set; a URL cannot be written
+            if _is_url(_io.wfdb_filename):
+                return None
+            _io.wfdb_filename = _resolve(_io.wfdb_filename, True)
+        elif _io.output_dir:    # wfdb-x: legacy mode: any name
             _io.wfdb_filename = _io.output_dir + DSEP + _io.wfdb_filename
         return wfdb_fopen(_io.wfdb_filename,
                           "wb" if mode == WFDB_WRITE else "ab")
+    if not _legacy():
+        # wfdb-x: the one location that the name designates
+        return _open_at(_resolve(r, False), s)
     if not _io.path_list:
         getwfdb()
     if r.startswith("http://") or r.startswith("https://"):
-        _io.wfdb_filename = _spr1(r, s)
-        f = wfdb_fopen(_io.wfdb_filename, "rb")
-        if f is not None:
-            wfdb_addtopath(_io.wfdb_filename)
-            return f
-    # wfdb-x: an absolute local path is opened directly (and, as for a URL,
-    # its directory is added to the WFDB path); if it cannot be, the WFDB
-    # path is searched as in the C library (and in legacy mode).
-    if _is_absolute_path(r) and not _legacy():
         _io.wfdb_filename = _spr1(r, s)
         f = wfdb_fopen(_io.wfdb_filename, "rb")
         if f is not None:
@@ -648,48 +975,58 @@ def wfdb_open(s, record, mode):
     return None
 
 
-_net_cache = {}
+def _fetch(url):
+    """Read a remote file in full (wfdb-x: once per process; failures are
+    remembered too).  Returns its contents (bytes), or None."""
+    if url in _io.fetched:
+        return _io.fetched[url]
+    data = None
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "wfdb-x/" + WFDB_VERSION})
+        with urllib.request.urlopen(req, timeout=NET_TIMEOUT) as resp:
+            if getattr(resp, "status", 200) < 400:
+                data = resp.read()
+    except Exception:
+        data = None
+    _io.fetched[url] = data
+    return data
 
 
-def _net_open(url):
-    """Read a remote file in its entirety (read-only access)."""
-    if url in _net_cache:
-        data = _net_cache[url]
-    else:
-        try:
-            import urllib.request
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "wfdb-x/" + WFDB_VERSION})
-            with urllib.request.urlopen(req, timeout=NET_TIMEOUT) as resp:
-                if getattr(resp, "status", 200) >= 400:
-                    data = None
-                else:
-                    data = resp.read()
-        except Exception:
-            data = None
-        _net_cache[url] = data
+def _fetch_open(url):
+    """Open a remote file for reading (normal mode), if network access is
+    allowed; the first time it is not, print a message."""
+    if not wfdbx_get_network():
+        if not _io.network_warned:
+            _io.network_warned = True
+            wfdb_error("wfdb-x: network access is disabled; set "
+                       "WFDBX_NETWORK=1 or call wfdbx_set_network(1) to "
+                       "open %s\n", url)
+        return None
+    data = _fetch(url)
     if data is None:
         return None
-    return io.BytesIO(data)
+    return WFDBFile(io.BytesIO(data), WFDB_NET, url)
 
 
 def wfdb_fopen(fname, mode):
     """Open a file by name (local path or URL); return a WFDBFile or None.
 
-    ``mode`` is a binary mode ("rb", "wb" or "ab"); remote files can only
-    be read.  Names containing ".." are refused.  When a file cannot be
-    created, missing directories in its path are created and the attempt is
-    repeated.
+    ``mode`` is a binary mode ("rb", "wb" or "ab").  An http:// or https://
+    URL can only be read, if network access is allowed (see
+    wfdbx_set_network).  When a file cannot be created, missing directories
+    in its path are created and the attempt is repeated.  In legacy mode,
+    names containing ".." or "://" are refused (as by the reference C
+    library, built without network support).
     """
-    if fname is None or ".." in fname:
+    if fname is None:
         return None
-    if "://" in fname:
-        if "r" not in mode:
+    if _legacy():
+        if ".." in fname or "://" in fname:
             return None
-        fp = _net_open(fname)
-        if fp is None:
-            return None
-        return WFDBFile(fp, WFDB_NET, fname)
+    elif _is_url(fname):
+        return _fetch_open(fname) if mode[0] == "r" else None
     try:
         if mode[0] == "r" and os.path.isdir(fname):
             return None

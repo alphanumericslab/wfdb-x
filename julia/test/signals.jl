@@ -17,11 +17,13 @@ function with_data(f)
     end
     w = Wfdb()
     W.setwfdb(w, ".")
-    cd(d) do
-        try
-            f(w)
-        finally
-            W.wfdbquit(w)
+    keeping_wfdb_env() do
+        cd(d) do
+            try
+                f(w)
+            finally
+                W.wfdbquit(w)
+            end
         end
     end
     rm(d; recursive=true, force=true)
@@ -1006,7 +1008,7 @@ end
 @testset "tools in legacy mode" begin
     data = W.workload_data_source()
     if data !== nothing
-        env = ("WFDB" => ".",)
+        env = ("WFDBX_INPUT_DIR" => ".",)
         st, out, err = W.run_tool("wrsamp", ["--legacy", "-o", "tl"]; stdin="1 2\n",
                                   dir=mktempdir(), env=env)
         @test st == 0
@@ -1034,7 +1036,7 @@ end
 @testset "tools in-process" begin
     data = W.workload_data_source()
     if data !== nothing
-        env = ("WFDB" => ".",)
+        env = ("WFDBX_INPUT_DIR" => ".",)
         st, out, err = W.run_tool("rdsamp", ["-r", "100s", "-t", "s3"]; dir=data, env=env)
         @test st == 0 && isempty(err)
         @test out == b"              0\t    995\t   1011\n              1\t    995\t   1011\n              2\t    995\t   1011\n"
@@ -1259,6 +1261,181 @@ end
                                                 units="mV", dir="out")
         @test W.wfdbx_get_output_dir(w) == b"keep"
         W.wfdbx_set_output_dir(w, nothing)
+    end
+end
+
+
+# A signal file shorter than its header says (getvec status -3, unexpected
+# EOF) is an error of read_record, not the end of the data; the low-level
+# API is unchanged.
+@testset "read_record truncated signal file" begin
+    with_data() do w
+        W.wfdbquiet(w)
+        x = Int32[1 2; 3 4; 5 6; 7 8]
+        for name in ("tr", "ok")
+            W.write_record(w, name, x, 100.0; gains=100.0, adcres=16, units="mV")
+        end
+        open(f -> truncate(f, 8), "tr.dat", "r+")   # 2 of the 4 frames (format 16)
+        for legacy in (false, true)
+            # (1) the error, and the library is left usable
+            @test hlerr(() -> W.read_record(w, "tr"; legacy=legacy)) ==
+                  "can't read signal data of record tr (getvec status -3)"
+            @test W.read_record(w, "ok"; legacy=legacy).samples == x
+            # reading only what the file holds is not an error
+            @test W.read_record(w, "tr"; to=2, legacy=legacy).samples == x[1:2, :]
+            # (2) a sub-interval, and `to` past the end of a record whose
+            # header gives its length (what there is, no error)
+            @test W.read_record(w, "ok"; from=1, to=3, legacy=legacy).samples == x[2:3, :]
+            @test W.read_record(w, "ok"; to=10, legacy=legacy).samples == x
+        end
+        # (3) the low-level API: getvec returns -3 at the end of the
+        # truncated file, getvecs the frames read
+        @test W.isigopen(w, "tr", nothing, 2) == 2
+        @test [vec_(w, 2)[1] for _ in 1:3] == [2, 2, -3]
+        W.wfdbquit(w)
+        buf = zeros(Int32, 20)
+        @test W.isigopen(w, "tr", nothing, 2) == 2
+        @test W.getvecs_status(w, buf, 10) == (2, -3)
+        W.wfdbquit(w)
+        @test W.isigopen(w, "tr", nothing, 2) == 2
+        @test W.getvecs(w, buf, 10) == 2
+        W.wfdbquit(w)
+        @test W.isigopen(w, "ok", nothing, 2) == 2
+        @test W.getvecs_status(w, buf, 10) == (4, -1)
+        W.wfdbquit(w)
+        W.wfdbverbose(w)
+    end
+end
+
+
+# The library's messages on the standard error while f() runs.
+function lib_stderr(f)
+    p = W.cproc()
+    p.err_capture = UInt8[]
+    try
+        f()
+        return String(copy(p.err_capture))
+    finally
+        p.err_capture = nothing
+    end
+end
+
+# wfdb-x: a checksum error (getvec status -4) is a warning of read_record
+# (every frame is returned), not an error; checksum_warning=false turns it
+# off. The library's getvec message is not printed then.
+@testset "read_record checksum warning" begin
+    with_data() do w
+        msg = "checksum error in record ck: the signal data do not match the checksums in its header"
+        x = Int32[1 2; 3 4; 5 6; 7 8]
+        W.write_record(w, "ck", x, 100.0; gains=100.0, adcres=16, units="mV")
+        open("ck.dat", "r+") do f       # sample (1, 0): 3 -> 9
+            seek(f, 4)
+            write(f, UInt8[9, 0])
+        end
+        y = copy(x)
+        y[2, 1] = 9
+        # (the same samples with correct checksums: every frame, the last one
+        # included, is returned in both cases)
+        W.write_record(w, "good", y, 100.0; gains=100.0, adcres=16, units="mV")
+        for legacy in (false, true)
+            good = W.read_record(w, "good"; legacy=legacy).samples
+            @test good == y
+            local r
+            err = lib_stderr() do
+                r = @test_logs (:warn, msg) W.read_record(w, "ck"; legacy=legacy)
+            end
+            @test r.samples == y && size(r.samples) == size(good)
+            @test err == ""                 # (no getvec message)
+            @test W.physical(r) == y ./ 100.0
+            err = lib_stderr() do
+                # no warning with the option off; none when the record is
+                # not read to its end (no checksum is verified)
+                r = @test_logs W.read_record(w, "ck"; checksum_warning=false, legacy=legacy)
+                @test r.samples == y
+                @test (@test_logs W.read_record(w, "ck"; to=3, legacy=legacy)).samples == y[1:3, :]
+                @test (@test_logs W.read_record(w, "ck"; from=1, to="e", checksum_warning=false,
+                                                legacy=legacy)).samples == y[2:end, :]
+            end
+            @test err == ""
+        end
+        # the truncated case is still an error
+        W.write_record(w, "tr", x, 100.0; gains=100.0, adcres=16, units="mV")
+        open(f -> truncate(f, 8), "tr.dat", "r+")
+        W.wfdbquiet(w)
+        @test_throws W.WfdbError W.read_record(w, "tr")
+        W.wfdbverbose(w)
+        # the low-level API is unchanged: getvec returns -4 for the last
+        # frame (filled), getvecs stops before it, and the message is printed
+        local v
+        err = lib_stderr() do
+            @test W.isigopen(w, "ck", nothing, 2) == 2
+            v = [vec_(w, 2) for _ in 1:4]
+            W.wfdbquit(w)
+            buf = zeros(Int32, 20)
+            @test W.isigopen(w, "ck", nothing, 2) == 2
+            @test W.getvecs_status(w, buf, 10) == (3, -4)
+            @test buf[1:6] == vec(permutedims(y[1:3, :]))
+            W.wfdbquit(w)
+        end
+        @test [x[1] for x in v] == [2, 2, 2, -4] && v[4][2:3] == [7, 8]
+        @test err == "getvec: checksum error in signal 0\n"^2
+        @test W.wfdberror(w) == b"getvec: checksum error in signal 0\n"
+    end
+end
+
+# wfdb-x: an output signal file is never a signal file of the open input
+# record (the files are compared, not their names); legacy mode: no check
+# (as t_alias in api_expect.c).
+@testset "output file is an input file" begin
+    with_data() do w
+        spec(fname) = [Siginfo(fname=Vector{UInt8}(fname), desc=Vector{UInt8}("s$i"),
+                               units=Vector{UInt8}("mV"), gain=100.0, group=0, fmt=16,
+                               adcres=12, spf=1) for i in 0:2]
+        fmt16 = read("fmt16.dat")
+        fmt212 = read("fmt212.dat")
+        hardlink("fmt16.dat", "ahard16.dat")
+        # an open signal file; under another name; a hard link; a segment of
+        # a multi-segment record that is not open yet (fmt212, vlay's last)
+        for (rec, fname) in [("fmt16", "fmt16.dat"), ("fmt16", "./fmt16.dat"),
+                             ("fmt16", "ahard16.dat"), ("skew", "fmt16.dat"),
+                             ("vlay", "fmt16.dat"), ("vlay", "fmt212.dat")]
+            W.wfdbquit(w)
+            W.wfdbquiet(w)
+            @test W.isigopen(w, rec, nothing, 3) == 3
+            W.wfdbverbose(w)
+            W.setsampfreq(w, 250.0)
+            err = lib_stderr(() -> @test W.osigfopen(w, spec(fname), 3) == -3)
+            @test err == "osigfopen: output file $fname is also an input file\n"
+            @test vec_(w, 3)[1] == 3        # the input is still readable
+        end
+        # osigopen names itself
+        W.wfdbquit(w)
+        @test W.isigopen(w, "fmt16", nothing, 3) == 3
+        err = lib_stderr(() -> @test W.osigopen(w, "fmt16", nothing, 3) == -3)
+        @test err == "osigopen: output file fmt16.dat is also an input file\n"
+        W.wfdbquit(w)
+        @test read("fmt16.dat") == fmt16 && read("fmt212.dat") == fmt212
+        # not an input file: another file, a file that does not exist yet
+        W.wfdbquiet(w)
+        for fname in ("fmt8.dat", "new.dat")
+            @test W.isigopen(w, "vlay", nothing, 3) == 3
+            W.setsampfreq(w, 250.0)
+            @test W.osigfopen(w, spec(fname), 3) == 3
+            W.wfdbquit(w)
+        end
+        W.wfdbverbose(w)
+        # with no input record open, any file can be written
+        W.setsampfreq(w, 250.0)
+        @test lib_stderr(() -> @test W.osigfopen(w, spec("fmt8.dat"), 3) == 3) == ""
+        W.wfdbquit(w)
+        # legacy mode: the original behavior (the file is created, truncated)
+        W.wfdbx_set_legacy(w, true)
+        @test W.isigopen(w, "fmt16", nothing, 3) == 3
+        W.setsampfreq(w, 250.0)
+        @test W.osigfopen(w, spec("fmt16.dat"), 3) == 3
+        W.wfdbquit(w)
+        W.wfdbx_set_legacy(w, false)
+        @test filesize("fmt16.dat") == 0
     end
 end
 

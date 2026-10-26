@@ -24,6 +24,12 @@
 // 12 bits and millivolts), because a silently assumed value corrupts every
 // result derived from it. See docs/DIVERGENCES.md. The original behavior
 // remains available with --legacy (see docs/DIVERGENCES.md).
+// Design decision (Reza Sameni, Oct 2026): the signal files and segments
+// named in a header are in the directory of that header (on disk or at its
+// URL), or below it; nothing is searched (the C library searched the WFDB
+// path), because a search can silently open the wrong file, and a header must
+// not make the library read other local files or contact other servers. The
+// original behavior remains available with --legacy (see docs/DIVERGENCES.md).
 // GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #include "wfdblib.hpp"
@@ -35,6 +41,13 @@
 #include <cstring>
 #include <ctime>
 #include <limits>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#if defined(_WIN32)
+#include <io.h>         // wfdb-x: for file_id
+#include <windows.h>
+#endif
 
 namespace wfdbx {
 namespace detail {
@@ -239,6 +252,23 @@ struct SigMapInfo {
 // invalid signal numbers) in the unit conversion functions.  It exists for
 // compatibility only.
 bool legacy_mode = false;
+
+// wfdb-x: files named in a header.  In normal mode, the signal files named in
+// a header, and the segments (and layout header) named in the header of a
+// multi-segment record, are in the directory of that header, or below it:
+// "a.dat" is <header directory>/a.dat; a name that is absolute, begins with
+// '~', is a URL, or contains a ".." component is refused (except "~" as a
+// segment, a null segment, and "-" as a signal file, the standard input).
+// See wfdbx_open_in.
+std::optional<std::string> hdr_dir;     // directory of the header read last
+                                        // by readheader (see wfdbx_dirname;
+                                        // nullopt for the standard input)
+std::optional<std::string> msrec_dir;   // directory and name of the header
+std::optional<std::string> msrec_name;  // of the current multi-segment
+                                        // record (msrec_name: if any)
+bool user_segments = false;
+bool checksum_quiet = false;            // see wfdbx_set_checksum_quiet             // true while setmsheader reads the
+                                        // headers of the segments it was given
 
 // Set by readheader
 std::vector<HSData> hsd;            // signals described in the header
@@ -589,6 +619,24 @@ void read_edf_str(char *buf, int size, WFDBFile *ifile)
     }
 }
 
+// wfdb-x: open the header (of type s: "hea", or nullptr for a file name) of a
+// record, or of a segment named in the header of the current multi-segment
+// record, and note its directory (see hdr_dir).
+FilePtr open_header(const char *s, const char *record)
+{
+    if (legacy_mode) return wfdb_open(s, record, WFDB_READ);
+    if (!in_msrec) {
+        msrec_dir.reset();
+        msrec_name.reset();
+    }
+    FilePtr f = (in_msrec && msrec_name && !user_segments)
+        ? wfdbx_open_in(msrec_dir, s, record, msrec_name->c_str())
+        : wfdb_open(s, record, WFDB_READ);
+    hdr_dir.reset();
+    if (f && !f->is_std()) hdr_dir = wfdbx_dirname(wfdb_filename());
+    return f;
+}
+
 // Get header information from an EDF file.
 int edfparse(WFDBFile *ifile)
 {
@@ -760,14 +808,14 @@ int readheader(const char *record)
     while (qq > record && *qq != '.' && *qq != '/' && *qq != ':' && *qq != '\\')
         qq--;
     if (*qq == '.') {
-        if ((hheader = wfdb_open(nullptr, record, WFDB_READ)) == nullptr) {
+        if ((hheader = open_header(nullptr, record)) == nullptr) {
             wfdb_error("init: can't open %s\n", record);
             return -1;
         } else if (std::strcmp(qq + 1, "hea"))  // assume EDF if not '.hea'
             return edfparse(hheader.get());
     }
     // Otherwise, assume the file name is record.hea.
-    else if ((hheader = wfdb_open("hea", record, WFDB_READ)) == nullptr) {
+    else if ((hheader = open_header("hea", record)) == nullptr) {
         wfdb_error("init: can't open header for record %s\n", record);
         return -1;
     }
@@ -907,6 +955,11 @@ int readheader(const char *record)
 
     // Special processing for master header of a multi-segment record.
     if (segments && !in_msrec) {
+        // wfdb-x: the segments are in the directory of this header
+        if (!legacy_mode) {
+            msrec_dir = hdr_dir;
+            msrec_name = std::string(record);
+        }
         msbtime = btime;
         msbdate = bdate;
         msnsamples = nsamples;
@@ -2124,7 +2177,11 @@ int getskewedframe(WFDB_Sample *vector)
         if (is->info.nsamp >= 0 && --is->info.nsamp == 0 &&
             (is->info.cksum & 0xffff) && !in_msrec && !isedf &&
             is->info.fmt != 0) {
+            // wfdb-x: recorded but not printed during a high-level read
+            // (which reports the checksum error itself)
+            bool print = checksum_quiet ? wfdb_set_error_print(false) : true;
             wfdb_error("getvec: checksum error in signal %d\n", s);
+            if (checksum_quiet) wfdb_set_error_print(print);
             stat = -4;
         }
     }
@@ -2203,6 +2260,138 @@ int rgetvec(WFDB_Sample *vector)
 // ---------------------------------------------------------------------------
 // Opening output signals
 
+// wfdb-x: an output signal file is never one of the input files.  In normal
+// mode, openosig refuses to create (and so to truncate) an output signal file
+// that is the same file as a signal file of the open input record: a signal
+// file open for input, or a signal file of any segment of the open
+// multi-segment record (read from the segment's header; segments are opened
+// later, as they are reached).  "The same file" is decided by the files
+// themselves, not by their names: device and inode numbers on POSIX, volume
+// serial number and file index on MS-Windows.  Decided by Reza Sameni, Oct
+// 2026: e.g., "xform -i vlay -o fmt16", fmt16 being a segment of vlay,
+// truncated fmt16.dat while reading it, with a platform-dependent result and
+// the input destroyed.  Legacy mode: no check (the original behavior).
+struct FileId {
+#if defined(_WIN32)
+    DWORD vol = 0, hi = 0, lo = 0;
+    bool operator==(const FileId &o) const
+        { return vol == o.vol && hi == o.hi && lo == o.lo; }
+#else
+    dev_t dev = 0;
+    ino_t ino = 0;
+    bool operator==(const FileId &o) const
+        { return dev == o.dev && ino == o.ino; }
+#endif
+};
+
+// The identity of the open local file fp, if it can be found.
+std::optional<FileId> file_id(std::FILE *fp)
+{
+    FileId id;
+#if defined(_WIN32)
+    BY_HANDLE_FILE_INFORMATION info;
+    HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(fp)));
+    if (h == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(h, &info))
+        return std::nullopt;
+    id.vol = info.dwVolumeSerialNumber;
+    id.hi = info.nFileIndexHigh;
+    id.lo = info.nFileIndexLow;
+#else
+    struct stat st;
+    if (fstat(fileno(fp), &st) != 0) return std::nullopt;
+    id.dev = st.st_dev;
+    id.ino = st.st_ino;
+#endif
+    return id;
+}
+
+// True if f is a local file (not the standard input, not a URL) whose
+// identity is id.
+bool is_file(const WFDBFile *f, const FileId &id)
+{
+    if (!f || f->type() != WFDB_LOCAL || f->is_std() || !f->fp()) return false;
+    std::optional<FileId> fid = file_id(f->fp());
+    return fid && *fid == id;
+}
+
+bool is_url_name(const std::string &s)
+{
+    return s.compare(0, 7, "http://") == 0 || s.compare(0, 8, "https://") == 0;
+}
+
+// True if one of the signal files named in the header of segment seg (of the
+// open multi-segment record) is the file id.  The header and the signal files
+// are located as isigopen locates them in normal mode; a header or signal
+// file that cannot be found (or is at a URL) is not the file id.  No message
+// is printed.
+bool segment_has_file(const std::string &seg, const FileId &id)
+{
+    if (seg == "~" || !wfdbx_in_header_dir(seg) ||
+        (msrec_dir && is_url_name(*msrec_dir)))
+        return false;
+    FilePtr hf = msrec_name
+        ? wfdbx_open_in(msrec_dir, "hea", seg.c_str(), msrec_name->c_str())
+        : wfdb_open("hea", seg.c_str(), WFDB_READ);
+    if (!hf) return false;
+    std::optional<std::string> dir;
+    if (hf->type() == WFDB_LOCAL && !hf->is_std())
+        dir = wfdbx_dirname(wfdb_filename());
+    const char *sep = " \t\n\r";
+    std::string line;
+    int nsig = -1;
+    while (nsig != 0 && hf->getline(line)) {
+        char *save = nullptr;
+        char *p = xstrtok(&line[0], sep, &save), *q;
+        if (p == nullptr || *p == '#') continue;
+        if (nsig < 0) {     // the record line
+            if (std::strchr(p, '/') ||  // not a valid segment
+                (q = xstrtok(nullptr, sep, &save)) == nullptr ||
+                (nsig = static_cast<int>(std::strtol(q, nullptr, 10))) <= 0)
+                break;
+            continue;
+        }
+        nsig--;             // a signal line: file name, format, ...
+        if ((q = xstrtok(nullptr, sep, &save)) == nullptr ||
+            std::strtol(q, nullptr, 10) == 0 || std::strcmp(p, "-") == 0 ||
+            !wfdbx_in_header_dir(p) || !dir || is_url_name(*dir))
+            continue;
+        if (FilePtr sf = wfdbx_open_in(dir, nullptr, p, seg.c_str()))
+            if (is_file(sf.get(), id)) return true;
+    }
+    return false;
+}
+
+// True if the output signal file fname (as named in an output signal
+// specification, created by wfdb_open(fname, nullptr, WFDB_WRITE)) exists
+// and is one of the signal files of the open input record (see above).
+bool is_input_file(const char *fname)
+{
+    std::optional<std::string> path = wfdbx_output_file(fname);
+    if (!path) return false;
+    std::optional<FileId> id;
+#if defined(_WIN32)
+    if (std::FILE *fp = std::fopen(path->c_str(), "rb")) {
+        id = file_id(fp);
+        std::fclose(fp);
+    }
+#else
+    struct stat st;
+    if (stat(path->c_str(), &st) == 0) {
+        id = FileId();
+        id->dev = st.st_dev;
+        id->ino = st.st_ino;
+    }
+#endif
+    if (!id) return false;  // it does not exist: it is not an input file
+    for (WFDB_Group g = 0; g < nigroup; g++)
+        if (g < igd.size() && igd[g] && is_file(igd[g]->fp.get(), *id))
+            return true;
+    if (in_msrec && have_segarray)
+        for (int i = 0; i <= segend && i < static_cast<int>(segarray.size()); i++)
+            if (segment_has_file(segarray[i].recname, *id)) return true;
+    return false;
+}
+
 int openosig(const char *func, WFDB_Siginfo *si_out, const WFDB_Siginfo *si_in,
              unsigned int nsig)
 {
@@ -2272,6 +2461,14 @@ int openosig(const char *func, WFDB_Siginfo *si_out, const WFDB_Siginfo *si_in,
                     os->info.fmt = 16;
             }
             if (os->info.fmt != 0) {
+                // wfdb-x: never an input file (see is_input_file)
+                if (!legacy_mode && is_input_file(cstr(os->info.fname))) {
+                    wfdb_error("%s: output file %s is also an input file\n",
+                               func, cstr_or_null(os->info.fname));
+                    og->buf.clear();
+                    osigclose();
+                    return -3;
+                }
                 // An error in opening an output file is fatal.
                 og->fp = wfdb_open(cstr(os->info.fname), nullptr, WFDB_WRITE);
                 if (!og->fp) {
@@ -2305,6 +2502,13 @@ int openosig(const char *func, WFDB_Siginfo *si_out, const WFDB_Siginfo *si_in,
 // ---------------------------------------------------------------------------
 // Private functions (for use by other WFDB library functions only)
 
+bool wfdbx_set_checksum_quiet(bool on)
+{
+    bool previous = checksum_quiet;
+    checksum_quiet = on;
+    return previous;
+}
+
 void wfdb_sampquit()
 {
     if (have_sbuf) {
@@ -2329,6 +2533,9 @@ void wfdb_sigclose()
     pdays = -1;
     segments = in_msrec = 0;
     skewmax = 0;
+    msrec_dir.reset();  // wfdb-x
+    msrec_name.reset();
+    hdr_dir.reset();
     if (have_dsbuf) {
         dsbuf.clear();
         dsbuf.shrink_to_fit();
@@ -2518,7 +2725,10 @@ int isigopen(const char *record_arg, WFDB_Siginfo *siarray, int nsig)
         if (hs->info.fmt == 0)
             ig->fp.reset();     // Don't open a file for a null signal.
         else {
-            ig->fp = wfdb_open(cstr(hs->info.fname), nullptr, WFDB_READ);
+            // wfdb-x: in the directory of the header
+            ig->fp = legacy_mode
+                ? wfdb_open(cstr(hs->info.fname), nullptr, WFDB_READ)
+                : wfdbx_open_in(hdr_dir, nullptr, cstr(hs->info.fname), record);
             // Skip this group if the signal file can't be opened.
             if (!ig->fp) {
                 ig->buf.clear();
@@ -2860,11 +3070,12 @@ int getframe(WFDB_Sample *vector)
     return stat;
 }
 
-long long getvecs(WFDB_Sample *out, long long n)
+long long getvecs(WFDB_Sample *out, long long n, int *status)
 {
     long long k;
     int stat = 0;
 
+    if (status) *status = 0;
     if (n <= 0) return 0;
     // Fast path: getvec is getframe, which is getskewedframe.
     if (!have_dsbuf && ispfmax < 2 && (ifreq == 0.0 || ifreq == sfreq)) {
@@ -2886,6 +3097,7 @@ long long getvecs(WFDB_Sample *out, long long n)
             out += stride;
         }
     }
+    if (status) *status = stat;
     return (k == 0 && stat < 0) ? stat : k;
 }
 
@@ -3249,7 +3461,9 @@ int setmsheader(const char *record_arg, const char *const *segment_name,
         }
         in_msrec = 1;
         nsamples = 0;
+        user_segments = true;   // wfdb-x: names given by the caller
         n = readheader(segment_name[i]);
+        user_segments = false;
         in_msrec = old_in_msrec;
         if (n < 0) {
             wfdb_error("setmsheader: can't read segment %s header\n",

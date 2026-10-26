@@ -12,8 +12,9 @@ Programmer's Guide* (`doc/wpg-src/wpg0.tex`, cited as WPG), and comments in
 the C sources. Where the documentation and the C code disagree, wfdb-x
 follows the code.
 
-The one deliberate exception, the absence of a default sampling frequency
-and gain, is described in [`DIVERGENCES.md`](DIVERGENCES.md).
+The deliberate exceptions (no built-in signal parameters, files found only
+where they are named, and in-process annotation sorting that loses nothing)
+are described in [`DIVERGENCES.md`](DIVERGENCES.md).
 
 A few C behaviors are *undefined* (crashes, infinite loops, reads of
 uninitialized memory). wfdb-x cannot reproduce those; for each one, the
@@ -23,6 +24,31 @@ exercise them.
 The reference platform is x86-64 Linux with glibc: `char` is signed,
 `long` is 64 bits, and the library is built with `-DWFDB_LARGETIME`
 (so `WFDB_Time` is 64 bits).
+
+### Behaviors that depend on the platform
+
+The stored reference results were produced on that platform. These C
+behaviors can differ elsewhere, and wfdb-x reproduces the reference
+platform's:
+
+- **Floating-point contraction.** A compiler may evaluate `a*b + c` as one
+  fused multiply-add (Clang does by default, e.g. Apple Clang on ARM),
+  which rounds once instead of twice and can change results, such as the
+  baselines `edf2mit` computes. wfdb-x's C++ build, and the build of the C
+  reference, turn contraction off (`-ffp-contract=off`); the other
+  implementations never contract.
+- **The sign of `0/0`.** x86-64 produces a NaN with its sign bit set (which
+  `printf` shows as `-nan`), ARM one without. wfdb-x's tests construct the
+  NaNs they format from explicit bit patterns.
+- **Reading a file while writing it.** When an output file of a tool is
+  also one of its input files (for example `xform -i vlay -o fmt16`, where
+  record `vlay` reads `fmt16.dat`, which `-o fmt16` rewrites), what is read
+  depends on how much of the file the C library had read ahead before it
+  was truncated: glibc reads 4096-byte blocks. wfdb-x refuses such a
+  command (see [`DIVERGENCES.md`](DIVERGENCES.md)); in legacy mode it
+  reproduces glibc's result, but an implementation whose own runtime reads
+  ahead further (R's file connections on macOS, for example) reads more of
+  the old file.
 
 ## Documented behaviors (reproduced)
 
@@ -48,7 +74,15 @@ These look surprising but are described in the documentation.
   error in signal N` and returns -4 *for that frame*. WPG (`getvec`): "-4
   Failure: checksum error (detected only at end of file)". Applications that
   loop while `getvec(...) >= 0`, such as `rdsamp`, therefore stop before
-  printing the last frame (this consequence is not documented).
+  printing the last frame (this consequence is not documented). wfdb-x's
+  C-style functions and tools do the same. Its high-level readers (an
+  addition) return every frame, the last one included, since all of them
+  were read, and give a warning, `checksum error in record REC: the signal
+  data do not match the checksums in its header`, in each language's usual
+  way (Python `warnings`, R `warning()`, Julia `@warn`, MATLAB/Octave
+  `warning()`; the standard error in C++ and Rust, also silenced by
+  `wfdbquiet()`). The `checksum_warning` option turns the warning off; it
+  behaves identically in all six implementations.
 - **Modification labels.** `annopen` consumes the `NOTE` annotations at time
   0 (subtype 0) at the start of an annotation file, so `getann` does not
   return them. WPG (glossary, "Modification label"): "An 'invisible'

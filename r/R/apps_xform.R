@@ -671,7 +671,16 @@ app_xform <- function(args = character(0)) {
   if (!is.null(orec)) {
     r <- osigopen(orec, nosig)
     if (r$nsig != nosig) {
-      ceprintf("%s: can't write output signals\n", pname)
+      # wfdb-x: say why if an output file is one of the input files (the
+      # library's message, quieted above, is the last error)
+      e <- charToRaw(wfdberror())
+      tail <- charToRaw(" is also an input file\n")
+      if (!wfdbx_get_legacy() && startsWith(rawToChar(e), "osigopen: output file ") &&
+          length(e) > 22L + 23L && identical(e[(length(e) - 22L):length(e)], tail)) {
+        ceprintf("%s: can't write output signals (%s)\n", pname, e[-length(e)])
+      } else {
+        ceprintf("%s: can't write output signals\n", pname)
+      }
       cexit(2)
     }
     dfout <- r$si

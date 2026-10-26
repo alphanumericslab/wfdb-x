@@ -724,6 +724,87 @@ fn getvecs_equals_getvec() {
     w.wfdbverbose();
 }
 
+/// A signal file shorter than its header says (getvec status -3, unexpected
+/// EOF) is an error of read_record, not the end of the data; the low-level
+/// API is unchanged.
+#[test]
+fn read_record_truncated_signal_file() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let x = vec![1, 2, 3, 4, 5, 6, 7, 8];
+    let wo = WriteOptions {
+        gains: vec![100.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    w.write_record("tr", &x, 2, 100.0, &wo).unwrap();
+    w.write_record("ok", &x, 2, 100.0, &wo).unwrap();
+    // 2 of the 4 frames (format 16)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open("tr.dat")
+        .unwrap()
+        .set_len(8)
+        .unwrap();
+    for legacy in [false, true] {
+        let o = ReadOptions {
+            legacy,
+            ..Default::default()
+        };
+        // (1) the error, and the library is left usable
+        let e = w.read_record("tr", &o).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "can't read signal data of record tr (getvec status -3)"
+        );
+        assert_eq!(w.read_record("ok", &o).unwrap().samples, x);
+        // reading only what the file holds is not an error
+        let o2 = ReadOptions {
+            to: Some(2.into()),
+            legacy,
+            ..Default::default()
+        };
+        assert_eq!(w.read_record("tr", &o2).unwrap().samples, x[..4]);
+        // (2) a sub-interval, and sampto past the end of a record whose
+        // header gives its length (what there is, no error)
+        let o3 = ReadOptions {
+            from: Some(1.into()),
+            to: Some(3.into()),
+            legacy,
+            ..Default::default()
+        };
+        assert_eq!(w.read_record("ok", &o3).unwrap().samples, x[2..6]);
+        let o4 = ReadOptions {
+            to: Some(10.into()),
+            legacy,
+            ..Default::default()
+        };
+        assert_eq!(w.read_record("ok", &o4).unwrap().samples, x);
+    }
+    // (3) the low-level API: getvec returns -3 at the end of the truncated
+    // file, getvecs the frames read
+    let mut si = vec![Siginfo::default(); 2];
+    assert_eq!(w.isigopen("tr", &mut si, 2), 2);
+    let mut v = [0; 2];
+    assert_eq!(w.getvec(&mut v), 2);
+    assert_eq!(w.getvec(&mut v), 2);
+    assert_eq!(w.getvec(&mut v), -3);
+    w.wfdbquit();
+    let mut buf = vec![0; 20];
+    assert_eq!(w.isigopen("tr", &mut si, 2), 2);
+    assert_eq!(w.getvecs_status(&mut buf, 10), (2, -3));
+    w.wfdbquit();
+    assert_eq!(w.isigopen("tr", &mut si, 2), 2);
+    assert_eq!(w.getvecs(&mut buf, 10), 2);
+    w.wfdbquit();
+    assert_eq!(w.isigopen("ok", &mut si, 2), 2);
+    assert_eq!(w.getvecs_status(&mut buf, 10), (4, -1));
+    w.wfdbquit();
+    w.wfdbverbose();
+}
+
 #[test]
 fn physical_units() {
     let mut d = DataDir::new();
@@ -1580,7 +1661,8 @@ fn absolute_record_names() {
         to: Some("10".into()),
         ..Default::default()
     };
-    // modern: the header is opened directly, the signal file found next to it
+    // modern: the header is opened as named (the input directory set by
+    // setwfdb does not apply to an absolute name), the signal file next to it
     let r = w.read_record(abs, &opt).unwrap();
     assert_eq!(r.samples.len(), 2 * 3600);
     let a = w
@@ -1592,9 +1674,12 @@ fn absolute_record_names() {
         legacy: true,
         ..opt.clone()
     };
+    w.wfdbx_set_legacy(1); // (setwfdb sets the WFDB path in legacy mode)
+    w.setwfdb("/nonexistent-wfdbx-dir");
     assert!(w.read_record(abs, &lo).is_err());
     w.setwfdb(";");
     assert_eq!(w.read_record(abs, &lo).unwrap().samples, r.samples);
+    w.wfdbx_set_legacy(0);
 }
 
 /// wfdb-x: in legacy mode, the sortann program is run in the output
@@ -1678,4 +1763,159 @@ fn dir_checks_first() {
         assert_eq!(e.message(), msg);
     }
     assert!(!std::path::Path::new("nosuch").exists());
+}
+
+// ---------------------------------------------------------------------------
+// wfdb-x: a checksum error is a warning in read_record; an output signal
+// file is never one of the input files
+
+const CKSUM_WARNING: &[u8] = b"wfdb-x: checksum error in record ck: the signal data do not match the checksums in its header\n";
+
+/// Writes record `name` (2 signals, 4 frames, format 16).
+fn write_ck(w: &mut Wfdb, name: &str, x: &[i32]) {
+    let o = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    w.write_record(name, x, 2, 100.0, &o).unwrap();
+}
+
+#[test]
+fn read_record_checksum_warning() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let x = [1, 2, 3, 4, 5, 6, 7, 8];
+    write_ck(w, "ck", &x);
+    // change one sample: the checksum in the header no longer matches
+    let mut dat = slurp("ck.dat");
+    dat[4] = 30;
+    std::fs::write("ck.dat", &dat).unwrap();
+    let mut y = x;
+    y[2] = 30;
+    write_ck(w, "good", &y);
+    let good = w.read_record("good", &ReadOptions::default()).unwrap();
+    for legacy in [false, true] {
+        let opt = ReadOptions {
+            legacy,
+            ..Default::default()
+        };
+        // all the frames, including the one with the checksum status
+        let r = w.read_record("ck", &opt).unwrap();
+        assert_eq!(r.samples, good.samples);
+        assert_eq!(r.samples.len(), 8);
+        assert_eq!(w.wfdberror(), CKSUM_WARNING);
+        assert_eq!(
+            r.physical_signal(0).unwrap(),
+            good.physical_signal(0).unwrap()
+        );
+        // option off: the same frames, no warning (getvec's message is
+        // recorded, not printed)
+        let off = ReadOptions {
+            checksum_warning: false,
+            ..opt.clone()
+        };
+        assert_eq!(w.read_record("ck", &off).unwrap().samples, good.samples);
+        assert_eq!(w.wfdberror(), b"getvec: checksum error in signal 0\n");
+        // not to the end: no checksum check
+        let part = ReadOptions {
+            to: Some("s3".into()),
+            ..opt.clone()
+        };
+        assert_eq!(
+            w.read_record("ck", &part).unwrap().samples,
+            good.samples[..6]
+        );
+        assert_ne!(w.wfdberror(), CKSUM_WARNING);
+        // up to the last frame exactly
+        let last = ReadOptions {
+            to: Some("s4".into()),
+            ..opt.clone()
+        };
+        assert_eq!(w.read_record("ck", &last).unwrap().samples, good.samples);
+        assert_eq!(w.wfdberror(), CKSUM_WARNING);
+    }
+    // the C-style API is unchanged: getvec stops at the checksum frame
+    let mut si = vec![Siginfo::default(); 2];
+    assert_eq!(w.isigopen("ck", &mut si, 2), 2);
+    let mut v = [0; 2];
+    let stats: Vec<i32> = (0..4).map(|_| w.getvec(&mut v)).collect();
+    assert_eq!(stats, [2, 2, 2, -4]);
+    assert_eq!(v, [7, 8]);
+    assert_eq!(w.wfdberror(), b"getvec: checksum error in signal 0\n");
+    w.wfdbquit();
+    // a truncated signal file is still an error
+    std::fs::write("ck.dat", &dat[..10]).unwrap();
+    let e = w.read_record("ck", &ReadOptions::default()).unwrap_err();
+    assert!(e
+        .message()
+        .starts_with("can't read signal data of record ck (getvec status"));
+}
+
+fn out_spec(fname: &str) -> Vec<Siginfo> {
+    vec![Siginfo {
+        fname: Some(fname.into()),
+        desc: Some(b"x".to_vec()),
+        fmt: 16,
+        gain: 200.0,
+        adcres: 16,
+        ..Default::default()
+    }]
+}
+
+#[test]
+fn output_file_is_input_file() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let size = |f: &str| std::fs::metadata(f).unwrap().len();
+    let mut si = vec![Siginfo::default(); 3];
+    let mut v = [0; 3];
+    #[cfg(unix)]
+    std::fs::hard_link("fmt16.dat", "ahard16.dat").unwrap();
+    let mut names = vec!["fmt16.dat", "./fmt16.dat"];
+    if cfg!(unix) {
+        names.push("ahard16.dat");
+    }
+    for name in names {
+        assert_eq!(w.isigopen("fmt16", &mut si, 3), 3);
+        assert_eq!(w.osigfopen(&out_spec(name), 1), -3, "{name}");
+        assert_eq!(
+            w.wfdberror(),
+            format!("osigfopen: output file {name} is also an input file\n").as_bytes()
+        );
+        assert_eq!(w.getvec(&mut v), 3); // the input is intact
+        assert_eq!(size("fmt16.dat"), 9000);
+        w.wfdbquit();
+    }
+    // osigopen: the same check, with its name
+    assert_eq!(w.isigopen("fmt16", &mut si, 3), 3);
+    let mut so = vec![Siginfo::default(); 3];
+    assert_eq!(w.osigopen("fmt16", &mut so, 3), -3);
+    assert_eq!(
+        w.wfdberror(),
+        b"osigopen: output file fmt16.dat is also an input file\n"
+    );
+    w.wfdbquit();
+    // another file: written
+    assert_eq!(w.isigopen("fmt16", &mut si, 3), 3);
+    assert_eq!(w.osigfopen(&out_spec("new16.dat"), 1), 1);
+    w.wfdbquit();
+    // a segment of a multi-segment record not open yet
+    std::fs::write("ms2.hea", b"ms2/2 2 360 23400\nnull 1800\n100s 21600\n").unwrap();
+    let mut s2 = vec![Siginfo::default(); 2];
+    assert_eq!(w.isigopen("ms2", &mut s2, 2), 2);
+    assert_eq!(w.osigfopen(&out_spec("100s.dat"), 1), -3);
+    assert_eq!(size("100s.dat"), 64800);
+    assert_eq!(w.osigfopen(&out_spec("other.dat"), 1), 1);
+    w.wfdbquit();
+    // legacy mode: the original behavior (the input is truncated)
+    w.wfdbx_set_legacy(1);
+    assert_eq!(w.isigopen("fmt16", &mut si, 3), 3);
+    assert_eq!(w.osigfopen(&out_spec("fmt16.dat"), 1), 1);
+    w.wfdbquit();
+    w.wfdbx_set_legacy(0);
+    assert_eq!(size("fmt16.dat"), 0);
 }

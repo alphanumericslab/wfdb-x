@@ -13,7 +13,7 @@ mkdir(d);
 cleanup = onCleanup(@() restore(old, oldpath, d)); %#ok<NASGU>
 cd(d);
 wfdbx.wfdbquit();
-wfdbx.setwfdb(['. ' data]);
+copyfile(fullfile(data, '*'), d);   % (read from the current directory)
 
 ranges = [8 1000; 16 32767; 61 32767; 80 127; 160 32767; 212 2047; ...
     310 511; 311 511; 24 8388607; 32 2147483647];
@@ -207,11 +207,7 @@ function restore(old, oldpath, d)
 wfdbx.wfdbquit();
 wfdbx.wfdbverbose();
 cd(old);
-if isempty(oldpath)
-    wfdbx.setwfdb('.');
-else
-    wfdbx.setwfdb(oldpath);
-end
+wfdbx.wfdbx_set_input_dir([]);
 if isfolder(d)
     rmdir(d, 's');
 end

@@ -32,7 +32,7 @@ if nargin == 0
     return;
 end
 ok = false;
-for c = which
+for c = reshape(which, 1, [])
     switch c
         case 'F'
             if P.F <= 0

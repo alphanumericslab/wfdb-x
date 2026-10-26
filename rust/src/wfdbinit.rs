@@ -30,12 +30,18 @@ impl Wfdb {
     }
 
     /// C `wfdbquit()`: close all annotators, signals and the info file,
-    /// restore the WFDB path, and release the library's buffers.
+    /// restore the WFDB path (legacy mode only; wfdb-x: the input directory
+    /// is kept), and release the library's buffers.
     pub fn wfdbquit(&mut self) {
         self.wfdb_anclose(); // close annotation files, reset variables
         self.wfdb_oinfoclose(); // close info file
         self.wfdb_sigclose(); // close signals, reset variables
-        self.resetwfdb(); // restore the WFDB path
+                              // wfdb-x: in normal mode, the input directory is left as it is (in
+                              // the C library, resetwfdb restored the string returned by getwfdb,
+                              // but not the list of directories searched)
+        if self.wfdbx_get_legacy() != 0 {
+            self.resetwfdb(); // restore the WFDB path
+        }
         self.wfdb_sampquit(); // release sample data buffer
         self.wfdb_freeinfo(); // release info strings
     }

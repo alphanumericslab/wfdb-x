@@ -97,7 +97,8 @@ function main_cli(args::Vector{String})
     Int(_run_main(f, args[2:end]))
 end
 
-const _WFDB_ENV = ("WFDB", "WFDBCAL", "WFDBANNSORT", "WFDBGVMODE")
+const _WFDB_ENV = ("WFDB", "WFDBCAL", "WFDBANNSORT", "WFDBGVMODE",
+                   "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR", "WFDBX_NETWORK")   # (wfdb-x: the last 3)
 
 """
     run_tool(tool, args; stdin=UInt8[], dir=nothing, env=nothing)

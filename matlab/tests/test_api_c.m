@@ -68,22 +68,23 @@ assert_eq(wfdbx.wfdberror(), ...
 end
 
 function t_path()
-% resetwfdb restores the path returned by the first getwfdb (here, as in a
-% fresh process with WFDB=. in the environment); wfdbquit calls it.
-st = wfdbx.internal.io_state();
-saved = {st.wfdbpath, st.wfdbpath_init};
-st.wfdbpath = [];
-st.wfdbpath_init = [];
-setenv('WFDB', '.');
+% wfdb-x: setwfdb sets the single input directory (more than one is an
+% error), getwfdb returns it ('.' if none), resetwfdb restores the value
+% of the last setwfdb, and wfdbquit leaves it (t_path of api_expect.c)
+wfdbx.setwfdb([]);
 assert_eq(wfdbx.getwfdb(), '.', 'getwfdb initial');
+wfdbx.wfdbquiet();
 wfdbx.setwfdb('a b');
-assert_eq(wfdbx.getwfdb(), 'a b', 'getwfdb');
+wfdbx.wfdbverbose();
+assert_eq(wfdbx.wfdberror(), sprintf(['setwfdb: wfdb-x reads from a single ' ...
+    'input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB ' ...
+    'search path)\n']), 'setwfdb with two directories');
+assert_eq(wfdbx.getwfdb(), '.', 'getwfdb');
 wfdbx.resetwfdb();
 assert_eq(wfdbx.getwfdb(), '.', 'getwfdb after resetwfdb');
 wfdbx.setwfdb('c');
 wfdbx.wfdbquit();
-assert_eq(wfdbx.getwfdb(), '.', 'getwfdb after wfdbquit');
-st.wfdbpath_init = saved{2};
+assert_eq(wfdbx.getwfdb(), 'c', 'getwfdb after wfdbquit');
 wfdbx.setwfdb('.');
 assert_eq(wfdbx.wfdbfile('hea', '100s'), './100s.hea', 'wfdbfile');
 assert_eq(wfdbx.wfdbfile([], []), './100s.hea', 'wfdbfile NULL NULL');

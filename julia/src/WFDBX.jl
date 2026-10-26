@@ -32,9 +32,13 @@ The package provides:
   [`tools`](@ref), [`run_tool`](@ref), and the driver script
   `bin/wfdbx.jl`. Their output is identical to that of the C programs.
 
-Records are found in the directories of the WFDB path (see
-[`setwfdb`](@ref); by default it is taken from the environment variable
-`WFDB`). Text read from WFDB files is returned as bytes
+A relative name is read under the input directory (see
+[`wfdbx_set_input_dir`](@ref); by default, the current directory, or the
+environment variable `WFDBX_INPUT_DIR`) and written under the output
+directory ([`wfdbx_set_output_dir`](@ref)); a full path, a `~` path or a
+URL (with network access on, [`wfdbx_set_network`](@ref)) is used as given;
+nothing is searched (in legacy mode, the WFDB path is searched as in C).
+Text read from WFDB files is returned as bytes
 (`Vector{UInt8}`); string arguments may be `String`s or byte vectors.
 
 # Examples

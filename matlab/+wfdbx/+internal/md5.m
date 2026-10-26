@@ -34,7 +34,11 @@ switch mode
         d = uint8(hex2dec(reshape(h, 2, [])'))';
     case 2
         md = java.security.MessageDigest.getInstance('MD5');
-        md.update(typecast(data, 'int8'));
+        if ~isempty(data)
+            % (MATLAB cannot pass an empty array to update(byte[]): its
+            % overloads take the empty array for a missing scalar)
+            md.update(typecast(data, 'int8'));
+        end
         d = typecast(int8(md.digest()), 'uint8');
         d = reshape(d, 1, []);
     otherwise

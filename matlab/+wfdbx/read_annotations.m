@@ -21,6 +21,13 @@ function ann = read_annotations(record, annotator, varargin)
 %     'fs'        sampling frequency (Hz, > 0), used if the record has no
 %                 header or its header does not specify one (as the -F
 %                 option of rdann); default: none
+%     'input_dir' the input directory for this call (a local directory,
+%                 a ~ name or a URL; '' for the default; see
+%                 wfdbx.wfdbx_set_input_dir); default: the current setting
+%                 (by default, the current directory)
+%     'network'   true to allow reading URLs for this call (false to
+%                 forbid it; see wfdbx.wfdbx_set_network); default: the
+%                 current setting (by default, not allowed)
 %     'legacy'    true to behave as the original package (default false):
 %                 the library's legacy mode (wfdbx.wfdbx_set_legacy) is on
 %                 during the call, and a record without a header (or a
@@ -60,7 +67,8 @@ function ann = read_annotations(record, annotator, varargin)
 record = wfdbx.internal.strarg(record);
 annotator = wfdbx.internal.strarg(annotator);
 varargin = wfdbx.internal.strarg(varargin);
-opt = struct('sampfrom', 0, 'sampto', [], 'fs', [], 'legacy', false);
+opt = struct('sampfrom', 0, 'sampto', [], 'fs', [], 'input_dir', [], ...
+    'network', [], 'legacy', false);
 names = fieldnames(opt);
 if ~isempty(varargin) && ~(ischar(varargin{1}) && ...
         any(strcmpi(varargin{1}, names)))
@@ -76,6 +84,9 @@ if ~isempty(varargin) && ~(ischar(varargin{1}) && ...
 end
 opt = wfdbx.internal.hl_options(opt, varargin, 'read_annotations');
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_annotations'); %#ok<NASGU>
+% wfdb-x: the input directory and network access for this call
+restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, ...
+    'read_annotations'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 opt.legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
 if ~isempty(opt.fs) && ~(isnumeric(opt.fs) && isscalar(opt.fs) && opt.fs > 0)
@@ -148,7 +159,7 @@ if ~isempty(to)
 end
 n = numel(A.time);
 aux = cell(n, 1);
-for k = find(~cellfun('isempty', A.aux))
+for k = reshape(find(~cellfun('isempty', A.aux)), 1, [])
     x = A.aux{k};
     x = x(2:min(end, double(x(1)) + 1));
     z = find(x == 0, 1);

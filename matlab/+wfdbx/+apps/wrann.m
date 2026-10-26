@@ -113,7 +113,7 @@ if any(alld > 127)
     owner(ends(1:end-1) + 1) = 1;
     owner = cumsum(owner) + 1;          % the line of each byte
     hl = unique(owner(alld > 127));
-    for k = hl
+    for k = reshape(hl, 1, [])
         la{k}(la{k} > 127) = char(127);
     end
 end
@@ -123,7 +123,7 @@ rests_a = repmat({''}, 1, nl);
 m = ~cellfun('isempty', rt);
 rests_a(m) = [rt{m}];
 rests = rests_a;
-for k = hl
+for k = reshape(hl, 1, [])
     rests{k} = lines{k}(end - numel(rests_a{k}) + 1:end);
 end
 R = regexp(rests_a, pat, 'tokens', 'once');
@@ -168,7 +168,7 @@ och = mod(rch, 256);
 onum = mod(rnm + 128, 256) - 128;
 oaux = cell(1, nl);
 written = reg;
-for li = find(reg & (rtyp == 0 | ~cellfun('isempty', tabpos)))
+for li = reshape(find(reg & (rtyp == 0 | ~cellfun('isempty', tabpos))), 1, [])
     if rtyp(li) == 0
         astr = rmn{li};
     else
@@ -180,7 +180,7 @@ end
 % version (sscanf leaves them unchanged when a conversion fails).
 tm = 0; sub = 0; ch = 0; nm = 0;
 mnem = '';
-for li = find(~reg)
+for li = reshape(find(~reg), 1, [])
     if li > 1 && reg(li - 1)
         q = li - 1;
         tm = rtm(q);

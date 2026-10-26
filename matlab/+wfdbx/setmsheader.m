@@ -57,7 +57,9 @@ for i = 1:nsegments
     end
     S.in_msrec = 1;
     S.nsamples = 0;
+    S.user_segments = true;     % wfdb-x: names given by the caller
     n = wfdbx.internal.readheader(name);
+    S.user_segments = false;
     S.in_msrec = old_in_msrec;
     if n < 0
         wfdbx.internal.wfdb_error('setmsheader: can''t read segment %s header\n', name);

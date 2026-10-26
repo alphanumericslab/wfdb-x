@@ -1,0 +1,3 @@
+setwfdb: wfdb-x reads from a single input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB search path)
+init: can't open header for record sr
+annopen: can't read annotator atr for record sr

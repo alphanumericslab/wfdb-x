@@ -724,7 +724,18 @@ int main(int argc, char **argv)
     wfdbquiet();
     if (orec && (osigopen(orec, dfout.data(), static_cast<unsigned>(nosig))
                  != nosig)) {
-        std::fprintf(stderr, "%s: can't write output signals\n", pname);
+        // wfdb-x: say why if an output file is one of the input files (the
+        // library's message, quieted above, is the last error)
+        std::string e = wfdberror();
+        const std::string head = "osigopen: output file ",
+                          tail = " is also an input file\n";
+        if (!wfdbx_get_legacy() && e.compare(0, head.size(), head) == 0 &&
+            e.size() > head.size() + tail.size() &&
+            e.compare(e.size() - tail.size(), tail.size(), tail) == 0)
+            std::fprintf(stderr, "%s: can't write output signals (%.*s)\n",
+                         pname, static_cast<int>(e.size() - 1), e.c_str());
+        else
+            std::fprintf(stderr, "%s: can't write output signals\n", pname);
         std::exit(2);
     }
     wfdbverbose();

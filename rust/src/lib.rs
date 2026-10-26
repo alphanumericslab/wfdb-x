@@ -45,15 +45,16 @@
 //!
 //! ## The C-style API: `Wfdb` or free functions
 //!
-//! All the state that the C library keeps in global variables (the WFDB
-//! path, open signals and annotators, time base, ...) is held by a [`Wfdb`]
-//! value; each C library function is a method with the C name:
+//! All the state that the C library keeps in global variables (the input
+//! directory or WFDB path, open signals and annotators, time base, ...) is
+//! held by a [`Wfdb`] value; each C library function is a method with the C
+//! name:
 //!
 //! ```
 //! use wfdbx::Wfdb;
 //! let mut w = Wfdb::new();
-//! w.setwfdb(". /usr/local/database");
-//! assert_eq!(w.getwfdb(), b". /usr/local/database");
+//! w.wfdbx_set_input_dir("/usr/local/database");
+//! assert_eq!(w.getwfdb(), b"/usr/local/database");
 //! ```
 //!
 //! Every method is also available as a free function with the same name
@@ -82,10 +83,14 @@
 //! * Functions that fill an array supplied by the caller take a mutable
 //!   slice (`isigopen(record, &mut si, nsig)`, `getvec(&mut v)`); an empty
 //!   slice stands for C's `NULL`.
-//! * Input files are looked for in the directories of the WFDB path (the
-//!   `WFDB` environment variable, or [`setwfdb`]); output files are written
-//!   in the current directory (or in the directory part of the record name).
-//!   Remote (http, ftp) files are not supported.
+//! * Files are found where they are named (wfdb-x): a relative name is read
+//!   under the input directory ([`wfdbx_set_input_dir`], `WFDBX_INPUT_DIR`)
+//!   and written under the output directory ([`wfdbx_set_output_dir`],
+//!   `WFDBX_OUTPUT_DIR`), by default the current directory; an absolute
+//!   name, a `~` name or a URL is used as given (a URL only with network
+//!   access, [`wfdbx_set_network`]); nothing is searched. Legacy mode
+//!   searches the WFDB path (the `WFDB` environment variable, or
+//!   [`setwfdb`]), without network access.
 //! * Formatted output uses [`cstd`]'s glibc-exact `printf`
 //!   ([`cformat!`], [`cprintf!`]).
 //!
@@ -94,7 +99,7 @@
 //! | module | contents |
 //! |---|---|
 //! | [`cstd`] | C standard library emulation (printf, strtol, strtod, sscanf, rand, stdio) |
-//! | [`wfdbio`] | WFDB path, `wfdb_open`, errors, [`WfdbFile`] (port of `lib/wfdbio.c`) |
+//! | [`wfdbio`] | finding files (input/output directories, network, WFDB path), `wfdb_open`, errors, [`WfdbFile`] (port of `lib/wfdbio.c`) |
 //! | [`signal`] | signals and headers (port of `lib/signal.c`) |
 //! | [`annot`] | annotations (port of `lib/annot.c`) |
 //! | [`calib`] | calibration list (port of `lib/calib.c`) |
@@ -130,8 +135,9 @@ pub use annot::*;
 pub use calib::*;
 pub use ecgcodes::*;
 pub use record::{
-    read_annotations, read_header, read_record, write_annotations, write_record,
-    write_record_physical, Annotations, ReadOptions, Record, TimeSpec, WriteOptions,
+    read_annotations, read_annotations_with, read_header, read_header_with, read_record,
+    write_annotations, write_record, write_record_physical, Annotations, ReadOptions, Record,
+    TimeSpec, WriteOptions,
 };
 pub use signal::*;
 pub use types::*;

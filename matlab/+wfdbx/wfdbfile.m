@@ -1,18 +1,20 @@
 function name = wfdbfile(s, record)
 %WFDBFILE The pathname of a WFDB file.
-%   NAME = wfdbx.wfdbfile(S, RECORD) returns the pathname of the file of
-%   type S (e.g. 'hea', 'dat', 'atr') of the record RECORD, as found in the
-%   WFDB path, or [] if it is not found.  If RECORD is [] (or empty), S is
-%   taken as a file name to be found in the WFDB path.  A trailing '.hea'
+%   NAME = wfdbx.wfdbfile(S, RECORD) returns the pathname (or URL) of the
+%   file of type S (e.g. 'hea', 'dat', 'atr') of the record RECORD, or []
+%   if it does not exist.  wfdb-x: the file is looked up as by wfdb_open,
+%   at one location: under the input directory for a relative name (see
+%   wfdbx.wfdbx_set_input_dir); in legacy mode, in the WFDB path.  If
+%   RECORD is [] (or empty), S is taken as a file name.  A trailing '.hea'
 %   is removed from RECORD.
 %
 %   NAME = wfdbx.wfdbfile([], []) returns the name of the last file opened
 %   (or tried) by the library.
 %
 %   Example:
-%       wfdbx.wfdbfile('hea', '100s')      % e.g. './100s.hea'
+%       wfdbx.wfdbfile('hea', '100s')      % '100s.hea' (no input directory)
 %
-%   See also wfdbx.getwfdb, wfdbx.setwfdb.
+%   See also wfdbx.wfdbx_set_input_dir, wfdbx.getwfdb, wfdbx.setwfdb.
 
 % Copyright (C) 1988-2013 George B. Moody (original C implementation,
 % lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).

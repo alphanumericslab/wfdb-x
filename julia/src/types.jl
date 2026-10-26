@@ -13,8 +13,9 @@
 """
     Wfdb
 
-The state of the WFDB library: the WFDB path, the open record, signals and
-annotation files, error settings, and so on (what the C library keeps in
+The state of the WFDB library: the input and output directories, network
+access, the open record, signals and annotation files, error settings, and
+so on (what the C library keeps in
 global variables).
 
 `Wfdb()` creates a new, independent state, as at the start of a C program.
@@ -135,8 +136,10 @@ const WFDB_CAL_SAWTOOTH = Int32(6)
 const WFDB_CAL_UNDEF = Int32(8)
 
 """
-Default WFDB path, used when the environment variable `WFDB` is not set (the
-value of a release build of the C library 10.7.0 installed in `/usr/local`).
+Default WFDB path, used in legacy mode when the environment variable `WFDB`
+is not set (the value of a release build of the C library 10.7.0 installed
+in `/usr/local`; legacy mode opens no URLs, so there is no default URL
+anywhere in wfdb-x).
 """
 const DEFWFDB = b". /usr/local/database http://physionet.org/physiobank/database"
 "Default calibration file name."

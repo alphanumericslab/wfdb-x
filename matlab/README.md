@@ -40,8 +40,9 @@ Applications Guide*, [`third_party/wag.pdf`](../third_party/)):
   `mit2wav`, `wfdb2mat`, `a2m`, `m2a`, `ad2m`, `md2a`, `ahaecg2mit`,
   `makeid`, `readid`, `revise`, `parsescp`.
 
-Records are found with the WFDB path (the `WFDB` environment variable, as
-with the C library). Remote (`http://`) records are not supported.
+Records are found as described in *Finding records and files* below (the
+tools use the environment variables `WFDBX_INPUT_DIR`, `WFDBX_OUTPUT_DIR`
+and `WFDBX_NETWORK`).
 
 With Octave:
 
@@ -60,7 +61,12 @@ wfdbx rdsamp -r 100s -t 10 -p
 With MATLAB, `matlab/bin/wfdbx_matlab.sh TOOL [ARGUMENTS ...]` runs the tool
 with `matlab -batch` (set `WFDBX_MATLAB` to the MATLAB command if `matlab`
 is not in the `PATH`). MATLAB starts slowly, so this is mainly useful for
-testing.
+testing. MATLAB writes to its standard output as text (a NUL byte becomes a
+space, and bytes above 127 are re-encoded), so the driver has the tool write
+its output to temporary files and copies them, byte for byte, to the
+standard output and error when MATLAB exits; MATLAB's own console output,
+such as startup messages, is not passed on. (The driver is tested here with
+GNU Octave standing in for MATLAB; MATLAB itself was not available.)
 
 From MATLAB or Octave, a tool is a function that takes its arguments in a
 cell array and returns its exit status:
@@ -68,6 +74,96 @@ cell array and returns its exit status:
 ```matlab
 status = wfdbx.apps.rdsamp({'-r', '100s', '-t', '10', '-p'});
 ```
+
+## Finding records and files
+
+Every relative name is read under the input directory and written under
+the output directory -- whatever you set as the input directory, a local
+directory or a URL, prefixes it; a name given as a full path
+(`/Users/...`), a `~` path or a URL is used as given; nothing else is
+searched. (The original library searched the directories of the WFDB
+path, and possibly `http://physionet.org/physiobank/database`: a search
+can silently open the wrong file, such as a stale copy earlier in the
+path, and fails in ways nobody notices; wfdb-x tries exactly one
+location.) Relative names may contain directories and `..` (`'mitdb/100'`,
+`'../data/100'`).
+
+| Setting | MATLAB/Octave | Environment variable | Default |
+|---|---|---|---|
+| input directory (a directory, a `~` path or a URL) | `wfdbx.wfdbx_set_input_dir(d)` (returns the previous one), `wfdbx.wfdbx_get_input_dir()`; `'input_dir'` option of the readers | `WFDBX_INPUT_DIR` | none: the current directory |
+| output directory (local) | `wfdbx.wfdbx_set_output_dir(d)`, `wfdbx.wfdbx_get_output_dir()`; `'dir'` option of the writers | `WFDBX_OUTPUT_DIR` | none: the current directory |
+| network access | `wfdbx.wfdbx_set_network(1)` (returns the previous setting), `wfdbx.wfdbx_get_network()`; `'network'` option of the readers | `WFDBX_NETWORK` (a nonzero number: on) | off |
+
+A function call overrides the environment variable (read when the setting
+is first needed); `[]` (or `''`; for the network, `[]` or a negative
+number) restores the default, i.e. the environment variable's value if it
+is set. A relative or `~` directory is used relative to the current
+directory (or expanded) when a file is opened. The high-level readers
+(`read_record`, `read_header`, `read_annotations`) set `'input_dir'` and
+`'network'` for the duration of the call only (and restore the previous
+values, also on errors); without them the current settings apply.
+`wfdbx.wfdbx_set_output_dir` refuses a URL (an error message; the setting
+is unchanged and its current value is returned).
+
+**PhysioNet.** The files of a PhysioNet database are under
+`https://physionet.org/files/<database>/<version>/`. Reading from it is an
+explicit choice -- wfdb-x never contacts a server unless network access is
+on:
+
+```matlab
+wfdbx.wfdbx_set_input_dir('https://physionet.org/files/mitdb/1.0.0/');
+wfdbx.wfdbx_set_network(1);
+rec = wfdbx.read_record('100', 'sampto', '0:10', 'physical', true);
+% or, for one call:
+rec = wfdbx.read_record('100', 'input_dir', ...
+    'https://physionet.org/files/mitdb/1.0.0/', 'network', true);
+```
+
+```sh
+WFDBX_NETWORK=1 WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/ wfdbx rdsamp -r 100 -t 0:5
+```
+
+Remote files are read in full (by the system program `curl`, or with
+`webread` in Octave and `websave` in MATLAB if there is none) and kept for the rest of the session (each URL is requested at
+most once; redirects are followed, an HTTP status of 400 or more is a
+failure, and reading gives up if connecting takes 30 s or no data arrives for 30 s, with no limit on the total time). They are read-only: a URL cannot be written, nor
+be the output directory. With network access off, a URL is not opened,
+and the first attempt prints `wfdb-x: network access is disabled; set
+WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open URL`.
+
+**Files named in headers.** The signal files named in a header, and the
+segments of a multi-segment record, are in the directory of that header
+(on disk or at its URL) or below it: `100.dat` is read next to `100.hea`,
+and `data/a.dat` in its subdirectory `data`. Nothing else is tried, and a
+name that is absolute, begins with `~`, is a URL or contains a `..`
+component is refused (`init: file NAME named in the header of record REC
+is not in the header's directory`), so that a header (perhaps downloaded)
+cannot make the library read other local files or contact other servers.
+(`~` as a segment name, a null segment, and `-` as a signal file name,
+the standard input, keep their meaning.) Annotation files, `.info` files
+and the calibration file (`WFDBCAL`) follow the rule above with the name
+as given: the annotations of record `mitdb/100` are
+`<input directory>/mitdb/100.atr`.
+
+**The C-style API.** `wfdbx.setwfdb(p)` sets the input directory: `p`
+must name a single directory (`wfdbx.setwfdb('data')`; `''` or `';'`
+restores the default; several, such as `'. data'`, are an error:
+`setwfdb: wfdb-x reads from a single input directory; use
+wfdbx_set_input_dir (or legacy mode for the WFDB search path)`). `setwfdb` splits its argument at spaces, as the original does, so a directory whose name contains a space must be set with `wfdbx.wfdbx_set_input_dir`, which takes the name as it is.
+`wfdbx.getwfdb()` returns the input directory, or `'.'` if none is set;
+`wfdbx.resetwfdb()` restores the value set by the last `setwfdb`
+(`wfdbx.wfdbquit()` leaves the settings as they are). The `WFDB`
+environment variable is not used: if it is set, the first lookup prints
+`wfdb-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR
+instead (or use legacy mode)`.
+
+**Legacy mode** (`--legacy`, `wfdbx.wfdbx_set_legacy(1)`, `'legacy',
+true`) keeps the original search of the WFDB path (`WFDB`, `setwfdb` with
+several entries, `@file` paths, `%r`, names containing `..` refused),
+without any network access (as the reference C build, compiled without
+network support: URL names and URL path entries are not opened). The
+input directory and `WFDBX_NETWORK` are not used in legacy mode; the
+output directory is.
 
 ## No built-in signal parameters
 
@@ -145,7 +241,38 @@ Five functions read and write whole records and annotation files in one
 call. They give exactly what the C library reads and writes, and are fast
 (signals are decoded and encoded with vector operations, annotations in
 bulk). Options are name-value pairs; text arguments may be char vectors or
-MATLAB strings. An error is thrown when a file cannot be read or written.
+MATLAB strings. An error is thrown when a file cannot be read or written;
+`wfdbx.read_record` also throws "can't read signal data of record REC
+(getvec status S)" when reading stops with a getvec status below -1, e.g. -3
+for a signal file shorter than its header says, instead of returning the
+samples read so far (reaching the end of the record is not an error). This
+applies in legacy mode too, since the high-level API is a wfdb-x addition
+(`wfdbx.getvec`, `wfdbx.getframes` and the tools are unchanged).
+
+A checksum error (getvec status -4: the samples are complete, but their
+sum does not match the checksums in the header) is not an error of
+`wfdbx.read_record`: every frame is returned, the last one included (the
+same frames as for the record with correct checksums), with the warning
+`warning('wfdbx:checksum', ...)` "checksum error in record REC: the
+signal data do not match the checksums in its header" (`'checksum_warning',
+false` turns it off; getvec's own "getvec: checksum error in signal N" is
+not printed during the read, but `wfdbx.wfdberror()` returns it). This
+behavior is identical in all six implementations of wfdb-x.
+
+An output signal file is never one of the input files: in normal mode,
+the library (so every tool and writer) refuses to create a signal file
+that is the same file as a signal file of the open input record (one open
+for input, or one of any segment of an open multi-segment record; the
+files are compared, not their names, so links and other spellings of the
+name are recognized: device and inode numbers in Octave,
+`java.nio.file.Files.isSameFile` in MATLAB), printing "osigfopen: output
+file NAME is also an input file" (or `osigopen: ...`) and failing as for
+a file that cannot be created; the input is left intact. `xform` then
+says `xform: can't write output signals (osigopen: output file NAME is
+also an input file)`. The original truncated the input while reading it,
+as legacy mode still does. This behavior is identical in all six
+implementations of wfdb-x.
+
 These functions call `wfdbx.wfdbquit`, so they close any signals or
 annotators opened with the library functions described below.
 
@@ -232,8 +359,8 @@ header or its header does not give one (as `rdann -F`); without it,
 directory `out` (which must exist: otherwise an error), and the header
 names the record and its signal file without the directory (`rec 2 360
 ...`, `rec.dat ...`), so that the record opens from that directory under
-its plain name (`wfdbx.setwfdb('out')`, then `wfdbx.read_record('rec')`;
-or `wfdbx.read_record('out/rec')`). The record name must not contain a
+its plain name (`wfdbx.read_record('rec', 'input_dir', 'out')`, or
+`wfdbx.read_record('out/rec')`). The record name must not contain a
 directory when `'dir'` is given (an error). In the library API,
 `wfdbx.wfdbx_set_output_dir('out')` makes every output file be created in
 `out` (it returns the previous directory; `wfdbx.wfdbx_set_output_dir([])`
@@ -246,13 +373,12 @@ the name `out/rec`, as in C.
 
 **Absolute paths.** A record named by an absolute path
 (`wfdbx.read_record('/data/mitdb/100')`, `wfdbx rdsamp -r
-/data/mitdb/100`) is opened directly, and the files next to its header
-(signal and annotation files) are found there. The C library searched for
-such a name in each directory of the WFDB path (`./` + the name), so that
-it was found only from the root directory; it still does so in legacy
-mode. In both modes, an empty component in the WFDB path makes names be
-used as given: with `wfdbx.setwfdb(';')` (or `WFDB=";"`),
-`/data/mitdb/100` opens in legacy mode too.
+/data/mitdb/100`) is opened as given, and its signal files are found next
+to its header. The C library searched for such a name in each directory
+of the WFDB path (`./` + the name), so that it was found only from the
+root directory; it still does so in legacy mode, where an empty component
+in the WFDB path makes names be used as given: with `wfdbx.setwfdb(';')`
+(or `WFDB=";"`), `/data/mitdb/100` opens in legacy mode too.
 
 **Annotation order.** Annotations written out of canonical order (by
 time, then `num`, then `chan`) are rearranged when the file is closed, in
@@ -288,7 +414,8 @@ with these conventions:
   `C = wfdbx.ecgcodes()` returns all the annotation codes as a structure
   (`C.NORMAL`, `C.PVC`, ...).
 * As in C, the library keeps global state (open signals and annotators,
-  WFDB path, time base); `wfdbx.wfdbquit()` resets it.
+  input directory, time base); `wfdbx.wfdbquit()` resets it (except the
+  input and output directories and network access).
 * `wfdbx.getframes(n)` and `wfdbx.putframes(M)` (additions) read and
   write many frames at once, with exactly the effect of `n` calls of
   `getvec` or of `putvec`.
@@ -305,8 +432,8 @@ with these conventions:
   `WFDB_INVALID_SAMPLE`.
 
 ```matlab
-wfdbx.setwfdb('. /data/mitdb');
-wfdbx.wfdbfile('hea', '100')             % './100.hea', or [] if not found
+wfdbx.wfdbx_set_input_dir('/data/mitdb');
+wfdbx.wfdbfile('hea', '100')             % '/data/mitdb/100.hea', or []
 
 [n, si] = wfdbx.isigopen('100', 2);      % si(1).desc, si(1).gain, ...
 [stat, v] = wfdbx.getvec();              % one sample of each signal

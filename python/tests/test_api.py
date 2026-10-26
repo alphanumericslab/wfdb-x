@@ -99,22 +99,28 @@ def test_wfdberror_before_any_error():
 # t_path
 
 def test_resetwfdb_fresh_process(datadir):
-    # resetwfdb restores the path returned by the first getwfdb (here, from
-    # the environment); wfdbquit calls resetwfdb.
+    # wfdb-x (normal mode): setwfdb sets the single input directory ("a b"
+    # names two: an error, nothing changes); wfdbquit leaves it as it is.
+    # In legacy mode, resetwfdb restores the path returned by the first
+    # getwfdb (here, from the environment); wfdbquit calls resetwfdb.
     code = ("import wfdbx as w\n"
+            "import sys; w.wfdbx_set_legacy(int(sys.argv[1]))\n"
             "print(w.getwfdb())\n"
             "w.setwfdb('a b'); print(w.getwfdb())\n"
             "w.resetwfdb(); print(w.getwfdb())\n"
             "w.setwfdb('c'); w.wfdbquit(); print(w.getwfdb())\n")
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                         text=True,
-                         env=dict(os.environ, PYTHONPATH=SRC, WFDB="."))
-    assert out.stdout == ".\na b\n.\n.\n"
+    for legacy, expected in [(0, ".\n.\n.\nc\n"), (1, ".\na b\n.\n.\n")]:
+        out = subprocess.run([sys.executable, "-c", code, str(legacy)],
+                             capture_output=True, text=True,
+                             env=dict(os.environ, PYTHONPATH=SRC, WFDB="."))
+        assert out.stdout == expected
 
 
 def test_wfdbfile(datadir):
-    w.setwfdb("a b")
-    assert w.getwfdb() == "a b"
+    w.wfdbquiet()
+    w.setwfdb("a b")    # (wfdb-x: an error; nothing changes)
+    w.wfdbverbose()
+    assert w.getwfdb() == "."
     w.setwfdb(".")
     assert w.getwfdb() == "."
     assert w.wfdbfile("hea", "100s") == "./100s.hea"
@@ -1209,3 +1215,254 @@ def test_absolute_paths(datadir):
         w.wfdbx_set_legacy(0)
         w.resetwfdb()
         w.wfdbverbose()
+
+
+# ---------------------------------------------------------------------------
+# t_files (wfdb-x: finding files: the input directory, setwfdb and getwfdb,
+# names, the output directory, files named in headers, "~" segments, network
+# access).  The two curl lines of t_files (curl missing) do not apply to
+# Python, which reads URLs with urllib.
+
+def putfile(name, text):
+    with open(name, "w") as f:
+        f.write(text)
+
+
+def test_files(datadir, monkeypatch):
+    import shutil
+    from wfdbx import _annot, _wfdbio
+    cwd = os.path.realpath(datadir)
+    monkeypatch.setattr(_wfdbio._io, "network_warned", False)
+    w.wfdbquiet()
+    try:
+        # (the annotation type table, as left by the earlier functions of
+        # api_expect.c: the annotation files written below begin with its
+        # definitions)
+        w.setanndesc(5, "x")    # (code 5 marked as modified)
+        w.setanndesc(5, "Premature ventricular contraction")
+        w.setanndesc(15, "my description")
+        w.setannstr(42, "new")
+        w.setanndesc(42, "")
+        w.setwfdb(".")      # (as left by t_outdir)
+        # the input directory
+        assert w.wfdbx_set_input_dir(None) == "."
+        assert w.wfdbx_get_input_dir() is None
+        assert w.getwfdb() == "."
+        assert w.wfdbx_set_input_dir("fsub") is None
+        assert w.wfdbx_get_input_dir() == "fsub"
+        assert w.getwfdb() == "fsub"
+        assert w.wfdbx_set_input_dir("") == "fsub"
+        assert w.wfdbx_get_input_dir() is None
+        os.makedirs("fsub/data")
+        shutil.copyfile("100s.dat", "fsub/sr.dat")
+        shutil.copyfile("100s.atr", "fsub/sr.atr")
+        putfile("fsub/sr.hea", "sr 2 360 21600\n"
+                "sr.dat 212 200 11 1024 995 21537 0 MLII\n"
+                "sr.dat 212 200 11 1024 1011 -3962 0 V5\n")
+        shutil.copyfile("fmt16.dat", "fsub/data/a.dat")
+        putfile("fsub/dd.hea", "dd 1 360 10\ndata/a.dat 16 200 12 0 0 0 0 s\n")
+        w.wfdbx_set_input_dir("fsub")
+        assert isig("sr") == 2
+        assert vec(2) == [2, 995, 1011]
+        assert w.annopen("sr", [w.Anninfo("atr", w.WFDB_READ)], 1) == 0
+        assert ann(0) == [0, 18, 28, 0, 0, 0]
+        assert w.wfdbfile("hea", "sr") == "fsub/sr.hea"
+        assert w.wfdbfile("hea", "100s") is None        # (not searched)
+        assert w.wfdbfile("sr.dat", None) == "fsub/sr.dat"
+        w.wfdbquit()
+        assert w.wfdbx_get_input_dir() == "fsub"
+        w.wfdbx_set_input_dir("fsub/")
+        assert w.wfdbfile("hea", "sr") == "fsub/sr.hea"
+        w.wfdbx_set_input_dir(None)
+        assert w.wfdbfile("hea", "fsub/sr") == "fsub/sr.hea"
+        assert w.wfdbfile("hea", "fsub/../100s") == "fsub/../100s.hea"
+        # setwfdb in normal mode
+        w.setwfdb("fsub")
+        assert w.wfdbx_get_input_dir() == "fsub"
+        w.setwfdb(" ;fsub; ")
+        assert w.wfdbx_get_input_dir() == "fsub"
+        w.setwfdb("a b")
+        assert w.wfdberror() == (
+            "setwfdb: wfdb-x reads from a single input directory; use "
+            "wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n")
+        assert w.wfdbx_get_input_dir() == "fsub"
+        w.setwfdb("a:b")
+        assert w.wfdbx_get_input_dir() == "fsub"
+        w.setwfdb("http://127.0.0.1:1/db")
+        assert w.getwfdb() == "http://127.0.0.1:1/db"
+        w.setwfdb(";")
+        assert w.wfdbx_get_input_dir() is None
+        assert w.getwfdb() == "."
+        w.setwfdb("fsub")
+        w.wfdbx_set_input_dir("x")
+        w.resetwfdb()
+        assert w.wfdbx_get_input_dir() == "fsub"
+        w.wfdbx_set_input_dir("x")
+        w.wfdbquit()                # (leaves the input directory as it is)
+        assert w.wfdbx_get_input_dir() == "x"
+        w.setwfdb(None)
+        assert w.wfdbx_get_input_dir() is None
+        # legacy mode: the WFDB path; ".." is refused; the input directory
+        # is not used
+        w.wfdbx_set_legacy(1)
+        w.setwfdb(".")
+        w.wfdbx_set_input_dir("fsub")
+        assert w.wfdbfile("hea", "fsub/../100s") is None
+        assert w.wfdbfile("hea", "sr") is None
+        assert w.getwfdb() == "."
+        w.wfdbx_set_input_dir(None)
+        w.wfdbx_set_legacy(0)
+        # ~ names
+        monkeypatch.setenv("HOME", cwd)
+        assert w.wfdbfile("hea", "~/100s") == cwd + "/100s.hea"
+        assert isig("~/fsub/sr") == 2
+        w.wfdbquit()
+        assert w.wfdbfile("hea", "~nosuchuser-wfdbx/100s") is None
+        # the output directory
+        assert w.wfdbx_set_output_dir("http://127.0.0.1:1/out") is None
+        assert w.wfdberror() == ("wfdbx_set_output_dir: the output "
+                                 "directory must be a local directory\n")
+        assert w.wfdbx_set_output_dir("odir3") is None
+        assert w.wfdbx_set_output_dir("https://127.0.0.1:1/out") == "odir3"
+        assert w.wfdbx_get_output_dir() == "odir3"
+        a = w.Annotation(0, w.NORMAL)
+        fx = [w.Anninfo("fx", w.WFDB_WRITE)]
+        assert w.annopen("fsub/sr", fx, 1) == 0
+        w.putann(0, a)
+        assert w.annopen(cwd + "/fsub/sr", fx, 1) == 0
+        w.putann(0, a)
+        w.wfdbquit()
+        assert (os.path.getsize("odir3/fsub/sr.fx"),
+                os.path.getsize("fsub/sr.fx")) == (152, 152)
+        w.wfdbx_set_output_dir("~/odir4")
+        assert w.annopen("sr", fx, 1) == 0
+        w.putann(0, a)
+        w.wfdbquit()
+        assert os.path.getsize("odir4/sr.fx") == 152
+        assert w.annopen("http://127.0.0.1:1/sr", fx, 1) == -4
+        w.wfdbquit()
+        w.wfdbx_set_output_dir(None)
+        # files named in headers
+        assert isig("fsub/dd") == 1
+        assert [vec(1) for _ in range(3)] == [[1, -7], [1, 32], [1, -33]]
+        w.wfdbquit()
+        for bad in ("../100s.dat", "/100s.dat", "~/100s.dat",
+                    "http://127.0.0.1:1/100s.dat", "data/../../100s.dat",
+                    ".."):
+            putfile("fsub/bad.hea",
+                    "bad 2 360 10\n%s 16\ndata/a.dat 16\n" % bad)
+            assert isig("fsub/bad") == 1
+            assert w.wfdberror() == (
+                "init: file %s named in the header of record fsub/bad is not "
+                "in the header's directory\n" % bad)
+            w.wfdbquit()
+        putfile("fsub/ok.hea", "ok 1 360 10\nx..y.dat 16\n")
+        shutil.copyfile("fmt16.dat", "fsub/x..y.dat")
+        assert isig("fsub/ok") == 1
+        w.wfdbquit()
+        # segments: a null segment (~), and a segment outside the directory
+        putfile("fsub/ms.hea", "ms/3 1 360 20\nms_0 0\n~ 10\ndd 10\n")
+        putfile("fsub/ms_0.hea", "ms_0 1 360 0\n~ 0 200 12 0 0 0 0 s\n")
+        assert isig("fsub/ms") == 1
+        got = [vec(1) for _ in range(12)]
+        assert [got[i] for i in (0, 9, 10, 11)] == \
+            [[1, -32768], [1, -32768], [1, -7], [1, 32]]
+        w.wfdbquit()
+        putfile("fsub/ms2.hea", "ms2/2 1 360 20\ndd 10\n../fsub/dd 10\n")
+        assert isig("fsub/ms2") == 1
+        assert w.isigsettime(10) == -1
+        w.wfdbquit()
+        # network access (off by default)
+        assert w.wfdbx_get_network() == 0
+        msg = ("wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or "
+               "call wfdbx_set_network(1) to open http://127.0.0.1:1/x.hea\n")
+        assert w.wfdbfile("hea", "http://127.0.0.1:1/x") is None
+        assert w.wfdberror() == msg
+        assert w.wfdbfile("hea", "http://127.0.0.1:1/y") is None
+        assert w.wfdberror() == msg     # (printed once)
+        assert w.wfdbx_set_network(1) == 0
+        assert w.wfdbx_get_network() == 1
+        assert w.wfdbfile("hea", "http://127.0.0.1:1/x") is None
+        assert w.wfdberror() == msg     # (a failed fetch: no message)
+        assert w.wfdbx_set_network(-1) == 1
+        assert w.wfdbx_get_network() == 0
+        assert w.wfdbx_set_network(0) == 0
+    finally:
+        w.wfdbquit()
+        w.setanndesc(-42, "")
+        w.setannstr(-42, "[42]")
+        _annot._tstring[15] = None
+        _annot._tstring[42] = None
+        _annot._a.modified[:] = [0] * len(_annot._a.modified)
+        w.wfdbx_set_legacy(0)
+        w.wfdbx_set_network(None)
+        w.wfdbx_set_output_dir(None)
+        w.setwfdb(".")
+        w.wfdbverbose()
+
+
+# ---------------------------------------------------------------------------
+# t_alias
+
+def _fmt16_spec(fname):
+    return [w.Siginfo(fname=fname, desc="s%d" % i, units="mV", gain=100,
+                      group=0, fmt=16, adcres=12) for i in range(3)]
+
+
+def test_output_file_is_input_file(datadir, capfd):
+    """An output signal file is never a signal file of the open input record
+    (the files are compared, not their names); legacy mode: no check."""
+    with open("fmt16.dat", "rb") as f:
+        fmt16 = f.read()
+    with open("fmt212.dat", "rb") as f:
+        fmt212 = f.read()
+    os.link("fmt16.dat", "ahard16.dat")
+    capfd.readouterr()
+    # an open signal file; under another name; a hard link; a segment of a
+    # multi-segment record that is not open yet (fmt212, vlay's last)
+    for rec, fname in [("fmt16", "fmt16.dat"), ("fmt16", "./fmt16.dat"),
+                       ("fmt16", "ahard16.dat"), ("skew", "fmt16.dat"),
+                       ("vlay", "fmt16.dat"), ("vlay", "fmt212.dat")]:
+        w.wfdbquit()
+        assert w.isigopen(rec, [], 3) == 3
+        w.setsampfreq(250.0)
+        capfd.readouterr()     # (vlay: a sigmap_init message)
+        assert w.osigfopen(_fmt16_spec(fname), 3) == -3
+        assert capfd.readouterr().err == \
+            "osigfopen: output file %s is also an input file\n" % fname
+        v = [0] * 3
+        assert w.getvec(v) == 3        # the input is still readable
+    # osigopen names itself
+    w.wfdbquit()
+    assert w.isigopen("fmt16", [], 3) == 3
+    capfd.readouterr()
+    assert w.osigopen("fmt16", [], 3) == -3
+    assert capfd.readouterr().err == \
+        "osigopen: output file fmt16.dat is also an input file\n"
+    w.wfdbquit()
+    with open("fmt16.dat", "rb") as f:
+        assert f.read() == fmt16
+    with open("fmt212.dat", "rb") as f:
+        assert f.read() == fmt212
+    # not an input file: another file, a file that does not exist yet
+    for fname in ("fmt8.dat", "new.dat"):
+        assert w.isigopen("vlay", [], 3) == 3
+        w.setsampfreq(250.0)
+        assert w.osigfopen(_fmt16_spec(fname), 3) == 3
+        w.wfdbquit()
+    capfd.readouterr()
+    # with no input record open, any file can be written
+    w.setsampfreq(250.0)
+    assert w.osigfopen(_fmt16_spec("fmt8.dat"), 3) == 3
+    w.wfdbquit()
+    assert capfd.readouterr().err == ""
+    # legacy mode: the original behavior (the file is created, truncated)
+    previous = w.wfdbx_set_legacy(1)
+    try:
+        assert w.isigopen("fmt16", [], 3) == 3
+        w.setsampfreq(250.0)
+        assert w.osigfopen(_fmt16_spec("fmt16.dat"), 3) == 3
+        w.wfdbquit()
+    finally:
+        w.wfdbx_set_legacy(previous)
+    assert os.path.getsize("fmt16.dat") == 0

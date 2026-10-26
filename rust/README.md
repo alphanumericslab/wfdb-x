@@ -105,18 +105,6 @@ against its results (the legacy conformance suite, `harness.py check
 values it assumes are exactly the silent defaults this project removed, so
 results produced with it carry the same risks.
 
-Records are found using the WFDB path (the `WFDB` environment variable, as
-with the C library). Remote (http) records are not supported.
-
-**Absolute paths.** A record (or file) named by an absolute path
-(`rdsamp -r /data/mitdb/100`; on Windows also `C:\data\100`) is opened
-directly, and its directory is added to the WFDB path, so that the signal
-files next to the header are found; if it cannot be opened there, the WFDB
-path is searched as before. (The C library joined such a name with each
-directory of the WFDB path, so that it was found only from the root
-directory; legacy mode does the same.) In both modes, a WFDB path with an
-empty component, `setwfdb(";")` (or `WFDB=";"`), uses names as given.
-
 **Sorting annotation files.** When an annotation file is written out of
 order (`wrann`, `putann`, `write_annotations`), the library rearranges it
 when it is closed, in the same process, with exactly the result of `sortann
@@ -136,6 +124,72 @@ wfdb-x (run from the repository root):
 python3 tests/conformance/harness.py check --impl rust
 python3 tests/conformance/harness.py check --legacy --impl rust   # legacy mode
 ```
+
+## Finding records
+
+Every relative name is read under the input directory and written under
+the output directory — whatever you set as the input directory, a local
+directory or a URL, prefixes it; a name given as a full path
+(`/Users/...`), a `~` path or a URL is used as given; nothing else is
+searched. With no input or output directory set (the default), names are
+relative to the current directory (`rdsamp -r mitdb/100` reads
+`mitdb/100.hea`).
+
+| Setting | Functions (`Wfdb` methods and free functions) | Environment variable | Default |
+|---|---|---|---|
+| input directory (a directory, `~...`, or a URL) | `wfdbx_set_input_dir(dir)` (returns the previous value), `wfdbx_get_input_dir()` | `WFDBX_INPUT_DIR` | none: the current directory |
+| output directory (local) | `wfdbx_set_output_dir(dir)`, `wfdbx_get_output_dir()` | `WFDBX_OUTPUT_DIR` | none: the current directory |
+| network access | `wfdbx_set_network(1)` / `(0)` (`-1`: the default), `wfdbx_get_network()` | `WFDBX_NETWORK` (a nonzero number: on) | off |
+
+The environment variables are read when the setting is first needed; a
+function call overrides them, and `None` (or `""`, or a negative value for
+the network) restores the default. The tools have no new options: they use
+the environment variables. In the C-style API, `setwfdb(dir)` sets the
+input directory (one directory only: a path of several is an error; it splits its argument at spaces, as the original does, so a directory whose name contains a space must be set with `wfdbx_set_input_dir`, which takes the name as it is),
+`getwfdb()` returns it (`"."` if none is set), and the `WFDB` variable is
+ignored, with a warning. The high-level readers take
+`ReadOptions::input_dir` and `ReadOptions::network` (for `read_header` and
+`read_annotations`: `read_header_with`, `read_annotations_with`), set for
+the duration of the call; the writers take an output directory (see below).
+
+**Remote records.** URLs (`http://`, `https://`) are opened only when
+network access is on; each file is read in full by the system's `curl`
+program (run without a shell; following redirections; reading gives up if connecting takes 30 s or no data arrives for 30 s, with no limit on the total time),
+once per process. There is no default server. For example, the files of a
+PhysioNet database are under `https://physionet.org/files/DATABASE/VERSION/`:
+
+```rust,no_run
+use wfdbx::{read_record, ReadOptions};
+
+fn main() -> Result<(), wfdbx::record::Error> {
+    let opt = ReadOptions {
+        input_dir: Some("https://physionet.org/files/mitdb/1.0.0/".into()),
+        network: Some(true),
+        to: Some("0:10".into()),
+        ..Default::default()
+    };
+    let rec = read_record("100", &opt)?;    // MIT-BIH Arrhythmia Database, record 100
+    println!("{} Hz", rec.fs);
+    Ok(())
+}
+```
+
+(With the C-style API: `wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/")`
+and `wfdbx_set_network(1)`, then `isigopen("100", ...)`; with the tools:
+`WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/ WFDBX_NETWORK=1
+rdsamp -r 100`.)
+
+**Files named in a header.** The signal files named in a header, and the
+segments of a multi-segment record, are in the directory of that header (on
+disk or at its URL), or below it: `data/a.dat` in `db/rec.hea` is
+`db/data/a.dat`. A name that is absolute, begins with `~`, is a URL or has
+a `..` component is refused (`init: file NAME named in the header of record
+REC is not in the header's directory`); `~` as a segment (a gap) and `-` as
+a signal file (the standard input) keep their meaning.
+
+Legacy mode keeps the original search of the WFDB path (the `WFDB`
+environment variable, or `setwfdb`), without network access, as the
+original package built without network support.
 
 ## Using the library
 
@@ -159,7 +213,7 @@ instance, which is convenient for ports of C programs:
 use wfdbx::{Wfdb, NULL};
 
 let mut w = Wfdb::new();
-w.setwfdb(". /usr/local/database");
+w.wfdbx_set_input_dir("/usr/local/database");
 if let Some(path) = w.wfdbfile("hea", "100s") {
     println!("{}", String::from_utf8_lossy(&path));
 }
@@ -195,7 +249,37 @@ Conventions:
 `read_record`, `read_header`, `read_annotations`, `write_record`,
 `write_record_physical` and `write_annotations` read and write whole
 records and annotation files in one call (as the tools do) and return
-`Result<_, wfdbx::record::Error>`:
+`Result<_, wfdbx::record::Error>`. `read_record` returns the error "can't
+read signal data of record REC (getvec status S)" when reading stops with a
+getvec status below -1, e.g. -3 for a signal file shorter than its header
+says, instead of the samples read so far; reaching the end of the record is
+not an error. This applies in legacy mode too, since the high-level API is a
+wfdb-x addition (`getvec`, `getvecs`, the new `getvecs_status`, which also
+returns that status, and the tools are unchanged).
+
+**Checksum errors.** A checksum error (getvec status -4: the data are
+complete, but their sum does not match the checksum in the header) is not
+an error for `read_record`: it returns every frame, including the last one,
+and prints the warning `wfdb-x: checksum error in record REC: the signal
+data do not match the checksums in its header` on the standard error,
+through the library's message path (so `wfdbquiet()` silences it; the
+library's own `getvec: checksum error in signal N` is not printed during
+the read, but `wfdberror()` returns it with `checksum_warning` off). Set
+`ReadOptions::checksum_warning` to false to read without the warning. This
+behavior is identical in all six implementations of wfdb-x.
+
+**Output files are never input files.** When output signal files are
+created (`osigfopen`, `osigopen`, and so every tool and `write_record`), a
+file that is one of the signal files of the open input record (an open
+signal file, or one of the segments of an open multi-segment record, even
+not opened yet) is refused, instead of being truncated while it is read
+(`xform -i vlay -o fmt16`, whose input includes `fmt16.dat`): the function
+reports `osigfopen: output file F is also an input file` (or `osigopen:
+...`) and fails with -3, leaving the input intact. Files are compared by
+identity (device and inode; on Windows, the canonical path, without regard
+to case), so another name of the same file, or a hard link, is refused too.
+Legacy mode keeps the original behavior. This behavior is identical in all
+six implementations of wfdb-x.
 
 ```rust,no_run
 use wfdbx::{read_annotations, read_record, ReadOptions};

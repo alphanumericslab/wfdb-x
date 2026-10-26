@@ -1,0 +1,2 @@
+Checking input signals ... done
+xform: can't write output signals (osigopen: output file ./fmt16.dat is also an input file)

@@ -35,7 +35,10 @@ conformance harness can run it without installation:
 `Rscript r/inst/bin/wfdbx.R rdsamp -r 100s`. From the source tree it caches
 the sourced and byte-compiled functions (`saveRDS` of the environment, in
 `~/.cache/R/wfdbx/`, keyed by the names, sizes and modification times of
-`R/*.R`; `WFDBX_NO_CACHE=1` disables it). Consequences for the sources:
+`R/*.R`; `WFDBX_NO_CACHE=1` disables it; `~` is the home directory of the
+user from the password database, not `$HOME`, which the conformance
+harness sets to a directory of its own for each case; `$XDG_CACHE_HOME`
+replaces `~/.cache` if set). Consequences for the sources:
 
 * **Top-level code must not depend on the environment** (environment
   variables, current directory, time, files): it runs once when the cache
@@ -233,7 +236,9 @@ has a comment describing it in its source file.
 `wf_seek(f, off, whence)` (0/1/2 = SEEK_SET/CUR/END; positions beyond the
 end of the file are allowed as in C), `wf_tell(f)`, `wf_flush(f)`,
 `wf_feof(f)`, `wf_ferror(f)`, `wf_clearerr(f)`, `wf_close(f)`; fields
-`name`, `type`, `is_std`, `mode` (`"r"`, `"w"`, `"a"`). Reads are buffered
+`name`, `type` (`WFDB_LOCAL`, or `WFDB_NET` for a remote file read into
+memory: a `rawConnection`, with its `size`), `is_std`, `mode` (`"r"`,
+`"w"`, `"a"`). Reads are buffered
 in 64 KiB blocks (large reads go directly to the connection); writes are
 collected and written in blocks; output files can seek and overwrite. The
 standard input (`"-"` for reading) is served from `stdin_bytes()`; as in
@@ -243,18 +248,31 @@ the standard output (`"-"` for writing) go to `cout`.
 
 `wfdbio.R` — state `.wfdb_io` (`wfdbpath`, `path_prefix`, `path_type`,
 `error_print`, `error_flag`, `error_message` (raw), `wfdb_filename`,
-`irec`, `stdin_file`, `stdout_file`, `driver`, `output_dir`;
-`wfdbio_reset()`):
+`irec`, `stdin_file`, `stdout_file`, `driver`, and (wfdb-x) the settings
+`input_dir`, `output_dir`, `network` with their environment values and
+flags, `fetched` (the cache of remote files, by URL); `wfdbio_reset()`):
 `wfdb_error(fmt, ...)`, `wfdb_open(s, record, mode)`,
 `wfdb_fopen(fname, mode)` (`"rb"`, `"wb"`, `"ab"`), `wfdb_parse_path(p)`,
 `wfdb_addtopath(s)`, `getiwfdb(p)`, `wfdb_checkname(p, what)`,
 `wfdb_setirec(p)`, `wfdb_getirec()`, `wfdb_striphea(p)`,
-`.is_absolute_path(s)`, `tool_command(tool)`, `shell_quote(s)`; constants
+`.is_absolute_path(s)`, `.is_url(s)`, `.expand_home(name)`,
+`.resolve(name, output)` (the one location of a name, normal mode),
+`.open_at(p, s)` (both spellings of a name at one location),
+`.open_in(dir, s, name, record)` (a file named in a header, with the
+containment check), `.in_header_dir(name)`, `.dirname(name)`,
+`.fetch(url)`, `.fetch_open(url)`, `tool_command(tool)`, `shell_quote(s)`;
+constants
 `WFDB_LOCAL`, `WFDB_NET`, `WFDB_READ`, ..., `WFDB_APPEND`, `DEFWFDB`, `DEFWFDBCAL`,
 `WFDB_MAXRNL`, `WFDB_VERSION`. Public: `getwfdb`, `setwfdb`, `resetwfdb`,
 `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdbfile`, `wfdbmemerr`,
 `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
-`wfdbdefwfdbcal`, `wfdbx_set_output_dir`, `wfdbx_get_output_dir`.
+`wfdbdefwfdbcal`, `wfdbx_set_input_dir`, `wfdbx_get_input_dir`,
+`wfdbx_set_output_dir`, `wfdbx_get_output_dir`, `wfdbx_set_network`,
+`wfdbx_get_network`.  The resolution rules and the settings are those of
+the C reference and the Python port (docs/DIVERGENCES.md); `signal.R`
+opens headers with `.open_header` (noting `hdr_dir`, the directory of the
+header, and `msrec_dir`/`msrec_name` for the segments of a multi-segment
+record) and signal files with `.open_in(hdr_dir, ...)`.
 
 `ecgcodes.R` — the code constants (`NORMAL`, ..., `ACMAX`, `APUNDEF`, ...;
 `ecgcodes()` returns them as a list); the vectorized mapping functions

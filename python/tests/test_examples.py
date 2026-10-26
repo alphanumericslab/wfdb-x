@@ -23,11 +23,10 @@ NOTEBOOKS = sorted(glob.glob(os.path.join(wfdbx.examples_dir(), "*.ipynb")))
 @pytest.fixture
 def sample_path():
     wfdbx.wfdbquit()
-    old = wfdbx.getwfdb()
-    wfdbx.setwfdb(wfdbx.sample_data_dir())
+    old = wfdbx.wfdbx_set_input_dir(wfdbx.sample_data_dir())
     yield
     wfdbx.wfdbquit()
-    wfdbx.setwfdb(old)
+    wfdbx.wfdbx_set_input_dir(old)
 
 
 def test_sample_record(sample_path):
@@ -55,6 +54,14 @@ def test_notebook(path, tmp_path, monkeypatch):
     pkg_root = os.path.dirname(os.path.dirname(os.path.abspath(wfdbx.__file__)))
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join(
         filter(None, [pkg_root, os.environ.get("PYTHONPATH")])))
+    # No test contacts another host than 127.0.0.1: notebook 06, which reads
+    # from physionet.org, goes through a proxy at a closed local port, and
+    # uses its offline fallback.
+    for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+        monkeypatch.setenv(k, "http://127.0.0.1:9")
+    for k in ("no_proxy", "NO_PROXY", "WFDB", "WFDBX_INPUT_DIR",
+              "WFDBX_OUTPUT_DIR", "WFDBX_NETWORK"):
+        monkeypatch.delenv(k, raising=False)
     nb = nbformat.read(path, as_version=4)
     client = nbclient.NotebookClient(
         nb, timeout=300, kernel_name="python3",

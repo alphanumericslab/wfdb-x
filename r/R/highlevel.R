@@ -26,6 +26,21 @@
 # (write_record, write_annotations) take a dir argument (the files are
 # created in that directory, and the record opens from there under its plain
 # name).
+#
+# Design decision (Reza Sameni, Oct 2026): files are found by explicit names
+# (the input directory, the output directory, or a full path or URL), not by
+# a search of the WFDB path, and PhysioNet (or any server) is accessed only
+# if asked for (network = TRUE): a search can silently open the wrong file,
+# fails in ways nobody notices, and sent local paths and record names to
+# physionet.org.  The readers take input_dir (the input directory for the
+# call) and network (allow URLs for the call), the writers dir (the output
+# directory).  The original behavior remains available with --legacy (see
+# docs/DIVERGENCES.md).
+#
+# Design decision (Reza Sameni, Oct 2026): a checksum error (getvec status
+# -4: the samples are complete, their sum does not match the header's
+# checksums) is not an error of read_record but a warning
+# (checksum_warning = FALSE: none); the data are returned.
 # GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 # A time argument: a sample number, or a WFDB time string (absolute times
@@ -71,9 +86,27 @@
   invisible()
 }
 
+# The input_dir and network arguments of the readers (wfdb-x): if given (not
+# NULL), the library's input directory (wfdbx_set_input_dir) and network
+# permission (wfdbx_set_network) are set for the duration of the call that
+# evaluates expr, and the previous values are restored afterwards (also on
+# errors).
+.hl_input <- function(input_dir, network, expr) {
+  if (!is.null(input_dir)) {
+    prev_dir <- wfdbx_set_input_dir(input_dir)
+    on.exit(wfdbx_set_input_dir(prev_dir), add = TRUE)
+  }
+  if (!is.null(network)) {
+    prev_net <- wfdbx_set_network(network)
+    on.exit(wfdbx_set_network(prev_net), add = TRUE, after = FALSE)
+  }
+  expr
+}
+
 #' The siginfo lists of the signals of a record (no signals are opened).
-#' legacy: see read_record.
-read_header <- function(record, legacy = FALSE) .hl_legacy(legacy, {
+#' input_dir, network, legacy: see read_record.
+read_header <- function(record, input_dir = NULL, network = NULL,
+                        legacy = FALSE) .hl_legacy(legacy, .hl_input(input_dir, network, {
   wfdbquit()
   n <- isigopen(record, 0)$nsig
   if (n < 0) {
@@ -83,7 +116,7 @@ read_header <- function(record, legacy = FALSE) .hl_legacy(legacy, {
   si <- isigopen(record, -n)$si
   wfdbquit()
   si
-})
+}))
 
 #' Read the signals of a record into a matrix.
 #'
@@ -109,6 +142,28 @@ read_header <- function(record, legacy = FALSE) .hl_legacy(legacy, {
 #' is uncalibrated (gain 0).  An unspecified ADC resolution is reported as 0
 #' (siginfo adcres) and unspecified units as NULL (never as millivolts).
 #'
+#' Errors: stop() if the record cannot be read, a channel does not exist or
+#' sampfrom cannot be reached; also if reading stops with a getvec status
+#' below -1 (e.g. -3: a signal file shorter than its header says, or a read
+#' or decoding error), with the message "can't read signal data of record
+#' REC (getvec status S)", also in legacy mode (reaching the end of the
+#' record before sampto is not an error, nor is a checksum error: see
+#' checksum_warning).
+#'
+#' checksum_warning: if TRUE (the default), warn (warning(): "checksum error
+#' in record REC: the signal data do not match the checksums in its header")
+#' when the samples read to the end of the record do not match the
+#' checksums in its header (getvec status -4); the data, every frame
+#' included, are returned either way (FALSE: no warning).  wfdb-x; the same
+#' in all six implementations.
+#'
+#' record: relative to the input directory, or a full path, ~ path or URL
+#' (wfdb-x).  input_dir: the input directory for this call (a local
+#' directory, a ~ name or a URL; see wfdbx_set_input_dir); default: the
+#' current setting.  network: TRUE to allow reading URLs for this call
+#' (FALSE to forbid it; see wfdbx_set_network); default: the current
+#' setting (by default, not allowed).
+#'
 #' legacy: if TRUE, behave as the original package (250 Hz for a header
 #' without a frequency, a gain of 200 for uncalibrated signals in physical
 #' units, an ADC resolution based on the format), with the library's legacy
@@ -116,7 +171,8 @@ read_header <- function(record, legacy = FALSE) .hl_legacy(legacy, {
 #' values it assumes are exactly the silent defaults this project removed.
 read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
                         physical = FALSE, highres = FALSE, pad = FALSE,
-                        legacy = FALSE) .hl_legacy(legacy, {
+                        input_dir = NULL, network = NULL,
+                        legacy = FALSE, checksum_warning = TRUE) .hl_legacy(legacy, .hl_input(input_dir, network, {
   legacy <- wfdbx_get_legacy()
   wfdbquit()
   nsig <- isigopen(record, 0)$nsig
@@ -179,8 +235,24 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
     stop("can't seek to sample ", from, " of record ", record)
   }
   n <- if (is.null(to)) Inf else max(to - from, 0)
-  data <- getframes(n)$v
-  data <- data[, cols + 1, drop = FALSE]
+  # (getvec's checksum message is not printed: a warning replaces it)
+  .sig$cksum_quiet <- TRUE
+  g <- tryCatch(.getframes(n, keep_checksum_frame = TRUE),
+                finally = .sig$cksum_quiet <- FALSE)
+  # wfdb-x: -4, a checksum error: the frames are complete (the last one
+  # included), only their sum does not match the header: a warning, not an
+  # error.  Any other status below -1 (e.g. -3, unexpected EOF: a signal
+  # file shorter than its header says, or a decoder or I/O error) is an
+  # error, not the end of the data (-1).
+  if (g$stat == -4) {
+    if (isTRUE(checksum_warning))
+      warning("checksum error in record ", record,
+              ": the signal data do not match the checksums in its header", call. = FALSE)
+  } else if (g$stat < -1) {
+    wfdbquit()
+    stop("can't read signal data of record ", record, " (getvec status ", g$stat, ")")
+  }
+  data <- g$v[, cols + 1, drop = FALSE]
   sel <- si[cols + 1]
   comments <- character(0)
   c <- getinfo(record)
@@ -204,7 +276,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
               base_time = base_time, sampfrom = from, comments = comments)
   wfdbquit()
   rec
-})
+}))
 
 #' Write signals (and a header) as record `record`.
 #'

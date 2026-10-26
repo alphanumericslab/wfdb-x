@@ -45,7 +45,7 @@ end
 function stat = scalar(an, A, idx)
 stat = 0;
 a = wfdbx.annotation();
-for k = idx
+for k = reshape(idx, 1, [])
     a.time = A.time(k);
     a.anntyp = A.anntyp(k);
     a.subtyp = A.subtyp(k);

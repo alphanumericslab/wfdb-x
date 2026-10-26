@@ -2,8 +2,21 @@
 
 These functions are built on the C-compatible API of wfdb-x (``isigopen``,
 ``getvec``, ``getann``, ``putvec``, ``putann``, ...), so they read and
-write exactly what the WFDB library and applications do.  Records and
-annotation files are located through the WFDB path (see ``getwfdb``).
+write exactly what the WFDB library and applications do.
+
+Finding files: every relative name is read under the input directory and
+written under the output directory -- whatever is set as the input
+directory, a local directory or a URL, prefixes it; a name given as a full
+path (/Users/...), a ~ path or a URL is used as given; nothing else is
+searched.  The readers take ``input_dir=`` (the input directory for the
+call) and ``network=`` (allow URLs for the call), the writers ``dir=`` (the
+output directory); see also ``wfdbx_set_input_dir``,
+``wfdbx_set_output_dir`` and ``wfdbx_set_network``.  The signal files of a
+record are in the directory of its header.  Example (PhysioNet)::
+
+    rec = wfdbx.read_record(
+        "100", input_dir="https://physionet.org/files/mitdb/1.0.0/",
+        network=True)
 
 These functions call ``wfdbquit()``, so they close any record or
 annotation file previously opened with the C-compatible API.
@@ -40,11 +53,22 @@ never assumed (the original package assumed 250 Hz, 200 adu/mV, 12 bits and
 millivolts), because a silently assumed value corrupts every result derived
 from it. See docs/DIVERGENCES.md. The original behavior remains available
 with --legacy (see docs/DIVERGENCES.md).
+Design decision (Reza Sameni, Oct 2026): files are found by explicit names
+(the input directory, the output directory, or a full path or URL), not by a
+search of the WFDB path, and PhysioNet (or any server) is accessed only if
+asked for (network=True): a search can silently open the wrong file, fails in
+ways nobody notices, and sent local paths and record names to physionet.org.
+The original behavior remains available with --legacy (see
+docs/DIVERGENCES.md).
 Design decision (Reza Sameni, after a code review, Oct 2026): the writers
 take a dir argument (the files are created in that directory, and the record
 opens from there under its plain name), and write_record encodes the samples
 of the common formats with NumPy, byte for byte as putvec (calling putvec
 once per frame was 10-30 times slower than reading).
+Design decision (Reza Sameni, Oct 2026): a checksum error (getvec status -4:
+the samples are complete, their sum does not match the header's checksums)
+is not an error of read_record but a RuntimeWarning (checksum_warning=False:
+none); the data are returned.
 This library is free software; you can redistribute it and/or modify it under
 the terms of the GNU Library General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your option) any
@@ -53,6 +77,8 @@ later version.
 
 import functools
 import os
+import sys
+import warnings
 
 from . import _signal as sig
 from . import _annot as ann
@@ -199,6 +225,40 @@ def _output_dir_option(func):
     return wrapper
 
 
+def _input_options(func):
+    """Decorator for the input_dir and network keyword arguments of the
+    readers (wfdb-x): if given (not None), the library's input directory
+    (wfdbx_set_input_dir) and network permission (wfdbx_set_network) are set
+    for the duration of the call, and the previous values are restored
+    afterwards (also on errors)."""
+    @functools.wraps(func)
+    def wrapper(*args, **kw):
+        d, net = kw.get("input_dir"), kw.get("network")
+        previous_dir = wio.wfdbx_set_input_dir(d) if d is not None else None
+        previous_net = wio.wfdbx_set_network(net) if net is not None \
+            else None
+        try:
+            return func(*args, **kw)
+        finally:
+            if net is not None:
+                wio.wfdbx_set_network(previous_net)
+            if d is not None:
+                wio.wfdbx_set_input_dir(previous_dir)
+    return wrapper
+
+
+def _warn_level():
+    """The stacklevel for warnings.warn called by a function of this module
+    so that the warning points at the caller of the module (past the
+    decorators' wrappers)."""
+    f = sys._getframe(1)
+    level = 1
+    while f is not None and f.f_globals.get("__name__") == __name__:
+        f = f.f_back
+        level += 1
+    return level
+
+
 def _legacy():
     # True in legacy mode (the original behavior; see _legacy_option).
     return sig.wfdbx_get_legacy() != 0
@@ -218,13 +278,21 @@ def _check_time_freq(record, *times):
 
 
 @_legacy_option
-def read_header(record, *, legacy=False):
+@_input_options
+def read_header(record, *, input_dir=None, network=None, legacy=False):
     """Read the header of a record and return its signal specifications.
 
     No signal files are opened or read.
 
     Arguments:
-      record    record name (resolved using the WFDB path)
+      record    record name: relative to the input directory, or a full
+                path, ~ path or URL
+      input_dir the input directory for this call (a local directory, a
+                ~ name or a URL; see wfdbx_set_input_dir); default: the
+                current setting (by default, the current directory)
+      network   True to allow reading URLs for this call (False to forbid
+                it; see wfdbx_set_network); default: the current setting
+                (by default, not allowed)
       legacy    if True, read the header as the original package did
                 (missing ADC resolutions inferred from the format; see
                 the module documentation)
@@ -251,12 +319,15 @@ def read_header(record, *, legacy=False):
 
 
 @_legacy_option
+@_input_options
 def read_record(record, channels=None, sampfrom=0, sampto=None,
-                physical=False, highres=False, pad=False, *, legacy=False):
+                physical=False, highres=False, pad=False, *, input_dir=None,
+                network=None, legacy=False, checksum_warning=True):
     """Read the signals of a record (or part of it) into a NumPy array.
 
     Arguments:
-      record    record name (resolved using the WFDB path, as by rdsamp)
+      record    record name: relative to the input directory, or a full
+                path, ~ path or URL (as for rdsamp)
       channels  list of signal numbers (int) or names (str), in the order
                 wanted (default: all signals)
       sampfrom  first sample to read: a sample number, or a time string
@@ -275,9 +346,21 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                 such signals are averaged to one sample per frame
       pad       if True, replace each invalid sample by the previous valid
                 sample of the same signal (WFDB_GVPAD mode)
+      input_dir the input directory for this call (a local directory, a
+                ~ name or a URL; see wfdbx_set_input_dir); default: the
+                current setting (by default, the current directory)
+      network   True to allow reading URLs for this call (False to forbid
+                it; see wfdbx_set_network); default: the current setting
+                (by default, not allowed)
       legacy    if True, behave as the original package (250 Hz for a
                 header without a frequency, a gain of 200 for uncalibrated
                 signals in physical units; see the module documentation)
+      checksum_warning
+                if True (the default), warn (RuntimeWarning: "checksum
+                error in record REC: the signal data do not match the
+                checksums in its header") when the samples read to the end
+                of the record do not match the checksums in its header;
+                the data are returned either way (False: no warning)
 
     Returns:
       a Record object (see Record); ``rec.signals`` has one row per
@@ -285,7 +368,14 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
 
     Raises:
       IOError     if the header or the signal files cannot be read, or the
-                  record has no signals, or sampfrom is beyond the end
+                  record has no signals, or sampfrom is beyond the end;
+                  also if reading stops with a getvec status below -1
+                  (e.g. -3: a signal file shorter than its header says,
+                  or a read or decoding error), with the message "can't
+                  read signal data of record REC (getvec status S)"
+                  (also in legacy mode); reaching the end of the record
+                  before sampto is not an error, nor is a checksum error
+                  (-4: see checksum_warning)
       ValueError  if a channel number or name is not in the record, if
                   sampfrom or sampto is a time string that needs the
                   sampling frequency and the header does not specify it,
@@ -342,15 +432,37 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
         raise IOError("can't seek to sample %d of record %s" % (frm, record))
     blocks = []
     remaining = None if to is None else max(to - frm, 0)
-    while remaining is None or remaining > 0:
-        n = _CHUNK if remaining is None else min(_CHUNK, remaining)
-        arr, stat = sig.getframes(n)
-        if len(arr):
-            blocks.append(arr)
-        if remaining is not None:
-            remaining -= len(arr)
-        if len(arr) < n:
-            break
+    cksum_error = False
+    sig._s.cksum_quiet = 1
+    try:
+        while remaining is None or remaining > 0:
+            n = _CHUNK if remaining is None else min(_CHUNK, remaining)
+            arr, stat = sig._getframes(n, keep_checksum_frame=True)
+            if len(arr):
+                blocks.append(arr)
+            if remaining is not None:
+                remaining -= len(arr)
+            # wfdb-x: -4, a checksum error: the frames are complete (the
+            # last one included), only their sum does not match the header:
+            # a warning (see below), not an error
+            if stat == -4:
+                cksum_error = True
+                break
+            if len(arr) < n:
+                # wfdb-x: a status below -1 (e.g. -3, unexpected EOF: the
+                # signal file is shorter than its header says, or a decoder
+                # or I/O error) is an error, not the end of the data (-1)
+                if stat < -1:
+                    init.wfdbquit()
+                    raise IOError("can't read signal data of record %s "
+                                  "(getvec status %d)" % (record, stat))
+                break
+    finally:
+        sig._s.cksum_quiet = 0
+    if cksum_error and checksum_warning:
+        warnings.warn("checksum error in record %s: the signal data do not "
+                      "match the checksums in its header" % record,
+                      RuntimeWarning, stacklevel=_warn_level())
     data = np.concatenate(blocks) if blocks else np.empty((0, nsig),
                                                           np.int64)
     data = data[:, cols]
@@ -378,8 +490,9 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
 
 
 @_legacy_option
+@_input_options
 def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
-                     legacy=False):
+                     input_dir=None, network=None, legacy=False):
     """Read an annotation file into NumPy arrays (as rdann reads it).
 
     Arguments:
@@ -396,6 +509,8 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
                  (C assumed 250 Hz): without a frequency, ``fs`` of the
                  result is 0, and time strings that need the frequency
                  (see wfdbx_time_needs_freq) raise ValueError
+      input_dir  the input directory for this call (see read_record)
+      network    True to allow reading URLs for this call (see read_record)
       legacy     if True, behave as the original package (250 Hz if the
                  record has no header, or if its header gives no frequency,
                  and fs is not given; see the module documentation)

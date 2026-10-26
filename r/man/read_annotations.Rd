@@ -11,7 +11,7 @@
 }
 \usage{
 read_annotations(record, annotator, sampfrom = 0, sampto = NULL, fs = NULL,
-                 legacy = FALSE)
+                 input_dir = NULL, network = NULL, legacy = FALSE)
 
 write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
                   subtype = 0, chan = 0, num = 0, aux = NULL, fs = NULL,
@@ -19,7 +19,8 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
 }
 \arguments{
   \item{record}{the record name, a character string (for example
-    \code{"100s"}).}
+    \code{"100s"}): relative to the input directory, or a full path, a
+    \code{~} path or a URL (see \code{\link{getwfdb}}).}
   \item{annotator}{the annotator name, which is the extension of the
     annotation file (for example \code{"atr"} for \file{100s.atr}).}
   \item{sampfrom, sampto}{read only the annotations at or after
@@ -55,6 +56,14 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
     directory; wfdb-x).  The library's output directory
     (\code{\link{wfdbx_set_output_dir}}) is set for the duration of the
     call and restored afterwards, also on errors.}
+  \item{input_dir}{the input directory for this call (a local directory, a
+    \code{~} name or a URL; see \code{\link{wfdbx_set_input_dir}}), or
+    \code{NULL} (the default) for the current setting.  The previous value
+    is restored afterwards, also on errors (wfdb-x).}
+  \item{network}{\code{TRUE} to allow reading URLs for this call,
+    \code{FALSE} to forbid it (see \code{\link{wfdbx_set_network}}), or
+    \code{NULL} (the default) for the current setting (by default, not
+    allowed).  The previous value is restored afterwards (wfdb-x).}
   \item{legacy}{if \code{TRUE}, behave as the original package did, with
     the library's legacy mode (\code{\link{wfdbx_set_legacy}}) on for the
     duration of the call (the previous setting is restored afterwards,
@@ -68,8 +77,8 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
 }
 \details{
   The annotation file is \file{\var{record}.\var{annotator}}.  When
-  reading, it is looked for in the directories of the WFDB path (see
-  \code{\link{getwfdb}}), and the header of the record, if found, gives the
+  reading, it is read under the input directory, unless the record name is
+  a full path, a \code{~} path or a URL (see \code{\link{getwfdb}}), and the header of the record, if found, gives the
   sampling frequency used to interpret time strings; when writing, it is
   created in the current directory.
 

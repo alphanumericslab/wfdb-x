@@ -25,14 +25,18 @@ wfdbinit(record::OptByteStr, aiarray, nann::Integer,
 """
     wfdbquit([w])
 
-C `wfdbquit`: close all annotators, signals and the info file, restore the
-WFDB path, and release the library's buffers.
+C `wfdbquit`: close all annotators, signals and the info file, and release
+the library's buffers. The input and output directories are left as they
+are (wfdb-x; in legacy mode, the WFDB path is restored, as by
+[`resetwfdb`](@ref)).
 """
 function wfdbquit(w::Wfdb)
     wfdb_anclose(w)     # close annotation files, reset variables
     wfdb_oinfoclose(w)  # close info file
     wfdb_sigclose(w)    # close signals, reset variables
-    resetwfdb(w)        # restore the WFDB path
+    # restore the WFDB path (wfdb-x: in legacy mode only; the input directory
+    # remains)
+    wfdbx_get_legacy(w) != 0 && resetwfdb(w)
     wfdb_sampquit(w)    # release sample data buffer
     wfdb_freeinfo(w)    # release info strings
     nothing

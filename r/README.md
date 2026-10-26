@@ -155,6 +155,33 @@ write_annotations("100s", "cpy", a)
 `read_record` also takes `channels` (numbers or names), `sampfrom` and
 `sampto` (sample numbers or time strings), `highres` and `pad`;
 `read_header` returns the signal information of a record.
+`read_record` stops with the error "can't read signal data of record REC
+(getvec status S)" when reading stops with a getvec status below -1, e.g. -3
+for a signal file shorter than its header says, instead of returning the
+samples read so far; reaching the end of the record is not an error. This
+applies in legacy mode too, since the high-level API is a wfdb-x addition
+(`getvec`, `getframes` and the tools are unchanged).
+A checksum error (getvec status -4: the samples are complete, but their sum
+does not match the checksums in the header) is not an error: `read_record`
+returns every frame, the last one included, and warns with
+`warning("checksum error in record REC: the signal data do not match the
+checksums in its header")` (`checksum_warning = FALSE` turns the warning
+off; getvec's own "getvec: checksum error in signal N" is not printed
+during the read). The behavior is identical in all six implementations.
+
+The library never creates an output signal file that is one of the files
+of the open input record (wfdb-x): `osigfopen`/`osigopen` (and so every
+tool and `write_record`) refuse it, with "osigfopen: output file NAME is
+also an input file" (`osigopen: ...`) and status -3, leaving the input
+intact, e.g. `xform -i vlay -o fmt16` where `fmt16` is a segment of `vlay`
+(the original truncated the file it was reading, `xform: can't write output
+signals (osigopen: output file fmt16.dat is also an input file)` now). The
+files are compared, not their names (other spellings, symbolic and hard
+links, the signal files of every segment of a multi-segment record); in R,
+which has no inode numbers, by normalized paths and, for files of equal
+size and modification time, the device and inode numbers given by the
+`stat` program. Legacy mode does not check. The behavior is identical in
+all six implementations.
 
 There is no default sampling frequency, gain, ADC resolution or units:
 `write_record` requires `fs` (> 0), `gains` (a gain of 0 declares a signal
@@ -172,13 +199,93 @@ none. The library functions `strtim`, `timstr`, `mstimstr`, `setifreq`,
 assuming a value (see `?strtim` and `?aduphys`). See
 `?read_record`, `?read_annotations` and the package overview, `?wfdbx`.
 
-Records are found through the WFDB path (`getwfdb()`), which by default
-starts with the current directory; `setwfdb("dir1 dir2")` changes it, and
-the environment variable `WFDB` sets its initial value. (As in C,
-`wfdbquit()` makes `getwfdb()` report the initial path again, but files are
-still searched for in the directories given to the last `setwfdb` call.)
+## Finding records and files
 
-### Directories, absolute paths and annotation order
+Every relative name is read under the input directory and written under the
+output directory -- whatever you set as the input directory, a local
+directory or a URL, prefixes it; a name given as a full path (`/Users/...`),
+a `~` path or a URL is used as given; nothing else is searched. (The
+original library searched the directories of the WFDB path, and possibly
+`http://physionet.org/physiobank/database`: a search can silently open the
+wrong file, such as a stale copy earlier in the path, and fails in ways
+nobody notices; wfdb-x tries exactly one location.) Relative names may
+contain directories and `..` (`"mitdb/100"`, `"../data/100"`).
+
+| Setting | R | Environment variable | Default |
+|---|---|---|---|
+| input directory (a directory, a `~` path or a URL) | `wfdbx_set_input_dir(d)` (returns the previous one), `wfdbx_get_input_dir()`; `input_dir =` of the readers | `WFDBX_INPUT_DIR` | none: the current directory |
+| output directory (local) | `wfdbx_set_output_dir(d)`, `wfdbx_get_output_dir()`; `dir =` of the writers | `WFDBX_OUTPUT_DIR` | none: the current directory |
+| network access | `wfdbx_set_network(1)` (returns the previous setting), `wfdbx_get_network()`; `network =` of the readers | `WFDBX_NETWORK` (a non-zero number: on) | off |
+
+A function call overrides the environment variable (read when the setting
+is first needed); `NULL` (or `""`; for the network, `NULL` or a negative
+number) restores the default, i.e. the environment variable's value if it is
+set. A relative or `~` directory is used relative to the current directory
+(or expanded) when a file is opened. The high-level readers (`read_record`,
+`read_header`, `read_annotations`) set `input_dir` and `network` for the
+duration of the call only (and restore the previous values, also on
+errors); `NULL` keeps the current setting.
+
+**PhysioNet.** The files of a PhysioNet database are under
+`https://physionet.org/files/<database>/<version>/`. Reading from it is an
+explicit choice -- wfdb-x never contacts a server unless network access is
+on:
+
+```r
+wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/")
+wfdbx_set_network(1)
+rec <- read_record("100", sampto = "0:10", physical = TRUE)
+# or, for one call:
+rec <- read_record("100", input_dir = "https://physionet.org/files/mitdb/1.0.0/",
+                   network = TRUE)
+```
+
+```sh
+WFDBX_NETWORK=1 WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/ wfdbx rdsamp -r 100 -t 0:5
+```
+
+Remote files are read by the system program `curl` (or with base R's
+`url()` if there is none), in full, and kept for the rest of the process (each URL is requested at most once;
+redirects are followed, an HTTP status of 400 or more is a failure, and
+reading gives up if connecting takes 30 s or no data arrives for 30 s, with
+no limit on the total time). They are read-only: a URL cannot be written, nor be the output
+directory. With network access off, a URL is not opened, and the first
+attempt prints `wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or
+call wfdbx_set_network(1) to open URL`.
+
+**Files named in headers.** The signal files named in a header, and the
+segments of a multi-segment record, are in the directory of that header (on
+disk or at its URL) or below it: `100.dat` is read next to `100.hea`, and
+`data/a.dat` in its subdirectory `data`. Nothing else is tried, and a name
+that is absolute, begins with `~`, is a URL or contains a `..` component is
+refused (`init: file NAME named in the header of record REC is not in the
+header's directory`), so that a header (perhaps downloaded) cannot make the
+library read other local files or contact other servers. (`~` as a segment
+name, a null segment, and `-` as a signal file name, the standard input,
+keep their meaning.) Annotation files, `.info` files and the calibration
+file (`WFDBCAL`) follow the rule above with the name as given: the
+annotations of record `mitdb/100` are `<input directory>/mitdb/100.atr`.
+
+**The C-style API.** `setwfdb(p)` sets the input directory: `p` must name a
+single directory (`setwfdb("data")`; `""` or `";"` restores the default;
+several, such as `". data"`, are an error: `setwfdb: wfdb-x reads from a
+single input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB
+search path)`). `setwfdb` splits its argument at spaces, as the original does, so a directory whose name contains a space must be set with `wfdbx_set_input_dir`, which takes the name as it is.
+`getwfdb()` returns the input directory, or `"."` if none is
+set; `resetwfdb()` restores the value set by the last `setwfdb`
+(`wfdbquit()` leaves the settings as they are). The `WFDB` environment
+variable is not used: if it is set, the first lookup prints `wfdb-x: the
+WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use
+legacy mode)`.
+
+**Legacy mode** (`--legacy`, `wfdbx_set_legacy(TRUE)`, `legacy = TRUE`)
+keeps the original search of the WFDB path (`WFDB`, `setwfdb` with several
+entries, `@file` paths, `%r`, names containing `..` refused), without any
+network access (as the reference C build, compiled without network support:
+URL names and URL path entries are not opened). The input directory and
+`WFDBX_NETWORK` are not used in legacy mode; the output directory is.
+
+### Output directory and annotation order
 
 **Output directory.** `write_record(..., dir = "out")` and
 `write_annotations(..., dir = "out")` create their files in the directory
@@ -196,15 +303,6 @@ the current one); the writers set it for the duration of the call (and
 restore it, also on errors). The C-style API and the tools are otherwise
 unchanged: `newheader("out/rec")` and `wfdbx wrsamp -o out/rec` still record
 the name `out/rec`, as in C.
-
-**Absolute paths.** A record named by an absolute path
-(`read_record("/data/mitdb/100")`, `wfdbx rdsamp -r /data/mitdb/100`) is
-opened directly, and the files next to its header (signal and annotation
-files) are found there. The C library searched for such a name in each
-directory of the WFDB path (`./` + the name), so that it was found only from
-the root directory; it still does so in legacy mode. In both modes, an empty
-component in the WFDB path makes names be used as given: with
-`setwfdb(";")` (or `WFDB=";"`), `/data/mitdb/100` opens in legacy mode too.
 
 **Annotation order.** Annotations written out of canonical order (by time,
 then `num`, then `chan`) are rearranged when the file is closed, in the same
@@ -287,8 +385,6 @@ record in about 1.7 s). `write_record` encodes the samples with vector operation
 
 ## Limitations
 
-* Remote records (`http://` URLs in the WFDB path) are not supported, as in
-  the C++ and MATLAB implementations.
 * The standard output and error are written in binary through
   `/dev/stdout` and `/dev/stderr`; where these do not exist (Windows), they
   are written as text, and NUL bytes are lost.

@@ -108,6 +108,7 @@ fn wfdb_open_modes() {
     let d = tmpdir("open");
     let mut w = Wfdb::new();
     w.wfdbquiet();
+    w.wfdbx_set_legacy(1); // (the WFDB path: legacy mode; see tests/files.rs)
     let mut path = b(&d);
     path.extend_from_slice(b" .");
     w.setwfdb(&path);
@@ -147,7 +148,9 @@ fn wfdb_open_modes() {
 #[test]
 fn wfdb_path_functions() {
     let _env = env_lock();
+    // (the WFDB path: legacy mode; see tests/files.rs for normal mode)
     let mut w = Wfdb::new();
+    w.wfdbx_set_legacy(1);
     w.setwfdb("a b");
     assert_eq!(w.getwfdb(), b"a b");
     assert_eq!(cstd::getenv("WFDB").unwrap(), b"a b");
@@ -156,6 +159,7 @@ fn wfdb_path_functions() {
     w.resetwfdb();
     assert_eq!(w.getwfdb(), b"a b");
     let mut w2 = Wfdb::new();
+    w2.wfdbx_set_legacy(1);
     let first = w2.getwfdb();
     w2.setwfdb("x");
     w2.resetwfdb();
@@ -242,31 +246,26 @@ fn output_dir() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// wfdb-x: an absolute path is opened directly (and its directory added to
-/// the WFDB path); in legacy mode, as in C, only the WFDB path is searched,
+/// wfdb-x: an absolute path is used as given (whatever the input
+/// directory); in legacy mode, as in C, only the WFDB path is searched,
 /// where an empty component (`setwfdb(";")`) uses names as given.
 #[test]
 fn absolute_paths() {
     let _env = env_lock();
     let d = tmpdir("abs");
     std::fs::write(d.join("r.hea"), b"r 0\n").unwrap();
-    std::fs::write(d.join("r.dat"), b"").unwrap();
     let mut rec = b(&d);
     rec.extend_from_slice(b"/r");
-    let mut w = Wfdb::new();
-    w.wfdbquiet();
-    w.setwfdb("/nonexistent-wfdbx-dir");
-    let f = w.wfdb_open("hea", &rec, WFDB_READ);
-    assert!(f.is_some());
     let mut name = rec.clone();
     name.extend_from_slice(b".hea");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.wfdbx_set_input_dir("/nonexistent-wfdbx-dir");
+    assert!(w.wfdb_open("hea", &rec, WFDB_READ).is_some());
     assert_eq!(w.wfdb_filename(), &name[..]);
-    // the directory was added to the WFDB path: r.dat is found by name
-    assert!(w.wfdb_open("dat", "r", WFDB_READ).is_some());
-    // a missing file falls back to the path search
-    assert!(w
-        .wfdb_open("hea", "/nonexistent-wfdbx-dir/r", WFDB_READ)
-        .is_none());
+    // nothing is searched: the directory is not added to a path
+    assert!(w.wfdb_open("hea", "r", WFDB_READ).is_none());
+    assert_eq!(w.wfdb_filename(), b"/nonexistent-wfdbx-dir/r.hea");
     // legacy mode: the WFDB path only
     let mut w = Wfdb::new();
     w.wfdbquiet();

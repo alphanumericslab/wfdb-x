@@ -9,9 +9,8 @@ unmodified C package): the legacy mode must reproduce them exactly.
 Each case is a dict with keys:
   id      unique identifier (used as the golden directory name)
   tool    name of the WFDB application
-  args    list of command-line arguments ("{cwd}" in an argument stands for
-          the absolute path of the work directory, which is written as
-          "{cwd}" in the standard output and error)
+  args    list of command-line arguments ("{cwd}", "{home}" and "{url}"
+          as in ../cases.py)
   stdin   (optional) bytes or str supplied on the standard input
   files   (optional) {name: content} extra files created before running
   env     (optional) extra environment variables
@@ -766,3 +765,34 @@ case("sortann", "-r 100s -a t0", cid="sortann-time0-inplace",
 # An absolute record name (the original sortann, run by the library, does not
 # find the file)
 case("wrann", "-r {cwd}/100s -a srt", cid="annsort-abspath", stdin=_SORT)
+
+# ---------------------------------------------------------------------------
+# Finding files in legacy mode: the WFDB path is searched (several entries;
+# the first ones are the directories of the files opened before), names
+# containing ".." are refused, ~ is not expanded, a header's signal file is
+# found anywhere in the path, and nothing is read from the network (URL
+# names and URL path entries; WFDBX_NETWORK and WFDBX_INPUT_DIR are
+# ignored).  (Compare the files-* cases of the modern suite.)
+_HOME_SR = {"home/hr/" + k[4:]: v for k, v in _SR.items()}
+_NET = {"WFDBX_NETWORK": "1"}
+_SIB = {"sub/sib.hea": "sib 2 360 21600\n100s.dat 212 200 11 1024 995 21537 0 "
+        "MLII\n100s.dat 212 200 11 1024 1011 -3962 0 V5\n"}
+for tool, args, cid, kw in [
+        ("rdsamp", "-r sr -t s3", "files-wfdb-search",
+         {"files": _SR, "wfdb": "sub ."}),
+        ("wfdbwhich", "hea sr", "files-wfdb-search-wfdbwhich",
+         {"files": _SR, "wfdb": "sub ."}),
+        ("wfdbwhich", "-r sub/sr sr.atr", "files-wfdbwhich-addtopath",
+         {"files": _SR}),
+        ("rdsamp", "-r sub/../100s -t s3", "files-rel-dotdot", {"files": _SR}),
+        ("rdsamp", "-r ~/hr/sr -t s3", "files-home-rdsamp",
+         {"files": _HOME_SR}),
+        ("rdsamp", "-r sr -t s3", "files-inputdir-ignored",
+         {"files": _SR, "env": {"WFDBX_INPUT_DIR": "sub"}}),
+        ("rdsamp", "-r sub/sib -t s3", "files-hdr-sibling", {"files": _SIB}),
+        ("rdsamp", "-r {url}100s -t s3", "files-url-rdsamp", {"env": _NET}),
+        ("rdsamp", "-r 100s -t s3", "files-url-path",
+         {"env": dict(_NET, WFDB="{url}")}),
+        ("wfdbcat", "{url}100s.hea fmt16.hea", "files-url-wfdbcat",
+         {"env": _NET})]:
+    case(tool, args, cid=cid, **kw)
