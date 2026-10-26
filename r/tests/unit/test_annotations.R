@@ -465,6 +465,65 @@ for (it in 1:30) {
 Sys.unsetenv("WFDBANNSORT")
 check(ok, "bulk putann = putann")
 
+# Bulk putann against putann on the vectorized MIT path: in-order and
+# out-of-order times with large gaps (within one SKIP), every field, aux
+# strings of every length (empty, odd, 255, and raw vectors whose length
+# byte is larger or smaller than their data)
+Sys.setenv(WFDBANNSORT = "0")
+ok <- TRUE
+rand_aux <- function() {
+  u <- runif(1)
+  if (u < 0.5) return(NULL)
+  b <- as.raw(base::sample(1:255, base::sample(c(0:20, 254, 255, 256, 300), 1), TRUE))
+  if (u < 0.85) return(.aux_from(b))
+  c(as.raw(base::sample(0:255, 1)), b)              # (length byte != data)
+}
+for (it in 1:40) {
+  n <- base::sample(1:300, 1)
+  steps <- base::sample(c(0:3000, 70000, 2^31 - 1), n, TRUE, prob = c(rep(1, 3001), 4, 1))
+  t <- cumsum(steps)
+  if (it %% 2 == 0) t[base::sample(n, max(1, n %/% 10))] <- base::sample(0:5000, max(1, n %/% 10), TRUE)
+  A <- list(time = t, anntyp = base::sample(0:49, n, TRUE),
+            subtyp = base::sample(c(0, 0, 0, -1, 5, 200), n, TRUE),
+            chan = base::sample(c(0, 0, 1, 255, 300), n, TRUE),
+            num = base::sample(c(0, 0, 3, -2, 130), n, TRUE),
+            aux = lapply(seq_len(n), function(k) rand_aux()))
+  wfdbquiet()
+  annopen("100s", list(anninfo("pa", WFDB_WRITE), anninfo("pb", WFDB_WRITE)))
+  for (k in seq_len(n)) putann(0, lapply(A, function(x) if (is.list(x)) x[[k]] else x[k]))
+  .putann_bulk(1, A)
+  wfdbquit()
+  wfdbverbose()
+  if (!identical(rf("100s.pa"), rf("100s.pb"))) {
+    ok <- FALSE
+    break
+  }
+}
+Sys.unsetenv("WFDBANNSORT")
+check(ok, "bulk putann = putann (vectorized path, aux of every length)")
+
+# write_annotations (character aux strings, each distinct one converted
+# once) against putann
+Sys.setenv(WFDBANNSORT = "0")
+n <- 500
+tt <- cumsum(base::sample(1:500, n, TRUE))
+auxs <- base::sample(c(NA, "", "(N", "(AFIB", "odd", strrep("y", 255), strrep("z", 300)),
+                     n, TRUE)
+codes <- base::sample(c(NORMAL, PVC, RHYTHM, NOTE), n, TRUE)
+write_annotations("100s", "wa", tt, code = codes, aux = auxs)
+annopen("100s", list(anninfo("wb", WFDB_WRITE)))
+for (k in seq_len(n)) {
+  a <- if (is.na(auxs[k])) NULL else {
+    b <- charToRaw(auxs[k])
+    if (length(b) > 255L) b <- b[1:255]
+    c(as.raw(length(b)), b)
+  }
+  putann(0, list(time = tt[k], anntyp = codes[k], subtyp = 0, chan = 0, num = 0, aux = a))
+}
+wfdbquit()
+Sys.unsetenv("WFDBANNSORT")
+check(identical(rf("100s.wa"), rf("100s.wb")), "write_annotations = putann (aux strings)")
+
 # wrann's vectorized parser against its line-by-line parser.
 wfdbquit()
 sampfreq("100s")
@@ -645,6 +704,46 @@ o1 <- read_annotations("100s", "o1")
 o2 <- read_annotations("100s", "o2")
 check(identical(o1$sample, c(10, 20, 30)) && all(o1$symbol == "N"), "sort: o1 sorted")
 expect_equal(o2$sample, c(10, 20, 30, 40), "sort: o2 sorted")
+
+# write_annotations(..., sort = ): for this call only, whatever
+# WFDBANNSORT says (wfdb-x)
+ooo_t <- c(30, 10, 20)
+ooo_s <- c("N", "V", "A")
+wfdbquiet()
+write_annotations("100s", "s0", ooo_t, symbol = ooo_s, sort = FALSE)
+expect_equal(read_all("s0")$time, ooo_t, "sort = FALSE: file in the given order")
+Sys.setenv(WFDBANNSORT = "0")
+write_annotations("100s", "s1", ooo_t, symbol = ooo_s, sort = TRUE)
+expect_equal(read_all("s1")$time, c(10, 20, 30), "sort = TRUE, WFDBANNSORT=0: sorted")
+expect_equal(Sys.getenv("WFDBANNSORT"), "0", "sort = TRUE: environment unchanged")
+write_annotations("100s", "s2", ooo_t, symbol = ooo_s)
+expect_equal(read_all("s2")$time, ooo_t, "sort unset, WFDBANNSORT=0: not sorted")
+Sys.setenv(WFDBANNSORT = "1")
+write_annotations("100s", "s3", ooo_t, symbol = ooo_s, sort = FALSE)
+expect_equal(read_all("s3")$time, ooo_t, "sort = FALSE, WFDBANNSORT=1: not sorted")
+Sys.unsetenv("WFDBANNSORT")
+write_annotations("100s", "s4", ooo_t, symbol = ooo_s)
+expect_equal(read_all("s4")$time, c(10, 20, 30), "sort unset: sorted (default)")
+check(is.null(.ann$sort_override), "sort: setting not kept after the call")
+# legacy mode: TRUE runs sortann, FALSE leaves the file as written
+Sys.setenv(WFDBANNSORT = "0")
+write_annotations("100s", "s5", ooo_t, symbol = ooo_s, sort = TRUE, legacy = TRUE)
+expect_equal(read_all("s5")$time, c(10, 20, 30), "sort = TRUE, legacy: sorted (sortann)")
+Sys.unsetenv("WFDBANNSORT")
+write_annotations("100s", "s6", ooo_t, symbol = ooo_s, sort = FALSE, legacy = TRUE)
+expect_equal(read_all("s6")$time, ooo_t, "sort = FALSE, legacy: not sorted")
+# an annotator opened before the call is closed with WFDBANNSORT's setting
+annopen("100s", list(anninfo("s7", WFDB_WRITE)))
+for (t in ooo_t) putann(0, annotation(t, NORMAL))
+write_annotations("100s", "s8", ooo_t, symbol = ooo_s, sort = FALSE)
+expect_equal(read_all("s7")$time, c(10, 20, 30), "sort: earlier annotator not affected")
+errmsg_a <- function(expr) tryCatch({
+  expr
+  ""
+}, error = function(e) conditionMessage(e))
+expect_equal(errmsg_a(write_annotations("100s", "s9", 1, symbol = "N", sort = NA)),
+             "sort must be NULL, TRUE or FALSE", "sort: invalid value")
+wfdbverbose()
 
 # write_annotations(..., dir = ) (wfdb-x)
 dir.create("out")

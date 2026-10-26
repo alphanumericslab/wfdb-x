@@ -651,7 +651,7 @@ end
         @test startswith(text, "hw 2 125.5 10 12:00:00 01/02/2003\r\n")
         @test occursin("hw.dat 16 100/mV 16 0 0 0 0 lead I\r\n", text)
         @test endswith(text, "#c1\r\n")
-        h = W.read_header(w, "hw")
+        h = W.read_header(w, "hw").siginfo
         @test length(h) == 2
         @test h[2].desc == b"pressure"
         @test h[2].units == b"uV"
@@ -900,7 +900,7 @@ end
               "write_record: the sampling frequency must be > 0"
         W.write_record(w, "wn", x, 100.0; gains=[0.0, 50.0], adcres=[16, 12],
                        units=[nothing, "uV"])
-        h = W.read_header(w, "wn")
+        h = W.read_header(w, "wn").siginfo
         @test h[1].gain == 0.0 && h[2].gain == 50.0
         @test h[1].adcres == 16 && h[2].adcres == 12
         @test h[1].units === nothing && h[2].units == b"uV"
@@ -917,7 +917,7 @@ end
                                          units=["mV", ""])) ==
               "write_record: units must be specified"
         W.write_record(w, "wn", x, 100.0; gains=0.0, adcres=16)
-        @test all(s -> s.units === nothing, W.read_header(w, "wn"))
+        @test all(s -> s.units === nothing, W.read_header(w, "wn").siginfo)
         # read_record: an unspecified resolution is 0, unspecified units nothing
         write("nr.hea", "nr 2 360 21600\n100s.dat 212 200\n100s.dat 212 200\n")
         n = W.read_record(w, "nr"; to=3)
@@ -960,16 +960,16 @@ end
         x = Int32[1 2; 3 4]
         # write_record: gain 200, resolution from the format, no units needed
         W.write_record(w, "wl", x, 100.0; legacy=true)
-        h = W.read_header(w, "wl")
+        h = W.read_header(w, "wl").siginfo
         @test all(s -> s.gain == 200.0 && s.adcres == 16 && s.units === nothing, h)
         W.write_record(w, "wl", x, 100.0; fmt=212, legacy=true)
-        @test all(s -> s.adcres == 12, W.read_header(w, "wl"))
+        @test all(s -> s.adcres == 12, W.read_header(w, "wl").siginfo)
         @test W.wfdbx_get_legacy(w) == 0            # restored
         # The library's legacy mode also applies (without legacy=true)
         W.wfdbx_set_legacy(w, true)
         W.write_record(w, "wg", x, 100.0)
         W.wfdbx_set_legacy(w, false)
-        @test all(s -> s.gain == 200.0 && s.adcres == 16, W.read_header(w, "wg"))
+        @test all(s -> s.gain == 200.0 && s.adcres == 16, W.read_header(w, "wg").siginfo)
         W.write_record_physical(w, "wl", [1.0 2.0], 100.0; gains=[0.0, 100.0], legacy=true)
         @test W.read_record(w, "wl").samples == Int32[200 200]
         # read_record physical on uncalibrated signals (record null, whose
@@ -985,8 +985,8 @@ end
         n = W.read_record(w, "nf"; to="0:1", legacy=true)
         @test n.fs == 250.0 && size(n.samples, 1) == 250
         write("nr.hea", "nr 2 360 21600\n100s.dat 212 200\n100s.dat 212 200\n")
-        @test all(s -> s.adcres == 12, W.read_header(w, "nr"; legacy=true))
-        @test all(s -> s.adcres == 0, W.read_header(w, "nr"))
+        @test all(s -> s.adcres == 12, W.read_header(w, "nr"; legacy=true).siginfo)
+        @test all(s -> s.adcres == 0, W.read_header(w, "nr").siginfo)
         # read_annotations without a header: 250 Hz (fs still applies)
         if isdefined(W, :getann)
             cp("100s.atr", "nh.atr")
@@ -1338,13 +1338,16 @@ end
         # included, is returned in both cases)
         W.write_record(w, "good", y, 100.0; gains=100.0, adcres=16, units="mV")
         for legacy in (false, true)
-            good = W.read_record(w, "good"; legacy=legacy).samples
+            g = W.read_record(w, "good"; legacy=legacy)
+            good = g.samples
             @test good == y
+            @test g.checksum_ok
             local r
             err = lib_stderr() do
                 r = @test_logs (:warn, msg) W.read_record(w, "ck"; legacy=legacy)
             end
             @test r.samples == y && size(r.samples) == size(good)
+            @test !r.checksum_ok
             @test err == ""                 # (no getvec message)
             @test W.physical(r) == y ./ 100.0
             err = lib_stderr() do
@@ -1352,7 +1355,9 @@ end
                 # not read to its end (no checksum is verified)
                 r = @test_logs W.read_record(w, "ck"; checksum_warning=false, legacy=legacy)
                 @test r.samples == y
-                @test (@test_logs W.read_record(w, "ck"; to=3, legacy=legacy)).samples == y[1:3, :]
+                @test !r.checksum_ok        # (independent of the warning)
+                r3 = @test_logs W.read_record(w, "ck"; to=3, legacy=legacy)
+                @test r3.samples == y[1:3, :] && r3.checksum_ok
                 @test (@test_logs W.read_record(w, "ck"; from=1, to="e", checksum_warning=false,
                                                 legacy=legacy)).samples == y[2:end, :]
             end
@@ -1436,6 +1441,173 @@ end
         W.wfdbquit(w)
         W.wfdbx_set_legacy(w, false)
         @test filesize("fmt16.dat") == 0
+    end
+end
+
+# read_header returns the header; base_time_ms and base_date of Record and
+# Header.
+@testset "read_header and base time and date" begin
+    with_data() do w
+        h = W.read_header(w, "100s")
+        @test h isa W.Header
+        @test h.name == "100s" && h.fs == 360.0 && h.nsamples == 21600 && h.nsig == 2
+        @test h.counter_freq == 360.0 && h.base_counter == 0.0
+        @test [s.desc for s in h.siginfo] == [b"MLII", b"V5"]
+        r = W.read_record(w, "100s"; to=2)
+        @test h.base_time == r.base_time && h.comments == r.comments
+        @test h.base_time_ms == r.base_time_ms && h.base_date == r.base_date
+        x = Int32[1; 2; 3;;]
+        W.write_record(w, "bt", x, 250.0; gains=200.0, adcres=16, units="mV")
+        sig = "bt.dat 16 200/mV 16 0 1 6 0 s\n"
+        for (line, txt, ms, date) in [
+                ("bt 1 250 3 14:00:03.500 21/06/2024", "[14:00:03 21/06/2024]", 50403500,
+                 (2024, 6, 21)),
+                ("bt 1 250 3 14:00:03", "[14:00:03]", 50403000, nothing),
+                ("bt 1 250 3", nothing, nothing, nothing),
+                ("bt 1 250 3 0:0:0 01/03/1900", "[00:00:00 01/03/1900]", 0, (1900, 3, 1))]
+            write("bt.hea", line * "\n" * sig * "#c\n")
+            for o in (W.read_header(w, "bt"), W.read_record(w, "bt"))
+                @test o.base_time == txt
+                @test o.base_time_ms === (ms === nothing ? nothing : Int64(ms))
+                @test o.base_date === date
+                @test o.comments == [b"c"]
+            end
+            # (as datstr)
+            if date !== nothing
+                W.isigopen(w, "bt", nothing, 1)
+                @test W.datstr(w, w.sig.bdate) ==
+                      String(W.cformat(" %02d/%02d/%d", date[3], date[2], date[1]))
+                W.wfdbquit(w)
+            end
+        end
+        # counter frequency and base counter; no samples count; no frequency
+        write("bt.hea", "bt 1 250/1000(5)\n" * sig)
+        h = W.read_header(w, "bt")
+        @test h.fs == 250.0 && h.counter_freq == 1000.0 && h.base_counter == 5.0
+        @test h.nsamples == 0 && h.nsig == 1 && h.comments == Vector{UInt8}[]
+        write("bt.hea", "bt 1\n" * sig)
+        @test W.read_header(w, "bt").fs == 0.0
+        @test W.read_header(w, "bt"; legacy=true).fs == 250.0
+        # no signals
+        write("ns.hea", "ns 0 100 50 10:00:00\n")
+        h = W.read_header(w, "ns")
+        @test h.nsig == 0 && isempty(h.siginfo) && h.nsamples == 50 && h.base_time_ms == 36000000
+        # a multi-segment record: the length of the record
+        @test W.read_header(w, "vlay").nsamples == size(W.read_record(w, "vlay").samples, 1)
+    end
+end
+
+# wfdb-x: the bulk frame reader (_bulk_frames!) gives exactly what the
+# per-frame path gives (samples, statuses, and the state of the library).
+function bulk_state(w)
+    st = w.sig
+    (st.istime, [(i.samp, i.info.cksum, i.info.nsamp) for i in st.isd[1:st.nisig]],
+     [(g.bp, g.be, g.count, g.data, g.datb, g.stat) for g in st.igd[1:st.nigroup]])
+end
+function bulk_trace(w, rec, nsig, bulk; mode=W.WFDB_LOWRES, from=0, chunks=(1000,))
+    W._BULK_ENABLED[] = bulk
+    out = Any[]
+    try
+        W.wfdbquiet(w)
+        @test W.isigopen(w, rec, nothing, nsig) == nsig
+        W.setgvmode(w, mode)
+        from > 0 && push!(out, W.isigsettime(w, from))
+        k = 0
+        while k < 1000
+            c = chunks[k % length(chunks) + 1]
+            buf = zeros(Int32, c * nsig)
+            got, stat = W.getvecs_status(w, buf, c)
+            push!(out, (got, stat, buf, bulk_state(w)))
+            stat < 0 && break
+            k += 1
+        end
+        push!(out, W.wfdberror(w))
+        W.wfdbquit(w)
+    finally
+        W._BULK_ENABLED[] = true
+        W.wfdbverbose(w)
+    end
+    out
+end
+
+# (a small random number generator: xorshift64; a value in lo:hi)
+mutable struct XorShift
+    s::UInt64
+end
+function rnd(r::XorShift, lo::Integer, hi::Integer)
+    x = r.s
+    x ⊻= x << 13
+    x ⊻= x >> 7
+    x ⊻= x << 17
+    r.s = x
+    lo + Int(x % UInt64(hi - lo + 1))
+end
+rnd(r::XorShift, lo::Integer, hi::Integer, n::Integer) = [Int32(rnd(r, lo, hi)) for _ in 1:n]
+
+@testset "bulk reading equals per-frame reading" begin
+    with_data() do w
+        rng = XorShift(0x9e3779b97f4a7c15)
+        ranges = Dict(8 => 100, 80 => 127, 16 => 32767, 61 => 32767, 160 => 32767,
+                      24 => 8388607, 32 => 2147483647, 212 => 2047, 310 => 511, 311 => 511)
+        for fmt in (8, 80, 16, 61, 160, 24, 32, 212, 310, 311), n0 in (1, 2, 3)
+            # group 0: n0 signals of format fmt; group 1: 2 signals of format 16
+            nf = 3000 + rnd(rng, 0, 2000)
+            lim = ranges[fmt]
+            x = zeros(Int32, nf, n0 + 2)
+            for j in 1:n0
+                if fmt == 8
+                    x[:, j] = cumsum(rnd(rng, -60, 60, nf))
+                else
+                    x[:, j] = rnd(rng, -lim, lim, nf)
+                    x[rnd(rng, 1, nf, 40), j] .= WFDB_INVALID_SAMPLE
+                end
+            end
+            x[:, n0+1] = rnd(rng, -30000, 30000, nf)
+            x[:, n0+2] = rnd(rng, -30000, 30000, nf)
+            x[rnd(rng, 1, nf, 20), n0+1] .= WFDB_INVALID_SAMPLE
+            si = [Siginfo(fname=Vector{UInt8}(j <= n0 ? "b0.dat" : "b1.dat"),
+                          desc=Vector{UInt8}("s$j"), units=Vector{UInt8}("mV"),
+                          gain=100.0, group=j <= n0 ? 0 : 1, fmt=j <= n0 ? fmt : 16,
+                          adcres=16, spf=1) for j in 1:n0+2]
+            W.wfdbquit(w)
+            @test W.osigfopen(w, si, n0 + 2) == n0 + 2
+            W.setsampfreq(w, 100.0)
+            for i in 1:nf
+                W.putvec(w, x[i, :])
+            end
+            @test W.newheader(w, "bk") == 0
+            W.wfdbquit(w)
+            nsig = n0 + 2
+            for mode in (W.WFDB_LOWRES, W.WFDB_LOWRES | W.WFDB_GVPAD, W.WFDB_HIGHRES),
+                (from, chunks) in ((0, (1000,)), (0, (7, 1, 4096)), (rnd(rng, 1, nf - 1), (513,)),
+                                   (nf - 1, (10,)))
+                @test bulk_trace(w, "bk", nsig, true; mode, from, chunks) ==
+                      bulk_trace(w, "bk", nsig, false; mode, from, chunks)
+            end
+            for cols in (nothing, [nsig - 1, 0])
+                a = W.read_record(w, "bk"; channels=cols, pad=true)
+                W._BULK_ENABLED[] = false
+                b = W.read_record(w, "bk"; channels=cols, pad=true)
+                W._BULK_ENABLED[] = true
+                @test a.samples == b.samples && a.checksum_ok && b.checksum_ok
+            end
+            # a wrong checksum (the checksum frame), a truncated file
+            hea = read("bk.hea", String)
+            write("bk.hea", replace(hea, r"(b0\.dat \S+ \S+ \S+ \S+ \S+ )(-?\d+)" =>
+                                         s"\g<1>12345"; count=1))
+            t = bulk_trace(w, "bk", nsig, true)
+            @test t == bulk_trace(w, "bk", nsig, false)
+            @test t[end-1][2] == -4
+            write("bk.hea", hea)
+            open(f -> truncate(f, filesize("b0.dat") - 100), "b0.dat", "r+")
+            t = bulk_trace(w, "bk", nsig, true; chunks=(333,))
+            @test t == bulk_trace(w, "bk", nsig, false; chunks=(333,))
+            @test t[end-1][2] == -3
+        end
+        # the record of the bulk path (100s, format 212, read in full)
+        @test W.read_record(w, "100s").samples ==
+              (W._BULK_ENABLED[] = false; r = W.read_record(w, "100s").samples;
+               W._BULK_ENABLED[] = true; r)
     end
 end
 

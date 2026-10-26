@@ -528,7 +528,7 @@ end
         with_server(cwd) do srv
             make_sr("sub")
             W.wfdbx_set_input_dir(w, "elsewhere")
-            @test length(W.read_header(w, "sr"; input_dir="sub")) == 2
+            @test length(W.read_header(w, "sr"; input_dir="sub").siginfo) == 2
             rec = W.read_record(w, "100s"; input_dir=srv.url, network=true, to=1)
             @test rec.samples == Int32[995 1011]
             @test length(W.read_annotations(w, "sr", "atr"; input_dir="sub")) == 75
@@ -542,7 +542,7 @@ end
             W.wfdbx_set_network(w, true)
             @test_throws W.WfdbError W.read_header(w, srv.url * "100s"; network=false)
             @test W.wfdbx_get_network(w) == 1
-            @test length(W.read_header(w, srv.url * "100s")) == 2
+            @test length(W.read_header(w, srv.url * "100s").siginfo) == 2
             # the output directory (dir=) and the input directory are
             # independent
             W.write_annotations(w, "w1", "q", W.Annotations(samples=[1, 2], symbols=[b"N", b"N"]);

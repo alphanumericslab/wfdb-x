@@ -6,7 +6,8 @@
 \description{
   \code{read_record} reads the signals of a WFDB record into a matrix,
   together with the main information of its header.  \code{read_header}
-  reads only the header (the description of each signal).
+  reads only the header (the record line, the description of each signal
+  and the info strings).
   \code{write_record} writes a matrix of samples as a new record (a header
   file and one signal file).
 }
@@ -176,11 +177,34 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     such as \code{"[08:45:00 01/01/2001]"}, or \code{NULL} if the header
     does not give one (always the case if it does not give the sampling
     frequency).}
+  \item{base_time_ms}{the base time of the record in milliseconds after
+    midnight (a number: \code{50403500} for \code{14:00:03.500}; the
+    milliseconds are kept), or \code{NULL}; it is \code{NULL} exactly
+    when \code{base_time} is.}
+  \item{base_date}{the base date of the record as an integer vector
+    \code{c(year, month, day)} (converted as \code{\link{datstr}} does),
+    or \code{NULL} if the header does not give a date.}
   \item{sampfrom}{the number of the first sample read.}
   \item{comments}{the info strings of the header (a character vector).}
+  \item{checksum_ok}{\code{FALSE} if the samples were found not to match
+    the checksums in the header (getvec status -4; whether or not
+    \code{checksum_warning} is on), \code{TRUE} otherwise.  The checksums
+    are verified only when the read reaches the end of the record.}
 
-  \code{read_header} returns a list with one \code{\link{siginfo}} list
-  per signal of the record.
+  \code{read_header} opens no signal file, and returns a list of class
+  \code{"wfdbx_header"} with the components
+  \item{name}{the record name, as given.}
+  \item{fs}{the sampling frequency, as \code{\link{sampfreq}} gives it
+    (0 if the header does not give it; with \code{legacy = TRUE}, 250).}
+  \item{counter_freq, base_counter}{the counter frequency and the base
+    counter value, as \code{\link{getcfreq}} and
+    \code{\link{getbasecount}} give them.}
+  \item{nsamples}{the number of samples per signal given on the record
+    line of the header (0 if it does not give it).}
+  \item{nsig}{the number of signals.}
+  \item{siginfo}{a list with one \code{\link{siginfo}} list per signal.}
+  \item{base_time, base_time_ms, base_date, comments}{as in
+    \code{read_record}.}
 
   \code{write_record} returns \code{NULL}, invisibly.
 
@@ -227,8 +251,9 @@ read_record("example", channels = "ramp", sampfrom = "0:1",
 
 ## the header only
 h <- read_header("example")
-sapply(h, function(s) s$desc)
-h[[1]]$nsamp
+h$nsamples
+h$base_date
+sapply(h$siginfo, function(s) s$desc)
 
 setwd(old)
 }

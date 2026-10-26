@@ -264,6 +264,9 @@ rec = wfdbx.read_record("100s", sampfrom="0:10", sampto="0:20", physical=True)
 rec.signals        # NumPy array, one column per signal (mV here)
 rec.fs, rec.names, rec.units, rec.base_time, rec.comments
 
+hdr = wfdbx.read_header("100s")         # no samples read
+hdr.fs, hdr.nsamples, hdr.nsig, hdr.base_time_ms, hdr.base_date, hdr.siginfo
+
 ann = wfdbx.read_annotations("100s", "atr")
 ann.samples, ann.symbols, ann.subtypes, ann.chans, ann.nums, ann.aux
 
@@ -274,11 +277,11 @@ wfdbx.write_annotations("new", "atr", ann.samples, ann.symbols)
 
 | Function | Purpose |
 | --- | --- |
-| `read_record(record, channels=None, sampfrom=0, sampto=None, physical=False, highres=False, pad=False)` | Read signals into a `Record` (`signals` array of shape (samples, signals), plus `fs`, `names`, `units`, `gains`, `baselines`, `base_time`, `comments`, `siginfo`). |
+| `read_record(record, channels=None, sampfrom=0, sampto=None, physical=False, highres=False, pad=False)` | Read signals into a `Record` (`signals` array of shape (samples, signals): int32 ADC units, or float64 with `physical=True`; plus `fs`, `names`, `units`, `gains`, `baselines`, `base_time`, `base_time_ms`, `base_date`, `comments`, `siginfo`, `checksum_ok`). |
 | `read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None)` | Read an annotation file into an `Annotations` object (`samples`, `codes`, `symbols`, `subtypes`, `chans`, `nums`, `aux`, `fs`). |
-| `read_header(record)` | Return the list of `Siginfo` objects (signal specifications) of a record, without reading any samples. |
+| `read_header(record)` | Read the header of a record into a `Header` (`name`, `fs`, `counter_freq`, `base_counter`, `nsamples`, `nsig`, `siginfo` (the list of `Siginfo` objects), `base_time`, `base_time_ms`, `base_date`, `comments`), without reading any samples. |
 | `write_record(record, signals, fs, fmt=16, gains=..., adcres=..., units=..., ..., dir=None)` | Write a header and a signal file (`record.dat`) from an array (`gains`, `adcres` and the `units` of calibrated signals are required), in the directory `dir` if given. |
-| `write_annotations(record, annotator, samples, symbols=None, codes=None, ..., dir=None)` | Write an annotation file (in the directory `dir` if given). |
+| `write_annotations(record, annotator, samples, symbols=None, codes=None, ..., sort=None, dir=None)` | Write an annotation file (in the directory `dir` if given); `sort=True`/`False` sorts or keeps an out-of-order file for this call, whatever `WFDBANNSORT` says. |
 
 Notes:
 
@@ -324,7 +327,13 @@ Notes:
   returns the data and issues a `RuntimeWarning` ("checksum error in record
   REC: the signal data do not match the checksums in its header"; the
   library's own "getvec: checksum error" message is not printed), unless
-  `checksum_warning=False`.
+  `checksum_warning=False`; either way `rec.checksum_ok` is False. The
+  checksums are verified only by a read that reaches the end of the record.
+* `base_time` is the start time as text, to the second (`"[14:00:03
+  21/06/2024]"`); `base_time_ms` is the same time in milliseconds after
+  midnight, milliseconds included (`50403500` for 14:00:03.500), and
+  `base_date` the date as `(year, month, day)`; each is `None` when the
+  header does not give it (`base_time_ms` exactly when `base_time` is None).
 * An output signal file is never one of the files being read: a writer, a
   tool or `osigfopen`/`osigopen` that would create a signal file that is the
   same file (compared as files, not by name) as a signal file of the open
@@ -368,7 +377,9 @@ in legacy mode too.
 then `num`, then `chan`) are rearranged when the file is closed, in the same
 process, with a result identical byte for byte to that of `sortann` (the
 last of several annotations with the same time, `num` and `chan` is kept,
-and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it. Unlike
+and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it, and
+`write_annotations(..., sort=True)` or `sort=False` decides for one call
+whatever `WFDBANNSORT` says (without changing the environment). Unlike
 the original `sortann`, neither the sort nor the `sortann` tool loses an
 out-of-order annotation at time 0 (written after later ones), nor those
 inserted after it. The C library ran the `sortann` program (found in the

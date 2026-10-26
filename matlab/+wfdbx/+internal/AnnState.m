@@ -9,6 +9,10 @@ classdef AnnState < handle
 %     oad             output annotators: cell row of structures
 %     oafreq          time resolution for new output annotators (setafreq)
 %     annclose_error  error code saved by oannclose
+%     sort_override   wfdb-x: [] (WFDBANNSORT decides whether oannclose
+%                     rearranges an out-of-order file), or true/false
+%                     (set by wfdbx.write_annotations for its 'sort'
+%                     option, during one call)
 %     modified        1-by-50: 1 for codes whose mnemonic or description
 %                     was redefined (index code+1)
 %     cstring         fixed mnemonics (ecgstr/strecg/setecgstr), 1-by-50 cell
@@ -28,6 +32,7 @@ classdef AnnState < handle
         oad = cell(1, 0)
         oafreq = 0
         annclose_error = 0
+        sort_override = []          % wfdb-x (see above)
         modified = zeros(1, 50)     % ACMAX + 1 codes
         cstring = {}
         astring = {}

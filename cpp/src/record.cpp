@@ -16,7 +16,7 @@
 
 #include "wfdbx/record.hpp"
 
-#include "wfdblib.hpp"      // (wfdbx_set_checksum_quiet)
+#include "wfdblib.hpp"      // (wfdbx_set_checksum_quiet, ...)
 
 #include <cmath>
 #include <filesystem>
@@ -178,6 +178,52 @@ int adcres_of(const WriteOptions &opt, int k)
     return r;
 }
 
+// The base time (text and milliseconds) and date of the record opened
+// last (see Record::base_time, base_time_ms and base_date), and, if `nsamp`
+// is not null, the number of samples per signal its header gives.  The text
+// is given only if `has_time` (a header without a sampling frequency cannot
+// give a base time, except in legacy mode).
+void base_time_fields(bool has_time, std::optional<std::string> &text,
+                      std::optional<long long> &ms,
+                      std::optional<std::array<int, 3>> &date,
+                      WFDB_Time *nsamp = nullptr)
+{
+    WFDB_Time n;
+    long btime;
+    WFDB_Date bdate;
+    detail::wfdbx_header_values(&n, &btime, &bdate);
+    if (nsamp) *nsamp = n;
+    if (has_time) {
+        std::string bt = timstr(0);
+        if (!bt.empty() && bt[0] == '[') {
+            text = bt;
+            ms = btime;
+        }
+    }
+    if (bdate != 0) {
+        std::array<int, 3> ymd;
+        detail::wfdbx_julian_ymd(bdate, &ymd[0], &ymd[1], &ymd[2]);
+        date = ymd;
+    }
+}
+
+// wfdb-x: the sorting of out-of-order output annotation files decided by
+// `sort` for the lifetime of the object, if it is given (see
+// write_annotations; restored afterwards, also when an exception is
+// thrown); no change otherwise.
+class AnnSortScope {
+public:
+    explicit AnnSortScope(std::optional<bool> sort)
+        : on_(sort.has_value()),
+          prev_(on_ ? detail::wfdbx_set_annsort(*sort ? 1 : 0) : -1) {}
+    ~AnnSortScope() { if (on_) detail::wfdbx_set_annsort(prev_); }
+    AnnSortScope(const AnnSortScope &) = delete;
+    AnnSortScope &operator=(const AnnSortScope &) = delete;
+private:
+    bool on_;
+    int prev_;
+};
+
 } // namespace
 
 bool TimeSpec::needs_freq() const
@@ -226,18 +272,28 @@ std::vector<std::string> Record::names() const
     return v;
 }
 
-std::vector<WFDB_Siginfo> read_header(const std::string &record, bool legacy,
-                                      const InputOptions &input)
+Header read_header(const std::string &record, bool legacy,
+                   const InputOptions &input)
 {
     LegacyScope scope(legacy);
     InputScope input_scope(input);
     wfdbquit();
     int n = isigopen(record.c_str(), nullptr, 0);
     if (n < 0) fail("can't read header for record " + record);
-    std::vector<WFDB_Siginfo> si(n);
-    if (n > 0) isigopen(record.c_str(), si.data(), -n);
+    Header h;
+    h.siginfo.resize(n);
+    if (n > 0) isigopen(record.c_str(), h.siginfo.data(), -n);
+    h.name = record;
+    h.fs = sampfreq(nullptr);
+    h.counter_freq = getcfreq();
+    h.base_counter = getbasecount();
+    h.nsig = n;
+    base_time_fields(h.fs > 0 || wfdbx_get_legacy() != 0, h.base_time,
+                     h.base_time_ms, h.base_date, &h.nsamples);
+    for (auto c = getinfo(record.c_str()); c; c = getinfo(nullptr))
+        h.comments.push_back(*c);
     wfdbquit();
-    return si;
+    return h;
 }
 
 Record read_record(const std::string &record, const ReadOptions &options)
@@ -277,29 +333,42 @@ Record read_record(const std::string &record, const ReadOptions &options)
             cols.push_back(k);
         }
     }
-    // (A header without a sampling frequency cannot give a base time.)
-    if (rec.fs > 0 || opt.legacy) {
-        std::string bt = timstr(0);
-        if (!bt.empty() && bt[0] == '[') rec.base_time = bt;
-    }
+    base_time_fields(rec.fs > 0 || opt.legacy, rec.base_time,
+                     rec.base_time_ms, rec.base_date);
     if (isigsettime(from) < 0)
         fail("can't seek to sample " + std::to_string(from) + " of record " +
              record);
 
-    // getvec returns one value per signal in either mode.
+    // getvec returns one value per signal in either mode.  The frames are
+    // read with getvecs() straight into `all`, which is allocated for the
+    // number of frames expected (to - from, or what the header gives) and
+    // grows if there are more.
     std::vector<WFDB_Sample> all;
     constexpr long long block = 65536;     // frames read per getvecs() call
     std::optional<long long> remaining;
     if (to) remaining = *to > from ? *to - from : 0;
-    std::vector<WFDB_Sample> buf;
+    {
+        WFDB_Time hn;
+        long bt;
+        WFDB_Date bd;
+        detail::wfdbx_header_values(&hn, &bt, &bd);
+        long long expect = remaining ? *remaining : (hn > from ? hn - from : 0);
+        // (at most 2^26 samples in advance: a header or a `to` may give
+        // far more frames than the files hold)
+        constexpr long long max_reserve = 1LL << 26;
+        if (expect > 0)
+            all.reserve(static_cast<size_t>(
+                std::min(expect, max_reserve / nsig + 1) * nsig));
+    }
     bool checksum_error = false;
     {
         ChecksumQuietScope quiet;
         while (!remaining || *remaining > 0) {
             long long n = remaining ? std::min(block, *remaining) : block;
-            buf.resize(static_cast<size_t>(n) * nsig);
+            size_t used = all.size();
+            all.resize(used + static_cast<size_t>(n) * nsig);
             int stat = 0;
-            long long got = getvecs(buf.data(), n, &stat);
+            long long got = getvecs(all.data() + used, n, &stat);
             if (got < 0) got = 0;
             // wfdb-x: status -4 (checksum error) is returned with the last
             // frame of the record, whose samples are filled in: the frame is
@@ -308,7 +377,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
                 got++;
                 checksum_error = true;
             }
-            all.insert(all.end(), buf.begin(), buf.begin() + got * nsig);
+            all.resize(used + static_cast<size_t>(got) * nsig);
             if (remaining) *remaining -= got;
             if (checksum_error) break;
             if (got < n) {
@@ -325,13 +394,21 @@ Record read_record(const std::string &record, const ReadOptions &options)
     if (checksum_error && opt.checksum_warning)
         wfdb_error("wfdb-x: checksum error in record %s: the signal data do "
                    "not match the checksums in its header\n", record.c_str());
+    rec.checksum_ok = !checksum_error;
 
     size_t nframes = all.size() / nsig;
     rec.nsig = static_cast<int>(cols.size());
-    rec.samples.resize(nframes * cols.size());
-    for (size_t i = 0; i < nframes; i++)
-        for (size_t c = 0; c < cols.size(); c++)
-            rec.samples[i * cols.size() + c] = all[i * nsig + cols[c]];
+    bool all_cols = cols.size() == static_cast<size_t>(nsig);
+    for (size_t c = 0; all_cols && c < cols.size(); c++)
+        all_cols = cols[c] == static_cast<int>(c);
+    if (all_cols) {     // (all signals, in order: no copy)
+        rec.samples = std::move(all);
+    } else {
+        rec.samples.resize(nframes * cols.size());
+        for (size_t i = 0; i < nframes; i++)
+            for (size_t c = 0; c < cols.size(); c++)
+                rec.samples[i * cols.size() + c] = all[i * nsig + cols[c]];
+    }
     for (int k : cols) rec.siginfo.push_back(si[k]);
     rec.signals = cols;
     rec.sampfrom = from;
@@ -501,11 +578,12 @@ void write_record_physical(const std::string &record,
 
 void write_annotations(const std::string &record, const std::string &annotator,
                        const Annotations &ann, WFDB_Frequency fs,
-                       const std::string &dir)
+                       const std::string &dir, std::optional<bool> sort)
 {
     OutputDirScope dir_scope(record, dir);
     size_t n = ann.samples.size();
     wfdbquit();
+    AnnSortScope sort_scope(sort);  // (for the file written here only)
     if (fs > 0) setafreq(fs);
     WFDB_Anninfo ai;
     ai.name = annotator;

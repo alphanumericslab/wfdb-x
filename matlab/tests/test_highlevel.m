@@ -23,15 +23,26 @@ assert_eq(wfdbx.internal.strarg('100s'), '100s', 'strarg char');
 if exist('string', 'builtin') || exist('string', 'class')
     assert_eq(wfdbx.internal.strarg(string('100s')), '100s', 'strarg string');
     assert_eq(wfdbx.internal.strarg({string('a'), 1}), {'a', 1}, 'strarg string cell');
-    si = wfdbx.read_header(string('100s'));
-    assert_eq(numel(si), 2, 'read_header of a string');
+    h = wfdbx.read_header(string('100s'));
+    assert_eq(numel(h.siginfo), 2, 'read_header of a string');
 end
 
 % --- read_header
-si = wfdbx.read_header('100s');
+h = wfdbx.read_header('100s');
+si = h.siginfo;
 assert_eq(numel(si), 2, 'read_header nsig');
 assert_eq({si.desc}, {'MLII', 'V5'}, 'read_header desc');
 assert_eq([si.fmt], [212 212], 'read_header fmt');
+assert_eq({h.name, h.fs, h.counter_freq, h.base_counter, h.nsamples, h.nsig}, ...
+    {'100s', 360, 360, 0, 21600, 2}, 'read_header record fields');
+assert_true(isempty(h.base_time) && isempty(h.base_time_ms) && ...
+    isempty(h.base_date), 'read_header: no base time or date');
+assert_true(iscell(h.comments) && size(h.comments, 2) == 1, ...
+    'read_header comments');
+assert_eq(h.comments{1}, ' 69 M 1085 1629 x1', 'read_header comment text');
+h = wfdbx.read_header('vlay');      % (multi-segment: the master header)
+assert_eq({h.fs, h.nsamples, h.nsig}, {250, 3201, 3}, ...
+    'read_header of a multi-segment record');
 wfdbx.wfdbquiet();
 assert_error(@() wfdbx.read_header('nosuch'), 'read_header of a missing record');
 wfdbx.wfdbverbose();
@@ -145,7 +156,7 @@ for r = 1:size(ranges, 1)
     end
 end
 hea = wfdbx.read_header('rt');
-assert_eq([hea.adcres], [24 24 24], 'adcres (format 524)');
+assert_eq([hea.siginfo.adcres], [24 24 24], 'adcres (format 524)');
 
 % --- physical write: rounding as physadu, NaN -> invalid
 xp = [0.0025 -0.0025; 1 -1; NaN 0.5; -0.0074 0.0074];
@@ -163,7 +174,7 @@ m = [(1:50)', (101:150)', (201:250)', -(1:50)'];   % spf 1, 2, 1
 wfdbx.write_record('mf', m, 100, 'samps_per_frame', [1 2 1], 'fmt', 16, ...
     'gains', 200, 'adcres', 16, 'units', 'mV');
 hea = wfdbx.read_header('mf');
-assert_eq([hea.spf], [1 2 1], 'samps_per_frame header');
+assert_eq([hea.siginfo.spf], [1 2 1], 'samps_per_frame header');
 hr = wfdbx.read_record('mf', 'highres', true);
 assert_eq(hr.fs, 200, 'multi-frequency fs');
 assert_eq(hr.signals(1:4, 2)', [101 201 102 202], 'multi-frequency samples');
@@ -224,6 +235,7 @@ assert_true(~isfile('bad.hea'), 'no record written after an error');
 wfdbx.write_record('nu', z, 250, 'gains', [0 100], 'adcres', [12 16], ...
     'units', {[], 'uV'});   % units not needed for an uncalibrated signal
 nu = wfdbx.read_header('nu');
+nu = nu.siginfo;
 assert_eq([nu.adcres], [12 16], 'adcres per signal');
 assert_true(isempty(nu(1).units) && strcmp(nu(2).units, 'uV'), 'units per signal');
 % a header without ADC resolutions or units: 0 and [] (never 12 bits, mV)
@@ -253,6 +265,11 @@ fclose(fid);
 nf = wfdbx.read_record('nf');
 assert_eq(nf.fs, 0, 'read_record fs of a record without frequency');
 assert_true(isempty(nf.base_time), 'no base time without frequency');
+h = wfdbx.read_header('nf');
+assert_eq({h.fs, h.counter_freq, h.nsamples, h.nsig}, {0, 0, 0, 1}, ...
+    'read_header without frequency or length');
+h = wfdbx.read_header('nf', 'legacy', true);
+assert_eq(h.fs, 250, 'legacy read_header: 250 Hz without frequency');
 nf = wfdbx.read_record('nf', 'sampfrom', 's1', 'sampto', 's3');
 assert_eq(nf.signals, [2; 3], 'sample-number times without frequency');
 assert_error_msg(@() wfdbx.read_record('nf', 'sampto', '0:1'), ...
@@ -277,6 +294,7 @@ wfdbx.wfdbverbose();
 % --- wfdb-x: the 'legacy' option (the original package's behavior)
 wfdbx.write_record('lg', z, 250, 'legacy', true);
 lg = wfdbx.read_header('lg');
+lg = lg.siginfo;
 assert_eq([lg.gain], [200 200], 'legacy write_record: default gain 200');
 assert_eq([lg.adcres], [16 16], 'legacy write_record: adcres from fmt 16');
 assert_true(isempty(lg(1).units), 'legacy write_record: no units needed');
@@ -285,9 +303,11 @@ wfdbx.wfdbx_set_legacy(1);
 wfdbx.write_record('lgg', z, 250);
 wfdbx.wfdbx_set_legacy(0);
 lgg = wfdbx.read_header('lgg');
+lgg = lgg.siginfo;
 assert_eq([lgg.gain], [200 200], 'library legacy mode: default gain 200');
 wfdbx.write_record('lg', z, 250, 'fmt', 212, 'legacy', true);
 lg = wfdbx.read_header('lg');
+lg = lg.siginfo;
 assert_eq([lg.adcres], [12 12], 'legacy write_record: adcres from fmt 212');
 assert_eq(wfdbx.wfdbx_get_legacy(), 0, 'legacy mode restored');
 lg = wfdbx.read_record('null', 'physical', true, 'sampto', 3, 'legacy', true);
@@ -303,7 +323,7 @@ nf = wfdbx.read_record('nf', 'sampto', '0:1', 'legacy', true);
 assert_eq(nf.fs, 250, 'legacy read_record: 250 Hz without frequency');
 assert_eq(size(nf.signals, 1), 4, 'legacy read_record: time at 250 Hz');
 nr = wfdbx.read_header('nr', 'legacy', true);
-assert_eq([nr.adcres], [12 12], 'legacy read_header: adcres from fmt 212');
+assert_eq([nr.siginfo.adcres], [12 12], 'legacy read_header: adcres from fmt 212');
 na = wfdbx.read_annotations('nf', 'atr', 'sampto', '0:1', 'legacy', true);
 assert_eq(na.fs, 250, 'legacy read_annotations: 250 Hz');
 assert_eq(wfdbx.wfdbx_get_legacy(), 0, 'legacy mode restored after reads');
@@ -383,6 +403,36 @@ dir_checks_first();
 % --- wfdb-x: a signal file shorter than its header says
 truncated_signal_file();
 checksum_warning();
+base_time_fields();
+end
+
+function base_time_fields()
+% base_time_ms and base_date of read_record and read_header
+fid = fopen('bt.dat', 'wb');
+fwrite(fid, zeros(1, 20), 'uint8');     % 10 samples, format 16
+fclose(fid);
+cases = {'14:00:03.500 21/06/2024', '[14:00:03 21/06/2024]', 50403500, [2024 6 21]; ...
+    '14:00:03', '[14:00:03]', 50403000, []; ...
+    '', [], [], []; ...
+    '0:0:0.001 1/3/1900', '[00:00:00 01/03/1900]', 1, [1900 3 1]; ...
+    '23:59:59.999 31/12/1999', '[23:59:59 31/12/1999]', 86399999, [1999 12 31]};
+for k = 1:size(cases, 1)
+    fid = fopen('bt.hea', 'wb');
+    fwrite(fid, uint8(sprintf('bt 1 250 10 %s\nbt.dat 16 200 16 0 0 0 0 x\n', ...
+        cases{k, 1})));
+    fclose(fid);
+    h = wfdbx.read_header('bt');
+    r = wfdbx.read_record('bt');
+    for x = {h, r}
+        x = x{1}; %#ok<FXSET>
+        what = sprintf('base time ''%s''', cases{k, 1});
+        assert_eq(x.base_time, cases{k, 2}, [what ': text']);
+        assert_eq(x.base_time_ms, cases{k, 3}, [what ': ms']);
+        assert_eq(x.base_date, cases{k, 4}, [what ': date']);
+        assert_true(isempty(x.base_time_ms) || isa(x.base_time_ms, 'double'), ...
+            [what ': double']);
+    end
+end
 end
 
 function truncated_signal_file()
@@ -481,12 +531,16 @@ for legacy = [false true]
         S = wfdbx.internal.sig_state();
         assert_eq(S.cksum_quiet, false, 'message printed again after the read');
     end
+    assert_eq(r.checksum_ok, false, 'checksum_ok false (warning on)');
+    assert_eq(good.checksum_ok, true, 'checksum_ok true');
     lastwarn('');
     r = wfdbx.read_record('ck', 'checksum_warning', false, 'legacy', legacy);
     assert_eq(r.signals, good.signals, 'checksum_warning false: same frames');
+    assert_eq(r.checksum_ok, false, 'checksum_ok false (warning off)');
     % not read to the end: no checksum is verified
     r = wfdbx.read_record('ck', 'sampto', 3, 'legacy', legacy);
     assert_eq(r.signals, y(1:3, :), 'checksum: sampto 3');
+    assert_eq(r.checksum_ok, true, 'checksum_ok: not verified before the end');
     r = wfdbx.read_record('ck', 'sampfrom', 1, 'sampto', 'e', ...
         'checksum_warning', false, 'legacy', legacy);
     assert_eq(r.signals, y(2:end, :), 'checksum: sampfrom 1');

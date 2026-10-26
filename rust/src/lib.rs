@@ -136,8 +136,8 @@ pub use calib::*;
 pub use ecgcodes::*;
 pub use record::{
     read_annotations, read_annotations_with, read_header, read_header_with, read_record,
-    write_annotations, write_record, write_record_physical, Annotations, ReadOptions, Record,
-    TimeSpec, WriteOptions,
+    write_annotations, write_annotations_with, write_record, write_record_physical,
+    AnnWriteOptions, Annotations, Header, ReadOptions, Record, TimeSpec, WriteOptions,
 };
 pub use signal::*;
 pub use types::*;

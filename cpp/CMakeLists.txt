@@ -26,6 +26,18 @@ else()
   add_compile_options(-Wall -Wextra -Wpedantic -ffp-contract=off)
 endif()
 
+# wfdb-x: ferror and feof without locking the stream, where the C library
+# has them (see src/wfdblib.hpp); ferror and feof otherwise.
+include(CheckCXXSymbolExists)
+check_cxx_symbol_exists(ferror_unlocked "stdio.h" WFDBX_HAVE_FERROR_UNLOCKED)
+check_cxx_symbol_exists(feof_unlocked "stdio.h" WFDBX_HAVE_FEOF_UNLOCKED)
+if(WFDBX_HAVE_FERROR_UNLOCKED AND NOT WIN32)
+  add_compile_definitions(WFDBX_HAVE_FERROR_UNLOCKED)
+endif()
+if(WFDBX_HAVE_FEOF_UNLOCKED AND NOT WIN32)
+  add_compile_definitions(WFDBX_HAVE_FEOF_UNLOCKED)
+endif()
+
 # The library
 file(GLOB WFDBX_LIB_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 add_library(wfdbx ${WFDBX_LIB_SOURCES})

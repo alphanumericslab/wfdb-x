@@ -350,7 +350,7 @@ wfdbverbose()
 
 defaults()
 wfdbx_set_input_dir("elsewhere")
-expect_equal(length(read_header("sr", input_dir = "sub")), 2L, "read_header input_dir")
+expect_equal(length(read_header("sr", input_dir = "sub")$siginfo), 2L, "read_header input_dir")
 expect_equal(nrow(read_annotations("sr", "atr", input_dir = "sub")), 75L,
              "read_annotations input_dir")
 expect_equal(wfdbx_get_input_dir(), "elsewhere", "input_dir restored")
@@ -480,7 +480,7 @@ if (!nzchar(py)) {
         "network = FALSE forbids for the call")
   wfdbverbose()
   expect_equal(wfdbx_get_network(), 1, "network restored")
-  expect_equal(length(read_header(paste0(url, "100s"))), 2L, "network = NULL keeps the setting")
+  expect_equal(length(read_header(paste0(url, "100s"))$siginfo), 2L, "network = NULL keeps the setting")
 
   # legacy mode reads no remote files, even with network access on
   defaults()

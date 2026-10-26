@@ -221,7 +221,7 @@ and `[r, argv] = wfdbx.wfdbx_legacy_args(argv)` recognizes and removes
 `--legacy` (the tools call it first). The high-level functions take a
 `'legacy', true` name-value option (`read_record`, `read_header`,
 `read_annotations`, `write_record`, `write_annotations`): with it, the
-function behaves as it did before this redesign (`write_record`'s default
+function follows the original package's rules (`write_record`'s default
 gain of 200 and ADC resolution from the format, no units required;
 `read_annotations`' 250 Hz; physical values of uncalibrated signals with a
 gain of 200; time strings at 250 Hz for a header without a frequency),
@@ -258,6 +258,9 @@ signal data do not match the checksums in its header" (`'checksum_warning',
 false` turns it off; getvec's own "getvec: checksum error in signal N" is
 not printed during the read, but `wfdbx.wfdberror()` returns it). This
 behavior is identical in all six implementations of wfdb-x.
+`rec.checksum_ok` is false in that case (whether or not the warning is
+on), true otherwise; the checksums are verified only when a read reaches
+the end of the record.
 
 An output signal file is never one of the input files: in normal mode,
 the library (so every tool and writer) refuses to create a signal file
@@ -279,13 +282,27 @@ annotators opened with the library functions described below.
 ```matlab
 rec = wfdbx.read_record('100s');                 % all samples, ADC units
 rec.fs, rec.names, rec.units, rec.gains, rec.baselines, rec.base_time
+rec.base_time_ms, rec.base_date, rec.checksum_ok
 rec = wfdbx.read_record('100s', 'channels', {'V5'}, 'sampfrom', '0:10', ...
                         'sampto', '0:20', 'physical', true);  % mV; NaN = invalid
 t = rec.sampfrom / rec.fs + (0:size(rec.signals, 1) - 1)' / rec.fs;
 plot(t, rec.signals);
 
-si = wfdbx.read_header('100s');                  % signal descriptions only
+hdr = wfdbx.read_header('100s');                 % the header only
+hdr.fs, hdr.nsamples, hdr.nsig, hdr.comments
+si = hdr.siginfo;                                % signal descriptions
 ```
+
+`wfdbx.read_header` opens no signal file; it returns a structure with the
+fields `name`, `fs` (as `wfdbx.sampfreq` gives it), `counter_freq`,
+`base_counter`, `nsamples` (from the header's record line, 0 if absent),
+`nsig`, `siginfo` (the `wfdbx.siginfo` struct array of the signals),
+`base_time`, `base_time_ms`, `base_date` and `comments` (the last four as
+in the record returned by `read_record`). `base_time` is the text of
+`wfdbx.timstr(0)` (e.g. `'[14:00:03 21/06/2024]'`, to the second) or `[]`;
+`base_time_ms` is the base time in milliseconds after midnight, a double
+(`14:00:03.500` gives 50403500), present exactly when `base_time` is;
+`base_date` is `[year month day]`, or `[]` if the header gives no date.
 
 `read_record` options: `'channels'` (signal numbers, 0-based as everywhere
 in WFDB, or a cell of numbers and names), `'sampfrom'` and `'sampto'`
@@ -385,7 +402,11 @@ time, then `num`, then `chan`) are rearranged when the file is closed, in
 the same process, with a result identical byte for byte to that of
 `sortann` (the last of several annotations with the same time, `num` and
 `chan` is kept, and `NOTQRS` annotations are dropped); `WFDBANNSORT=0`
-disables it. Unlike the original `sortann`, nothing is lost: an
+disables it. The `'sort'` option of `write_annotations` decides for one
+call, whatever `WFDBANNSORT` says (`true`: rearrange, in legacy mode by
+running `sortann` as described below; `false`: leave the file in the
+order given; `[]`, the default: `WFDBANNSORT` decides); the environment
+is not changed. Unlike the original `sortann`, nothing is lost: an
 annotation at time 0 (`num` and `chan` 0) that follows later ones was
 dropped, with the annotations then inserted next to it; the `sortann`
 tool is fixed the same way. The C library ran the `sortann` program

@@ -153,8 +153,16 @@ write_annotations("100s", "cpy", a)
 ```
 
 `read_record` also takes `channels` (numbers or names), `sampfrom` and
-`sampto` (sample numbers or time strings), `highres` and `pad`;
-`read_header` returns the signal information of a record.
+`sampto` (sample numbers or time strings), `highres` and `pad`. Besides the
+samples, the record gives `base_time` (the text, such as
+`"[14:00:03 21/06/2024]"`), `base_time_ms` (the base time in milliseconds
+after midnight: 50403500 for 14:00:03.500) and `base_date` (`c(year, month,
+day)`), each `NULL` when the header does not give it, and `checksum_ok`
+(`FALSE` if the samples read to the end of the record do not match the
+checksums in its header). `read_header` returns the header without opening
+a signal file: a list of class `"wfdbx_header"` with `name`, `fs`,
+`counter_freq`, `base_counter`, `nsamples`, `nsig`, `siginfo` (the signal
+information), `base_time`, `base_time_ms`, `base_date` and `comments`.
 `read_record` stops with the error "can't read signal data of record REC
 (getvec status S)" when reading stops with a getvec status below -1, e.g. -3
 for a signal file shorter than its header says, instead of returning the
@@ -308,7 +316,9 @@ the name `out/rec`, as in C.
 then `num`, then `chan`) are rearranged when the file is closed, in the same
 R process, with a result identical byte for byte to that of `sortann` (the
 last of several annotations with the same time, `num` and `chan` is kept,
-and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it. Unlike
+and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it, and
+`write_annotations(..., sort = TRUE)` or `sort = FALSE` decides for one
+call, whatever `WFDBANNSORT` says (the environment is not changed). Unlike
 the original `sortann`, neither the sort nor the `sortann` tool loses an
 out-of-order annotation at time 0 (written after later ones), nor those
 inserted after it. The C library ran the `sortann` program (found in the

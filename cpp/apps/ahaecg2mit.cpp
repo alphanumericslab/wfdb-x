@@ -27,6 +27,14 @@
 #include <wfdbx/ecgmap.hpp>
 #include <wfdbx/wfdb.hpp>
 
+// wfdb-x: getc without locking the stream (the input is read a byte at a
+// time).
+#if defined(_WIN32)
+#define WFDBX_APP_GETC(f) _getc_nolock(f)
+#else
+#define WFDBX_APP_GETC(f) getc_unlocked(f)
+#endif
+
 using namespace wfdbx;
 
 // wfdb-x: the signal parameters (-F, -G, -R, -U); the C program assumed those
@@ -71,7 +79,7 @@ static int readtxtdata()
     int n;
 
     for (size_t i = 0; i < sizeof(txtbuf); i++) {
-        c = (signed char)std::getc(ifile);
+        c = (signed char)WFDBX_APP_GETC(ifile);
         if (c == '\r' || c == EOF || c == '\n') break;
         buf[i] = (unsigned char)c;
     }

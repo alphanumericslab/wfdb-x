@@ -86,10 +86,11 @@ from . import _wfdbinit as init
 from . import _wfdbio as wio
 from ._wfdbio import WFDB_READ, WFDB_WRITE
 
-__all__ = ["Record", "Annotations", "read_record", "read_annotations",
-           "write_record", "write_annotations", "read_header"]
+__all__ = ["Record", "Header", "Annotations", "read_record",
+           "read_annotations", "write_record", "write_annotations",
+           "read_header"]
 
-_CHUNK = 65536          # frames read per getframes() call
+_CHUNK_SAMPLES = 1 << 21    # samples (frames x signals) read per chunk
 _MAXAUX = 255           # maximum length of an aux string (one length byte)
 # wfdb-x: legacy mode only: the ADC resolution (bits) that write_record
 # wrote when adcres was not given (the sample width of the format, or 16).
@@ -106,7 +107,7 @@ class Record:
                   second per signal; the highest frequency of a
                   multi-frequency record read with highres=True), or 0 if
                   the header does not specify it
-      signals     array of shape (nsamples, nsignals): int64 ADC units, or
+      signals     array of shape (nsamples, nsignals): int32 ADC units, or
                   float64 physical units if read with physical=True.
                   Invalid samples are WFDB_INVALID_SAMPLE (NaN in physical
                   units).
@@ -122,9 +123,21 @@ class Record:
       base_time   start time and date of the record, as timstr(0) gives
                   it (e.g. "[08:45:00 01/01/2001]", without milliseconds),
                   or None if the header gives no start time
+      base_time_ms
+                  the start time as an int, in milliseconds after midnight
+                  (milliseconds included: "14:00:03.500" gives 50403500);
+                  None exactly when base_time is None
+      base_date   the start date as a tuple (year, month, day) of ints, or
+                  None if the header gives no date
       sampfrom    sample number of the first returned sample
       comments    list of info strings (header comment lines, without the
                   leading '#'), followed by those of a .info file if any
+      checksum_ok False if the signal data were found not to match the
+                  checksums in the header (getvec status -4; see the
+                  checksum_warning argument of read_record), True
+                  otherwise.  The checksums are verified only when the read
+                  reaches the end of the record, so a read that stops
+                  before it gives True
     """
 
     def __init__(self, **kw):
@@ -134,6 +147,40 @@ class Record:
         return "Record(name=%r, fs=%g, signals=%s, names=%r)" % (
             self.name, self.fs, getattr(self.signals, "shape", None),
             self.names)
+
+
+class Header:
+    """The header of a record, as returned by read_header().
+
+    Attributes:
+      name          record name, as given to read_header
+      fs            sampling frequency (as sampfreq() gives it after opening
+                    the header: 0 if the header does not specify it; 250
+                    in legacy mode)
+      counter_freq  counter frequency (as getcfreq() gives it)
+      base_counter  base counter value (as getbasecount() gives it)
+      nsamples      number of samples per signal, from the header's record
+                    line (0 if the header does not give it)
+      nsig          number of signals
+      siginfo       list of Siginfo objects, one per signal (empty for a
+                    record with no signals; their ``adcres`` is 0 if the
+                    header does not specify the ADC resolution)
+      base_time     start time and date of the record, as timstr(0) gives
+                    it (e.g. "[08:45:00 01/01/2001]"), or None
+      base_time_ms  the start time in milliseconds after midnight (int), or
+                    None exactly when base_time is None
+      base_date     the start date as a tuple (year, month, day), or None if
+                    the header gives no date
+      comments      list of info strings (header comment lines, without the
+                    leading '#'), followed by those of a .info file if any
+    """
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+    def __repr__(self):
+        return "Header(name=%r, fs=%g, nsig=%d, nsamples=%d)" % (
+            self.name, self.fs, self.nsig, self.nsamples)
 
 
 class Annotations:
@@ -277,10 +324,36 @@ def _check_time_freq(record, *times):
                              "specified" % record)
 
 
+def _base_time_fields():
+    """(base_time, base_time_ms, base_date) of the open record: the text as
+    timstr(0) gives it (None if the record has no start time, or no
+    sampling frequency outside legacy mode: a header without a frequency
+    cannot give a base time), the library's base time (btime, in ms after
+    midnight) when the text is given, and the base date (bdate) as
+    (year, month, day) when the header gives one."""
+    s_ = sig._s
+    text = sig.timstr(0) if sig.sampfreq(None) > 0.0 or _legacy() else ""
+    if not text.startswith("["):
+        text = None
+    ms = int(s_.btime) if text is not None else None
+    date = sig._julian_ymd(s_.bdate) if s_.bdate != 0 else None
+    return text, ms, date
+
+
+def _info_strings(record):
+    # The info strings of the record (getinfo).
+    comments = []
+    c = sig.getinfo(record)
+    while c is not None:
+        comments.append(c)
+        c = sig.getinfo(None)
+    return comments
+
+
 @_legacy_option
 @_input_options
 def read_header(record, *, input_dir=None, network=None, legacy=False):
-    """Read the header of a record and return its signal specifications.
+    """Read the header of a record.
 
     No signal files are opened or read.
 
@@ -298,24 +371,38 @@ def read_header(record, *, input_dir=None, network=None, legacy=False):
                 the module documentation)
 
     Returns:
-      a list of Siginfo objects, one per signal (empty for a record with
-      no signals)
+      a Header object (see Header): the sampling and counter frequencies,
+      the number of samples and of signals, the signal specifications
+      (``siginfo``, a list of Siginfo objects), the base time and date,
+      and the info strings
 
     Raises:
       IOError   if the header cannot be found or read
 
     Example::
 
-        for s in wfdbx.read_header("100s"):
+        hdr = wfdbx.read_header("100s")
+        print(hdr.fs, hdr.nsamples, hdr.base_time)
+        for s in hdr.siginfo:
             print(s.desc, s.fmt, s.gain, s.units)
     """
+    init.wfdbquit()
     n = sig.isigopen(record, None, 0)
     if n < 0:
+        init.wfdbquit()
         raise IOError("can't read header for record %s" % record)
     si = []
     sig.isigopen(record, si, -n)
+    s_ = sig._s
+    base_time, base_time_ms, base_date = _base_time_fields()
+    hdr = Header(name=record, fs=sig.sampfreq(None),
+                 counter_freq=sig.getcfreq(), base_counter=sig.getbasecount(),
+                 nsamples=s_.msnsamples if s_.in_msrec else s_.nsamples,
+                 nsig=len(si), siginfo=si, base_time=base_time,
+                 base_time_ms=base_time_ms, base_date=base_date,
+                 comments=_info_strings(record))
     init.wfdbquit()
-    return si
+    return hdr
 
 
 @_legacy_option
@@ -337,7 +424,8 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                 sampling frequency (see wfdbx_time_needs_freq)
       sampto    end of the excerpt, exclusive (sample number or time
                 string, e.g. "e" for the end); default: end of the record
-      physical  if True, return physical units (float64, computed as
+      physical  if False (the default), return ADC units (int32); if
+                True, return physical units (float64, computed as
                 (adc - baseline) / gain; invalid samples become NaN).
                 Every selected signal must be calibrated (gain != 0):
                 there is no default gain
@@ -424,31 +512,55 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                 init.wfdbquit()
                 raise ValueError("signal %d of record %s is uncalibrated" %
                                  (k, record))
-    # (a header without a sampling frequency cannot give a base time)
-    base_time = sig.timstr(0) if fs > 0.0 or _legacy() else ""
-    base_time = base_time if base_time.startswith("[") else None
+    base_time, base_time_ms, base_date = _base_time_fields()
     if sig.isigsettime(frm) < 0:
         init.wfdbquit()
         raise IOError("can't seek to sample %d of record %s" % (frm, record))
-    blocks = []
-    remaining = None if to is None else max(to - frm, 0)
+    want = None if to is None else max(to - frm, 0)
+    # The output array is allocated once, for the number of frames to be
+    # read according to the header (or sampto), and grown only if the
+    # record turns out to be longer (or its length is not given); each
+    # chunk is decoded straight into its rows.
+    chunk = max(4096, _CHUNK_SAMPLES // max(nsig, 1))
+    length = sig._record_length()
+    expected = length - frm if length > frm else None
+    if want is not None and (expected is None or want < expected):
+        expected = want
+    size = expected if expected is not None else chunk
+    data = np.empty((size, len(cols)), np.int32)
+    probe = np.empty((1, len(cols)), np.int32)
+    sel_cols = None if cols == list(range(nsig)) else cols
+    nread = 0
     cksum_error = False
     sig._s.cksum_quiet = 1
     try:
-        while remaining is None or remaining > 0:
-            n = _CHUNK if remaining is None else min(_CHUNK, remaining)
-            arr, stat = sig._getframes(n, keep_checksum_frame=True)
-            if len(arr):
-                blocks.append(arr)
-            if remaining is not None:
-                remaining -= len(arr)
+        while want is None or nread < want:
+            n = chunk if want is None else min(chunk, want - nread)
+            if nread < len(data):
+                n = min(n, len(data) - nread)
+                m, stat = sig._getframes_into(data, nread, n, sel_cols,
+                                              keep_checksum_frame=True)
+            else:
+                # The array is full: read one frame before growing it.
+                n = 1
+                m, stat = sig._getframes_into(probe, 0, 1, sel_cols,
+                                              keep_checksum_frame=True)
+                if m:
+                    grown = max(nread + chunk, 2 * len(data))
+                    if want is not None:
+                        grown = min(grown, want)
+                    bigger = np.empty((grown, len(cols)), np.int32)
+                    bigger[:nread] = data[:nread]
+                    bigger[nread] = probe[0]
+                    data = bigger
+            nread += m
             # wfdb-x: -4, a checksum error: the frames are complete (the
             # last one included), only their sum does not match the header:
             # a warning (see below), not an error
             if stat == -4:
                 cksum_error = True
                 break
-            if len(arr) < n:
+            if m < n:
                 # wfdb-x: a status below -1 (e.g. -3, unexpected EOF: the
                 # signal file is shorter than its header says, or a decoder
                 # or I/O error) is an error, not the end of the data (-1)
@@ -463,15 +575,11 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
         warnings.warn("checksum error in record %s: the signal data do not "
                       "match the checksums in its header" % record,
                       RuntimeWarning, stacklevel=_warn_level())
-    data = np.concatenate(blocks) if blocks else np.empty((0, nsig),
-                                                          np.int64)
-    data = data[:, cols]
+    if nread < len(data):
+        # (a view if most of the array is used, else a copy that frees it)
+        data = data[:nread] if 2 * nread >= len(data) else data[:nread].copy()
     sel = [si[k] for k in cols]
-    comments = []
-    c = sig.getinfo(record)
-    while c is not None:
-        comments.append(c)
-        c = sig.getinfo(None)
+    comments = _info_strings(record)
     if physical:
         # (legacy mode: the default gain for uncalibrated signals)
         g = np.array([s.gain if s.gain != 0 or not _legacy() else
@@ -484,7 +592,9 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                  names=[s.desc for s in sel], units=[s.units for s in sel],
                  gains=[s.gain for s in sel],
                  baselines=[s.baseline for s in sel], base_time=base_time,
-                 sampfrom=frm, comments=comments)
+                 base_time_ms=base_time_ms, base_date=base_date,
+                 sampfrom=frm, comments=comments,
+                 checksum_ok=not cksum_error)
     init.wfdbquit()
     return rec
 
@@ -746,15 +856,15 @@ def write_record(record, signals, fs, fmt=16, gains=None,
 @_output_dir_option
 def write_annotations(record, annotator, samples, symbols=None, codes=None,
                       subtypes=0, chans=0, nums=0, aux=None, fs=None, *,
-                      dir=None, legacy=False):
+                      sort=None, dir=None, legacy=False):
     """Write an annotation file (as wrann does).
 
     The annotations are written in the order given.  If they are not in
     canonical (time) order, the file is rearranged when it is closed (as
     the sortann tool does; wfdb-x: in this process, whereas the C library,
     as legacy mode, runs sortann), unless the WFDBANNSORT environment
-    variable is 0 (the library reports this on the standard error output,
-    unless wfdbquiet() is in effect).
+    variable is 0 or sort is False (the library reports this on the
+    standard error output, unless wfdbquiet() is in effect).
 
     Arguments:
       record     record name
@@ -771,6 +881,12 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
                  longer than 255 bytes are truncated); default: none
       fs         if given, recorded in the file as its time resolution
                  (ticks per second)
+      sort       None (the default): an out-of-order file is rearranged
+                 unless the WFDBANNSORT environment variable is 0; True:
+                 it is rearranged, False: it is left in the order given,
+                 for this call only, whatever WFDBANNSORT says (the
+                 environment is not changed; in legacy mode too, where
+                 True runs sortann)
       dir        if given, the directory (which must exist) in which the
                  file is created (record must not contain a directory)
       legacy     if True, the library's legacy mode is on during the call
@@ -798,12 +914,30 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
             raise ValueError("symbols or codes must be given")
         codes = [ann.strann(s) for s in symbols]
 
-    def per(v):
-        return list(v) if isinstance(v, (list, tuple, np.ndarray)) \
-            else [v] * n
+    def ints(v):
+        # v (a sequence, or a scalar for all annotations) as a list of n
+        # Python ints
+        if isinstance(v, np.ndarray) and v.dtype.kind in "iu":
+            return v.tolist()
+        if isinstance(v, (list, tuple, np.ndarray)):
+            return [int(x) for x in v]
+        return [int(v)] * n
 
-    subtypes, chans, nums = per(subtypes), per(chans), per(nums)
-    aux = per(aux) if aux is not None else [None] * n
+    def aux_bytes(x):
+        if x is None:
+            return None
+        b = x.encode("latin-1")[:_MAXAUX]
+        return bytes((len(b),)) + b
+
+    times = ints(samples)
+    codes, subtypes, chans, nums = ints(codes), ints(subtypes), \
+        ints(chans), ints(nums)
+    if aux is None:
+        auxes = [None] * n
+    elif isinstance(aux, (list, tuple, np.ndarray)):
+        auxes = [aux_bytes(x) for x in aux]
+    else:
+        auxes = [aux_bytes(aux)] * n
     init.wfdbquit()
     if fs is not None:
         ann.setafreq(float(fs))
@@ -811,19 +945,13 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
         init.wfdbquit()
         raise IOError("can't create annotator %s for record %s" %
                       (annotator, record))
-    a = ann.Annotation()
-    for k in range(n):
-        a.time = int(samples[k])
-        a.anntyp = int(codes[k])
-        a.subtyp = int(subtypes[k])
-        a.chan = int(chans[k])
-        a.num = int(nums[k])
-        if aux[k] is None:
-            a.aux = None
-        else:
-            b = aux[k].encode("latin-1")[:_MAXAUX]
-            a.aux = bytes((len(b),)) + b
-        ann.putann(0, a)
-    init.wfdbquit()
+    # (as putann for each annotation, but encoded at once)
+    ann._putanns(0, times[:n], codes[:n], subtypes[:n], chans[:n], nums[:n],
+                 auxes[:n])
+    ann._a.sort_override = None if sort is None else bool(sort)
+    try:
+        init.wfdbquit()
+    finally:
+        ann._a.sort_override = None
     if fs is not None:
         ann.setafreq(0.0)

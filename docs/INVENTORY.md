@@ -139,7 +139,7 @@ The C library functions keep their C names in every implementation
 | `wfdbx_set_network`, `wfdbx_get_network` | network access, off by default (`WFDBX_NETWORK`; the high-level readers' `network` option); addition, see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`, `wfdbdefwfdbcal` | version and configuration strings | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **High-level API (additions; each function takes a legacy option)** | | | | | | | |
-| `read_record`, `read_header` | read a record (or part of one) into an array | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `read_record`, `read_header` | read a record (or part of one) into an array; read a record's header (frequencies, length, start time and date, signal specifications, info strings) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `read_annotations` | read an annotation file into arrays | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `write_record`, `write_annotations` | write a record or an annotation file | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 

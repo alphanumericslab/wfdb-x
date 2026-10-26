@@ -28,6 +28,23 @@
 #define WFDBX_PUTC(c, f) putc_unlocked(c, f)
 #endif
 
+// wfdb-x: ferror and feof without locking the stream (putvec tests the
+// error indicator after every sample, getann the end-of-file indicator after
+// every annotation word).  ferror_unlocked and feof_unlocked are found by the
+// build (CMakeLists.txt: WFDBX_HAVE_FERROR_UNLOCKED, WFDBX_HAVE_FEOF_UNLOCKED;
+// glibc, macOS and the BSDs have them); elsewhere (e.g. Windows, whose C
+// library has no documented lock-free equivalent) ferror and feof are used.
+#if defined(WFDBX_HAVE_FERROR_UNLOCKED)
+#define WFDBX_FERROR(f) ferror_unlocked(f)
+#else
+#define WFDBX_FERROR(f) std::ferror(f)
+#endif
+#if defined(WFDBX_HAVE_FEOF_UNLOCKED)
+#define WFDBX_FEOF(f) feof_unlocked(f)
+#else
+#define WFDBX_FEOF(f) std::feof(f)
+#endif
+
 namespace wfdbx {
 
 // Default WFDB path and calibration file
@@ -82,9 +99,13 @@ public:
     int seek(long offset, int whence);
     long tell();
     int flush() { return std::fflush(fp_); }
-    int eof() { return std::feof(fp_); }
-    int error() { return std::ferror(fp_); }
+    int eof() { return WFDBX_FEOF(fp_); }
+    int error() { return WFDBX_FERROR(fp_); }
     void clearerr() { std::clearerr(fp_); }
+    // wfdb-x: the number of bytes between the current position and the end
+    // of the file, if the file is a regular file (-1 otherwise, or if it
+    // cannot be determined).  Used by the bulk reader of getvecs.
+    long long bytes_left();
     // Close the file (standard streams are flushed, not closed).
     int close();
     // Read a line, including its newline if any, into `line`.  Returns the
@@ -160,11 +181,29 @@ void wfdb_sampquit();
 // wfdberror) but not printed (used by the high-level read_record, which
 // reports a checksum error itself).  Returns the previous setting.
 bool wfdbx_set_checksum_quiet(bool on);
+// wfdb-x: the bulk reader of getvecs (on by default); off, getvecs reads
+// frame by frame (for the unit tests, which compare the two).  Returns the
+// previous setting.
+bool wfdbx_set_bulk_read(bool on);
+// wfdb-x: the number of samples per signal given by the header of the
+// record opened last (that of the whole record for a multi-segment record;
+// 0 if not given), its base time (btime, in milliseconds after midnight) and
+// its base date (bdate, a Julian date; 0 if none), for the high-level
+// readers.
+void wfdbx_header_values(WFDB_Time *nsamp, long *btime, WFDB_Date *bdate);
+// wfdb-x: the year, month and day of a Julian date, computed as datstr()
+// does.
+void wfdbx_julian_ymd(WFDB_Date date, int *y, int *m, int *d);
 void wfdb_sigclose();
 void wfdb_osflush();
 int wfdb_oinfoclose();
 
 // annot.cpp
+// wfdb-x: whether oannclose sorts an out-of-order output annotation file:
+// -1 (the default): as WFDBANNSORT says; 0: not sorted; 1: sorted (for the
+// `sort` option of the high-level write_annotations).  Returns the previous
+// setting.
+int wfdbx_set_annsort(int mode);
 void wfdb_anclose();
 void wfdb_oaflush();
 

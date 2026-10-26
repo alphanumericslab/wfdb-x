@@ -446,6 +446,23 @@ long WFDBFile::tell()
 #endif
 }
 
+long long WFDBFile::bytes_left()
+{
+#if defined(_WIN32)
+    struct _stat64 st;
+    if (_fstat64(_fileno(fp_), &st) != 0 || !(st.st_mode & _S_IFREG))
+        return -1;
+    long long pos = _ftelli64(fp_);
+#else
+    struct stat st;
+    if (fstat(fileno(fp_), &st) != 0 || !S_ISREG(st.st_mode)) return -1;
+    long long pos = static_cast<long long>(ftello(fp_));
+#endif
+    if (pos < 0) return -1;
+    long long size = static_cast<long long>(st.st_size);
+    return size > pos ? size - pos : 0;
+}
+
 int WFDBFile::close()
 {
     if (!fp_) return 0;

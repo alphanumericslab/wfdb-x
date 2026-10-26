@@ -12,6 +12,7 @@
 #include <wfdbx/wfdb.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -452,7 +453,7 @@ WFDBX_TEST(write_record_requires_adcres_and_units)
     w.gains = {100, 0};
     w.units = {std::string("mV"), std::nullopt};
     CHECK_EQ(error_of([&] { write_record("r", x, 2, 100, w); }), "");
-    std::vector<WFDB_Siginfo> si = read_header("r");
+    std::vector<WFDB_Siginfo> si = read_header("r").siginfo;
     REQUIRE(si.size() == 2);
     CHECK(si[0].units && *si[0].units == "mV");
     CHECK(!si[1].units);
@@ -466,7 +467,7 @@ WFDBX_TEST(read_record_no_adcres_or_units)
         f << "nr 2 100\n100s.dat 212 200 11 1024 995 21537 0 MLII\n"
              "100s.dat 212 200\n";
     }
-    std::vector<WFDB_Siginfo> si = read_header("nr");
+    std::vector<WFDB_Siginfo> si = read_header("nr").siginfo;
     REQUIRE(si.size() == 2);
     CHECK_EQ(si[0].adcres, 11);
     CHECK(!si[0].units);
@@ -635,8 +636,8 @@ WFDBX_TEST(legacy_read_record)
         std::ofstream f("nr.hea", std::ios::binary);
         f << "nr 2 100\n100s.dat 212 200\n100s.dat 212 200\n";
     }
-    CHECK_EQ(read_header("nr")[1].adcres, 0);
-    CHECK_EQ(read_header("nr", true)[1].adcres, 12);
+    CHECK_EQ(read_header("nr").siginfo[1].adcres, 0);
+    CHECK_EQ(read_header("nr", true).siginfo[1].adcres, 12);
     // The previous setting is restored, also when an error is thrown.
     wfdbquiet();
     CHECK(!error_of([&] { read_record("nonexistent", o); }).empty());
@@ -874,4 +875,71 @@ WFDBX_TEST(dir_checks_first)
     }), missing);
     CHECK(fs::is_empty("out"));
     CHECK(!wfdbx_get_output_dir());
+}
+
+// read_header returns the header (frequencies, length, signals, base time
+// and date, info strings); Record and Header give the base time in
+// milliseconds and the base date as numbers.
+WFDBX_TEST(read_header_and_base_time)
+{
+    DataDir d;
+    {
+        std::ofstream f("z.dat", std::ios::binary);
+        for (int i = 0; i < 20; i++) f.put(0);  // 10 samples of 0
+    }
+    auto header = [](const char *name, const std::string &line) {
+        std::ofstream f(std::string(name) + ".hea", std::ios::binary);
+        f << name << " 1" << line << "\nz.dat 16 100/mV 16 0 0 0 0 x\n"
+          << "#first comment\n";
+    };
+    header("bt", " 250/1000(5) 10 14:00:03.500 21/06/2024");
+    header("bt2", " 250 10 14:00:03");
+    header("bt3", " 250 10");
+    header("nf", "");
+
+    Header h = read_header("bt");
+    CHECK_EQ(h.name, std::string("bt"));
+    CHECK(h.fs == 250 && h.counter_freq == 1000 && h.base_counter == 5);
+    CHECK(h.nsamples == 10 && h.nsig == 1 && h.siginfo.size() == 1);
+    CHECK(h.siginfo[0].desc && *h.siginfo[0].desc == "x");
+    CHECK(h.base_time && *h.base_time == "[14:00:03 21/06/2024]");
+    CHECK(h.base_time_ms && *h.base_time_ms == 50403500);
+    CHECK(h.base_date && *h.base_date == (std::array<int, 3>{2024, 6, 21}));
+    CHECK(h.comments == std::vector<std::string>{"first comment"});
+    Record r = read_record("bt");
+    CHECK(r.nsamples() == 10 && r.checksum_ok);
+    CHECK(r.base_time == h.base_time && r.base_time_ms == h.base_time_ms &&
+          r.base_date == h.base_date && r.comments == h.comments);
+
+    h = read_header("bt2");     // a time, no date
+    CHECK(h.base_time && *h.base_time == "[14:00:03]");
+    CHECK(h.base_time_ms && *h.base_time_ms == 50403000);
+    CHECK(!h.base_date);
+    CHECK(h.counter_freq == 250 && h.base_counter == 0);
+    r = read_record("bt2");
+    CHECK(r.base_time_ms == h.base_time_ms && !r.base_date);
+
+    h = read_header("bt3");     // neither
+    CHECK(!h.base_time && !h.base_time_ms && !h.base_date);
+    r = read_record("bt3");
+    CHECK(!r.base_time && !r.base_time_ms && !r.base_date);
+
+    // No sampling frequency: 0 (legacy mode: 250), and no length.
+    h = read_header("nf");
+    CHECK(h.fs == 0 && h.nsamples == 0 && h.nsig == 1);
+    CHECK(!h.base_time && !h.base_time_ms && !h.base_date);
+    h = read_header("nf", true);
+    CHECK(h.fs == 250 && h.nsamples == 0);
+
+    // The date as datstr() gives it.
+    for (const char *date : {"01/01/1970", "29/02/2000", "15/10/1582",
+                             "04/10/1582", "31/12/1999", "01/03/1"}) {
+        header("bd", std::string(" 250 10 0:0:0 ") + date);
+        h = read_header("bd");
+        REQUIRE(h.base_date);
+        char buf[40];
+        std::snprintf(buf, sizeof buf, " %02d/%02d/%d", (*h.base_date)[2],
+                      (*h.base_date)[1], (*h.base_date)[0]);
+        CHECK_EQ(std::string(buf), datstr(strdat(date)));
+    }
 }

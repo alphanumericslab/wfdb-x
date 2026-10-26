@@ -92,11 +92,22 @@ The signals of a record, or of part of one, as returned by
 - `base_time::Union{String,Nothing}`: the base time and date of the record,
   as [`timstr`](@ref) formats it (e.g. `"[08:45:00 01/01/2001]"`), or
   `nothing` if the header gives none.
+- `base_time_ms::Union{Nothing,Int64}`: the base time of the record in
+  milliseconds after midnight (the milliseconds included: `14:00:03.500`
+  gives `50403500`); `nothing` exactly when `base_time` is `nothing`.
+- `base_date::Union{Nothing,NTuple{3,Int}}`: the base date of the record as
+  `(year, month, day)` (the calendar of [`datstr`](@ref)), or `nothing` if
+  the header gives no date.
 - `sampfrom::Int64`: the sample number of the first returned sample.
 - `comments::Vector{Vector{UInt8}}`: the info strings (comment lines) of the
   header and of the `.info` file, if any, as bytes.
 - `channels::Vector{Int}`: the number of each returned signal in the record
   (`0` is the first signal of the record).
+- `checksum_ok::Bool`: `false` if the samples were found not to match the
+  checksums in the header (`getvec` status -4; whether or not
+  `checksum_warning` is on), `true` otherwise. The checksums are verified
+  only when a read reaches the end of the record, so a read that stops
+  before it gives `true`.
 
 `fs` is 0 if the header does not specify the sampling frequency; in
 `siginfo`, `adcres` is 0 if the header does not specify a signal's ADC
@@ -112,9 +123,72 @@ struct Record
     samples::Matrix{Int32}
     siginfo::Vector{Siginfo}
     base_time::Union{Nothing,String}
+    base_time_ms::Union{Nothing,Int64}
+    base_date::Union{Nothing,NTuple{3,Int}}
     sampfrom::Int64
     comments::Vector{Vector{UInt8}}
     channels::Vector{Int}
+    checksum_ok::Bool
+end
+
+"""
+    Header
+
+The header of a record, as returned by [`read_header`](@ref).
+
+# Fields
+- `name::String`: the record name, as given.
+- `fs::Float64`: the sampling frequency (Hz), as [`sampfreq`](@ref) gives it
+  (0 if the header does not give one; with `legacy=true`, 250 Hz).
+- `counter_freq::Float64`: the counter frequency, as [`getcfreq`](@ref)
+  gives it.
+- `base_counter::Float64`: the base counter value, as
+  [`getbasecount`](@ref) gives it.
+- `nsamples::Int64`: the number of samples per signal given by the record
+  line of the header (0 if it does not give it).
+- `nsig::Int`: the number of signals.
+- `siginfo::Vector{Siginfo}`: the description of each signal (file name,
+  format, gain, baseline, units, description, ...; see
+  [`Siginfo`](@ref)).
+- `base_time`, `base_time_ms`, `base_date`, `comments`: as in
+  [`Record`](@ref).
+"""
+struct Header
+    name::String
+    fs::Float64
+    counter_freq::Float64
+    base_counter::Float64
+    nsamples::Int64
+    nsig::Int
+    siginfo::Vector{Siginfo}
+    base_time::Union{Nothing,String}
+    base_time_ms::Union{Nothing,Int64}
+    base_date::Union{Nothing,NTuple{3,Int}}
+    comments::Vector{Vector{UInt8}}
+end
+
+# The base time and date of the record open in w, for a Record or Header:
+# (base_time, base_time_ms, base_date). (A header without a sampling
+# frequency has no base time either, and timstr would report the missing
+# frequency.)
+function _base_info(w::Wfdb, fs::Float64)
+    bt = fs > 0.0 ? timstr(w, 0) : ""
+    base_time = startswith(bt, '[') ? bt : nothing
+    base_time_ms = base_time === nothing ? nothing : Int64(w.sig.btime)
+    bdate = w.sig.bdate
+    base_date = bdate != 0 ? NTuple{3,Int}(_julian_ymd(Int64(bdate))) : nothing
+    (base_time, base_time_ms, base_date)
+end
+
+# The info strings of record (getinfo).
+function _comments(w::Wfdb, record::ByteStr)
+    comments = Vector{UInt8}[]
+    c = getinfo(w, record)
+    while c !== nothing
+        push!(comments, c)
+        c = getinfo(w, nothing)
+    end
+    comments
 end
 
 """
@@ -317,13 +391,15 @@ end
 
 """
     read_header([w::Wfdb], record; input_dir=nothing, network=nothing,
-                legacy=false) -> Vector{Siginfo}
+                legacy=false) -> Header
 
 Read the header file of `record` (a name relative to the input directory,
-or a full path, `~` path or URL) and return the description of each of its
-signals (file name, format, gain, baseline, units, description, ...; see
-[`Siginfo`](@ref)). The signal files are not opened. A record with no
-signals gives an empty vector.
+or a full path, `~` path or URL) and return it as a [`Header`](@ref): the
+sampling and counter frequencies, the number of samples, the base time and
+date, the info strings, and the description of each signal (file name,
+format, gain, baseline, units, description, ...; see [`Siginfo`](@ref)) in
+`siginfo`. The signal files are not opened. A record with no signals gives
+an empty `siginfo`.
 
 # Keyword arguments
 $_INPUT_DOC
@@ -334,14 +410,17 @@ $_LEGACY_DOC
 
 # Examples
 ```julia-repl
-julia> si = read_header("100s");
+julia> h = read_header("100s");
 
-julia> [String(s.desc) for s in si]
+julia> h.fs, h.nsamples, h.nsig
+(360.0, 21600, 2)
+
+julia> [String(s.desc) for s in h.siginfo]
 2-element Vector{String}:
  "MLII"
  "V5"
 
-julia> si[1].fmt, si[1].gain, si[1].adcres, si[1].nsamp
+julia> si = h.siginfo; si[1].fmt, si[1].gain, si[1].adcres, si[1].nsamp
 (212, 200.0, 11, 21600)
 ```
 """
@@ -357,8 +436,15 @@ function _read_header(w::Wfdb, record::ByteStr)
     n < 0 && _hl_fail(w, "can't read header for record $(_lossy(record))")
     si = [Siginfo() for _ in 1:n]
     n > 0 && isigopen(w, record, si, -n)
+    st = w.sig
+    fs = sampfreq(w, nothing)
+    nsamples = st.in_msrec != 0 ? st.msnsamples : st.nsamples
+    base_time, base_time_ms, base_date = _base_info(w, fs)
+    h = Header(_lossy(record), fs, getcfreq(w), getbasecount(w), nsamples, Int(n), si,
+               base_time, base_time_ms, base_date, Vector{UInt8}[])
+    append!(h.comments, _comments(w, record))
     wfdbquit(w)
-    si
+    h
 end
 read_header(record::ByteStr; kw...) = read_header(lib(), record; kw...)
 
@@ -400,8 +486,9 @@ $_INPUT_DOC
   in record REC: the signal data do not match the checksums in its
   header"`) when the samples read to the end of the record do not match
   the checksums in its header; the data (every frame) are returned either
-  way (`false`: no warning). (wfdb-x: getvec's own message, `getvec:
-  checksum error in signal N`, is not printed during the read.)
+  way (`false`: no warning; `checksum_ok` of the result is `false` in
+  both cases). (wfdb-x: getvec's own message, `getvec: checksum error in
+  signal N`, is not printed during the read.)
 - `legacy`: see below.
 
 Throws a [`WfdbError`](@ref) if the record cannot be read or has no
@@ -476,25 +563,33 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
             push!(cols, k + 1)
         end
     end
-    # (A header without a sampling frequency has no base time either, and
-    # timstr would report the missing frequency.)
-    bt = fs > 0.0 ? timstr(w, 0) : ""
-    base_time = startswith(bt, '[') ? bt : nothing
+    base_time, base_time_ms, base_date = _base_info(w, fs)
     isigsettime(w, t0) < 0 && _hl_fail(w, "can't seek to sample $t0 of record $rname")
 
-    # getvec returns one value per signal in either mode.
-    all = Int32[]
-    buf = Int32[]
+    # getvec returns one value per signal in either mode. The frames are
+    # read straight into `all` (one column per frame), allocated once for
+    # the number of frames to read if it is known (to, or the length of the
+    # record), and grown only if more are read.
+    st = w.sig
     remaining = t1 === nothing ? nothing : max(t1 - t0, Int64(0))
+    rlen = (st.in_msrec != 0 ? st.msnsamples : st.nsamples) *
+           ((st.gvmode & WFDB_HIGHRES) == WFDB_HIGHRES ? Int64(st.spfmax) : Int64(1))
+    expect = remaining !== nothing ? remaining : rlen > t0 ? rlen - t0 : Int64(READ_BLOCK)
+    expect = remaining !== nothing && rlen > t0 ? min(expect, rlen - t0) : expect
+    # (not more than about 1 GiB at first: a header may overstate the length)
+    expect = clamp(expect, Int64(1), max(Int64(1), (Int64(1) << 28) ÷ nsig))
+    all = Vector{Int32}(undef, expect * nsig)
+    nframes = Int64(0)
     cksum_error = false
-    w.sig.cksum_quiet = true
+    st.cksum_quiet = true
     try
         while remaining === nothing || remaining > 0
             n = remaining === nothing ? Int64(READ_BLOCK) : min(remaining, Int64(READ_BLOCK))
-            resize!(buf, n * nsig)
-            got, stat = getvecs_status(w, buf, n; keep_checksum_frame=true)
+            nframes + n > length(all) ÷ nsig &&
+                resize!(all, max(2 * length(all), (nframes + n) * nsig))
+            got, stat = _getvecs_into(w, all, Int(nframes * nsig), n, true)
             got = max(got, Int64(0))
-            append!(all, view(buf, 1:got*nsig))
+            nframes += got
             remaining === nothing || (remaining -= got)
             # wfdb-x: -4, a checksum error: the frames are complete (the last
             # one included), only their sum does not match the header: a
@@ -516,21 +611,25 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     end
     (cksum_error && checksum_warning) &&
         @warn "checksum error in record $rname: the signal data do not match the checksums in its header"
-    nframes = length(all) ÷ nsig
-    frames = reshape(all, nsig, nframes)
-    samples = Matrix{Int32}(undef, nframes, length(cols))
-    for (j, c) in enumerate(cols), i in 1:nframes
-        samples[i, j] = frames[c, i]
-    end
-    comments = Vector{UInt8}[]
-    c = getinfo(w, record)
-    while c !== nothing
-        push!(comments, c)
-        c = getinfo(w, nothing)
-    end
+    samples = _frames_to_samples(all, nsig, Int(nframes), cols)
+    comments = _comments(w, record)
     wfdbquit(w)
-    Record(rname, fs, samples, Siginfo[si[k] for k in cols], base_time, t0, comments,
-           Int[k - 1 for k in cols])
+    Record(rname, fs, samples, Siginfo[si[k] for k in cols], base_time, base_time_ms,
+           base_date, t0, comments, Int[k - 1 for k in cols], !cksum_error)
+end
+
+# The samples matrix (one row per frame, one column per element of cols)
+# of the first nframes frames stored in v (nsig values per frame).
+function _frames_to_samples(v::Vector{Int32}, nsig::Int, nframes::Int, cols::Vector{Int})
+    frames = reshape(view(v, 1:nsig*nframes), nsig, nframes)
+    cols == 1:nsig && return permutedims(frames)
+    samples = Matrix{Int32}(undef, nframes, length(cols))
+    for (j, c) in enumerate(cols)
+        @inbounds for i in 1:nframes
+            samples[i, j] = frames[c, i]
+        end
+    end
+    samples
 end
 read_record(record::ByteStr; kw...) = read_record(lib(), record; kw...)
 
@@ -894,7 +993,7 @@ write_record_physical(record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real
 
 """
     write_annotations([w::Wfdb], record, annotator, ann::Annotations; fs=0.0,
-                      dir=nothing, legacy=false)
+                      sort=nothing, dir=nothing, legacy=false)
 
 Write the annotations `ann` to the annotation file `RECORD.ANNOTATOR` in
 the current directory (or in `dir`; an existing file is overwritten), in
@@ -907,6 +1006,11 @@ annotations are not in time order, the file is sorted when it is closed,
 as the `sortann` tool does (wfdb-x: in this process, whereas the C library,
 as legacy mode, runs `sortann`), unless the environment variable
 `WFDBANNSORT` is 0.
+
+`sort`: `true` to sort an out-of-order file, `false` to leave it in the
+order given, for this call only, whatever `WFDBANNSORT` says (the
+environment is not changed); `nothing` (the default): `WFDBANNSORT`
+decides, as above (wfdb-x addition).
 
 If `fs > 0`, it is recorded in the file as the time resolution of the
 annotation times (ticks per second); otherwise no resolution is recorded,
@@ -932,9 +1036,19 @@ true
 ```
 """
 function write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations;
-                           fs::Real=0.0, dir=nothing, legacy::Bool=false)
+                           fs::Real=0.0, sort::Union{Nothing,Bool}=nothing, dir=nothing,
+                           legacy::Bool=false)
     _with_legacy(w, legacy) do
-        _with_output_dir(() -> _write_annotations(w, record, annotator, ann, fs), w, record, dir)
+        _with_output_dir(w, record, dir) do
+            # wfdb-x: the sort option, read by oannclose (see AnnState)
+            previous = w.ann.sort_override
+            w.ann.sort_override = sort
+            try
+                _write_annotations(w, record, annotator, ann, fs)
+            finally
+                w.ann.sort_override = previous
+            end
+        end
     end
 end
 function _write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations,
@@ -971,7 +1085,7 @@ end
 write_annotations(record::ByteStr, annotator::ByteStr, ann::Annotations; kw...) =
     write_annotations(lib(), record, annotator, ann; kw...)
 
-export WfdbError, Record, Annotations, read_header, read_record, read_annotations,
+export WfdbError, Record, Header, Annotations, read_header, read_record, read_annotations,
        write_record, write_record_physical, write_annotations, physical, signal_names
 
 function _workload_hl_error(f::Function)
@@ -1037,6 +1151,8 @@ register_workload("highlevel") do
         read_annotations(w, "nh", "atr"; to="0:10", legacy=true)
         read_annotations(w, "nh", "atr"; legacy=true)
         write_annotations(w, "nh", "cpy", read_annotations(w, "nh", "atr"; fs=360); legacy=true)
+        write_annotations(w, "nh", "srt", Annotations(samples=[2, 1], codes=Int32[1, 1]);
+                          sort=true)
         _workload_hl_error(() -> read_record(w, "nosuch"; legacy=true))
     end
 end

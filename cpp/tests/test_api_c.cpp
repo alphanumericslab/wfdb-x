@@ -1433,6 +1433,72 @@ WFDBX_TEST(c_sort_disabled)
     CHECK(a.samples == in.samples);
 }
 
+// write_annotations(..., sort): true or false decides for that call only,
+// whatever WFDBANNSORT says (which is not changed); unset, WFDBANNSORT
+// decides.  The same in legacy mode (true: the sortann program).
+WFDBX_TEST(c_sort_option)
+{
+    DataDir d;
+    setafreq(0.0);  // (it survives wfdbquit)
+    Annotations a;
+    a.samples = {300, 100, 200, 100, 50};
+    a.symbols = {"N", "V", "N", "A", "N"};
+    const std::vector<WFDB_Time> given = a.samples;
+    // (sorted: the annotation at 100 written last replaces the other)
+    const std::vector<WFDB_Time> sorted = {50, 100, 200, 300};
+    auto times = [](const char *ann) {
+        wfdbquiet();
+        std::vector<WFDB_Time> t = read_annotations("100s", ann).samples;
+        wfdbverbose();
+        return t;
+    };
+    auto write = [&](const char *ann, std::optional<bool> sort) {
+        wfdbquiet();
+        write_annotations("100s", ann, a, 0, {}, sort);
+        wfdbverbose();
+    };
+    {
+        EnvVar env("WFDBANNSORT", nullptr);
+        write("s0", std::nullopt);      // default: sorted
+        CHECK(times("s0") == sorted);
+        write("s1", false);
+        CHECK(times("s1") == given);
+        CHECK_EQ(wfdberror(), "to rearrange annotations in the correct order.\n");
+        CHECK(std::getenv("WFDBANNSORT") == nullptr);
+        write("s2", std::nullopt);      // (the next call: as before)
+        CHECK(times("s2") == sorted);
+    }
+    {
+        EnvVar env("WFDBANNSORT", "0");
+        write("s3", true);
+        CHECK(times("s3") == sorted);
+        CHECK(std::string(std::getenv("WFDBANNSORT")) == "0");
+        write("s4", std::nullopt);
+        CHECK(times("s4") == given);
+        write("s5", false);
+        CHECK(times("s5") == given);
+        CHECK(slurp("100s.s4") == slurp("100s.s5"));
+        CHECK(slurp("100s.s0") == slurp("100s.s3"));
+    }
+    // legacy mode
+    {
+        EnvVar env("WFDBANNSORT", "1");
+        LegacyOn legacy;
+        write("l1", false);
+        CHECK(times("l1") == given);
+        CHECK(slurp("100s.l1") == slurp("100s.s4"));
+    }
+    if (have_sortann()) {
+        EnvVar env("WFDBANNSORT", "0");
+        EnvVar path("PATH", tools_dir().c_str());
+        LegacyOn legacy;
+        write("l2", true);
+        CHECK_EQ(wfdberror(), "done!\n");
+        CHECK(times("l2") == sorted);
+        CHECK(slurp("100s.l2") == slurp("100s.s0"));
+    }
+}
+
 WFDBX_TEST(c_sort_keeps_other_annotators)
 {
     // An input annotator and the signals stay open while an output annotator

@@ -103,10 +103,50 @@
   expr
 }
 
-#' The siginfo lists of the signals of a record (no signals are opened).
+# The base time and date of the open record (wfdb-x), as read_record and
+# read_header give them: base_time, the text timstr(0) gives (NULL if the
+# header gives no base time, or, without legacy mode, no sampling
+# frequency: timstr is then not called); base_time_ms, the base time in
+# milliseconds after midnight (the library's btime; NULL exactly when
+# base_time is NULL); base_date, c(year, month, day) (integer; NULL if the
+# header gives no date), converted as datstr() converts it.
+.hl_base_fields <- function(fs, legacy) {
+  base_time <- NULL
+  if (fs > 0 || legacy) {
+    base_time <- timstr(0)
+    if (!startsWith(base_time, "[")) base_time <- NULL
+  }
+  st <- .sig
+  list(base_time = base_time,
+       base_time_ms = if (!is.null(base_time)) as.numeric(st$btime),
+       base_date = if (st$bdate != 0) as.integer(.julian_ymd(st$bdate)))
+}
+
+# The info strings of the header of record (getinfo).
+.hl_comments <- function(record) {
+  comments <- character(0)
+  c <- getinfo(record)
+  while (!is.null(c)) {
+    comments <- c(comments, c)
+    c <- getinfo(NULL)
+  }
+  comments
+}
+
+#' Read the header of a record (no signal file is opened).
+#'
+#' Returns a list of class "wfdbx_header": name (the record name as
+#' given), fs (the sampling frequency, as sampfreq() gives it: 0 if the
+#' header does not specify it; legacy mode: 250 Hz), counter_freq (as
+#' getcfreq() gives it), base_counter (as getbasecount() gives it),
+#' nsamples (the number of samples per signal given on the record line of
+#' the header; 0 if it gives none), nsig (the number of signals), siginfo
+#' (one siginfo list per signal), base_time, base_time_ms, base_date (as
+#' in read_record) and comments (the info strings).
 #' input_dir, network, legacy: see read_record.
 read_header <- function(record, input_dir = NULL, network = NULL,
                         legacy = FALSE) .hl_legacy(legacy, .hl_input(input_dir, network, {
+  legacy <- wfdbx_get_legacy()
   wfdbquit()
   n <- isigopen(record, 0)$nsig
   if (n < 0) {
@@ -114,8 +154,18 @@ read_header <- function(record, input_dir = NULL, network = NULL,
     stop("can't read header for record ", record)
   }
   si <- isigopen(record, -n)$si
+  st <- .sig
+  fs <- sampfreq(NULL)
+  # (a multi-segment record: the length on the record line of its master
+  # header)
+  nsamples <- if (st$segments) st$msnsamples else st$nsamples
+  h <- c(list(name = record, fs = fs, counter_freq = getcfreq(),
+              base_counter = getbasecount(), nsamples = nsamples, nsig = n,
+              siginfo = si),
+         .hl_base_fields(fs, legacy),
+         list(comments = .hl_comments(record)))
   wfdbquit()
-  si
+  structure(h, class = "wfdbx_header")
 }))
 
 #' Read the signals of a record into a matrix.
@@ -126,8 +176,15 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' invalid samples WFDB_INVALID_SAMPLE; or physical units with physical =
 #' TRUE, invalid samples NA), siginfo (list of siginfo lists), names,
 #' units (NULL elements: unspecified), gains, baselines, base_time (e.g.
-#' "[08:45:00 01/01/2001]", or NULL; "" if fs is 0), sampfrom, comments (info
-#' strings).
+#' "[08:45:00 01/01/2001]", or NULL: the header gives no base time, or no
+#' sampling frequency), base_time_ms (the base time in milliseconds after
+#' midnight, a double, e.g. 50403500 for 14:00:03.500; NULL exactly when
+#' base_time is NULL), base_date (c(year, month, day), an integer vector,
+#' or NULL if the header gives no date), sampfrom, comments (info strings),
+#' checksum_ok (FALSE if the samples were found not to match the checksums
+#' in the header, getvec status -4, whether or not checksum_warning is on;
+#' TRUE otherwise.  The checksums are verified only when the read reaches
+#' the end of the record).
 #'
 #' channels: signal numbers (0-based, as in WFDB) or names (default: all);
 #' sampfrom, sampto: sample numbers or time strings (sampto exclusive;
@@ -225,11 +282,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
   }
   # base_time is NULL if the header gives none (wfdb-x: always the case
   # without a sampling frequency; timstr is then not called)
-  base_time <- NULL
-  if (fs > 0 || legacy) {
-    base_time <- timstr(0)
-    if (!startsWith(base_time, "[")) base_time <- NULL
-  }
+  base <- .hl_base_fields(fs, legacy)
   if (isigsettime(from) < 0) {
     wfdbquit()
     stop("can't seek to sample ", from, " of record ", record)
@@ -252,28 +305,32 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
     wfdbquit()
     stop("can't read signal data of record ", record, " (getvec status ", g$stat, ")")
   }
-  data <- g$v[, cols + 1, drop = FALSE]
+  checksum_ok <- g$stat != -4
+  # (no copy when all the signals are selected, in order)
+  data <- if (length(cols) == ncol(g$v) && all(cols == seq_len(ncol(g$v)) - 1)) g$v else
+    g$v[, cols + 1, drop = FALSE]
+  g <- NULL
   sel <- si[cols + 1]
-  comments <- character(0)
-  c <- getinfo(record)
-  while (!is.null(c)) {
-    comments <- c(comments, c)
-    c <- getinfo(NULL)
-  }
+  comments <- .hl_comments(record)
   if (physical) {
     # (legacy mode: the default gain for uncalibrated signals)
-    g <- vapply(sel, function(s) if (s$gain == 0 && legacy) WFDB_DEFGAIN else s$gain, 0)
+    gn <- vapply(sel, function(s) if (s$gain == 0 && legacy) WFDB_DEFGAIN else s$gain, 0)
     b <- vapply(sel, function(s) s$baseline, 0)
-    out <- sweep(sweep(data, 2L, b), 2L, g, "/")
-    out[data == WFDB_INVALID_SAMPLE] <- NA
-    data <- out
+    for (k in seq_along(sel)) {
+      x <- data[, k]
+      y <- (x - b[k]) / gn[k]
+      y[x == WFDB_INVALID_SAMPLE] <- NA
+      data[, k] <- y
+    }
   }
   rec <- list(name = record, fs = fs, signals = data, siginfo = sel,
               names = vapply(sel, function(s) s$desc %||% "", ""),
               units = lapply(sel, function(s) s$units),
               gains = vapply(sel, function(s) s$gain, 0),
               baselines = vapply(sel, function(s) s$baseline, 0),
-              base_time = base_time, sampfrom = from, comments = comments)
+              base_time = base$base_time, base_time_ms = base$base_time_ms,
+              base_date = base$base_date, sampfrom = from, comments = comments,
+              checksum_ok = checksum_ok)
   wfdbquit()
   rec
 }))

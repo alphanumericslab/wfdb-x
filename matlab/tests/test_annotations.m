@@ -96,6 +96,7 @@ for k = 1:numel(samples)
 end
 wfdbx.wfdbquit();
 assert(isequal(readfile('100s.rt'), readfile('100s.rt2')), 'putann = putann_bulk');
+random_bulk_write();
 
 % out-of-order annotations are sorted when the file is closed
 old = getenv('WFDBANNSORT');
@@ -114,6 +115,7 @@ sort_in_process(C);
 sort_legacy_in_output_dir();
 sort_list_time0();
 sort_disabled(C);
+sort_option();
 sort_keeps_other_annotators(C);
 
 % AHA format
@@ -369,6 +371,139 @@ assert_eq(wfdbx.wfdberror(), ...
 T = tricky(C);
 got = read_all('ns', 0);
 assert_eq(got(:, 1).', [T{:, 1}], 'WFDBANNSORT=0: not sorted');
+end
+
+function random_bulk_write()
+% write_annotations (the bulk encoder) writes the same bytes as putann,
+% one annotation at a time, for random annotation sets: times with large
+% gaps (also of 2^31 or more) and out of order, every field, aux strings
+% of various lengths (empty, odd, 255, longer: truncated)
+rand('twister', 6);     %#ok<RAND> (Octave and MATLAB)
+lens = [0 1 2 3 4 5 254 255 300];
+for set = 1:12
+    n = 1 + floor(rand() * 60);
+    gap = floor(rand(1, n) * 3000);
+    big = rand(1, n) < 0.1;
+    gap(big) = 2^31 - 2 + floor(rand(1, nnz(big)) * 5) + ...
+        (rand(1, nnz(big)) < 0.5) * 2^32;
+    t = cumsum(gap);
+    back = rand(1, n) < 0.15;           % out of order
+    t(back) = max(t(back) - floor(rand(1, nnz(back)) * 5000), 0);
+    codes = 1 + floor(rand(1, n) * 49);
+    sub = floor(rand(1, n) * 256) - 128;
+    chans = floor(rand(1, n) * 256);
+    nums = floor(rand(1, n) * 256) - 128;
+    aux = cell(1, n);
+    for k = 1:n
+        if rand() < 0.5
+            L = lens(1 + floor(rand() * numel(lens)));
+            aux{k} = char(32 + floor(rand(1, L) * 95));
+        end
+    end
+    wfdbx.wfdbquiet();
+    wfdbx.write_annotations('100s', 'rb1', t, 'codes', codes, 'subtypes', sub, ...
+        'chans', chans, 'nums', nums, 'aux', aux, 'sort', false);
+    wfdbx.annopen('100s', wfdbx.anninfo('rb2', wfdbx.WFDB_WRITE()));
+    x = wfdbx.annotation();
+    for k = 1:n
+        x.time = t(k);
+        x.anntyp = codes(k);
+        x.subtyp = sub(k);
+        x.chan = chans(k);
+        x.num = nums(k);
+        if ischar(aux{k})
+            b = double(aux{k}(1:min(end, 255)));
+            x.aux = uint8([numel(b), b]);
+        else
+            x.aux = [];
+        end
+        wfdbx.putann(0, x);
+    end
+    old = getenv('WFDBANNSORT');
+    setenv('WFDBANNSORT', '0');
+    wfdbx.wfdbquit();
+    setenv('WFDBANNSORT', old);
+    wfdbx.wfdbverbose();
+    assert(isequal(readfile('100s.rb1'), readfile('100s.rb2')), ...
+        'write_annotations = putann (random set %d)', set);
+end
+% mnemonics give the codes of strann
+sym = {'N', 'V', 'xyz', [], 'N', '+'};
+wfdbx.write_annotations('100s', 'rb1', 1:6, 'symbols', sym);
+r = wfdbx.read_annotations('100s', 'rb1');
+assert_eq(r.codes.', [wfdbx.strann('N') wfdbx.strann('V') 0 0 ...
+    wfdbx.strann('N') wfdbx.strann('+')], 'symbols');
+end
+
+function sort_option()
+% write_annotations' 'sort' option decides for one call, whatever
+% WFDBANNSORT says; the environment is not changed
+old = getenv('WFDBANNSORT');
+c = onCleanup(@() setenv('WFDBANNSORT', old)); %#ok<NASGU>
+t = [300 100 200 50];
+codes = [1 5 1 8];
+for legacy = [false true]
+    if legacy && ~wfdbx.internal.is_octave()  % (the sortann driver for Octave)
+        continue;
+    end
+    % sort false: the file in the given order (WFDBANNSORT 1 or unset)
+    for env = {'1', ''}
+        setenv('WFDBANNSORT', env{1});
+        wfdbx.wfdbquiet();
+        wfdbx.write_annotations('100s', 'so', t, 'codes', codes, ...
+            'sort', false, 'legacy', legacy);
+        wfdbx.wfdbverbose();
+        assert_eq(getenv('WFDBANNSORT'), env{1}, 'sort false: environment kept');
+        got = read_all('so', 0);
+        assert_eq(got(:, 1:2), [t; codes].', 'sort false: given order');
+    end
+    % sort true with WFDBANNSORT=0: sorted
+    setenv('WFDBANNSORT', '0');
+    wfdbx.wfdbquiet();
+    wfdbx.write_annotations('100s', 'so', t, 'codes', codes, 'sort', true, ...
+        'legacy', legacy);
+    wfdbx.wfdbverbose();
+    assert_eq(getenv('WFDBANNSORT'), '0', 'sort true: environment kept');
+    got = read_all('so', 0);
+    assert_eq(got(:, 1:2), [50 8; 100 5; 200 1; 300 1], 'sort true: sorted');
+    % unset: WFDBANNSORT decides (0: not sorted; 1: sorted)
+    wfdbx.wfdbquiet();
+    wfdbx.write_annotations('100s', 'so', t, 'codes', codes, 'sort', [], ...
+        'legacy', legacy);
+    wfdbx.wfdbverbose();
+    got = read_all('so', 0);
+    assert_eq(got(:, 1:2), [t; codes].', 'sort unset, WFDBANNSORT=0');
+    setenv('WFDBANNSORT', '1');
+    wfdbx.wfdbquiet();
+    wfdbx.write_annotations('100s', 'so', t, 'codes', codes, 'legacy', legacy);
+    wfdbx.wfdbverbose();
+    got = read_all('so', 0);
+    assert_eq(got(:, 1:2), [50 8; 100 5; 200 1; 300 1], ...
+        'sort unset, WFDBANNSORT=1');
+end
+% the setting applies to that call only
+st = wfdbx.internal.ann_state();
+assert_eq(isempty(st.sort_override), true, 'sort setting cleared');
+setenv('WFDBANNSORT', '1');
+wfdbx.annopen('100s', wfdbx.anninfo('so', wfdbx.WFDB_WRITE()));
+a = wfdbx.annotation();
+for k = 1:numel(t)
+    a.time = t(k);
+    a.anntyp = codes(k);
+    wfdbx.putann(0, a);
+end
+wfdbx.wfdbquiet();
+wfdbx.wfdbquit();
+wfdbx.wfdbverbose();
+got = read_all('so', 0);
+assert_eq(got(:, 1), [50 100 200 300].', 'later putann: WFDBANNSORT decides');
+failed = false;
+try
+    wfdbx.write_annotations('100s', 'so', t, 'codes', codes, 'sort', 'yes');
+catch
+    failed = true;
+end
+assert_eq(failed, true, 'sort must be true, false or []');
 end
 
 function sort_keeps_other_annotators(C)

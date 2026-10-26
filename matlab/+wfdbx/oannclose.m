@@ -3,7 +3,9 @@ function oannclose(an)
 %   wfdbx.oannclose(AN) writes the end of file marker of output annotator
 %   AN and closes it; the annotators opened after it are renumbered.  If
 %   annotations were written out of order, the file is rearranged in
-%   canonical order (unless the environment variable WFDBANNSORT is 0),
+%   canonical order (unless the environment variable WFDBANNSORT is 0;
+%   the 'sort' option of wfdbx.write_annotations decides instead for the
+%   file that function writes),
 %   with a result identical to that of the sortann tool: wfdb-x does this
 %   in the same process (wfdbx.internal.ann_sortfile), while the C library
 %   (as legacy mode, wfdbx.wfdbx_set_legacy) runs sortann in a separate
@@ -52,7 +54,10 @@ end
 if oa.out_of_order
     dosort = 1;                         % DEFWFDBANNSORT
     p = wfdbx.internal.cgetenv('WFDBANNSORT');
-    if ischar(p)
+    if ~isempty(st.sort_override)
+        % wfdb-x: write_annotations' 'sort' option decides (this call only)
+        dosort = st.sort_override;
+    elseif ischar(p)
         dosort = wfdbx.internal.strtol(p);
     end
     if dosort

@@ -78,6 +78,7 @@
 #ifndef WFDBX_RECORD_HPP
 #define WFDBX_RECORD_HPP
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <stdexcept>
@@ -153,10 +154,23 @@ struct Record {
     /// Base time of the record, as timstr(0) gives it (to the second), e.g.
     /// "[08:45:00 01/01/2001]"; nullopt if the header has none.
     std::optional<std::string> base_time;
+    /// Base time of the record in milliseconds after midnight (the
+    /// library's base time, with its milliseconds: "14:00:03.500" gives
+    /// 50403500); given exactly when base_time is, nullopt otherwise.
+    std::optional<long long> base_time_ms;
+    /// Base date of the record as {year, month, day} (computed as datstr()
+    /// does); nullopt if the header gives no date.
+    std::optional<std::array<int, 3>> base_date;
     WFDB_Time sampfrom = 0;     ///< sample number of the first returned sample
     /// Info strings of the record (header comments and .info file; see
     /// getinfo()).
     std::vector<std::string> comments;
+    /// false if the signal data were found not to match the checksums in
+    /// the header (getvec status -4 during the read; see
+    /// ReadOptions::checksum_warning, which does not change this field),
+    /// true otherwise.  The checksums are verified only when a read reaches
+    /// the end of the record: a read that stops before it gives true.
+    bool checksum_ok = true;
     /// Read in legacy mode (ReadOptions::legacy): physical() then assumes
     /// WFDB_DEFGAIN for uncalibrated signals, as the original package did.
     bool legacy = false;
@@ -221,15 +235,41 @@ struct ReadOptions : InputOptions {
 /// specified").
 Record read_record(const std::string &record, const ReadOptions &opt = {});
 
-/// Read the signal specifications of the header of `record` (one entry per
-/// signal; empty if the record has none).  The signal files are not opened.
-/// `input` says where the header is found (see InputOptions).
-/// Throws Error if the header cannot be read.  With `legacy` (for
-/// compatibility only), the header is read as by the original package (250
-/// Hz if it has no frequency, ADC resolutions inferred from the format).
-std::vector<WFDB_Siginfo> read_header(const std::string &record,
-                                      bool legacy = false,
-                                      const InputOptions &input = {});
+/// The header of a record, read by read_header().
+struct Header {
+    std::string name;           ///< record name, as given to read_header()
+    /// Sampling frequency, as sampfreq() gives it; 0 if the header does not
+    /// specify it (wfdb-x: no default frequency; in legacy mode, the
+    /// original default, 250 Hz).
+    WFDB_Frequency fs = 0;
+    WFDB_Frequency counter_freq = 0;    ///< counter frequency (getcfreq())
+    double base_counter = 0;    ///< base counter value (getbasecount())
+    /// Number of samples per signal, from the record line of the header (0
+    /// if the header does not give it).
+    WFDB_Time nsamples = 0;
+    int nsig = 0;               ///< number of signals
+    /// The signal specifications, one per signal (empty if the record has
+    /// none).
+    std::vector<WFDB_Siginfo> siginfo;
+    /// Base time, as Record::base_time.
+    std::optional<std::string> base_time;
+    /// Base time in milliseconds after midnight, as Record::base_time_ms.
+    std::optional<long long> base_time_ms;
+    /// Base date {year, month, day}, as Record::base_date.
+    std::optional<std::array<int, 3>> base_date;
+    /// Info strings of the record, as Record::comments.
+    std::vector<std::string> comments;
+};
+
+/// Read the header of `record`: its frequencies, length, signal
+/// specifications, base time and date and info strings (see Header).  The
+/// signal files are not opened.  `input` says where the header is found
+/// (see InputOptions).  Throws Error if the header cannot be read.  With
+/// `legacy` (for compatibility only), the header is read as by the original
+/// package (250 Hz if it has no frequency, ADC resolutions inferred from the
+/// format).
+Header read_header(const std::string &record, bool legacy = false,
+                   const InputOptions &input = {});
 
 /// An annotation file, as parallel arrays: annotation i is samples[i],
 /// codes[i], symbols[i], ...  Returned by read_annotations(); also the input
@@ -341,15 +381,20 @@ void write_record_physical(const std::string &record,
 /// subtypes, chans, nums and aux entries are 0 or absent, and aux texts are
 /// truncated to 255 bytes.  If fs > 0, it is recorded as the time
 /// resolution of the file (ann.fs is not used).  Annotations should be in
-/// time order; otherwise the file is sorted when it is closed (see
+/// time order; otherwise, the file is sorted when it is closed (see
 /// oannclose(); wfdb-x: in this process, whereas the C library, as legacy
-/// mode, runs sortann).  If `dir` is not empty, the file is created in that
-/// directory, which must exist (the record name must not contain a
-/// directory).  Throws Error if the file cannot be created, or for a `dir`
-/// as write_record() does.
+/// mode, runs sortann) if `sort` says so: std::nullopt (the default): as
+/// the WFDBANNSORT environment variable says (by default, sorted); true:
+/// sorted; false: left in the order given (for this call only, whatever
+/// WFDBANNSORT says; the environment is not changed; the same in legacy
+/// mode).  If `dir` is not empty, the file is created in that directory,
+/// which must exist (the record name must not contain a directory).  Throws
+/// Error if the file cannot be created, or for a `dir` as write_record()
+/// does.
 void write_annotations(const std::string &record, const std::string &annotator,
                        const Annotations &ann, WFDB_Frequency fs = 0,
-                       const std::string &dir = {});
+                       const std::string &dir = {},
+                       std::optional<bool> sort = std::nullopt);
 
 } // namespace wfdbx
 

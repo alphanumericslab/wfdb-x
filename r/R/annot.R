@@ -137,6 +137,7 @@ annot_reset <- function(tables = TRUE) {
     a$modified <- logical(50)    # (ACMAX + 1: ecgcodes.R is sourced later)
   }
   a$annclose_error <- 0
+  a$sort_override <- NULL      # wfdb-x: see oannclose
   invisible()
 }
 annot_reset()
@@ -1026,6 +1027,11 @@ iannclose <- function(n) {
 #' annotations were written out of order, they are sorted, unless
 #' WFDBANNSORT is 0: in this process; in legacy mode, by running the
 #' sortann tool, as the C library does).
+#'
+#' wfdb-x: .ann$sort_override (NULL, TRUE or FALSE), set by
+#' write_annotations for the duration of its call (its sort argument),
+#' decides instead of WFDBANNSORT when it is not NULL; the environment is
+#' not changed.
 oannclose <- function(n) {
   oa <- .ann_oa(n)
   if (is.null(oa) || is.null(oa$file)) return(invisible())
@@ -1046,6 +1052,7 @@ oannclose <- function(n) {
     dosort <- .A_DEFWFDBANNSORT
     p <- cgetenv("WFDBANNSORT")
     if (!is.null(p)) dosort <- strtol(p)[1L]
+    if (!is.null(.ann$sort_override)) dosort <- .ann$sort_override
     if (dosort) {
       wfdb_error("Rearranging annotations for output annotator %s ...", oa$name)
       # wfdb-x: the file is sorted in this process; the C library ran the
@@ -1413,7 +1420,9 @@ putann <- function(an, annot) {
   wa <- which(hasaux)
   for (k in wa[vapply(aux[wa], is.character, TRUE)]) aux[[k]] <- .aux_from(aux[[k]])
   auxln <- numeric(m)
-  auxln[wa] <- vapply(aux[wa], function(x) as.numeric(x[1L]), 0)
+  if (length(wa)) {
+    auxln[wa] <- as.numeric(unlist(lapply(aux[wa], `[`, 1L), use.names = FALSE))
+  }
   z <- typ == 0
   sk <- z | d > .A_MAXRR | d < 0
   skv <- d
@@ -1457,17 +1466,30 @@ putann <- function(an, annot) {
   putw(p[k], .A_AUX + auxln[k])
   p[k] <- p[k] + 2
   if (length(k)) {
-    dl <- lapply(k, function(q) {
-      x <- aux[[q]]
-      ln <- auxln[q]
-      v <- integer(ln)
-      if (length(x) >= 2L) {
-        y <- as.integer(x[2:min(length(x), ln + 1)])
-        v[seq_along(y)] <- y
-      }
-      v
-    })
-    B[sequence(auxln[k], from = p[k] + 1)] <- unlist(dl, use.names = FALSE)
+    # (aux strings whose raw vector is exactly the length byte and its
+    # data, the usual case, are copied without a per-string loop; the
+    # others are cut or padded with zeros to the length byte)
+    exact <- lengths(aux[k]) == auxln[k] + 1
+    if (any(exact)) {
+      ke <- k[exact]
+      u <- as.integer(unlist(aux[ke], use.names = FALSE))
+      lb <- cumsum(c(1, auxln[ke][-length(ke)] + 1))   # positions of the length bytes
+      B[sequence(auxln[ke], from = p[ke] + 1)] <- u[-lb]
+    }
+    if (!all(exact)) {
+      ko <- k[!exact]
+      dl <- lapply(ko, function(q) {
+        x <- aux[[q]]
+        ln <- auxln[q]
+        v <- integer(ln)
+        if (length(x) >= 2L) {
+          y <- as.integer(x[2:min(length(x), ln + 1)])
+          v[seq_along(y)] <- y
+        }
+        v
+      })
+      B[sequence(auxln[ko], from = p[ko] + 1)] <- unlist(dl, use.names = FALSE)
+    }
   }
   wf_write(oa$file, as.raw(B))
   a <- list(time = A$time[n], anntyp = A$anntyp[n], subtyp = A$subtyp[n], chan = A$chan[n],

@@ -210,6 +210,17 @@ rec.at(0, 1);                              // sample 0 of signal 1 (ADC units)
 rec.physical(0, 1);                        // ... in rec.siginfo[1].units
 rec.siginfo[1].desc;                       // "V5"
 
+rec.checksum_ok;                           // true
+// A record whose header gives "8:45:00.250 01/01/2001" (100s gives none:
+// std::nullopt):
+rec.base_time;                             // "[08:45:00 01/01/2001]"
+rec.base_time_ms;                          // 31500250
+rec.base_date;                             // {2001, 1, 1}
+
+wfdbx::Header hdr = wfdbx::read_header("100s");  // no signal file is opened
+hdr.fs; hdr.nsamples; hdr.nsig;            // 360, 21600, 2
+hdr.siginfo[0].desc;                       // "MLII"
+
 wfdbx::Annotations ann = wfdbx::read_annotations("100s", "atr");
 for (size_t i = 0; i < ann.size(); i++)
     std::printf("%lld %s\n", ann.samples[i], ann.symbols[i].c_str());
@@ -231,6 +242,25 @@ sample `i` of signal `s`); invalid samples are `WFDB_INVALID_SAMPLE`, and
 of invalid samples (`pad`); `WriteOptions` takes one value for all signals,
 or one per signal. `write_record_physical()` takes samples in physical
 units.
+
+`read_header()` returns a `wfdbx::Header`: `name`, `fs` (as `sampfreq()`
+gives it), `counter_freq` and `base_counter` (as `getcfreq()` and
+`getbasecount()` give them), `nsamples` (from the record line of the
+header, 0 if not given), `nsig`, `siginfo` (the signal specifications),
+`base_time`, `base_time_ms`, `base_date` and `comments`, as in `Record`.
+`base_time_ms` (`std::optional<long long>`) is the base time in
+milliseconds after midnight ("14:00:03.500" gives 50403500), given exactly
+when the text `base_time` is; `base_date` (`std::optional<std::array<int,
+3>>`) is `{year, month, day}` when the header gives a date.
+`Record::checksum_ok` is false if the signal data were found not to match
+the checksums in the header (see below), true otherwise; checksums are
+verified only when a read reaches the end of the record.
+
+`write_annotations(record, annotator, ann, fs, dir, sort)` sorts an
+out-of-order file as the `WFDBANNSORT` environment variable says (by
+default, it is sorted) if `sort` is `std::nullopt` (the default); `true`
+sorts it and `false` leaves it in the order given, for that call only (the
+environment is not changed), in legacy mode too.
 
 **Output directory.** `WriteOptions::dir` (and the last parameter of
 `write_annotations(record, annotator, ann, fs, dir)`) creates the files in
@@ -302,7 +332,8 @@ frames as for the record with correct checksums), and prints the warning
 checksums in its header" on `stderr`, as a library message (`wfdbquiet()`
 silences it; getvec's own "getvec: checksum error in signal N" is not
 printed during the read). `ReadOptions::checksum_warning = false` turns the
-warning off. Any other status below -1 is still an error. This behavior is
+warning off; `rec.checksum_ok` is false in either case. Any other status
+below -1 is still an error. This behavior is
 identical in all six wfdb-x implementations.
 
 These functions use the global state of the library (they call
@@ -356,7 +387,11 @@ wfdbquit();
 semantics of `n` calls of `getvec` (`buffer` must hold `n` times as many
 values as `getvec` returns); `getvecs(buffer, n, &status)` also gives the
 status of the last `getvec` call (e.g. -1 at the end of the data, -3 for an
-unexpected end of file). Annotation codes are declared in
+unexpected end of file). It decodes the frames in bulk where it can (formats
+8, 16, 24, 32, 61, 80, 160, 212, 310 and 311 with one sample per signal per
+frame, in regular files, without deskewing or resampling), and reads the
+others, the frame at which checksums are verified and the frames near the
+end of a file one at a time, with the same results as `getvec`. Annotation codes are declared in
 `<wfdbx/ecgcodes.hpp>`, and the mapping macros of `<wfdb/ecgmap.h>` are
 functions in `<wfdbx/ecgmap.hpp>`. As in C, the library keeps global state
 and is not thread-safe.

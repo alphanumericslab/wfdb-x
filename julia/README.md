@@ -215,8 +215,12 @@ rec = read_record("100s"; to="0:10")    # first 10 s (also: from, channels, high
 rec.samples                             # Matrix{Int32}: rec.samples[i, s] = sample i of signal s
 physical(rec)                           # Matrix{Float64}, physical units (NaN: invalid)
 rec.siginfo, rec.fs, rec.base_time, rec.comments, rec.channels
+rec.base_time_ms, rec.base_date         # e.g. 50403500, (2024, 6, 21); or nothing
+rec.checksum_ok                         # false if the data do not match the header's checksums
 signal_names(rec)                       # signal descriptions, as bytes
-read_header("100s")                     # Vector{Siginfo}
+h = read_header("100s")                 # Header (no signal file is opened)
+h.fs, h.counter_freq, h.base_counter, h.nsamples, h.nsig, h.siginfo, h.base_time,
+h.base_time_ms, h.base_date, h.comments
 write_record("new", rec.samples, rec.fs; fmt=212, gains=200.0, adcres=11, units="mV",
              names=["MLII", "V5"])
 write_record_physical("newp", physical(rec), rec.fs; gains=[200.0, 100.0], adcres=16,
@@ -224,6 +228,7 @@ write_record_physical("newp", physical(rec), rec.fs; gains=[200.0, 100.0], adcre
 ann = read_annotations("100s", "atr")   # Annotations: samples, codes, symbols, aux, ...
 read_annotations("rec", "atr"; fs=250)  # fs: used if the record's header gives none
 write_annotations("100s", "cpy", ann; fs=360)
+write_annotations("100s", "raw", ann; sort=false)  # leave an out-of-order file unsorted
 ```
 
 Records are read under the input directory and files are written under the
@@ -287,6 +292,9 @@ then `num`, then `chan`) are rearranged when the file is closed, in the
 same process, with a result identical byte for byte to that of `sortann`
 (the last of several annotations with the same time, `num` and `chan` is
 kept, and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it.
+`write_annotations(...; sort=true)` or `sort=false` decides for that call
+only, whatever `WFDBANNSORT` says (in legacy mode too; the environment is
+not changed).
 Unlike the original `sortann`, neither the sort nor the `sortann` tool
 loses an out-of-order annotation at time 0 (written after later ones), nor
 those inserted after it. The C library ran the `sortann` program (found in
@@ -302,7 +310,9 @@ data are complete, only their sum disagrees), it returns every frame (the
 last one included) and warns with `@warn "checksum error in record REC: the
 signal data do not match the checksums in its header"` (instead of the
 library's `getvec: checksum error in signal N`); `checksum_warning=false`
-turns the warning off. Any other read error (e.g. a truncated signal file,
+turns the warning off. Either way, the record's `checksum_ok` is `false`
+(`true` otherwise; the checksums are verified only by a read that reaches
+the end of the record). Any other read error (e.g. a truncated signal file,
 status -3) is still a `WfdbError`. The C-style `getvec` and the tools are
 unchanged. This behavior is identical in all six implementations of wfdb-x.
 

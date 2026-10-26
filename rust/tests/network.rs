@@ -176,7 +176,7 @@ fn network() {
         input_dir: Some(format!("{url}db")),
         ..Default::default()
     };
-    assert_eq!(w.read_header_with("100s", &opt2).unwrap().len(), 2);
+    assert_eq!(w.read_header_with("100s", &opt2).unwrap().nsig, 2);
     // files named in a remote header: under its URL, contained
     assert_eq!(w.read_record("sub", &opt).unwrap().samples, [1, 2, 3, 4]);
     assert_eq!(count(&log, "/db/data/a.dat"), 1);

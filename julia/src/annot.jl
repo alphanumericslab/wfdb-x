@@ -164,13 +164,18 @@ mutable struct AnnState
     cstring::Vector{Vector{UInt8}}              # ECG mnemonics for each code
     astring::Vector{Vector{UInt8}}              # mnemonic strings for each code
     tstring::Vector{Union{Nothing,Vector{UInt8}}}   # descriptions for each code
+    # wfdb-x: whether an out-of-order output annotation file is sorted when
+    # it is closed, set by write_annotations(sort=...) for its call only:
+    # nothing (WFDBANNSORT decides), true or false
+    sort_override::Union{Nothing,Bool}
 end
 
 AnnState() = AnnState(_IaData[], _OaData[], 0.0, 0, fill(false, _NCODES),
                       [Vector{UInt8}(codeunits(s)) for s in _DEFAULT_MNEMONICS],
                       [Vector{UInt8}(codeunits(s)) for s in _DEFAULT_MNEMONICS],
                       Union{Nothing,Vector{UInt8}}[s === nothing ? nothing : Vector{UInt8}(codeunits(s))
-                                                   for s in _DEFAULT_DESCRIPTIONS])
+                                                   for s in _DEFAULT_DESCRIPTIONS],
+                      nothing)
 
 # A table of annotation type definitions (wfdb-x): mnemonics, descriptions,
 # and flags marking the modified types. `_lib_defs(w)` is that of the library
@@ -1205,8 +1210,11 @@ function oannclose(w::Wfdb, n::Integer)
     end
     out_of_order = oa.out_of_order
     if out_of_order
-        p = cgetenv("WFDBANNSORT")
-        dosort = p === nothing ? DEFWFDBANNSORT : strtol(p, 10)[1] % Int32
+        # wfdb-x: write_annotations(sort=true/false) decides for its call
+        so = w.ann.sort_override
+        p = so === nothing ? cgetenv("WFDBANNSORT") : nothing
+        dosort = so !== nothing ? Int32(so) :
+                 p === nothing ? DEFWFDBANNSORT : strtol(p, 10)[1] % Int32
         if dosort != 0
             wfdb_error(w, "Rearranging annotations for output annotator %s ...", name)
             # wfdb-x: the file is sorted in this process; the C library ran

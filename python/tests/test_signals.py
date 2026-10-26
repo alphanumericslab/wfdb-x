@@ -226,8 +226,9 @@ def test_read_record_legacy(datadir):
 def test_read_header_legacy(datadir):
     with open("nr.hea", "w") as f:
         f.write("nr 2 360 21600\n100s.dat 212 200\n100s.dat 212 200\n")
-    assert [s.adcres for s in w.read_header("nr")] == [0, 0]
-    assert [s.adcres for s in w.read_header("nr", legacy=True)] == [12, 12]
+    assert [s.adcres for s in w.read_header("nr").siginfo] == [0, 0]
+    assert [s.adcres for s in
+            w.read_header("nr", legacy=True).siginfo] == [12, 12]
 
 
 # ---------------------------------------------------------------------------
@@ -477,3 +478,280 @@ def test_read_record_checksum_warning(datadir, legacy, capfd):
     assert capfd.readouterr().err == \
         "getvec: checksum error in signal 0\n" * 2
 
+
+
+# ---------------------------------------------------------------------------
+# read_header, base time and date, checksum_ok, int32 samples
+
+def _set_record_line(name, line):
+    with open(name + ".hea") as f:
+        rest = f.read().split("\n", 1)[1]
+    with open(name + ".hea", "w") as f:
+        f.write(line + "\n" + rest)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_read_header_fields(datadir, legacy):
+    x = np.arange(20).reshape(10, 2)
+    w.write_record("bt", x, 250, gains=200, adcres=16, units="mV",
+                   comments=["first", "second"])
+    for line, ms, date, text in (
+            ("bt 2 250/1000(7) 10 14:00:03.500 21/06/2024", 50403500,
+             (2024, 6, 21), "[14:00:03 21/06/2024]"),
+            ("bt 2 250/1000(7) 10 14:00:03", 50403000, None, "[14:00:03]"),
+            ("bt 2 250/1000(7) 10", None, None, None)):
+        _set_record_line("bt", line)
+        h = w.read_header("bt", legacy=legacy)
+        assert isinstance(h, w.Header)
+        assert (h.name, h.fs, h.counter_freq, h.base_counter, h.nsamples,
+                h.nsig) == ("bt", 250.0, 1000.0, 7.0, 10, 2)
+        assert [s.desc for s in h.siginfo] == ["record bt, signal 0",
+                                               "record bt, signal 1"]
+        assert h.siginfo[0].gain == 200.0 and h.siginfo[1].initval == 1
+        assert (h.base_time, h.base_time_ms, h.base_date) == (text, ms, date)
+        assert isinstance(h.base_time_ms, (int, type(None)))
+        assert h.comments == ["first", "second"]
+        assert repr(h) == "Header(name='bt', fs=250, nsig=2, nsamples=10)"
+        r = w.read_record("bt", legacy=legacy)
+        assert (r.base_time, r.base_time_ms, r.base_date) == (text, ms, date)
+        assert r.comments == h.comments
+    # no frequency, no length: fs 0 (legacy: 250) and nsamples 0
+    _set_record_line("bt", "bt 2")
+    h = w.read_header("bt", legacy=legacy)
+    assert (h.fs, h.counter_freq, h.nsamples) == \
+        ((250.0, 250.0, 0) if legacy else (0.0, 0.0, 0))
+    assert (h.base_time, h.base_time_ms, h.base_date) == (None, None, None)
+    with pytest.raises(IOError, match="can't read header for record nx"):
+        w.read_header("nx", legacy=legacy)
+
+
+def test_read_header_no_signals(datadir):
+    with open("ns.hea", "w") as f:
+        f.write("ns 0 100 1000 08:00:00 01/02/2003\n#note\n")
+    h = w.read_header("ns")
+    assert (h.nsig, h.siginfo, h.fs, h.nsamples) == (0, [], 100.0, 1000)
+    assert (h.base_time_ms, h.base_date) == (28800000, (2003, 2, 1))
+    assert h.comments == ["note"]
+
+
+def test_read_record_dtype_and_checksum_ok(datadir):
+    x = np.array([[1, 2], [3, 4], [5, 6], [7, 8]])
+    w.write_record("ck", x, 100, gains=100, adcres=16, units="mV")
+    r = w.read_record("ck")
+    assert r.signals.dtype == np.int32 and r.checksum_ok is True
+    assert w.read_record("ck", physical=True).signals.dtype == np.float64
+    assert w.read_record("ck", sampto=0).signals.shape == (0, 2)
+    assert w.read_record("ck", channels=[1]).signals.dtype == np.int32
+    with open("ck.dat", "r+b") as f:     # (the checksums no longer match)
+        f.seek(4)
+        f.write(bytes([9, 0]))
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert w.read_record("ck").checksum_ok is False
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert w.read_record("ck", checksum_warning=False).checksum_ok \
+            is False
+        assert w.read_record("ck", physical=True,
+                             checksum_warning=False).checksum_ok is False
+        # (not read to the end: no checksum is verified)
+        assert w.read_record("ck", sampto=3).checksum_ok is True
+
+
+# ---------------------------------------------------------------------------
+# The bulk reader (_bulk_frames, decoding into the output array) gives the
+# same samples and statuses as the per-frame path (getvec)
+
+_BULK_FMTS = [8, 80, 16, 61, 160, 24, 32, 212, 310, 311]
+
+
+def _random_record(name, rng, fmt, nsig, n, invalid=True):
+    hi = min(RANGES[fmt], 30000) if fmt == 8 else RANGES[fmt]
+    if fmt == 8:
+        x = np.cumsum(rng.integers(-60, 61, size=(n, nsig)), axis=0)
+    else:
+        x = rng.integers(-hi + 1, hi + 1, size=(n, nsig))
+        if invalid:
+            x[rng.random((n, nsig)) < 0.01] = w.WFDB_INVALID_SAMPLE
+            x[:3, 0] = w.WFDB_INVALID_SAMPLE    # (invalid at the start)
+    w.write_record(name, x, 250, fmt=fmt, gains=200, adcres=RES[fmt],
+                   units="mV")
+    return x
+
+
+def _merge_groups(name, parts):
+    """A record name whose signals are those of the records parts, one
+    signal group (file) per part."""
+    lines, nsig, n = [], 0, None
+    for p in parts:
+        with open(p + ".hea") as f:
+            hl = [s for s in f.read().splitlines() if s and s[0] != "#"]
+        first = hl[0].split()
+        nsig += int(first[1])
+        n = first[3]
+        lines += hl[1:]
+    with open(name + ".hea", "w") as f:
+        f.write("%s %d 250 %s\n" % (name, nsig, n) + "\n".join(lines) + "\n")
+
+
+def _read_both(monkeypatch, *args, **kw):
+    """read_record with the bulk path, and with the per-frame path only."""
+    import wfdbx._signal as s
+    a = w.read_record(*args, **kw)
+    with monkeypatch.context() as m:
+        m.setattr(s, "_bulk_eligible", lambda: False)
+        b = w.read_record(*args, **kw)
+    return a, b
+
+
+def _same(a, b):
+    assert a.signals.dtype == b.signals.dtype
+    assert a.signals.shape == b.signals.shape
+    assert np.array_equal(a.signals, b.signals, equal_nan=True)
+    assert a.checksum_ok == b.checksum_ok
+
+
+@pytest.mark.parametrize("fmt", _BULK_FMTS)
+def test_bulk_read_equals_per_frame(datadir, monkeypatch, fmt):
+    import warnings
+    import wfdbx.highlevel as hl
+    rng = np.random.default_rng(fmt)
+    # (small chunks: records end in the middle of a chunk and of a buffer)
+    monkeypatch.setattr(hl, "_CHUNK_SAMPLES", 4096 * 3 + 5)
+    for nsig in (1, 2, 3, 4):
+        n = int(rng.integers(5000, 30000))
+        x = _random_record("r", rng, fmt, nsig, n)
+        for kw in ({}, {"pad": True}, {"physical": True},
+                   {"sampfrom": 1234}, {"sampfrom": 7, "sampto": n - 9},
+                   {"sampto": n + 50}, {"channels": [nsig - 1, 0, 0]}):
+            a, b = _read_both(monkeypatch, "r", **kw)
+            _same(a, b)
+            if not kw:
+                y = a.signals
+                if fmt in (310, 311) and (n * nsig) % 3 == 2:
+                    y = y[:-1]
+                assert np.array_equal(y, x)
+        # the checksum frame: a wrong checksum is seen on both paths
+        with open("r.dat", "r+b") as f:
+            f.seek(0)
+            b0 = f.read(1)
+            f.seek(0)
+            f.write(bytes([b0[0] ^ 0x10]))
+        with pytest.warns(RuntimeWarning):
+            a, b = _read_both(monkeypatch, "r")
+        _same(a, b)
+        assert a.checksum_ok is False
+        # truncated files: the same error (or, cut in the last frame,
+        # checksum error) on both paths
+        size = os.path.getsize("r.dat")
+        for cut in (size // 2 + 1, size - 1):
+            with open("r.dat", "r+b") as f:
+                f.truncate(cut)
+            out = []
+            for bulk in (True, False):
+                with monkeypatch.context() as m:
+                    if not bulk:
+                        import wfdbx._signal as s
+                        m.setattr(s, "_bulk_eligible", lambda: False)
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            r = w.read_record("r")
+                        out.append((r.signals.tolist(), r.checksum_ok))
+                    except IOError as e:
+                        out.append(str(e))
+            assert out[0] == out[1]
+            if cut == size // 2 + 1:
+                assert "getvec status -3" in out[0]
+
+
+def test_bulk_read_multiple_groups(datadir, monkeypatch):
+    import wfdbx.highlevel as hl
+    rng = np.random.default_rng(42)
+    monkeypatch.setattr(hl, "_CHUNK_SAMPLES", 10007)
+    n = 20011
+    xs = [_random_record("g%d" % k, rng, fmt, nsig, n)
+          for k, (fmt, nsig) in enumerate([(212, 3), (310, 2), (16, 1),
+                                           (8, 2)])]
+    _merge_groups("mg", ["g0", "g1", "g2", "g3"])
+    for kw in ({}, {"pad": True}, {"sampfrom": 999, "sampto": 15000},
+               {"channels": [7, 3, 0]}):
+        a, b = _read_both(monkeypatch, "mg", **kw)
+        _same(a, b)
+    a = w.read_record("mg", sampto=n - 1)
+    assert np.array_equal(a.signals, np.hstack(xs)[:n - 1])
+    # getframes (C-style, int64) == getvec, with a seek
+    w.isigopen("mg", [], 8)
+    w.setgvmode(w.WFDB_LOWRES | w.WFDB_GVPAD)
+    assert w.isigsettime(17) == 0
+    arr, stat = w.getframes(100000)
+    w.wfdbquit()
+    w.isigopen("mg", [], 8)
+    w.setgvmode(w.WFDB_LOWRES | w.WFDB_GVPAD)
+    assert w.isigsettime(17) == 0
+    v, ref = [0] * 8, []
+    while True:
+        st = w.getvec(v)
+        if st < 0:
+            break
+        ref.append(list(v))
+    w.wfdbquit()
+    assert arr.dtype == np.int64 and stat == st
+    assert arr.tolist() == ref
+
+
+def _state(nsig):
+    import wfdbx._signal as s
+    st = s._s
+    return (st.istime, [(i.samp, i.info.cksum, i.info.nsamp)
+                        for i in st.isd[:nsig]])
+
+
+def test_bulk_interleaved_with_getvec(datadir, monkeypatch):
+    # getframes (bulk) mixed with getvec and isigsettime, and ending in the
+    # middle of a buffer or at the checksum frame: the same frames,
+    # statuses and library state as getvec alone
+    import wfdbx._signal as s
+    rng = np.random.default_rng(7)
+    n = 23456
+    _random_record("g0", rng, 212, 3, n)
+    _random_record("g1", rng, 16, 2, n)
+    _merge_groups("mg", ["g0", "g1"])
+    with open("g1.dat", "r+b") as f:     # (a checksum error)
+        f.seek(100)
+        f.write(b"\x01\x02")
+    # (without a seek, the checksums are verified at the last frame)
+    results = []
+    for steps in ([("f", 1000), ("v", 3), ("f", 4095), ("f", 9001),
+                   ("v", 1), ("f", 9354), ("v", 2), ("f", 10)],
+                  [("f", 1000), ("v", 3), ("t", 17), ("f", 9001), ("v", 1),
+                   ("t", 20000), ("f", 3455), ("v", 2), ("t", 5),
+                   ("f", 30000)]):
+        out = []
+        for bulk in (True, False):
+            with monkeypatch.context() as m:
+                if not bulk:
+                    m.setattr(s, "_bulk_eligible", lambda: False)
+                w.wfdbquiet()
+                assert w.isigopen("mg", [], 5) == 5
+                got = []
+                for op, k in steps:
+                    if op == "f":
+                        arr, stat = w.getframes(k)
+                        got.append((arr.tolist(), stat))
+                    elif op == "v":
+                        v = [0] * 5
+                        got.append([(w.getvec(v), list(v))
+                                    for _ in range(k)])
+                    else:
+                        got.append(w.isigsettime(k))
+                    got.append(_state(5))
+                w.wfdbquit()
+                w.wfdbverbose()
+            out.append(got)
+        assert out[0] == out[1]
+        results.append(out[0])
+    assert [st for st, v in results[0][12]] == [5, -4]     # (step "v", 2)
+    assert results[0][14] == ([], -1)
+    assert results[1][-2][1] == -1          # (no checksum after a seek)

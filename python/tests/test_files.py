@@ -480,7 +480,7 @@ def test_network_legacy(server):
 def test_highlevel_options(server):
     make_sr("sub")
     w.wfdbx_set_input_dir("elsewhere")
-    assert len(w.read_header("sr", input_dir="sub")) == 2
+    assert w.read_header("sr", input_dir="sub").nsig == 2
     rec = w.read_record("100s", input_dir=server.url, network=True,
                         sampto=1)
     assert rec.signals.tolist() == [[995, 1011]]
@@ -499,7 +499,7 @@ def test_highlevel_options(server):
     with pytest.raises(IOError):
         w.read_header(server.url + "100s", network=False)
     assert w.wfdbx_get_network() == 1
-    assert len(w.read_header(server.url + "100s")) == 2
+    assert w.read_header(server.url + "100s").nsig == 2
     # the output directory (dir=) and the input directory are independent
     w.write_annotations("w1", "q", [1, 2], symbols=["N", "N"], dir="sub")
     assert os.path.exists("sub/w1.q")

@@ -108,14 +108,17 @@ results produced with it carry the same risks.
 **Sorting annotation files.** When an annotation file is written out of
 order (`wrann`, `putann`, `write_annotations`), the library rearranges it
 when it is closed, in the same process, with exactly the result of `sortann
--r. RECORD -a ANNOTATOR` (unless `WFDBANNSORT` is 0); the C library ran the
-`sortann` program through the shell. In legacy mode, the `sortann` program
+-r. RECORD -a ANNOTATOR` (unless `WFDBANNSORT` is 0, or the `sort` option of
+`write_annotations_with`, `AnnWriteOptions::sort`, decides otherwise for
+that call: `Some(true)` sorts, `Some(false)` leaves the file as written,
+whatever `WFDBANNSORT` says; the environment is not changed); the C
+library ran the `sortann` program through the shell. In legacy mode, the `sortann` program
 is run (from the directory of the running program, else from the `PATH`),
 without a shell, as `sortann --legacy` and in the output directory if one is
-set. Unlike the original, sorting (here and in `sortann`) no longer loses
-an out-of-order annotation at time 0 (with `num` and `chan` 0) and those
-inserted after it (input times 5, 0, 3 now give 0, 3, 5; legacy mode keeps
-the original behavior, which gives only 5).
+set. Unlike the original, sorting (here and in `sortann`) keeps an
+out-of-order annotation at time 0 (with `num` and `chan` 0) and those
+inserted after it (input times 5, 0, 3 give 0, 3, 5; the original, and
+legacy mode, give only 5).
 
 The tools are checked against the C tools by the conformance suite of
 wfdb-x (run from the repository root):
@@ -254,8 +257,22 @@ read signal data of record REC (getvec status S)" when reading stops with a
 getvec status below -1, e.g. -3 for a signal file shorter than its header
 says, instead of the samples read so far; reaching the end of the record is
 not an error. This applies in legacy mode too, since the high-level API is a
-wfdb-x addition (`getvec`, `getvecs`, the new `getvecs_status`, which also
+wfdb-x addition (`getvec`, `getvecs`, `getvecs_status`, which also
 returns that status, and the tools are unchanged).
+
+`read_header` returns a `Header`: the record name, `fs` (as `sampfreq`
+gives it, 0 if the header gives none), `counter_freq` (`getcfreq`),
+`base_counter` (`getbasecount`), `nsamples` (from the record line, 0 if
+absent), `nsig`, `siginfo` (one `Siginfo` per signal), `base_time`,
+`base_time_ms`, `base_date` and `comments`, without opening any signal
+file. `Record` and `Header` give the base time as text (`base_time`, as
+`timstr(0)` gives it, e.g. `"[14:00:03 21/06/2024]"`), and as numbers:
+`base_time_ms`, the milliseconds after midnight (`Some(50403500)` for
+`14:00:03.500`; `Some` exactly when `base_time` is), and `base_date`,
+`Some([year, month, day])` when the header gives a date. `Record::checksum_ok`
+is false if the signal data were found not to match the checksums in the
+header (whether or not the warning below is printed); the checksums are
+verified only when a read reaches the end of the record.
 
 **Checksum errors.** A checksum error (getvec status -4: the data are
 complete, but their sum does not match the checksum in the header) is not

@@ -177,6 +177,21 @@ WFDBX_TEST(read_record_checksum_warning)
         opt.legacy = legacy;
         Record good = read_record("good", opt);
         CHECK(good.samples == y);
+        CHECK(good.checksum_ok);
+        // checksum_ok: false whether the warning is on or off; true if the
+        // read stops before the end of the record (nothing is verified)
+        {
+            ReadOptions o = opt;
+            wfdbquiet();
+            CHECK(!read_record("ck", o).checksum_ok);
+            o.checksum_warning = false;
+            CHECK(!read_record("ck", o).checksum_ok);
+            o.to = 3;
+            CHECK(read_record("ck", o).checksum_ok);
+            o.checksum_warning = true;
+            CHECK(read_record("ck", o).checksum_ok);
+            wfdbverbose();
+        }
 #ifdef WFDBX_HAVE_DUP
         // every frame, the last one included, with the warning only
         {

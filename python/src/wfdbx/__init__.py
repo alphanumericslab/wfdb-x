@@ -7,7 +7,8 @@ and its command-line tools produce the same output as the original C tools.
 Two interfaces are provided:
 
 * a high-level NumPy interface: ``read_record``, ``read_annotations``,
-  ``read_header``, ``write_record`` and ``write_annotations``;
+  ``read_header``, ``write_record`` and ``write_annotations`` (with the
+  classes ``Record``, ``Header`` and ``Annotations``);
 * the C library API, under the same names as in C (``isigopen``,
   ``getvec``, ``getann``, ``putann``, ``strtim``, ...).  Where a C function
   fills a caller-supplied array, the Python function fills a
@@ -65,6 +66,7 @@ from ._calib import (
     WFDB_CAL_UNDEF,
 )
 from ._wfdbinit import wfdbinit, wfdbquit, wfdbflush
-from .highlevel import (Record, Annotations, read_record, read_annotations,
-                        write_record, write_annotations, read_header)
+from .highlevel import (Record, Header, Annotations, read_record,
+                        read_annotations, write_record, write_annotations,
+                        read_header)
 from .resources import sample_data_dir, examples_dir, copy_examples

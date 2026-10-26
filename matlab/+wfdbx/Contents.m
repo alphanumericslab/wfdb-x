@@ -8,7 +8,7 @@
 %
 % High-level API
 %   read_record       - Read the signals of a record into a matrix.
-%   read_header       - Read the signal descriptions of a record.
+%   read_header       - Read the header of a record.
 %   write_record      - Write a matrix of samples as a WFDB record.
 %   read_annotations  - Read an annotation file into arrays.
 %   write_annotations - Write an annotation file from arrays.

@@ -214,7 +214,7 @@ class _IGData:
     """State shared by all signals in an input group (one signal file)."""
 
     __slots__ = ("data", "datb", "fp", "start", "bsize", "buf", "bp", "be",
-                 "count", "seek", "initial_skip", "stat", "flac")
+                 "count", "seek", "initial_skip", "stat", "flac", "ahead")
 
     def __init__(self):
         self.data = 0
@@ -230,12 +230,19 @@ class _IGData:
         self.initial_skip = 0
         self.stat = 0
         self.flac = None
+        # wfdb-x: blocks read from fp by the bulk reader (_bulk_read) but
+        # not yet reached; fill() takes its next block from them first
+        self.ahead = b""
 
     # Low-level input routines (r8, r16, ...), as in signal.c.  r8 returns
     # a signed byte (char is signed on the reference platform).
     def fill(self):
         n = self.bsize if self.bsize > 0 else _s.ibsize
-        b = self.fp.read(n) if self.fp is not None else b""
+        if self.ahead:
+            b = self.ahead[:n]
+            self.ahead = self.ahead[n:]
+        else:
+            b = self.fp.read(n) if self.fp is not None else b""
         self.stat = len(b)
         if b:
             self.buf = b
@@ -1514,6 +1521,7 @@ def _isgsetframe(g, t):
         nb = cdiv(tt, d) + ig.start
         i = ig.bsize if ig.bsize != 0 else s_.ibsize
         tt = cdiv(nb, i)
+        ig.ahead = b""      # (wfdb-x: the bulk reader's blocks)
         if ig.fp is None or ig.fp.seek(tt * i, 0):
             wfdb_error("isigsettime: improper seek on signal group %d\n", g)
             return -1
@@ -3430,8 +3438,9 @@ def strtim(string):
 # the functions of chapter 1 of "Numerical Recipes" by Press, Flannery,
 # Teukolsky and Vetterling (Cambridge U. Press, 1986).
 
-def datstr(date):
-    """Convert a Julian date to a string " dd/mm/yyyy" (leading space)."""
+def _julian_ymd(date):
+    """The (year, month, day) of a Julian date, computed as datstr() does
+    (wfdb-x: for the high-level readers' base_date)."""
     if date >= 2299161:     # Gregorian calendar correction
         gcorr = int(((date - 1867216) - 0.25) / 36524.25)
         date += 1 + gcorr - int(0.25 * gcorr)
@@ -3448,6 +3457,12 @@ def datstr(date):
         y -= 1
     if y <= 0:
         y -= 1
+    return y, m, d
+
+
+def datstr(date):
+    """Convert a Julian date to a string " dd/mm/yyyy" (leading space)."""
+    y, m, d = _julian_ymd(date)
     _s.date_string = " %02d/%02d/%d" % (d, m, y)
     _s.pdays = -1
     return _s.date_string
@@ -3723,7 +3738,13 @@ def _wfdb_oinfoclose():
 # whenever a frame would require special handling: end of file, a frame at
 # which a checksum is verified, a segment boundary, deskewing, resampling,
 # or a partially consumed bit-packed group.  Callers then use getvec() for
-# the next frame, which reproduces the C library's behavior exactly.
+# the next frame, which reproduces the C library's behavior exactly.  The
+# signal files are read in whole blocks, as fill() reads them, and the
+# input buffers are left as fill() would leave them (_bulk_read,
+# _bulk_consume), so that getvec() continues exactly as after per-frame
+# reading (even the stale bytes it reads at the end of a truncated file).
+# The frames are decoded straight into the caller's array (int32 for
+# read_record), with NumPy views of the bytes read where the format allows.
 
 # Formats handled by the bulk reader: (bytes, samples) per packed unit.
 _BULK_FMTS = {8: (1, 1), 80: (1, 1), 16: (2, 1), 61: (2, 1), 160: (2, 1),
@@ -3731,39 +3752,43 @@ _BULK_FMTS = {8: (1, 1), 80: (1, 1), 16: (2, 1), 61: (2, 1), 160: (2, 1),
 
 
 def _decode_stream(fmt, data, nsamp):
-    """Decode nsamp samples of the given format from bytes (aligned)."""
+    """Decode nsamp samples of the given format from data (a bytes-like
+    object, aligned on a packed unit).  Returns a 1-D NumPy integer array:
+    a view of data (int8, int16 or int32) for formats 8, 16, 61 and 32,
+    a new int32 array otherwise.  (Format 8 gives the first differences.)"""
     import numpy as np
     if fmt == 16:
-        return np.frombuffer(data, "<i2", nsamp).astype(np.int64)
+        return np.frombuffer(data, "<i2", nsamp)
     if fmt == 61:
-        return np.frombuffer(data, ">i2", nsamp).astype(np.int64)
-    if fmt == 80:
-        return np.frombuffer(data, "u1", nsamp).astype(np.int64) - (1 << 7)
-    if fmt == 160:
-        return np.frombuffer(data, "<u2", nsamp).astype(np.int64) - (1 << 15)
+        return np.frombuffer(data, ">i2", nsamp)
     if fmt == 8:
-        return np.frombuffer(data, "i1", nsamp).astype(np.int64)
+        return np.frombuffer(data, "i1", nsamp)
     if fmt == 32:
-        return np.frombuffer(data, "<i4", nsamp).astype(np.int64)
+        return np.frombuffer(data, "<i4", nsamp)
+    if fmt == 80:
+        return np.frombuffer(data, "u1", nsamp).astype(np.int32) - (1 << 7)
+    if fmt == 160:
+        return np.frombuffer(data, "<u2", nsamp).astype(np.int32) - (1 << 15)
     if fmt == 24:
-        b = np.frombuffer(data, "u1", 3 * nsamp).astype(np.int64)
-        b = b.reshape(-1, 3)
-        v = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+        b = np.frombuffer(data, "u1", 3 * nsamp).reshape(-1, 3)
+        v = b[:, 0].astype(np.int32)
+        v |= b[:, 1].astype(np.int32) << 8
+        v |= b[:, 2].astype(np.int32) << 16
         return v - ((v & 0x800000) << 1)
     if fmt == 212:
         npair = (nsamp + 1) // 2
-        b = np.frombuffer(data, "u1", 3 * npair).astype(np.int64)
-        b = b.reshape(-1, 3)
-        out = np.empty(2 * npair, np.int64)
-        out[0::2] = b[:, 0] | ((b[:, 1] & 0x0F) << 8)
-        out[1::2] = b[:, 2] | ((b[:, 1] & 0xF0) << 4)
+        b = np.frombuffer(data, "u1", 3 * npair).reshape(-1, 3)
+        b1 = b[:, 1].astype(np.int32)
+        out = np.empty(2 * npair, np.int32)
+        out[0::2] = b[:, 0] | ((b1 & 0x0F) << 8)
+        out[1::2] = b[:, 2] | ((b1 & 0xF0) << 4)
         out = out[:nsamp]
         return out - ((out & 0x800) << 1)
     if fmt in (310, 311):
         ntrip = (nsamp + 2) // 3
-        b = np.frombuffer(data, "u1", 4 * ntrip).astype(np.int64)
+        b = np.frombuffer(data, "u1", 4 * ntrip).astype(np.int32)
         b = b.reshape(-1, 4)
-        out = np.empty(3 * ntrip, np.int64)
+        out = np.empty(3 * ntrip, np.int32)
         if fmt == 310:
             w0 = b[:, 0] | (b[:, 1] << 8)
             w1 = b[:, 2] | (b[:, 3] << 8)
@@ -3796,11 +3821,59 @@ def _bulk_eligible():
     return True
 
 
-def _bulk_frames(n):
-    """Read up to n frames at once; returns an int64 array (m, nisig).
+def _bulk_read(ig, need):
+    """The next need bytes of input group ig (fewer at the end of the file):
+    the bytes left in its buffer, then those of the blocks read ahead, then
+    bytes read from its file, in whole blocks (as fill() reads them).
+    Returns (data, have): a bytes-like object (no copy if the buffered
+    bytes suffice), and the number of bytes of data that come from the
+    buffer (the blocks begin there).  See _bulk_consume."""
+    have = max(ig.be - ig.bp, 0)    # (bp > be after a fill at the end)
+    if have >= need:
+        return memoryview(ig.buf)[ig.bp:ig.be], have
+    bsize = ig.bsize if ig.bsize > 0 else _s.ibsize
+    ahead = len(ig.ahead)
+    nblocks = -(-(need - have - ahead) // bsize) if need > have + ahead \
+        else 0
+    data = bytearray(have + ahead + nblocks * bsize)
+    view = memoryview(data)
+    view[:have] = memoryview(ig.buf)[ig.bp:ig.be]
+    view[have:have + ahead] = ig.ahead
+    got = ig.fp.readinto(view[have + ahead:]) if nblocks else 0
+    return view[:have + ahead + got], have
 
-    Returns None if the bulk path cannot be used at all.
-    """
+
+def _bulk_consume(ig, data, have, used):
+    """Leave input group ig as fill() and the r* routines would after
+    consuming the first used bytes of data (from _bulk_read(ig, ...): its
+    buffered bytes, then whole blocks): the buffer is the block holding
+    the last byte consumed (as the C library's buffer would be: its stale
+    bytes matter when a later fill() finds the end of the file), the
+    blocks after it are kept for fill() (ig.ahead)."""
+    if used <= have:
+        # (still in the buffer; data begins at ig.bp)
+        ig.bp += used
+        if len(data) > have:
+            ig.ahead = data[have:]
+        return
+    bsize = ig.bsize if ig.bsize > 0 else _s.ibsize
+    start = have + (used - have - 1) // bsize * bsize
+    block = data[start:start + bsize]
+    ig.buf = block
+    ig.bp = used - start
+    ig.be = len(block)
+    ig.stat = len(block)
+    ig.ahead = data[start + bsize:]
+
+
+def _bulk_frames(n, out, row=0, cols=None):
+    """Read up to n frames at once into the rows out[row:row + m] of the
+    NumPy array out (an integer array with one column per entry of cols:
+    out[:, j] receives signal cols[j]; cols None: all signals, in order).
+    Returns m, the number of frames read (possibly 0), or None if the bulk
+    path cannot be used at all.  The samples are computed in int32 (with
+    the wrap-around of the C library's int sums); the checksum sums in
+    Python integers, then wrapped to int32 as in getvec."""
     import numpy as np
     s_ = _s
     if n <= 0 or not _bulk_eligible():
@@ -3827,33 +3900,34 @@ def _bulk_frames(n):
             n = ns_ - 1
     n -= n % period
     if n <= 0:
-        return np.empty((0, nisig), np.int64)
+        return 0
     # Read the bytes needed by each group.
     bufs = {}
     for g, sl in groups.items():
         ig = s_.igd[g]
         fmt = isd[sl[0]].info.fmt
         nb, ns = _BULK_FMTS[fmt]
-        need = n * len(sl) * nb // ns
-        have = ig.be - ig.bp
-        if have >= need:
-            data = ig.buf[ig.bp:ig.be]
-        else:
-            more = ig.fp.read(need - have)
-            data = ig.buf[ig.bp:ig.be] + more
-        bufs[g] = data
+        bufs[g] = _bulk_read(ig, n * len(sl) * nb // ns)
+        data = bufs[g][0]
         unit = period * len(sl) * nb // ns
         avail = (len(data) // unit) * period
         if avail < n:
             n = avail
-    out = np.empty((n, nisig), np.int64)
+    # Output columns of each signal (a signal may be selected twice).
+    if cols is None:
+        dest = [[s] for s in range(nisig)]
+    else:
+        dest = [[] for s in range(nisig)]
+        for j, s in enumerate(cols):
+            dest[s].append(j)
+    rows = out[row:row + n]
     pad = s_.gvmode & WFDB_GVPAD
     if s_.istime == 0:
         for s in range(nisig):
             isd[s].samp = isd[s].info.initval
     for g, sl in groups.items():
         ig = s_.igd[g]
-        data = bufs[g]
+        data, have = bufs[g]
         fmt = isd[sl[0]].info.fmt
         nb, ns = _BULK_FMTS[fmt]
         nn = len(sl)
@@ -3861,88 +3935,117 @@ def _bulk_frames(n):
         if n:
             raw = _decode_stream(fmt, data, n * nn).reshape(n, nn)
         # Leave the unused bytes buffered, as the C library would.
-        ig.buf = bytes(data)
-        ig.bp = used
-        ig.be = len(data)
-        ig.stat = max(ig.stat, 1)
+        _bulk_consume(ig, data, have, used)
         if n == 0:
             continue
         for k, s in enumerate(sl):
             is_ = isd[s]
             col = raw[:, k]
             if fmt == 8:
-                v = (np.cumsum(col) + is_.samp)
-                v = ((v + 0x80000000) & 0xFFFFFFFF) - 0x80000000   # int32
-                out[:, s] = v
+                # (differences: cumulative sum in int64, wrapped to int32)
+                v = np.cumsum(col, dtype=np.int64) + is_.samp
+                v = ((v + 0x80000000) & 0xFFFFFFFF) - 0x80000000
+                res = v
                 is_.samp = int(v[-1])
                 cks = int(v.sum())
             else:
                 inv = col == _INVALID_BY_FMT[fmt]
-                cks = int(col.sum())
+                cks = int(col.sum(dtype=np.int64))
+                res = col
                 if inv.any():
+                    col = col.astype(np.int32)
                     if pad:
                         idx = np.where(~inv, np.arange(n), -1)
                         idx = np.maximum.accumulate(idx)
-                        filled = np.where(idx >= 0, col[np.maximum(idx, 0)],
-                                          is_.samp)
-                        out[:, s] = filled
+                        res = np.where(idx >= 0, col[np.maximum(idx, 0)],
+                                       np.int32(is_.samp))
                     else:
-                        out[:, s] = np.where(inv, WFDB_INVALID_SAMPLE, col)
+                        res = np.where(inv, np.int32(WFDB_INVALID_SAMPLE),
+                                       col)
                     valid = np.nonzero(~inv)[0]
                     if len(valid):
                         is_.samp = int(col[valid[-1]])
                 else:
-                    out[:, s] = col
                     is_.samp = int(col[-1])
+            for j in dest[s]:
+                rows[:, j] = res
             is_.info.cksum = int32(is_.info.cksum - cks)
             if is_.info.nsamp > 0:
                 is_.info.nsamp -= n
             elif is_.info.nsamp == 0:
                 is_.info.nsamp = -1
     s_.istime += n
-    return out
+    return n
+
+
+def _getframes_into(out, row, n, cols=None, keep_checksum_frame=False):
+    """Read up to n frames (getvec() semantics) into the rows
+    out[row:row + n] of the NumPy integer array out (one column per entry
+    of cols, the signal numbers of getvec()'s vector; cols None: every
+    signal, in order).  Returns (m, stat): the number of frames read and
+    the getvec() status of the first frame that could not be read (or the
+    number of signals if all n frames were read).  With
+    keep_checksum_frame (wfdb-x, for the high-level reader), the frame for
+    which getvec() returns -4 (a checksum error: the frame was read
+    completely, it is the last one of the record) is included, and stat is
+    -4."""
+    s_ = _s
+    nsig = s_.nvsig if s_.nvsig > s_.nisig else s_.nisig
+    stat = nsig
+    v = [0] * max(nsig, 1)
+    got = 0
+    while got < n:
+        m = _bulk_frames(n - got, out, row + got, cols)
+        if m:
+            got += m
+            continue
+        stat = getvec(v)
+        if stat < 0 and not (stat == -4 and keep_checksum_frame):
+            break
+        out[row + got] = v[:nsig] if cols is None else [v[c] for c in cols]
+        got += 1
+        if stat < 0:
+            break
+    return got, stat
+
+
+_GETFRAMES_BLOCK = 65536    # rows allocated at a time by getframes()
 
 
 def getframes(n):
     """Read up to n frames (getvec() semantics) into a NumPy array.
 
-    Returns ``(array, stat)``: ``array`` has one row per frame read and one
-    column per signal returned by getvec(); ``stat`` is the getvec() status
-    of the first frame that could not be read (or the number of signals if
-    all n frames were read).  This is equivalent to calling getvec() up to n
-    times, stopping at the first negative return value.
+    Returns ``(array, stat)``: ``array`` (int64) has one row per frame read
+    and one column per signal returned by getvec(); ``stat`` is the getvec()
+    status of the first frame that could not be read (or the number of
+    signals if all n frames were read).  This is equivalent to calling
+    getvec() up to n times, stopping at the first negative return value.
     """
-    return _getframes(n)
-
-
-def _getframes(n, keep_checksum_frame=False):
-    """getframes; with keep_checksum_frame (wfdb-x, for the high-level
-    reader), the frame for which getvec() returns -4 (a checksum error: the
-    frame was read completely, it is the last one of the record) is
-    included in the array, and stat is -4."""
     import numpy as np
     s_ = _s
     nsig = s_.nvsig if s_.nvsig > s_.nisig else s_.nisig
-    rows = []
-    got = 0
+    blocks = []
+    total = 0
     stat = nsig
-    v = [0] * max(nsig, 1)
-    while got < n:
-        blk = _bulk_frames(n - got)
-        if blk is not None and len(blk):
-            rows.append(blk)
-            got += len(blk)
-            continue
-        stat = getvec(v)
-        if stat == -4 and keep_checksum_frame:
-            rows.append(np.array([v[:nsig]], np.int64))
-            got += 1
-        if stat < 0:
+    while total < n:
+        k = min(n - total, _GETFRAMES_BLOCK)
+        out = np.empty((k, nsig), np.int64)
+        got, stat = _getframes_into(out, 0, k)
+        blocks.append(out[:got])
+        total += got
+        if got < k:
             break
-        rows.append(np.array([v[:nsig]], np.int64))
-        got += 1
-    if rows:
-        arr = np.concatenate(rows)
-    else:
-        arr = np.empty((0, nsig), np.int64)
-    return arr, stat
+    if not blocks:
+        return np.empty((0, nsig), np.int64), stat
+    if len(blocks) == 1:
+        return blocks[0], stat
+    return np.concatenate(blocks), stat
+
+
+def _record_length():
+    """The number of frames of the open record according to its header (0
+    if unknown), in the current getvec mode (as strtim("e"))."""
+    s_ = _s
+    return (s_.msnsamples if s_.in_msrec else s_.nsamples) * \
+        (s_.spfmax if (s_.gvmode & WFDB_HIGHRES) == WFDB_HIGHRES else 1)
+

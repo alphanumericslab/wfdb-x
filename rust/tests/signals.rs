@@ -896,7 +896,7 @@ fn header_writing() {
     let needle = b"hw.dat 16 100/mV 16 0 0 0 0 lead I\r\n";
     assert!(text.windows(needle.len()).any(|w| w == needle));
     assert!(text.ends_with(b"#c1\r\n"));
-    let h = w.read_header("hw", false).unwrap();
+    let h = w.read_header("hw", false).unwrap().siginfo;
     assert_eq!(h.len(), 2);
     assert_eq!(h[1].desc.as_deref(), Some(&b"pressure"[..]));
     assert_eq!(h[1].units.as_deref(), Some(&b"uV"[..]));
@@ -1186,7 +1186,7 @@ fn nodefaults_write_record() {
             assert_eq!(e.message(), "write_record: units must be specified");
         }
     }
-    let h = w.read_header("nu", false).unwrap();
+    let h = w.read_header("nu", false).unwrap().siginfo;
     assert_eq!((h[0].units.as_deref(), h[0].adcres), (None, 16));
     // gain 0: uncalibrated, allowed for ADC units only
     let u = WriteOptions {
@@ -1196,7 +1196,7 @@ fn nodefaults_write_record() {
         ..Default::default()
     };
     w.write_record("unc", &x, 2, 100.0, &u).unwrap();
-    let h = w.read_header("unc", false).unwrap();
+    let h = w.read_header("unc", false).unwrap().siginfo;
     assert_eq!((h[0].gain, h[1].gain), (200.0, 0.0));
     let e = w
         .write_record_physical("unc", &[0.0; 4], 2, 100.0, &u)
@@ -1257,7 +1257,7 @@ fn nodefaults_read_record() {
     for s in &r.siginfo {
         assert_eq!((s.adcres, s.units.as_deref()), (0, None));
     }
-    let h = w.read_header("nr", false).unwrap();
+    let h = w.read_header("nr", false).unwrap().siginfo;
     assert_eq!((h[1].adcres, h[1].units.as_deref()), (0, None));
     // uncalibrated signals (record null)
     let r = w.read_record("null", &ReadOptions::default()).unwrap();
@@ -1466,7 +1466,7 @@ fn legacy_high_level() {
         .is_err());
     w.write_record("lg", &x, 2, 100.0, &lo).unwrap();
     assert_eq!(w.wfdbx_get_legacy(), 0); // restored
-    let h = w.read_header("lg", false).unwrap();
+    let h = w.read_header("lg", false).unwrap().siginfo;
     for s in &h {
         assert_eq!((s.gain, s.adcres, s.units.as_deref()), (200.0, 12, None));
     }
@@ -1509,9 +1509,9 @@ fn legacy_high_level() {
     assert_eq!(w.wfdbx_get_legacy(), 0);
     // read_header: ADC resolution from the format
     write_nr();
-    let h = w.read_header("nr", true).unwrap();
+    let h = w.read_header("nr", true).unwrap().siginfo;
     assert_eq!((h[0].adcres, h[1].adcres), (12, 12));
-    assert_eq!(w.read_header("nr", false).unwrap()[0].adcres, 0);
+    assert_eq!(w.read_header("nr", false).unwrap().siginfo[0].adcres, 0);
     // read_annotations: a record without a header is read at 250 Hz, unless
     // fs is given
     std::fs::copy("100s.atr", "nohea.atr").unwrap();
@@ -1797,6 +1797,7 @@ fn read_record_checksum_warning() {
     y[2] = 30;
     write_ck(w, "good", &y);
     let good = w.read_record("good", &ReadOptions::default()).unwrap();
+    assert!(good.checksum_ok);
     for legacy in [false, true] {
         let opt = ReadOptions {
             legacy,
@@ -1806,6 +1807,7 @@ fn read_record_checksum_warning() {
         let r = w.read_record("ck", &opt).unwrap();
         assert_eq!(r.samples, good.samples);
         assert_eq!(r.samples.len(), 8);
+        assert!(!r.checksum_ok);
         assert_eq!(w.wfdberror(), CKSUM_WARNING);
         assert_eq!(
             r.physical_signal(0).unwrap(),
@@ -1817,24 +1819,27 @@ fn read_record_checksum_warning() {
             checksum_warning: false,
             ..opt.clone()
         };
-        assert_eq!(w.read_record("ck", &off).unwrap().samples, good.samples);
+        let r = w.read_record("ck", &off).unwrap();
+        assert_eq!(r.samples, good.samples);
+        assert!(!r.checksum_ok);
         assert_eq!(w.wfdberror(), b"getvec: checksum error in signal 0\n");
         // not to the end: no checksum check
         let part = ReadOptions {
             to: Some("s3".into()),
             ..opt.clone()
         };
-        assert_eq!(
-            w.read_record("ck", &part).unwrap().samples,
-            good.samples[..6]
-        );
+        let r = w.read_record("ck", &part).unwrap();
+        assert_eq!(r.samples, good.samples[..6]);
+        assert!(r.checksum_ok);
         assert_ne!(w.wfdberror(), CKSUM_WARNING);
         // up to the last frame exactly
         let last = ReadOptions {
             to: Some("s4".into()),
             ..opt.clone()
         };
-        assert_eq!(w.read_record("ck", &last).unwrap().samples, good.samples);
+        let r = w.read_record("ck", &last).unwrap();
+        assert_eq!(r.samples, good.samples);
+        assert!(!r.checksum_ok);
         assert_eq!(w.wfdberror(), CKSUM_WARNING);
     }
     // the C-style API is unchanged: getvec stops at the checksum frame
@@ -1918,4 +1923,154 @@ fn output_file_is_input_file() {
     w.wfdbquit();
     w.wfdbx_set_legacy(0);
     assert_eq!(size("fmt16.dat"), 0);
+}
+
+// ---------------------------------------------------------------------------
+// read_header: the record header; base time and date as numbers
+
+#[test]
+fn read_header_fields() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    std::fs::write("bt.dat", [0u8; 20]).unwrap();
+    let sig = "bt.dat 16 200/mV 16 0 0 0 0 ECG\n";
+    // (record line, fs, nsamples, base_time_ms, base_date, base_time)
+    type Case<'a> = (
+        &'a str,
+        f64,
+        i64,
+        Option<i64>,
+        Option<[i32; 3]>,
+        Option<&'a str>,
+    );
+    let cases: [Case; 5] = [
+        (
+            "bt 1 250/1000(-5) 10 14:00:03.500 21/06/2024",
+            250.0,
+            10,
+            Some(50403500),
+            Some([2024, 6, 21]),
+            Some("[14:00:03 21/06/2024]"),
+        ),
+        (
+            "bt 1 250 10 14:00:03",
+            250.0,
+            10,
+            Some(50403000),
+            None,
+            Some("[14:00:03]"),
+        ),
+        ("bt 1 250 10", 250.0, 10, None, None, None),
+        ("bt 1 250", 250.0, 0, None, None, None),
+        ("bt 1", 0.0, 0, None, None, None),
+    ];
+    for (line, fs, ns, ms, date, text) in cases {
+        std::fs::write("bt.hea", format!("{line}\n{sig}# a comment\n")).unwrap();
+        let h = w.read_header("bt", false).unwrap();
+        assert_eq!(h.name, b"bt");
+        assert_eq!((h.fs, h.nsamples, h.nsig), (fs, ns, 1), "{line}");
+        assert_eq!((h.base_time_ms, h.base_date), (ms, date), "{line}");
+        assert_eq!(h.base_time.as_deref(), text, "{line}");
+        assert_eq!(h.siginfo[0].desc.as_deref(), Some(&b"ECG"[..]));
+        assert_eq!(h.comments, [b" a comment".to_vec()]);
+        if line.contains("1000(-5)") {
+            assert_eq!((h.counter_freq, h.base_counter), (1000.0, -5.0));
+        } else {
+            assert_eq!((h.counter_freq, h.base_counter), (fs, 0.0));
+        }
+        let r = w.read_record("bt", &ReadOptions::default()).unwrap();
+        assert_eq!((r.base_time_ms, r.base_date), (ms, date), "{line}");
+        assert_eq!(r.base_time.as_deref(), text);
+        assert_eq!(r.comments, h.comments);
+        assert!(r.checksum_ok);
+        // legacy mode: 250 Hz without a frequency in the header
+        let l = w.read_header("bt", true).unwrap();
+        assert_eq!(l.fs, 250.0);
+        assert_eq!((l.base_time_ms, l.base_date), (ms, date));
+    }
+    // no signal file is opened
+    std::fs::remove_file("bt.dat").unwrap();
+    let h = w.read_header("bt", false).unwrap();
+    assert_eq!(h.nsig, 1);
+    // a multi-segment record: the length of the whole record
+    let h = w.read_header("multi", false).unwrap();
+    let r = w.read_record("multi", &ReadOptions::default()).unwrap();
+    assert_eq!(h.nsamples as usize, r.nsamples());
+    assert_eq!(h.siginfo, w.read_header("multi", false).unwrap().siginfo);
+}
+
+// ---------------------------------------------------------------------------
+// write_annotations: the sort option
+
+#[test]
+fn write_annotations_sort_option() {
+    let mut d = DataDir::new();
+    let sortann = PathBuf::from(env!("CARGO_BIN_EXE_sortann"));
+    let path = std::env::var_os("PATH");
+    std::env::set_var("PATH", sortann.parent().unwrap());
+    let old_sort = std::env::var_os("WFDBANNSORT");
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let ann = Annotations {
+        samples: vec![30, 10, 20],
+        symbols: vec!["N".into(), "V".into(), "A".into()],
+        ..Default::default()
+    };
+    let opt = |sort| AnnWriteOptions {
+        sort,
+        ..Default::default()
+    };
+    let read = |w: &mut Wfdb| {
+        w.read_annotations("rec", "srt", None, None, Some(100.0), false)
+            .unwrap()
+            .samples
+    };
+    for legacy in [false, true] {
+        w.wfdbx_set_legacy(i32::from(legacy));
+        for env in [None, Some("0"), Some("1")] {
+            match env {
+                Some(v) => std::env::set_var("WFDBANNSORT", v),
+                None => std::env::remove_var("WFDBANNSORT"),
+            }
+            let dflt = if env == Some("0") {
+                vec![30, 10, 20]
+            } else {
+                vec![10, 20, 30]
+            };
+            w.write_annotations_with("rec", "srt", &ann, 0.0, &opt(Some(false)))
+                .unwrap();
+            assert_eq!(read(w), [30, 10, 20], "legacy {legacy} env {env:?}");
+            w.write_annotations_with("rec", "srt", &ann, 0.0, &opt(Some(true)))
+                .unwrap();
+            assert_eq!(read(w), [10, 20, 30], "legacy {legacy} env {env:?}");
+            w.write_annotations_with("rec", "srt", &ann, 0.0, &opt(None))
+                .unwrap();
+            assert_eq!(read(w), dflt, "legacy {legacy} env {env:?}");
+            w.write_annotations("rec", "srt", &ann, 0.0, None).unwrap();
+            assert_eq!(read(w), dflt, "legacy {legacy} env {env:?}");
+            // the environment is not changed
+            assert_eq!(std::env::var("WFDBANNSORT").ok().as_deref(), env);
+        }
+    }
+    w.wfdbx_set_legacy(0);
+    // in a directory
+    std::fs::create_dir("od").unwrap();
+    std::env::set_var("WFDBANNSORT", "0");
+    let o = AnnWriteOptions {
+        dir: Some("od".into()),
+        sort: Some(true),
+    };
+    w.write_annotations_with("rec", "srt", &ann, 0.0, &o)
+        .unwrap();
+    w.setwfdb("od");
+    assert_eq!(read(w), [10, 20, 30]);
+    w.setwfdb(".");
+    match old_sort {
+        Some(v) => std::env::set_var("WFDBANNSORT", v),
+        None => std::env::remove_var("WFDBANNSORT"),
+    }
+    if let Some(p) = path {
+        std::env::set_var("PATH", p);
+    }
 }

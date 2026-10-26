@@ -20,8 +20,18 @@ function rec = read_record(record, varargin)
 %     base_time   start time and date from the header, as wfdbx.timstr(0)
 %                 gives it (e.g. '[08:45:00 01/01/2001]'), or [] if the
 %                 header has none
+%     base_time_ms  the base time in milliseconds after midnight (a
+%                 double: '14:00:03.500' is 50403500), or [] exactly when
+%                 base_time is []
+%     base_date   the base date as a 1-by-3 double [year month day], or
+%                 [] if the header gives no date
 %     sampfrom    sample number of the first returned sample
 %     comments    NC-by-1 cell of the info strings (header comments)
+%     checksum_ok false if the samples were found not to match the
+%                 checksums in the header (the case of the checksum
+%                 warning, whether or not 'checksum_warning' is on), true
+%                 otherwise; the checksums are verified only when a read
+%                 reaches the end of the record
 %
 %   Options (name-value pairs):
 %     'channels'  signals to read: signal numbers (0-based, as in WFDB),
@@ -126,7 +136,6 @@ legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_record'); %#ok<NASGU>
 restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, 'read_record'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 opt.legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
-CHUNK = 65536;
 wfdbx.wfdbquit();
 nsig = wfdbx.isigopen(record, 0);
 if nsig <= 0
@@ -185,13 +194,7 @@ else
         cols(k) = j;
     end
 end
-base_time = [];
-if fs > 0       % (timstr needs the sampling frequency)
-    base_time = wfdbx.timstr(0);
-    if ~strncmp(base_time, '[', 1)
-        base_time = [];
-    end
-end
+[base_time, base_time_ms, base_date] = wfdbx.internal.hl_basetime(fs);
 if opt.physical && ~opt.legacy
     % wfdb-x: no default gain (C assumed 200 adu/mV, as legacy mode does)
     k = find([si(cols + 1).gain] == 0, 1);
@@ -205,12 +208,23 @@ if wfdbx.isigsettime(from) < 0
     wfdbx.wfdbquit();
     error('wfdbx:read_record', 'can''t seek to sample %d of record %s', from, record);
 end
-blocks = {};
 if isempty(to)
     remaining = Inf;
 else
     remaining = max(to - from, 0);
 end
+% The output is allocated once, for the number of frames requested or (to
+% the end) those the header gives (strtim('e')), up to 2^25 samples (a
+% header may claim more than its files hold); it grows (doubling) only if
+% more are read.  Frames are read in chunks of about 2^22 samples.
+CHUNK = max(65536, floor(4194304 / nsig));
+if isfinite(remaining)
+    cap = remaining;
+else
+    cap = max(wfdbx.strtim('e') - from, 0);
+end
+data = zeros(min(cap, max(65536, floor(33554432 / nsig))), nsig);
+nrows = 0;
 cksum_error = false;
 S = wfdbx.internal.sig_state();
 S.cksum_quiet = true;       % (getvec's checksum message: see below)
@@ -224,8 +238,13 @@ while remaining > 0
     if stat == -4
         x = [x; last]; %#ok<AGROW>
     end
-    if ~isempty(x)
-        blocks{end + 1} = x; %#ok<AGROW>
+    k = size(x, 1);
+    if k > 0
+        if nrows + k > size(data, 1)
+            data = [data(1:nrows, :); zeros(max(nrows, k), nsig)]; %#ok<AGROW>
+        end
+        data(nrows + 1:nrows + k, :) = x;
+        nrows = nrows + k;
     end
     remaining = remaining - size(x, 1);
     if stat == -4
@@ -250,12 +269,12 @@ if cksum_error && opt.checksum_warning
     warning('wfdbx:checksum', ['checksum error in record %s: the signal ' ...
         'data do not match the checksums in its header'], record);
 end
-if isempty(blocks)
-    data = zeros(0, nsig);
-else
-    data = vertcat(blocks{:});
+if nrows < size(data, 1)
+    data = data(1:nrows, :);
 end
-data = data(:, cols + 1);
+if ~isequal(cols, 0:nsig - 1)
+    data = data(:, cols + 1);
+end
 sel = si(cols + 1);
 comments = cell(0, 1);
 c = wfdbx.getinfo(record);
@@ -283,8 +302,11 @@ rec.units = {sel.units};
 rec.gains = gains;
 rec.baselines = baselines;
 rec.base_time = base_time;
+rec.base_time_ms = base_time_ms;
+rec.base_date = base_date;
 rec.sampfrom = from;
 rec.comments = comments;
+rec.checksum_ok = ~cksum_error;
 wfdbx.wfdbquit();
 end
 

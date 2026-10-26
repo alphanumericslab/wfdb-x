@@ -15,7 +15,7 @@ read_annotations(record, annotator, sampfrom = 0, sampto = NULL, fs = NULL,
 
 write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
                   subtype = 0, chan = 0, num = 0, aux = NULL, fs = NULL,
-                  dir = NULL, legacy = FALSE)
+                  dir = NULL, legacy = FALSE, sort = NULL)
 }
 \arguments{
   \item{record}{the record name, a character string (for example
@@ -74,6 +74,12 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
     removed, so results produced with it carry the same risks.  With
     \code{FALSE} (the default), the current setting of the library
     applies.}
+  \item{sort}{\code{write_annotations}: \code{TRUE} to sort an
+    out-of-order file, \code{FALSE} to leave it in the order given, for
+    this call only and whatever \env{WFDBANNSORT} says (also with
+    \code{legacy = TRUE}, where \code{TRUE} runs the \command{sortann}
+    tool); the environment is not changed.  \code{NULL} (the default):
+    \env{WFDBANNSORT} decides (see Details).}
 }
 \details{
   The annotation file is \file{\var{record}.\var{annotator}}.  When
@@ -93,7 +99,8 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
   is a data frame (if both are given, \code{code} is used).  Annotations
   may be given in any order: if they are not in time order, the file is
   sorted when it is closed, exactly as the \command{sortann} tool does
-  (unless the environment variable \env{WFDBANNSORT} is \code{0}); wfdb-x:
+  (unless the environment variable \env{WFDBANNSORT} is \code{0}, or as
+  \code{sort} says); wfdb-x:
   in the same R process, whereas the C library, as legacy mode, runs the
   \command{sortann} tool.
 

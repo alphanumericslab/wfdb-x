@@ -310,7 +310,7 @@ fn files_named_in_headers() {
     ] {
         header(&d, "bad", name);
         // the header can be read; its signal file is refused
-        assert_eq!(w.read_header("db/bad", false).unwrap().len(), 1);
+        assert_eq!(w.read_header("db/bad", false).unwrap().nsig, 1);
         assert!(w.read_record("db/bad", &ReadOptions::default()).is_err());
         assert!(w
             .wfdbx_open_in(Some(b"db/"), NULL, name.as_bytes(), b"db/bad")
@@ -400,7 +400,7 @@ fn high_level_options_restore() {
         (w.wfdbx_get_input_dir(), w.wfdbx_get_network()),
         (v("nosuch"), 0)
     );
-    assert_eq!(w.read_header_with("100s", &opt).unwrap().len(), 2);
+    assert_eq!(w.read_header_with("100s", &opt).unwrap().nsig, 2);
     let all = ReadOptions {
         to: None,
         ..opt.clone()

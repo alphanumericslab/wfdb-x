@@ -189,6 +189,9 @@ class _AnnState:
         self.oafreq = 0.0
         self.annclose_error = 0
         self.modified = [0] * (ACMAX + 1)
+        # wfdb-x: if not None, whether oannclose sorts an out-of-order file
+        # (instead of WFDBANNSORT); set by write_annotations(sort=...)
+        self.sort_override = None
 
 
 _a = _AnnState()
@@ -680,6 +683,120 @@ def _put_ann_word(oa, n, annot):
         return -1
     oa.ann = annot.copy()
     oa.ann.time = t
+    return 0
+
+
+def _putanns(n, times, anntyps, subtyps, chans, nums, auxes):
+    """putann(n, annot) for each annotation given by the lists times,
+    anntyps, subtyps, chans, nums and auxes (aux: None, or bytes as in
+    Annotation.aux), in order (wfdb-x: for write_annotations).  An
+    annotation that putann rejects (time overflow) is skipped, with
+    putann's message.  Returns 0, -1 on a write error, or -2 if n is not
+    an open output annotator.
+
+    For an MIT-format file the annotations are encoded into one buffer,
+    byte for byte as by _put_ann_word, and written at once (calling putann
+    for each was the slowest part of writing a file); other formats use
+    putann."""
+    oad = _a.oad
+    if n < 0 or n >= len(oad) or oad[n] is None or oad[n].file is None:
+        wfdb_error("putann: can't write annotation file %d\n", n)
+        return -2
+    oa = oad[n]
+    count = len(times)
+    if oa.info.stat != WFDB_WRITE:
+        stat = 0
+        for k in range(count):
+            a = Annotation(times[k], anntyps[k], subtyps[k], chans[k],
+                           nums[k], auxes[k])
+            if putann(n, a) == -1 and stat == 0:
+                stat = -1
+        return stat
+    if count == 0:
+        return 0
+    if not oa.table_written:
+        oa.table_written = 1
+        if _put_ann_table(oa, n, _a.oafreq, _lib_defs) < 0:
+            return -1
+    buf = bytearray()
+    put = buf.extend
+
+    def p16(x):
+        put((x & 0xFFFF).to_bytes(2, "little"))
+
+    def p32(x):
+        p16((x >> 16) & 0xFFFF)
+        p16(x & 0xFFFF)
+
+    # The previous annotation written (oa.ann): time, chan (as unsigned
+    # char) and num (as signed char) are all that the encoding uses.
+    pt = oa.ann.time
+    pchan = uint8(oa.ann.chan)
+    pnum = int8(oa.ann.num)
+    last = None
+    out_of_order = oa.out_of_order
+    for k in range(count):
+        t = times[k]
+        anntyp = anntyps[k]
+        subtyp = subtyps[k]
+        chan = chans[k]
+        num = nums[k]
+        aux = auxes[k]
+        achan = chan & 0xFF
+        anum = num & 0xFF
+        if anum & 0x80:
+            anum -= 0x100       # (signed char)
+        if not (achan > pchan or anum > pnum or t > pt or
+                (t == 0 and pt == 0)):
+            out_of_order = 1
+        if t == WFDB_TIME_MIN or t == WFDB_TIME_MAX:
+            wfdb_error("putann: time overflow in annotation file %d\n", n)
+            continue
+        delta = (t - pt) & _U64
+        if t > pt:
+            while delta > MAXSKIP:
+                p16(SKIP)
+                p32(MAXSKIP)
+                delta = (delta - MAXSKIP) & _U64
+        else:
+            while ((-delta) & _U64) > -MINSKIP:
+                p16(SKIP)
+                p32(MINSKIP)
+                delta = (delta - MINSKIP) & _U64
+        if anntyp == 0:
+            p16(SKIP)
+            p32((delta - 1) & 0xFFFFFFFF)
+            delta = 1
+        elif delta > MAXRR:
+            p16(SKIP)
+            p32(delta & 0xFFFFFFFF)
+            delta = 0
+        put(((delta + (anntyp << CS)) & 0xFFFF).to_bytes(2, "little"))
+        if subtyp != 0:
+            p16(SUB + (DATA & subtyp))
+        if achan != pchan:
+            p16(CHN + (DATA & achan))
+        if anum != pnum:
+            p16(NUM + (DATA & anum))
+        if aux is not None and aux[0] != 0:
+            ln = aux[0]
+            p16(AUX + ln)
+            data = bytes(aux[1:1 + ln])
+            put(data)
+            # (zero padding to the stated length, and to an even length)
+            put(bytes(ln - len(data) + (ln & 1)))
+        pt, pchan, pnum = t, achan, anum
+        last = k
+    oa.out_of_order = out_of_order
+    f = oa.file
+    f.write(buf)
+    if f.ferror():
+        wfdb_error("putann: write error on annotation file %s\n",
+                   oa.info.name)
+        return -1
+    if last is not None:
+        oa.ann = Annotation(times[last], anntyps[last], subtyps[last],
+                            chans[last], nums[last], auxes[last])
     return 0
 
 
@@ -1190,6 +1307,8 @@ def oannclose(n):
         p = os.environ.get("WFDBANNSORT")
         if p is not None:
             dosort = strtol(p)[0]
+        if _a.sort_override is not None:    # wfdb-x: write_annotations(sort)
+            dosort = 1 if _a.sort_override else 0
         if dosort:
             wfdb_error("Rearranging annotations for output annotator %s ...",
                        oa.info.name)

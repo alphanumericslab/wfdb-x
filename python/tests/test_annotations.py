@@ -288,3 +288,156 @@ def test_write_annotations_dir_checks_first(datadir):
     assert str(e.value) == "directory nosuch does not exist"
     with pytest.raises(ValueError, match="symbols or codes must be given"):
         w.write_annotations("rec", "atr", [1], dir="out")
+
+
+# ---------------------------------------------------------------------------
+# write_annotations(sort=...): per-call choice, whatever WFDBANNSORT says
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_write_annotations_sort_option(datadir, monkeypatch, capfd, legacy):
+    t, s = [300, 100, 200], ["N", "V", "N"]
+    w.wfdbquiet()
+    try:
+        # sort=False: the file stays in the given order (WFDBANNSORT unset)
+        monkeypatch.delenv("WFDBANNSORT", raising=False)
+        w.write_annotations("rec", "uns", t, symbols=s, sort=False,
+                            legacy=legacy)
+        assert w.read_annotations("rec", "uns", fs=360).samples.tolist() \
+            == t
+        # sort=True: sorted although WFDBANNSORT is 0, which is unchanged
+        monkeypatch.setenv("WFDBANNSORT", "0")
+        w.write_annotations("rec", "srt", t, symbols=s, sort=True,
+                            legacy=legacy)
+        assert os.environ["WFDBANNSORT"] == "0"
+        assert w.read_annotations("rec", "srt", fs=360).samples.tolist() \
+            == [100, 200, 300]
+        # unset: WFDBANNSORT decides (0: not sorted; 1: sorted)
+        w.write_annotations("rec", "env0", t, symbols=s, legacy=legacy)
+        assert w.read_annotations("rec", "env0", fs=360).samples.tolist() \
+            == t
+        monkeypatch.setenv("WFDBANNSORT", "1")
+        w.write_annotations("rec", "env1", t, symbols=s, legacy=legacy)
+        assert w.read_annotations("rec", "env1", fs=360).samples.tolist() \
+            == [100, 200, 300]
+        # sort=False with WFDBANNSORT=1
+        w.write_annotations("rec", "uns1", t, symbols=s, sort=False,
+                            legacy=legacy)
+        assert w.read_annotations("rec", "uns1", fs=360).samples.tolist() \
+            == t
+        # the option applies to that call only
+        from wfdbx import _annot
+        assert _annot._a.sort_override is None
+    finally:
+        w.wfdbverbose()
+
+
+# ---------------------------------------------------------------------------
+# The bulk MIT-format encoder of write_annotations (_putanns) writes the same
+# bytes as putann for each annotation
+
+def _random_annotations(rng, n):
+    import numpy as np
+    gaps = rng.integers(-50, 1500, n)
+    big = rng.random(n) < 0.05      # large gaps (SKIP), forward and back
+    gaps[big] = rng.integers(-(1 << 33), 1 << 33, int(big.sum()))
+    times = np.cumsum(gaps)
+    times[rng.random(n) < 0.02] = 0
+    codes = rng.integers(0, 50, n)
+    codes[rng.random(n) < 0.05] = 0
+    subtypes = np.where(rng.random(n) < 0.2, rng.integers(-128, 128, n), 0)
+    chans = np.where(rng.random(n) < 0.2, rng.integers(0, 256, n), 0)
+    nums = np.where(rng.random(n) < 0.2, rng.integers(-128, 128, n), 0)
+    aux = []
+    for k in range(n):
+        r = rng.random()
+        if r < 0.6:
+            aux.append(None)
+        else:
+            ln = int(rng.choice([0, 1, 2, 3, 254, 255,
+                                 int(rng.integers(0, 256))]))
+            aux.append("".join(chr(int(c)) for c in
+                               rng.integers(32, 256, ln)))
+    return times.tolist(), codes.tolist(), subtypes.tolist(), \
+        chans.tolist(), nums.tolist(), aux
+
+
+def _aux_bytes(x):
+    if x is None:
+        return None
+    b = x.encode("latin-1")[:255]
+    return bytes((len(b),)) + b
+
+
+def _write_low_level(name, anns, bulk, freq=None):
+    from wfdbx import _annot
+    times, codes, subtypes, chans, nums, aux = anns
+    if freq:
+        w.setafreq(freq)
+    assert w.annopen("rec", [w.Anninfo(name, w.WFDB_WRITE)]) == 0
+    auxb = [_aux_bytes(x) for x in aux]
+    if bulk:
+        assert _annot._putanns(0, times, codes, subtypes, chans, nums,
+                               auxb) == 0
+    else:
+        for k in range(len(times)):
+            w.putann(0, w.Annotation(times[k], codes[k], subtypes[k],
+                                     chans[k], nums[k], auxb[k]))
+    w.wfdbquit()
+    w.setafreq(0.0)
+    return open("rec." + name, "rb").read()
+
+
+def test_bulk_annotation_encoder(datadir, monkeypatch):
+    import numpy as np
+    from wfdbx._annot import WFDB_TIME_MAX
+    monkeypatch.setenv("WFDBANNSORT", "0")      # (keep the order written)
+    w.wfdbquiet()
+    try:
+        rng = np.random.default_rng(6)
+        for trial in range(60):
+            n = int(rng.choice([0, 1, 2, 5, 50, 500]))
+            anns = _random_annotations(rng, n)
+            freq = 1000.0 if trial % 3 == 0 else None
+            ref = _write_low_level("ref", anns, False, freq)
+            got = _write_low_level("blk", anns, True, freq)
+            assert got == ref, trial
+        # a time that putann rejects (overflow) is skipped in both
+        anns = ([5, WFDB_TIME_MAX, 7, 3], [1, 1, 1, 1],
+                [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],
+                [None, None, "a", None])
+        assert _write_low_level("blk", anns, True) == \
+            _write_low_level("ref", anns, False)
+        # write_annotations (numpy arrays, lists, scalars) == putann
+        anns = _random_annotations(rng, 2000)
+        times, codes, subtypes, chans, nums, aux = anns
+        w.write_annotations("rec", "hl", np.array(times), codes=codes,
+                            subtypes=np.array(subtypes), chans=chans,
+                            nums=nums, aux=aux, sort=False)
+        assert open("rec.hl", "rb").read() == \
+            _write_low_level("ref", anns, False)
+        w.write_annotations("rec", "hl", times, codes=codes, subtypes=0,
+                            chans=3, nums=-1, aux="x", sort=False)
+        assert open("rec.hl", "rb").read() == _write_low_level(
+            "ref", (times, codes, [0] * len(times), [3] * len(times),
+                    [-1] * len(times), ["x"] * len(times)), False)
+    finally:
+        w.wfdbverbose()
+
+
+def test_bulk_annotation_encoder_aha(datadir):
+    # (an AHA-format output annotator: _putanns uses putann)
+    from wfdbx import _annot
+    anns = ([10, 20, 30], [1, 5, 1], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+            [None, "(VT", None])
+    out = []
+    for bulk in (False, True):
+        assert w.annopen("rec", [w.Anninfo("aha", w.WFDB_AHA_WRITE)]) == 0
+        if bulk:
+            _annot._putanns(0, *anns[:5], [_aux_bytes(x) for x in anns[5]])
+        else:
+            for k in range(3):
+                w.putann(0, w.Annotation(anns[0][k], anns[1][k], 0, 0, 0,
+                                         _aux_bytes(anns[5][k])))
+        w.wfdbquit()
+        out.append(open("rec.aha", "rb").read())
+    assert out[0] == out[1] and len(out[0]) > 0

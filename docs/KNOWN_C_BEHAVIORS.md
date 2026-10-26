@@ -81,8 +81,9 @@ These look surprising but are described in the documentation.
   data do not match the checksums in its header`, in each language's usual
   way (Python `warnings`, R `warning()`, Julia `@warn`, MATLAB/Octave
   `warning()`; the standard error in C++ and Rust, also silenced by
-  `wfdbquiet()`). The `checksum_warning` option turns the warning off; it
-  behaves identically in all six implementations.
+  `wfdbquiet()`). The `checksum_warning` option turns the warning off, and
+  the record's `checksum_ok` field is false either way; this behaves
+  identically in all six implementations.
 - **Modification labels.** `annopen` consumes the `NOTE` annotations at time
   0 (subtype 0) at the start of an annotation file, so `getann` does not
   return them. WPG (glossary, "Modification label"): "An 'invisible'
@@ -109,7 +110,8 @@ These look surprising but are described in the documentation.
   Order", `wfdbquit`, `oannclose`) documents the mechanism and `WFDBANNSORT`;
   the message text is not documented. wfdb-x sorts in-process instead,
   writing the file `sortann` writes; the separate process remains in legacy
-  mode (see [`DIVERGENCES.md`](DIVERGENCES.md)).
+  mode, and the high-level `write_annotations` has a per-call `sort` option
+  (see [`DIVERGENCES.md`](DIVERGENCES.md)).
 - **Variable-layout multi-segment records** are rescaled to the gains and
   baselines of the layout segment. header(5): "the signals of a variable
   layout record are rearranged, shifted, and rescaled as needed". The

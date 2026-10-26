@@ -253,8 +253,8 @@ end
 end
 
 function res = legacy_adcres(fmts)
-% wfdb-x: legacy mode: the ADC resolution that write_record inferred from
-% the format before the redesign
+% wfdb-x: legacy mode: the ADC resolution that write_record infers from
+% the format
 res = 16 * ones(size(fmts));
 res(fmts == 80 | fmts == 508) = 8;
 res(fmts == 212) = 12;

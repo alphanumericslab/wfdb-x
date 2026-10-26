@@ -1213,7 +1213,17 @@ int sort_ann_file(const std::string &fname, const std::string &aname)
     return ok ? 0 : -1;
 }
 
+int annsort_mode = -1;      // see wfdbx_set_annsort
+
 } // namespace
+
+int wfdbx_set_annsort(int mode)
+{
+    int prev = annsort_mode;
+    annsort_mode = mode < 0 ? -1 : (mode ? 1 : 0);
+    return prev;
+}
+
 } // namespace detail
 
 // oannclose: close output annotation file n
@@ -1247,6 +1257,9 @@ void oannclose(WFDB_Annotator n)
             const char *p = std::getenv("WFDBANNSORT");
 
             if (p) dosort = static_cast<int>(std::strtol(p, nullptr, 10));
+            // wfdb-x: the `sort` option of the high-level write_annotations
+            // decides instead of WFDBANNSORT, if given
+            if (annsort_mode >= 0) dosort = annsort_mode;
             if (dosort) {
                 wfdb_error("Rearranging annotations for output annotator %s ...",
                            oa->info.name.c_str());

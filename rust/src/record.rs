@@ -1,6 +1,7 @@
 //! High-level API: read and write whole records and annotation files
 //! ([`read_record`], [`read_header`], [`read_annotations`],
-//! [`write_record`], [`write_record_physical`], [`write_annotations`]).
+//! [`write_record`], [`write_record_physical`], [`write_annotations`],
+//! [`write_annotations_with`]).
 //!
 //! These functions are built on the C-style API, so they read and write
 //! exactly what the WFDB library and the command-line tools do. Each is
@@ -239,11 +240,25 @@ pub struct Record {
     /// Base time and date of the record, as `timstr(0)` gives it (e.g.
     /// `"[08:45:00 01/01/2001]"`), or `None` if the header defines none.
     pub base_time: Option<String>,
+    /// Base time of the record in milliseconds after midnight (the
+    /// library's base time, which keeps the milliseconds that
+    /// [`base_time`](Record::base_time) leaves out: `14:00:03.500` gives
+    /// 50403500); `Some` exactly when `base_time` is.
+    pub base_time_ms: Option<i64>,
+    /// Base date of the record as `[year, month, day]` (the date `datstr`
+    /// gives), or `None` if the header gives no date.
+    pub base_date: Option<[i32; 3]>,
     /// Sample number of the first returned sample.
     pub sampfrom: i64,
     /// Info strings (comment lines) of the header and of the `.info` file,
     /// if any.
     pub comments: Vec<Vec<u8>>,
+    /// `false` if the signal data were found not to match the checksums in
+    /// the header (`getvec` status -4 during the read; see
+    /// [`ReadOptions::checksum_warning`]), `true` otherwise. The checksums
+    /// are verified only when a read reaches the end of the record, so a
+    /// read that stops before the end gives `true`.
+    pub checksum_ok: bool,
     /// Read in legacy mode ([`ReadOptions::legacy`], or library legacy mode
     /// already on): [`Record::physical`] then assumes a gain of 200 for
     /// uncalibrated signals, as the original package did.
@@ -322,6 +337,58 @@ impl Record {
             .map(|si| cstd::cstr(si.desc.as_deref().unwrap_or(b"")).to_vec())
             .collect()
     }
+}
+
+/// The header of a record, as read by [`read_header`]: the data of its
+/// record line, its signal specifications and its info strings (no signal
+/// file is opened).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Header {
+    /// Record name, as given.
+    pub name: Vec<u8>,
+    /// Sampling frequency (Hz), as `sampfreq` gives it: 0 if the header
+    /// does not specify it (wfdb-x: no default frequency; in legacy mode,
+    /// 250 Hz, as in the original package).
+    pub fs: f64,
+    /// Counter frequency, as `getcfreq` gives it.
+    pub counter_freq: f64,
+    /// Base counter value, as `getbasecount` gives it.
+    pub base_counter: f64,
+    /// Number of samples per signal given by the record line (0 if it does
+    /// not give it).
+    pub nsamples: i64,
+    /// Number of signals.
+    pub nsig: usize,
+    /// Signal specifications, one per signal (file name, format, gain,
+    /// units, description, ...).
+    pub siginfo: Vec<Siginfo>,
+    /// Base time and date, as [`Record::base_time`].
+    pub base_time: Option<String>,
+    /// Base time in milliseconds after midnight, as
+    /// [`Record::base_time_ms`].
+    pub base_time_ms: Option<i64>,
+    /// Base date as `[year, month, day]`, as [`Record::base_date`].
+    pub base_date: Option<[i32; 3]>,
+    /// Info strings, as [`Record::comments`].
+    pub comments: Vec<Vec<u8>>,
+}
+
+/// Options of [`write_annotations_with`]. The default writes in the current
+/// directory and sorts an out-of-order file as `WFDBANNSORT` says.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AnnWriteOptions {
+    /// wfdb-x: the directory (which must exist) in which the file is
+    /// created; the record name must then be a plain name, without a
+    /// directory. `None`: the current directory, or the directory part of
+    /// the record name.
+    pub dir: Option<PathBuf>,
+    /// Whether a file whose annotations are not in canonical order is
+    /// sorted when it is closed: `Some(true)` sorts it and `Some(false)`
+    /// leaves it as written, for this call only, whatever the environment
+    /// variable `WFDBANNSORT` says (the environment is not changed; in
+    /// legacy mode, sorting runs `sortann`, as the original library did).
+    /// `None`: as `WFDBANNSORT` says (sorted unless it is 0).
+    pub sort: Option<bool>,
 }
 
 /// Options of [`read_record`]. The default reads all signals of the whole
@@ -690,17 +757,38 @@ impl Wfdb {
             || to.as_ref().is_some_and(|t| t.needs_freq(self))
     }
 
-    /// Reads the signal specifications of a record's header, using this
-    /// instance (see [`read_header`]).
+    /// The base time text, base time in milliseconds and base date of the
+    /// open record, for a record whose sampling frequency is `fs`.
+    fn base_time_fields(&mut self, fs: f64) -> (Option<String>, Option<i64>, Option<[i32; 3]>) {
+        let (ms, date) = self.wfdbx_base_time_date();
+        // (A header without a sampling frequency cannot give a base time.)
+        if fs > 0.0 {
+            let bt = self.timstr(0);
+            if bt.first() == Some(&b'[') {
+                return (Some(lossy(&bt)), Some(ms), date);
+            }
+        }
+        (None, None, date)
+    }
+
+    /// The info strings of `record` (open).
+    fn info_strings(&mut self, record: &[u8]) -> Vec<Vec<u8>> {
+        let mut v = Vec::new();
+        let mut c = self.getinfo(record);
+        while let Some(s) = c {
+            v.push(s);
+            c = self.getinfo(NULL);
+        }
+        v
+    }
+
+    /// Reads the header of a record, using this instance (see
+    /// [`read_header`]).
     ///
     /// # Errors
     ///
     /// If the header cannot be read.
-    pub fn read_header(
-        &mut self,
-        record: impl AsRef<[u8]>,
-        legacy: bool,
-    ) -> Result<Vec<Siginfo>, Error> {
+    pub fn read_header(&mut self, record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Error> {
         let opt = ReadOptions {
             legacy,
             ..Default::default()
@@ -708,9 +796,9 @@ impl Wfdb {
         self.read_header_with(record, &opt)
     }
 
-    /// Reads the signal specifications of a record's header, with the
-    /// `legacy`, `input_dir` and `network` options of `opt` (the others are
-    /// not used), using this instance (see [`read_header`]).
+    /// Reads the header of a record, with the `legacy`, `input_dir` and
+    /// `network` options of `opt` (the others are not used), using this
+    /// instance (see [`read_header`]).
     ///
     /// # Errors
     ///
@@ -719,14 +807,14 @@ impl Wfdb {
         &mut self,
         record: impl AsRef<[u8]>,
         opt: &ReadOptions,
-    ) -> Result<Vec<Siginfo>, Error> {
+    ) -> Result<Header, Error> {
         let record = record.as_ref();
         self.with_legacy(opt.legacy, |w| {
             w.with_input(opt, |w| w.read_header_impl(record))
         })
     }
 
-    fn read_header_impl(&mut self, record: &[u8]) -> Result<Vec<Siginfo>, Error> {
+    fn read_header_impl(&mut self, record: &[u8]) -> Result<Header, Error> {
         self.wfdbquit();
         let n = self.isigopen(record, &mut [], 0);
         if n < 0 {
@@ -736,8 +824,23 @@ impl Wfdb {
         if n > 0 {
             self.isigopen(record, &mut si, -n);
         }
+        let fs = self.sampfreq(NULL);
+        let (base_time, base_time_ms, base_date) = self.base_time_fields(fs);
+        let h = Header {
+            name: record.to_vec(),
+            fs,
+            counter_freq: self.getcfreq(),
+            base_counter: self.getbasecount(),
+            nsamples: self.wfdbx_header_nsamples(),
+            nsig: si.len(),
+            siginfo: si,
+            base_time,
+            base_time_ms,
+            base_date,
+            comments: self.info_strings(record),
+        };
         self.wfdbquit();
-        Ok(si)
+        Ok(h)
     }
 
     /// Reads the signals of a record, using this instance (see
@@ -815,48 +918,52 @@ impl Wfdb {
                 cols.push(k as usize);
             }
         }
-        // (A header without a sampling frequency cannot give a base time.)
-        if rec.fs > 0.0 {
-            let bt = self.timstr(0);
-            if bt.first() == Some(&b'[') {
-                rec.base_time = Some(lossy(&bt));
-            }
-        }
+        (rec.base_time, rec.base_time_ms, rec.base_date) = self.base_time_fields(rec.fs);
         if self.isigsettime(from) < 0 {
             return self.hl_fail(format!("can't seek to sample {from} of record {rname}"));
         }
 
-        // getvec returns one value per signal in either mode.
+        // getvec returns one value per signal in either mode. The frames are
+        // read straight into one vector, allocated for the expected number
+        // of frames (from `to`, or from the length of the record if the
+        // header gives it; at most 2^26 values at first, in case the header
+        // or `to` promises more than the files hold).
+        let expected = match to {
+            Some(t) => (t - from).max(0),
+            None => (self.wfdbx_header_nsamples() - from).max(0),
+        };
         let mut all: Vec<i32> = Vec::new();
-        const BLOCK: i64 = 65536; // frames read per getvecs call
+        all.reserve_exact((expected as usize).saturating_mul(nsig).min(1 << 26));
+        const BLOCK: i64 = 1 << 20; // frames read per getvecs call at most
         let mut remaining = to.map(|t| if t > from { t - from } else { 0 });
-        let mut buf: Vec<i32> = Vec::new();
         let mut checksum_error = false;
         // (getvec's own checksum message is replaced by the warning below)
         self.sig.cksum_quiet = true;
         while remaining.map_or(true, |r| r > 0) {
             let n = match remaining {
                 Some(r) => r.min(BLOCK),
-                None => BLOCK,
+                None if expected > all.len() as i64 / nsig as i64 => {
+                    (expected - all.len() as i64 / nsig as i64).min(BLOCK)
+                }
+                None => 65536,
             };
-            buf.resize(n as usize * nsig, 0);
-            let (mut got, stat) = self.getvecs_status(&mut buf, n);
-            if got > 0 {
-                all.extend_from_slice(&buf[..got as usize * nsig]);
-            }
-            if got < 0 {
-                got = 0;
-            }
+            let len = all.len();
+            all.resize(len + n as usize * nsig, 0);
+            let (got, stat) = self.getvecs_status(&mut all[len..], n);
+            let got = got.max(0);
             if let Some(r) = remaining.as_mut() {
                 *r -= got;
             }
+            let mut keep = got as usize;
             if stat == -4 {
                 // wfdb-x: a checksum error: the frame read last is complete
                 // (it is the last one of the record) and is returned; a
                 // warning follows.
-                let g = got as usize * nsig;
-                all.extend_from_slice(&buf[g..g + nsig]);
+                keep += 1;
                 checksum_error = true;
+            }
+            all.truncate(len + keep * nsig);
+            if stat == -4 {
                 break;
             }
             if got < n {
@@ -878,13 +985,17 @@ impl Wfdb {
                 "wfdb-x: checksum error in record {rname}: the signal data do not match the checksums in its header\n"
             ));
         }
+        rec.checksum_ok = !checksum_error;
 
-        let nframes = all.len() / nsig;
         rec.nsig = cols.len();
-        rec.samples = Vec::with_capacity(nframes * cols.len());
-        for i in 0..nframes {
-            for &c in &cols {
-                rec.samples.push(all[i * nsig + c]);
+        if cols.iter().copied().eq(0..nsig) {
+            all.shrink_to_fit();
+            rec.samples = all;
+        } else {
+            let nframes = all.len() / nsig;
+            rec.samples = Vec::with_capacity(nframes * cols.len());
+            for frame in all.chunks_exact(nsig) {
+                rec.samples.extend(cols.iter().map(|&c| frame[c]));
             }
         }
         for &k in &cols {
@@ -892,11 +1003,7 @@ impl Wfdb {
         }
         rec.signals = cols;
         rec.sampfrom = from;
-        let mut c = self.getinfo(record);
-        while let Some(s) = c {
-            rec.comments.push(s);
-            c = self.getinfo(NULL);
-        }
+        rec.comments = self.info_strings(record);
         self.wfdbquit();
         Ok(rec)
     }
@@ -1216,9 +1323,35 @@ impl Wfdb {
         fs: f64,
         dir: Option<&Path>,
     ) -> Result<(), Error> {
+        let opt = AnnWriteOptions {
+            dir: dir.map(Path::to_path_buf),
+            sort: None,
+        };
+        self.write_annotations_with(record, annotator, ann, fs, &opt)
+    }
+
+    /// Writes an annotation file with the options `opt` (output directory,
+    /// sorting), using this instance (see [`write_annotations_with`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Wfdb::write_annotations`].
+    pub fn write_annotations_with(
+        &mut self,
+        record: impl AsRef<[u8]>,
+        annotator: impl AsRef<[u8]>,
+        ann: &Annotations,
+        fs: f64,
+        opt: &AnnWriteOptions,
+    ) -> Result<(), Error> {
         let record = record.as_ref();
         let annotator = annotator.as_ref();
-        self.with_output_dir(dir, record, |w| w.write_ann(record, annotator, ann, fs))
+        self.with_output_dir(opt.dir.as_deref(), record, |w| {
+            let previous = std::mem::replace(&mut w.ann.sort_override, opt.sort);
+            let r = w.write_ann(record, annotator, ann, fs);
+            w.ann.sort_override = previous;
+            r
+        })
     }
 
     fn write_ann(
@@ -1339,20 +1472,21 @@ pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record
     with_default(|w| w.read_record(record, opt))
 }
 
-/// Reads the signal specifications of a record's header: one [`Siginfo`]
-/// per signal (file name, format, gain, units, description, ...), without
-/// reading any samples.
+/// Reads the header of a record, without opening its signal files: a
+/// [`Header`] with the sampling frequency, counter frequency, base counter
+/// value, number of samples, base time and date of the record line, one
+/// [`Siginfo`] per signal (file name, format, gain, units, description,
+/// ...) and the info strings.
 ///
 /// Uses the default instance; see [`Wfdb::read_header`] for an explicit
-/// one. Other header data (sampling frequency, base time, info strings)
-/// can be read with the C-style functions (`sampfreq`, `timstr`,
-/// `getinfo`).
+/// one.
 ///
 /// # Examples
 ///
 /// ```no_run
-/// let signals = wfdbx::read_header("100s", false)?;
-/// for s in &signals {
+/// let h = wfdbx::read_header("100s", false)?;
+/// println!("{} signals at {} Hz, {} samples", h.nsig, h.fs, h.nsamples);
+/// for s in &h.siginfo {
 ///     let desc = s.desc.as_deref().unwrap_or(b"");
 ///     println!("{} (format {})", String::from_utf8_lossy(desc), s.fmt);
 /// }
@@ -1367,22 +1501,18 @@ pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record
 /// # Errors
 ///
 /// If the header cannot be read.
-pub fn read_header(record: impl AsRef<[u8]>, legacy: bool) -> Result<Vec<Siginfo>, Error> {
+pub fn read_header(record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Error> {
     with_default(|w| w.read_header(record, legacy))
 }
 
-/// Reads the signal specifications of a record's header, as
-/// [`read_header`] does, with the `legacy`, `input_dir` and `network`
+/// Reads the header of a record, as [`read_header`] does, with the `legacy`, `input_dir` and `network`
 /// options of `opt` (wfdb-x; the others are not used). Uses the default
 /// instance.
 ///
 /// # Errors
 ///
 /// If the header cannot be read.
-pub fn read_header_with(
-    record: impl AsRef<[u8]>,
-    opt: &ReadOptions,
-) -> Result<Vec<Siginfo>, Error> {
+pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Header, Error> {
     with_default(|w| w.read_header_with(record, opt))
 }
 
@@ -1562,7 +1692,8 @@ pub fn write_record_physical(
 /// order; otherwise the file is sorted when it is closed, unless the
 /// environment variable `WFDBANNSORT` is 0 (wfdb-x: in this process, with
 /// the result of the `sortann` program; in library legacy mode, by running
-/// `sortann`, as the C library does). If `fs > 0`, it is
+/// `sortann`, as the C library does; [`write_annotations_with`] decides
+/// this per call with its `sort` option). If `fs > 0`, it is
 /// recorded in the file as its time resolution (ticks per second); `ann.fs`
 /// is not used. Uses the default instance; see [`Wfdb::write_annotations`]
 /// for an explicit one.
@@ -1595,4 +1726,40 @@ pub fn write_annotations(
     dir: Option<&Path>,
 ) -> Result<(), Error> {
     with_default(|w| w.write_annotations(record, annotator, ann, fs, dir))
+}
+
+/// Writes an annotation file, as [`write_annotations`] does, with the
+/// options `opt`: the output directory ([`AnnWriteOptions::dir`], as the
+/// `dir` argument of [`write_annotations`]) and whether an out-of-order
+/// file is sorted ([`AnnWriteOptions::sort`]: `Some(true)` or
+/// `Some(false)` decides for this call, whatever `WFDBANNSORT` says;
+/// `None`: as `WFDBANNSORT` says). Uses the default instance; see
+/// [`Wfdb::write_annotations_with`] for an explicit one.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wfdbx::{write_annotations_with, AnnWriteOptions, Annotations};
+///
+/// let ann = Annotations {
+///     samples: vec![700, 100, 400], // not in time order
+///     symbols: vec!["N".into(), "V".into(), "N".into()],
+///     ..Default::default()
+/// };
+/// let opt = AnnWriteOptions { sort: Some(false), ..Default::default() };
+/// write_annotations_with("example", "test", &ann, 0.0, &opt)?; // as given
+/// # Ok::<(), wfdbx::record::Error>(())
+/// ```
+///
+/// # Errors
+///
+/// As [`write_annotations`].
+pub fn write_annotations_with(
+    record: impl AsRef<[u8]>,
+    annotator: impl AsRef<[u8]>,
+    ann: &Annotations,
+    fs: f64,
+    opt: &AnnWriteOptions,
+) -> Result<(), Error> {
+    with_default(|w| w.write_annotations_with(record, annotator, ann, fs, opt))
 }

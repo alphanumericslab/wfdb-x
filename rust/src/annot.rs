@@ -318,6 +318,10 @@ pub struct AnnState {
     cstring: Vec<Vec<u8>>,
     /// Annotation type definitions (mnemonics and descriptions).
     defs: AnnDefs,
+    /// wfdb-x: whether `oannclose` sorts an out-of-order file (`Some`),
+    /// whatever `WFDBANNSORT` says; `None`: as `WFDBANNSORT` says. Set by
+    /// `write_annotations` for the duration of a call (its `sort` option).
+    pub(crate) sort_override: Option<bool>,
 }
 
 impl Default for AnnState {
@@ -329,6 +333,7 @@ impl Default for AnnState {
             annclose_error: 0,
             cstring: DEFAULT_MNEMONICS.iter().map(|s| s.to_vec()).collect(),
             defs: AnnDefs::default(),
+            sort_override: None,
         }
     }
 }
@@ -1338,9 +1343,12 @@ impl Wfdb {
         }
         let mut out_of_order = oa.out_of_order;
         if out_of_order {
-            let dosort = match cstd::getenv("WFDBANNSORT") {
-                Some(p) => cstd::strtol(&p, 10).0 as i32,
-                None => DEFWFDBANNSORT,
+            // wfdb-x: the sort option of write_annotations, if given,
+            // decides instead of WFDBANNSORT.
+            let dosort = match (self.ann.sort_override, cstd::getenv("WFDBANNSORT")) {
+                (Some(on), _) => i32::from(on),
+                (None, Some(p)) => cstd::strtol(&p, 10).0 as i32,
+                (None, None) => DEFWFDBANNSORT,
             };
             if dosort != 0 {
                 self.wfdb_error(cformat!(

@@ -229,6 +229,9 @@ pub struct SigState {
     /// wfdb-x: true during a high-level read: getvec's checksum message is
     /// recorded but not printed.
     pub(crate) cksum_quiet: bool,
+    /// wfdb-x: true if `getvecs` must not use its bulk path (see
+    /// `Wfdb::wfdbx_bulk_read`; for tests).
+    bulk_off: bool,
 
     // Multi-segment records
     segments: i32,
@@ -335,6 +338,7 @@ impl Default for SigState {
             msrec_name: None,
             user_segments: false,
             cksum_quiet: false,
+            bulk_off: false,
             segments: 0,
             in_msrec: 0,
             msbtime: 0,
@@ -773,6 +777,179 @@ impl IgData {
 }
 
 // ---------------------------------------------------------------------------
+// wfdb-x: bulk input (getvecs)
+//
+// `Wfdb::bulk_frames` decodes many frames at once, straight from the input
+// buffers, exactly as the same number of `getskewedframe` calls would. It is
+// used only where a frame needs no special handling (see `bulk_frames`), and
+// only for the complete frames already in the buffers: a frame that crosses
+// the end of a buffer (whose reading refills the buffer, as C does), the
+// frame at which a checksum is verified, the end of a file and a segment
+// boundary go through `getskewedframe`. The buffers are therefore filled,
+// and the files read, exactly as by the per-frame path.
+
+/// The packing of a format handled by the bulk path: (bytes, samples) per
+/// packed unit; `None` for the other formats.
+fn bulk_unit(fmt: i32) -> Option<(usize, usize)> {
+    match fmt {
+        8 | 80 => Some((1, 1)),
+        16 | 61 | 160 => Some((2, 1)),
+        24 => Some((3, 1)),
+        32 => Some((4, 1)),
+        212 => Some((3, 2)),
+        310 | 311 => Some((4, 3)),
+        _ => None,
+    }
+}
+
+/// `v` with its low `bits` bits sign-extended.
+#[inline(always)]
+fn sext(v: u32, bits: u32) -> i32 {
+    ((v << (32 - bits)) as i32) >> (32 - bits)
+}
+
+/// Stores the samples of `it`, in order, as `m` frames of `nn` samples in
+/// `out` (frames of `stride` values; the group's samples start at `s0`).
+#[inline(always)]
+fn bulk_scatter(
+    out: &mut [i32],
+    stride: usize,
+    s0: usize,
+    nn: usize,
+    m: usize,
+    mut it: impl Iterator<Item = i32>,
+) {
+    if nn == stride {
+        for (x, v) in out[..m * nn].iter_mut().zip(it) {
+            *x = v;
+        }
+        return;
+    }
+    for f in 0..m {
+        let base = f * stride + s0;
+        for x in &mut out[base..base + nn] {
+            *x = it.next().unwrap_or(0);
+        }
+    }
+}
+
+/// Decodes the raw samples (as the `rFMT` functions return them; for format
+/// 8, the first differences) of `m` frames of a group of `nn` signals in
+/// format `fmt` from `b` (whose length is the exact number of bytes).
+fn bulk_decode(fmt: i32, b: &[u8], out: &mut [i32], stride: usize, s0: usize, nn: usize, m: usize) {
+    let u16le = |c: &[u8]| c[0] as u32 | (c[1] as u32) << 8;
+    match fmt {
+        8 => bulk_scatter(out, stride, s0, nn, m, b.iter().map(|&c| c as i8 as i32)),
+        80 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.iter().map(|&c| c as i32 - (1 << 7)),
+        ),
+        16 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.chunks_exact(2)
+                .map(|c| i16::from_le_bytes([c[0], c[1]]) as i32),
+        ),
+        61 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.chunks_exact(2)
+                .map(|c| i16::from_be_bytes([c[0], c[1]]) as i32),
+        ),
+        160 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.chunks_exact(2).map(|c| u16le(c) as i32 - (1 << 15)),
+        ),
+        24 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.chunks_exact(3)
+                .map(|c| sext(c[0] as u32 | (c[1] as u32) << 8 | (c[2] as u32) << 16, 24)),
+        ),
+        32 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.chunks_exact(4)
+                .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]])),
+        ),
+        212 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.chunks_exact(3).flat_map(|c| {
+                let (b0, b1, b2) = (c[0] as u32, c[1] as u32, c[2] as u32);
+                [
+                    sext(b0 | (b1 & 0x0f) << 8, 12),
+                    sext(b2 | (b1 & 0xf0) << 4, 12),
+                ]
+            }),
+        ),
+        310 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.chunks_exact(4).flat_map(|c| {
+                let (w0, w1) = (u16le(&c[..2]), u16le(&c[2..]));
+                [
+                    sext((w0 >> 1) & 0x3ff, 10),
+                    sext((w1 >> 1) & 0x3ff, 10),
+                    sext(((w0 & 0xf800) >> 11) | ((w1 & 0xf800) >> 6), 10),
+                ]
+            }),
+        ),
+        311 => bulk_scatter(
+            out,
+            stride,
+            s0,
+            nn,
+            m,
+            b.chunks_exact(4).flat_map(|c| {
+                let w0 = u16le(&c[..2]);
+                let w1 = u16le(&c[2..]);
+                [
+                    sext(w0 & 0x3ff, 10),
+                    sext(((w0 & 0xfc00) >> 10) | ((c[2] as u32 & 0xf) << 6), 10),
+                    sext((w1 >> 4) & 0x3ff, 10),
+                ]
+            }),
+        ),
+        _ => {}
+    }
+}
+
+fn gcd(a: usize, b: usize) -> usize {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Low-level output routines
 
 impl OgData {
@@ -964,6 +1141,34 @@ fn fmt_range(fmt: i32) -> (i32, i32) {
         524 | 24 => (-0x800000, 0x7fffff),
         _ => (WFDB_SAMPLE_MIN, WFDB_SAMPLE_MAX),
     }
+}
+
+/// The (year, month, day) of a Julian date, as `datstr` gives them (the
+/// calendar code of C's `datstr`).
+fn julian_to_ymd(date: i64) -> [i32; 3] {
+    let mut date = date;
+    if date >= IGREG_JDN {
+        // Gregorian calendar correction
+        let gcorr = d2i(((date - 1867216) as f64 - 0.25) / 36524.25);
+        date += 1 + gcorr as i64 - d2l(0.25 * gcorr as f64);
+    }
+    date += 1524;
+    let jy = d2i(6680.0 + ((date - 2439870) as f64 - 122.1) / 365.25);
+    let jd = d2l((365 * jy as i64) as f64 + 0.25 * jy as f64);
+    let jm = d2i((date - jd) as f64 / 30.6001);
+    let d = (date - jd - d2i(30.6001 * jm as f64) as i64) as i32;
+    let mut m = jm - 1;
+    if m > 12 {
+        m -= 12;
+    }
+    let mut y = jy - 4715;
+    if m > 2 {
+        y -= 1;
+    }
+    if y <= 0 {
+        y -= 1;
+    }
+    [y, m, d]
 }
 
 /// Lengths of C's static `date_string` and `time_string` buffers (without
@@ -4236,10 +4441,164 @@ impl Wfdb {
         stat
     }
 
+    /// wfdb-x: decodes up to `n` frames (at most as many as fit in `out`)
+    /// at once, exactly as as many `getskewedframe` calls would (including
+    /// `istime`), and returns their number (0 if the bulk path cannot be
+    /// used for the next frame: the caller then reads it with
+    /// `getskewedframe`). Ported from `_bulk_frames` of the Python
+    /// implementation, with one difference: only the complete frames
+    /// already in the input buffers are decoded (see `bulk_unit`).
+    fn bulk_frames(&mut self, out: &mut [i32], n: i64) -> usize {
+        let st = &mut self.sig;
+        let nisig = st.nisig as usize;
+        // Every signal read as is, one sample per frame, no deskewing, no
+        // resampling, no signal mapping.
+        if st.bulk_off
+            || n <= 0
+            || nisig == 0
+            || st.need_sigmap != 0
+            || st.have_dsbuf
+            || st.nvsig != nisig as i32
+            || st.tspf != nisig as i32
+            || st.framelen as usize != nisig
+            || st.ispfmax != 1
+            || !(st.ifreq == 0.0 || st.ifreq == st.sfreq)
+            || st.isd.len() < nisig
+        {
+            return 0;
+        }
+        let mut m = n.min((out.len() / nisig) as i64);
+        let mut period = 1usize;
+        let mut s = 0usize;
+        while s < nisig {
+            let (fmt, g) = (st.isd[s].info.fmt, st.isd[s].info.group as usize);
+            let Some((_, ns)) = bulk_unit(fmt) else {
+                return 0;
+            };
+            let mut e = s;
+            while e < nisig && st.isd[e].info.group as usize == g {
+                let is = &st.isd[e];
+                if is.info.fmt != fmt || is.info.spf != 1 {
+                    return 0;
+                }
+                e += 1;
+            }
+            let Some(ig) = st.igd.get(g) else {
+                return 0;
+            };
+            if ig.seek != 1
+                || ig.fp.is_none()
+                || ig.initial_skip != 0
+                || ig.count != 0
+                || ig.flac.is_some()
+            {
+                return 0;
+            }
+            let nn = e - s;
+            if nn % ns != 0 {
+                let p = ns / gcd(nn % ns, ns);
+                period = period / gcd(period, p) * p;
+            }
+            s = e;
+        }
+        // Not the frame at which a checksum is verified (nor any after it).
+        for is in &st.isd[..nisig] {
+            if is.info.nsamp > 0 && m >= is.info.nsamp {
+                m = is.info.nsamp - 1;
+            }
+        }
+        // Only the complete frames in every buffer.
+        let mut s = 0usize;
+        while s < nisig {
+            let g = st.isd[s].info.group as usize;
+            let mut e = s;
+            while e < nisig && st.isd[e].info.group as usize == g {
+                e += 1;
+            }
+            let (nb, ns) = bulk_unit(st.isd[s].info.fmt).unwrap_or((1, 1));
+            let unit = period * (e - s) * nb / ns;
+            let ig = &st.igd[g];
+            let avail = (ig.be.saturating_sub(ig.bp) / unit * period) as i64;
+            m = m.min(avail);
+            s = e;
+        }
+        m -= m % period as i64;
+        if m <= 0 {
+            return 0;
+        }
+        let m = m as usize;
+        if st.istime == 0 {
+            for is in &mut st.isd[..nisig] {
+                is.samp = is.info.initval;
+            }
+        }
+        let pad = (st.gvmode & WFDB_GVPAD) != 0;
+        let mut s = 0usize;
+        while s < nisig {
+            let (fmt, g) = (st.isd[s].info.fmt, st.isd[s].info.group as usize);
+            let mut e = s;
+            while e < nisig && st.isd[e].info.group as usize == g {
+                e += 1;
+            }
+            let nn = e - s;
+            let (nb, ns) = bulk_unit(fmt).unwrap_or((1, 1));
+            let used = m * nn * nb / ns;
+            let ig = &mut st.igd[g];
+            bulk_decode(fmt, &ig.buf[ig.bp..ig.bp + used], out, nisig, s, nn, m);
+            ig.bp += used;
+            // As getskewedframe does with each sample.
+            let inval = fmt_range(fmt).0;
+            for k in s..e {
+                let is = &mut st.isd[k];
+                let (mut samp, mut cksum) = (is.samp, is.info.cksum);
+                let col = out[k..].iter_mut().step_by(nisig).take(m);
+                if fmt == 8 {
+                    for x in col {
+                        samp = samp.wrapping_add(*x);
+                        *x = samp;
+                        cksum = cksum.wrapping_sub(samp);
+                    }
+                } else {
+                    for x in col {
+                        let v = *x;
+                        cksum = cksum.wrapping_sub(v);
+                        if v == inval {
+                            *x = if pad { samp } else { WFDB_INVALID_SAMPLE };
+                        } else {
+                            samp = v;
+                        }
+                    }
+                }
+                is.samp = samp;
+                is.info.cksum = cksum;
+                if is.info.nsamp > 0 {
+                    is.info.nsamp -= m as i64;
+                } else if is.info.nsamp == 0 {
+                    is.info.nsamp = -1;
+                }
+            }
+            s = e;
+        }
+        st.istime += m as i64;
+        m
+    }
+
+    /// wfdb-x: turns the bulk path of [`Wfdb::getvecs`] on or off (it is on
+    /// by default) and returns the previous setting. The results are the
+    /// same either way; this is for testing the bulk path against the
+    /// per-frame path.
+    #[doc(hidden)]
+    pub fn wfdbx_bulk_read(&mut self, on: bool) -> bool {
+        let previous = !self.sig.bulk_off;
+        self.sig.bulk_off = !on;
+        previous
+    }
+
     /// Reads up to `n` sample vectors, as `n` calls of [`Wfdb::getvec`]
     /// would, into `out` (vector after vector, one value per signal in
     /// each). Not part of the C library; faster than calling `getvec` in a
-    /// loop.
+    /// loop (wfdb-x: where no frame needs special handling, it decodes the
+    /// complete frames in the input buffers at once, with the same results).
     ///
     /// # Returns
     ///
@@ -4268,6 +4627,14 @@ impl Wfdb {
             let need = self.vec_need();
             let mut pos = 0usize;
             while k < n {
+                // wfdb-x: as many frames as possible at once (see bulk_frames)
+                let m = self.bulk_frames(&mut out[pos..], n - k);
+                if m > 0 {
+                    stat = self.sig.nisig as i32;
+                    pos += m * stride;
+                    k += m as i64;
+                    continue;
+                }
                 if pos + need > out.len() {
                     // (the caller's array is too short for another vector)
                     let mut tmp = vec![0; need];
@@ -5647,6 +6014,27 @@ impl Wfdb {
         self.sig.bcount
     }
 
+    /// wfdb-x (for the high-level API): the number of samples per signal
+    /// given by the record line of the header read last (that of a
+    /// multi-segment record for such a record; 0 if not given).
+    pub(crate) fn wfdbx_header_nsamples(&self) -> i64 {
+        let st = &self.sig;
+        if st.in_msrec != 0 {
+            st.msnsamples
+        } else {
+            st.nsamples
+        }
+    }
+
+    /// wfdb-x (for the high-level API): the base time, in milliseconds
+    /// after midnight (C `btime`), and the base date, as (year, month, day)
+    /// (`None` if the header gives no date: C `bdate` 0).
+    pub(crate) fn wfdbx_base_time_date(&self) -> (i64, Option<[i32; 3]>) {
+        let st = &self.sig;
+        let date = (st.bdate != 0).then(|| julian_to_ymd(st.bdate));
+        (st.btime, date)
+    }
+
     /// C `setbasecount(count)`: set the base counter value.
     pub fn setbasecount(&mut self, counter: f64) {
         self.sig.bcount = counter;
@@ -5687,28 +6075,7 @@ impl Wfdb {
     /// C `datstr(date)`: a Julian date as ` dd/mm/yyyy` (with a leading
     /// space).
     pub fn datstr(&mut self, date: i64) -> Vec<u8> {
-        let mut date = date;
-        if date >= IGREG_JDN {
-            // Gregorian calendar correction
-            let gcorr = d2i(((date - 1867216) as f64 - 0.25) / 36524.25);
-            date += 1 + gcorr as i64 - d2l(0.25 * gcorr as f64);
-        }
-        date += 1524;
-        let jy = d2i(6680.0 + ((date - 2439870) as f64 - 122.1) / 365.25);
-        let jd = d2l((365 * jy as i64) as f64 + 0.25 * jy as f64);
-        let jm = d2i((date - jd) as f64 / 30.6001);
-        let d = (date - jd - d2i(30.6001 * jm as f64) as i64) as i32;
-        let mut m = jm - 1;
-        if m > 12 {
-            m -= 12;
-        }
-        let mut y = jy - 4715;
-        if m > 2 {
-            y -= 1;
-        }
-        if y <= 0 {
-            y -= 1;
-        }
+        let [y, m, d] = julian_to_ymd(date);
         let mut ds = cformat!(b" %02d/%02d/%d", d, m, y);
         ds.truncate(DATE_STRING_LEN);
         self.sig.date_string = ds.clone();

@@ -125,11 +125,11 @@ if (.mode == "source") {
                "write_record without gains (modern)")
   write_record("lg", x, 100, legacy = TRUE)
   check(!wfdbx_get_legacy(), "write_record legacy: setting restored")
-  si <- read_header("lg")
+  si <- read_header("lg")$siginfo
   check(si[[1]]$gain == 200 && si[[2]]$gain == 200 && si[[1]]$adcres == 16 &&
           is.null(si[[1]]$units), "write_record legacy: gain 200, adcres 16, no units")
   write_record("lg8", x, 100, fmt = 80, gains = c(100, 0), legacy = TRUE)
-  check(read_header("lg8")[[1]]$adcres == 8, "write_record legacy: adcres 8 for format 80")
+  check(read_header("lg8")$siginfo[[1]]$adcres == 8, "write_record legacy: adcres 8 for format 80")
   # physical values of an uncalibrated signal: gain 200
   expect_equal(errmsg(read_record("lg8", physical = TRUE)),
                "signal 1 of record lg8 is uncalibrated", "read_record physical uncalibrated")
@@ -147,8 +147,8 @@ if (.mode == "source") {
   check(r$fs == 250 && nrow(r$signals) == 250, "read_record legacy nf")
   expect_equal(errmsg(read_record("nf", sampto = "0:1")),
                "sampling frequency of record nf is not specified", "read_record nf (modern)")
-  expect_equal(read_header("nr", legacy = TRUE)[[1]]$adcres, 12, "read_header legacy nr")
-  expect_equal(read_header("nr")[[1]]$adcres, 0, "read_header nr (modern)")
+  expect_equal(read_header("nr", legacy = TRUE)$siginfo[[1]]$adcres, 12, "read_header legacy nr")
+  expect_equal(read_header("nr")$siginfo[[1]]$adcres, 0, "read_header nr (modern)")
   # read_annotations: 250 Hz without a header, unless fs is given
   file.copy("100s.atr", "nohea.atr")
   wfdbquiet()

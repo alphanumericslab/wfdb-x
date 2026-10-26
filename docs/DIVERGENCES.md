@@ -288,7 +288,10 @@ same encoding. The messages and the status of the library are the same
 except that the messages the separate `sortann` printed itself are gone:
 for a record without a header, for example, the original printed `init:
 can't open header for record REC` in the middle of that line, because
-`sortann` looked the header up. `WFDBANNSORT=0` still turns sorting off.
+`sortann` looked the header up. `WFDBANNSORT=0` turns sorting off, and the
+high-level `write_annotations` has a `sort` option that decides for that
+call alone (sort, or leave the file as written), whatever `WFDBANNSORT`
+says, without changing the environment of the process.
 
 In legacy mode the library runs `sortann`, as the original does, with one
 change: the program is started without a shell, its arguments passed
@@ -361,9 +364,24 @@ have no legacy counterpart:
   setting) and `wfdbx_get_output_dir()` set and return the directory in
   which output files are created; the high-level functions set it for the
   duration of the call.
-* **Faster writing in Python** (and in the other implementations where
-  writing was slow): `write_record` writes whole arrays at once instead of
-  frame by frame, producing exactly the same files.
+* **Fast reading and writing.** The high-level functions read and write
+  whole blocks of samples, and `write_annotations` encodes a whole MIT
+  annotation file at once, instead of going sample by sample or
+  annotation by annotation through the C-style functions. The C-style
+  multi-frame readers of C++ and Rust decode whole blocks as well. The
+  samples and files are exactly those of the frame-by-frame path; only the
+  frame at which a checksum is verified, and anything not stored in plain
+  blocks (skewed, multi-segment or multi-frequency records, for example),
+  go through it.
+* **The record header and the start time as numbers.** `read_header`
+  returns the header of a record without opening its signal files: the
+  sampling and counter frequencies, the base counter value, the number of
+  samples, the signal specifications, the info strings, and the start time
+  and date. `read_header` and `read_record` give the start time both as
+  text (`base_time`, as `timstr(0)` gives it, to the second) and as numbers:
+  `base_time_ms`, in milliseconds after midnight (which keeps the
+  milliseconds of a start time such as `14:00:03.500`), and `base_date`,
+  as year, month and day.
 * **Read errors in the high-level readers.** `read_record` and the other
   high-level readers raise an error (`can't read signal data of record REC
   (getvec status S)`) when a signal file ends before the length its header
@@ -375,8 +393,9 @@ have no legacy counterpart:
   warning `checksum error in record REC: the signal data do not match the
   checksums in its header` in each language's usual way (Python `warnings`,
   R `warning()`, Julia `@warn`, MATLAB/Octave `warning()`, the standard
-  error in C++ and Rust). The `checksum_warning` option turns it off. Both
-  behave identically in all six implementations. The C-style functions
+  error in C++ and Rust). The `checksum_warning` option turns it off, and
+  the record's `checksum_ok` field is false in either case, so a program
+  can test for it. Both behave identically in all six implementations. The C-style functions
   and the tools report these as the original does.
 
 ## Legacy mode
@@ -408,9 +427,9 @@ described above.
   the input files.
 * **High-level API** (an addition of wfdb-x, not part of the C package).
   `read_record`, `read_header`, `read_annotations`, `write_record` and the
-  related functions of each language take a legacy option. They behave as
-  wfdb-x's high-level API did before the redesign when the option is set
-  or when the library is in legacy mode (`wfdbx_set_legacy(1)`). With the
+  related functions of each language take a legacy option. When the option
+  is set, or the library is in legacy mode (`wfdbx_set_legacy(1)`), they
+  follow the original package's rules listed above. With the
   option, the library's legacy mode is on during the call, and the previous
   setting is restored afterwards. In that mode, `write_record` uses a gain
   of 200 and units are optional. Its default ADC resolution is the storage

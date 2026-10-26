@@ -418,7 +418,10 @@ annotation), `ann`, `ann_tt`, `pann` (pushback), `buf`, `index`,
 * `calib.R`: the calibration list (`calopen`, `getcal` returning
   `list(stat, cal)`, `putcal`, `newcal`, `flushcal`).
 * `highlevel_annot.R`: `read_annotations` (a data frame with attributes
-  `record`, `annotator`, `fs`) and `write_annotations`.
+  `record`, `annotator`, `fs`) and `write_annotations` (its `sort`
+  argument sets `.ann$sort_override` for the duration of the call, after
+  the `wfdbquit()` that closes the annotators opened before it;
+  `oannclose` uses it instead of `WFDBANNSORT` when it is not `NULL`).
 
 Timings (R 4.3, a file of 400,000 annotations of which 57,000 have aux
 strings, `Rscript` command line including startup): `rdann` 4.4 s (17.8 MB

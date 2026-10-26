@@ -562,7 +562,7 @@ WFDBX_TEST(files_network)
     InputOptions in;
     in.input_dir = url;
     in.network = true;
-    CHECK(read_header("100s", false, in).size() == 2);
+    CHECK(read_header("100s", false, in).siginfo.size() == 2);
     CHECK(read_annotations("100s", "atr", {}, {}, std::nullopt, false, in)
               .size() == 75);
     CHECK(wfdbx_get_input_dir() == "prev" && wfdbx_get_network() == 0);

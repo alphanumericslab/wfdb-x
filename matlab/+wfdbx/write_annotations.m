@@ -16,6 +16,13 @@ function write_annotations(record, annotator, samples, varargin)
 %                 created (default: the current directory, or the
 %                 directory part of RECORD; RECORD must not contain a
 %                 directory when 'dir' is given)
+%     'sort'      true to rearrange an out-of-order file in canonical
+%                 order when it is closed, false to leave it in the order
+%                 given, for this call only, whatever the environment
+%                 variable WFDBANNSORT says (in legacy mode too: true
+%                 runs sortann as legacy mode does); default [] (unset):
+%                 WFDBANNSORT decides (see below).  The environment is
+%                 not changed.
 %     'legacy'    true to run with the library's legacy mode
 %                 (wfdbx.wfdbx_set_legacy) on during the call (default
 %                 false; writing annotations does not depend on it)
@@ -23,7 +30,8 @@ function write_annotations(record, annotator, samples, varargin)
 %   SAMPLES and the other values may be row or column vectors.
 %
 %   Annotations that are not in canonical order are rearranged when the
-%   file is closed, unless the environment variable WFDBANNSORT is 0 (as
+%   file is closed, unless 'sort' is false, or 'sort' is unset and the
+%   environment variable WFDBANNSORT is 0 (as
 %   the sortann tool does; wfdb-x: in this process, whereas the C library,
 %   as legacy mode, runs sortann; see wfdbx.oannclose).  An error is
 %   thrown if the file cannot be created, or if 'dir' is given and does
@@ -47,6 +55,9 @@ function write_annotations(record, annotator, samples, varargin)
 % writers take a 'dir' option (the files are created in that directory,
 % and the record opens from there under its plain name), and an
 % out-of-order file is rearranged in this process (see wfdbx.oannclose).
+% Design decision (Reza Sameni, Oct 2026): the 'sort' option decides, for
+% one call, whether an out-of-order file is rearranged, instead of the
+% process-wide WFDBANNSORT environment variable.
 % The original behavior remains available with --legacy (see
 % docs/DIVERGENCES.md).
 % GNU Library General Public License, version 2 or later (see LICENSE.LIB).
@@ -54,13 +65,18 @@ function write_annotations(record, annotator, samples, varargin)
 record = wfdbx.internal.strarg(record);
 annotator = wfdbx.internal.strarg(annotator);
 opt = struct('symbols', [], 'codes', [], 'subtypes', 0, 'chans', 0, ...
-    'nums', 0, 'aux', [], 'fs', [], 'dir', [], 'legacy', false);
+    'nums', 0, 'aux', [], 'fs', [], 'dir', [], 'sort', [], 'legacy', false);
 opt = wfdbx.internal.hl_options(opt, varargin, 'write_annotations');
 % wfdb-x: the 'dir' option (the library's output directory, for this
 % call), checked before the other arguments
 restore_dir = wfdbx.internal.hl_outdir(opt.dir, record, ...
     'write_annotations'); %#ok<NASGU>
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'write_annotations'); %#ok<NASGU>
+if ~(isempty(opt.sort) || ((islogical(opt.sort) || isnumeric(opt.sort)) && ...
+        isscalar(opt.sort)))
+    error('wfdbx:write_annotations', ...
+        'write_annotations: sort must be true, false or []');
+end
 if ischar(opt.symbols)
     opt.symbols = num2cell(opt.symbols);
 end
@@ -73,10 +89,19 @@ if isempty(opt.codes)
     if isempty(opt.symbols) && n > 0
         error('wfdbx:write_annotations', 'symbols or codes must be given');
     end
-    codes = zeros(1, n);
-    for k = 1:n
-        codes(k) = wfdbx.strann(opt.symbols{k});
+    % (wfdbx.strann once for each distinct mnemonic; anything but text is
+    % code 0, as for strann)
+    sym = reshape(opt.symbols(1:n), 1, []);
+    if ~iscell(sym)
+        sym = num2cell(sym);
     end
+    sym(~cellfun('isclass', sym, 'char')) = {''};
+    [u, ~, j] = unique(sym);
+    uc = zeros(1, numel(u));
+    for k = 1:numel(u)
+        uc(k) = wfdbx.strann(u{k});
+    end
+    codes = reshape(uc(j), 1, []);
 else
     codes = reshape(double(opt.codes), 1, []);
 end
@@ -87,12 +112,17 @@ A.chan = per(opt.chans, n);
 A.num = per(opt.nums, n);
 A.aux = cell(1, n);
 if ~isempty(opt.aux)
-    for k = 1:n
-        s = opt.aux{k};
-        if ischar(s)
-            b = double(s(1:min(end, 255)));
-            A.aux{k} = uint8([numel(b), b]);
+    % (each distinct string is encoded once)
+    aux = reshape(opt.aux(1:n), 1, []);
+    idx = find(cellfun('isclass', aux, 'char'));
+    if ~isempty(idx)
+        [u, ~, j] = unique(aux(idx));
+        enc = cell(1, numel(u));
+        for k = 1:numel(u)
+            b = double(u{k}(1:min(end, 255)));
+            enc{k} = uint8([numel(b), b]);
         end
+        A.aux(idx) = enc(j);
     end
 end
 wfdbx.wfdbquit();
@@ -105,10 +135,21 @@ if wfdbx.annopen(record, wfdbx.anninfo(annotator, 1), 1) < 0
         annotator, record);
 end
 wfdbx.internal.putann_bulk(0, A);
+% wfdb-x: the 'sort' option, for the closing of this file only
+st = wfdbx.internal.ann_state();
+if ~isempty(opt.sort)
+    st.sort_override = logical(opt.sort);
+end
+unset = onCleanup(@() clear_sort(st)); %#ok<NASGU>
 wfdbx.wfdbquit();
+st.sort_override = [];
 if ~isempty(opt.fs)
     wfdbx.setafreq(0);
 end
+end
+
+function clear_sort(st)
+st.sort_override = [];
 end
 
 function v = per(v, n)

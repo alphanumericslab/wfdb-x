@@ -132,9 +132,15 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' directory; wfdb-x).  Returns invisibly the status of the last putann
 #' (0).  legacy: if TRUE, the library's legacy mode is on for the duration
 #' of the call (see read_annotations).
+#'
+#' sort: NULL (the default): an out-of-order file is sorted unless the
+#' WFDBANNSORT environment variable is 0; TRUE: it is sorted, FALSE: it is
+#' left in the order given, for this call only, whatever WFDBANNSORT says
+#' (in legacy mode too: TRUE runs the sortann tool; the environment is not
+#' changed).  wfdb-x.
 write_annotations <- function(record, annotator, sample, symbol = NULL, code = NULL,
                               subtype = 0, chan = 0, num = 0, aux = NULL, fs = NULL,
-                              dir = NULL, legacy = FALSE) {
+                              dir = NULL, legacy = FALSE, sort = NULL) {
   if (isTRUE(legacy)) {
     old <- wfdbx_set_legacy(TRUE)
     on.exit(wfdbx_set_legacy(old), add = TRUE)
@@ -144,6 +150,8 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
     old_dir <- wfdbx_set_output_dir(dir)
     on.exit(wfdbx_set_output_dir(old_dir), add = TRUE)
   }
+  if (!is.null(sort) && (!is.logical(sort) || length(sort) != 1L || is.na(sort)))
+    stop("sort must be NULL, TRUE or FALSE")
   if (is.data.frame(sample)) {
     df <- sample
     sample <- df$sample
@@ -162,13 +170,21 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
   auxl <- vector("list", n)
   if (!is.null(aux)) {
     aux <- rep_len(as.character(aux), n)
-    for (k in which(!is.na(aux))) {
-      b <- charToRaw(aux[k])
+    ok <- which(!is.na(aux))
+    # (each distinct string is converted once)
+    u <- unique(aux[ok])
+    ub <- lapply(u, function(a) {
+      b <- charToRaw(a)
       if (length(b) > 255L) b <- b[1:255]   # (the length byte)
-      auxl[[k]] <- c(as.raw(length(b)), b)
-    }
+      c(as.raw(length(b)), b)
+    })
+    auxl[ok] <- ub[match(aux[ok], u)]
   }
   wfdbquit()
+  # (the sort option applies to the file written here only: set after the
+  # wfdbquit above, which closes any annotator opened before)
+  .ann$sort_override <- sort
+  on.exit(.ann$sort_override <- NULL, add = TRUE)
   if (!is.null(fs)) setafreq(as.numeric(fs))
   on.exit(if (!is.null(fs)) setafreq(0), add = TRUE)
   if (annopen(record, list(anninfo(annotator, WFDB_WRITE)), 1) < 0) {

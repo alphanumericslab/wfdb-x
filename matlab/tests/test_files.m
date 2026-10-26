@@ -422,7 +422,8 @@ end
 
 function highlevel_local()
 wfdbx.wfdbx_set_input_dir('elsewhere');
-assert_eq(numel(wfdbx.read_header('sr', 'input_dir', 'sub')), 2, ...
+h = wfdbx.read_header('sr', 'input_dir', 'sub');
+assert_eq(h.nsig, 2, ...
     'read_header input_dir');
 a = wfdbx.read_annotations('sr', 'atr', 'input_dir', 'sub');
 assert_eq(numel(a.samples), 75, 'read_annotations input_dir');
@@ -678,6 +679,7 @@ assert_error(@() wfdbx.read_header([srv.url '100s'], 'network', false), ...
     'network false');
 wfdbx.wfdbverbose();
 assert_eq(wfdbx.wfdbx_get_network(), 1, 'network restored');
-assert_eq(numel(wfdbx.read_header([srv.url '100s'])), 2, 'network kept');
+h = wfdbx.read_header([srv.url '100s']);
+assert_eq(h.nsig, 2, 'network kept');
 defaults();
 end

@@ -31,6 +31,14 @@
 
 #include <wfdbx/wfdb.hpp>
 
+// wfdb-x: getc without locking the stream (the input is read a byte at a
+// time).
+#if defined(_WIN32)
+#define WFDBX_APP_GETC(f) _getc_nolock(f)
+#else
+#define WFDBX_APP_GETC(f) getc_unlocked(f)
+#endif
+
 using namespace wfdbx;
 
 static const char *pname;   // name of this program, for use in error messages
@@ -276,8 +284,8 @@ static short in16()
 {
     short a, b, r;
 
-    if ((a = static_cast<short>(std::getc(ifile))) == EOF ||
-        (b = static_cast<short>(std::getc(ifile))) == EOF) {
+    if ((a = static_cast<short>(WFDBX_APP_GETC(ifile))) == EOF ||
+        (b = static_cast<short>(WFDBX_APP_GETC(ifile))) == EOF) {
         errflag = EOF;
         return (EOF);
     }
@@ -289,8 +297,10 @@ static long in32()
 {
     long a, b, c, d, r;
 
-    if ((a = std::getc(ifile)) == EOF || (b = std::getc(ifile)) == EOF ||
-        (c = std::getc(ifile)) == EOF || (d = std::getc(ifile)) == EOF) {
+    if ((a = WFDBX_APP_GETC(ifile)) == EOF ||
+        (b = WFDBX_APP_GETC(ifile)) == EOF ||
+        (c = WFDBX_APP_GETC(ifile)) == EOF ||
+        (d = WFDBX_APP_GETC(ifile)) == EOF) {
         errflag = EOF;
         return (EOF);
     }

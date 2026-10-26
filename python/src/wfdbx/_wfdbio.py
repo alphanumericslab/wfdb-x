@@ -104,6 +104,30 @@ class WFDBFile:
             self._eof = True
         return b
 
+    def readinto(self, buf):
+        """Read up to len(buf) bytes into the writable buffer buf (as
+        read(len(buf)), without an intermediate bytes object); returns the
+        number of bytes read."""
+        n = len(buf)
+        got = 0
+        try:
+            readinto = getattr(self.fp, "readinto", None)
+            if readinto is None:
+                b = self.fp.read(n) or b""
+                got = len(b)
+                buf[:got] = b
+            else:
+                while got < n:
+                    k = readinto(buf[got:])
+                    if not k:
+                        break
+                    got += k
+        except (OSError, ValueError):
+            self._err = True
+        if got < n:
+            self._eof = True
+        return got
+
     def readall(self):
         """Read everything up to the end of the file."""
         try:

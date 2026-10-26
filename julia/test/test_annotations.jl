@@ -541,6 +541,52 @@ end
     end
 end
 
+# wfdb-x: write_annotations(sort=...) decides for its call whatever
+# WFDBANNSORT says (the environment is not changed); unset: WFDBANNSORT.
+@testset "write_annotations sort option" begin
+    with_data("sortopt") do w
+        ann = W.Annotations(samples=[300, 100, 200], codes=Int32[1, 5, 1])
+        times(name) = W.read_annotations(w, "100s", name).samples
+        for legacy in (false, true)
+            withenv("WFDBANNSORT" => nothing) do
+                err = capture_stderr() do
+                    W.write_annotations(w, "100s", "nos", ann; sort=false, legacy=legacy)
+                end
+                # (as with WFDBANNSORT=0: the file is left as written, and
+                # the library says how to sort it)
+                @test err == "Use the command:\n  sortann -r 100s -a nos\n" *
+                             "to rearrange annotations in the correct order.\n"
+                @test times("nos") == [300, 100, 200]
+                err = capture_stderr(() -> W.write_annotations(w, "100s", "dfl", ann;
+                                                                legacy=legacy))
+                @test err == rearranged("dfl") && times("dfl") == [100, 200, 300]
+            end
+            withenv("WFDBANNSORT" => "0") do
+                err = capture_stderr() do
+                    W.write_annotations(w, "100s", "srt", ann; sort=true, legacy=legacy)
+                end
+                @test err == rearranged("srt") && times("srt") == [100, 200, 300]
+                @test ENV["WFDBANNSORT"] == "0"
+                W.wfdbquiet(w)
+                W.write_annotations(w, "100s", "uns", ann; legacy=legacy)
+                W.wfdbverbose(w)
+                @test times("uns") == [300, 100, 200]
+            end
+            withenv("WFDBANNSORT" => "1") do
+                W.write_annotations(w, "100s", "nos", ann; sort=false, legacy=legacy)
+                @test times("nos") == [300, 100, 200]
+            end
+            @test w.ann.sort_override === nothing      # (restored)
+        end
+        # an in-order file is the same whatever the option
+        ok = W.Annotations(samples=[100, 200], codes=Int32[1, 1])
+        for (name, opt) in (("o1", nothing), ("o2", true), ("o3", false))
+            W.write_annotations(w, "100s", name, ok; sort=opt)
+        end
+        @test read("100s.o1") == read("100s.o2") == read("100s.o3")
+    end
+end
+
 @testset "sort list: time 0" begin
     for (legacy, want) in ((false, [0, 3, 5]), (true, [5]))
         l = W._SortList(legacy)

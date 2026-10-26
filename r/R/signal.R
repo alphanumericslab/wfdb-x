@@ -3110,6 +3110,16 @@ strtim <- function(string) {
 #' Convert a Julian date to a string (" dd/mm/yyyy").
 datstr <- function(date) {
   st <- .sig
+  ymd <- .julian_ymd(date)
+  st$date_string <- .f(" %02d/%02d/%d", ymd[3L], ymd[2L], ymd[1L])
+  st$pdays <- -1
+  st$date_string
+}
+
+# The calendar date c(year, month, day) of a Julian date, as datstr()
+# converts it (wfdb-x: datstr's conversion, shared with the base_date of
+# the high-level readers).
+.julian_ymd <- function(date) {
   if (date >= 2299161) {                    # Gregorian calendar correction
     gcorr <- trunc(((date - 1867216) - 0.25) / 36524.25)
     date <- date + 1 + gcorr - trunc(0.25 * gcorr)
@@ -3124,9 +3134,7 @@ datstr <- function(date) {
   y <- jy - 4715
   if (m > 2) y <- y - 1
   if (y <= 0) y <- y - 1
-  st$date_string <- .f(" %02d/%02d/%d", d, m, y)
-  st$pdays <- -1
-  st$date_string
+  c(y, m, d)
 }
 
 #' Convert a date string (dd/mm/yyyy) to a Julian date (0 if invalid).
@@ -3672,7 +3680,8 @@ wfdb_freeinfo <- function() {
   if (n == 0) return(matrix(0, 0, nisig))
   if (full && ispfmax > 1) return(do.call(cbind, frames))
   if (ispfmax == 1) {
-    out <- matrix(unlist(frames, use.names = FALSE), n, nisig)
+    out <- unlist(frames, use.names = FALSE)     # (dim<-: no copy)
+    dim(out) <- c(n, nisig)
     if (deskew) {
       # the ring buffer holds raw frames k .. k+L-1 (L = skewmax + 1), the
       # oldest in slot dsbi; output frame k+j takes signal s from raw frame

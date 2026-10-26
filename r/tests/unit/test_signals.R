@@ -186,7 +186,7 @@ if (.mode == "source") {
   check(startsWith(txt, "hw 2 125.5 10 12:00:00 01/02/2003\r\n"), "header first line")
   check(grepl("hw.dat 16 100/mV 16 0 0 0 0 lead I\r\n", txt, fixed = TRUE), "header signal line")
   check(endsWith(txt, "#c1\r\n"), "header info")
-  si <- read_header("hw")
+  si <- read_header("hw")$siginfo
   check(length(si) == 2 && si[[2]]$desc == "pressure" && si[[2]]$units == "uV", "read_header")
 
   # ---- test_api.py: t_bufsize
@@ -851,6 +851,74 @@ if (.mode == "source") {
   assign("cerr", cerr0, envir = senv)
   expect_equal(printed, rep("getvec: checksum error in signal 0\n", 2),
                "checksum: getvec's message printed by the C-style API")
+
+  # ---- checksum_ok: FALSE when the samples do not match the checksums
+  # (with or without the warning), TRUE otherwise; checksums are verified
+  # only when the read reaches the end of the record
+  for (lg in c(FALSE, TRUE)) {
+    for (cw in c(TRUE, FALSE)) {
+      r <- suppressWarnings(read_record("ck", checksum_warning = cw, legacy = lg))
+      check(identical(r$checksum_ok, FALSE), paste("checksum_ok FALSE, warning", cw, "legacy", lg))
+    }
+    check(identical(read_record("good", legacy = lg)$checksum_ok, TRUE), "checksum_ok TRUE")
+    check(identical(read_record("ck", sampto = 3, legacy = lg)$checksum_ok, TRUE),
+          "checksum_ok TRUE: not read to the end")
+  }
+
+  # ---- read_header: the record header; base_time_ms and base_date in
+  # read_record and read_header
+  hdr <- function(name, line1, extra = character(0)) {
+    writeLines(c(line1, paste0(name, ".dat 16 100/mV 16 0 0 0 0 s0"), extra), paste0(name, ".hea"))
+    writeBin(raw(20), paste0(name, ".dat"))
+  }
+  hdr("bt1", "bt1 1 250 10 14:00:03.500 21/06/2024", c("#first", "#second"))
+  hdr("bt2", "bt2 1 250 10 14:00:03")
+  hdr("bt3", "bt3 1 250 10")
+  hdr("bt4", "bt4 1 250/1000(-5)")
+  hdr("bt5", "bt5 1")
+  hdr("bt6", "bt6 1 250 10 0:00:00 01/01/1582")
+  for (rd in c("record", "header")) {
+    get_ <- function(name) if (rd == "record") read_record(name) else read_header(name)
+    h <- get_("bt1")
+    expect_equal(h$base_time, "[14:00:03 21/06/2024]", paste(rd, "base_time"))
+    check(identical(h$base_time_ms, 50403500), paste(rd, "base_time_ms 14:00:03.500"))
+    check(identical(h$base_date, c(2024L, 6L, 21L)), paste(rd, "base_date"))
+    expect_equal(h$comments, c("first", "second"), paste(rd, "comments"))
+    h <- get_("bt2")
+    check(identical(h$base_time_ms, 50403000) && is.null(h$base_date) &&
+            "base_date" %in% names(h), paste(rd, "time without a date"))
+    h <- get_("bt3")
+    check(is.null(h$base_time) && is.null(h$base_time_ms) && is.null(h$base_date) &&
+            all(c("base_time", "base_time_ms", "base_date") %in% names(h)),
+          paste(rd, "no base time"))
+    h <- get_("bt6")                 # (a date before the Gregorian calendar)
+    check(identical(h$base_time_ms, 0) && identical(h$base_date, c(1582L, 1L, 1L)),
+          paste(rd, "base_date 1582"))
+  }
+  h <- read_header("bt1")
+  check(inherits(h, "wfdbx_header") && is.list(h), "read_header: class wfdbx_header")
+  expect_equal(names(h), c("name", "fs", "counter_freq", "base_counter", "nsamples", "nsig",
+                           "siginfo", "base_time", "base_time_ms", "base_date", "comments"),
+               "read_header: fields")
+  check(h$name == "bt1" && h$fs == 250 && h$counter_freq == 250 && h$base_counter == 0 &&
+          h$nsamples == 10 && h$nsig == 1 && length(h$siginfo) == 1 &&
+          h$siginfo[[1]]$desc == "s0", "read_header: values")
+  h <- read_header("bt4")
+  check(h$fs == 250 && h$counter_freq == 1000 && h$base_counter == -5 && h$nsamples == 0,
+        "read_header: counter frequency, base counter, no length")
+  h <- read_header("bt5")
+  check(h$fs == 0 && h$counter_freq == 0 && is.null(h$base_time), "read_header: no frequency")
+  check(read_header("bt5", legacy = TRUE)$fs == 250, "read_header legacy: 250 Hz")
+  h <- read_header("100s")
+  check(h$nsig == 2 && h$nsamples == 21600 && h$fs == 360 &&
+          identical(h$comments, read_record("100s", sampto = 1)$comments),
+        "read_header 100s")
+  # the C-style datstr and the base_date conversion agree
+  for (jd in c(1, 2299160, 2299161, 2460483, 2488070)) {
+    ymd <- .julian_ymd(jd)
+    expect_equal(datstr(jd), sprintf(" %02d/%02d/%d", ymd[3], ymd[2], ymd[1]),
+                 paste("datstr / .julian_ymd", jd))
+  }
 
   # ---- an output signal file is never a signal file of the open input
   # record (the files are compared, not their names); legacy mode: no check
