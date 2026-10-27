@@ -6,8 +6,15 @@ function status = app_run(main, argv)
 %   ends it with status S.  The standard output is flushed when the tool
 %   ends.  As every C tool does first, a first argument '--legacy' is
 %   removed and turns legacy mode on (wfdbx.wfdbx_legacy_args); the
-%   previous setting is restored when the tool ends.  Other errors are passed on to the caller (the command-line
-%   driver reports them and exits with status 1).
+%   previous setting is restored when the tool ends.  Other errors are
+%   passed on to the caller (the command-line driver reports them and exits
+%   with status 1).
+%
+%   wfdb-x: at the end, in normal mode, a standard output that could not be
+%   written is reported ("PROGRAM: write error on standard output"), and the
+%   exit status 0 becomes 1 if the standard output or another output file
+%   could not be written (see wfdbx.wfdbx_write_errors), as for the
+%   standard tools.  Legacy mode keeps the original exit status.
 %
 %   Each tool +wfdbx/+apps/NAME.m is written as
 %
@@ -39,20 +46,33 @@ function status = app_run(main, argv)
 
 legacy = wfdbx.wfdbx_get_legacy();
 [~, argv] = wfdbx.wfdbx_legacy_args(argv);
+st = wfdbx.internal.io_state();
+errors = st.write_errors;
 try
     status = main(argv);
     if isempty(status)
         status = 0;
     end
 catch err
-    wfdbx.internal.cout();
-    wfdbx.wfdbx_set_legacy(legacy);
-    if strcmp(err.identifier, 'wfdbx:exit')
-        status = str2double(err.message);
-        return;
+    if ~strcmp(err.identifier, 'wfdbx:exit')
+        wfdbx.internal.cout();
+        wfdbx.wfdbx_set_legacy(legacy);
+        rethrow(err);
     end
-    rethrow(err);
+    status = str2double(err.message);
 end
 wfdbx.internal.cout();
+mode = wfdbx.wfdbx_get_legacy();
 wfdbx.wfdbx_set_legacy(legacy);
+if ~mode
+    failed = st.stdout_failed;
+    if failed
+        [~, pname, ext] = fileparts(argv{1});
+        wfdbx.internal.cerr(sprintf('%s: write error on standard output\n', ...
+            [pname ext]));
+    end
+    if status == 0 && (failed || st.write_errors > errors)
+        status = 1;
+    end
+end
 end

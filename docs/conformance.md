@@ -26,6 +26,19 @@ stands for the absolute path of that work directory, which is written back as
 `{cwd}` in the recorded standard output and error. Blobs larger than 64 KB
 are stored as SHA-256 digests (`*.sha256`).
 
+Write errors are tested with `/dev/full`, a device on which every write
+fails ("no space left on device"): a case can create output files as links
+to it (`full`), and send the standard output there (`stdout_full`). These
+cases are skipped where `/dev/full` does not exist (it does on Linux).
+
+The golden directory names are case-sensitive: a capital letter in a case id
+is stored as `^` and the letter in lower case (`rdsamp-r_100s_S` is
+`rdsamp-r_100s_^s`), so that ids differing only in case get distinct
+directories. Copy the golden results with `git` (or another case-preserving
+tool): a copy made on a case-insensitive file system can keep an old
+directory's spelling, and the harness then reports "missing golden results"
+for it, naming the misspelled directory.
+
 FLAC-compressed signal files written by a tool are compared by their decoded
 contents (cases list them in `flac_files`), because the compressed bytes of
 FLAC files depend on the libFLAC version and on the processor.

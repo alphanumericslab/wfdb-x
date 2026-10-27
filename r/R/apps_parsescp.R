@@ -379,14 +379,14 @@ app_parsescp <- function(args = character(0)) {
   nf <- if (P$vflag) 4L else 3L
   cons <- vector("list", nf)
   for (k in seq_len(nf)) {
-    cons[[k]] <- tryCatch(file(names[k], "wb"), error = function(e) NULL)
+    cons[[k]] <- .app_fopen(names[k], P$pname)
     if (is.null(cons[[k]])) {
-      for (c in cons[seq_len(k - 1L)]) close(c)
+      for (c in cons[seq_len(k - 1L)]) .app_fclose(c)
       ceprintf("%s: can't create '%s'\n", P$pname, names[k])
       return(invisible())
     }
   }
-  fw <- function(con, fmt, ...) writeBin(csprintf(fmt, ...), con)
+  fw <- function(con, fmt, ...) .app_fwrite(con, csprintf(fmt, ...))
 
   # Write the description file first.
   dfile <- cons[[1L]]
@@ -430,8 +430,8 @@ app_parsescp <- function(args = character(0)) {
   fw(dfile, "P axis: %d\n", P$Paxis)
   fw(dfile, "QRS axis: %d\n", P$QRSaxis)
   fw(dfile, "T axis: %d\n", P$Taxis)
-  writeBin(charToRaw(.scp_precgmeas(P)), dfile)
-  close(dfile)
+  .app_fwrite(dfile, charToRaw(.scp_precgmeas(P)))
+  .app_fclose(dfile)            # wfdb-x: reports a write error
 
   # Generate the key file.
   kfile <- cons[[3L]]
@@ -439,7 +439,7 @@ app_parsescp <- function(args = character(0)) {
   fw(kfile, "Record: %s (%s %s)\n", recname, P$recdate, P$rectime)
   fw(kfile, "Name: %s\n", P$patient_name)
   fw(kfile, "MRN: %s\n", P$patient_id)
-  close(kfile)
+  .app_fclose(kfile)
 
   # Zero-mean the signals (-z).
   if (P$zflag) {
@@ -468,16 +468,16 @@ app_parsescp <- function(args = character(0)) {
   if (P$vflag) {
     tfile <- cons[[4L]]
     if (P$vflag > 1)
-      writeBin(charToRaw(paste0("samp#      I     II    III    aVR    aVF    aVL",
-                                "     V1     V2     V3     V4     V5     V6")), tfile)
+      .app_fwrite(tfile, charToRaw(paste0("samp#      I     II    III    aVR    aVF    aVL",
+                                          "     V1     V2     V3     V4     V5     V6")))
     sigs <- lapply(order, function(k) .scp_sig(P, k))
     for (b0 in .scp_blocks(1, P$nout)) {
       kk <- b0:min(b0 + .SCP_CHUNK - 1, P$nout)
       cols <- lapply(sigs, function(s) s[kk])
       txt <- do.call(sprintf, c(list(paste0("%5d", strrep("%7d", 12L), "\n"), kk - 1L), cols))
-      writeBin(charToRaw(paste(txt, collapse = "")), tfile)
+      .app_fwrite(tfile, charToRaw(paste(txt, collapse = "")))
     }
-    close(tfile)
+    .app_fclose(tfile)
   }
 
   # Finally, output the ECG in vector (binary) form.
@@ -490,17 +490,17 @@ app_parsescp <- function(args = character(0)) {
   PROLOG <- 512L                           # bytes of the prolog of the .dat file
   prolog <- csprintf(fmt, recname, P$recdate, P$rectime)
   prolog <- prolog[seq_len(min(length(prolog), PROLOG))]
-  writeBin(c(prolog, raw(PROLOG - length(prolog))), efile)
+  .app_fwrite(efile, c(prolog, raw(PROLOG - length(prolog))))
   SEG <- 1250L                 # samples of each lead in a row (2.5 s)
   rows <- list(c(1L, 4L, 7L, 10L), c(2L, 6L, 8L, 11L), c(3L, 5L, 9L, 12L))
   for (r in rows) {            # (I aVR V1 V4) (II aVL V2 V5) (III aVF V3 V6)
     for (k in 0:3) {
       x <- .scp_sig(P, order[r[k + 1L]])
-      writeBin(x[SEG * k + seq_len(SEG)], efile, size = 2L, endian = "little")
+      .app_fwrite(efile, x[SEG * k + seq_len(SEG)], size = 2L, endian = "little")
     }
   }
-  writeBin(.scp_sig(P, order[2L])[seq_len(4L * SEG)], efile, size = 2L, endian = "little")
-  close(efile)
+  .app_fwrite(efile, .scp_sig(P, order[2L])[seq_len(4L * SEG)], size = 2L, endian = "little")
+  .app_fclose(efile)
   invisible()
 }
 

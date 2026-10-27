@@ -23,6 +23,8 @@
 %                     - Allow or forbid network access.
 %   wfdbx_set_legacy, wfdbx_get_legacy
 %                     - Turn legacy mode on or off.
+%   wfdbx_write_errors, wfdbx_note_write_error
+%                     - Count of the output files that could not be written.
 %
 % Files
 %   getwfdb           - The input directory (legacy mode: the WFDB path).

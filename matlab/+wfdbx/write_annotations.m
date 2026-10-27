@@ -26,8 +26,10 @@ function write_annotations(record, annotator, samples, varargin)
 %   is 0.
 %
 %   Errors: an error (identifier 'wfdbx:write_annotations') is thrown if
-%   neither 'symbols' nor 'codes' is given, if 'dir' does not exist, or if
-%   the file cannot be created.
+%   neither 'symbols' nor 'codes' is given, if 'dir' does not exist, if the
+%   file cannot be created, or if it cannot be written completely, for
+%   example when the disk is full ("write error on annotator ANNOTATOR for
+%   record RECORD", after the library's message; in legacy mode too).
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
 %   WFDB library functions.
@@ -123,6 +125,7 @@ if ~isempty(opt.aux)
     end
 end
 wfdbx.wfdbquit();
+errors = wfdbx.wfdbx_write_errors();
 if ~isempty(opt.fs)
     wfdbx.setafreq(opt.fs);
 end
@@ -142,6 +145,10 @@ wfdbx.wfdbquit();
 st.sort_override = [];
 if ~isempty(opt.fs)
     wfdbx.setafreq(0);
+end
+if wfdbx.wfdbx_write_errors() > errors
+    error('wfdbx:write_annotations', ...
+        'write error on annotator %s for record %s', annotator, record);
 end
 end
 

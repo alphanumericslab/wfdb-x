@@ -221,6 +221,16 @@ unless it is `0`).
   `wfdbx:write_annotations`.
 * A signal file that is shorter than its header says throws an error:
   "can't read signal data of record REC (getvec status -3)".
+* A record or annotation file that cannot be written completely (for
+  example, when the disk is full) throws the error "write error on record
+  REC" in `write_record`, and "write error on annotator ANN for record REC"
+  in `write_annotations`, after the library's message (such as "osigclose:
+  write error in signal group 0"), in legacy mode too.
+* In `write_record`, each `'samps_per_frame'` value must be an integer of 1
+  or more ("samps_per_frame must hold integers >= 1"), and `signals` must
+  have `sum(samps_per_frame)` columns ("signals has N columns, but
+  samps_per_frame adds up to M"). These are checked first, and nothing is
+  written.
 * An annotation file that ends unexpectedly, or cannot be read, before
   `'sampto'` throws an error: "can't read annotation file ANN of record REC
   (getann status -3)".
@@ -485,6 +495,12 @@ Differences from C that come from the language:
 * Errors are reported by return values, as in C, not by MATLAB errors.
   `wfdbx.wfdberror()` returns the last message, and `wfdbx.wfdbquiet()`
   stops the messages from being printed.
+* `wfdbx.wfdbx_write_errors()` (a wfdb-x addition) returns the number of
+  output files that the library could not write, flush or close, plus those
+  counted by `wfdbx.wfdbx_note_write_error()` (also an addition), which a
+  program that writes a file itself calls. The tools exit with status 1 when
+  the count goes up or the standard output cannot be written ("TOOL: write
+  error on standard output"); in legacy mode they keep status 0, as in C.
 * The library keeps the open record and annotators between calls, as in C.
   `wfdbx.wfdbquit()` closes them; the directory and network settings are
   kept.

@@ -356,11 +356,32 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' library's legacy mode on for the duration of the call.  Kept for
 #' compatibility only: the values it assumes are exactly the silent defaults
 #' this project removed.
+#'
+#' Errors: stop() on invalid arguments (among them, a samps_per_frame value
+#' that is not an integer >= 1: "samps_per_frame must hold integers >= 1",
+#' or signals whose number of columns is not the sum of samps_per_frame:
+#' "signals has N columns, but samps_per_frame adds up to M"; these are
+#' checked first, before any file is created), if the signal file or the
+#' header cannot be created, or if they cannot be written completely, for
+#' example when the disk is full ("write error on record R", after the
+#' library's messages).
 write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          adczeros = 0, adcres = NULL, units = NULL, names = NULL,
                          base_time = NULL, comments = NULL, physical = FALSE,
                          samps_per_frame = NULL, dir = NULL,
                          legacy = FALSE) .hl_legacy(legacy, .hl_output_dir(record, dir, {
+  x <- signals
+  if (is.null(dim(x))) x <- matrix(x, ncol = 1L)
+  x <- matrix(as.numeric(x), nrow(x), ncol(x))
+  spf <- if (is.null(samps_per_frame)) rep(1, ncol(x)) else
+    suppressWarnings(as.numeric(samps_per_frame))
+  nsig <- length(spf)
+  # Each frame holds spf[k] >= 1 samples of signal k, and each row of
+  # signals is one frame.
+  if (anyNA(spf) || any(spf < 1 | spf != trunc(spf)))
+    stop("samps_per_frame must hold integers >= 1")
+  if (ncol(x) != sum(spf))
+    stop(sprintf("signals has %d columns, but samps_per_frame adds up to %.0f", ncol(x), sum(spf)))
   legacy <- wfdbx_get_legacy()
   # wfdb-x: no default sampling frequency, gain, ADC resolution or units
   # (C: 250 Hz, 200 adu/mV, a resolution based on the format, millivolts;
@@ -373,18 +394,6 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
       stop("fs must be specified and > 0")
     if (missing(gains) || is.null(gains) || length(gains) == 0L)
       stop("gains must be specified")
-  }
-  x <- signals
-  if (is.null(dim(x))) x <- matrix(x, ncol = 1L)
-  x <- matrix(as.numeric(x), nrow(x), ncol(x))
-  if (is.null(samps_per_frame)) {
-    nsig <- ncol(x)
-    spf <- rep(1, nsig)
-  } else {
-    spf <- as.numeric(samps_per_frame)
-    nsig <- length(spf)
-    if (ncol(x) != sum(spf))
-      stop("signals must have sum(samps_per_frame) = ", sum(spf), " columns")
   }
   per <- function(v, default = NULL) {
     if (is.null(v)) return(rep(list(default), nsig))
@@ -450,6 +459,7 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
             baseline = bases[k])
   })
   wfdbquit()
+  errors <- wfdbx_write_errors()
   if (osigfopen(si, nsig) != nsig) {
     wfdbquit()
     stop("can't create signal file for record ", record)
@@ -467,5 +477,6 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   }
   for (c in comments) putinfo(c)
   wfdbquit()
+  if (wfdbx_write_errors() > errors) stop("write error on record ", record)
   invisible()
 }))

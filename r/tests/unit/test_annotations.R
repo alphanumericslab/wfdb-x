@@ -905,4 +905,32 @@ writeBin(full, "tra.cut")
 a <- read_annotations("tra", "cut")
 check(identical(a$sample, c(10, 20, 3000, 3010)) && identical(a$aux, c(NA, "(AFIB", NA, "x")),
       "truncated ann: complete file with aux and SKIP")
+
+# write errors (python test_write_annotations_write_error): an annotation
+# file that cannot be written stops with an error, in both modes, after the
+# library's message, and without an R warning
+if (file.exists("/dev/full")) {
+  for (n in c(3, 100000)) for (lg in c(FALSE, TRUE)) {
+    lab <- sprintf("annotation write error (n = %d, legacy = %s)", n, lg)
+    unlink("100s.full")
+    file.symlink("/dev/full", "100s.full")
+    before <- wfdbx_write_errors()
+    warned <- FALSE
+    wfdbquiet()
+    msg <- tryCatch(withCallingHandlers({
+      write_annotations("100s", "full", seq_len(n), symbol = rep("N", n), legacy = lg)
+      ""
+    }, warning = function(w) {
+      warned <<- TRUE
+      invokeRestart("muffleWarning")
+    }), error = function(e) conditionMessage(e))
+    wfdbverbose()
+    expect_equal(msg, "write error on annotator full for record 100s", lab)
+    check(wfdbx_write_errors() > before, paste(lab, ": counted"))
+    expect_equal(wfdberror(), "oannclose: write error on annotation file full\n",
+                 paste(lab, ": message"))
+    check(!warned, paste(lab, ": no R warning"))
+  }
+  unlink("100s.full")
+}
 }

@@ -1224,3 +1224,35 @@ fn read_annotations_truncated() {
         "can't read annotation file atr of record tr (getann status -3)"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn write_annotations_write_error() {
+    // An annotation file that cannot be written gives an error, in both
+    // modes, after the library's message.
+    if !std::path::Path::new("/dev/full").exists() {
+        return;
+    }
+    for n in [3usize, 100000] {
+        for legacy in [false, true] {
+            let d = DataDir::new("full");
+            let mut w = d.wfdb();
+            w.wfdbquiet();
+            w.wfdbx_set_legacy(i32::from(legacy));
+            std::os::unix::fs::symlink("/dev/full", "100s.full").unwrap();
+            let a = record::Annotations {
+                samples: (1..=n as i64).collect(),
+                symbols: vec!["N".into(); n],
+                ..Default::default()
+            };
+            let before = wfdbx_write_errors();
+            let e = w
+                .write_annotations("100s", "full", &a, 0.0, None)
+                .unwrap_err();
+            assert_eq!(e.message(), "write error on annotator full for record 100s");
+            assert!(wfdbx_write_errors() > before);
+            let msg = String::from_utf8(w.wfdberror()).unwrap();
+            assert!(msg.contains("write error on annotation file full"), "{msg}");
+        }
+    }
+}

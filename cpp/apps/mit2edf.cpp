@@ -42,6 +42,7 @@
 
 #include <wfdbx/wfdb.hpp>
 
+#include "cemul.hpp"
 using namespace wfdbx;
 
 #define EDFMAXBLOCK 61440   // maximum data block length, in bytes
@@ -490,7 +491,7 @@ int main(int argc, char **argv)
                 std::printf("\n");
         }
     }
-    std::fclose(ofile);
+    cemul::fclose_output(ofile, pname, ofname);    // wfdb-x
     std::printf("\n");
 
     if (edfplusflag) {

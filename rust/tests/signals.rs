@@ -2283,3 +2283,111 @@ fn write_record_dotted_directory() {
     assert!(hea.starts_with(b"out/rec 1 100 10\r\n"));
     w.wfdbx_set_legacy(0);
 }
+
+/// A device on which every write fails (ENOSPC).
+const FULL: &str = "/dev/full";
+
+#[cfg(unix)]
+#[test]
+fn write_record_write_error() {
+    // A signal file or header that cannot be written gives an error, in
+    // both modes, after the library's messages.
+    if !std::path::Path::new(FULL).exists() {
+        return;
+    }
+    for target in ["full.dat", "full.hea"] {
+        for n in [10usize, 100000] {
+            for legacy in [false, true] {
+                let mut d = DataDir::new();
+                let w = &mut d.w;
+                w.wfdbquiet();
+                std::os::unix::fs::symlink(FULL, target).unwrap();
+                let o = WriteOptions {
+                    gains: vec![200.0],
+                    adcres: vec![16],
+                    units: vec![Some("mV".into())],
+                    legacy,
+                    ..Default::default()
+                };
+                let before = wfdbx_write_errors();
+                let e = w
+                    .write_record("full", &vec![0; 2 * n], 2, 250.0, &o)
+                    .unwrap_err();
+                assert_eq!(
+                    e.message(),
+                    "write error on record full",
+                    "{target} {n} {legacy}"
+                );
+                assert!(wfdbx_write_errors() > before);
+                let msg = String::from_utf8(w.wfdberror()).unwrap();
+                assert!(msg.contains("osigclose: write error"), "{msg}");
+            }
+        }
+    }
+}
+
+#[test]
+fn write_record_frame_checks() {
+    // Each signal has at least one sample per frame, and the samples make
+    // whole frames; nothing is written otherwise.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    let x = [0i32, 1, 2, 3, 4, 5, 6, 7];
+    for (spf, msg) in [
+        (vec![0, 2], "samps_per_frame must hold integers >= 1"),
+        (vec![2, 0], "samps_per_frame must hold integers >= 1"),
+        (vec![-1, 3], "samps_per_frame must hold integers >= 1"),
+        (vec![3], "not a multiple of the frame size"),
+        (vec![1, 2], "not a multiple of the frame size"),
+    ] {
+        for legacy in [false, true] {
+            let o = WriteOptions {
+                gains: vec![200.0],
+                adcres: vec![16],
+                units: vec![Some("mV".into())],
+                samps_per_frame: spf.clone(),
+                legacy,
+                ..Default::default()
+            };
+            let nsig = spf.len().max(2);
+            let e = w.write_record("bad", &x, nsig, 250.0, &o).unwrap_err();
+            assert!(e.message().contains(msg), "{spf:?}: {e}");
+            let e = w
+                .write_record_physical("bad", &[0.0; 8], nsig, 250.0, &o)
+                .unwrap_err();
+            assert!(e.message().contains(msg), "{spf:?}: {e}");
+            assert!(!std::path::Path::new("bad.hea").exists());
+            assert!(!std::path::Path::new("bad.dat").exists());
+        }
+    }
+    // the >= 1 check comes before the other checks
+    let e = w
+        .write_record(
+            "bad",
+            &x,
+            0,
+            0.0,
+            &WriteOptions {
+                samps_per_frame: vec![0],
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.message().contains("integers >= 1"), "{e}");
+    // valid multi-frequency records
+    for spf in [vec![2], vec![1, 1]] {
+        let o = WriteOptions {
+            gains: vec![200.0],
+            adcres: vec![16],
+            units: vec![Some("mV".into())],
+            samps_per_frame: spf.clone(),
+            ..Default::default()
+        };
+        w.write_record("good", &x, spf.len(), 250.0, &o).unwrap();
+        let r = w.read_record("good", &ReadOptions::default()).unwrap();
+        assert_eq!(r.nsig, spf.len(), "{spf:?}");
+        if spf.len() == 2 {
+            assert_eq!(r.samples, x);
+        }
+    }
+}

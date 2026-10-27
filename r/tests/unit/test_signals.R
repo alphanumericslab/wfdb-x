@@ -1077,4 +1077,65 @@ if (.mode == "source") {
   check(startsWith(h[1L], "out/rec 2 250") && startsWith(h[2L], "out/rec.dat 16"),
         "legacy: names unchanged")
   wfdbquit()
+
+  # ---- write errors (python test_write_record_write_error): a signal file
+  # or header that cannot be written stops with an error, in both modes,
+  # after the library's message, and without an R warning
+  if (file.exists("/dev/full")) {
+    for (target in c("full.dat", "full.hea")) for (n in c(10, 100000)) for (lg in c(FALSE, TRUE)) {
+      lab <- sprintf("write error (%s, n = %d, legacy = %s)", target, n, lg)
+      unlink(c("full.dat", "full.hea"))
+      file.symlink("/dev/full", target)
+      before <- wfdbx_write_errors()
+      warned <- FALSE
+      wfdbquiet()
+      msg <- tryCatch(withCallingHandlers({
+        write_record("full", matrix(0, n, 2), 250, gains = 200, adcres = 16, units = "mV",
+                     legacy = lg)
+        ""
+      }, warning = function(w) {
+        warned <<- TRUE
+        invokeRestart("muffleWarning")
+      }), error = function(e) conditionMessage(e))
+      wfdbverbose()
+      expect_equal(msg, "write error on record full", lab)
+      check(wfdbx_write_errors() > before, paste(lab, ": counted"))
+      check(startsWith(wfdberror(), "osigclose: write error"), paste(lab, ": message"))
+      check(!warned, paste(lab, ": no R warning"))
+      check(!wfdbx_get_legacy(), paste(lab, ": legacy mode restored"))
+    }
+    unlink(c("full.dat", "full.hea"))
+  }
+
+  # ---- samps_per_frame checks (python test_write_record_frame_checks): the
+  # columns of signals add up to a whole frame, each signal has at least one
+  # sample per frame; nothing is written otherwise
+  x <- matrix(0:7, 4, 2, byrow = TRUE)
+  bad <- list(list(1, "signals has 2 columns, but samps_per_frame adds up to 1"),
+              list(3, "signals has 2 columns, but samps_per_frame adds up to 3"),
+              list(c(1, 2), "signals has 2 columns, but samps_per_frame adds up to 3"),
+              list(c(0, 2), "samps_per_frame must hold integers >= 1"),
+              list(c(2, 0), "samps_per_frame must hold integers >= 1"),
+              list(c(-1, 3), "samps_per_frame must hold integers >= 1"),
+              list(c(1.5, 0.5), "samps_per_frame must hold integers >= 1"),
+              list(c(NA, 2), "samps_per_frame must hold integers >= 1"))
+  unlink(c("bad.hea", "bad.dat"))
+  for (b in bad) for (lg in c(FALSE, TRUE)) {
+    msg <- tryCatch({
+      write_record("bad", x, 250, gains = 200, adcres = 16, units = "mV",
+                   samps_per_frame = b[[1L]], legacy = lg)
+      ""
+    }, error = function(e) conditionMessage(e))
+    lab <- sprintf("frame check spf = %s, legacy = %s", paste(b[[1L]], collapse = ","), lg)
+    expect_equal(msg, b[[2L]], lab)
+    check(!file.exists("bad.hea") && !file.exists("bad.dat"), paste(lab, ": no files"))
+  }
+  # (checked before the other arguments)
+  msg <- tryCatch(write_record("bad", x, samps_per_frame = 0), error = function(e) conditionMessage(e))
+  expect_equal(msg, "samps_per_frame must hold integers >= 1", "frame check first")
+  write_record("good", x, 250, gains = 200, adcres = 16, units = "mV", samps_per_frame = 2)
+  expect_equal(dim(read_record("good")$signals), c(4L, 1L), "spf 2: one signal")
+  write_record("good", x, 250, gains = 200, adcres = 16, units = "mV", samps_per_frame = c(1, 1))
+  expect_equal(unname(read_record("good")$signals), unname(x + 0), "spf 1,1: read back")
+  wfdbquit()
 }

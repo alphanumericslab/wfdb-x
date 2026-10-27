@@ -300,6 +300,13 @@ that call only. With `sort: None`, the
   signal file over one of the signal files it is reading. Opening such an
   output fails with "output file NAME is also an input file". `write_record`
   reads nothing, so it overwrites any existing files of the same name.
+* A file that cannot be written completely, for example when the disk is
+  full, gives the error "write error on record REC" (`write_record`) or
+  "write error on annotator ANN for record REC" (`write_annotations`), also
+  in legacy mode.
+* `write_record` checks `samps_per_frame` before anything else: each value
+  must be at least 1 ("samps_per_frame must hold integers >= 1"), and the
+  number of samples must be a multiple of the frame size.
 
 `Error::message()` and `Display` give the text of an error. The WFDB
 library functions that a high-level function calls may also print their own
@@ -558,6 +565,15 @@ Differences from C that come from the language:
   none.
 * Errors are reported by return values, as in C. `wfdberror()` returns the
   last message, and `wfdbquiet()` stops the messages from being printed.
+* `wfdbx_write_errors()` returns the number of write errors since the
+  program started: the output files that the library could not write, flush
+  or close (found when they are closed, as by `wfdbquit()`).
+  `wfdbx_note_write_error()` counts one more, for a file that a program
+  writes itself, and `wfdbx_fclose_output(file, pname, name)` closes such a
+  file, reporting "PNAME: write error on NAME" and counting it. The tools
+  exit with status 1 after a write error, or when the standard output
+  cannot be written ("PROGRAM: write error on standard output"); legacy
+  mode keeps the original status, 0.
 
 The annotation codes (`NORMAL`, `PVC`, ...) and the functions of
 `<wfdb/ecgmap.h>` (`isqrs`, `map1`, `map2`, ...) are also provided. The

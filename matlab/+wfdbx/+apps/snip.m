@@ -146,8 +146,8 @@ seginfo = wfdbx.getseginfo();
 maxseg = numel(seginfo);
 if recurse && maxseg > 0
     sfreq = wfdbx.sampfreq([]);
-    ohfile = fopen([nrec '.hea'], 'wb');
-    if ohfile < 0
+    ohfile = wfdbx.internal.OutputFile([nrec '.hea'], pname);
+    if ohfile.fid < 0
         wfdbx.internal.ceprintf('%s: can''t create master header\n', pname);
         wfdbx.internal.cexit(2);
     end
@@ -164,7 +164,7 @@ if recurse && maxseg > 0
         end
         if wfdbx.setheader(olrecname, si, nsig) < 0
             wfdbx.internal.ceprintf('%s: can''t create layout header\n', pname);
-            fclose(ohfile);
+            fclose(ohfile.fid);
             wfdbx.internal.cexit(2);
         end
         if opt.sflag == 0
@@ -208,7 +208,7 @@ if recurse && maxseg > 0
     if seginfo(1).nsamp == 0
         hdr = [hdr nrec sprintf('_layout 0\r\n')];
     end
-    fwrite(ohfile, uint8(hdr));
+    ohfile.write(uint8(hdr));
     i = 0;
     for j = first_seg:last_seg
         t = seginfo(j + 1).samp0;
@@ -231,10 +231,10 @@ if recurse && maxseg > 0
             opt = copy_sig(opt, orseg, seginfo(j + 1).recname, start, ...
                 start + len, 0);
         end
-        fwrite(ohfile, uint8([orseg wfdbx.internal.csprintf(' %d', len) ...
+        ohfile.write(uint8([orseg wfdbx.internal.csprintf(' %d', len) ...
             sprintf('\r\n')]));
     end
-    fclose(ohfile);
+    ohfile.close();     % wfdb-x: reports a write error
     return;
 end
 if opt.fmt <= 0

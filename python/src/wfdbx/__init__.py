@@ -59,7 +59,7 @@ from ._wfdbio import (
     wfdbldflags, wfdbcflags,
     wfdbdefwfdb, wfdbdefwfdbcal, wfdbx_set_input_dir, wfdbx_get_input_dir,
     wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network,
-    wfdbx_get_network,
+    wfdbx_get_network, wfdbx_write_errors, wfdbx_note_write_error,
 )
 from ._signal import (
     Siginfo, Seginfo, WFDB_INVALID_SAMPLE, WFDB_DEFFREQ, WFDB_DEFGAIN,

@@ -5,8 +5,9 @@ exceptions described here: **it has no built-in signal parameters**, it
 **finds files only where they are named** (no search path, and no network
 access unless the user asks for it), it **sorts out-of-order annotation
 files itself** instead of running a separate program, and its sorting
-**does not lose annotations** as the original `sortann` does, and it **never
-writes over a file it is reading**. They are deliberate,
+**does not lose annotations** as the original `sortann` does, it **never
+writes over a file it is reading**, and its tools **report write errors in
+their exit status**. They are deliberate,
 the same in all seven implementations, and tested like everything else: the
 reference results of the conformance suite come from the C package with
 [`tests/reference/divergences.patch`](../tests/reference/divergences.patch)
@@ -16,7 +17,7 @@ them. The original behavior remains available in all cases, on request (see
 [Legacy mode](#legacy-mode)).
 
 These design decisions were made by Reza Sameni in 2026 (the last
-four after code reviews), for the reasons below. Each source file affected
+five after code reviews), for the reasons below. Each source file affected
 by them says so in its header.
 
 ## No built-in sampling frequency, gain, ADC resolution or units
@@ -393,6 +394,31 @@ is part of the conformance suite). The high-level `write_record` reads
 nothing: it closes any open record first, so it simply replaces existing
 files of the same name. Legacy mode does not check, as the original.
 
+## Write errors give a nonzero exit status
+
+The original tools report a file that cannot be written (a full disk, for
+example) only through the library's messages, such as `osigclose: write
+error in signal group 0` or `oannclose: write error on annotation file
+atr`, and then exit with status 0, as if they had succeeded; they say
+nothing at all when the standard output cannot be written, or when a file
+that a tool writes itself (the EDF file of `mit2edf`, for example) fails. A
+script that checks the exit status cannot tell that its output is missing.
+
+wfdb-x's tools follow the convention of the standard Unix tools: **when an
+output file or the standard output cannot be written, the exit status is
+1**. The library's messages are unchanged. A standard output that cannot be
+written is reported as `PROGRAM: write error on standard output`, and a file
+that `snip`, `mit2edf` or `parsescp` writes itself as `PROGRAM: write error
+on FILE`. A tool that exits with another nonzero status for another reason
+keeps that status. The tools keep running after a write error, as the
+original ones do; only the status and these messages differ.
+
+The library counts the output files that it could not write, flush or
+close (found when it closes them); `wfdbx_write_errors()` returns that
+count, and `wfdbx_note_write_error()` adds to it for a program that writes
+a file itself. In legacy mode the tools exit with the original status and
+print no new messages.
+
 ## Additions
 
 These are new features, not changes of the original behavior, so they
@@ -446,6 +472,15 @@ have no legacy counterpart:
   `base_time_ms`, in milliseconds after midnight (which keeps the
   milliseconds of a start time such as `14:00:03.500`), and `base_date`,
   as year, month and day.
+* **Write errors and frame checks in the high-level writers.**
+  `write_record` and `write_annotations` raise an error (`write error on
+  record REC`, `write error on annotator ANN for record REC`) when a file
+  cannot be written completely, instead of returning as if it had been
+  written. `write_record` also refuses, before creating any file, frame
+  sizes that are not integers of at least 1 (`samps_per_frame must hold
+  integers >= 1`) and signals whose number of columns is not the number of
+  samples in a frame (`signals has N columns, but samps_per_frame adds up
+  to M`), instead of writing only some of the columns. In legacy mode too.
 * **Read errors in the high-level readers.** `read_record` and the other
   high-level readers raise an error (`can't read signal data of record REC
   (getvec status S)`) when a signal file ends before the length its header
@@ -512,7 +547,7 @@ described above.
 
 Legacy mode reproduces the original package exactly, and it is tested
 against its results: the legacy suite of the conformance tests
-([`tests/conformance/legacy`](../tests/conformance/legacy), 869 cases, run
+([`tests/conformance/legacy`](../tests/conformance/legacy), 877 cases, run
 with `harness.py check --legacy`) runs the original package's cases with
 `--legacy` and compares them with results produced by the unmodified C
 package, and the library's legacy values are checked in

@@ -93,5 +93,9 @@ int main(int argc, char **argv)
             std::fprintf(stderr, "ok   %s\n", t.name);
     }
     std::fprintf(stderr, "%d test(s), %d failed\n", run, failed);
-    return failed ? 1 : 0;
+    // (std::_Exit: the exit check of the tools, which wfdbx_legacy_args
+    // installs, does not apply to the tests, some of which write to
+    // /dev/full)
+    std::fflush(nullptr);
+    std::_Exit(failed ? 1 : 0);
 }

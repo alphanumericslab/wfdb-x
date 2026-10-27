@@ -37,9 +37,10 @@ followed by reading, not by running MATLAB:
   `isguirunning`, `rows`, `columns`, `index`, `printf`, `puts`, `fdisp`,
   `unwind_protect`, ...) may be used only in a branch guarded by
   `wfdbx.internal.is_octave()` with an equivalent MATLAB branch (the
-  current ones: `cout`/`cerr`/`WFDBFile.flush` (`fflush`), `stdin_bytes`
+  current ones: `cout`/`cerr`/`WFDBFile.sync` (`fflush`), `stdin_bytes`
   (reading fid 0), `md5` (`hash`; Java in MATLAB, `md5_pure` otherwise),
-  `tool_command`, `wfdb_fopen` (MATLAB can open directories)).
+  `tool_command`, `wfdb_fopen` (MATLAB can open directories),
+  `std_stream` (`stat`, `S_ISREG`, `S_ISCHR`), and `symlink` in the tests).
 * **`&&` and `||`** need scalar operands. Octave applies `all()` to an
   array operand (and treats `[]` as false) where MATLAB throws an error,
   so a non-scalar operand passes the tests and fails in MATLAB.
@@ -247,6 +248,22 @@ directly. `cout` buffers its output (flushed when the buffer is large, by
 `cout()`, before anything is written by `cerr`, when a tool run by
 `app_run` returns, and before the drivers exit); `cerr` is unbuffered.
 
+**Write errors** (wfdb-x: `wfdbx_write_errors`, and the exit status of the
+tools) need care in Octave: a write to file identifier 1 never reports a
+failure, and for other files `fflush` and `fclose` return 0 even when the
+buffered data could not be written (only an `fwrite` of 4096 bytes or more
+returns -1). `fseek(fid, 0, 'cof')` flushes the file and does report the
+failure, so output files that are seekable are flushed that way
+(`WFDBFile.sync`, `OutputFile.close`, `cout`). The Octave driver calls
+`std_stream('cli')`, which makes the standard output `/dev/fd/1` opened
+for appending when it is a regular file or a device (pipes keep file
+identifier 1, so a broken pipe behaves as before); after a failure, `cout`
+drops the rest of the output and sets `IOState.stdout_failed`, which
+`app_run` reports. In MATLAB, the driver copies the standard output from
+its temporary file with `cat` and reports a failure of that copy itself.
+The files that the tools write themselves are `wfdbx.internal.OutputFile`
+objects.
+
 Large outputs (e.g. `rdsamp`) are formatted in a vectorized way (one
 `sprintf` call over a matrix, after substituting the C spelling of special
 values) for speed, with the same results.
@@ -302,6 +319,8 @@ help text):
 | `r = GlibcRand(seed); r.rand(); r.rand(n); r.srand(seed)` | glibc `srand`/`rand` (`GlibcRand.RAND_MAX`) |
 | `s = csprintf(fmt, ...)`, `cprintf(fmt, ...)`, `ceprintf(fmt, ...)` | `sprintf`, `printf`, `fprintf(stderr, ...)` |
 | `cout(s)`, `cout()`, `cerr(s)` | `fwrite` to stdout (buffered; `cout()` flushes), to stderr |
+| `[fid, check] = std_stream(k)`, `std_stream('cli')` | the files of the standard output and error (see *Write errors*) |
+| `f = OutputFile(name, pname)` | a file a tool writes itself (`f.write(data, ...)`, `f.close()`: C's `wfdbx_fclose_output`) |
 | `b = stdin_bytes()` | the whole standard input (uint8 row; read once) |
 | `v = cgetenv(name)` | `getenv` (`[]` if unset or empty: they cannot be told apart in Octave nor in MATLAB before R2022b) |
 | `cexit(status)` | `exit(status)` inside a tool (throws `wfdbx:exit`) |
@@ -326,8 +345,9 @@ help text):
 `WFDBFile` (the `WFDB_FILE`) methods: `read(n)`, `readall()`, `getc()`,
 `write(b)`, `putc(c)`, `printf(fmt, ...)`, `getline()`, `g16()`, `g32()`,
 `p16(x)`, `p32(x)`, `seek(off, whence)` (0/1/2 = SEEK_SET/CUR/END),
-`tell()`, `flush()`, `feof()`, `ferror()`, `clearerr()`, `close()`;
-properties `fp`, `type`, `name`, `is_std`. Bytes are `uint8` rows; lines
+`tell()`, `flush()`, `feof()`, `ferror()`, `clearerr()`, `close()`,
+`sync()`; properties `fp`, `type`, `name`, `is_std`, `out` (an output
+file: closing it counts a write error if it could not be written). Bytes are `uint8` rows; lines
 are `char`. The standard input (`'-'` for reading) is served from
 `stdin_bytes()` and is not seekable (as a pipe in C); writes to the
 standard output (`'-'` for writing) go to `cout`. Method calls cost tens of
@@ -337,7 +357,8 @@ with vector operations.
 Public I/O functions in `+wfdbx/`: `getwfdb`, `setwfdb`, `resetwfdb`,
 `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdbfile`, `wfdbmemerr`,
 `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
-`wfdbdefwfdbcal`.
+`wfdbdefwfdbcal`, and the wfdb-x additions `wfdbx_write_errors` and
+`wfdbx_note_write_error`.
 
 **Finding files** (wfdb-x): nothing is searched in normal mode. The
 settings (input directory, output directory, network access) are

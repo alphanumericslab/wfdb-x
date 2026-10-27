@@ -155,6 +155,15 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
       -3)}.
     \item Invalid arguments, and a value the operation needs but the
       record does not give, stop with an error.
+    \item In \code{write_record}, each \code{samps_per_frame} value must
+      be an integer >= 1 (\samp{samps_per_frame must hold integers >= 1}),
+      and \code{signals} must have \code{sum(samps_per_frame)} columns
+      (\samp{signals has N columns, but samps_per_frame adds up to M});
+      these are checked first, and nothing is written.
+    \item When the signal file or the header cannot be written completely
+      (for example, when the disk is full), \code{write_record} stops with
+      the error \samp{write error on record REC}, after the messages of the
+      library (such as \samp{osigclose: write error in signal group 0}).
     \item When the samples do not match the checksums in the header,
       \code{read_record} returns all of them and issues the warning
       \samp{checksum error in record REC: the signal data do not match the

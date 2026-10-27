@@ -859,3 +859,28 @@ end
         W.wfdbverbose(w)
     end
 end
+
+# An annotation file that cannot be written (a link to /dev/full) throws an
+# error, in both modes, after the library's message.
+@testset "write_annotations write error" begin
+    if !ispath("/dev/full")
+        @test_skip "no /dev/full on this system"
+    else
+        with_data("wrerr") do w
+            symlink("/dev/full", "100s.full")
+            for n in (3, 100000), legacy in (false, true)
+                ann = W.Annotations(samples=collect(1:n), symbols=fill(b"N", n))
+                local e
+                err = lib_stderr() do
+                    e = try
+                        W.write_annotations(w, "100s", "full", ann; legacy)
+                    catch x
+                        x
+                    end
+                end
+                @test e isa W.WfdbError && e.msg == "write error on annotator full for record 100s"
+                @test occursin("write error on annotation file full", err)
+            end
+        end
+    end
+end

@@ -110,12 +110,12 @@ app_snip <- function(args = character(0)) {
     # irec has multiple segments
     sfreq <- sampfreq(NULL)
     ohfname <- paste0(nrec, ".hea")
-    ohfile <- tryCatch(file(ohfname, "wb"), error = function(e) NULL)
+    ohfile <- .app_fopen(ohfname, pname)
     if (is.null(ohfile)) {
       ceprintf("%s: can't create master header\n", pname)
       cexit(2)
     }
-    on.exit(close(ohfile))
+    on.exit(.app_fclose(ohfile, report = FALSE))
     if (seginfo[[1L]]$nsamp == 0) {
       # irec has variable layout
       olrecname <- paste0(nrec, "_layout")
@@ -160,10 +160,10 @@ app_snip <- function(args = character(0)) {
     if (to > tf) to <- tf
 
     # The master output header.
-    writeBin(csprintf("%s/%d %d %.12g %ld", nrec, nseg, nsig, sfreq, to - from), ohfile)
-    if (!is.null(tstring)) writeBin(csprintf(" %s", tstring), ohfile)
-    writeBin(charToRaw("\r\n"), ohfile)
-    if (seginfo[[1L]]$nsamp == 0) writeBin(csprintf("%s_layout 0\r\n", nrec), ohfile)
+    .app_fwrite(ohfile, csprintf("%s/%d %d %.12g %ld", nrec, nseg, nsig, sfreq, to - from))
+    if (!is.null(tstring)) .app_fwrite(ohfile, csprintf(" %s", tstring))
+    .app_fwrite(ohfile, charToRaw("\r\n"))
+    if (seginfo[[1L]]$nsamp == 0) .app_fwrite(ohfile, csprintf("%s_layout 0\r\n", nrec))
     i <- 0
     for (j in first_seg:last_seg) {
       t <- seginfo[[j + 1]]$samp0
@@ -183,8 +183,9 @@ app_snip <- function(args = character(0)) {
         orseg <- rawToChar(csprintf("%s_%04d", nrec, i))
         s <- .snip_copy_sig(s, orseg, seginfo[[j + 1]]$recname, start, start + len, 0)
       }
-      writeBin(csprintf("%s %ld\r\n", orseg, len), ohfile)
+      .app_fwrite(ohfile, csprintf("%s %ld\r\n", orseg, len))
     }
+    .app_fclose(ohfile)         # wfdb-x: reports a write error
     return(s)
   }
 

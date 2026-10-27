@@ -174,3 +174,46 @@ cli_main <- function(args) {
 # wfdb-x: legacy mode (original behavior): the help text h of a tool without
 # its lines `added` (those added by wfdb-x), as the original tool prints it.
 .app_help_text <- function(h, added) if (wfdbx_get_legacy()) h[!(h %in% added)] else h
+
+# ---------------------------------------------------------------------------
+# Files that the tools write themselves (snip, mit2edf, parsescp).
+
+# Create the file `name` for writing, as C's fopen(name, "wb") (NULL if it
+# cannot be created); pname is the program name for .app_fclose.  A failed
+# write is remembered; wfdb-x: in normal mode, .app_fclose() then prints
+# "PNAME: write error on NAME" and counts a write error (see
+# wfdbx_write_errors).
+.app_fopen <- function(name, pname) {
+  con <- tryCatch(file(name, "wb"), error = function(e) NULL)
+  if (is.null(con)) return(NULL)
+  of <- new.env(parent = emptyenv())
+  of$con <- con
+  of$name <- name
+  of$pname <- pname
+  of$err <- FALSE
+  of
+}
+
+# writeBin(x, ...) to the file of .app_fopen (R reports a failed write as a
+# warning, which is not shown).
+.app_fwrite <- function(of, x, ...) {
+  if (of$err) return(invisible())
+  tryCatch(withCallingHandlers(writeBin(x, of$con, ...), warning = function(w) {
+    of$err <- TRUE
+    invokeRestart("muffleWarning")
+  }), error = function(e) of$err <- TRUE)
+  invisible()
+}
+
+# Close the file of .app_fopen (C: wfdbx_fclose_output).  With report =
+# FALSE (a file left open at exit), nothing is printed or counted.
+.app_fclose <- function(of, report = TRUE) {
+  if (is.null(of$con)) return(invisible())
+  if (!.wf_close_con(of$con)) of$err <- TRUE
+  of$con <- NULL
+  if (report && of$err && !wfdbx_get_legacy()) {
+    ceprintf("%s: write error on %s\n", of$pname, of$name)
+    wfdbx_note_write_error()
+  }
+  invisible()
+}

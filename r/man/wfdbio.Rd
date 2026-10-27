@@ -13,6 +13,8 @@
 \alias{wfdbcflags}
 \alias{wfdbdefwfdb}
 \alias{wfdbdefwfdbcal}
+\alias{wfdbx_write_errors}
+\alias{wfdbx_note_write_error}
 \alias{WFDB_READ}
 \alias{WFDB_WRITE}
 \alias{WFDB_AHA_READ}
@@ -45,6 +47,8 @@ wfdbldflags()
 wfdbcflags()
 wfdbdefwfdb()
 wfdbdefwfdbcal()
+wfdbx_write_errors()
+wfdbx_note_write_error()
 }
 \arguments{
   \item{p}{\code{setwfdb}: the input directory (a character string naming
@@ -113,6 +117,19 @@ wfdbdefwfdbcal()
   messages and \code{wfdbverbose} enables them again; \code{wfdberror}
   returns the last one.
 
+  \code{wfdbx_write_errors} counts the write errors since the program
+  started: the output files (signal files, headers, annotation files,
+  info and calibration files, and the standard output used as the file
+  \code{"-"}) that could not be written, flushed or closed, found when the
+  library closes them (as \code{\link{wfdbquit}} does), and the errors
+  reported with \code{wfdbx_note_write_error}, which an application that
+  writes a file itself calls.  Counting prints nothing; the library's own
+  messages (such as \samp{osigclose: write error in signal group 0}) are
+  printed as before.  \code{\link{write_record}} and
+  \code{\link{write_annotations}} stop with an error when the count goes
+  up, and the command-line tools then exit with status 1 (in normal
+  mode).
+
   \code{WFDB_READ} (0), \code{WFDB_WRITE} (1), \code{WFDB_AHA_READ} (2),
   \code{WFDB_AHA_WRITE} (3) and \code{WFDB_APPEND} (4) are the file modes
   used by \code{\link{anninfo}} (\code{WFDB_AHA_READ} and
@@ -130,6 +147,8 @@ wfdbdefwfdbcal()
 
   \code{wfdberror} returns the last error message (with its newline), or a
   message giving the library version if there has been no error.
+
+  \code{wfdbx_write_errors} returns the number of write errors.
 
   \code{wfdb_me_fatal} returns the value last given to \code{wfdbmemerr}
   (initially 1).
@@ -151,6 +170,8 @@ wfdbdefwfdbcal()
   output directories, not by a search of the WFDB path, URLs are opened
   only when network access is on, and \code{setwfdb} takes a single
   directory; see \file{docs/DIVERGENCES.md}.
+  \code{wfdbx_write_errors} and \code{wfdbx_note_write_error}: part of
+  wfdb-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{wfdbx_set_input_dir}}, \code{\link{isigopen}},

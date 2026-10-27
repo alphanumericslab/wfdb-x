@@ -259,8 +259,8 @@ if ~legacy          % (no checks in legacy mode)
         end
     end
 end
-ofile = fopen(ofname, 'wb');
-if ofile < 0
+ofile = wfdbx.internal.OutputFile(ofname, pname);
+if ofile.fid < 0
     wfdbx.internal.ceprintf('%s: can''t create %s\n', pname, ofname);
     status = 4;
     return;
@@ -306,7 +306,7 @@ if bytes_per_block > EDFMAXBLOCK
         EDFMAXBLOCK);
     wfdbx.internal.ceprintf([' %d bytes.  Use ''snip'' to select a subset of the input signals, or use\n' ...
         ' ''xform'' to reduce the sampling frequency.\n'], samples_per_frame * 2);
-    fclose(ofile);
+    fclose(ofile.fid);
     status = 5;
     return;
 end
@@ -409,7 +409,7 @@ end
 for k = 1:nsig
     [header, pos] = put(header, pos, sprintf('%d', frames_per_block * si(k).spf), 8);
 end
-fwrite(ofile, header, 'uint8');
+ofile.write(header, 'uint8');
 bad = find(header < 32 | header > 126);   % EDF headers are printable ASCII
 for q = 1:numel(bad)
     c = double(header(bad(q)));
@@ -463,9 +463,9 @@ if nblocks > 0 && frames_per_block > 0
         c0 = c0 + spfs(k);
     end
     % the low 16 bits of each sample, in little-endian byte order
-    fwrite(ofile, mod(vertcat(parts{:}), 65536), 'uint16', 0, 'ieee-le');
+    ofile.write(mod(vertcat(parts{:}), 65536), 'uint16', 0, 'ieee-le');
 end
-fclose(ofile);
+ofile.close();          % wfdb-x: reports a write error
 if vflag
     dots = cell(1, nblocks);
     for nb = 1:nblocks

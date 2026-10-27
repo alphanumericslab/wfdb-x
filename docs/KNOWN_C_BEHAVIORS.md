@@ -184,6 +184,13 @@ marked *bug* are almost certainly unintended by the C authors.
 
 ### Applications
 
+- **Write errors and the exit status.** The tools exit with status 0 after
+  write errors: when an output file cannot be written (the library prints
+  `osigclose: write error ...` or `oannclose: write error ...`), when the
+  standard output cannot be written (nothing is printed), and when a file
+  that `snip`, `mit2edf` or `parsescp` writes itself fails (nothing is
+  printed). wfdb-x reproduces this in legacy mode; otherwise the status is
+  1 ([`DIVERGENCES.md`](DIVERGENCES.md)).
 - **`ann2rr -i s|m|h`** prints intervals rounded to the requested number
   of digits and then *adjusts the end time* of each interval to match the
   printed (rounded) value, so rounding errors do not accumulate. The

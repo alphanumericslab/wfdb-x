@@ -31,11 +31,13 @@
 // (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by the curl
 // program, run without a shell; the original's HTTP and FTP code (NETFILES) is
 // not translated; ".." is accepted in names, and only the last component of a
-// record name is checked; additions: wfdbx_set_input_dir, wfdbx_get_input_dir,
-// wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network and
-// wfdbx_get_network; legacy mode (wfdbx_set_legacy) restores the original
-// behavior (the WFDB path, without network access). Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// record name is checked; write errors are counted (wfdbx_write_errors);
+// additions: wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
+// wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
+// wfdbx_write_errors, wfdbx_note_write_error and wfdbx_fclose_output; legacy
+// mode (wfdbx_set_legacy) restores the original behavior (the WFDB path,
+// without network access). Each change is marked "wfdb-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
@@ -50,7 +52,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::cstd::{self, sprintf_into, Arg, EOF, SEEK_CUR, SEEK_END, SEEK_SET};
@@ -126,6 +128,8 @@ pub struct WfdbFile {
     can_write: bool,
     append: bool,
     closed: bool,
+    /// wfdb-x: an output file of the library (see [`wfdbx_write_errors`]).
+    out: bool,
     /// wfdb-x: a remote file (a URL fetched in full, read from memory).
     remote: bool,
     /// The name with which a local file was opened (for [`FileId`] on
@@ -168,6 +172,7 @@ impl WfdbFile {
             can_write,
             append: false,
             closed: false,
+            out: false,
             remote: false,
             path: Vec::new(),
         }
@@ -1014,10 +1019,19 @@ impl WfdbFile {
     /// C `fclose` (the standard streams are flushed, not closed): returns
     /// 0, or `EOF` if an error occurred (including earlier write errors).
     ///
+    /// wfdb-x: an output file opened by the library (`wfdb_open`,
+    /// `wfdb_fopen`) that could not be written, flushed or closed counts as
+    /// a write error (see [`wfdbx_write_errors`]).
+    ///
     /// Translation of the C function wfdb_fclose() (lib/wfdbio.c, WFDB 10.7.0):
-    /// same arguments and results.
+    /// same arguments and results. Differences: write errors are counted;
+    /// see docs/DIVERGENCES.md.
     pub fn close(mut self) -> i32 {
-        self.release()
+        let status = self.release();
+        if self.out && status != 0 {
+            wfdbx_note_write_error();
+        }
+        status
     }
 }
 
@@ -1464,7 +1478,9 @@ pub(crate) fn local_fopen(fname: &[u8], mode: &[u8], legacy: bool) -> Option<Wfd
     if mode.first() == Some(&b'r') && is_directory(fname) {
         return None;
     }
-    if let Some(f) = WfdbFile::fopen(fname, mode) {
+    let out = mode.first() != Some(&b'r'); // wfdb-x: see wfdbx_write_errors
+    if let Some(mut f) = WfdbFile::fopen(fname, mode) {
+        f.out = out;
         return Some(f);
     }
     if mode == b"wb" || mode == b"ab" {
@@ -1478,10 +1494,53 @@ pub(crate) fn local_fopen(fname: &[u8], mode: &[u8], legacy: bool) -> Option<Wfd
             }
         }
         if tried && ok {
-            return WfdbFile::fopen(fname, mode);
+            let mut f = WfdbFile::fopen(fname, mode)?;
+            f.out = out;
+            return Some(f);
         }
     }
     None
+}
+
+// wfdb-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
+// report success when its output was not written.
+static WRITE_ERRORS: AtomicI32 = AtomicI32::new(0);
+
+/// The number of write errors since the program started: the output files
+/// that the library could not write, flush or close (found when they are
+/// closed, as by `wfdbquit`), and the errors reported with
+/// [`wfdbx_note_write_error`]. The count is process-wide.
+///
+/// The high-level writers return an error when they meet one, and the
+/// command-line tools then exit with status 1.
+///
+/// # Examples
+///
+/// ```
+/// let before = wfdbx::wfdbx_write_errors();
+/// wfdbx::wfdbx_note_write_error();
+/// assert!(wfdbx::wfdbx_write_errors() > before);
+/// ```
+///
+/// Part of wfdb-x; not in the original WFDB package.
+pub fn wfdbx_write_errors() -> i32 {
+    WRITE_ERRORS.load(Ordering::Relaxed)
+}
+
+/// Count a write error (see [`wfdbx_write_errors`]): for an application
+/// that writes a file itself.
+///
+/// Part of wfdb-x; not in the original WFDB package.
+pub fn wfdbx_note_write_error() {
+    WRITE_ERRORS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// `wfdbx_fclose_output(fp, pname, name)` on the default instance (see
+/// [`Wfdb::wfdbx_fclose_output`]).
+///
+/// Part of wfdb-x; not in the original WFDB package.
+pub fn wfdbx_fclose_output(fp: WfdbFile, pname: &[u8], name: &[u8]) -> i32 {
+    with_default(|w| w.wfdbx_fclose_output(fp, pname, name))
 }
 
 /// `wfdb_striphea(record)`: the record name without a trailing `.hea`.
@@ -1977,6 +2036,22 @@ impl Wfdb {
         i32::from(self.io.network == Some(true))
     }
 
+    /// Close `fp`, a file named `name` that an application has written
+    /// itself, and return the status of [`WfdbFile::close`]. In normal
+    /// mode, if the file could not be written or closed, print `PNAME:
+    /// write error on NAME` and count a write error (see
+    /// [`wfdbx_write_errors`]); legacy mode prints and counts nothing.
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
+    pub fn wfdbx_fclose_output(&mut self, fp: WfdbFile, pname: &[u8], name: &[u8]) -> i32 {
+        let status = fp.close();
+        if status != 0 && self.wfdbx_get_legacy() == 0 {
+            crate::ceprintf!(b"%s: write error on %s\n", pname, name);
+            wfdbx_note_write_error();
+        }
+        status
+    }
+
     /// wfdb-x: the name of the local file that `wfdb_open(name, NULL,
     /// WFDB_WRITE)` creates in normal mode, or `None` if it creates none
     /// (the standard output, or a URL).
@@ -2086,7 +2161,9 @@ impl Wfdb {
             return Some(if mode == WFDB_READ {
                 WfdbFile::stdin()
             } else {
-                WfdbFile::stdout()
+                let mut f = WfdbFile::stdout();
+                f.out = true; // wfdb-x: see wfdbx_write_errors
+                f
             });
         }
         // If the record name ends with '/', append the last component of

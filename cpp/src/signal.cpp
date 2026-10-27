@@ -4350,8 +4350,10 @@ int wfdbx_get_legacy()
 // following arguments move up by one, argv[0] is unchanged, and argc is
 // decremented), turns legacy mode on, and returns 1; the tool then behaves
 // exactly as the original one.  Otherwise, it changes nothing and returns 0.
+// It also installs the exit check of the tools (see wfdbx_exit_check_init).
 int wfdbx_legacy_args(int &argc, char **&argv)
 {
+    if (argc > 0) wfdbx_exit_check_init(argv[0]);     // (see wfdbio.cpp)
     if (argc < 2 || std::strcmp(argv[1], "--legacy") != 0)
         return 0;
     argv[1] = argv[0];

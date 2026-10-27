@@ -98,7 +98,12 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
   also stops with an error if the file ends unexpectedly or cannot be
   read, such as \samp{can't read annotation file ANN of record REC (getann
   status -3)}, unless an annotation at or after \code{sampto} was read
-  first (reading stops there).  Invalid arguments, and
+  first (reading stops there).  \code{write_annotations} stops with the
+  error \samp{can't create annotator ANN for record REC} if the file cannot
+  be created, and \samp{write error on annotator ANN for record REC},
+  after the message of the library (\samp{oannclose: write error on
+  annotation file ANN}), if it cannot be written completely (for example,
+  when the disk is full).  Invalid arguments, and
   a time string when the sampling frequency is not known, also stop with
   an error.
 }

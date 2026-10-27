@@ -60,7 +60,12 @@ _help_without(help::Vector{String}, lines) = String[help[k] for k in eachindex(h
 # Run a tool's main function: returns its exit status. CExit (C's exit) ends
 # it; other exceptions are reported on the standard error (status 1). The
 # open files and the standard output are then flushed, as C's exit does.
-function _run_main(f, args::Vector{String})
+# wfdb-x: then, in normal mode, a standard output that could not be written
+# is reported ("PNAME: write error on standard output"), and the exit status
+# 0 becomes 1 if the standard output or another output file could not be
+# written (see wfdbx_write_errors), as for the standard Unix tools. Legacy
+# mode keeps the original exit status.
+function _run_main(f, args::Vector{String}, pname::AbstractString)
     status = try
         Int32(f(args))
     catch e
@@ -82,7 +87,18 @@ function _run_main(f, args::Vector{String})
     catch e
         e isa CExit || rethrow()
     end
-    status
+    _exit_check(status, pname)
+end
+
+function _exit_check(status::Int32, pname::AbstractString)
+    wfdbx_get_legacy(lib()) != 0 && return status
+    p = cproc()
+    failed = false
+    if !p.out_closed && (cflush() != 0 || cout_error())
+        cerr_write(string(pname, ": write error on standard output\n"))
+        failed = true
+    end
+    (status == 0 && (failed || p.write_errors > 0)) ? Int32(1) : status
 end
 
 """
@@ -106,7 +122,7 @@ function main_cli(args::Vector{String})
         cerr_write(string("wfdbx: unknown tool `", args[1], "'\n"))
         return 1
     end
-    Int(_run_main(f, args[2:end]))
+    Int(_run_main(f, args[2:end], args[1]))
 end
 
 const _WFDB_ENV = ("WFDB", "WFDBCAL", "WFDBANNSORT", "WFDBGVMODE",
@@ -174,10 +190,10 @@ function run_tool(tool::AbstractString, args::AbstractVector{<:AbstractString};
             end
         end
         if dir === nothing
-            status = _run_main(f, Vector{String}(args))
+            status = _run_main(f, Vector{String}(args), tool)
         else
             cd(dir) do
-                status = _run_main(f, Vector{String}(args))
+                status = _run_main(f, Vector{String}(args), tool)
             end
         end
     finally

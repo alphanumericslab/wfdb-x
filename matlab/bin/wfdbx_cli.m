@@ -7,7 +7,9 @@
 %   the standard output and error.  `wfdbx_cli.m --list` lists the tools.
 %
 %   This script adds the matlab/ directory (the parent of its own
-%   directory) to the path, then calls wfdbx.internal.cli_main.
+%   directory) to the path, then calls wfdbx.internal.cli_main (after
+%   wfdbx.internal.std_stream('cli'), so that a standard output that
+%   cannot be written is detected).
 %
 %   Part of wfdb-x; not in the original WFDB package.
 
@@ -25,4 +27,6 @@
 % (no command history: Octave would save it under the home directory)
 history_save(false);
 addpath(fileparts(fileparts(mfilename('fullpath'))));
+% (a standard output that cannot be written is detected: see std_stream)
+wfdbx.internal.std_stream('cli');
 exit(wfdbx.internal.cli_main(argv()'));

@@ -285,6 +285,13 @@ the order you gave (without the library's advice to run `sortann`) and
   signal file over one of the signal files it is reading. Opening such an
   output fails with "output file NAME is also an input file". `writeRecord`
   reads nothing, so it overwrites any existing files of the same name.
+* A file that cannot be written completely, for example when the disk is
+  full, throws "write error on record REC" (`writeRecord`) or "write error
+  on annotator ANN for record REC" (`writeAnnotations`), also in legacy
+  mode.
+* `writeRecord` checks `sampsPerFrame` before anything else: each value
+  must be at least 1 ("writeRecord: sampsPerFrame must hold integers >=
+  1"), and the number of samples must be a multiple of the frame size.
 
 The high-level functions call `wfdbquit()`, which closes anything opened
 with the WFDB library functions on the same `Wfdb` state.
@@ -562,6 +569,15 @@ Differences from C that come from the language:
   the number of frames it read, or the `getvec` status if it read none.
 * Errors are reported by return values, as in C. `wfdberror()` returns the
   last message, and `wfdbquiet()` stops the messages from being printed.
+* `wfdbx_write_errors()` returns the number of write errors since the
+  program started: the output files that the library could not write, flush
+  or close (found when they are closed, as by `wfdbquit()`).
+  `wfdbx_note_write_error()` counts one more, for a file that a program
+  writes itself, and `wfdbx_fclose_output(file, pname, name)` closes such a
+  file, reporting "PNAME: write error on NAME" and counting it. The tools
+  exit with status 1 after a write error, or when the standard output
+  cannot be written ("PROGRAM: write error on standard output"); legacy
+  mode keeps the original status, 0.
 * C's `printf` and `scanf` families are in `wfdbx.cstd` (`cformat`,
   `sscanf`, ...), formatting numbers exactly as the GNU C library does.
 

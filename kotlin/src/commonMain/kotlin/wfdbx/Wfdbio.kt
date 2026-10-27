@@ -32,10 +32,11 @@
 // (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by the
 // platform's HTTP client; the original's HTTP and FTP code (NETFILES) is not
 // translated; ".." is accepted in names, and only the last component of a
-// record name is checked; additions: wfdbx_set_input_dir, wfdbx_get_input_dir,
-// wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network and
-// wfdbx_get_network, and legacy mode: wfdbx_set_legacy, wfdbx_get_legacy,
-// wfdbx_legacy_args; legacy mode (wfdbx_set_legacy) restores the original
+// record name is checked; write errors are counted (wfdbx_write_errors);
+// additions: wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
+// wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
+// wfdbx_write_errors, wfdbx_note_write_error and wfdbx_fclose_output, and
+// legacy mode: wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args; legacy mode (wfdbx_set_legacy) restores the original
 // behavior (the WFDB path, without network access). Each change is marked
 // "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
@@ -59,7 +60,9 @@ import wfdbx.cstd.bcat
 import wfdbx.cstd.beq
 import wfdbx.cstd.cformat
 import wfdbx.cstd.cstr
+import wfdbx.cstd.eprintf
 import wfdbx.cstd.ewrite
+import wfdbx.cstd.exitCheckInit
 import wfdbx.cstd.getenv
 import wfdbx.cstd.indexOf
 import wfdbx.cstd.isalnum
@@ -317,7 +320,11 @@ internal fun localFopen(fname0: ByteArray, mode: String, legacy: Boolean): WfdbF
     val fname = cstr(fname0)
     if (legacy && (fname.indexOf("..".latin1()) >= 0 || fname.indexOf("://".latin1()) >= 0)) return null
     if (mode.startsWith("r") && Platform.isDirectory(fname)) return null
-    WfdbFile.fopen(fname, mode)?.let { return it }
+    val out = !mode.startsWith("r") // wfdb-x: see wfdbx_write_errors
+    WfdbFile.fopen(fname, mode)?.let {
+        it.out = out
+        return it
+    }
     if (mode == "wb" || mode == "ab") {
         // Try to create any missing directories in the path.
         var ok = false
@@ -328,10 +335,46 @@ internal fun localFopen(fname0: ByteArray, mode: String, legacy: Boolean): WfdbF
                 ok = Platform.mkdir(fname.copyOf(i))
             }
         }
-        if (tried && ok) return WfdbFile.fopen(fname, mode)
+        if (tried && ok) return WfdbFile.fopen(fname, mode)?.also { it.out = out }
     }
     return null
 }
+
+// wfdb-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
+// report success when its output was not written.
+private var writeErrors = 0
+
+/**
+ * The number of write errors since the program started: the output files
+ * that the library could not write, flush or close (found when they are
+ * closed, as by wfdbquit), and the errors reported with
+ * [wfdbx_note_write_error]. The count is process-wide.
+ *
+ * The high-level writers throw a [WfdbException] when they meet one, and
+ * the command-line tools then exit with status 1.
+ *
+ * Part of wfdb-x; not in the original WFDB package.
+ */
+fun wfdbx_write_errors(): Int = withGlobalLock { writeErrors }
+
+/**
+ * Counts a write error (see [wfdbx_write_errors]): for an application that
+ * writes a file itself.
+ *
+ * Part of wfdb-x; not in the original WFDB package.
+ */
+fun wfdbx_note_write_error() {
+    withGlobalLock { writeErrors++ }
+}
+
+/**
+ * `wfdbx_fclose_output(fp, pname, name)` on the default instance (see
+ * [Wfdb.wfdbx_fclose_output]).
+ *
+ * Part of wfdb-x; not in the original WFDB package.
+ */
+fun wfdbx_fclose_output(fp: WfdbFile, pname: ByteArray, name: ByteArray): Int =
+    wfdbDefault().wfdbx_fclose_output(fp, pname, name)
 
 /**
  * `wfdb_striphea(record)`: the record name without a trailing ".hea".
@@ -793,15 +836,35 @@ fun Wfdb.wfdbx_get_legacy(): Int = if (legacy) 1 else 0
  * tools before anything else: if the first argument after the program name
  * (argv[1]) is exactly "--legacy", removes it from [argv], turns legacy
  * mode on and returns 1; otherwise changes nothing and returns 0. Only the
- * first argument is recognized.
+ * first argument is recognized. It also enables the check of write errors
+ * at [wfdbx.cstd.exit] (the exit status of the tools).
  *
  * Part of wfdb-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_legacy_args(argv: MutableList<ByteArray>): Int {
+    if (argv.isNotEmpty()) exitCheckInit(argv[0], this) // wfdb-x: see wfdbx.cstd.exit
     if (argv.size < 2 || !beq(argv[1], "--legacy")) return 0
     argv.removeAt(1)
     wfdbx_set_legacy(1)
     return 1
+}
+
+/**
+ * Closes [fp], a file named [name] that an application has written itself,
+ * and returns the status of [WfdbFile.close]. In normal mode, if the file
+ * could not be written or closed, prints "PNAME: write error on NAME" and
+ * counts a write error (see [wfdbx_write_errors]); legacy mode prints and
+ * counts nothing.
+ *
+ * Part of wfdb-x; not in the original WFDB package.
+ */
+fun Wfdb.wfdbx_fclose_output(fp: WfdbFile, pname: ByteArray, name: ByteArray): Int {
+    val status = fp.close()
+    if (status != 0 && !legacy) {
+        eprintf("%s: write error on %s\n", pname, name)
+        wfdbx_note_write_error()
+    }
+    return status
 }
 
 /**
@@ -882,7 +945,10 @@ fun Wfdb.wfdb_open(s0: ByteArray?, record0: ByteArray?, mode: Int): WfdbFile? {
     } else {
         return null
     }
-    if (beq(record, "-")) return if (mode == WFDB_READ) WfdbFile.stdin() else WfdbFile.stdout()
+    if (beq(record, "-")) {
+        // wfdb-x: the standard output is an output file (see wfdbx_write_errors)
+        return if (mode == WFDB_READ) WfdbFile.stdin() else WfdbFile.stdout().also { it.out = true }
+    }
     // If the record name ends with '/', append the last component of the
     // directory name ("foo/bar/" becomes "foo/bar/bar").
     val r = expandRecord(record)

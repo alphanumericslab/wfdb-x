@@ -1682,3 +1682,114 @@ rnd(r::XorShift, lo::Integer, hi::Integer, n::Integer) = [Int32(rnd(r, lo, hi)) 
 end
 
 end
+
+# A signal file or header that cannot be written (a link to /dev/full, on
+# which every write fails) throws an error, in both modes, after the
+# library's messages.
+@testset "write_record write error" begin
+    if !ispath("/dev/full")
+        @test_skip "no /dev/full on this system"
+    else
+        with_data() do w
+            for target in ("full.dat", "full.hea"), n in (10, 100000), legacy in (false, true)
+                rm(target; force=true)
+                symlink("/dev/full", target)
+                before = W.wfdbx_write_errors()
+                local e
+                err = lib_stderr() do
+                    e = try
+                        W.write_record(w, "full", zeros(Int32, n, 2), 250.0; gains=200.0,
+                                       adcres=16, units="mV", legacy)
+                    catch x
+                        x
+                    end
+                end
+                @test e isa W.WfdbError && e.msg == "write error on record full"
+                @test W.wfdbx_write_errors() > before
+                @test occursin("osigclose: write error", err)
+                rm(target)
+            end
+            # write_record_physical
+            rm("full.dat"; force=true)
+            symlink("/dev/full", "full.dat")
+            local e
+            err = lib_stderr() do
+                e = try
+                    W.write_record_physical(w, "full", zeros(10, 1), 250.0; gains=200.0,
+                                            adcres=16, units="mV")
+                catch x
+                    x
+                end
+            end
+            @test e isa W.WfdbError && e.msg == "write error on record full"
+            @test occursin("osigclose: write error in signal group 0", err)
+        end
+    end
+end
+
+# The columns of the samples must add up to a whole frame, and each signal
+# has at least one sample per frame; nothing is written otherwise.
+@testset "write_record frame checks" begin
+    with_data() do w
+        x = Int32.(reshape(0:7, 2, 4)')         # 4 frames, 2 columns
+        kw = (gains=200.0, adcres=16, units="mV")
+        for (spf, msg) in (([1], "write_record: signals has 2 columns, but samps_per_frame adds up to 1"),
+                           ([3], "adds up to 3"), ([1, 2], "adds up to 3"), (3, "adds up to 6"),
+                           ([0, 2], "integers >= 1"), ([2, 0], "integers >= 1"),
+                           ([-1, 3], "integers >= 1"), ([1.5, 0.5], "integers >= 1"),
+                           (0, "integers >= 1"))
+            for legacy in (false, true), f in (W.write_record, W.write_record_physical)
+                e = try
+                    f(w, "bad", f === W.write_record ? x : Float64.(x), 250.0;
+                      samps_per_frame=spf, legacy, kw...)
+                catch err
+                    err
+                end
+                @test e isa W.WfdbError && endswith(e.msg, msg)
+                @test !isfile("bad.hea") && !isfile("bad.dat")
+            end
+        end
+        # (checked before the other arguments: no gains, fs 0, a bad dir)
+        e = try
+            W.write_record(w, "bad", x, 0.0; samps_per_frame=[0, 2], dir="nosuch")
+        catch err
+            err
+        end
+        @test e isa W.WfdbError && e.msg == "write_record: samps_per_frame must hold integers >= 1"
+        W.write_record(w, "good", x, 250.0; samps_per_frame=[2], kw...)
+        @test size(W.read_record(w, "good").samples) == (4, 1)
+        W.write_record(w, "good", x, 250.0; samps_per_frame=[1, 1], kw...)
+        @test W.read_record(w, "good").samples == x
+        W.write_record(w, "good", x, 250.0; samps_per_frame=[1.0, 1.0], kw...)
+        @test W.read_record(w, "good").samples == x
+    end
+end
+
+@testset "write error count" begin
+    n = W.wfdbx_write_errors()
+    W.wfdbx_note_write_error()
+    @test W.wfdbx_write_errors() == n + 1
+    # (an input file, and an output file written without error, do not count)
+    d = tmpdir("wrcount")
+    f = W.wfdb_fopen(joinpath(d, "ok"), "wb")
+    W.fwrite(f, b"abc")
+    @test W.fclose(f) == 0
+    f = W.wfdb_fopen(joinpath(d, "ok"), "rb")
+    @test W.fclose(f) == 0
+    @test W.wfdbx_write_errors() == n + 1
+    if ispath("/dev/full")
+        f = W.wfdb_fopen("/dev/full", "wb")
+        W.fwrite(f, b"abc")
+        @test W.fclose(f) == W.EOF
+        @test W.wfdbx_write_errors() == n + 2
+        # a file that a tool writes itself: counted by wfdbx_fclose_output
+        f = W.cfopen("/dev/full", "wb")
+        W.fwrite(f, b"abc")
+        err = lib_stderr() do
+            @test W.wfdbx_fclose_output(f, "tool", "/dev/full") == W.EOF
+        end
+        @test err == "tool: write error on /dev/full\n"
+        @test W.wfdbx_write_errors() == n + 3
+    end
+    rm(d; recursive=true, force=true)
+end

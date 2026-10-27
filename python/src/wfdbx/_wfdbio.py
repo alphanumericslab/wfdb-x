@@ -22,8 +22,10 @@ is ignored; a URL is opened only if network access is turned on
 (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by Python's
 urllib; the original's HTTP and FTP code (NETFILES) is not translated; ".." is
 accepted in names, and only the last component of a record name is checked;
-additions: wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
-wfdbx_get_output_dir, wfdbx_set_network and wfdbx_get_network; legacy mode
+write errors are counted (wfdbx_write_errors); additions:
+wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
+wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
+wfdbx_write_errors and wfdbx_note_write_error; legacy mode
 (wfdbx_set_legacy) restores the original behavior (the WFDB path, without
 network access). Each change is marked "wfdb-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
@@ -62,7 +64,7 @@ __all__ = [
     "wfdb_striphea", "wfdb_setirec", "wfdb_getirec", "wfdb_addtopath",
     "wfdb_parse_path", "wfdbx_set_input_dir", "wfdbx_get_input_dir",
     "wfdbx_set_output_dir", "wfdbx_get_output_dir", "wfdbx_set_network",
-    "wfdbx_get_network",
+    "wfdbx_get_network", "wfdbx_write_errors", "wfdbx_note_write_error",
 ]
 
 WFDB_MAJOR = 10
@@ -98,13 +100,15 @@ _ENC = "latin-1"        # text encoding: one character per byte
 class WFDBFile:
     """A WFDB_FILE: a local file or an in-memory copy of a remote file."""
 
-    __slots__ = ("fp", "type", "name", "is_std", "_err", "_eof")
+    __slots__ = ("fp", "type", "name", "is_std", "out", "_err", "_eof")
 
-    def __init__(self, fp, ftype=WFDB_LOCAL, name=None, is_std=False):
+    def __init__(self, fp, ftype=WFDB_LOCAL, name=None, is_std=False,
+                 out=False):
         self.fp = fp
         self.type = ftype
         self.name = name
         self.is_std = is_std
+        self.out = out          # wfdb-x: an output file (see close)
         self._err = False
         self._eof = False
 
@@ -164,6 +168,8 @@ class WFDBFile:
             self.fp.write(b)
         except (OSError, ValueError):
             self._err = True
+            if self.is_std:
+                wfdbx_stdout_error()
             return 0
         return len(b)
 
@@ -207,17 +213,25 @@ class WFDBFile:
         self._eof = False
 
     def close(self):
+        # wfdb-x: an output file that could not be written, flushed or
+        # closed counts as a write error (see wfdbx_write_errors)
         if self.is_std:
             try:
                 self.fp.flush()
             except (OSError, ValueError):
-                pass
+                self._err = True
+            if self.out and self._err:
+                _io.write_errors += 1
+                wfdbx_stdout_error()
             return 0
+        status = 0
         try:
             self.fp.close()
         except OSError:
-            return -1
-        return 0
+            status = -1
+        if self.out and (self._err or status):
+            _io.write_errors += 1
+        return status
 
     def getline(self):
         """wfdb_getline(): read one line including its newline (str)."""
@@ -280,6 +294,8 @@ class _IOState:
         self.env_network = False
         self.network_warned = False
         self.fetched = {}            # URL -> contents (bytes), or None
+        self.write_errors = 0        # see wfdbx_write_errors
+        self.stdout_failed = False   # see wfdbx_stdout_error
 
 
 _io = _IOState()
@@ -903,7 +919,8 @@ def _std_stream(read):
             _stdin_file = WFDBFile(sys.stdin.buffer, WFDB_LOCAL, "-", True)
         return _stdin_file
     if _stdout_file is None:
-        _stdout_file = WFDBFile(sys.stdout.buffer, WFDB_LOCAL, "-", True)
+        _stdout_file = WFDBFile(sys.stdout.buffer, WFDB_LOCAL, "-", True,
+                                out=True)
     return _stdout_file
 
 
@@ -1220,7 +1237,7 @@ def wfdb_fopen(fname, mode):
         if mode[0] == "r" and os.path.isdir(fname):
             return None
         fp = open(fname, mode)
-        return WFDBFile(fp, WFDB_LOCAL, fname)
+        return WFDBFile(fp, WFDB_LOCAL, fname, out=mode[0] != "r")
     except OSError:
         pass
     if mode in ("wb", "ab"):
@@ -1235,10 +1252,59 @@ def wfdb_fopen(fname, mode):
         if stat == 0:
             try:
                 fp = open(fname, mode)
-                return WFDBFile(fp, WFDB_LOCAL, fname)
+                return WFDBFile(fp, WFDB_LOCAL, fname, out=True)
             except OSError:
                 pass
     return None
+
+
+# wfdb-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not
+# report success when its output was not written.
+def wfdbx_write_errors():
+    """Return the number of write errors since the program started.
+
+    These are the output files that the library could not write, flush or
+    close (found when they are closed, as by wfdbquit()), and the errors
+    reported with wfdbx_note_write_error().  The high-level writers raise
+    an error when they meet one, and the command-line tools then exit with
+    status 1.
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
+    return _io.write_errors
+
+
+def wfdbx_note_write_error():
+    """Count a write error (see wfdbx_write_errors()): for an application
+    that writes a file itself.
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
+    _io.write_errors += 1
+
+
+def wfdbx_stdout_error():
+    """Note that the standard output could not be written.  What is left of
+    the output is lost; from now on it goes to the null device, so that the
+    writes that follow, and the final flush, succeed (as they do, without
+    effect, in C)."""
+    if _io.stdout_failed:
+        return
+    _io.stdout_failed = True
+    try:
+        fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(fd, sys.stdout.fileno())
+        finally:
+            os.close(fd)
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def wfdbx_stdout_failed():
+    """True if the standard output could not be written (see
+    wfdbx_stdout_error)."""
+    return _io.stdout_failed
 
 
 def wfdb_checkname(p, s):

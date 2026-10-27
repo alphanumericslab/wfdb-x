@@ -6139,10 +6139,14 @@ impl Wfdb {
     /// tools before anything else: if the first argument after the program
     /// name (`argv[1]`) is exactly `--legacy`, removes it from `argv`, turns
     /// legacy mode on and returns 1; otherwise changes nothing and returns
-    /// 0. Only the first argument is recognized.
+    /// 0. Only the first argument is recognized. It also enables the check
+    /// of write errors at [`cstd::exit`] (the exit status of the tools).
     ///
     /// Part of wfdb-x; not in the original WFDB package.
     pub fn wfdbx_legacy_args(&mut self, argv: &mut Vec<Vec<u8>>) -> i32 {
+        if let Some(argv0) = argv.first() {
+            cstd::exit_check_init(argv0); // wfdb-x: see cstd::exit
+        }
         if argv.len() < 2 || argv[1] != b"--legacy" {
             return 0;
         }

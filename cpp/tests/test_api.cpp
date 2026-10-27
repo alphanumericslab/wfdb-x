@@ -1058,3 +1058,121 @@ WFDBX_TEST(read_header_and_base_time)
         CHECK_EQ(std::string(buf), datstr(strdat(date)));
     }
 }
+
+namespace {
+
+const char *const dev_full = "/dev/full";   // every write fails (ENOSPC)
+
+} // namespace
+
+// A signal file or header that cannot be written throws an error, in both
+// modes, after the library's messages.
+WFDBX_TEST(write_record_write_error)
+{
+    if (!fs::exists(dev_full)) return;      // (skipped: no /dev/full)
+    for (const char *target : {"full.dat", "full.hea"})
+        for (size_t n : {size_t(10), size_t(100000)})
+            for (bool legacy : {false, true}) {
+                DataDir d;
+                fs::create_symlink(dev_full, target);
+                std::vector<WFDB_Sample> x(2 * n, 0);
+                WriteOptions w;
+                w.gains = {200};
+                w.adcres = {16};
+                w.units = {"mV"};
+                w.legacy = legacy;
+                int before = wfdbx_write_errors();
+                std::string err;
+                {
+                    wfdbx_tests::StderrCapture cap;
+                    err = error_of([&] { write_record("full", x, 2, 250, w); });
+                    CHECK(cap.text().find("osigclose: write error") !=
+                          std::string::npos);
+                }
+                CHECK_EQ(err, "write error on record full");
+                CHECK(wfdbx_write_errors() > before);
+                CHECK_EQ(wfdbx_get_legacy(), 0);
+            }
+}
+
+// An annotation file that cannot be written throws an error, in both modes,
+// after the library's message.
+WFDBX_TEST(write_annotations_write_error)
+{
+    if (!fs::exists(dev_full)) return;      // (skipped: no /dev/full)
+    for (size_t n : {size_t(3), size_t(100000)})
+        for (bool legacy : {false, true}) {
+            DataDir d;
+            setafreq(0.0);
+            fs::create_symlink(dev_full, "100s.full");
+            Annotations a;
+            for (size_t k = 1; k <= n; k++) {
+                a.samples.push_back(static_cast<WFDB_Time>(k));
+                a.symbols.push_back("N");
+            }
+            int prev = wfdbx_set_legacy(legacy);
+            std::string err;
+            {
+                wfdbx_tests::StderrCapture cap;
+                err = error_of([&] { write_annotations("100s", "full", a); });
+                CHECK(cap.text().find("write error on annotation file full") !=
+                      std::string::npos);
+            }
+            wfdbx_set_legacy(prev);
+            CHECK_EQ(err, "write error on annotator full for record 100s");
+        }
+}
+
+// Each signal has at least one sample per frame (checked first, before any
+// file is opened), and the samples fill whole frames; nothing is written
+// otherwise.
+WFDBX_TEST(write_record_frame_checks)
+{
+    DataDir d;
+    std::vector<WFDB_Sample> x = {0, 1, 2, 3, 4, 5, 6, 7};
+    std::vector<double> p(8, 0.5);
+    const std::string spf_error =
+        "write_record: samps_per_frame must hold integers >= 1";
+    for (bool legacy : {false, true}) {
+        WriteOptions w;
+        w.gains = {200};
+        w.adcres = {16};
+        w.units = {"mV"};
+        w.legacy = legacy;
+        for (const std::vector<int> &spf : {std::vector<int>{0},
+                                            std::vector<int>{0, 2},
+                                            std::vector<int>{2, 0},
+                                            std::vector<int>{-1, 3}}) {
+            w.samps_per_frame = spf;
+            int nsig = static_cast<int>(spf.size());
+            CHECK_EQ(error_of([&] { write_record("bad", x, nsig, 250, w); }),
+                     spf_error);
+            CHECK_EQ(error_of([&] {
+                         write_record_physical("bad", p, nsig, 250, w);
+                     }), spf_error);
+            // before the other checks
+            CHECK_EQ(error_of([&] { write_record("bad", x, 0, 0, w); }),
+                     spf_error);
+        }
+        w.samps_per_frame = {3};
+        CHECK_EQ(error_of([&] { write_record("bad", x, 1, 250, w); }),
+                 "write_record: the number of samples is not a multiple of "
+                 "the frame size");
+        w.samps_per_frame = {1, 2};
+        CHECK_EQ(error_of([&] { write_record("bad", x, 2, 250, w); }),
+                 "write_record: the number of samples is not a multiple of "
+                 "the frame size");
+        CHECK(!fs::exists("bad.hea") && !fs::exists("bad.dat"));
+    }
+    WriteOptions w;
+    w.gains = {200};
+    w.adcres = {16};
+    w.units = {"mV"};
+    w.samps_per_frame = {2};
+    write_record("good", x, 1, 250, w);
+    Record r = read_record("good");
+    CHECK(r.nsig == 1 && r.nsamples() == 4);
+    w.samps_per_frame = {1, 1};
+    write_record("good", x, 2, 250, w);
+    CHECK(read_record("good").samples == x);
+}

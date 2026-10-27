@@ -29,7 +29,7 @@ import sys
 
 import wfdbx as w
 from wfdbx._cstd import sscanf, int32, int8, cdiv, cmod
-from ._common import (Output, Exit, eprintf, freq_not_specified, legacy,
+from ._common import (Output, OutputFile, Exit, eprintf, freq_not_specified, legacy,
                       run)
 
 EDFMAXBLOCK = 61440     # maximum data block length, in bytes
@@ -142,7 +142,7 @@ def _main(argv, out):
                         "not specified\n", pname, k, record)
                 raise Exit(3)
     try:
-        ofile = open(ofname, "wb")
+        ofile = OutputFile(ofname, pname)
     except OSError:
         eprintf("%s: can't create %s\n", pname, ofname)
         raise Exit(4)

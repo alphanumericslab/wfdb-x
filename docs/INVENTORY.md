@@ -35,43 +35,43 @@ macOS; the tests of the repository do not compile the native code (see
 | Tool | What it does | Cases | Python | C++ | MATLAB/Octave | Rust | Julia | R | Kotlin |
 |---|---|---:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **Signals** | | | | | | | | | |
-| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 282 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrsamp` | write a record from text (columns, scaling, any storage format) | 69 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbdesc` | describe the signals of a record (header contents) | 47 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 41 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `snip` | copy a segment of a record (any format) to a new record | 39 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `xform` | convert records: format, sampling frequency, gain, signal selection | 53 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sampfreq` | print the sampling (or counter) frequency of a record | 21 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `signame` | print signal names | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `signum` | print the number of a named signal | 6 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbcat` | copy WFDB files to the standard output | 7 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbwhich` | print the path of a WFDB file | 16 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 285 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrsamp` | write a record from text (columns, scaling, any storage format) | 71 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbdesc` | describe the signals of a record (header contents) | 48 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `snip` | copy a segment of a record (any format) to a new record | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `xform` | convert records: format, sampling frequency, gain, signal selection | 54 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sampfreq` | print the sampling (or counter) frequency of a record | 22 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `signame` | print signal names | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `signum` | print the number of a named signal | 7 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbcat` | copy WFDB files to the standard output | 8 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbwhich` | print the path of a WFDB file | 17 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Time conversion** | | | | | | | | | |
-| `wfdbtime` | convert between sample numbers, elapsed and absolute times | 8 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `time2sec` | convert a time string to seconds | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbtime` | convert between sample numbers, elapsed and absolute times | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time2sec` | convert a time string to seconds | 21 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Annotations** | | | | | | | | | |
-| `rdann` | print annotations (filters by time, type, subtype, channel, number) | 77 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrann` | write an annotation file from text (`rdann` format) | 26 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sortann` | sort an annotation file into time order | 19 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `ann2rr` | print RR intervals from annotations | 41 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `rr2ann` | write an annotation file from RR intervals | 13 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdann` | print annotations (filters by time, type, subtype, channel, number) | 78 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrann` | write an annotation file from text (`rdann` format) | 27 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sortann` | sort an annotation file into time order | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ann2rr` | print RR intervals from annotations | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rr2ann` | write an annotation file from RR intervals | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Format converters** | | | | | | | | | |
-| `edf2mit` | convert EDF/EDF+ to a WFDB record | 16 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mit2edf` | convert a WFDB record to EDF | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `rdedfann` | print EDF+ annotations (as `rdann` text) | 11 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wav2mit` | convert a WAV file to a WFDB record | 11 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `edf2mit` | convert EDF/EDF+ to a WFDB record | 17 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mit2edf` | convert a WFDB record to EDF | 21 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdedfann` | print EDF+ annotations (as `rdann` text) | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wav2mit` | convert a WAV file to a WFDB record | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mit2wav` | convert a WFDB record to a WAV file | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdb2mat` | convert a WFDB record to a MATLAB/Octave .mat file | 27 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdb2mat` | convert a WFDB record to a MATLAB/Octave .mat file | 29 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `a2m` | convert AHA-format annotations to WFDB format | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `m2a` | convert WFDB annotations to AHA format | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `m2a` | convert WFDB annotations to AHA format | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ad2m` | convert AHA-format signals (tape/CD) to a WFDB record | 15 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `md2a` | convert a WFDB record to AHA-format signals | 5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ahaecg2mit` | convert AHA DVD-format ECG files (binary or text) to WFDB | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `parsescp` | convert SCP-ECG files to WFDB records (and describe them) | 30 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `makeid` | write a record ID block (for AHA conversions) | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `readid` | read a record ID block | 3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `parsescp` | convert SCP-ECG files to WFDB records (and describe them) | 32 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `makeid` | write a record ID block (for AHA conversions) | 5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `readid` | read a record ID block | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `revise` | convert an old-style header to the current format | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Total** | 33 tools | **989** | 989 | 989 | 989 | 989 | 989 | 989 | 989 |
+| **Total** | 33 tools | **1023** | 1023 | 1023 | 1023 | 1023 | 1023 | 1023 | 1023 |
 
 ## Library functions
 

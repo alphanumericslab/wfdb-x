@@ -8,7 +8,8 @@
 # the original program, but it is new code, not the original C code.
 #
 # Changes from the original: no built-in sampling frequency: the input record
-# must give it, for the header of the excerpt (the original assumed 250 Hz);
+# must give it, for the header of the excerpt (the original assumed 250 Hz); a
+# master header that cannot be written is reported (wfdbx_fclose_output);
 # --legacy, as the first argument, restores the original behavior. Each change
 # is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
@@ -140,7 +141,8 @@ function _snip_copy_sig(sn::_SnipState, nrec::Vector{UInt8}, irec::Vector{UInt8}
         seginfo = segref[]::Vector{Seginfo}
         sfreq = sampfreq(nothing)
 
-        ohfile = cfopen(cformat("%s.hea", nrec), "wb")
+        ohfname = cformat("%s.hea", nrec)
+        ohfile = cfopen(ohfname, "wb")
         if ohfile === nothing
             ceprintf("%s: can't create master header\n", sn.pname)
             cexit(2)
@@ -213,7 +215,7 @@ function _snip_copy_sig(sn::_SnipState, nrec::Vector{UInt8}, irec::Vector{UInt8}
             end
             cfprintf(ohfile, "%s %ld\r\n", orseg, len)
         end
-        fclose(ohfile)
+        wfdbx_fclose_output(ohfile, sn.pname, ohfname)     # wfdb-x
         return
     end
 

@@ -175,6 +175,19 @@ the wrong instance):
   output, and ends the process: C's `exit` semantics (no annotation end
   marks, no header updates). Tools must end through `exit` (or return
   normally after flushing); never `System.exit`.
+* Write errors. The standard output is never written through `System.out`
+  (a `PrintStream`, which swallows `IOException`s and only reports them
+  through `checkError()`): `Platform.writeStdout` writes to the file
+  descriptor with a `FileOutputStream` (JVM) or `write(2)` (Native) and
+  reports the failure. `Stdout` records the first one (`Stdout.error()`,
+  C's `ferror(stdout)`) and discards everything after it, as if the
+  standard output were the null device. `wfdbx_legacy_args` enables a check
+  in `exit`: in normal mode, it flushes the standard output, prints
+  `PROGRAM: write error on standard output` if it failed, and turns the
+  status 0 into 1 if it failed or `wfdbx_write_errors()` is not 0.
+  `WfdbFile.close` counts a write error for an output file opened by
+  `wfdb_open`/`wfdb_fopen`/`localFopen` (not `WfdbFile.fopen`); a tool
+  closes the files it writes itself with `wfdbx_fclose_output`.
 * `getenv`/`setenv`/`unsetenv`: on the JVM, which cannot change its own
   environment, `setenv` keeps an overlay that `getenv` and child processes
   (`run_sortann`) see.

@@ -21,7 +21,8 @@
 # resolution: the record must give the sampling frequency, and the gain and ADC
 # resolution of every signal (the original assumed 250 Hz and 200 adu/mV, and
 # guessed the resolution from the storage format); unspecified units are
-# written as "nd" (the original wrote "mV"); --legacy, as the first argument,
+# written as "nd" (the original wrote "mV"); an EDF file that cannot be
+# written is reported (wfdbx_fclose_output); --legacy, as the first argument,
 # restores the original behavior. Each change is marked "wfdb-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
@@ -459,7 +460,7 @@ function mit2edf_main(args::Vector{String})
             blocks_per_hour != 0 && n % blocks_per_hour == 0 && cprintf("\n")
         end
     end
-    fclose(ofile)
+    wfdbx_fclose_output(ofile, pname, ofname)       # wfdb-x
     cprintf("\n")
 
     if edfplusflag

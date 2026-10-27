@@ -21,9 +21,10 @@
 // resolution: the record must give the sampling frequency, and the gain and
 // ADC resolution of every signal (the original assumed 250 Hz and 200 adu/mV,
 // and guessed the resolution from the storage format); unspecified units are
-// written as "nd" (the original wrote "mV"); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
-// docs/DIVERGENCES.md gives the reasons.
+// written as "nd" (the original wrote "mV"); an EDF file that cannot be
+// written is reported, and the exit status is then 1; --legacy, as the first
+// argument, restores the original behavior. Each change is marked "wfdb-x:" in
+// the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2002-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -613,7 +614,7 @@ fn main() {
         }
         n += 1;
     }
-    ofile.close();
+    wfdbx::wfdbx_fclose_output(ofile, &pname, &ofname); // wfdb-x
     cprintf!(b"\n");
 
     if edfplusflag {

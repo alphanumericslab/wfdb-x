@@ -16,9 +16,11 @@
 // (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by the curl
 // program, run without a shell; the original's HTTP and FTP code (NETFILES) is
 // not translated; ".." is accepted in names, and only the last component of a
-// record name is checked; additions: wfdbx_set_input_dir, wfdbx_get_input_dir,
-// wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network and
-// wfdbx_get_network; legacy mode (wfdbx_set_legacy) restores the original
+// record name is checked; write errors are counted (wfdbx_write_errors), and
+// the tools exit with status 1 after one; additions: wfdbx_set_input_dir,
+// wfdbx_get_input_dir, wfdbx_set_output_dir, wfdbx_get_output_dir,
+// wfdbx_set_network, wfdbx_get_network, wfdbx_write_errors and
+// wfdbx_note_write_error; legacy mode (wfdbx_set_legacy) restores the original
 // behavior (the WFDB path, without network access). Each change is marked
 // "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
@@ -34,9 +36,10 @@
 //
 // This file contains the WFDB path functions (getwfdb, setwfdb, ...), the
 // functions that find and open WFDB files (wfdb_open, wfdb_fopen), error
-// reporting (wfdb_error, wfdberror), the stdio wrappers of WFDB_FILE, and
-// the wfdb-x settings that locate files (wfdbx_set_input_dir,
-// wfdbx_set_output_dir, wfdbx_set_network).
+// reporting (wfdb_error, wfdberror), the stdio wrappers of WFDB_FILE, the
+// wfdb-x settings that locate files (wfdbx_set_input_dir,
+// wfdbx_set_output_dir, wfdbx_set_network), and the wfdb-x count of write
+// errors (wfdbx_write_errors) and exit check of the tools.
 
 #include "wfdblib.hpp"
 
@@ -478,11 +481,13 @@ int WFDBFile::close()
 {
     if (!fp_) return 0;
     int status;
+    bool err = out_ && error();
     if (is_std_)
         status = std::fflush(fp_);
     else
         status = std::fclose(fp_);
     fp_ = nullptr;
+    if (out_ && (err || status)) wfdbx_note_write_error();
     return status;
 }
 
@@ -682,8 +687,9 @@ FilePtr wfdb_fopen(const char *fname, const char *mode)
     } else if (is_url(fname))   // wfdb-x: ".." is accepted; a URL is fetched
         return mode[0] == 'r' ? fetch_open(fname) : nullptr;
     if (mode[0] == 'r' && is_directory(fname)) return nullptr;
+    bool out = mode[0] != 'r';
     std::FILE *fp = std::fopen(fname, mode);
-    if (fp) return std::make_unique<WFDBFile>(fp, false);
+    if (fp) return std::make_unique<WFDBFile>(fp, false, WFDB_LOCAL, out);
     if (std::strcmp(mode, "wb") == 0 || std::strcmp(mode, "ab") == 0) {
         // Try to create any missing directories in the path.
         int stat = 1;
@@ -695,7 +701,7 @@ FilePtr wfdb_fopen(const char *fname, const char *mode)
             }
         }
         if (stat == 0 && (fp = std::fopen(fname, mode)) != nullptr)
-            return std::make_unique<WFDBFile>(fp, false);
+            return std::make_unique<WFDBFile>(fp, false, WFDB_LOCAL, true);
     }
     return nullptr;
 }
@@ -708,7 +714,7 @@ FilePtr std_stream(bool read)
 #if defined(_WIN32)
     _setmode(_fileno(fp), _O_BINARY);
 #endif
-    return std::make_unique<WFDBFile>(fp, true);
+    return std::make_unique<WFDBFile>(fp, true, WFDB_LOCAL, !read);
 }
 
 // If the record name ends with '/', append the last component of the
@@ -1211,6 +1217,79 @@ int wfdbx_get_network()
         st.network = st.env_network;
     }
     return st.network;
+}
+
+// wfdb-x: write errors.  wfdbx_write_errors returns the number of write
+// errors since the program started: the output files that the library could
+// not write, flush or close (found when they are closed), and the errors that
+// applications report with wfdbx_note_write_error (for the files that they
+// write themselves).  Decided by Reza Sameni, Oct 2026: a program must not
+// report success when its output was not written.
+namespace {
+
+int nwrite_errors = 0;          // (a plain int: still valid in exit_check)
+
+} // namespace
+
+int wfdbx_write_errors() { return nwrite_errors; }
+
+void wfdbx_note_write_error() { nwrite_errors++; }
+
+// wfdb-x: the exit status of the tools.  In normal mode, at exit, the
+// standard output is flushed; if it could not be written, the message
+// "PROGRAM: write error on standard output" is printed.  Then, if the exit
+// status is 0 and the standard output or another output file could not be
+// written (see wfdbx_write_errors), the exit status is 1, as for the standard
+// Unix tools.  Legacy mode (--legacy) keeps the original exit status.  The
+// tools enable this through wfdbx_legacy_args.  Where the C library has no
+// on_exit (CMakeLists.txt: WFDBX_HAVE_ON_EXIT), the check is registered with
+// atexit, which does not see the exit status: the status is then 1 after a
+// write error, whatever it was.
+namespace {
+
+char exit_pname[256];           // the program name (basename of argv[0])
+bool exit_check_installed = false;
+
+void exit_check(int status)
+{
+    if (wfdbx_get_legacy()) return;
+    bool failed = false;
+    if (std::fflush(stdout) == EOF || std::ferror(stdout)) {
+        std::fprintf(stderr, "%s: write error on standard output\n",
+                     exit_pname);
+        failed = true;
+    }
+    if (status == 0 && (failed || nwrite_errors > 0)) {
+        std::fflush(nullptr);
+        std::_Exit(1);
+    }
+}
+
+#if defined(WFDBX_HAVE_ON_EXIT)
+void exit_check_on_exit(int status, void *) { exit_check(status); }
+#else
+void exit_check_atexit() { exit_check(0); }
+#endif
+
+} // namespace
+
+void detail::wfdbx_exit_check_init(const char *argv0)
+{
+    if (exit_check_installed || argv0 == nullptr) return;
+    exit_check_installed = true;
+    const char *p = argv0;
+    for (const char *q = argv0; *q; q++)
+#if defined(_WIN32)
+        if (*q == '/' || *q == '\\') p = q + 1;
+#else
+        if (*q == '/') p = q + 1;
+#endif
+    std::snprintf(exit_pname, sizeof(exit_pname), "%s", p);
+#if defined(WFDBX_HAVE_ON_EXIT)
+    on_exit(exit_check_on_exit, nullptr);
+#else
+    std::atexit(exit_check_atexit);
+#endif
 }
 
 void wfdbmemerr(int behavior) { io().mem_behavior = behavior; }

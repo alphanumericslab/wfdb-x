@@ -18,8 +18,11 @@
 package wfdbx
 
 import com.sun.net.httpserver.HttpServer
+import wfdbx.cstd.latin1
 import java.io.File
 import java.net.InetSocketAddress
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -74,6 +77,68 @@ class HighLevelJvmTest {
             wfdbquit()
             d.remove()
         }
+    }
+
+    /** Runs [f] with a fresh copy of the test data, where [target] is a link to /dev/full (on which every write fails); skipped without /dev/full. */
+    private fun withFull(target: String, f: (DataDir, Wfdb) -> Unit) {
+        if (!File("/dev/full").exists()) return
+        val d = DataDir("wrerr")
+        val w = d.wfdb()
+        try {
+            Files.createSymbolicLink(Paths.get(d.path(target)), Paths.get("/dev/full"))
+            w.wfdbquiet()
+            f(d, w)
+        } finally {
+            w.wfdbquit()
+            d.remove()
+        }
+    }
+
+    @Test
+    fun writeRecordWriteError() {
+        // A signal file or header that cannot be written throws an error, in
+        // both modes, after the library's messages.
+        for (target in listOf("full.dat", "full.hea")) {
+            for (n in listOf(10, 100000)) {
+                for (legacy in listOf(false, true)) {
+                    withFull(target) { _, w ->
+                        val before = wfdbx_write_errors()
+                        val e = assertFailsWith<WfdbException> {
+                            w.writeRecord("full", IntArray(2 * n), 2, 250.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"), legacy = legacy)
+                        }
+                        assertEquals("write error on record full", e.message)
+                        assertTrue(wfdbx_write_errors() > before)
+                        assertTrue(w.wfdberror().latin1().startsWith("osigclose: write error"), w.wfdberror().latin1())
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun writeAnnotationsWriteError() {
+        // An annotation file that cannot be written throws an error, in both
+        // modes, after the library's message.
+        for (n in listOf(3, 100000)) {
+            for (legacy in listOf(false, true)) {
+                withFull("100s.full") { _, w ->
+                    val before = wfdbx_write_errors()
+                    val e = assertFailsWith<WfdbException> {
+                        w.writeAnnotations("100s", "full", LongArray(n) { it + 1L }, symbols = List(n) { "N" }, legacy = legacy)
+                    }
+                    assertEquals("write error on annotator full for record 100s", e.message)
+                    assertTrue(wfdbx_write_errors() > before)
+                    assertEquals("oannclose: write error on annotation file full\n", w.wfdberror().latin1())
+                }
+            }
+        }
+    }
+
+    @Test
+    fun noteWriteError() {
+        val before = wfdbx_write_errors()
+        wfdbx_note_write_error()
+        assertEquals(before + 1, wfdbx_write_errors())
     }
 
     /** A local HTTP server serving the files of [dir] (and /redirect/X: a redirect to /X), logging the paths requested. */

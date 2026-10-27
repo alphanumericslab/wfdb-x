@@ -163,12 +163,12 @@ app_mit2edf <- function(args = character(0)) {
     # guessed it from the storage format).
     if (si[[k]]$adcres < 1) .app_noadcres(pname, k - 1, record, 3)
   }
-  ofile <- tryCatch(file(ofname, "wb"), error = function(e) NULL)
+  ofile <- .app_fopen(ofname, pname)
   if (is.null(ofile)) {
     ceprintf("%s: can't create %s\n", pname, ofname)
     cexit(4)
   }
-  on.exit(if (!is.null(ofile)) close(ofile))
+  on.exit(.app_fclose(ofile, report = FALSE))
   p <- timstr(0)
   start_date_recorded <- 1
   if (!startsWith(p, "[")) {
@@ -280,7 +280,7 @@ app_mit2edf <- function(args = character(0)) {
   for (k in seq_len(nsig)) put(.f("%d", dmax[k]), 8)
   for (k in seq_len(nsig)) put("prefiltering not recorded", 80)
   for (k in seq_len(nsig)) put(.f("%d", frames_per_block * spfs[k]), 8)
-  writeBin(header, ofile)
+  .app_fwrite(ofile, header)
   hc <- as.integer(header)
   hc <- hc - 256L * (hc >= 128L)            # (C char: signed)
   for (k in which(hc < 32L | hc > 126L)) {
@@ -315,11 +315,10 @@ app_mit2edf <- function(args = character(0)) {
       matrix(t(V[, sig_cols[[k]], drop = FALSE]), spfs[k] * frames_per_block, nb)
     })
     blk <- do.call(rbind, parts)
-    writeBin(as.integer(cint16(blk)), ofile, size = 2L, endian = "little")
+    .app_fwrite(ofile, as.integer(cint16(blk)), size = 2L, endian = "little")
     b0 <- b0 + nb
   }
-  close(ofile)
-  ofile <- NULL
+  .app_fclose(ofile)            # wfdb-x: reports a write error
   if (vflag) {
     nbs <- seq_len(nblocks)
     dots <- character(nblocks)

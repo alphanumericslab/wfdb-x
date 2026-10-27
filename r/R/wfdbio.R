@@ -19,9 +19,10 @@
 # (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by the curl
 # program or R's url(); the original's HTTP and FTP code (NETFILES) is not
 # translated; ".." is accepted in names, and only the last component of a
-# record name is checked; additions: wfdbx_set_input_dir, wfdbx_get_input_dir,
-# wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network and
-# wfdbx_get_network; legacy mode (wfdbx_set_legacy) restores the original
+# record name is checked; write errors are counted (wfdbx_write_errors);
+# additions: wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
+# wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
+# wfdbx_write_errors and wfdbx_note_write_error; legacy mode (wfdbx_set_legacy) restores the original
 # behavior (the WFDB path, without network access). Each change is marked
 # "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
@@ -513,6 +514,23 @@ wfdbx_get_network <- function() {
   if (st$network) 1 else 0
 }
 
+# wfdb-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not
+# report success when its output was not written.
+
+#' The number of write errors since the program started: the output files
+#' that the library could not write, flush or close (found when they are
+#' closed, as by wfdbquit()), and the errors reported with
+#' wfdbx_note_write_error().  The high-level writers stop with an error when
+#' they meet one, and the command-line tools then exit with status 1.
+wfdbx_write_errors <- function() .cstd$write_errors
+
+#' Count a write error (see wfdbx_write_errors()): for an application that
+#' writes a file itself.
+wfdbx_note_write_error <- function() {
+  .cstd$write_errors <- .cstd$write_errors + 1
+  invisible()
+}
+
 # wfdb-x: name with a leading "~" or "~/" replaced by the home directory
 # ($HOME, or that of the current user if HOME is not set; on MS-Windows,
 # %USERPROFILE%), and, on POSIX systems, "~user" by the home directory of
@@ -902,7 +920,8 @@ wfdb_fopen <- function(fname, mode) {
     if (stat == 0) con <- open1()
   }
   if (is.null(con)) return(NULL)
-  f <- wfdb_file_new(con, WFDB_LOCAL, fname, 0L, if (m == "a") "a" else "w")
+  f <- wfdb_file_new(con, WFDB_LOCAL, fname, 0L, if (m == "a") "a" else "w",
+                     if (.is_absolute_path(rn)) rn else file.path(getwd(), rn))
   if (m == "a") f$wpos <- suppressWarnings(file.size(rn))
   f
 }

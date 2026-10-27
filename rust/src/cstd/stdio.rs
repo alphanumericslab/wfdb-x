@@ -112,9 +112,17 @@ impl OutLock {
     /// If the reader of a pipe has gone away (`EPIPE`), the process exits
     /// with status 141, as a C program killed by `SIGPIPE` appears to the
     /// shell.
+    ///
+    /// wfdb-x: after a write error, the output is discarded (as if the
+    /// standard output were the null device), so that later writes and
+    /// flushes do nothing; [`error`](OutLock::error) stays true.
     pub fn flush(&mut self) -> i32 {
+        if self.0.error {
+            self.0.buf.clear();
+            return -1;
+        }
         if self.0.buf.is_empty() {
-            return if self.0.error { -1 } else { 0 };
+            return 0;
         }
         let mut so = std::io::stdout().lock();
         let r = so.write_all(&self.0.buf).and_then(|_| so.flush());
@@ -182,13 +190,71 @@ pub fn eprintf(fmt: &[u8], args: &[Arg]) -> i32 {
     n as i32
 }
 
+/// The program name for the message of [`exit`] (set by
+/// [`exit_check_init`]).
+static EXIT_PNAME: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+
+/// wfdb-x: enable the check of write errors at [`exit`] (called by
+/// `wfdbx_legacy_args`, as the tools call it first); `argv0` gives the
+/// program name of its message. Only the first call counts.
+pub(crate) fn exit_check_init(argv0: &[u8]) {
+    let mut p = EXIT_PNAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if p.is_none() {
+        *p = Some(prog_name(argv0).to_vec());
+    }
+}
+
+/// wfdb-x: the exit status of the tools. In normal mode (of the default
+/// instance), the standard output is flushed; if it could not be written,
+/// `PROGRAM: write error on standard output` is printed. Then, if `status`
+/// is 0 and the standard output or another output file could not be
+/// written (see [`crate::wfdbx_write_errors`]), the status is 1. Legacy
+/// mode keeps the status.
+fn exit_check(status: i32) -> i32 {
+    let pname = EXIT_PNAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    let Some(pname) = pname else {
+        return status;
+    };
+    if crate::wfdb::default_legacy() {
+        return status;
+    }
+    let failed = {
+        let mut o = out();
+        o.flush();
+        o.error()
+    };
+    if failed {
+        eprintf(
+            b"%s: write error on standard output\n",
+            &[super::printf::ToArg::to_arg(&pname)],
+        );
+    }
+    if status == 0 && (failed || crate::wfdbx_write_errors() > 0) {
+        1
+    } else {
+        status
+    }
+}
+
 /// C `exit(status)`: flushes the files of the default [`crate::Wfdb`]
 /// instance (as C's `exit` flushes every open stream, without closing
 /// records or annotators), then the standard output, and exits.
 ///
+/// wfdb-x: after `wfdbx_legacy_args`, in normal mode, a standard output
+/// that could not be written is reported (`PROGRAM: write error on
+/// standard output`), and the status 0 becomes 1 if the standard output or
+/// another output file could not be written (see
+/// [`crate::wfdbx_write_errors`]).
+///
 /// Files opened by the caller itself (outside the library state) are not
 /// flushed (Rust does not run destructors at exit): close them first.
 pub fn exit(status: i32) -> ! {
+    let status = exit_check(status);
     crate::wfdb::release_default_at_exit();
     flush_stdout();
     std::process::exit(status)

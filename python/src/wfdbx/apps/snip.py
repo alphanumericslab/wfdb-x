@@ -26,7 +26,8 @@ import sys
 
 import wfdbx as w
 from wfdbx._cstd import strtol, int32
-from ._common import Exit, eprintf, freq_not_specified, legacy, run
+from ._common import (Exit, OutputFile, eprintf, freq_not_specified, legacy,
+                      run)
 
 HELP = [
     "usage: %s -i IREC -n NREC [OPTIONS ...]\n",
@@ -106,7 +107,7 @@ class _Snip:
                        for s in seginfo]
             sfreq = w.sampfreq(None)
             try:
-                ohfile = open(nrec + ".hea", "wb")
+                ohfile = OutputFile(nrec + ".hea", pname)
             except OSError:
                 eprintf("%s: can't create master header\n", pname)
                 raise Exit(2)

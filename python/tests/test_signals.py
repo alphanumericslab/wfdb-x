@@ -858,3 +858,46 @@ def test_bulk_interleaved_with_getvec(datadir, monkeypatch):
     assert [st for st, v in results[0][12]] == [5, -4]     # (step "v", 2)
     assert results[0][14] == ([], -1)
     assert results[1][-2][1] == -1          # (no checksum after a seek)
+
+
+_FULL = "/dev/full"     # a device on which every write fails (ENOSPC)
+needs_full = pytest.mark.skipif(not os.path.exists(_FULL),
+                                reason="no /dev/full on this system")
+
+
+@needs_full
+@pytest.mark.parametrize("target", ["full.dat", "full.hea"])
+@pytest.mark.parametrize("n", [10, 100000])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_write_record_write_error(datadir, capfd, target, n, legacy):
+    # A signal file or header that cannot be written raises an error, in
+    # both modes, after the library's messages.
+    os.symlink(_FULL, target)
+    before = w.wfdbx_write_errors()
+    with pytest.raises(OSError, match="write error on record full"):
+        w.write_record("full", np.zeros((n, 2), int), 250, gains=200,
+                       adcres=16, units="mV", legacy=legacy)
+    assert w.wfdbx_write_errors() > before
+    assert "osigclose: write error" in capfd.readouterr().err
+
+
+def test_write_record_frame_checks(datadir):
+    # The columns of signals must add up to a whole frame, and each signal
+    # has at least one sample per frame; nothing is written otherwise.
+    x = np.arange(8).reshape(4, 2)
+    kw = dict(gains=200, adcres=16, units="mV")
+    for spf, msg in [([1], "signals has 2 columns, but samps_per_frame adds "
+                           "up to 1"),
+                     ([3], "adds up to 3"), ([1, 2], "adds up to 3"),
+                     ([0, 2], "integers >= 1"), ([2, 0], "integers >= 1"),
+                     ([-1, 3], "integers >= 1"), ([1.5, 0.5], "integers")]:
+        for legacy in (False, True):
+            with pytest.raises(ValueError, match=msg):
+                w.write_record("bad", x, 250, samps_per_frame=spf,
+                               legacy=legacy, **kw)
+            assert not os.path.exists("bad.hea")
+            assert not os.path.exists("bad.dat")
+    w.write_record("good", x, 250, samps_per_frame=[2], **kw)
+    assert w.read_record("good").signals.shape == (4, 1)
+    w.write_record("good", x, 250, samps_per_frame=[1, 1], **kw)
+    assert np.array_equal(w.read_record("good").signals, x)

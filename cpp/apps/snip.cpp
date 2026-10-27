@@ -31,6 +31,7 @@
 
 #include <wfdbx/wfdb.hpp>
 
+#include "cemul.hpp"
 using namespace wfdbx;
 
 static const char *pname;
@@ -393,7 +394,7 @@ static void copy_sig(const char *nrec, const char *irec, WFDB_Time from,
             }
             std::fprintf(ohfile, "%s %lld\r\n", orsegs.c_str(), len);
         }
-        std::fclose(ohfile);
+        cemul::fclose_output(ohfile, pname, ohfname.c_str());   // wfdb-x
         return;
     }
 

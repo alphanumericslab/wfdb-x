@@ -128,6 +128,84 @@ assert(numel(text) >= 5 && strcmp(text(end-4:end), sprintf('#c1\r\n')), 'info');
 assert_eq(wfdbx.getinfo('hw'), 'c1', 'getinfo');
 assert_eq(wfdbx.getinfo([]), [], 'getinfo end');
 wfdbx.wfdbquit();
+
+write_record_write_error();
+write_record_frame_checks();
+end
+
+function write_record_write_error()
+% A signal file or header that cannot be written raises an error, in both
+% modes, after the library's messages.
+FULL = '/dev/full';     % a device on which every write fails (ENOSPC)
+if exist(FULL, 'file') == 0
+    return;             % (no /dev/full on this system)
+end
+targets = {'full.dat', 'full.hea'};
+for t = 1:numel(targets)
+    for n = [10 100000]
+        for legacy = [false true]
+            what = sprintf('write error (%s, %d frames, legacy %d)', ...
+                targets{t}, n, legacy);
+            link(FULL, targets{t});
+            before = wfdbx.wfdbx_write_errors();
+            msg = '';
+            wfdbx.wfdbquiet();
+            try
+                wfdbx.write_record('full', zeros(n, 2), 250, 'gains', 200, ...
+                    'adcres', 16, 'units', 'mV', 'legacy', legacy);
+            catch err
+                msg = err.message;
+            end
+            wfdbx.wfdbverbose();
+            assert_eq(msg, 'write error on record full', what);
+            assert(wfdbx.wfdbx_write_errors() > before, [what ': count']);
+            assert(~isempty(strfind(wfdbx.wfdberror(), ...
+                'osigclose: write error')), [what ': message']);
+            delete('full.dat');
+            delete('full.hea');
+        end
+    end
+end
+end
+
+function write_record_frame_checks()
+% The columns of signals must add up to a whole frame, and each signal
+% has at least one sample per frame; nothing is written otherwise.
+x = reshape(0:7, 2, 4)';
+opts = {'gains', 200, 'adcres', 16, 'units', 'mV'};
+cols = 'signals has 2 columns, but samps_per_frame adds up to ';
+ints = 'samps_per_frame must hold integers >= 1';
+bad = {1, [cols '1']; 3, [cols '3']; [1 2], [cols '3']; [0 2], ints; ...
+    [2 0], ints; [-1 3], ints; [1.5 0.5], ints};
+for k = 1:size(bad, 1)
+    for legacy = [false true]
+        what = sprintf('frame check %d, legacy %d', k, legacy);
+        msg = '';
+        try
+            wfdbx.write_record('bad', x, 250, 'samps_per_frame', bad{k, 1}, ...
+                'legacy', legacy, opts{:});
+        catch err
+            msg = err.message;
+        end
+        assert_eq(msg, bad{k, 2}, what);
+        assert(~isfile('bad.hea') && ~isfile('bad.dat'), [what ': files']);
+    end
+end
+wfdbx.write_record('good', x, 250, 'samps_per_frame', 2, opts{:});
+r = wfdbx.read_record('good');
+assert_eq(size(r.signals), [4 1], 'samps_per_frame 2');
+wfdbx.write_record('good', x, 250, 'samps_per_frame', [1 1], opts{:});
+r = wfdbx.read_record('good');
+assert_eq(r.signals, x, 'samps_per_frame [1 1]');
+end
+
+function link(target, name)
+% a symbolic link NAME to TARGET
+if wfdbx.internal.is_octave()
+    symlink(target, name);
+else
+    [~, out] = system(['ln -s ' target ' ' name]); %#ok<ASGLU>
+end
 end
 
 function bulk_check(rec, mode, t0)

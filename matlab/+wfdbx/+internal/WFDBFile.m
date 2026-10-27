@@ -18,13 +18,20 @@ classdef WFDBFile < handle
 %     S = f.seek(OFF, WHENCE)  fseek (WHENCE 0 = SEEK_SET, 1 = SEEK_CUR,
 %                         2 = SEEK_END); returns 0, or -1 on error
 %     P = f.tell()        ftell (-1 if not seekable)
-%     f.flush()           fflush
+%     S = f.flush()       fflush: 0, or -1 if the file could not be written
+%     OK = f.sync()       flush an output file; false if that failed
 %     TF = f.feof(), TF = f.ferror(), f.clearerr()
 %     S = f.close()       fclose (for the standard streams, only flushes)
 %
 %   Properties: fp (the MATLAB file identifier, -1 for the standard
-%   streams), type (0 = WFDB_LOCAL, 1 = WFDB_NET), name (file name, or '-')
-%   and is_std (true for the standard input and output).
+%   streams), type (0 = WFDB_LOCAL, 1 = WFDB_NET), name (file name, or '-'),
+%   is_std (true for the standard input and output) and out (true for an
+%   output file, and for the standard output).
+%
+%   wfdb-x: closing an output file that could not be written, flushed or
+%   closed counts as a write error (see wfdbx.wfdbx_write_errors).  As
+%   Octave's fflush does not report a failure, an output file is flushed
+%   by fseek(fp, 0, 'cof') where it is seekable.
 %
 %   The standard input ('-' opened for reading) is read from the bytes of
 %   wfdbx.internal.stdin_bytes(); it is not seekable (as a pipe).  The
@@ -46,8 +53,8 @@ classdef WFDBFile < handle
 % code.
 %
 % Changes from the original: a field names the temporary file that holds the
-% contents of a remote file. Each change is marked "wfdb-x:" in the code;
-% docs/DIVERGENCES.md gives the reasons.
+% contents of a remote file; write errors are counted. Each change is marked
+% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
@@ -64,6 +71,7 @@ classdef WFDBFile < handle
         type = 0        % WFDB_LOCAL (0) or WFDB_NET (1)
         name = ''       % file name ('-' for the standard streams)
         is_std = false  % standard input or output
+        out = false     % wfdb-x: an output file (see close)
         temp = ''       % wfdb-x: a temporary file deleted by close() (the
                         % contents of a remote file; see fetch_open)
     end
@@ -75,21 +83,29 @@ classdef WFDBFile < handle
         data = []       % standard input: its bytes
         pos = 0         % standard input: number of bytes consumed
         beyond = -1     % position set by seek() beyond the end of the file
+        check = false   % output file flushed by fseek (see sync)
     end
 
     methods
-        function obj = WFDBFile(fid, ftype, name, std)
-            %WFDBFILE Wrap a file identifier (STD = 1 or 2: stdin, stdout).
+        function obj = WFDBFile(fid, ftype, name, std, out)
+            %WFDBFILE Wrap a file identifier (STD = 1 or 2: stdin, stdout;
+            %OUT true for a file opened for writing or appending).
             if nargin < 4
                 std = 0;
+            end
+            if nargin < 5
+                out = std == 2;
             end
             obj.fp = fid;
             obj.type = ftype;
             obj.name = name;
             obj.std = std;
             obj.is_std = std ~= 0;
+            obj.out = out;
             if std == 1
                 obj.data = wfdbx.internal.stdin_bytes();
+            elseif out && std == 0 && fid >= 0
+                obj.check = fseek(fid, 0, 'cof') == 0;
             end
         end
 
@@ -170,7 +186,7 @@ classdef WFDBFile < handle
                 k = fwrite(obj.fp, b, 'uint8');
                 if k < n
                     obj.err = true;
-                    n = k;
+                    n = max(k, 0);
                 end
             end
         end
@@ -195,6 +211,9 @@ classdef WFDBFile < handle
             if obj.std ~= 0 || obj.fp < 0
                 st = -1;
                 return;
+            end
+            if obj.check && ~obj.sync()
+                obj.err = true;
             end
             % As C, positions beyond the end of the file are allowed
             % (MATLAB and Octave refuse them): reads there find the end
@@ -246,8 +265,9 @@ classdef WFDBFile < handle
             st = 0;
             if obj.std == 2
                 wfdbx.internal.cout();
-            elseif obj.std == 0 && obj.fp >= 0 && wfdbx.internal.is_octave()
-                fflush(obj.fp);
+            elseif obj.std == 0 && obj.fp >= 0 && ~obj.sync()
+                obj.err = true;
+                st = -1;
             end
         end
 
@@ -269,10 +289,20 @@ classdef WFDBFile < handle
 
         function st = close(obj)
             %CLOSE fclose() (the standard streams are only flushed).
+            % wfdb-x: an output file that could not be written, flushed
+            % or closed counts as a write error (see
+            % wfdbx.wfdbx_write_errors)
             st = 0;
             if obj.std == 2
                 wfdbx.internal.cout();
+                io = wfdbx.internal.io_state();
+                if io.stdout_failed
+                    io.write_errors = io.write_errors + 1;
+                end
             elseif obj.std == 0 && obj.fp >= 0
+                if obj.out && ~obj.sync()
+                    st = -1;
+                end
                 if fclose(obj.fp) ~= 0
                     st = -1;
                 end
@@ -280,6 +310,10 @@ classdef WFDBFile < handle
                 if ~isempty(obj.temp)
                     delete(obj.temp);
                     obj.temp = '';
+                end
+                if obj.out && (obj.err || st ~= 0)
+                    io = wfdbx.internal.io_state();
+                    io.write_errors = io.write_errors + 1;
                 end
             end
         end
@@ -324,6 +358,18 @@ classdef WFDBFile < handle
                     return;
                 end
                 chunk = min(2 * chunk, 65536);
+            end
+        end
+
+        function ok = sync(obj)
+            %SYNC Flush an output file; false if that failed.
+            ok = true;
+            if obj.check
+                % (fseek flushes the file and reports a failure, Octave's
+                % fflush does not)
+                ok = fseek(obj.fp, 0, 'cof') == 0;
+            elseif wfdbx.internal.is_octave()
+                fflush(obj.fp);
             end
         end
 

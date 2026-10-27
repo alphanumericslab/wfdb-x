@@ -10,8 +10,10 @@
 //
 // Changes from the original: no built-in sampling frequency: the input record
 // must give it, for the header of the excerpt (the original assumed 250 Hz);
-// --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// a master header that cannot be written is reported, and the exit status is
+// then 1; --legacy, as the first argument, restores the original behavior.
+// Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+// reasons.
 //
 // Original C program: app/snip.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -231,7 +233,7 @@ private fun Wfdb.copySig(sn: Snip, nrec: ByteArray, irec: ByteArray, from: Long,
             ohfile.printf("%s %lld\r\n", orsegs, len)
         }
         sn.openFiles.remove(ohfile)
-        ohfile.close()
+        wfdbx_fclose_output(ohfile, sn.pname, ohfname) // wfdb-x
         return
     }
 

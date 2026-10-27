@@ -7,6 +7,9 @@ and any files it creates or modifies.  HOME is the subdirectory home of that
 work directory; a case that uses {url} also gets a local HTTP server
 (127.0.0.1) serving a copy of it.  The work directory, HOME and the URL of
 the server are written as {cwd}, {home} and {url} in the recorded outputs.
+A case can also name output files that are links to /dev/full, and send the
+standard output there, to test write errors (/dev/full fails every write;
+such cases are skipped where it does not exist).
 Golden results are produced by the original C implementation (WFDB 10.7.0,
 built from third_party/) and stored in tests/conformance/golden/.  Each
 wfdb-x implementation must reproduce them byte for byte.
@@ -120,6 +123,8 @@ def snapshot(d):
     for base, _, files in os.walk(d):
         for f in files:
             p = os.path.join(base, f)
+            if os.path.islink(p):
+                continue        # (links to /dev/full: see run_case)
             rel = os.path.relpath(p, d)
             with open(p, "rb") as fp:
                 out[rel] = fp.read()
@@ -166,6 +171,14 @@ def _uses_url(case):
                [case.get("stdin")])
 
 
+DEV_FULL = "/dev/full"     # a device on which every write fails (ENOSPC)
+
+
+def needs_dev_full(case):
+    """True if the case writes to /dev/full (keys full and stdout_full)."""
+    return bool(case.get("full") or case.get("stdout_full"))
+
+
 def run_case(case, cmd_prefix, extra_env=None):
     """Run a case; return dict with stdout, stderr, status, files."""
     work = tempfile.mkdtemp(prefix="wfdbx-")
@@ -209,6 +222,12 @@ def run_case(case, cmd_prefix, extra_env=None):
                                   else content.encode("latin-1")))
 
         put(wd, case.get("files", {}))
+        # full: output files that are links to /dev/full
+        for name in case.get("full", ()):
+            p = os.path.join(wd, name)
+            if os.path.lexists(p):
+                os.remove(p)
+            os.symlink(DEV_FULL, p)
         if url:
             shutil.copytree(wd, www, dirs_exist_ok=True)
             put(www, case.get("www_files", {}))
@@ -237,10 +256,18 @@ def run_case(case, cmd_prefix, extra_env=None):
         # the work directory in the outputs is written as {cwd} (likewise
         # {home} and {url})
         args = [subst(a) for a in case["args"]]
-        p = subprocess.run(cmd_prefix + args, cwd=wd, env=env,
-                           input=stdin if stdin is not None else b"",
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                           timeout=case.get("timeout", 600))
+        # stdout_full: the standard output is /dev/full (and recorded as
+        # empty)
+        out = open(DEV_FULL, "wb") if case.get("stdout_full") \
+            else subprocess.PIPE
+        try:
+            p = subprocess.run(cmd_prefix + args, cwd=wd, env=env,
+                               input=stdin if stdin is not None else b"",
+                               stdout=out, stderr=subprocess.PIPE,
+                               timeout=case.get("timeout", 600))
+        finally:
+            if out is not subprocess.PIPE:
+                out.close()
         after = snapshot(wd)
         files = {k: v for k, v in after.items()
                  if k not in before or before[k] != v}
@@ -249,7 +276,7 @@ def run_case(case, cmd_prefix, extra_env=None):
         places = [(url, "{url}"), (home, "{home}"),
                   (os.path.join(wd, "home"), "{home}"),
                   (cwd, "{cwd}"), (wd, "{cwd}")]
-        return {"stdout": _normalize(p.stdout, places),
+        return {"stdout": _normalize(p.stdout or b"", places),
                 "stderr": _normalize(p.stderr, places),
                 "status": p.returncode, "files": files}
     finally:
@@ -334,6 +361,22 @@ def save_golden(cid, res):
         p = os.path.join(d, "files", name)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         _write_blob(p, data)
+
+
+def _misnamed(case):
+    """A hint for a missing golden directory: the name of a directory that
+    differs from the expected one only in case (as a copy made on a
+    case-insensitive file system can leave it), or ""."""
+    want = golden_name(case["id"])
+    try:
+        names = os.listdir(GOLDEN)
+    except OSError:
+        return ""
+    for n in names:
+        if n != want and n.lower() == want.lower():
+            return " (%s exists instead: the golden directory names are " \
+                "case-sensitive; rename it to %s)" % (n, want)
+    return ""
 
 
 def load_golden(cid):
@@ -454,8 +497,12 @@ def main():
             print("%-40s %s %s" % (case["id"], case["tool"],
                                    " ".join(case["args"])))
         return 0
+    have_full = os.path.exists(DEV_FULL)
     if a.cmd == "golden":
         for case in select(a.cases):
+            if needs_dev_full(case) and not have_full:
+                print("%-40s skipped (no %s)" % (case["id"], DEV_FULL))
+                continue
             path = os.path.abspath(a.cbin) + os.pathsep + \
                 os.environ.get("PATH", "")
             res = run_case(case, impl_command("c", case["tool"]),
@@ -467,10 +514,14 @@ def main():
         return 0
     if a.cmd == "check":
         cases = select(a.cases)
+        nskip = 0
+        if not have_full:
+            nskip = sum(map(needs_dev_full, cases))
+            cases = [c for c in cases if not needs_dev_full(c)]
 
         def one(case):
             if not os.path.isdir(golden_dir(case["id"])):
-                return case, ["missing golden results"]
+                return case, ["missing golden results" + _misnamed(case)]
             exp = load_golden(case["id"])
             extra = None
             bindir = a.cbin if a.impl == "c" else (
@@ -501,7 +552,8 @@ def main():
                     break
             elif a.verbose:
                 print("ok   %s" % case["id"])
-        print("%d of %d cases passed" % (len(cases) - nfail, len(cases)))
+        print("%d of %d cases passed" % (len(cases) - nfail, len(cases)) +
+              (" (%d skipped: no %s)" % (nskip, DEV_FULL) if nskip else ""))
         return 1 if nfail else 0
     ap.print_help()
     return 2

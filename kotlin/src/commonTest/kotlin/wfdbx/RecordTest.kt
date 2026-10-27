@@ -234,6 +234,35 @@ class RecordTest {
     }
 
     @Test
+    fun writeRecordFrameChecks() = withData("spfchk") { d, w ->
+        // Each signal has at least one sample per frame, checked before
+        // anything else (in both modes); nothing is written otherwise.
+        val x = IntArray(8) { it }
+        val msg = "writeRecord: sampsPerFrame must hold integers >= 1"
+        for (spf in listOf(intArrayOf(0, 2), intArrayOf(2, 0), intArrayOf(-1, 3), intArrayOf(0))) {
+            for (legacy in listOf(false, true)) {
+                fails(msg) {
+                    w.writeRecord("bad", x, spf.size, 250.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"), sampsPerFrame = spf, legacy = legacy)
+                }
+                fails(msg) { w.writeRecord("bad", DoubleArray(8), spf.size, 0.0, sampsPerFrame = spf, dir = d.path("nosuch"), legacy = legacy) }
+                assertFalse(fileExists(d.path("bad.hea")))
+                assertFalse(fileExists(d.path("bad.dat")))
+            }
+        }
+        for (spf in listOf(intArrayOf(3), intArrayOf(1, 2))) {
+            fails("writeRecord: the number of samples is not a multiple of the frame size") {
+                w.writeRecord("bad", x, spf.size, 250.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"), sampsPerFrame = spf)
+            }
+            assertFalse(fileExists(d.path("bad.hea")))
+        }
+        w.writeRecord("good", x, 1, 250.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"), sampsPerFrame = intArrayOf(2))
+        assertEquals(4, w.readRecord("good").nsamples)
+        assertContentEquals(x, w.readRecord("good", highres = true).samples)
+        w.writeRecord("good", x, 2, 250.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"), sampsPerFrame = intArrayOf(1, 1))
+        assertContentEquals(x, w.readRecord("good").samples)
+    }
+
+    @Test
     fun writeRecordRequiresResolutionAndUnits() = withData("nodefr") { _, w ->
         val x = IntArray(20)
         for (r in listOf(null, intArrayOf(16, 0), intArrayOf(0), intArrayOf(16, 12, 0).copyOf(0))) {

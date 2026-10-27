@@ -41,7 +41,8 @@
 # given in the SCP file, and is not written if the file gives none (the
 # original always wrote 500 Hz); signals and reference beats that could not be
 # allocated, and samples beyond the end of a signal shorter than lead 0, are
-# read as absent or as zeros (undefined behavior in the original); --legacy, as
+# read as absent or as zeros (undefined behavior in the original); an output
+# file that cannot be written is reported (wfdbx_fclose_output); --legacy, as
 # the first argument, restores the original behavior. Each change is marked
 # "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
@@ -652,7 +653,7 @@ function _scp_write_output(s::_Scp)
     cfprintf(dfile, "QRS axis: %d\n", s.qrsaxis)
     cfprintf(dfile, "T axis: %d\n", s.taxis)
     fwrite(dfile, _scp_precgmeas(s))
-    fclose(dfile)
+    wfdbx_fclose_output(dfile, s.pname, dname)      # wfdb-x
 
     # Generate the key file. The patient's name and ID number should appear
     # only in this file (and in the debugging output, if enabled using -v).
@@ -660,7 +661,7 @@ function _scp_write_output(s::_Scp)
     cfprintf(kfile, "Record: %s (%s %s)\n", recname, s.recdate, s.rectime)
     cfprintf(kfile, "Name: %s\n", s.patient_name)
     cfprintf(kfile, "MRN: %s\n", s.patient_id)
-    fclose(kfile)
+    wfdbx_fclose_output(kfile, s.pname, kname)      # wfdb-x
 
     # If the -z option was selected, then for each signal:
     #  1. Calculate the median amplitude of the first 5000 samples in the
@@ -717,7 +718,7 @@ function _scp_write_output(s::_Scp)
             fwrite(tfile, line)
             i += 1
         end
-        fclose(tfile)
+        wfdbx_fclose_output(tfile, s.pname, tname)  # wfdb-x
     end
 
     # Finally, output the ECG in vector (binary) form.
@@ -748,7 +749,7 @@ function _scp_write_output(s::_Scp)
         end
     end
     _scp_write_samples(efile, _scp_sigr(s, s.lead_ii), 0, Int(_SCP_MINSIGLEN))
-    fclose(efile)
+    wfdbx_fclose_output(efile, s.pname, ename)      # wfdb-x
     1
 end
 

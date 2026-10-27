@@ -32,6 +32,10 @@ classdef IOState < handle
 %                    was printed
 %     fetched_urls, fetched_data   the URLs fetched (cell row) and their
 %                    contents (uint8 rows; [] for a failure)
+%   wfdb-x: write errors (see wfdbx.wfdbx_write_errors):
+%     write_errors   the number of write errors since the program started
+%     stdout_failed  true once the standard output could not be written
+%                    (see wfdbx.internal.cout)
 %
 %   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
 
@@ -44,9 +48,9 @@ classdef IOState < handle
 % code.
 %
 % Changes from the original: fields hold the settings that locate files
-% (input directory, output directory, network access) and the remote files
-% fetched. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
-% gives the reasons.
+% (input directory, output directory, network access), the remote files
+% fetched, and the write errors. Each change is marked "wfdb-x:" in the
+% code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
@@ -85,5 +89,7 @@ classdef IOState < handle
         network_warned = false
         fetched_urls = cell(1, 0)
         fetched_data = cell(1, 0)
+        write_errors = 0
+        stdout_failed = false
     end
 end

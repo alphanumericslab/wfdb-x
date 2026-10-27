@@ -175,6 +175,21 @@ standard error through `cerr(x)` (unbuffered). `cprintf(fmt, ...)` and
 (R's `stdout()` connection is text-only); tools never call `cat`, `print`
 or `message`.
 
+Write errors (wfdb-x: `wfdbx_write_errors`, and the exit status of the
+tools) need care in R: `writeBin` reports a failed write only as a warning,
+and only when the data do not fit in the connection's stdio buffer, and
+`flush()` and `seek()` ignore a failure to write the buffer; only `close()`
+reports it (a warning, and the status -1). So the standard output is opened
+for each flush of `cout` and closed after it (`.write_stdout`; after a
+failure, `.cstd$stdout_failed` is set and the rest of the output is
+dropped), an output file is closed and opened again (`r+b`, at the same
+position) where C would call `fflush` (`.wf_sync`, used by `wf_flush`,
+`wf_seek` and `wf_tell`), and these warnings are muffled (with
+`withCallingHandlers`) and set the file's error flag. `app_run` reports a
+failed standard output and turns the exit status 0 into 1; the files that
+the tools write themselves go through `.app_fopen`, `.app_fwrite` and
+`.app_fclose` (`cli.R`).
+
 ## Performance
 
 R executes scalar code slowly, so common paths are vectorized: signal
@@ -296,7 +311,7 @@ constants
 `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
 `wfdbdefwfdbcal`, `wfdbx_set_input_dir`, `wfdbx_get_input_dir`,
 `wfdbx_set_output_dir`, `wfdbx_get_output_dir`, `wfdbx_set_network`,
-`wfdbx_get_network`.  The resolution rules and the settings are those of
+`wfdbx_get_network`, `wfdbx_write_errors`, `wfdbx_note_write_error`.  The resolution rules and the settings are those of
 the C reference and the Python port (docs/DIVERGENCES.md); `signal.R`
 opens headers with `.open_header` (noting `hdr_dir`, the directory of the
 header, and `msrec_dir`/`msrec_name` for the segments of a multi-segment

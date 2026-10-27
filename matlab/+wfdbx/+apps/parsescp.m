@@ -452,8 +452,8 @@ if k < nout
 end
 end
 
-function fwr(fid, varargin)
-fwrite(fid, uint8(wfdbx.internal.csprintf(varargin{:})));
+function fwr(f, varargin)
+f.write(uint8(wfdbx.internal.csprintf(varargin{:})));
 end
 
 function P = write_output(P)
@@ -466,20 +466,20 @@ recname = P.recname;
 names = {[recname '.des'], [recname '.ecg'], [recname '.key'], ...
     [recname '.txt']};
 nf = 3 + (P.vflag ~= 0);
-fids = zeros(1, nf);
+files = cell(1, nf);
 for k = 1:nf
-    fids(k) = fopen(names{k}, 'wb', 'ieee-le');
-    if fids(k) < 0
+    files{k} = wfdbx.internal.OutputFile(names{k}, P.pname, 'ieee-le');
+    if files{k}.fid < 0
         for kk = 1:k - 1
-            fclose(fids(kk));
+            files{kk}.close();
         end
         wfdbx.internal.ceprintf('%s: can''t create ''%s''\n', P.pname, names{k});
         return;
     end
 end
-dfile = fids(1);
-efile = fids(2);
-kfile = fids(3);
+dfile = files{1};
+efile = files{2};
+kfile = files{3};
 
 % Write the description file first.
 fwr(dfile, [c.VERSION_STRING ' description\n']);
@@ -558,15 +558,15 @@ fwr(dfile, 'T end: %d\n', P.Tend);
 fwr(dfile, 'P axis: %d\n', P.Paxis);
 fwr(dfile, 'QRS axis: %d\n', P.QRSaxis);
 fwr(dfile, 'T axis: %d\n', P.Taxis);
-fwrite(dfile, uint8(precgmeas(P)));
-fclose(dfile);
+dfile.write(uint8(precgmeas(P)));
+dfile.close();          % wfdb-x: reports a write error
 
 % Generate the key file.
 fwr(kfile, [c.VERSION_STRING ' key\n']);
 fwr(kfile, 'Record: %s (%s %s)\n', recname, P.recdate, P.rectime);
 fwr(kfile, 'Name: %s\n', P.patient_name);
 fwr(kfile, 'MRN: %s\n', P.patient_id);
-fclose(kfile);
+kfile.close();
 
 % Zero-mean the signals (-z).
 if P.zflag
@@ -606,9 +606,9 @@ for k = 1:12
 end
 % Write the ECG in text form if requested (-v option).
 if P.vflag
-    tfile = fids(4);
+    tfile = files{4};
     if P.vflag > 1
-        fwrite(tfile, uint8(['samp#      I     II    III    aVR    aVF    aVL' ...
+        tfile.write(uint8(['samp#      I     II    III    aVR    aVF    aVL' ...
             '     V1     V2     V3     V4     V5     V6']));
     end
     sigs = cell(1, 12);
@@ -623,9 +623,9 @@ if P.vflag
         for k = 1:12
             M(k + 1, :) = double(sigs{k}(kk))';
         end
-        fwrite(tfile, uint8(sprintf(fmt, M)));
+        tfile.write(uint8(sprintf(fmt, M)));
     end
-    fclose(tfile);
+    tfile.close();
 end
 
 % Finally, output the ECG in vector (binary) form.
@@ -639,17 +639,17 @@ else
     P = lowpass(P);
 end
 prolog = double(prolog(1:min(end, 512)));
-fwrite(efile, uint8([prolog, zeros(1, 512 - numel(prolog))]));
+efile.write(uint8([prolog, zeros(1, 512 - numel(prolog))]));
 rows = [1 4 7 10; 2 6 8 11; 3 5 9 12];  % (I aVR V1 V4) (II aVL V2 V5) (III aVF V3 V6)
 for r = 1:3
     for k = 0:3
         x = sig(P, order(rows(r, k + 1)));
-        fwrite(efile, x(c.SEGLEN * k + 1:c.SEGLEN * (k + 1)), 'int16');
+        efile.write(x(c.SEGLEN * k + 1:c.SEGLEN * (k + 1)), 'int16');
     end
 end
 x = sig(P, order(2));
-fwrite(efile, x(1:c.ECGLEN), 'int16');
-fclose(efile);
+efile.write(x(1:c.ECGLEN), 'int16');
+efile.close();
 end
 
 function write_wfdb_record(P)

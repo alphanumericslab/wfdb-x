@@ -1750,11 +1750,14 @@ const STDOUT_BUFSIZE = 1 << 16
 """
 State of the emulated C process (one per process; replaced while a tool runs
 in-process, see `run_tool`): the buffered standard output, capture buffers,
-the standard input, the open files flushed by `cexit`, the `rand` generator.
+the standard input, the open files flushed by `cexit`, the `rand` generator,
+and (wfdb-x) the count of write errors (see `wfdbx_write_errors`).
 """
 mutable struct CProc
     outbuf::Vector{UInt8}
     out_error::Bool
+    out_closed::Bool                        # stdout closed by fclose
+    write_errors::Int                       # see wfdbx_write_errors
     tty::Int8                               # -1: unknown
     out_capture::Union{Nothing,Vector{UInt8}}
     err_capture::Union{Nothing,Vector{UInt8}}
@@ -1766,7 +1769,7 @@ mutable struct CProc
     rng::GlibcRand
 end
 
-CProc() = CProc(sizehint!(UInt8[], STDOUT_BUFSIZE), false, Int8(-1), nothing, nothing,
+CProc() = CProc(sizehint!(UInt8[], STDOUT_BUFSIZE), false, false, 0, Int8(-1), nothing, nothing,
                 Int32(0), nothing, 0, UInt8[], IdDict{Any,Nothing}(), GlibcRand(1))
 
 const _PROC = Ref{CProc}()
@@ -1885,7 +1888,8 @@ end
 C `fflush(stdout)`: write out the buffered standard output. Returns 0, or
 -1 (`EOF`) on a write error. If the reader of a pipe has gone away
 (`EPIPE`), the process exits with status 141, as a C program killed by
-`SIGPIPE` appears to the shell.
+`SIGPIPE` appears to the shell. After another write error, the standard
+output is the null device (see `_stdout_failed!`).
 """
 function cflush()
     p = cproc()
@@ -1903,10 +1907,27 @@ function cflush()
     empty!(buf)
     if err != 0
         err == _EPIPE && exit(_SIGPIPE_STATUS)
-        p.out_error = true
+        _stdout_failed!(p)
         return EOF
     end
     Int32(0)
+end
+
+# wfdb-x: the standard output could not be written. The error flag is set
+# (C's ferror(stdout)); what is left of the output is lost: descriptor 1 is
+# now the null device, so that later writes, and any flush at process exit,
+# succeed (they have no effect, as in C after a write error).
+function _stdout_failed!(p::CProc)
+    p.out_error && return nothing
+    p.out_error = true
+    @static if _HAVE_POSIX_IO
+        fd = ccall(:open, Cint, (Cstring, Cint), "/dev/null", Base.Filesystem.JL_O_WRONLY)
+        if fd >= 0
+            ccall(:dup2, Cint, (Cint, Cint), fd, 1)
+            ccall(:close, Cint, (Cint,), fd)
+        end
+    end
+    nothing
 end
 
 @inline function _after_write(p::CProc)

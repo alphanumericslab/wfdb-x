@@ -137,7 +137,7 @@ function _run_workloads()
     # The CLI driver itself.
     precompile(main_cli, (Vector{String},))
     precompile(tool_function, (String,))
-    precompile(_run_main, (Function, Vector{String}))
+    precompile(_run_main, (Function, Vector{String}, String))
     _reset_cproc!()
     _reset_lib!()
     nothing

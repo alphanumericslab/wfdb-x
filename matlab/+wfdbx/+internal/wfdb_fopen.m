@@ -57,7 +57,7 @@ if fid >= 0 && mode(1) == 'r' && ~wfdbx.internal.is_octave() && ...
     return;
 end
 if fid >= 0
-    f = wfdbx.internal.WFDBFile(fid, 0, fname);
+    f = wfdbx.internal.WFDBFile(fid, 0, fname, 0, mode(1) ~= 'r');
     return;
 end
 if strcmp(mode, 'wb') || strcmp(mode, 'ab')
@@ -76,7 +76,7 @@ if strcmp(mode, 'wb') || strcmp(mode, 'ab')
     if stat == 0
         fid = fopen(fname, mode);
         if fid >= 0
-            f = wfdbx.internal.WFDBFile(fid, 0, fname);
+            f = wfdbx.internal.WFDBFile(fid, 0, fname, 0, true);
         end
     end
 end

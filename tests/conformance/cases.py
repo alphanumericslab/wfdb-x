@@ -13,6 +13,9 @@ Each case is a dict with keys:
   files   (optional) {name: content} extra files created before running
   www_files (optional) {name: content} files only on the HTTP server
   env     (optional) extra environment variables
+  full    (optional) names of output files created as links to /dev/full,
+          on which every write fails ("no space left on device")
+  stdout_full (optional) True: the standard output is /dev/full
   wfdb    (optional) value of the WFDB environment variable (default: not
           set; "." in the legacy suite)
 The placeholders are also replaced in stdin, env, files and www_files.
@@ -1066,3 +1069,53 @@ case("xform", "-i vlay -o f16c -n xf -f s1320", cid="alias-xform-control",
      files=_ALIAS)
 case("snip", "-i sn -n snp -t 1", cid="alias-snip", files=_ALIAS)
 case("snip", "-i sn -n snq -t 1", cid="alias-snip-control", files=_ALIAS)
+
+# ---------------------------------------------------------------------------
+# Write errors: output files that are links to /dev/full, on which every
+# write fails, and the standard output sent there.  A tool reports the error
+# and exits with status 1, as the standard tools do (the original exited
+# with status 0; see docs/DIVERGENCES.md).  The output files are small, so
+# that the errors are found when they are closed.
+_W = "-F 250 -G 200 -R 16 -U mV"
+case("wrsamp", "-o wf " + _W, cid="wrerr-wrsamp-dat", stdin=_TXT,
+     full=["wf.dat"])
+case("wrsamp", "-o wf " + _W, cid="wrerr-wrsamp-hea", stdin=_TXT,
+     full=["wf.hea"])
+case("wrann", "-r 100s -a cpy", cid="wrerr-wrann", stdin=_rd("100s.atr.txt"),
+     full=["100s.cpy"])
+case("rr2ann", "-r 100s -a rr", cid="wrerr-rr2ann", stdin=_rd("rr.txt"),
+     full=["100s.rr"])
+case("sortann", "-r 100s -a atr -o srt", cid="wrerr-sortann",
+     full=["100s.srt"])
+case("m2a", "-r 100s -a atr aha2", cid="wrerr-m2a", full=["100s.aha2"])
+case("snip", "-i 100s -n sf -t s5", cid="wrerr-snip-dat", full=["sf.dat"])
+case("snip", "-i 100s -n sf -t s5", cid="wrerr-snip-hea", full=["sf.hea"])
+case("snip", "-i multi -n sf -t s5", cid="wrerr-snip-master",
+     full=["sf.hea"])
+case("xform", "-i 100s -o fmt16 -n xf -t s500", cid="wrerr-xform",
+     full=["xf.hea"])
+case("wfdb2mat", "-r 100s -t s10", cid="wrerr-wfdb2mat-mat",
+     full=["100sm.mat"])
+case("wfdb2mat", "-r 100s -t s10", cid="wrerr-wfdb2mat-hea",
+     full=["100sm.hea"])
+case("mit2edf", "-r fmt16 -o fe.edf", cid="wrerr-mit2edf", full=["fe.edf"])
+case("edf2mit", "-i fmt16.edf -r e2m", cid="wrerr-edf2mit", full=["e2m.hea"])
+case("wav2mit", "-i t16.wav -r w16 -G 6400 -U mV", cid="wrerr-wav2mit",
+     full=["w16.hea"])
+case("parsescp", "-w -o ex", cid="wrerr-parsescp-des", full=["ex.des"],
+     stdin=_rd("example.scp"))
+case("parsescp", "-w -o ex", cid="wrerr-parsescp-hea", full=["ex.hea"],
+     stdin=_rd("example.scp"))
+# the standard output
+for _t, _a in [("rdsamp", "-r 100s"), ("rdsamp", "-r 100s -t s1"),
+               ("rdann", "-r 100s -a atr"), ("sigamp", "-r 100s"),
+               ("wfdbdesc", "100s"), ("ann2rr", "-r 100s -a atr"),
+               ("wfdbcat", "100s.hea"), ("makeid", "atr 100s"),
+               ("readid", "512 512"), ("sampfreq", "100s"),
+               ("signame", "-r 100s"), ("signum", "-r 100s -s MLII"),
+               ("time2sec", "-r 100s 0:5"), ("wfdbtime", "-r 100s 100"),
+               ("wfdbwhich", "100s.hea"), ("rdedfann", "-r edfp.edf")]:
+    case(_t, _a, cid="wrerr-stdout-" + _t + "-" + _a.replace(" ", "_"),
+         stdout_full=True)
+# a failing standard output does not change a nonzero exit status
+case("rdsamp", "-r nosuch", cid="wrerr-stdout-status", stdout_full=True)

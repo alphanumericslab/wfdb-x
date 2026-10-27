@@ -753,10 +753,14 @@ def write_record(record, signals, fs, fmt=16, gains=None,
       ValueError         if fs, a gain, an ADC resolution or the units of a
                          calibrated signal is missing or invalid, if a signal
                          in physical units has a gain of 0, if the signals do
-                         not all have the same format, or if record contains a
+                         not all have the same format, if a samps_per_frame
+                         value is not an integer >= 1 or the number of columns
+                         of signals is not their sum, or if record contains a
                          directory and dir is given
       FileNotFoundError  if dir does not exist
-      IOError            if the signal file or the header cannot be created
+      IOError            if the signal file or the header cannot be created,
+                         or cannot be written completely (for example, when
+                         the disk is full: "write error on record R")
 
     Example (writes a record of random numbers, rand, in the output
     directory: the files rand.hea and rand.dat)::
@@ -775,6 +779,14 @@ def write_record(record, signals, fs, fmt=16, gains=None,
         x = x[:, None]
     nsig = x.shape[1] if samps_per_frame is None else len(samps_per_frame)
     spf = [1] * nsig if samps_per_frame is None else list(samps_per_frame)
+    # Each frame holds spf[k] >= 1 samples of signal k, and each row of
+    # signals is one frame.
+    if any(not (n >= 1 and n == int(n)) for n in spf):
+        raise ValueError("samps_per_frame must hold integers >= 1")
+    spf = [int(n) for n in spf]
+    if x.shape[1] != sum(spf):
+        raise ValueError("signals has %d columns, but samps_per_frame adds "
+                         "up to %d" % (x.shape[1], sum(spf)))
 
     def per(v, default=None):
         if v is None:
@@ -839,6 +851,7 @@ def write_record(record, signals, fs, fmt=16, gains=None,
         raise ValueError("all signals of a record written by write_record "
                          "must have the same format")
     init.wfdbquit()
+    errors = wio.wfdbx_write_errors()
     if sig.osigfopen(si, nsig) != nsig:
         init.wfdbquit()
         raise IOError("can't create signal file for record %s" % record)
@@ -856,6 +869,8 @@ def write_record(record, signals, fs, fmt=16, gains=None,
     for c in comments or []:
         sig.putinfo(c)
     init.wfdbquit()
+    if wio.wfdbx_write_errors() > errors:
+        raise IOError("write error on record %s" % record)
 
 
 @_legacy_option
@@ -900,7 +915,9 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
       ValueError         if neither symbols nor codes is given, or if record
                          contains a directory and dir is given
       FileNotFoundError  if dir does not exist
-      IOError            if the annotation file cannot be created
+      IOError            if the annotation file cannot be created, or cannot
+                         be written completely ("write error on annotator A
+                         for record R")
 
     Example (writes the annotation file rand.test, for the record rand
     written in the example of write_record, in the output directory)::
@@ -946,6 +963,7 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
     auxes = ("".join(texts).encode("latin-1"),
              np.fromiter(map(len, texts), np.int64, len(texts)))
     init.wfdbquit()
+    errors = wio.wfdbx_write_errors()
     if fs is not None:
         ann.setafreq(float(fs))
     if ann.annopen(record, [ann.Anninfo(annotator, WFDB_WRITE)], 1) < 0:
@@ -962,3 +980,6 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
         ann._a.sort_override = None
     if fs is not None:
         ann.setafreq(0.0)
+    if wio.wfdbx_write_errors() > errors:
+        raise IOError("write error on annotator %s for record %s" %
+                      (annotator, record))

@@ -11,8 +11,9 @@
 //
 // Changes from the original: a remote file is read into memory (type WFDB_NET)
 // by wfdb-x's own code; the HTTP and FTP code of the original (NETFILES) is
-// not translated. Each change is marked "wfdb-x:" in the code;
-// docs/DIVERGENCES.md gives the reasons.
+// not translated; an output file of the library that cannot be written counts
+// as a write error (see wfdbx_write_errors). Each change is marked "wfdb-x:"
+// in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
@@ -92,6 +93,9 @@ class WfdbFile private constructor(private val kind: Kind, private var raw: RawF
 
     /** wfdb-x: a remote file (a URL fetched in full, read from memory). */
     internal var remote = false
+
+    /** wfdb-x: an output file of the library (see [wfdbx_write_errors]). */
+    internal var out = false
 
     private val exitHook = object : ExitFlush {
         override fun flushAtExit() {
@@ -591,8 +595,18 @@ class WfdbFile private constructor(private val kind: Kind, private var raw: RawF
     /**
      * C `fclose` (the standard streams are flushed, not closed): returns 0,
      * or EOF if an error occurred (including earlier write errors).
+     *
+     * wfdb-x: an output file opened by the library (wfdb_open, wfdb_fopen)
+     * that could not be written, flushed or closed counts as a write error
+     * (see [wfdbx_write_errors]).
      */
     fun close(): Int {
+        val status = release()
+        if (out && status != 0) wfdbx_note_write_error()
+        return status
+    }
+
+    private fun release(): Int {
         if (closed) return 0
         closed = true
         withGlobalLock { openStreams.remove(exitHook) }

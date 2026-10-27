@@ -787,6 +787,24 @@ function _units(units, k::Int, gain::Float64, legacy::Bool)
     u
 end
 
+# Each frame holds samps_per_frame[k] >= 1 samples of signal k, and each row
+# of samples is one frame (checked before the other arguments).
+function _check_samps_per_frame(samples::AbstractMatrix, samps_per_frame)
+    samps_per_frame === nothing && return nothing
+    nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
+    framesize = 0
+    for k in 1:nsig
+        n = _per_signal(samps_per_frame, k, 1)
+        (n isa Real && isinteger(n) && n >= 1) ||
+            throw(WfdbError("write_record: samps_per_frame must hold integers >= 1"))
+        framesize += Int(n)
+    end
+    size(samples, 2) == framesize ||
+        throw(WfdbError("write_record: signals has $(size(samples, 2)) columns, but " *
+                        "samps_per_frame adds up to $framesize"))
+    nothing
+end
+
 function _check_fs(fs::Real)
     fs > 0.0 || throw(WfdbError("write_record: the sampling frequency must be > 0"))
     nothing
@@ -817,6 +835,7 @@ function _write_adc(w::Wfdb, record::ByteStr, frames::AbstractMatrix{<:Integer},
     size(frames, 2) == framesize ||
         throw(WfdbError("write_record: the number of columns is not the frame size ($framesize)"))
     wfdbquit(w)
+    errors = wfdbx_write_errors()
     osigfopen(w, si, nsig) != nsig && _hl_fail(w, "can't create signal file for record $(_lossy(rec))")
     setsampfreq(w, fs)
     # The counter frequency and base count survive wfdbquit() (as in the C
@@ -836,6 +855,7 @@ function _write_adc(w::Wfdb, record::ByteStr, frames::AbstractMatrix{<:Integer},
         putinfo(w, c)
     end
     wfdbquit(w)
+    wfdbx_write_errors() > errors && throw(WfdbError("write error on record $(_lossy(rec))"))
     nothing
 end
 
@@ -881,9 +901,15 @@ Throws a [`WfdbError`](@ref) if:
 - `gains`, `adcres` or `units` is missing (`"write_record: gains must be
   specified"`, `"write_record: ADC resolution(s) must be specified"`,
   `"write_record: units must be specified"`);
+- a `samps_per_frame` value is not an integer >= 1 (`"write_record:
+  samps_per_frame must hold integers >= 1"`), or the number of columns of
+  `samples` is not their sum (`"write_record: signals has N columns, but
+  samps_per_frame adds up to M"`); these are checked first, and nothing is
+  written;
 - `fs` is not positive;
 - the number of columns of `samples` does not match the signals;
-- a file cannot be created;
+- a file cannot be created, or cannot be written completely (for example,
+  when the disk is full: `"write error on record R"`);
 - `dir` does not exist, or `record` contains a directory and `dir` is given.
 
 # Examples
@@ -911,6 +937,7 @@ function write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Intege
                       fmt::Integer=16, gains=nothing, baselines=nothing, adczeros=0,
                       adcres=nothing, units=nothing, names=nothing, samps_per_frame=nothing,
                       base_time=nothing, comments=(), dir=nothing, legacy::Bool=false)
+    _check_samps_per_frame(samples, samps_per_frame)
     legacy = _legacy(w, legacy)
     nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
     _with_legacy(w, legacy) do
@@ -954,8 +981,9 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
                                adczeros=0, adcres=nothing, units=nothing, names=nothing,
                                samps_per_frame=nothing, base_time=nothing, comments=(),
                                dir=nothing, legacy::Bool=false)
+    _check_samps_per_frame(samples, samps_per_frame)
     legacy = _legacy(w, legacy)
-    # wfdb-x: the dir checks come first
+    # wfdb-x: the dir checks come first (after those of samps_per_frame)
     _with_output_dir(w, record, dir) do
         nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
         # Gain and baseline of each column of a frame
@@ -1017,8 +1045,9 @@ empty, and its code in `ann.codes` otherwise. Auxiliary text longer than
 $_DIR_DOC
 $_LEGACY_DOC
 
-Throws a [`WfdbError`](@ref) if the file cannot be created, if `dir` does
-not exist, or if `record` contains a directory and `dir` is given.
+Throws a [`WfdbError`](@ref) if the file cannot be created, or cannot be
+written completely (`"write error on annotator A for record R"`), if `dir`
+does not exist, or if `record` contains a directory and `dir` is given.
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
@@ -1060,6 +1089,7 @@ function _write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::A
                             fs::Real)
     n = length(ann.samples)
     wfdbquit(w)
+    errors = wfdbx_write_errors()
     fs > 0.0 && setafreq(w, fs)
     ai = [Anninfo(annotator, WFDB_WRITE)]
     if annopen(w, record, ai, 1) < 0
@@ -1085,6 +1115,8 @@ function _write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::A
     end
     wfdbquit(w)
     fs > 0.0 && setafreq(w, 0.0)
+    wfdbx_write_errors() > errors &&
+        throw(WfdbError("write error on annotator $(_lossy(annotator)) for record $(_lossy(record))"))
     nothing
 end
 write_annotations(record::ByteStr, annotator::ByteStr, ann::Annotations; kw...) =

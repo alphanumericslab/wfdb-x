@@ -147,6 +147,14 @@ pub fn with_default<R>(f: impl FnOnce(&mut Wfdb) -> R) -> R {
     DEFAULT.with(|d| f(&mut d.borrow_mut()))
 }
 
+/// Is legacy mode on in the default instance (false if it is in use)?
+/// Used by [`crate::cstd::exit`].
+pub(crate) fn default_legacy() -> bool {
+    DEFAULT
+        .try_with(|d| d.try_borrow().is_ok_and(|w| w.wfdbx_get_legacy() != 0))
+        .unwrap_or(false)
+}
+
 /// Drop the default instance (flushing its open output files), if it is
 /// not in use. Called by [`crate::cstd::exit`].
 pub(crate) fn release_default_at_exit() {

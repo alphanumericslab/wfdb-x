@@ -37,9 +37,10 @@
 // given in the SCP file, and is not written if the file gives none (the
 // original always wrote 500 Hz); signals and reference beats that could not be
 // allocated, and samples beyond the end of a signal shorter than lead 0, are
-// read as absent or as zeros (undefined behavior in the original); --legacy,
-// as the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// read as absent or as zeros (undefined behavior in the original); an output
+// file that cannot be written is reported, and the exit status is then 1;
+// --legacy, as the first argument, restores the original behavior. Each change
+// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -946,7 +947,7 @@ impl Scp {
 
         let m = self.precgmeas();
         dfile.write(&m);
-        dfile.close();
+        wfdbx::wfdbx_fclose_output(dfile, &self.pname, &dname); // wfdb-x
 
         // Generate the key file. The patient's name and ID number should
         // appear only in this file (and in the debugging output, if enabled
@@ -961,7 +962,7 @@ impl Scp {
         );
         cfprintf!(kfile, b"Name: %s\n", self.patient_name);
         cfprintf!(kfile, b"MRN: %s\n", self.patient_id);
-        kfile.close();
+        wfdbx::wfdbx_fclose_output(kfile, &self.pname, &kname); // wfdb-x
 
         // If the -z option was selected, then for each signal:
         //  1. Calculate the median amplitude of the first 5000 samples in
@@ -1036,7 +1037,7 @@ impl Scp {
                 line.push(b'\n');
                 tfile.write(&line);
             }
-            tfile.close();
+            wfdbx::wfdbx_fclose_output(tfile, &self.pname, &tname); // wfdb-x
         }
 
         // Finally, output the ECG in vector (binary) form.
@@ -1068,7 +1069,7 @@ impl Scp {
             }
         }
         write_samples(&mut efile, &self.sigr(self.lead_ii as i64), 0, 5000);
-        efile.close();
+        wfdbx::wfdbx_fclose_output(efile, &self.pname, &ename); // wfdb-x
 
         1
     }

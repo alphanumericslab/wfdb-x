@@ -23,7 +23,7 @@ version. See LICENSE.
 import sys
 
 import wfdbx as w
-from ._common import Exit, eprintf, run
+from ._common import Exit, RawOutput, eprintf, run
 
 
 def _p16(x):
@@ -59,7 +59,7 @@ def _main(argv):
         nann += 1
     w.wfdbquit()
     # The 512-byte ID block (byte numbers as in the C source).
-    out = sys.stdout.buffer
+    out = RawOutput()
     out.write(rec.encode("latin-1"))        # bytes 1-8: record ID
     if ln < 8:
         out.write(b"\0" * (8 - ln))

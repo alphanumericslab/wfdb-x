@@ -36,6 +36,16 @@ use it to compare both paths.
 where CMake finds them, and fall back to `ferror` and `feof` elsewhere,
 including Windows, which has no documented lock-free versions.
 
+The tools write the standard output with C stdio, which ignores a failed
+write and sets the stream's error flag, as in C. `wfdbx_legacy_args`
+installs an exit check (`src/wfdbio.cpp`) that flushes the standard output,
+tests its error flag, and turns an exit status of 0 into 1 after a write
+error. It is registered with `on_exit`, which gives it the exit status of
+both `std::exit(n)` and a return from `main`, where CMake finds it
+(`WFDBX_HAVE_ON_EXIT`: glibc); elsewhere `atexit` does not see the status,
+and any exit after a write error has status 1. The unit tests call
+`wfdbx_legacy_args`, so their `main` ends with `std::_Exit`.
+
 ## Performance
 
 Best of 7 runs on Linux x86-64, GCC, Release build, for `big`, a

@@ -36,12 +36,18 @@ function write_record(record, signals, fs, varargin)
 %     'legacy'      true to behave as the original WFDB package (default
 %                   false; see wfdbx.wfdbx_set_legacy)
 %
-%   Errors: an error (identifier 'wfdbx:write_record') is thrown if FS is not
-%   greater than 0, if the gains, ADC resolutions or required units are not
-%   given, if 'physical' is true and a gain is 0, if 'dir' does not exist, or
-%   if the files cannot be written.  A record is never written over one of
-%   the files being read ("osigfopen: output file NAME is also an input
-%   file").
+%   Errors: an error (identifier 'wfdbx:write_record') is thrown if a
+%   'samps_per_frame' value is not an integer >= 1 ("samps_per_frame must
+%   hold integers >= 1") or the number of columns of SIGNALS is not their
+%   sum ("signals has N columns, but samps_per_frame adds up to M"; these
+%   are checked first, before any file is created), if FS is not greater
+%   than 0, if the gains, ADC resolutions or required units are not given,
+%   if 'physical' is true and a gain is 0, if 'dir' does not exist, if the
+%   files cannot be created, or if they cannot be written completely, for
+%   example when the disk is full ("write error on record RECORD", after
+%   the library's messages; in legacy mode too).  A record is never written
+%   over one of the files being read ("osigfopen: output file NAME is also
+%   an input file").
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
 %   WFDB library functions.
@@ -86,6 +92,24 @@ opt = wfdbx.internal.hl_options(opt, varargin, 'write_record');
 % call), checked before the other arguments
 restore_dir = wfdbx.internal.hl_outdir(opt.dir, record, 'write_record'); %#ok<NASGU>
 restore = wfdbx.internal.hl_legacy(opt.legacy, 'write_record'); %#ok<NASGU>
+% Each frame holds spf(k) >= 1 samples of signal k, and each row of
+% signals is one frame.
+x = double(signals);
+if isempty(opt.samps_per_frame)
+    nsig = size(x, 2);
+    spf = ones(1, nsig);
+else
+    spf = reshape(double(opt.samps_per_frame), 1, []);
+    nsig = numel(spf);
+    if any(~(spf >= 1) | spf ~= fix(spf))
+        error('wfdbx:write_record', 'samps_per_frame must hold integers >= 1');
+    end
+    if size(x, 2) ~= sum(spf)
+        error('wfdbx:write_record', ...
+            'signals has %d columns, but samps_per_frame adds up to %d', ...
+            size(x, 2), sum(spf));
+    end
+end
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
 if isempty(opt.gains)
@@ -97,18 +121,6 @@ end
 % wfdb-x: no default sampling frequency (C assumed 250 Hz)
 if ~legacy && (~isnumeric(fs) || ~isscalar(fs) || ~(fs > 0))
     error('wfdbx:write_record', 'the sampling frequency (fs) must be > 0');
-end
-x = double(signals);
-if isempty(opt.samps_per_frame)
-    nsig = size(x, 2);
-    spf = ones(1, nsig);
-else
-    spf = reshape(double(opt.samps_per_frame), 1, []);
-    nsig = numel(spf);
-    if size(x, 2) ~= sum(spf)
-        error('wfdbx:write_record', ...
-            'signals must have sum(samps_per_frame) = %d columns', sum(spf));
-    end
 end
 fmts = per(opt.fmt, nsig, 'fmt');
 gains = per(opt.gains, nsig, 'gains');
@@ -184,6 +196,7 @@ if nsig > 1 && any(fmts ~= fmts(1))
         'write_record must have the same format']);
 end
 wfdbx.wfdbquit();
+errors = wfdbx.wfdbx_write_errors();
 if wfdbx.osigfopen(si, nsig) ~= nsig
     wfdbx.wfdbquit();
     error('wfdbx:write_record', 'can''t create signal file for record %s', record);
@@ -209,6 +222,9 @@ for k = 1:numel(comments)
     wfdbx.putinfo(comments{k});
 end
 wfdbx.wfdbquit();
+if wfdbx.wfdbx_write_errors() > errors
+    error('wfdbx:write_record', 'write error on record %s', record);
+end
 end
 
 function v = per(v, n, what)

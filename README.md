@@ -81,6 +81,9 @@ everything else:
 * **Annotation files are sorted without losing annotations**, inside the
   library rather than by running a separate program.
 * **A tool never writes over a file it is reading.**
+* **A write error gives exit status 1.** When an output file or the
+  standard output cannot be written, a tool says so and exits with status
+  1, as the standard Unix tools do; the original exited with status 0.
 
 [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md) explains each difference and
 the reasons for it. **Legacy mode** reproduces the original package
@@ -100,7 +103,7 @@ This is verified by tests whose expected results were all produced by the
 original C code, not written by hand:
 
 * **Conformance suite** ([`tests/conformance/`](tests/conformance/),
-  described in [`docs/conformance.md`](docs/conformance.md)): 989
+  described in [`docs/conformance.md`](docs/conformance.md)): 1023
   command-line test cases, run by a language-independent harness. Their
   expected results were produced by the C programs, built from
   `third_party/` with FLAC support and with
@@ -196,7 +199,7 @@ verification and unit testing**.
   C sources, and were reviewed and tested by human engineers.
 * **Cross-language verification.** Every implementation is checked
   against the outputs of the original C tools and library on the
-  conformance suite: 989 cases, plus 869 for legacy mode. Because all
+  conformance suite: 1023 cases, plus 877 for legacy mode. Because all
   seven must pass the same cases, each implementation is also checked
   against the other six.
 * **Unit testing.** Each implementation has its own unit tests of the

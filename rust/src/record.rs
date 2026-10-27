@@ -80,6 +80,7 @@ use std::path::{Path, PathBuf};
 use crate::cstd::{self, d2i};
 use crate::types::*;
 use crate::wfdb::{with_default, Wfdb, NULL};
+use crate::wfdbio::wfdbx_write_errors;
 
 /// The error type of the high-level functions.
 ///
@@ -491,8 +492,8 @@ pub struct WriteOptions {
     pub units: Vec<Option<Vec<u8>>>,
     /// Signal descriptions.
     pub names: Vec<Vec<u8>>,
-    /// Samples per frame (default 1; more for the oversampled signals of
-    /// a multi-frequency record).
+    /// Samples per frame, at least 1 (default 1; more for the oversampled
+    /// signals of a multi-frequency record).
     pub samps_per_frame: Vec<i32>,
     /// Start time and date, such as `"12:00:00 01/01/2020"`. Default: none.
     pub base_time: Option<Vec<u8>>,
@@ -566,6 +567,18 @@ fn gain_of(gains: &[f64], k: usize, legacy: bool) -> Result<f64, Error> {
         1 => Ok(gains[0]),
         n if k < n => Ok(gains[k]),
         _ => Err(Error::new("write_record: gains must be specified")),
+    }
+}
+
+/// Checks the samples per frame given to `write_record` (in both modes,
+/// before anything else): each signal has at least one sample per frame.
+fn check_write_spf(opt: &WriteOptions) -> Result<(), Error> {
+    if opt.samps_per_frame.iter().any(|&n| n < 1) {
+        Err(Error::new(
+            "write_record: samps_per_frame must hold integers >= 1",
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -1149,7 +1162,7 @@ impl Wfdb {
             s.adczero = per_signal(&opt.adczeros, k, 0);
             s.baseline = per_signal(&opt.baselines, k, s.adczero);
             s.adcres = adcres_of(&opt.adcres, k, opt.fmt, legacy)?;
-            frame += s.spf.max(1) as usize;
+            frame += s.spf as usize;
         }
         if samples.len() % frame != 0 {
             return Err(Error::new(
@@ -1157,6 +1170,7 @@ impl Wfdb {
             ));
         }
         self.wfdbquit();
+        let errors = wfdbx_write_errors();
         if self.osigfopen(&si, nsig as u32) != nsig as i32 {
             return self.hl_fail(format!(
                 "can't create signal file for record {}",
@@ -1181,6 +1195,12 @@ impl Wfdb {
             self.putinfo(c);
         }
         self.wfdbquit();
+        if wfdbx_write_errors() > errors {
+            return Err(Error::new(format!(
+                "write error on record {}",
+                lossy(record)
+            )));
+        }
         Ok(())
     }
 
@@ -1201,6 +1221,7 @@ impl Wfdb {
         opt: &WriteOptions,
     ) -> Result<(), Error> {
         let record = record.as_ref();
+        check_write_spf(opt)?;
         self.with_output_dir(opt.dir.as_deref(), record, |w| {
             w.with_legacy(opt.legacy, |w| w.write_adc(record, samples, nsig, fs, opt))
         })
@@ -1223,6 +1244,7 @@ impl Wfdb {
         opt: &WriteOptions,
     ) -> Result<(), Error> {
         let record = record.as_ref();
+        check_write_spf(opt)?;
         self.with_output_dir(opt.dir.as_deref(), record, |w| {
             w.with_legacy(opt.legacy, |w| {
                 w.write_physical(record, samples, nsig, fs, opt)
@@ -1259,7 +1281,7 @@ impl Wfdb {
             let zero = per_signal(&opt.adczeros, k, 0);
             let base = per_signal(&opt.baselines, k, zero);
             let spf = per_signal(&opt.samps_per_frame, k, 1);
-            for _ in 0..spf.max(1) {
+            for _ in 0..spf {
                 g.push(gain);
                 b.push(base);
             }
@@ -1346,6 +1368,7 @@ impl Wfdb {
     ) -> Result<(), Error> {
         let n = ann.samples.len();
         self.wfdbquit();
+        let errors = wfdbx_write_errors();
         if fs > 0.0 {
             self.setafreq(fs);
         }
@@ -1396,6 +1419,13 @@ impl Wfdb {
         self.wfdbquit();
         if fs > 0.0 {
             self.setafreq(0.0);
+        }
+        if wfdbx_write_errors() > errors {
+            return Err(Error::new(format!(
+                "write error on annotator {} for record {}",
+                lossy(annotator),
+                lossy(record)
+            )));
         }
         Ok(())
     }
@@ -1658,10 +1688,15 @@ pub fn read_annotations_with(
 ///   be specified".
 /// * The units of a signal whose gain is not 0 are missing: "units must be
 ///   specified".
+/// * A `samps_per_frame` value is less than 1: "samps_per_frame must hold
+///   integers >= 1" (checked first, also in legacy mode).
 /// * The number of samples is not a multiple of the frame size.
 /// * With [`WriteOptions::dir`], the directory does not exist or `record`
 ///   contains a directory.
-/// * The signal file or the header cannot be written.
+/// * The signal file or the header cannot be created.
+/// * The signal file or the header cannot be written completely (for
+///   example, when the disk is full): "write error on record RECORD" (also
+///   in legacy mode).
 ///
 /// Part of wfdb-x; not in the original WFDB package.
 pub fn write_record(
@@ -1756,6 +1791,9 @@ pub fn write_record_physical(
 /// # Errors
 ///
 /// * The annotation file cannot be created.
+/// * The annotation file cannot be written completely (for example, when
+///   the disk is full): "write error on annotator ANNOTATOR for record
+///   RECORD" (also in legacy mode).
 /// * With `dir`, the directory does not exist ("directory DIR does not
 ///   exist"), or `record` contains a directory ("record name must not
 ///   contain a directory when dir is given").

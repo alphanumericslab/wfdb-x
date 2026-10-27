@@ -21,11 +21,14 @@
 # (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by Julia's
 # Downloads standard library; the original's HTTP and FTP code (NETFILES) is
 # not translated; ".." is accepted in names, and only the last component of a
-# record name is checked; additions: wfdbx_set_input_dir, wfdbx_get_input_dir,
-# wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network and
-# wfdbx_get_network; legacy mode (wfdbx_set_legacy) restores the original
-# behavior (the WFDB path, without network access). Each change is marked
-# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# record name is checked; write errors are counted (wfdbx_write_errors), and
+# the tools exit with status 1 after one (see cli.jl); additions:
+# wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
+# wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
+# wfdbx_write_errors, wfdbx_note_write_error and wfdbx_fclose_output; legacy
+# mode (wfdbx_set_legacy) restores the original behavior (the WFDB path,
+# without network access). Each change is marked "wfdb-x:" in the code;
+# docs/DIVERGENCES.md gives the reasons.
 #
 # Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
@@ -104,11 +107,12 @@ mutable struct WfdbFile
     append::Bool
     closed::Bool
     remote::Bool                # wfdb-x: the contents of a URL (read in memory)
+    out::Bool                   # wfdb-x: an output file of the library (see fclose)
 end
 
 function WfdbFile(kind::UInt8, can_read::Bool, can_write::Bool)
     WfdbFile(kind, Int32(-1), false, UInt8[], 0, 0, UInt8[], false, WFDB_BUFSIZE, _RBUFSIZE,
-             Int64(0), false, false, can_read, can_write, false, false, false)
+             Int64(0), false, false, can_read, can_write, false, false, false, false)
 end
 
 function Base.show(io::IO, f::WfdbFile)
@@ -740,6 +744,7 @@ clearerr(f::WfdbFile) = (f.eof = false; f.err = false; nothing)
 function _release!(f::WfdbFile)
     f.closed && return Int32(0)
     f.closed = true
+    err = ferror(f)
     status = f.err ? EOF : Int32(0)
     if f.kind == _K_STDIN
         if f.rpos < f.rlen
@@ -748,6 +753,7 @@ function _release!(f::WfdbFile)
         end
     elseif f.kind == _K_STDOUT
         cflush() != 0 && (status = EOF)
+        cproc().out_closed = true
     else
         _flush_wbuf!(f) != 0 && (status = EOF)
     end
@@ -755,8 +761,14 @@ function _release!(f::WfdbFile)
     f.rlen = 0
     if f.kind == _K_FILE
         delete!(cproc().open_files, f)
-        _close_fd!(f)
+        if f.owns_fd && f.fd >= 0
+            raw_close(f.fd) != 0 && (status = EOF)
+            f.owns_fd = false
+        end
     end
+    # wfdb-x: an output file that could not be written, flushed or closed
+    # counts as a write error (see wfdbx_write_errors)
+    (f.out && (err || status != 0)) && wfdbx_note_write_error()
     status
 end
 
@@ -764,7 +776,9 @@ end
     fclose(f) -> Int32
 
 C `fclose` (the standard streams are flushed, not closed): returns 0, or
-`EOF` if an error occurred (including earlier write errors).
+`EOF` if an error occurred (including earlier write errors). wfdb-x: for an
+output file opened by the library (`wfdb_fopen`, `wfdb_open`), such an
+error counts as a write error (see [`wfdbx_write_errors`](@ref)).
 """
 fclose(f::WfdbFile) = _release!(f)
 Base.close(f::WfdbFile) = (_release!(f); nothing)
@@ -914,8 +928,7 @@ function wfdb_fopen(w::Wfdb, fname::ByteStr, mode::ByteStr)
     end
     (!isempty(mode) && mode[1] == UInt8('r') && _is_directory(fname)) && return nothing
     f = cfopen(fname, mode)
-    f !== nothing && return f
-    if mode == b"wb" || mode == b"ab"
+    if f === nothing && (mode == b"wb" || mode == b"ab")
         # Try to create any missing directories in the path.
         ok = false
         tried = false
@@ -925,9 +938,11 @@ function wfdb_fopen(w::Wfdb, fname::ByteStr, mode::ByteStr)
                 ok = _mkdir(fname[1:i-1])
             end
         end
-        (tried && ok) && return cfopen(fname, mode)
+        (tried && ok) && (f = cfopen(fname, mode))
     end
-    nothing
+    # wfdb-x: an output file (see fclose)
+    f !== nothing && (f.out = mode[1] != UInt8('r'))
+    f
 end
 
 "`wfdb_striphea(record)`: the record name without a trailing `.hea`.
@@ -1443,6 +1458,53 @@ function wfdbx_get_network(w::Wfdb)
     Int32(io.network)
 end
 
+# wfdb-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
+# report success when its output was not written.
+"""
+    wfdbx_write_errors() -> Int32
+
+Return the number of write errors since the program started: the output
+files that the library could not write, flush or close (found when they are
+closed, as by `wfdbquit()`), and the errors reported with
+[`wfdbx_note_write_error`](@ref). The count belongs to the process (to the
+tool run, under `run_tool`), not to a `Wfdb` state. The high-level writers
+throw an error when they meet one, and the command-line tools then exit
+with status 1.
+
+Part of wfdb-x; not in the original WFDB package.
+"""
+wfdbx_write_errors() = Int32(cproc().write_errors)
+
+"""
+    wfdbx_note_write_error()
+
+Count a write error (see [`wfdbx_write_errors`](@ref)): for an application
+that writes a file itself.
+
+Part of wfdb-x; not in the original WFDB package.
+"""
+wfdbx_note_write_error() = (cproc().write_errors += 1; nothing)
+
+"""
+    wfdbx_fclose_output([w], f::WfdbFile, pname, name) -> Int32
+
+Close `f`, a file named `name` that a tool has written itself (opened with
+`cfopen`), and return the result of [`fclose`](@ref). In normal mode, if
+the file could not be written or closed, print "PNAME: write error on NAME"
+and count a write error (see [`wfdbx_write_errors`](@ref)).
+
+Part of wfdb-x; not in the original WFDB package.
+"""
+function wfdbx_fclose_output(w::Wfdb, f::WfdbFile, pname::ByteStr, name::ByteStr)
+    err = ferror(f)
+    status = fclose(f)
+    if (err || status != 0) && wfdbx_get_legacy(w) == 0
+        ceprintf("%s: write error on %s\n", pname, name)
+        wfdbx_note_write_error()
+    end
+    status
+end
+
 function _setwfdb_normal(w::Wfdb, p::OptByteStr)
     dirs = [c.prefix for c in _path_components(_dirarg(p)) if !isempty(c.prefix)]
     if length(dirs) > 1
@@ -1594,7 +1656,10 @@ function wfdb_open(w::Wfdb, s::OptByteStr, record::OptByteStr, mode::Integer)
         rb, sb = sb, UInt8[]
     end
     if rb == b"-"
-        return mode == WFDB_READ ? wfdb_stdin() : wfdb_stdout()
+        mode == WFDB_READ && return wfdb_stdin()
+        f = wfdb_stdout()
+        f.out = true                    # wfdb-x: see fclose
+        return f
     end
     r = _expand_record(rb)
 
@@ -1997,9 +2062,11 @@ wfdbx_set_output_dir(dir::OptByteStr) = wfdbx_set_output_dir(lib(), dir)
 wfdbx_get_output_dir() = wfdbx_get_output_dir(lib())
 wfdbx_set_network(on::Union{Nothing,Bool,Integer}) = wfdbx_set_network(lib(), on)
 wfdbx_get_network() = wfdbx_get_network(lib())
+wfdbx_fclose_output(f::WfdbFile, pname::ByteStr, name::ByteStr) =
+    wfdbx_fclose_output(lib(), f, pname, name)
 
 export wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir, wfdbx_get_output_dir,
-       wfdbx_set_network, wfdbx_get_network
+       wfdbx_set_network, wfdbx_get_network, wfdbx_write_errors, wfdbx_note_write_error
 
 # ---------------------------------------------------------------------------
 # Precompilation workload: file I/O and the WFDB path.

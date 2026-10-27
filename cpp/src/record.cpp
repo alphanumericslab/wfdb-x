@@ -490,11 +490,22 @@ Annotations read_annotations(const std::string &record,
 
 namespace {
 
+// Each frame holds samps_per_frame[k] >= 1 samples of signal k (checked
+// before the other arguments).
+void check_samps_per_frame(const WriteOptions &opt)
+{
+    for (int n : opt.samps_per_frame)
+        if (n < 1)
+            throw Error("write_record: samps_per_frame must hold integers "
+                        ">= 1");
+}
+
 void write_adc(const std::string &record,
                const std::vector<WFDB_Sample> &samples, int nsig,
                WFDB_Frequency fs, const WriteOptions &options)
 {
     const WriteOptions opt = with_library_legacy(options);
+    check_samps_per_frame(opt);
     if (nsig <= 0) throw Error("write_record: no signals");
     // wfdb-x: no default sampling frequency, gain, ADC resolution or units
     // (C: 250 Hz, 200 adu/mV, a resolution based on the format, mV).
@@ -523,6 +534,7 @@ void write_adc(const std::string &record,
                     "of the frame size");
     LegacyScope scope(opt.legacy);
     wfdbquit();
+    int errors = wfdbx_write_errors();
     if (osigfopen(si.data(), nsig) != nsig)
         fail("can't create signal file for record " + record);
     setsampfreq(fs);
@@ -538,6 +550,8 @@ void write_adc(const std::string &record,
         fail("can't create header for record " + record);
     for (const std::string &c : opt.comments) putinfo(c.c_str());
     wfdbquit();
+    if (wfdbx_write_errors() > errors)
+        throw Error("write error on record " + record);
 }
 
 } // namespace
@@ -559,6 +573,7 @@ void write_record_physical(const std::string &record,
     // Gain and baseline of each column of a frame
     std::vector<double> g;
     std::vector<int> b;
+    check_samps_per_frame(opt);
     if (nsig <= 0) throw Error("write_record: no signals");
     if (!opt.legacy && !(fs > 0))
         throw Error("write_record: the sampling frequency must be > 0");
@@ -597,6 +612,7 @@ void write_annotations(const std::string &record, const std::string &annotator,
     OutputDirScope dir_scope(record, dir);
     size_t n = ann.samples.size();
     wfdbquit();
+    int errors = wfdbx_write_errors();
     AnnSortScope sort_scope(sort);  // (for the file written here only)
     if (fs > 0) setafreq(fs);
     WFDB_Anninfo ai;
@@ -628,6 +644,9 @@ void write_annotations(const std::string &record, const std::string &annotator,
     }
     wfdbquit();
     if (fs > 0) setafreq(0.0);
+    if (wfdbx_write_errors() > errors)
+        throw Error("write error on annotator " + annotator + " for record " +
+                    record);
 }
 
 } // namespace wfdbx

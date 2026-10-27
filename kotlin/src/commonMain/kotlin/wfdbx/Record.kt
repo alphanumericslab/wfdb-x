@@ -886,21 +886,24 @@ private class IntList {
  * @param baseTime start time, with an optional date: "hh:mm:ss
  *   dd/mm/yyyy" (default: none)
  * @param comments info strings, written at the end of the header
- * @param sampsPerFrame samples per frame of each signal, for a
- *   multi-frequency record (default 1)
+ * @param sampsPerFrame samples per frame of each signal, at least 1, for
+ *   a multi-frequency record (default 1)
  * @param dir an existing directory in which to create the files, for this
  *   call only; [record] must then be a plain name (the record opens from
  *   that directory under its plain name)
  * @param legacy behave as the original WFDB package (default gain 200, an
  *   ADC resolution based on the format, no units required)
- * @throws WfdbException "writeRecord: gains must be specified",
+ * @throws WfdbException "writeRecord: sampsPerFrame must hold integers >=
+ *   1" (checked first, also in legacy mode), "writeRecord: gains must be specified",
  *   "writeRecord: ADC resolution(s) must be specified", "writeRecord: units
  *   must be specified", "writeRecord: the sampling frequency must be > 0",
  *   "writeRecord: no signals", "writeRecord: the number of samples is not a
  *   multiple of the frame size", "record name must not contain a directory
  *   when dir is given", "directory DIR does not exist", "can't create
  *   signal file for record REC" (also when the output would overwrite a
- *   file being read), "can't create header for record REC"
+ *   file being read), "can't create header for record REC", "write error
+ *   on record REC" (the signal file or the header cannot be written
+ *   completely, for example when the disk is full; also in legacy mode)
  *
  * ```
  * writeRecord("copy", rec.samples, rec.nsig, rec.fs, gains = rec.gains.toDoubleArray(),
@@ -925,6 +928,7 @@ fun Wfdb.writeRecord(
     dir: String? = null,
     legacy: Boolean = false,
 ) {
+    checkWriteSpf(sampsPerFrame)
     val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame)
     withOutputDir(dir, record) { withLegacy(legacy) { writeAdc(record, samples, nsig, fs, spec) } }
 }
@@ -964,6 +968,7 @@ fun Wfdb.writeRecord(
     dir: String? = null,
     legacy: Boolean = false,
 ) {
+    checkWriteSpf(sampsPerFrame)
     val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame)
     withOutputDir(dir, record) {
         withLegacy(legacy) {
@@ -982,7 +987,7 @@ fun Wfdb.writeRecord(
                 }
                 val zero = perSignal(spec.adczeros, k) ?: 0
                 val base = perSignal(spec.baselines, k) ?: zero
-                val spf = maxOf(perSignal(spec.sampsPerFrame, k) ?: 1, 1)
+                val spf = perSignal(spec.sampsPerFrame, k) ?: 1
                 repeat(spf) {
                     g.add(gain)
                     b.add(base)
@@ -1024,6 +1029,11 @@ private fun adcresOf(adcres: IntArray?, k: Int, fmt: Int, legacy: Boolean): Int 
     return r
 }
 
+/** Checks the samples per frame (in both modes, before anything else): each signal has at least one sample per frame. */
+private fun checkWriteSpf(spf: IntArray?) {
+    if (spf != null && spf.any { it < 1 }) throw WfdbException("writeRecord: sampsPerFrame must hold integers >= 1")
+}
+
 /** Checks the sampling frequency (wfdb-x: no default; not checked in legacy mode, as in the original package). */
 private fun checkWriteFreq(fs: Double, legacy: Boolean) {
     if (!(fs > 0.0) && !legacy) throw WfdbException("writeRecord: the sampling frequency must be > 0")
@@ -1050,13 +1060,14 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
         s.adczero = perSignal(spec.adczeros, k) ?: 0
         s.baseline = perSignal(spec.baselines, k) ?: s.adczero
         s.adcres = adcresOf(spec.adcres, k, spec.fmt, legacy)
-        frame += maxOf(s.spf, 1)
+        frame += s.spf
         s
     }
     if (samples.size % frame != 0) {
         throw WfdbException("writeRecord: the number of samples is not a multiple of the frame size")
     }
     wfdbquit()
+    val errors = wfdbx_write_errors()
     if (osigfopen(si, nsig) != nsig) fail("can't create signal file for record $record")
     setsampfreq(fs)
     // The counter frequency and base count survive wfdbquit() (as in the C
@@ -1068,6 +1079,7 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
     if (newheader(rec) < 0) fail("can't create header for record $record")
     for (c in spec.comments ?: emptyList()) putinfo(c.latin1())
     wfdbquit()
+    if (wfdbx_write_errors() > errors) throw WfdbException("write error on record $record")
 }
 
 /**
@@ -1103,7 +1115,9 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  * @throws WfdbException if neither symbols nor codes is given ("symbols or
  *   codes must be given"), if an array does not have one value per
  *   annotation, if the file cannot be created ("can't create annotator ANN
- *   for record REC"), or as for [writeRecord]'s dir
+ *   for record REC"), if it cannot be written completely, for example when
+ *   the disk is full ("write error on annotator ANN for record REC"; also in
+ *   legacy mode), or as for [writeRecord]'s dir
  *
  * ```
  * writeAnnotations("rand", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N", "N", "V"))
@@ -1157,6 +1171,7 @@ fun Wfdb.writeAnnotations(
             }
             val rec = fname(record)
             wfdbquit()
+            val errors = wfdbx_write_errors()
             if (fs != null) setafreq(fs)
             try {
                 if (annopen(rec, arrayOf(Anninfo(fname(annotator), WFDB_WRITE)), 1) < 0) {
@@ -1174,6 +1189,7 @@ fun Wfdb.writeAnnotations(
             } finally {
                 if (fs != null) setafreq(0.0)
             }
+            if (wfdbx_write_errors() > errors) throw WfdbException("write error on annotator $annotator for record $record")
         }
     }
 }

@@ -15,6 +15,8 @@ version. See LICENSE.
 import sys
 
 from .._cstd import sprintf, sscanf
+from .._wfdbio import (wfdbx_write_errors, wfdbx_note_write_error,
+                       wfdbx_stdout_error, wfdbx_stdout_failed)
 from .._signal import (wfdbx_get_legacy, wfdbx_set_legacy, wfdbx_legacy_args,
                        sampfreq, setsampfreq, WFDB_DEFFREQ,
                        WFDB_DEFGAIN)
@@ -51,18 +53,21 @@ class Output:
                 self.raw.write(data)
             except BrokenPipeError:
                 raise SystemExit(1)
+            except OSError:
+                wfdbx_stdout_error()
         try:
             self.raw.flush()
-        except (BrokenPipeError, OSError, ValueError):
+        except BrokenPipeError:
+            pass
+        except OSError:
+            wfdbx_stdout_error()
+        except ValueError:
             pass
 
 
 def eprint(s):
     """Write a string to the standard error output (unbuffered)."""
-    try:
-        sys.stdout.flush()
-    except (OSError, ValueError):
-        pass
+    flush_stdout()
     raw = getattr(sys.stderr, "buffer", None)
     if raw is not None:
         raw.write(s.encode("latin-1", "replace"))
@@ -70,6 +75,72 @@ def eprint(s):
     else:
         sys.stderr.write(s)
         sys.stderr.flush()
+
+
+def flush_stdout():
+    """Flush the standard output (a failure is noted: see run)."""
+    try:
+        sys.stdout.flush()
+    except BrokenPipeError:
+        pass
+    except OSError:
+        wfdbx_stdout_error()
+    except ValueError:
+        pass
+
+
+def write_stdout(out, data):
+    """Write bytes to out, the binary standard output (a failure is noted:
+    see run)."""
+    try:
+        out.write(data)
+    except BrokenPipeError:
+        raise SystemExit(1)
+    except OSError:
+        wfdbx_stdout_error()
+
+
+class RawOutput:
+    """The binary standard output, written directly (a failure is noted:
+    see run)."""
+
+    def __init__(self):
+        self.raw = sys.stdout.buffer
+
+    def write(self, data):
+        write_stdout(self.raw, data)
+
+    def flush(self):
+        flush_stdout()
+
+
+class OutputFile:
+    """A file that an application writes itself (opened as by open(name,
+    "wb"), which raises OSError if it cannot be created).  A failed write
+    is remembered; wfdb-x: in normal mode, close() then prints "PNAME: write
+    error on NAME" and counts a write error (see wfdbx_write_errors)."""
+
+    def __init__(self, name, pname):
+        self.fp = open(name, "wb")
+        self.name = name
+        self.pname = pname
+        self.err = False
+
+    def write(self, data):
+        if not self.err:
+            try:
+                self.fp.write(data)
+            except OSError:
+                self.err = True
+
+    def close(self):
+        try:
+            self.fp.close()
+        except OSError:
+            self.err = True
+        if self.err and not legacy():
+            eprintf("%s: write error on %s\n", self.pname, self.name)
+            wfdbx_note_write_error()
 
 
 def eprintf(fmt, *args):
@@ -91,10 +162,17 @@ def run(main_func, argv, out=None):
     wfdb-x: --legacy as the first argument (argv[1]) is removed and turns
     legacy mode on for the run (see wfdbx_legacy_args), before anything
     else; the previous setting is restored afterwards.
+
+    wfdb-x: at the end, in normal mode, a standard output that could not be
+    written is reported ("PROGRAM: write error on standard output"), and the
+    exit status 0 becomes 1 if the standard output or another output file
+    could not be written (see wfdbx_write_errors), as for the standard tools.
+    Legacy mode keeps the original exit status.
     """
     argv = list(argv)
     previous = wfdbx_get_legacy()
     wfdbx_legacy_args(argv)
+    errors = wfdbx_write_errors()
     try:
         code = main_func(argv)
     except Exit as e:
@@ -102,8 +180,17 @@ def run(main_func, argv, out=None):
     finally:
         if out is not None:
             out.flush()
+        flush_stdout()
+        mode = legacy()
         wfdbx_set_legacy(previous)
-    return 0 if code is None else code
+    code = 0 if code is None else code
+    if not mode:
+        failed = wfdbx_stdout_failed()
+        if failed:
+            eprintf("%s: write error on standard output\n", prog_name(argv[0]))
+        if code == 0 and (failed or wfdbx_write_errors() > errors):
+            code = 1
+    return code
 
 
 def legacy():

@@ -226,6 +226,40 @@ assert_eq(char(readfile('cal2')), sprintf(['ECG\t- 1 square 1 mV\r\n' ...
     'Temp\t35 40 sawtooth 10 degC\r\n']), 'newcal output');
 wfdbx.flushcal();
 assert_eq(wfdbx.getcal([], []), -1, 'flushcal');
+
+write_annotations_write_error();
+end
+
+function write_annotations_write_error()
+% An annotation file that cannot be written raises an error, in both
+% modes, after the library's message.
+FULL = '/dev/full';     % a device on which every write fails (ENOSPC)
+if exist(FULL, 'file') == 0
+    return;             % (no /dev/full on this system)
+end
+for n = [3 100000]
+    for legacy = [false true]
+        what = sprintf('write error (%d annotations, legacy %d)', n, legacy);
+        if wfdbx.internal.is_octave()
+            symlink(FULL, '100s.full');
+        else
+            [~, out] = system(['ln -s ' FULL ' 100s.full']); %#ok<ASGLU>
+        end
+        msg = '';
+        wfdbx.wfdbquiet();
+        try
+            wfdbx.write_annotations('100s', 'full', 1:n, ...
+                'symbols', repmat({'N'}, 1, n), 'legacy', legacy);
+        catch err
+            msg = err.message;
+        end
+        wfdbx.wfdbverbose();
+        assert_eq(msg, 'write error on annotator full for record 100s', what);
+        assert(~isempty(strfind(wfdbx.wfdberror(), ...
+            'write error on annotation file full')), [what ': message']);
+        delete('100s.full');
+    end
+end
 end
 
 function T = tricky(C)

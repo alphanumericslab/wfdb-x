@@ -13,7 +13,8 @@
 // descriptions; it also declares the additions of wfdb-x: wfdbx_set_legacy,
 // wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq, getvecs, the
 // input and output directories and network access (wfdbx_set_input_dir,
-// wfdbx_set_output_dir, wfdbx_set_network, ...). Each change is marked
+// wfdbx_set_output_dir, wfdbx_set_network, ...), and the count of write
+// errors (wfdbx_write_errors, wfdbx_note_write_error). Each change is marked
 // "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdb.h, WFDB Software Package 10.7.0.
@@ -614,8 +615,29 @@ int wfdbx_get_legacy();
 /// it (argv[0] is kept, argc is decremented), turn legacy mode on and return
 /// 1; otherwise change nothing and return 0.
 ///
+/// It also sets the exit status of the program, as for the tools: at exit,
+/// in normal mode, the standard output is flushed, a failure to write it is
+/// reported ("PROGRAM: write error on standard output", PROGRAM being the
+/// last component of argv[0]), and an exit status of 0 becomes 1 if the
+/// standard output or another output file could not be written (see
+/// wfdbx_write_errors()).  Legacy mode keeps the exit status.
+///
 /// Part of wfdb-x; not in the original WFDB package.
 int wfdbx_legacy_args(int &argc, char **&argv);
+/// The number of write errors since the program started: the output files
+/// (signal files, headers, annotation files, info and calibration files, and
+/// the standard output opened as "-") that the library could not write,
+/// flush or close (found when they are closed, as by wfdbquit()), and the
+/// errors reported with wfdbx_note_write_error().  The high-level writers
+/// throw an error when they meet one, and the tools then exit with status 1.
+///
+/// Part of wfdb-x; not in the original WFDB package.
+int wfdbx_write_errors();
+/// Count a write error (see wfdbx_write_errors()): for an application that
+/// writes a file itself.
+///
+/// Part of wfdb-x; not in the original WFDB package.
+void wfdbx_note_write_error();
 /// Set the output directory: a file named by a relative name, such as
 /// "100.qrs" or "out/100.qrs", is created in `dir`.  Full paths and "~"
 /// paths are used as given, and URLs cannot be written.  The names recorded

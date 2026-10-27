@@ -296,6 +296,13 @@ only. Without `sort`, the `WFDBANNSORT` environment variable decides
   in its header". `checksum_warning = false` turns the warning off;
   `rec.checksum_ok` is `false` either way. Checksums are only checked when a
   read reaches the end of the record.
+* `write_record` throws `wfdbx::Error` if a `samps_per_frame` value is less
+  than 1 ("write_record: samps_per_frame must hold integers >= 1", checked
+  before anything else), or if the number of samples is not a multiple of
+  the frame size. `write_record` and `write_annotations` throw
+  `wfdbx::Error` when a file cannot be written completely, for example on a
+  full disk: "write error on record REC", "write error on annotator ANN for
+  record REC" (also in legacy mode).
 * A tool, or a program that uses the WFDB library functions, never writes a
   signal file over one of the signal files it is reading. Opening such an
   output fails with "output file NAME is also an input file".
@@ -562,6 +569,12 @@ Differences from C that come from the language:
 * The library keeps the open record and annotators between calls, as in C,
   and is not thread-safe. `wfdbquit()` closes them; the directory and
   network settings are kept.
+* `wfdbx_write_errors()` returns the number of output files that the library
+  could not write, flush or close (found when it closes them), and
+  `wfdbx_note_write_error()` counts one more, for a file that a program
+  writes itself. The tools exit with status 1 after a write error, or when
+  the standard output cannot be written ("PROGRAM: write error on standard
+  output"); with `--legacy`, they keep the original exit status.
 
 The annotation codes (`NORMAL`, `PVC`, ...) are in `<wfdbx/ecgcodes.hpp>`,
 and the macros of `<wfdb/ecgmap.h>` (`isqrs`, `map1`, `map2`, ...) are

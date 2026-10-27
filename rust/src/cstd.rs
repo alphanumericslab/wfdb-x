@@ -45,11 +45,11 @@ pub use parse::{
 };
 pub use printf::{d2i, d2l, sprintf, sprintf_into, Arg, ToArg};
 pub use rand::{rand, srand, GlibcRand, RAND_MAX};
-pub(crate) use stdio::STDIN_PUSHBACK;
 pub use stdio::{
     args, bytes_to_os, bytes_to_path, eprintf, ewrite, exit, flush_stdout, getenv, os_to_bytes,
     out, printf, prog_name, setenv, OutLock, Stdout,
 };
+pub(crate) use stdio::{exit_check_init, STDIN_PUSHBACK};
 
 /// C's `EOF`.
 pub const EOF: i32 = -1;

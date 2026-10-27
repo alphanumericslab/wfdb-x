@@ -93,8 +93,9 @@ std::string strprintf(const char *format, ...)
 
 class WFDBFile {
 public:
-    WFDBFile(std::FILE *fp, bool is_std, int type = WFDB_LOCAL)
-        : fp_(fp), is_std_(is_std), type_(type) {}
+    WFDBFile(std::FILE *fp, bool is_std, int type = WFDB_LOCAL,
+             bool out = false)
+        : fp_(fp), is_std_(is_std), type_(type), out_(out) {}
     WFDBFile(const WFDBFile &) = delete;
     WFDBFile &operator=(const WFDBFile &) = delete;
     ~WFDBFile() { close(); }
@@ -102,6 +103,7 @@ public:
     std::FILE *fp() const { return fp_; }
     bool is_std() const { return is_std_; }
     int type() const { return type_; }
+    bool out() const { return out_; }
 
     int getc() { return WFDBX_GETC(fp_); }
     int putc(int c) { return WFDBX_PUTC(c, fp_); }
@@ -124,7 +126,9 @@ public:
     // of the file, if the file is a regular file (-1 otherwise, or if it
     // cannot be determined).  Used by the bulk reader of getvecs.
     long long bytes_left();
-    // Close the file (standard streams are flushed, not closed).
+    // Close the file (standard streams are flushed, not closed).  wfdb-x:
+    // an output file that could not be written, flushed or closed counts as
+    // a write error (see wfdbx_write_errors).
     int close();
     // Read a line, including its newline if any, into `line`.  Returns the
     // number of characters read (0 at end of file).
@@ -155,6 +159,7 @@ private:
     std::FILE *fp_;
     bool is_std_;
     int type_;
+    bool out_;      // wfdb-x: an output file (opened for writing or appending)
 };
 
 using FilePtr = std::unique_ptr<WFDBFile>;
@@ -192,6 +197,9 @@ bool wfdbx_in_header_dir(const std::string &name);
 // wfdb-x: the directory part of a file name or URL, including its final
 // separator ("" if it has none).
 std::string wfdbx_dirname(const std::string &path);
+// wfdb-x: install the exit check of the tools (see wfdbio.cpp), once;
+// `argv0` gives the program name.  Called by wfdbx_legacy_args.
+void wfdbx_exit_check_init(const char *argv0);
 // wfdb-x: an argument of a command line, quoted as the MS-Windows C runtime
 // parses it (_spawnvp joins its arguments with spaces, without quoting them).
 std::string wfdbx_quote_arg(const std::string &a);

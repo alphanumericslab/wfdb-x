@@ -14,6 +14,9 @@ Each case is a dict with keys:
   stdin   (optional) bytes or str supplied on the standard input
   files   (optional) {name: content} extra files created before running
   env     (optional) extra environment variables
+  full    (optional) names of output files created as links to /dev/full,
+          on which every write fails ("no space left on device")
+  stdout_full (optional) True: the standard output is /dev/full
   wfdb    (optional) value of the WFDB environment variable (default ".")
 
 Part of wfdb-x, Reza Sameni, Oct 2026.
@@ -797,3 +800,18 @@ for tool, args, cid, kw in [
         ("wfdbcat", "{url}100s.hea fmt16.hea", "files-url-wfdbcat",
          {"env": _NET})]:
     case(tool, args, cid=cid, **kw)
+
+# ---------------------------------------------------------------------------
+# Write errors (output files that are links to /dev/full, and the standard
+# output sent there): the original reports the errors of the library and
+# exits with status 0.
+case("wrsamp", "-o wf", cid="wrerr-wrsamp-dat", stdin=_TXT, full=["wf.dat"])
+case("wrsamp", "-o wf", cid="wrerr-wrsamp-hea", stdin=_TXT, full=["wf.hea"])
+case("wrann", "-r 100s -a cpy", cid="wrerr-wrann", stdin=_rd("100s.atr.txt"),
+     full=["100s.cpy"])
+case("snip", "-i 100s -n sf -t s5", cid="wrerr-snip-dat", full=["sf.dat"])
+case("mit2edf", "-r fmt16 -o fe.edf", cid="wrerr-mit2edf", full=["fe.edf"])
+case("parsescp", "-w -o ex", cid="wrerr-parsescp-des", full=["ex.des"],
+     stdin=_rd("example.scp"))
+case("rdsamp", "-r 100s", cid="wrerr-stdout-rdsamp", stdout_full=True)
+case("rdann", "-r 100s -a atr", cid="wrerr-stdout-rdann", stdout_full=True)

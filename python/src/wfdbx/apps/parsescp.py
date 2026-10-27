@@ -37,7 +37,8 @@ from array import array
 import wfdbx as w
 from wfdbx._cstd import (LONG_MAX, atoi, cdiv, d2i, d2l, int8, int16, int32,
                          sprintf)
-from ._common import Output, Exit, eprintf, legacy, run, prog_name
+from ._common import (Output, OutputFile, Exit, eprintf, legacy, run,
+                      prog_name)
 
 VERSION_STRING = "#ECG/1.0"
 WFDB_INVALID_SAMPLE = w.WFDB_INVALID_SAMPLE
@@ -403,7 +404,7 @@ class Parser:
         try:
             for name, mode in ((dname, "wb"), (ename, "wb"), (kname, "wb")) + \
                     (((tname, "wb"),) if self.vflag else ()):
-                files.append(open(name, mode))
+                files.append(OutputFile(name, self.pname))
         except OSError:
             for f in files:
                 f.close()

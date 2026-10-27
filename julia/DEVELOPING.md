@@ -201,6 +201,18 @@ the buffer sizes, the mnemonic tables, the `EcgMaps` (see
   (`wfdb_stdin()`, `wfdb_open` of `-`); bytes buffered by a closed reader
   are given to the next one; `freopen_stdin(name)` is C's `freopen(name,
   "rb", stdin)`.
+* **Write errors**: the standard output and the files are written with
+  raw `write(2)` calls, so a failed write never throws (Julia's own
+  streams would); it sets the error flag (`cout_error()`, `ferror`). After
+  the first failure of the standard output, descriptor 1 is replaced by
+  the null device (`_stdout_failed!`), so that later writes and any flush
+  of Julia's own `stdout` at process exit succeed and print nothing.
+  `_run_main` (`cli.jl`) then does the exit check of the tools: in normal
+  mode, it flushes the standard output, prints "TOOL: write error on
+  standard output" if it failed, and turns an exit status of 0 into 1 after
+  that or a counted write error (`wfdbx_write_errors`, held in `CProc`, so
+  that each `run_tool` starts from 0). Files that a tool writes itself are
+  closed with `wfdbx_fclose_output`.
 * **exit**: `cexit(status)` throws `CExit(status)`, which the driver
   catches: it then flushes every open output file and the standard output
   (as C's `exit` does, without closing records: no annotation end marks, no

@@ -48,6 +48,12 @@ endif()
 if(WFDBX_HAVE_FEOF_UNLOCKED AND NOT WIN32)
   add_compile_definitions(WFDBX_HAVE_FEOF_UNLOCKED)
 endif()
+# wfdb-x: on_exit, which gives the exit status to the exit check of the tools
+# (see src/wfdbio.cpp; glibc has it); atexit otherwise.
+check_cxx_symbol_exists(on_exit "stdlib.h" WFDBX_HAVE_ON_EXIT)
+if(WFDBX_HAVE_ON_EXIT)
+  add_compile_definitions(WFDBX_HAVE_ON_EXIT)
+endif()
 
 # The library
 file(GLOB WFDBX_LIB_SOURCES CONFIGURE_DEPENDS src/*.cpp)

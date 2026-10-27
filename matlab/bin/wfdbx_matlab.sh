@@ -17,6 +17,11 @@
 #   files (WFDBX_STDOUT, WFDBX_STDERR; see wfdbx.internal.std_stream), which
 #   are copied to the real ones when MATLAB exits.  MATLAB's own console
 #   output (e.g. startup messages) is discarded.
+# * If the standard output cannot be written then (except for a broken
+#   pipe), the tool's message is printed as wfdbx.internal.app_run prints
+#   it ("TOOL: write error on standard output") and the exit status 0
+#   becomes 1; with --legacy (the first argument after TOOL), nothing is
+#   printed and the exit status is kept.
 # * The MATLAB command is `matlab` (in the PATH), or $WFDBX_MATLAB.
 #
 # This file is part of wfdb-x, an independent reimplementation of the WFDB
@@ -70,6 +75,20 @@ export WFDBX_STDOUT WFDBX_STDERR
 
 "$matlab" -nosplash -nodesktop -batch "$cmd" > /dev/null
 status=$?
-cat "$WFDBX_STDOUT"
+failed=0
+if cat "$WFDBX_STDOUT" 2> /dev/null; then
+    :
+elif [ $? -le 128 ] && [ "$2" != "--legacy" ]; then
+    # (a broken pipe kills cat with SIGPIPE: a status above 128)
+    case $1 in
+        [a-z]*) failed=1 ;;
+    esac
+fi
 cat "$WFDBX_STDERR" >&2
+if [ $failed -eq 1 ]; then
+    printf '%s: write error on standard output\n' "$1" >&2
+    if [ $status -eq 0 ]; then
+        status=1
+    fi
+fi
 exit $status

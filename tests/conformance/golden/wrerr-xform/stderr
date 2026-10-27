@@ -1,0 +1,4 @@
+warning (init):
+ record fmt16 duration differs from that of previously opened record
+Checking input signals ... done
+osigclose: write error in header file

@@ -68,7 +68,7 @@
 .wf_reg <- new.env(parent = emptyenv())
 .wf_reg$files <- list()
 
-wfdb_file_new <- function(con, type = 0, name = "", std = 0L, mode = "r") {
+wfdb_file_new <- function(con, type = 0, name = "", std = 0L, mode = "r", path = name) {
   # (no class attribute: `$` on an object with a class is dispatched, which
   # makes every field access several times slower)
   f <- new.env(parent = emptyenv())
@@ -79,6 +79,8 @@ wfdb_file_new <- function(con, type = 0, name = "", std = 0L, mode = "r") {
   f$std <- std                 # 0 file, 1 standard input, 2 standard output
   f$is_std <- std != 0L
   f$mode <- mode
+  f$path <- path               # (the file's path: see .wf_sync)
+  f$dirty <- FALSE             # (written since the last .wf_sync)
   f$err <- FALSE
   f$eof <- FALSE
   f$buf <- raw(0)              # read buffer
@@ -253,13 +255,47 @@ wf_getline <- function(f) {
     f$wparts <- vector("list", 64L)
     f$wn <- 0L
     f$wbytes <- 0
-    ok <- tryCatch({
+    # (a failed write is reported by R as a warning, or an error)
+    ok <- tryCatch(withCallingHandlers({
       writeBin(b, f$con)
       TRUE
-    }, error = function(e) FALSE)
+    }, warning = function(w) {
+      f$err <- TRUE
+      invokeRestart("muffleWarning")
+    }), error = function(e) FALSE)
     if (!ok) f$err <- TRUE
+    f$dirty <- TRUE
   }
   invisible()
+}
+
+# wfdb-x: fflush of an output file.  R's flush() and seek() do not report a
+# failed write of the data in the connection's buffer, close() does: the
+# connection is closed (a failure sets the error flag, as in C) and opened
+# again at the same position.
+.wf_sync <- function(f) {
+  .wf_wflush(f)
+  if (!f$dirty || is.null(f$con)) return(invisible())
+  f$dirty <- FALSE
+  if (!.wf_close_con(f$con)) f$err <- TRUE
+  f$con <- tryCatch(suppressWarnings({
+    con <- file(f$path, open = if (f$mode == "a") "ab" else "r+b", raw = TRUE)
+    if (f$mode != "a") seek(con, f$wpos, origin = "start", rw = "write")
+    con
+  }), error = function(e) NULL)
+  if (is.null(f$con)) f$err <- TRUE
+  invisible()
+}
+
+# Close the connection con; FALSE if the data in its buffer could not be
+# written or it could not be closed (R reports these as warnings).
+.wf_close_con <- function(con) {
+  ok <- TRUE
+  st <- tryCatch(withCallingHandlers(close(con), warning = function(w) {
+    ok <<- FALSE
+    invokeRestart("muffleWarning")
+  }), error = function(e) -1)
+  ok && !(is.numeric(st) && !identical(as.numeric(st), 0))
 }
 
 wf_write <- function(f, b) {
@@ -364,20 +400,16 @@ wf_seek <- function(f, offset, whence = 0) {
     return(0)
   }
   # output files
-  .wf_wflush(f)
-  if (f$mode == "a") {
-    flush(f$con)
-    return(0)
-  }
+  .wf_sync(f)
+  if (is.null(f$con)) return(-1)
+  if (f$mode == "a") return(0)
   target <- if (whence == 0) offset else if (whence == 1) f$wpos + offset else {
-    flush(f$con)
     sz <- suppressWarnings(file.size(f$name))
     if (is.na(sz)) return(-1)
     sz + offset
   }
   if (target < 0) return(-1)
   ok <- tryCatch({
-    flush(f$con)
     seek(f$con, target, origin = "start", rw = "write")
     TRUE
   }, error = function(e) FALSE)
@@ -392,8 +424,7 @@ wf_tell <- function(f) {
   if (f$std != 0L || is.null(f$con)) return(-1)
   if (f$mode == "r") return(f$bstart + f$bpos - 1)
   if (f$mode == "a") {
-    .wf_wflush(f)
-    flush(f$con)
+    .wf_sync(f)
     sz <- suppressWarnings(file.size(f$name))
     return(if (is.na(sz)) -1 else sz)
   }
@@ -404,8 +435,7 @@ wf_flush <- function(f) {
   if (f$std == 2L) {
     cout()
   } else if (f$std == 0L && !is.null(f$con) && f$mode != "r") {
-    .wf_wflush(f)
-    flush(f$con)
+    .wf_sync(f)
   }
   0
 }
@@ -418,20 +448,33 @@ wf_clearerr <- function(f) {
   invisible()
 }
 
+# wfdb-x: an output file (or the standard output) that could not be
+# written, flushed or closed counts as a write error (see
+# wfdbx_write_errors).
 wf_close <- function(f) {
   if (f$std == 2L) {
     cout()
+    if (.cstd$stdout_failed) .cstd$write_errors <- .cstd$write_errors + 1
     return(0)
   }
-  if (f$std != 0L || is.null(f$con)) return(0)
-  st <- 0
-  if (f$mode != "r") {
-    .wf_wflush(f)
+  out <- f$std == 0L && f$mode != "r"
+  if (out) {
     keep <- !vapply(.wf_reg$files, identical, NA, f)
     .wf_reg$files <- .wf_reg$files[keep]
   }
+  if (f$std != 0L || is.null(f$con)) {
+    if (out && f$err) .cstd$write_errors <- .cstd$write_errors + 1
+    return(0)
+  }
+  st <- 0
+  if (out) .wf_wflush(f)
   if (f$err) st <- -1
-  tryCatch(close(f$con), error = function(e) st <<- -1)
+  if (out) {
+    if (!.wf_close_con(f$con)) st <- -1
+  } else {
+    tryCatch(close(f$con), error = function(e) st <<- -1)
+  }
   f$con <- NULL
+  if (out && st != 0) .cstd$write_errors <- .cstd$write_errors + 1
   st
 }

@@ -20,6 +20,10 @@
 
 package wfdbx.cstd
 
+import wfdbx.Wfdb
+import wfdbx.wfdbx_get_legacy
+import wfdbx.wfdbx_write_errors
+
 /** C's EOF. */
 const val EOF: Int = -1
 
@@ -109,9 +113,19 @@ object Stdout {
     /** To be called after writing into [buffer]. */
     internal fun written() = afterWrite()
 
-    /** C `fflush(stdout)`: 0, or -1 (EOF) on a write error. */
+    /**
+     * C `fflush(stdout)`: 0, or -1 (EOF) on a write error.
+     *
+     * wfdb-x: after a write error, the output is discarded (as if the
+     * standard output were the null device), so that later writes and
+     * flushes do nothing; [error] stays true.
+     */
     fun flush(): Int {
-        if (buf.isEmpty()) return if (err) -1 else 0
+        if (err) {
+            buf.clear()
+            return -1
+        }
+        if (buf.isEmpty()) return 0
         val r = Platform.writeStdout(buf.bytes, 0, buf.size)
         buf.clear()
         if (r != 0) {
@@ -165,15 +179,54 @@ internal val openStreams: MutableSet<ExitFlush> = LinkedHashSet()
 /** Bytes read from the standard input by a WfdbFile that was closed before they were consumed. */
 internal val stdinPushback = ByteVec(64)
 
+/** The program name for the message of [exit], and the instance whose mode applies (set by [exitCheckInit]). */
+private var exitPname: ByteArray? = null
+private var exitWfdb: Wfdb? = null
+
+/**
+ * wfdb-x: enables the check of write errors at [exit] (called by
+ * wfdbx_legacy_args, as the tools call it first); [argv0] gives the program
+ * name of its message, and the legacy mode of [w] applies. Only the first
+ * call counts.
+ */
+internal fun exitCheckInit(argv0: ByteArray, w: Wfdb) {
+    if (exitPname != null) return
+    exitPname = progName(argv0)
+    exitWfdb = w
+}
+
+/**
+ * wfdb-x: the exit status of the tools. In normal mode, the standard output
+ * is flushed; if it could not be written, "PROGRAM: write error on standard
+ * output" is printed. Then, if [status] is 0 and the standard output or
+ * another output file could not be written (see wfdbx.wfdbx_write_errors),
+ * the status is 1. Legacy mode keeps the status.
+ */
+private fun exitCheck(status: Int): Int {
+    val pname = exitPname ?: return status
+    val w = exitWfdb ?: return status
+    if (w.wfdbx_get_legacy() != 0) return status
+    Stdout.flush()
+    val failed = Stdout.error()
+    if (failed) eprintf("%s: write error on standard output\n", pname)
+    return if (status == 0 && (failed || wfdbx_write_errors() > 0)) 1 else status
+}
+
 /**
  * C `exit(status)`: flushes every open output file (as C's exit does,
  * without closing records or annotators: no annotation end marks, no header
  * updates), then the standard output, and ends the process.
+ *
+ * wfdb-x: after wfdbx_legacy_args, in normal mode, a standard output that
+ * could not be written is reported ("PROGRAM: write error on standard
+ * output"), and the status 0 becomes 1 if the standard output or another
+ * output file could not be written (see wfdbx.wfdbx_write_errors).
  */
 fun exit(status: Int): Nothing {
     for (s in withGlobalLock { openStreams.toList() }) s.flushAtExit()
+    val code = exitCheck(status)
     Stdout.flush()
-    Platform.exit(status)
+    Platform.exit(code)
 }
 
 /** The last component of a program path (argv[0]), as the C tools compute their name for messages. */

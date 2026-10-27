@@ -43,6 +43,8 @@ RAND_MAX <- 2147483647
 .cstd$out_bytes <- 0
 .cstd$out_con <- NULL
 .cstd$err_con <- NULL
+.cstd$stdout_failed <- FALSE # see .stdout_error
+.cstd$write_errors <- 0      # see wfdbx_write_errors (wfdbio.R)
 .cstd$stdin_data <- NULL
 .cstd$stdin_path <- NULL     # file substituted for the standard input (stdin_freopen)
 
@@ -1270,20 +1272,63 @@ csprintf_v <- function(fmt, ...) {
 }
 
 .write_std <- function(which, b) {
-  key <- if (which == 1L) "out_con" else "err_con"
-  con <- .cstd[[key]]
+  if (which == 1L) return(.write_stdout(b))
+  con <- .cstd$err_con
   if (is.null(con)) {
-    con <- .open_std(which)
-    .cstd[[key]] <- con
+    con <- .open_std(2L)
+    .cstd$err_con <- con
   }
   if (isFALSE(con)) {
     # (no binary access to the standard streams: NUL bytes are lost)
-    s <- rawToChar(b[b != as.raw(0L)])
-    if (which == 1L) cat(s) else cat(s, file = stderr())
+    cat(rawToChar(b[b != as.raw(0L)]), file = stderr())
     return(invisible())
   }
   writeBin(b, con)
   flush(con)
+  invisible()
+}
+
+# wfdb-x: the standard output is opened for each write and closed after it,
+# since R's flush() does not report a failed write and close() does.  A
+# failed write or close is noted (.stdout_error); the output is then
+# dropped.  A broken pipe raises R's error "ignoring SIGPIPE signal".
+.write_stdout <- function(b) {
+  st <- .cstd
+  if (st$stdout_failed) return(invisible())
+  con <- if (isFALSE(st$out_con)) FALSE else .open_std(1L)
+  if (isFALSE(con)) {
+    st$out_con <- FALSE
+    # (no binary access to the standard streams: NUL bytes are lost)
+    cat(rawToChar(b[b != as.raw(0L)]))
+    return(invisible())
+  }
+  if (!.con_write_close(con, b)) .stdout_error()
+  invisible()
+}
+
+# Write the bytes b to the connection con and close it; FALSE if the write
+# or the close failed (R reports these as warnings, which are not shown).
+.con_write_close <- function(con, b) {
+  ok <- TRUE
+  muffle <- function(w) {
+    ok <<- FALSE
+    invokeRestart("muffleWarning")
+  }
+  withCallingHandlers({
+    writeBin(b, con)
+    st <- close(con)
+    if (is.numeric(st) && !identical(as.numeric(st), 0)) ok <- FALSE
+  }, warning = muffle)
+  ok
+}
+
+# wfdb-x: note that the standard output could not be written; what is left
+# of the output is dropped (see app_run).
+.stdout_error <- function() {
+  .cstd$stdout_failed <- TRUE
+  .cstd$out_parts <- vector("list", 1024L)
+  .cstd$out_n <- 0L
+  .cstd$out_bytes <- 0
   invisible()
 }
 
@@ -1411,8 +1456,16 @@ cexit <- function(status = 0) {
 #' passed on (cli_main reports them).  As the C tools do first, "--legacy" as
 #' the first argument is handled by wfdbx_legacy_args() (legacy mode is
 #' turned on for the run, and restored to its previous setting afterwards).
+#'
+#' wfdb-x: at the end, in normal mode, a standard output that could not be
+#' written is reported ("PROGRAM: write error on standard output"), and the
+#' exit status 0 becomes 1 if the standard output or another output file
+#' could not be written (see wfdbx_write_errors), as for the standard
+#' tools.  Legacy mode keeps the original exit status.
 app_run <- function(main, argv) {
   legacy <- wfdbx_get_legacy()
+  errors <- .cstd$write_errors
+  mode <- legacy
   status <- tryCatch({
                        argv <- wfdbx_legacy_args(argv)$argv
                        main(argv)
@@ -1421,7 +1474,15 @@ app_run <- function(main, argv) {
                      finally = {
                        wf_flush_all()
                        cout()
+                       mode <- wfdbx_get_legacy()
                        wfdbx_set_legacy(legacy)
                      })
-  if (is.null(status) || length(status) == 0L) 0 else status
+  if (is.null(status) || length(status) == 0L) status <- 0
+  if (!mode) {
+    failed <- .cstd$stdout_failed
+    if (failed)
+      ceprintf("%s: write error on standard output\n", basename(argv[1L]))
+    if (status == 0 && (failed || .cstd$write_errors > errors)) status <- 1
+  }
+  status
 }

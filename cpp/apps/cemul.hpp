@@ -3,7 +3,8 @@
 // The output of the C tools depends on how the reference platform (x86-64,
 // glibc) evaluates a few operations that C leaves undefined or
 // implementation-defined.  These helpers reproduce them, so that the tools
-// give the same results on every platform.
+// give the same results on every platform.  fclose_output closes a file that
+// a tool writes itself, as the reference C package does.
 //
 // This file is part of wfdb-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -21,6 +22,9 @@
 
 #include <climits>
 #include <cstdint>
+#include <cstdio>
+
+#include <wfdbx/wfdb.hpp>
 
 namespace cemul {
 
@@ -90,6 +94,21 @@ private:
     uint32_t r_[LEN];
     unsigned long long i_ = 0;
 };
+
+// wfdb-x: close fp, a file named name that a tool has written itself, and
+// return the result of fclose.  In normal mode, if the file could not be
+// written or closed, print "PNAME: write error on NAME" and count a write
+// error (see wfdbx_write_errors).  (wfdbx_fclose_output of the reference C
+// package.)
+inline int fclose_output(std::FILE *fp, const char *pname, const char *name)
+{
+    int err = std::ferror(fp), status = std::fclose(fp);
+    if ((err || status) && !wfdbx::wfdbx_get_legacy()) {
+        std::fprintf(stderr, "%s: write error on %s\n", pname, name);
+        wfdbx::wfdbx_note_write_error();
+    }
+    return status;
+}
 
 } // namespace cemul
 

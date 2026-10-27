@@ -168,7 +168,7 @@ with one value per signal.
 | `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
-| `samps_per_frame` | samples per frame of each signal, for a multi-frequency record |
+| `samps_per_frame` | samples per frame of each signal, for a multi-frequency record; `signals` then has one row per frame and `sum(samps_per_frame)` columns |
 | `dir` | directory in which to create the files |
 
 ### Writing annotations: `write_annotations`
@@ -190,7 +190,14 @@ variable decides (sorting is on unless it is `0`).
 ### Errors and warnings
 
 * A record, header or annotation file that cannot be read or written raises
-  `IOError`.
+  `IOError`. This includes a file that cannot be written completely, for
+  example on a full disk: "write error on record REC", "write error on
+  annotator ANN for record REC". (`wfdbx_write_errors()` counts such errors
+  for the C-style functions, which report them only with a message, as in
+  C.)
+* In `write_record`, `samps_per_frame` values that are not integers of at
+  least 1, and a number of columns of `signals` other than their sum, raise
+  `ValueError` before any file is created.
 * A signal file that is shorter than its header says raises `IOError`:
   "can't read signal data of record REC (getvec status -3)".
 * An annotation file that ends before its end-of-file marker raises
@@ -369,6 +376,10 @@ described in the *WFDB Applications Guide*
 * converters: `edf2mit`, `mit2edf`, `rdedfann`, `wav2mit`, `mit2wav`,
   `wfdb2mat`, `a2m`, `m2a`, `ad2m`, `md2a`, `ahaecg2mit`, `makeid`, `readid`,
   `revise`, `parsescp`
+
+When an output file or the standard output cannot be written (a full disk,
+for example), a tool reports it and exits with status 1, as the standard
+Unix tools do (the original tools exited with status 0).
 
 The tools use the environment variables of the table above. To read record
 100 of the MIT-BIH Arrhythmia Database from PhysioNet:

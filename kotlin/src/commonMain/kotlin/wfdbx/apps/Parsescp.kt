@@ -37,9 +37,10 @@
 // given in the SCP file, and is not written if the file gives none (the
 // original always wrote 500 Hz); signals and reference beats that could not be
 // allocated, and samples beyond the end of a signal shorter than lead 0, are
-// read as absent or as zeros (undefined behavior in the original); --legacy,
-// as the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// read as absent or as zeros (undefined behavior in the original); an output
+// file that cannot be written is reported, and the exit status is then 1;
+// --legacy, as the first argument, restores the original behavior. Each change
+// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -587,13 +588,13 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
 
         val m = precgmeas()
         dfile.write(m.bytes, 0, m.size)
-        dfile.close()
+        wf.wfdbx_fclose_output(dfile, pname, dname) // wfdb-x
 
         kfile.printf("%s key\n", SCP_VERSION_STRING)
         kfile.printf("Record: %s (%s %s)\n", rn, recdate, rectime)
         kfile.printf("Name: %s\n", patientName)
         kfile.printf("MRN: %s\n", patientId)
-        kfile.close()
+        wf.wfdbx_fclose_output(kfile, pname, kname) // wfdb-x
 
         if (zflag != 0) {
             for (s in 0 until maxOf(nleads, 0).toLong()) {
@@ -636,7 +637,7 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
                 tfile.write(line.bytes, 0, line.size)
                 i++
             }
-            tfile.close()
+            wf.wfdbx_fclose_output(tfile, pname, tname) // wfdb-x
         }
 
         val prolog = ByteVec(512)
@@ -663,7 +664,7 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
             for ((k, l) in row.withIndex()) writeSamples(efile, sigr(l.toLong()), 1250 * k, 1250)
         }
         writeSamples(efile, sigr(leadII.toLong()), 0, 5000)
-        efile.close()
+        wf.wfdbx_fclose_output(efile, pname, ename) // wfdb-x
         return 1
     }
 

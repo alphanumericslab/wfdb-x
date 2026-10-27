@@ -11,6 +11,12 @@ function cout(s, opt, val)
 %   wfdbx.internal.cout('', 'buffered', TF) turns buffering on (TF true,
 %   the default) or off (each call writes immediately).
 %
+%   If the standard output cannot be written (a failure that can be
+%   detected: see wfdbx.internal.std_stream), the rest of the output is
+%   dropped, silently, and the failure is noted (the property
+%   stdout_failed of wfdbx.internal.io_state(); wfdbx.internal.app_run
+%   reports it).
+%
 %   Tools must write their output only with cout/cprintf (or cerr/ceprintf
 %   for the standard error), never with fprintf or disp.
 %
@@ -32,12 +38,13 @@ function cout(s, opt, val)
 MAXPARTS = 1024;        % write the buffer when it holds this many strings
 MAXBYTES = 262144;      % ... or this many bytes (256 KiB)
 
-persistent parts n nbytes buffered
+persistent parts n nbytes buffered failed
 if isempty(n)
     parts = cell(1, MAXPARTS);
     n = 0;
     nbytes = 0;
     buffered = true;
+    failed = false;
 end
 if nargin == 0
     if n > 0
@@ -45,7 +52,7 @@ if nargin == 0
         parts(1:n) = {[]};
         n = 0;
         nbytes = 0;
-        write_out(data);
+        failed = write_out(data, failed);
     end
     return;
 end
@@ -69,14 +76,28 @@ if n == MAXPARTS || nbytes >= MAXBYTES || ~buffered
     parts(1:n) = {[]};
     n = 0;
     nbytes = 0;
-    write_out(data);
+    failed = write_out(data, failed);
 end
 end
 
-function write_out(data)
-fid = wfdbx.internal.std_stream(1);
-fwrite(fid, data, 'uint8');
-if wfdbx.internal.is_octave()
-    fflush(fid);
+function failed = write_out(data, failed)
+% write data, unless the standard output has failed; true if it has
+if failed
+    return;
+end
+[fid, check] = wfdbx.internal.std_stream(1);
+k = fwrite(fid, data, 'uint8');
+if ~check
+    % (a failure cannot be detected)
+    if wfdbx.internal.is_octave()
+        fflush(fid);
+    end
+    return;
+end
+% (fseek flushes the file and reports a failure, Octave's fflush does not)
+if k < numel(data) || fseek(fid, 0, 'cof') ~= 0
+    failed = true;
+    st = wfdbx.internal.io_state();
+    st.stdout_failed = true;
 end
 end

@@ -159,6 +159,11 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' left in the order given, for this call only, whatever WFDBANNSORT says
 #' (in legacy mode too: TRUE runs the sortann tool; the environment is not
 #' changed).  wfdb-x.
+#'
+#' Errors: stop() if the annotator cannot be created ("can't create
+#' annotator A for record R"), or if the file cannot be written completely,
+#' for example when the disk is full ("write error on annotator A for
+#' record R", after the library's message), and on invalid arguments.
 write_annotations <- function(record, annotator, sample, symbol = NULL, code = NULL,
                               subtype = 0, chan = 0, num = 0, aux = NULL, fs = NULL,
                               dir = NULL, legacy = FALSE, sort = NULL) {
@@ -202,6 +207,7 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
     auxl[ok] <- ub[match(aux[ok], u)]
   }
   wfdbquit()
+  errors <- wfdbx_write_errors()
   # (the sort option applies to the file written here only: set after the
   # wfdbquit above, which closes any annotator opened before)
   .ann$sort_override <- sort
@@ -217,5 +223,7 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
                              chan = rep_len(as.numeric(chan), n),
                              num = rep_len(as.numeric(num), n), aux = auxl))
   wfdbquit()
+  if (wfdbx_write_errors() > errors)
+    stop(sprintf("write error on annotator %s for record %s", annotator, record))
   invisible(st)
 }

@@ -234,6 +234,16 @@ only. Without `sort`, the `WFDBANNSORT` environment variable decides
   stops `read_annotations` with an error: "can't read annotation file ANN
   of record REC (getann status -3)". With `sampto`, only the part of the
   file read before `sampto` must be intact.
+* A record or annotation file that cannot be written completely (for
+  example, when the disk is full) stops `write_record` with the error "write
+  error on record REC", and `write_annotations` with "write error on
+  annotator ANN for record REC", after the library's message (such as
+  "osigclose: write error in signal group 0").
+* In `write_record`, each `samps_per_frame` value must be an integer of 1
+  or more ("samps_per_frame must hold integers >= 1"), and `signals` must
+  have `sum(samps_per_frame)` columns ("signals has N columns, but
+  samps_per_frame adds up to M"). These are checked first, and nothing is
+  written.
 * Invalid arguments, and a value the operation needs but the record does not
   give, stop with an error. For example, a time string such as `"0:10"`
   needs the sampling frequency, and `physical = TRUE` needs the gain of each
@@ -500,6 +510,12 @@ Differences from C that come from the language:
 * Errors are reported by return values, as in C, not by R errors.
   `wfdberror()` returns the last message, and `wfdbquiet()` stops the
   messages from being printed.
+* `wfdbx_write_errors()` (a wfdb-x addition) returns the number of output
+  files that the library could not write, flush or close, plus those
+  counted by `wfdbx_note_write_error()` (also an addition), which a program
+  that writes a file itself calls. The tools exit with status 1 when the
+  count goes up or the standard output cannot be written ("TOOL: write
+  error on standard output"); in legacy mode they keep status 0, as in C.
 * The library keeps the open record and annotators between calls, as in C.
   `wfdbquit()` closes them; the directory and network settings are kept.
 

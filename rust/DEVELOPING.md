@@ -200,6 +200,16 @@ one.
   itself before calling `exit` (Rust does not run destructors at exit).
   Write errors with `EPIPE` on the standard output end the process with
   status 141, as `SIGPIPE` ends a C program.
+* Write errors. The standard output is never written with `print!` or
+  `println!` (they panic when it fails): its buffer records the first other
+  write error (`out().error()`, C's `ferror(stdout)`) and discards
+  everything after it, as if it were the null device. `wfdbx_legacy_args`
+  enables a check in `cstd::exit`: in normal mode, it flushes the standard
+  output, prints `PROGRAM: write error on standard output` if it failed,
+  and turns the status 0 into 1 if it failed or `wfdbx_write_errors()` is
+  not 0. `WfdbFile::close` counts a write error for an output file opened
+  by `wfdb_open`/`wfdb_fopen` (not `WfdbFile::fopen`); a tool closes the
+  files it writes itself with `wfdbx_fclose_output`.
 * `cstd::args()` is `argv` as `Vec<Vec<u8>>`; `cstd::prog_name(argv0)` the
   last path component; `cstd::getenv(name)`, `cstd::setenv`.
 * `wfdb_error` writes to the standard error (unless `wfdbquiet()`), as in

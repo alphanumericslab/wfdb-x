@@ -643,3 +643,18 @@ def test_read_truncated_annotation_file_example(datadir, capfd):
     a = w.Annotation()
     assert [w.getann(0, a) for _ in range(3)] == [0, 0, -3]
     w.wfdbquit()
+
+
+@pytest.mark.skipif(not os.path.exists("/dev/full"),
+                    reason="no /dev/full on this system")
+@pytest.mark.parametrize("n", [3, 100000])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_write_annotations_write_error(datadir, capfd, n, legacy):
+    # An annotation file that cannot be written raises an error, in both
+    # modes, after the library's message.
+    os.symlink("/dev/full", "100s.full")
+    with pytest.raises(OSError, match="write error on annotator full for "
+                                      "record 100s"):
+        w.write_annotations("100s", "full", list(range(1, n + 1)),
+                            symbols=["N"] * n, legacy=legacy)
+    assert "write error on annotation file full" in capfd.readouterr().err

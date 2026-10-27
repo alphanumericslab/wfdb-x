@@ -353,11 +353,14 @@ struct WriteOptions {
 /// multi-frequency record.  WFDB_INVALID_SAMPLE marks invalid samples.  `fs`
 /// is the sampling frequency in Hz.
 ///
-/// Throws Error if nsig or fs is not greater than 0, if the gains, the ADC
-/// resolutions or the units of a calibrated signal are missing ("gains must
-/// be specified", "ADC resolution(s) must be specified", "units must be
-/// specified"), if samples.size() is not a multiple of the frame size, or if
-/// the files cannot be created.  With opt.dir, it also throws if the
+/// Throws Error if a samps_per_frame value is less than 1
+/// ("samps_per_frame must hold integers >= 1", checked first), if nsig or fs
+/// is not greater than 0, if the gains, the ADC resolutions or the units of
+/// a calibrated signal are missing ("gains must be specified", "ADC
+/// resolution(s) must be specified", "units must be specified"), if
+/// samples.size() is not a multiple of the frame size, if the files cannot
+/// be created, or if they cannot be written completely (for example, when
+/// the disk is full: "write error on record R").  With opt.dir, it also throws if the
 /// directory does not exist ("directory D does not exist") or the record
 /// name contains one ("record name must not contain a directory when dir is
 /// given").
@@ -398,8 +401,9 @@ void write_record_physical(const std::string &record,
 /// sorts, for this call only.  Without `sort`, the WFDBANNSORT environment
 /// variable decides: sorting is on unless it is 0.
 ///
-/// Throws Error if the file cannot be created, or for a `dir` as
-/// write_record() does.
+/// Throws Error if the file cannot be created, if it cannot be written
+/// completely ("write error on annotator A for record R"), or for a `dir`
+/// as write_record() does.
 ///
 ///     wfdbx::Annotations qrs;
 ///     qrs.samples = {100, 460, 820};

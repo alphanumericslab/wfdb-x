@@ -26,7 +26,7 @@ version. See LICENSE.
 import sys
 
 from wfdbx import _wfdbio as wio
-from ._common import Exit, eprintf, run
+from ._common import Exit, RawOutput, eprintf, run
 
 BUFSIZE = 1024          # bytes read at a time
 
@@ -37,7 +37,7 @@ def _main(argv):
     if argc < 2 or (argc == 2 and argv[1] == "-h"):
         eprintf("usage: %s FILE [FILE ...]\n", pname)
         raise Exit(1)
-    out = sys.stdout.buffer
+    out = RawOutput()
     for i in range(1, argc):
         f = wio.wfdb_open(argv[i], None, wio.WFDB_READ)
         if f is None:
