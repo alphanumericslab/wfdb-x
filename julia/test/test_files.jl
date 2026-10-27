@@ -5,8 +5,16 @@
 # Remote files are served by a local HTTP server (127.0.0.1, written below
 # with the Sockets standard library): no test contacts another host.
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It tests wfdb-x; it has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 using Sockets
 
@@ -567,6 +575,64 @@ end
         @test W.isigopen(w, "sub/../100s", nothing, 2) == -1   # ".." refused
         @test W.wfdbfile(w, "hea", "~/x") === nothing
         W.setwfdb(w, ".")
+    end
+end
+
+
+# wfdb-x: only the last component of a record name is checked when writing
+# (outside legacy mode), and headers name the record, its signal files and
+# its segments relative to the header's directory.
+@testset "record names with dotted directories" begin
+    with_files("names") do w, cwd
+        x = Int32[1 2; 3 4; 5 6]
+        wr(rec; kw...) = W.write_record(w, rec, x, 100.0; gains=[200.0], adcres=12,
+                                        units="mV", names=["a", "b"], kw...)
+        mkpath("my.data")
+        wr("my.data/rec")
+        @test readlines("my.data/rec.hea")[1:2] == ["rec 2 100 3", "rec.dat 16 200/mV 12 0 1 9 0 a"]
+        @test W.read_record(w, "my.data/rec").samples == x
+        abs = joinpath(cwd, "my.data", "sub.d", "abs")
+        mkpath(dirname(abs))
+        wr(abs)
+        @test readlines(abs * ".hea")[1] == "abs 2 100 3"
+        @test W.read_record(w, abs).samples == x
+        # newheader with a dotted directory
+        @test W.osigfopen(w, [W.Siginfo(fname=b"my.data/nh.dat", fmt=16, gain=200.0,
+                                        adcres=12, units=b"mV", desc=b"a")], 1) == 1
+        @test W.putvec(w, Int32[7]) == 1
+        @test W.newheader(w, "my.data/nh") == 0
+        W.wfdbquit(w)
+        h = readlines("my.data/nh.hea")
+        @test split(h[1])[1] == "nh" && h[2] == "nh.dat 16 200/mV 12 0 7 7 0 a"
+        # setmsheader: the segments are named relative to the directory
+        wr("my.data/s1")
+        wr("my.data/s2")
+        @test W.setmsheader(w, "my.data/ms", ["my.data/s1", "my.data/s2"], 2) == 0
+        W.wfdbquit(w)
+        @test readlines("my.data/ms.hea") == ["ms/2 2 100 6", "s1 3", "s2 3"]
+        @test W.read_record(w, "my.data/ms").samples == [x; x]
+        # the last component is checked, with the same message
+        err = errors_of() do
+            @test_throws W.WfdbError wr("rec.1")
+        end
+        @test startswith(err, "init: illegal character 46 in record name\n")
+        err = errors_of() do
+            @test_throws W.WfdbError wr("my.data/")
+        end
+        @test startswith(err, "init: illegal character 0 in record name\n")
+        # legacy mode: the whole name is checked, and names are written as given
+        err = errors_of() do
+            @test_throws W.WfdbError wr("my.data/r2"; legacy=true)
+        end
+        @test startswith(err, "init: illegal character 46 in record name\n")
+        mkpath("out")
+        wr("out/rec"; legacy=true)
+        @test readlines("out/rec.hea")[1:2] == ["out/rec 2 100 3", "out/rec.dat 16 200/mV 12 0 1 9 0 a"]
+        # annotator names are checked as before
+        W.wfdbquiet(w)
+        @test_throws W.WfdbError W.write_annotations(w, "my.data/rec", "a.b",
+                                                     W.Annotations(samples=[1], symbols=[b"N"]))
+        W.wfdbverbose(w)
     end
 end
 

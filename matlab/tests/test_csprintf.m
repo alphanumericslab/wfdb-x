@@ -2,9 +2,21 @@ function test_csprintf()
 %TEST_CSPRINTF Tests of wfdbx.internal.csprintf against glibc printf.
 %   The expected strings were produced by glibc printf() on x86-64 Linux.
 
-% Part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It tests wfdb-x; it has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
+% NaNs with a known sign bit (the sign of the constant NaN, of -NaN and of
+% 0/0 depends on the interpreter and the processor)
+pnan = nan_bits(32760);     % bits 0x7FF8000000000000
+nnan = nan_bits(65528);     % bits 0xFFF8000000000000
 cases = {
     {'42', '%d', 42};
     {'-7', '%d', -7};
@@ -37,23 +49,27 @@ cases = {
     {['99.50%' char(9) 'x' char(10)], '%5.2f%%\t%s\n', 99.5, 'x'};
     {'360 0.002777777778', '%.10g %.10g', 360, 1/360};
     {'1.235 -0.000000', '%.3lf %lf', 1.23456, -0};
-    {'nan', '%g', NaN};
-    {'-nan', '%g', -NaN};
-    {'-nan', '%g', typecast(uint64(18444492273895866368), 'double')};  % (bits 0xFFF8000000000000; the sign of 0/0 depends on the processor)
+    {'nan', '%g', pnan};
+    {'-nan', '%g', nnan};
+    {'-nan|nan', '%f|%f', nnan, pnan};
     {'inf', '%f', Inf};
     {'-inf', '%f', -Inf};
     {'  inf|', '%5.2f|', Inf};
     {'-inf  |', '%-6g|', -Inf};
     {'+inf', '%+g', Inf};
-    {' nan', '% g', NaN};
+    {' nan', '% g', pnan};
+    {'-nan', '% g', nnan};
+    {'+nan', '%+g', pnan};
     {'INF', '%E', Inf};
-    {'NAN', '%G', NaN};
+    {'NAN', '%G', pnan};
+    {'-NAN', '%E', nnan};
     {'     inf', '%08.3f', Inf};
     {'INF', '%F', Inf};
     {'1.500000', '%F', 1.5};
     {'2', '%d', 2.7};
     {'-2', '%d', -2.7};
-    {'-2147483648', '%d', NaN};
+    {'-2147483648', '%d', pnan};
+    {'-2147483648', '%d', nnan};
     {'(null)', '%s', []};
     {'[]', '[%.3s]', []};
     {'1', '%d', true};
@@ -77,11 +93,18 @@ assert_eq(wfdbx.internal.csprintf(f, 12, 'ab', 0.5, 255, 'q'), ...
     sprintf('12|   ab|0.5|ff|q\n'), 'fast path');
 assert_eq(wfdbx.internal.csprintf(f, 12, 'ab', 0.5, 255, 113), ...
     sprintf('12|   ab|0.5|ff|q\n'), 'general path (numeric %c)');
-assert_eq(wfdbx.internal.csprintf(f, 12, '', NaN, -1, 'q'), ...
+assert_eq(wfdbx.internal.csprintf(f, 12, '', pnan, -1, 'q'), ...
     sprintf('12|     |nan|ffffffff|q\n'), 'general path');
 
 % printf output and the standard streams
 assert_eq(wfdbx.internal.csprintf('no conversions'), 'no conversions', ...
     'plain text');
 assert_eq(wfdbx.internal.csprintf(''), '', 'empty format');
+end
+
+function x = nan_bits(hi)
+% the NaN whose 16 high bits are HI and the others zero
+x = typecast(bitshift(uint64(hi), 48), 'double');
+assert(isnan(x) && isequal(typecast(x, 'uint64'), bitshift(uint64(hi), 48)), ...
+    'NaN bit pattern');
 end

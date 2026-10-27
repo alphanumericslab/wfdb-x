@@ -1,10 +1,28 @@
-// wfdblib.hpp: internal definitions of the wfdb-x C++ library
-// (C++ version of lib/wfdblib.h; not installed)
+// wfdblib.hpp: internal definitions of the wfdb-x C++ library (not installed).
 //
-// Copyright (C) 1989-2012 George B. Moody (original C header, lib/wfdblib.h;
-// revised 2017-2022 by Benjamin Moody).
-// C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a C++ translation of lib/wfdblib.h from the WFDB Software Package
+// 10.7.0, by George B. Moody, with revisions by Benjamin Moody. The
+// translation follows the logic and behavior of the original code, but it is
+// new code, not the original C code.
+//
+// Changes from the original: it also declares wfdb-x's internal functions (the
+// location of files by name, the remote file reader, the in-process sorting of
+// annotation files, and what the high-level functions and check_record use);
+// the stream functions read and write without locking the stream. Each change
+// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+//
+// Original C code: lib/wfdblib.h, WFDB Software Package 10.7.0.
+//   Copyright (C) 1989-2012 George B. Moody; revised 2017-2022 by Benjamin
+//   Moody.
+// C++ translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 #ifndef WFDBX_WFDBLIB_HPP
 #define WFDBX_WFDBLIB_HPP
@@ -174,6 +192,13 @@ bool wfdbx_in_header_dir(const std::string &name);
 // wfdb-x: the directory part of a file name or URL, including its final
 // separator ("" if it has none).
 std::string wfdbx_dirname(const std::string &path);
+// wfdb-x: an argument of a command line, quoted as the MS-Windows C runtime
+// parses it (_spawnvp joins its arguments with spaces, without quoting them).
+std::string wfdbx_quote_arg(const std::string &a);
+// wfdb-x: the command line that fetches `url` with curl (program name first,
+// the URL last), the URL quoted with wfdbx_quote_arg if `quote` (as on
+// MS-Windows).
+std::vector<std::string> wfdbx_curl_args(const std::string &url, bool quote);
 
 // signal.cpp
 void wfdb_sampquit();
@@ -194,6 +219,18 @@ void wfdbx_header_values(WFDB_Time *nsamp, long *btime, WFDB_Date *bdate);
 // wfdb-x: the year, month and day of a Julian date, computed as datstr()
 // does.
 void wfdbx_julian_ymd(WFDB_Date date, int *y, int *m, int *d);
+// wfdb-x: for check_record.  The number of samples per signal of the header
+// read last (master: that of the multi-segment record, msnsamples; otherwise
+// that of the header read last, nsamples; 0 if not given).
+WFDB_Time wfdbx_header_nsamples(bool master);
+// wfdb-x: for check_record: true if the open input record is an EDF file;
+// the number of open input signal groups; the checksum accumulator of input
+// signal s (the header's checksum less the samples read so far); the size
+// of the local file of input group g (-1 if it is not a local file).
+bool wfdbx_input_is_edf();
+unsigned wfdbx_input_groups();
+int wfdbx_input_cksum(unsigned s);
+long long wfdbx_input_file_size(unsigned g);
 void wfdb_sigclose();
 void wfdb_osflush();
 int wfdb_oinfoclose();
@@ -204,6 +241,11 @@ int wfdb_oinfoclose();
 // `sort` option of the high-level write_annotations).  Returns the previous
 // setting.
 int wfdbx_set_annsort(int mode);
+// wfdb-x: a copy of the annotation mnemonics and descriptions (and the flags
+// of the modified types), and their restoration from such a copy (for
+// check_record: annopen reads an annotation file's definitions into them).
+std::shared_ptr<void> wfdbx_save_anndefs();
+void wfdbx_restore_anndefs(const std::shared_ptr<void> &saved);
 void wfdb_anclose();
 void wfdb_oaflush();
 

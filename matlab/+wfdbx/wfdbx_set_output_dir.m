@@ -1,32 +1,36 @@
 function previous = wfdbx_set_output_dir(d)
 %WFDBX_SET_OUTPUT_DIR Set the directory in which output files are created.
-%   PREVIOUS = wfdbx.wfdbx_set_output_dir(DIR) makes the library create
-%   every output file (headers, signal files, annotation files: wfdb_open
-%   in WFDB_WRITE or WFDB_APPEND mode) named by a relative name (the
-%   record name, which may itself contain directories, and the file type)
-%   as DIR/NAME; DIR may be relative to the current directory or a ~ name.
-%   Absolute names and ~ names are used as given (in legacy mode, every
-%   name is created under DIR).  [] or '' restores the default: the value
-%   of the environment variable WFDBX_OUTPUT_DIR if it is set, otherwise
-%   none (files are created as named).  PREVIOUS is the previous
-%   directory ([] if none).  A URL is refused: an error message is
-%   printed, the setting is unchanged, and PREVIOUS is its current value
-%   (so that restoring it later is still correct).  Nothing else changes:
-%   headers record the names as given.  The setting is not reset by
-%   wfdbx.wfdbquit, and it applies in legacy mode too.  This function is
-%   a wfdb-x addition; the high-level writers set it for their 'dir'
-%   option.
+%   PREVIOUS = wfdbx.wfdbx_set_output_dir(DIR) makes the library create every
+%   output file named by a relative name (headers, signal files, annotation
+%   files) in the local folder DIR.  Names given as full paths or ~ paths
+%   are used as given.  A URL is refused with an error message, and the
+%   setting is unchanged.
 %
-%   Example:
+%   wfdbx.wfdbx_set_output_dir([]) restores the default: the environment
+%   variable WFDBX_OUTPUT_DIR if it is set, otherwise the current folder.
+%
+%   PREVIOUS is the previous setting ([] if none).  The high-level writers
+%   also take the output directory as their 'dir' option.
+%
+%   Example (the example writes the annotation file out/rec.qrs):
 %       old = wfdbx.wfdbx_set_output_dir('out');
-%       ...                             % (write files)
-%       wfdbx.wfdbx_set_output_dir(old);
+%       wfdbx.write_annotations('rec', 'qrs', [100 460], 'symbols', 'NN');
+%       wfdbx.wfdbx_set_output_dir(old);       % out/rec.qrs was written
 %
-%   See also wfdbx.wfdbx_get_output_dir, wfdbx.write_record,
-%   wfdbx.write_annotations.
+%   See also wfdbx.wfdbx_get_output_dir, wfdbx.wfdbx_set_input_dir.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 d = wfdbx.internal.strarg(d);
 st = wfdbx.internal.io_state();

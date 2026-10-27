@@ -3,8 +3,16 @@
 # strtod, sscanf, strtok, fgets, glibc rand, printf), and the byte-exact
 # standard input/output used by the tools.
 #
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 #
 # Conventions (see DEVELOPING.md):
 #   * numbers are doubles; C wrap-around is applied with cint32() etc.
@@ -1124,19 +1132,25 @@ csprintf_v <- function(fmt, ...) {
                   sprintf("%o", as.integer(lo30))))
   }
   # decimal
-  v <- hi * 4294967296 + lo
-  r <- sprintf("%.0f", v)
-  big <- v >= 9007199254740992
-  if (any(big)) {
-    for (k in which(big)) {
-      a <- sprintf("%.0f", hi[k] * 4294967296)    # exact
-      na <- nchar(a)
-      t <- as.numeric(substr(a, na - 9L, na)) + lo[k]
-      pre <- as.numeric(substr(a, 1L, na - 10L)) + (t >= 1e10)
-      r[k] <- paste0(sprintf("%.0f", pre), sprintf("%010.0f", t %% 1e10))
-    }
-  }
-  r
+  .u64_dec(hi, lo)
+}
+
+# Decimal digits of hi * 2^32 + lo (hi, lo: whole numbers in [0, 2^32),
+# vectorized), computed exactly in base-1e5 limbs so that no number of
+# more than 5 digits is formatted by sprintf.
+.u64_dec <- function(hi, lo) {
+  h1 <- floor(hi / 1e5)
+  h0 <- hi - h1 * 1e5
+  l1 <- floor(lo / 1e5)
+  l0 <- lo - l1 * 1e5
+  # 2^32 = 42949 * 1e5 + 67296
+  t0 <- h0 * 67296 + l0
+  t1 <- h0 * 42949 + h1 * 67296 + l1 + floor(t0 / 1e5)
+  t2 <- h1 * 42949 + floor(t1 / 1e5)
+  d3 <- floor(t2 / 1e5)
+  r <- paste0(sprintf("%.0f", d3), sprintf("%05.0f", t2 %% 1e5), sprintf("%05.0f", t1 %% 1e5),
+              sprintf("%05.0f", t0 %% 1e5))
+  sub("^0+(?=[0-9])", "", r, perl = TRUE)
 }
 
 # Integer conversions (vectorized).
@@ -1164,7 +1178,13 @@ csprintf_v <- function(fmt, ...) {
   if (any(small)) out[small] <- sprintf(spec, as.integer(x[small]))
   y <- x[!small]
   if (signed) {
-    digits <- sprintf("%.0f", abs(y))
+    a <- abs(y)
+    digits <- sprintf("%.0f", a)
+    u <- a < 2^64
+    if (any(u)) {
+      hi <- floor(a[u] / 4294967296)
+      digits[u] <- .u64_dec(hi, a[u] - hi * 4294967296)
+    }
     sg <- ifelse(y < 0, "-", if (grepl("+", flags, fixed = TRUE)) "+"
                  else if (grepl(" ", flags, fixed = TRUE)) " " else "")
     pre <- ""

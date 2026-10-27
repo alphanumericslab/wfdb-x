@@ -2,8 +2,16 @@
 # (highlevel.jl): ported from rust/tests/signals.rs (expected values
 # produced by the C library).
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It tests wfdb-x; it has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 # Run f(w) in a fresh copy of tests/data (the current directory), with a
 # library instance whose WFDB path is ".".
@@ -1308,18 +1316,6 @@ end
 end
 
 
-# The library's messages on the standard error while f() runs.
-function lib_stderr(f)
-    p = W.cproc()
-    p.err_capture = UInt8[]
-    try
-        f()
-        return String(copy(p.err_capture))
-    finally
-        p.err_capture = nothing
-    end
-end
-
 # wfdb-x: a checksum error (getvec status -4) is a warning of read_record
 # (every frame is returned), not an error; checksum_warning=false turns it
 # off. The library's getvec message is not printed then.
@@ -1385,6 +1381,80 @@ end
         @test [x[1] for x in v] == [2, 2, 2, -4] && v[4][2:3] == [7, 8]
         @test err == "getvec: checksum error in signal 0\n"^2
         @test W.wfdberror(w) == b"getvec: checksum error in signal 0\n"
+    end
+end
+
+# wfdb-x: in high-resolution mode, every vector of the frame at which the
+# checksum is verified has getvec status -4; read_record returns all of them
+# (and reads on to the end), with a single warning.
+@testset "read_record checksum error, high resolution" begin
+    with_data() do w
+        wr(rec, x, spf) = W.write_record(w, rec, x, 100.0; samps_per_frame=spf, gains=100.0,
+                                         adcres=16, units="mV",
+                                         names=["sig$k" for k in 0:length(spf)-1])
+        msg(rec) = "checksum error in record $rec: the signal data do not match the checksums in its header"
+        nfr = 4
+        for spf in ([2], [3], [1, 2], [2, 3])
+            ncol = sum(spf)
+            x = reshape(Int32.(1:nfr*ncol), nfr, ncol)
+            for frame in (1, nfr)       # the corrupt sample: in the first or the last frame
+                wr("mf", x, spf)
+                @test filesize("mf.dat") == 2 * nfr * ncol      # (format 16)
+                open("mf.dat", "r+") do f
+                    seek(f, 2 * ncol * (frame - 1))
+                    write(f, UInt8[99, 0])
+                end
+                y = copy(x)
+                y[frame, 1] = 99
+                wr("good", y, spf)
+                for legacy in (false, true)
+                    g = W.read_record(w, "good"; highres=true, legacy=legacy)
+                    @test g.checksum_ok && size(g.samples, 1) == nfr * maximum(spf)
+                    r = @test_logs (:warn, msg("mf")) W.read_record(w, "mf"; highres=true,
+                                                                       legacy=legacy)
+                    @test r.samples == g.samples && !r.checksum_ok
+                    r = @test_logs W.read_record(w, "mf"; highres=true, checksum_warning=false,
+                                                 legacy=legacy)
+                    @test r.samples == g.samples && !r.checksum_ok
+                    if length(spf) == 2
+                        for ch in ([1], [1, 0], ["sig1"])
+                            gc = W.read_record(w, "good"; highres=true, channels=ch, legacy=legacy)
+                            r = @test_logs W.read_record(w, "mf"; highres=true, channels=ch,
+                                                         checksum_warning=false, legacy=legacy)
+                            @test r.samples == gc.samples && !r.checksum_ok
+                            @test r.channels == gc.channels
+                        end
+                    end
+                    # from inside the record to the end
+                    r = @test_logs W.read_record(w, "mf"; highres=true, from=1,
+                                                 checksum_warning=false, legacy=legacy)
+                    @test r.samples == g.samples[2:end, :] && !r.checksum_ok
+                    # ending before the last frame: no checksum check
+                    to = (nfr - 1) * maximum(spf) - 1
+                    r = @test_logs W.read_record(w, "mf"; highres=true, to=to, legacy=legacy)
+                    @test r.samples == g.samples[1:to, :] && r.checksum_ok
+                    # ending within the last frame, or at its end
+                    for to in ((nfr - 1) * maximum(spf) + 1, nfr * maximum(spf))
+                        r = W.read_record(w, "mf"; highres=true, to=to, checksum_warning=false,
+                                          legacy=legacy)
+                        @test r.samples == g.samples[1:to, :]
+                    end
+                    # low resolution: one vector per frame, unchanged
+                    gl = W.read_record(w, "good"; legacy=legacy)
+                    @test size(gl.samples, 1) == nfr
+                    r = @test_logs (:warn, msg("mf")) W.read_record(w, "mf"; legacy=legacy)
+                    @test r.samples == gl.samples && !r.checksum_ok
+                end
+            end
+        end
+        # the example of the specification (spf 2 and 3, a single signal)
+        for spf in (2, 3)
+            x = reshape(Int32.(1:4*spf), spf, 4)'      # frames 1..spf, spf+1..2spf, ...
+            wr("mf", Matrix(x), [spf])
+            open(f -> write(f, UInt8[99, 0]), "mf.dat", "r+")
+            r = W.read_record(w, "mf"; highres=true, checksum_warning=false)
+            @test vec(r.samples) == [99; 2:4*spf] && !r.checksum_ok
+        end
     end
 end
 

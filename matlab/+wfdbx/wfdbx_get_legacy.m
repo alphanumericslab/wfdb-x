@@ -1,13 +1,22 @@
 function on = wfdbx_get_legacy()
-%WFDBX_GET_LEGACY True if the library's legacy mode is on.
-%   ON = wfdbx.wfdbx_get_legacy() returns 1 if legacy mode is on (the
-%   original package's built-in defaults; see wfdbx.wfdbx_set_legacy), 0
-%   otherwise.  This function is a wfdb-x addition.
+%WFDBX_GET_LEGACY True if legacy mode is on.
+%   ON = wfdbx.wfdbx_get_legacy() returns 1 if legacy mode is on (see
+%   wfdbx.wfdbx_set_legacy), 0 otherwise.
 %
-%   See also wfdbx.wfdbx_set_legacy, wfdbx.wfdbx_legacy_args.
+%   See also wfdbx.wfdbx_set_legacy.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 S = wfdbx.internal.sig_state();
 on = S.legacy_mode;

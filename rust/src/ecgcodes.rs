@@ -8,10 +8,31 @@
 //! (`isqrs(code)`) that use the default instance. `isann`, `ammap` and
 //! `mamap` use constant tables and are plain functions.
 //
-// Copyright (C) 1999 George B. Moody (original C headers, lib/ecgcodes.h, by
-// T. Baker and G. Moody, and lib/ecgmap.h).
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a Rust translation of lib/ecgcodes.h, lib/ecgmap.h and the annotation
+// code mapping functions of lib/annot.c (wfdb_isann, wfdb_isqrs, wfdb_map1,
+// wfdb_map2, wfdb_ammap, wfdb_mamap, wfdb_annpos and their setters) from the
+// WFDB Software Package 10.7.0, by T. Baker and George B. Moody
+// (lib/ecgcodes.h) and George B. Moody (lib/ecgmap.h, lib/annot.c). The
+// translation follows the logic and behavior of the original code, but it is
+// new code, not the original C code.
+//
+// Changes from the original: none, apart from the language.
+//
+// Original C code: lib/ecgcodes.h, lib/ecgmap.h and lib/annot.c, WFDB Software
+// Package 10.7.0.
+//   lib/ecgcodes.h: Copyright (C) 1999 George B. Moody.
+//   lib/ecgmap.h: Copyright (C) 1999 George B. Moody.
+//   lib/annot.c: Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by
+//   Benjamin Moody.
+// Rust translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use crate::wfdb::{with_default, Wfdb};
 
@@ -201,18 +222,27 @@ impl Default for EcgMaps {
 }
 
 /// C `isann(code)`: is `code` a legal annotation code?
+///
+/// Translation of the C function wfdb_isann() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 #[inline]
 pub fn wfdb_isann(code: i32) -> i32 {
     (0 < code && code <= ACMAX) as i32
 }
 
 /// Alias of [`wfdb_isann`] (the `<ecgmap.h>` macro name).
+///
+/// Translation of the C macro isann() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 #[inline]
 pub fn isann(code: i32) -> i32 {
     wfdb_isann(code)
 }
 
 /// C `ammap(code)`: map an AHA code (a character) to an MIT code.
+///
+/// Translation of the C function wfdb_ammap() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 #[inline]
 pub fn wfdb_ammap(code: i32) -> i32 {
     if (b'D' as i32) < code && code <= b']' as i32 {
@@ -223,12 +253,18 @@ pub fn wfdb_ammap(code: i32) -> i32 {
 }
 
 /// Alias of [`wfdb_ammap`].
+///
+/// Translation of the C macro ammap() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 #[inline]
 pub fn ammap(code: i32) -> i32 {
     wfdb_ammap(code)
 }
 
 /// C `mamap(code, subtype)`: map an MIT code to an AHA code.
+///
+/// Translation of the C function wfdb_mamap() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 #[inline]
 pub fn wfdb_mamap(code: i32, subtype: i32) -> i32 {
     if wfdb_isann(code) == 0 {
@@ -243,6 +279,9 @@ pub fn wfdb_mamap(code: i32, subtype: i32) -> i32 {
 }
 
 /// Alias of [`wfdb_mamap`].
+///
+/// Translation of the C macro mamap() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 #[inline]
 pub fn mamap(code: i32, subtype: i32) -> i32 {
     wfdb_mamap(code, subtype)
@@ -250,6 +289,9 @@ pub fn mamap(code: i32, subtype: i32) -> i32 {
 
 impl Wfdb {
     /// C `isqrs(code)`: 1 if `code` denotes a QRS complex.
+    ///
+    /// Translation of the C function wfdb_isqrs() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdb_isqrs(&self, code: i32) -> i32 {
         if wfdb_isann(code) != 0 {
             self.maps.qrs[code as usize] as i32
@@ -260,6 +302,9 @@ impl Wfdb {
 
     /// C `setisqrs(code, newval)` (the value is stored as a `char`, so
     /// `setisqrs(2, 300)` returns 44).
+    ///
+    /// Translation of the C function wfdb_setisqrs() (lib/annot.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn wfdb_setisqrs(&mut self, code: i32, newval: i32) -> i32 {
         if wfdb_isann(code) != 0 {
             self.maps.qrs[code as usize] = newval as i8;
@@ -270,6 +315,9 @@ impl Wfdb {
     }
 
     /// C `map1(code)`: map to one of NORMAL, PVC, FUSION, LEARN, NOTQRS.
+    ///
+    /// Translation of the C function wfdb_map1() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdb_map1(&self, code: i32) -> i32 {
         if wfdb_isann(code) != 0 {
             self.maps.mp1[code as usize] as i32
@@ -281,6 +329,9 @@ impl Wfdb {
     /// C `setmap1(code, newval)`: set the `map1` value of an annotation
     /// type. Returns `newval` (as a C `char`), or `NOTQRS` if `code` is not
     /// an annotation type.
+    ///
+    /// Translation of the C function wfdb_setmap1() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdb_setmap1(&mut self, code: i32, newval: i32) -> i32 {
         if wfdb_isann(code) != 0 {
             self.maps.mp1[code as usize] = newval as i8;
@@ -292,6 +343,9 @@ impl Wfdb {
 
     /// C `map2(code)`: map to one of NORMAL, SVPB, PVC, FUSION, LEARN,
     /// NOTQRS.
+    ///
+    /// Translation of the C function wfdb_map2() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdb_map2(&self, code: i32) -> i32 {
         if wfdb_isann(code) != 0 {
             self.maps.mp2[code as usize] as i32
@@ -303,6 +357,9 @@ impl Wfdb {
     /// C `setmap2(code, newval)`: set the `map2` value of an annotation
     /// type. Returns `newval` (as a C `char`), or `NOTQRS` if `code` is not
     /// an annotation type.
+    ///
+    /// Translation of the C function wfdb_setmap2() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdb_setmap2(&mut self, code: i32, newval: i32) -> i32 {
         if wfdb_isann(code) != 0 {
             self.maps.mp2[code as usize] = newval as i8;
@@ -313,6 +370,9 @@ impl Wfdb {
     }
 
     /// C `annpos(code)`: the display position of an annotation type.
+    ///
+    /// Translation of the C function wfdb_annpos() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdb_annpos(&self, code: i32) -> i32 {
         if wfdb_isann(code) != 0 {
             self.maps.annp[code as usize] as i32
@@ -324,6 +384,9 @@ impl Wfdb {
     /// C `setannpos(code, newval)`: set the display position of an
     /// annotation type. Returns `newval` (as a C `char`), or 0 if `code` is
     /// not an annotation type.
+    ///
+    /// Translation of the C function wfdb_setannpos() (lib/annot.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn wfdb_setannpos(&mut self, code: i32, newval: i32) -> i32 {
         if wfdb_isann(code) != 0 {
             self.maps.annp[code as usize] = newval as i8;
@@ -335,66 +398,114 @@ impl Wfdb {
 }
 
 /// C `isqrs(code)` on the default instance.
+///
+/// Translation of the C macro isqrs() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 pub fn isqrs(code: i32) -> i32 {
     with_default(|w| w.wfdb_isqrs(code))
 }
 /// C `wfdb_isqrs(code)` on the default instance (see [`Wfdb::wfdb_isqrs`]).
+///
+/// Translation of the C function wfdb_isqrs() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn wfdb_isqrs(code: i32) -> i32 {
     isqrs(code)
 }
 /// C `setisqrs(code, newval)` on the default instance.
+///
+/// Translation of the C macro setisqrs() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setisqrs(code: i32, newval: i32) -> i32 {
     with_default(|w| w.wfdb_setisqrs(code, newval))
 }
 /// C `wfdb_setisqrs` on the default instance (see [`Wfdb::wfdb_setisqrs`]).
+///
+/// Translation of the C function wfdb_setisqrs() (lib/annot.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdb_setisqrs(code: i32, newval: i32) -> i32 {
     setisqrs(code, newval)
 }
 /// C `map1(code)` on the default instance.
+///
+/// Translation of the C macro map1() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 pub fn map1(code: i32) -> i32 {
     with_default(|w| w.wfdb_map1(code))
 }
 /// C `wfdb_map1` on the default instance (see [`Wfdb::wfdb_map1`]).
+///
+/// Translation of the C function wfdb_map1() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn wfdb_map1(code: i32) -> i32 {
     map1(code)
 }
 /// C `setmap1(code, newval)` on the default instance.
+///
+/// Translation of the C macro setmap1() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setmap1(code: i32, newval: i32) -> i32 {
     with_default(|w| w.wfdb_setmap1(code, newval))
 }
 /// C `wfdb_setmap1` on the default instance (see [`Wfdb::wfdb_setmap1`]).
+///
+/// Translation of the C function wfdb_setmap1() (lib/annot.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdb_setmap1(code: i32, newval: i32) -> i32 {
     setmap1(code, newval)
 }
 /// C `map2(code)` on the default instance.
+///
+/// Translation of the C macro map2() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 pub fn map2(code: i32) -> i32 {
     with_default(|w| w.wfdb_map2(code))
 }
 /// C `wfdb_map2` on the default instance (see [`Wfdb::wfdb_map2`]).
+///
+/// Translation of the C function wfdb_map2() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn wfdb_map2(code: i32) -> i32 {
     map2(code)
 }
 /// C `setmap2(code, newval)` on the default instance.
+///
+/// Translation of the C macro setmap2() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setmap2(code: i32, newval: i32) -> i32 {
     with_default(|w| w.wfdb_setmap2(code, newval))
 }
 /// C `wfdb_setmap2` on the default instance (see [`Wfdb::wfdb_setmap2`]).
+///
+/// Translation of the C function wfdb_setmap2() (lib/annot.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdb_setmap2(code: i32, newval: i32) -> i32 {
     setmap2(code, newval)
 }
 /// C `annpos(code)` on the default instance.
+///
+/// Translation of the C macro annpos() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 pub fn annpos(code: i32) -> i32 {
     with_default(|w| w.wfdb_annpos(code))
 }
 /// C `wfdb_annpos` on the default instance (see [`Wfdb::wfdb_annpos`]).
+///
+/// Translation of the C function wfdb_annpos() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn wfdb_annpos(code: i32) -> i32 {
     annpos(code)
 }
 /// C `setannpos(code, newval)` on the default instance.
+///
+/// Translation of the C macro setannpos() (lib/ecgmap.h, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setannpos(code: i32, newval: i32) -> i32 {
     with_default(|w| w.wfdb_setannpos(code, newval))
 }
 /// C `wfdb_setannpos` on the default instance (see [`Wfdb::wfdb_setannpos`]).
+///
+/// Translation of the C function wfdb_setannpos() (lib/annot.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdb_setannpos(code: i32, newval: i32) -> i32 {
     setannpos(code, newval)
 }

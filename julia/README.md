@@ -1,428 +1,559 @@
 # wfdb-x for Julia
 
-This directory holds the Julia implementation of wfdb-x, the package
-`WFDBX`. It reimplements the [WFDB Software
-Package](https://physionet.org/content/wfdb/) 10.7.0: the WFDB library, with
-the C library's API and function names, a high-level API, and the 33 WFDB
-command-line tools. It reads and writes exactly the same files as the C
-library, and its tools produce byte-identical output, messages and exit
-statuses. This is checked by the wfdb-x conformance suite
-(`tests/conformance/`), whose expected results come from the C
-implementation.
+`WFDBX` reads and writes physiological signal records in the WFDB format
+used by [PhysioNet](https://physionet.org). It is a complete Julia
+implementation of the WFDB Software Package 10.7.0: the library and all of
+its command-line tools. It reads and writes the same files as the original
+C library, and its tools print the same output.
 
-The package is pure Julia and depends only on Julia's standard libraries.
-It requires Julia 1.9 or later.
+You can use it in three ways:
+
+* **High-level functions** that read and write whole records and annotation
+  files as Julia matrices and vectors: `read_record`, `read_header`,
+  `read_annotations`, `write_record`, `write_record_physical`,
+  `write_annotations`, and `check_record`, which checks a record.
+* **Command-line tools** such as `rdsamp`, `rdann` and `wrsamp`, run through
+  the driver script `bin/wfdbx.jl`.
+* **The WFDB library functions** under their C names (`isigopen`, `getvec`,
+  `getann`, ...), for programs written against the C library.
+
+The package is pure Julia and uses only Julia's standard libraries. It needs
+Julia 1.9 or later, and runs on Linux and macOS. Windows support is
+untested.
+
+wfdb-x is part of a project that provides the same package in seven languages
+with identical behavior; see the
+[project README](https://github.com/alphanumericslab/wfdb-x#readme).
 
 ## Installation
 
-From a copy of the wfdb-x repository:
+The package is installed from a copy of the repository. In Julia, run:
 
 ```julia
 using Pkg
 Pkg.develop(path="/path/to/wfdb-x/julia")
-using WFDBX
 ```
 
-(or `] dev /path/to/wfdb-x/julia` in the package REPL). The first `using`
-precompiles the package, which takes one to two minutes. Precompilation
-runs a workload that compiles the code of the library and the tools, so
-later processes start without compiling anything.
+In the package REPL, `] dev /path/to/wfdb-x/julia` does the same. The
+package is loaded with `using WFDBX`. The first `using WFDBX` precompiles
+the package, which takes one to two minutes. Later sessions and tool runs
+load it without compiling anything.
+
+## Quick start
+
+The repository includes a sample record, `100s`, in `tests/data`: the first
+minute of record 100 of the
+[MIT-BIH Arrhythmia Database](https://physionet.org/content/mitdb/), with
+two ECG signals at 360 Hz and its beat annotations.
+
+```julia
+using WFDBX
+
+# Read the sample record from the repository's test data.
+wfdbx_set_input_dir("/path/to/wfdb-x/tests/data")
+
+rec = read_record("100s")                       # signals in ADC units
+println(rec.fs, " ", String.(signal_names(rec)), " ", size(rec.samples))
+# 360.0 ["MLII", "V5"] (21600, 2)
+x = physical(rec)                               # signals in physical units
+println(x[1, :])                                # [-0.145, -0.065]
+
+hdr = read_header("100s")                       # the header only, no samples
+println(hdr.nsig, " ", hdr.nsamples)            # 2 21600
+
+ann = read_annotations("100s", "atr")           # beat annotations
+println(length(ann), " ", String.(ann.symbols[1:3]), " ", ann.samples[1:3])
+# 75 ["+", "N", "N"] [18, 77, 370]
+
+# Write the first 10 seconds as a new record in the current directory.
+r10 = read_record("100s"; to="0:10")
+write_record("copy", r10.samples, r10.fs; fmt=16, gains=[s.gain for s in r10.siginfo],
+             baselines=[s.baseline for s in r10.siginfo], adcres=11, units="mV",
+             names=signal_names(r10))
+```
+
+## Reading and writing records
+
+Each high-level function also accepts a `Wfdb` object as its first
+argument, as in `read_record(w, "100s")`. It then uses the settings of that
+object instead of the default ones (see
+[The WFDB library functions](#the-wfdb-library-functions)).
+
+The examples in this section read the sample record `100s` (the first
+minute of record 100 of the MIT-BIH Arrhythmia Database, included with
+wfdb-x in `tests/data`; see [Quick start](#quick-start)), with the input
+directory set as there, and write their records and annotation files in the
+current directory.
+
+### Reading signals: `read_record`
+
+```julia
+wfdbx_set_input_dir("/path/to/wfdb-x/tests/data")   # where the sample record 100s is
+rec = read_record("100s"; channels=["MLII"], from="0:10", to="0:20")
+x = physical(rec)
+```
+
+| Argument | Meaning | Default |
+|---|---|---|
+| `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
+| `channels` | signals to read, by number (`0` is the first signal) or name | all signals |
+| `from`, `to` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
+| `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
+| `pad` | replace invalid samples by the previous valid one | `false` |
+| `checksum_warning` | warn when the data do not match the header's checksums | `true` |
+| `input_dir`, `network` | input directory and network access for this call only | the current settings |
+| `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) | `false` |
+
+An integer is a sample number. A string is a WFDB time string: `"0:10"`
+(10 seconds), `"1:02:03.5"`, `"s3600"` (sample 3600) or `"e"` (the end of
+the record).
+
+The result is a `Record`:
+
+| Field | Contents |
+|---|---|
+| `samples` | `Matrix{Int32}` in ADC units, one row per sample and one column per signal |
+| `fs` | sampling frequency in Hz (0 if the header gives none) |
+| `siginfo` | the signal specifications (`Siginfo` objects): description `desc`, `units`, `gain` (ADC units per physical unit; 0 means uncalibrated), `baseline`, `adcres`, `fmt`, ... |
+| `channels` | the number of each returned signal in the record (`0` is the first signal) |
+| `name` | the record name |
+| `sampfrom` | the number of the first sample returned |
+| `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
+| `base_time_ms` | start time in milliseconds after midnight, such as `50403500` for 14:00:03.500 |
+| `base_date` | start date as `(year, month, day)` |
+| `comments` | the info strings of the header, as bytes |
+| `checksum_ok` | `false` if the data do not match the header's checksums |
+
+`base_time`, `base_time_ms` and `base_date` are `nothing` when the header
+does not give them. In `siginfo`, `units` is `nothing` and `adcres` is 0
+when the header does not give them. Invalid samples are
+`WFDB_INVALID_SAMPLE`.
+
+Two functions help with a `Record`:
+
+* `physical(rec)` returns the samples in physical units, as a
+  `Matrix{Float64}`. Invalid samples become `NaN`.
+* `signal_names(rec)` returns the description of each signal, as bytes. Use
+  `String.(signal_names(rec))` to get strings.
+
+### Reading a header: `read_header`
+
+`read_header(record)` reads the header of a record without opening its
+signal files. It returns a `Header` with these fields: `name`, `fs`,
+`counter_freq`, `base_counter`, `nsamples` (0 if the header does not give
+the length), `nsig`, `siginfo`, `base_time`, `base_time_ms`, `base_date` and
+`comments`. They have the same meaning as in `Record`. It takes the
+`input_dir`, `network` and `legacy` options of `read_record`.
+
+```julia
+hdr = read_header("100s")
+for s in hdr.siginfo
+    println(String(s.desc), " ", s.fmt, " ", s.gain)
+end
+```
+
+### Reading annotations: `read_annotations`
+
+```julia
+ann = read_annotations("100s", "atr"; from="0:10", to="0:30")
+```
+
+The second argument is the annotator, the file suffix: `"atr"` reads
+`100s.atr`. The `fs` option gives the sampling frequency when the record has
+no header, or its header gives none. `from`, `to`, `input_dir`, `network`
+and `legacy` are as in `read_record`. The result is an `Annotations` object,
+in file order. `length(ann)` is the number of annotations.
+
+| Field | Contents |
+|---|---|
+| `samples` | annotation times, in samples (`Vector{Int64}`) |
+| `codes`, `symbols` | annotation codes (`WFDBX.NORMAL`, `WFDBX.PVC`, ...) and their mnemonics (`"N"`, `"V"`, ...) as bytes |
+| `subtypes`, `chans`, `nums` | subtype, channel and annotator number of each annotation (`Vector{Int32}`) |
+| `aux` | auxiliary text of each annotation as bytes, or `nothing` |
+| `fs` | the frequency in which `samples` are counted (0 if unknown) |
+| `record`, `annotator` | the names that were read |
+
+### Writing a record: `write_record`
+
+`write_record` takes samples in ADC units. `write_record_physical` takes
+samples in physical units and converts them with the gains and baselines
+you give. `NaN` is written as an invalid sample.
+
+```julia
+x = randn(3600, 2)                  # random samples: the record "rand" is written by this example
+write_record_physical("rand", x, 360; fmt=16, gains=1000, adcres=16, units="mV",
+                      names=["A", "B"])
+```
+
+This writes the header `rand.hea` and the signal file `rand.dat`. You must
+give the sampling frequency, the gain and ADC resolution of each signal, and
+the units of each calibrated signal; there are no defaults. A gain of 0
+marks a signal as uncalibrated, which is only allowed with `write_record`.
+Per-signal options take one value for all signals, or a vector with one
+value per signal.
+
+| Argument | Meaning |
+|---|---|
+| `record` | record name |
+| `samples` | matrix with one row per sample and one column per signal: integers for `write_record`, physical values for `write_record_physical` |
+| `fs` | sampling frequency in Hz |
+| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
+| `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
+| `baselines`, `adczeros`, `names` | optional signal specifications |
+| `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
+| `samps_per_frame` | samples per frame of each signal, for a multi-frequency record |
+| `dir` | existing directory in which to create the files |
+| `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) |
+
+### Writing annotations: `write_annotations`
+
+```julia
+ann = Annotations(samples=[100, 460, 820], symbols=[b"N", b"N", b"V"])
+write_annotations("rand", "qrs", ann)            # writes rand.qrs, for the record "rand" written above
+```
+
+Give the annotation types as `symbols` or as `codes`. `subtypes`, `chans`,
+`nums` and `aux` are optional. The `fs` option records the time resolution
+in the file; `ann.fs` is not used. `dir` and `legacy` are as in
+`write_record`.
+
+If the annotations are not in time order, the file is sorted when it is
+written. `sort=false` keeps the order you gave (without the library's
+advice to run `sortann`) and `sort=true` always sorts, for that call only.
+Without `sort`, the `WFDBANNSORT` environment variable decides (sorting is
+on unless it is `0`).
+
+### Errors and warnings
+
+* Every failure of a high-level function throws a `WfdbError`. Its `msg`
+  field says what failed, such as "can't read record 100x". The library may
+  also print a message on the standard error. `wfdbquiet()` turns these
+  messages off.
+* A signal file that is shorter than its header says throws a `WfdbError`:
+  "can't read signal data of record REC (getvec status -3)".
+* An annotation file that ends before its end-of-file marker throws a
+  `WfdbError`: "can't read annotation file ANN of record REC (getann status
+  -3)".
+* Invalid arguments, and a value the operation needs but the record does not
+  give, also throw a `WfdbError`. For example, a time string such as
+  `"0:10"` needs the sampling frequency, and `physical(rec)` needs the gain
+  of each signal.
+* When the data do not match the checksums in the header, `read_record`
+  returns all the data and logs a warning with `@warn`: "checksum error in
+  record REC: the signal data do not match the checksums in its header".
+  `checksum_warning=false` turns the warning off; `rec.checksum_ok` is
+  `false` either way. Checksums are only checked when a read reaches the end
+  of the record.
+* A tool, or a program that uses the WFDB library functions, never writes a
+  signal file over one of the signal files it is reading. Opening such an
+  output fails with "output file NAME is also an input file". `write_record`
+  reads nothing, so it overwrites any existing files of the same name.
+
+The high-level functions call `wfdbquit()`, which closes anything opened
+with the WFDB library functions.
+
+### Checking a record: `check_record`
+
+```julia
+report = check_record("100s"; annotators=["atr"])
+print(report)
+```
+
+`check_record(record; annotators)` checks the header of a record, its
+signal specifications, every sample of its signal files, and the annotation
+files you name (`annotators`, a vector of names, or one name). It reports
+each problem it finds. It never throws an exception for a problem in the
+record. `input_dir` and `network` are as in `read_record`. It checks for
+problems similar to those found by Benjamin Moody's
+[wfdbcheck](https://github.com/bemoody/wfdbcheck).
+
+The result is a `CheckReport`. `report.ok` is `true` if there is no error.
+`report.issues` lists the problems (`Issue`s). Each has a `severity`, a
+`code` (such as `"checksum"`), a `where` (`""` for the record, `"signal 1"`,
+`"segment s2"`, `"annotator atr"`) and a `message`.
+
+| Severity | Meaning |
+|---|---|
+| `error` | the record is damaged or does not follow the WFDB format: programs will read wrong data or fail |
+| `warning` | the record can be read, but something is missing or unusual, and may give wrong results |
+| `info` | a fact worth knowing, such as invalid (missing) samples |
+
+Printed (`print`, `show`), the report has one line per problem, or the line
+`no problems found`:
+
+```
+warning: signal 0: the units are not specified
+error: signal 1: the checksum does not match: the header gives 12, the samples sum to 13
+error: annotator atr: 3 annotations are out of order; the first is at sample 50, after sample 100
+```
+
+`lines(report)` returns these lines as a vector of strings. The lines are
+the same in the seven languages of wfdb-x. The checks run in normal mode, even if legacy mode is on, and the library
+prints no messages during the call.
+
+What is checked:
+
+* the header: that it can be read, the sampling frequency, the length, lines
+  of at most 255 characters, and the record name it gives;
+* each signal: description, gain, units, ADC resolution and range, storage
+  format, and signal file name;
+* the signal files: that they can be read, samples outside the ADC range,
+  invalid samples, checksums, and the length given in the header;
+* each segment of a multi-segment record, and its signals against the
+  record's;
+* the annotation files: that they can be read to the end, time order,
+  annotation codes, and annotations after the end of the record.
+
+The sample record `100s` gives two warnings: its header gives no units.
+
+## Where files are read and written
+
+wfdb-x reads and writes files exactly where you name them, and nowhere else:
+
+| The name is | It is read from | It is written to |
+|---|---|---|
+| a full path: `/data/mitdb/100`, `C:\data\100` | that path | that path |
+| a home path: `~/data/100` | your home directory | your home directory |
+| a URL: `https://.../100` | that URL, if network access is on | (URLs cannot be written) |
+| anything else: `100`, `mitdb/100`, `../data/100` | the **input directory** | the **output directory** |
+
+In this table, `/data/mitdb` stands for a local copy of the MIT-BIH
+Arrhythmia Database, and `100` for its record 100.
+
+The input and output directories are both the current directory unless you
+set them:
+
+| Setting | Function | Option of the high-level functions | Environment variable |
+|---|---|---|---|
+| input directory: a local directory, `~/...` or a URL | `wfdbx_set_input_dir(d)` | `input_dir=` | `WFDBX_INPUT_DIR` |
+| output directory | `wfdbx_set_output_dir(d)` | `dir=` | `WFDBX_OUTPUT_DIR` |
+| network access (off by default) | `wfdbx_set_network(true)` | `network=true` | `WFDBX_NETWORK=1` |
+
+A function call overrides the environment variable, and an option applies to
+that one call. Each `set` function returns the previous setting.
+`wfdbx_get_input_dir()`, `wfdbx_get_output_dir()` and `wfdbx_get_network()`
+return the current settings. Directories are returned as bytes, or `nothing`
+when none is set. Passing `nothing` to a `set` function restores the
+default.
+
+Here `/data/mitdb` stands for a local copy of the MIT-BIH Arrhythmia
+Database:
+
+```julia
+wfdbx_set_input_dir("/data/mitdb")           # a local copy of the MIT-BIH Arrhythmia Database
+rec = read_record("100")                     # reads /data/mitdb/100.hea and 100.dat
+mkpath("out")
+ann = Annotations(samples=[100, 460], symbols=[b"N", b"N"])
+write_annotations("100", "qrs", ann; dir="out")   # writes out/100.qrs
+```
+
+The signal files that a header names are read from the header's directory.
+
+### Record names
+
+A record name is made of letters, digits, `_`, `-` and `~`. `/` separates
+directories, and the names of directories may contain any characters, such
+as dots: `my.data/rec` is a valid record name, `rec.1` is not. A name whose
+last part contains a dot is the name of a file: `100s.hea` is read as the
+header of record `100s`, and `100s.edf` as an EDF file.
+
+Records can be written under any such name: `write_record("my.data/rec",
+...)` creates `my.data/rec.hea` and `my.data/rec.dat`. The header names the
+record and its signal file without the directory (`rec`, `rec.dat`), so the
+record can be read under any path that leads to it. Annotator names may
+contain letters, digits, `_`, `-` and `~`.
+
+### Reading from PhysioNet
+
+Set the input directory to the URL of the database and turn network access
+on. The URL of a database is `https://physionet.org/files/<database>/<version>/`.
+This example reads record 100 of the MIT-BIH Arrhythmia Database:
+
+```julia
+rec = read_record("100"; input_dir="https://physionet.org/files/mitdb/1.0.0/",
+                  network=true)
+```
+
+Remote files are read once and kept for the rest of the session. A download
+gives up when it cannot connect, or receives nothing, for 30 seconds.
+
+## Signal parameters
+
+wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+that a record does not give. Where one is needed, you must give it: in
+`write_record`, as the `fs` option of `read_annotations`, or as an option
+of the tools (see below). A record whose header gives no frequency has
+`fs = 0`. See
+[DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md)
+for the reasons.
 
 ## Command-line tools
 
 The tools are run through the driver script `bin/wfdbx.jl`. Its first
-argument names the tool, and the rest are the tool's arguments, as for the
-C program:
+argument names the tool, and the other arguments go to the tool. The
+examples in this section read the sample record `100s` (the first minute of
+record 100 of the MIT-BIH Arrhythmia Database, included with wfdb-x in
+`tests/data`), from that directory as the input directory:
 
 ```sh
+export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
 julia --startup-file=no --project=/path/to/wfdb-x/julia \
     /path/to/wfdb-x/julia/bin/wfdbx.jl rdsamp -r 100s -t 10
 ```
 
-The driver keeps using Julia's package depot of the user's home directory
-when `HOME` was changed (to give `~` names another meaning), so that the
-package is not compiled again. A shell wrapper makes this shorter:
+A small shell script, saved as `wfdbx` in a directory of your `PATH`, makes
+this shorter:
 
 ```sh
 #!/bin/sh
-# wfdbx: run a wfdb-x tool, e.g. `wfdbx rdsamp -r 100s -t 10`
+# wfdbx: run a wfdb-x tool, as in `wfdbx rdsamp -r 100s -t 10`
 exec julia --startup-file=no --project=/path/to/wfdb-x/julia \
     /path/to/wfdb-x/julia/bin/wfdbx.jl "$@"
 ```
 
-Available tools (`WFDBX.tools()`):
-
-| | |
-|---|---|
-| Signals | `rdsamp`, `wrsamp`, `xform`, `snip`, `sigamp`, `wfdbdesc`, `sampfreq`, `signame`, `signum`, `wfdbtime`, `time2sec` |
-| Annotations | `rdann`, `wrann`, `sortann`, `ann2rr`, `rr2ann` |
-| Files | `wfdbcat`, `wfdbwhich` |
-| Converters | `a2m`, `ad2m`, `ahaecg2mit`, `edf2mit`, `m2a`, `makeid`, `md2a`, `mit2edf`, `mit2wav`, `parsescp`, `rdedfann`, `readid`, `revise`, `wav2mit`, `wfdb2mat` |
-
-### No built-in signal parameters
-
-The original package silently assumes a sampling frequency (250 Hz), a gain
-(200 adu/mV), an ADC resolution (12 bits, or one based on the storage
-format) and units (millivolts) whenever a record or the user does not give
-them. These values describe the equipment of the first PhysioNet
-databases, not modern recordings, and a silently assumed value corrupts
-every time, physical value and file derived from it, with nothing in the
-output to say so. As in every wfdb-x implementation, the Julia tools and
-library therefore never assume them: a value that is needed but not given
-is an error.
-
-* `wrsamp -o` requires `-F FREQ`, `-G GAIN` (`-G 0`: uncalibrated) and
-  `-R BITS`, and `-U UNITS` for calibrated signals unless the input's
-  second line gives them (`-G`, `-R` and `-U` take lists, the last value
-  applying to the remaining signals).
-* `ad2m` requires `-F`, `-G`, `-R` and `-U` (unless the gain is 0);
-  `ahaecg2mit` requires the same options, before the input files;
-  `wav2mit` requires `-G` and `-U` (unless the gain is 0) (the frequency
-  and resolution come from the WAV file); `a2m` takes `-F FREQ` if the
-  record header gives none, and converts annotation times given in
-  milliseconds at that frequency (the C program assumed 4 ms per sample).
-* `rdann`, `ann2rr`, `sortann` and `m2a` accept `-F FREQ` (and `rr2ann`
-  requires it) for records whose header does not give a frequency.
-* The other tools report an error when they need a value that the record
-  does not specify (for example `mit2edf`: "ADC resolution of signal N of
-  record R is not specified"); unspecified units are shown as `nd`, and
-  `wfdbdesc` prints "ADC resolution: not specified".
-
-To reproduce the results of the original tools, give the values they
-assumed explicitly, e.g. `wrsamp -F 250 -G 200 -R 16 -U mV`,
-`ad2m -F 250 -G 400 -R 12 -U mV`,
-`ahaecg2mit -F 250 -G 400 -R 12 -U mV FILE.ecg`,
-`wav2mit -G 6400 -U mV` (16-bit files; 12.5 for 8-bit files), or
-`a2m -F 250`. See [`docs/DIVERGENCES.md`](../docs/DIVERGENCES.md).
-
-**Legacy mode.** `--legacy` as the *first* argument of any tool
-(`rdsamp --legacy -r 100s -t 10`) makes it behave exactly as the original
-tool: the original options (the wfdb-x options such as `-F` in `rdann`
-are unrecognized), defaults, messages, help texts and exit statuses. In
-the library, `wfdbx_set_legacy([w], on)` (which returns the previous
-setting), `wfdbx_get_legacy([w])` and `wfdbx_legacy_args([w], args)` (used
-by the tools) control the same mode, per `Wfdb` instance (off by default);
-the high-level functions take a `legacy=false` keyword argument
-(`read_record`, `read_header`, `read_annotations`, `write_record`,
-`write_record_physical`, `write_annotations`, `physical`) that applies the
-original defaults for that call only. Legacy mode reproduces the original
-package exactly, and is tested against its results (the legacy
-conformance suite, `harness.py check --legacy`). It is kept for
-compatibility only: the values it assumes are exactly the silent defaults
-this project removed, so results produced with it carry the same risks.
-
-A tool can also run inside a Julia session, with its standard streams
-captured:
-
-```julia
-status, out, err = WFDBX.run_tool("rdsamp", ["-r", "100s", "-t", "1"]; dir="/path/to/data")
-```
-
-## Finding records and files
-
-Every relative name is read under the input directory and written under the
-output directory -- whatever you set as the input directory, a local
-directory or a URL, prefixes it; a name given as a full path (`/Users/...`),
-a `~` path or a URL is used as given; nothing else is searched. (The
-original library searched the directories of the WFDB path, and possibly
-`http://physionet.org/physiobank/database`: a search can silently open the
-wrong file, such as a stale copy earlier in the path, and fails in ways
-nobody notices; wfdb-x tries exactly one location.) Relative names may
-contain directories and `..` (`"mitdb/100"`, `"../data/100"`). The tools use
-the environment variables below.
-
-| Setting | Julia | Environment variable | Default |
-|---|---|---|---|
-| input directory (a directory, a `~` path or a URL) | `wfdbx_set_input_dir([w], d)` (returns the previous one), `wfdbx_get_input_dir([w])`; `input_dir=` of the readers | `WFDBX_INPUT_DIR` | none: the current directory |
-| output directory (local) | `wfdbx_set_output_dir([w], d)`, `wfdbx_get_output_dir([w])`; `dir=` of the writers | `WFDBX_OUTPUT_DIR` | none: the current directory |
-| network access | `wfdbx_set_network([w], true)` (returns the previous setting, 1 or 0), `wfdbx_get_network([w])`; `network=` of the readers | `WFDBX_NETWORK` (a non-zero number: on) | off |
-
-The settings belong to a `Wfdb` instance (by default, `lib()`). A function
-call overrides the environment variable (read when the setting is first
-needed); `nothing` (or `""`; for the network, `nothing` or a negative
-number) restores the default, i.e. the environment variable's value if it
-is set. A relative or `~` directory is used relative to the current
-directory (or expanded) when a file is opened. The high-level readers set
-`input_dir=` and `network=` for the duration of the call only (and restore
-the previous values, also on errors); `nothing` keeps the current setting.
-
-**PhysioNet.** The files of a PhysioNet database are under
-`https://physionet.org/files/<database>/<version>/`. Reading from it is an
-explicit choice -- wfdb-x never contacts a server unless network access is
-on:
-
-```julia
-wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/")
-wfdbx_set_network(true)
-rec = read_record("100"; to="0:10")
-# or, for one call:
-rec = read_record("100"; input_dir="https://physionet.org/files/mitdb/1.0.0/", network=true)
-```
+The examples below use it:
 
 ```sh
-WFDBX_NETWORK=1 WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/ wfdbx rdsamp -r 100 -t 0:5
+wfdbx rdsamp -r 100s -t 10 -p      # print the first 10 seconds, in physical units
+wfdbx rdann -r 100s -a atr         # print the annotations
 ```
 
-Remote files are read with the `Downloads` standard library (loaded when
-the first URL is read), in full, and kept for the rest of the process (each
-URL is requested at most once per `Wfdb` instance; redirects are followed,
-an HTTP status of 400 or more is a failure, and
-reading gives up if connecting takes 30 s or no data arrives for 30 s, with no limit on the total time). They are
-read-only: a URL cannot be written, nor be the output directory
-(`wfdbx_set_output_dir` then reports an error and returns the current
-setting). With network access off, a URL is not opened, and the first
-attempt prints `wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or
-call wfdbx_set_network(1) to open URL`.
+The tools have the options and output of the original WFDB tools, which are
+described in the *WFDB Applications Guide*
+([`third_party/wag.pdf`](https://github.com/alphanumericslab/wfdb-x/tree/main/third_party)).
+`WFDBX.tools()` returns their names:
 
-**Files named in headers.** The signal files named in a header, and the
-segments of a multi-segment record, are in the directory of that header (on
-disk or at its URL) or below it: `100.dat` is read next to `100.hea`, and
-`data/a.dat` in its subdirectory `data`. Nothing else is tried, and a name
-that is absolute, begins with `~`, is a URL or contains a `..` component is
-refused (`init: file NAME named in the header of record REC is not in the
-header's directory`), so that a header (perhaps downloaded) cannot make the
-library read other local files or contact other servers. (`~` as a segment
-name, a null segment, and `-` as a signal file name, the standard input,
-keep their meaning.) Annotation files, `.info` files and the calibration
-file (`WFDBCAL`) follow the rule above with the name as given: the
-annotations of record `mitdb/100` are `<input directory>/mitdb/100.atr`.
+* signals: `rdsamp`, `wrsamp`, `wfdbdesc`, `sigamp`, `snip`, `xform`,
+  `sampfreq`, `signame`, `signum`, `wfdbcat`, `wfdbwhich`
+* times: `wfdbtime`, `time2sec`
+* annotations: `rdann`, `wrann`, `sortann`, `ann2rr`, `rr2ann`
+* converters: `edf2mit`, `mit2edf`, `rdedfann`, `wav2mit`, `mit2wav`,
+  `wfdb2mat`, `a2m`, `m2a`, `ad2m`, `md2a`, `ahaecg2mit`, `makeid`, `readid`,
+  `revise`, `parsescp`
 
-**The C-style API.** `setwfdb(p)` sets the input directory: `p` must name a
-single directory (`setwfdb("data")`; `""` or `";"` restores the default;
-several, such as `". data"`, are an error: `setwfdb: wfdb-x reads from a
-single input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB
-search path)`). `setwfdb` splits its argument at spaces, as the original does, so a directory whose name contains a space must be set with `wfdbx_set_input_dir`, which takes the name as it is.
-`getwfdb()` returns the input directory, or `"."` if none
-is set; `resetwfdb()` restores the value set by the last `setwfdb`
-(`wfdbquit()` leaves the settings as they are). The `WFDB` environment
-variable is not used: if it is set, the first lookup prints `wfdb-x: the
-WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use
-legacy mode)`.
+The tools use the environment variables of the table above. To read record
+100 of the MIT-BIH Arrhythmia Database from PhysioNet:
 
-**Legacy mode** (`--legacy`, `wfdbx_set_legacy([w], true)`, `legacy=true`)
-keeps the original search of the WFDB path (`WFDB`, `setwfdb` with several
-entries, `@file` paths, `%r`, names containing `..` refused), without any
-network access (as the reference C build, compiled without network
-support: URL names and URL path entries are not opened). The input
-directory and `WFDBX_NETWORK` are not used in legacy mode; the output
-directory is.
+```sh
+export WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/
+export WFDBX_NETWORK=1
+wfdbx rdsamp -r 100 -t 0:05
+```
 
-## High-level API
+Tools that write signal parameters require them as options:
+
+| Tool | Required options |
+|---|---|
+| `wrsamp` (with `-o`) | `-F` frequency, `-G` gain, `-R` ADC resolution, and `-U` units for calibrated signals |
+| `wav2mit` | `-G` gain, and `-U` units unless the gain is 0 |
+| `ad2m`, `ahaecg2mit` | `-F`, `-G`, `-R`, and `-U` unless the gain is 0 |
+| `a2m`, `rdann`, `ann2rr`, `sortann`, `m2a` | `-F` frequency, when the record's header does not give one |
+
+For example, `wfdbx wrsamp -F 250 -G 200 -R 16 -U mV -i samples.txt -o rec`
+writes the record `rec` from the text file `samples.txt`.
+
+You can also run a tool inside a Julia session. `WFDBX.run_tool` returns
+its exit status and what it wrote to the standard output and the standard
+error, as bytes (here, the tool runs in `tests/data`, where the sample record
+`100s` is):
+
+```julia
+status, out, err = WFDBX.run_tool("rdsamp", ["-r", "100s", "-t", "s3"];
+                                  dir="/path/to/wfdb-x/tests/data")
+print(String(out))
+```
+
+## The WFDB library functions
+
+Every function of the WFDB library is available under its C name, with the
+same arguments and return values, so programs and documentation written for
+the C library carry over directly. Where a C function fills an array, the
+Julia function fills a vector that you pass. The example reads the sample
+record `100s` (the first minute of record 100 of the MIT-BIH Arrhythmia
+Database, included with wfdb-x in `tests/data`):
 
 ```julia
 using WFDBX
-rec = read_record("100s"; to="0:10")    # first 10 s (also: from, channels, highres, pad)
-rec.samples                             # Matrix{Int32}: rec.samples[i, s] = sample i of signal s
-physical(rec)                           # Matrix{Float64}, physical units (NaN: invalid)
-rec.siginfo, rec.fs, rec.base_time, rec.comments, rec.channels
-rec.base_time_ms, rec.base_date         # e.g. 50403500, (2024, 6, 21); or nothing
-rec.checksum_ok                         # false if the data do not match the header's checksums
-signal_names(rec)                       # signal descriptions, as bytes
-h = read_header("100s")                 # Header (no signal file is opened)
-h.fs, h.counter_freq, h.base_counter, h.nsamples, h.nsig, h.siginfo, h.base_time,
-h.base_time_ms, h.base_date, h.comments
-write_record("new", rec.samples, rec.fs; fmt=212, gains=200.0, adcres=11, units="mV",
-             names=["MLII", "V5"])
-write_record_physical("newp", physical(rec), rec.fs; gains=[200.0, 100.0], adcres=16,
-                      units="mV")
-ann = read_annotations("100s", "atr")   # Annotations: samples, codes, symbols, aux, ...
-read_annotations("rec", "atr"; fs=250)  # fs: used if the record's header gives none
-write_annotations("100s", "cpy", ann; fs=360)
-write_annotations("100s", "raw", ann; sort=false)  # leave an out-of-order file unsorted
-```
+wfdbx_set_input_dir("/path/to/wfdb-x/tests/data")
 
-Records are read under the input directory and files are written under the
-output directory (by default, the current directory), or in `dir` (see
-*Finding records and files* above, and below). These functions throw a
-`WfdbError` on failure; `read_record` throws "can't read signal data of
-record REC (getvec status S)" when reading stops with a getvec status below
--1, e.g. -3 for a signal file shorter than its header says, instead of
-returning the samples read so far (reaching the end of the record is not an
-error). This applies in legacy mode too, since the high-level API is a
-wfdb-x addition (`getvec`, `getvecs`, the new `getvecs_status`, which also
-returns that status, and the tools are unchanged). Each one also accepts a
-`Wfdb` instance as its first argument, and uses that instance's state (resetting
-it with `wfdbquit`). Their docstrings (`?read_record` in the REPL) describe
-the options.
-
-No sampling frequency, gain, ADC resolution or units are ever assumed (a
-deliberate divergence from the C library, which assumed 250 Hz, 200 adu/mV,
-12 bits and millivolts; see [`docs/DIVERGENCES.md`](../docs/DIVERGENCES.md)):
-`write_record` and `write_record_physical` require `gains` (0 declares a
-signal uncalibrated, which is an error for physical samples), `adcres`
-(at least 1 bit; "write_record: ADC resolution(s) must be specified"), `units` for
-every signal whose gain is not 0 ("write_record: units must be specified")
-and `fs > 0`; `read_record` gives `fs == 0` for a header without a
-frequency, and rejects time strings that need one, and its `siginfo` has
-`adcres == 0` and `units === nothing` where the header gives none;
-`physical` throws for an uncalibrated signal; `read_annotations` takes an
-optional `fs` for records without a frequency.
-
-### Directories, absolute paths and annotation order
-
-**Output directory.** `write_record(...; dir="out")`,
-`write_record_physical(...; dir="out")` and `write_annotations(...;
-dir="out")` create their files in the directory `out` (which must exist:
-otherwise a `WfdbError`, "directory out does not exist"), and the header
-names the record and its signal file without the directory (`rec 2 360
-...`, `rec.dat ...`), so that the record opens from that directory under
-its plain name (`setwfdb("out")`, then `read_record("rec")`; or
-`read_record("out/rec")`). The record name must not contain a directory
-when `dir` is given (a `WfdbError`). In the library API,
-`wfdbx_set_output_dir([w], "out")` makes every output file of that `Wfdb`
-instance be created in `out` (it returns the previous directory, as bytes,
-or `nothing`; `wfdbx_set_output_dir(nothing)` restores the default, files
-created as named, and `wfdbx_get_output_dir([w])` returns the current
-one); the writers set it for the duration of the call, and restore it
-afterwards, also on errors. The C-style API and the tools are otherwise
-unchanged: `newheader("out/rec")` and `wrsamp -o out/rec` still record the
-name `out/rec`, as in C.
-
-**Absolute paths.** A record named by an absolute path
-(`read_record("/data/mitdb/100")`, `rdsamp -r /data/mitdb/100`) is opened
-as given, and its signal files are found next to its header. The C library
-searched for such a name in each directory of the WFDB path (`./` + the
-name), so that it was found only from the root directory; it still does so
-in legacy mode, where an empty component in the WFDB path makes names be
-used as given: with `setwfdb(";")` (or `WFDB=";"`), `/data/mitdb/100` opens
-in legacy mode too.
-
-**Annotation order.** Annotations written out of canonical order (by time,
-then `num`, then `chan`) are rearranged when the file is closed, in the
-same process, with a result identical byte for byte to that of `sortann`
-(the last of several annotations with the same time, `num` and `chan` is
-kept, and `NOTQRS` annotations are dropped); `WFDBANNSORT=0` disables it.
-`write_annotations(...; sort=true)` or `sort=false` decides for that call
-only, whatever `WFDBANNSORT` says (in legacy mode too; the environment is
-not changed).
-Unlike the original `sortann`, neither the sort nor the `sortann` tool
-loses an out-of-order annotation at time 0 (written after later ones), nor
-those inserted after it. The C library ran the `sortann` program (found in
-the `PATH`), as legacy mode does (running `bin/wfdbx.jl sortann --legacy`
-in a separate `julia` process, without a shell, in the output directory if
-one is set), with the original loss.
-
-### Checksums, and outputs that are inputs
-
-**Checksum errors.** When `read_record` reads a record to its end and the
-samples do not match the checksums in its header (getvec status -4: the
-data are complete, only their sum disagrees), it returns every frame (the
-last one included) and warns with `@warn "checksum error in record REC: the
-signal data do not match the checksums in its header"` (instead of the
-library's `getvec: checksum error in signal N`); `checksum_warning=false`
-turns the warning off. Either way, the record's `checksum_ok` is `false`
-(`true` otherwise; the checksums are verified only by a read that reaches
-the end of the record). Any other read error (e.g. a truncated signal file,
-status -3) is still a `WfdbError`. The C-style `getvec` and the tools are
-unchanged. This behavior is identical in all six implementations of wfdb-x.
-
-**An output signal file is never an input file.** The library refuses to
-create an output signal file that is the same file (same device and inode,
-whatever its name: another spelling, a hard link) as a signal file of the
-open input record, including the signal files of every segment of an open
-multi-segment record: `osigfopen` (or `osigopen`) prints `osigfopen: output
-file NAME is also an input file`, returns -3, and the input is left intact
-(e.g. `xform -i vlay -o fmt16`, where `fmt16` is a segment of `vlay`, used to
-truncate `fmt16.dat` while reading it; xform now prints `xform: can't write
-output signals (osigopen: output file fmt16.dat is also an input file)`).
-Legacy mode keeps the original behavior (no check). This behavior is
-identical in all six implementations of wfdb-x.
-
-## C-style API
-
-Each function of the C library is a Julia function with the same name and
-arguments (`isigopen`, `getvec`, `putvec`, `annopen`, `getann`, `putann`,
-`calopen`, `getcal`, `strtim`, `timstr`, `setwfdb`, ...), with these
-conventions:
-
-* **Library state.** The C library keeps its state (input directory, open
-  records and annotators, ...) in global variables. In Julia it lives in a
-  `Wfdb` object, which every function takes as an optional first argument.
-  Without that argument, a function uses the default instance `lib()`:
-
-  ```julia
-  setwfdb("/data")                # the input directory of the default instance
-  w = Wfdb()                      # an independent library state
-  wfdbx_set_input_dir(w, "/other/data")
-  wfdbfile(w, "hea", "100s")      # path of the header of 100s, or nothing
-  ```
-
-* **Strings are bytes.** WFDB files are not UTF-8, so the library returns
-  text as `Vector{UInt8}`. The exceptions are time and date strings
-  (`timstr`, `mstimstr`, `datstr`), which are `String`s. Arguments may be
-  `String`s or byte vectors. C's `NULL` is `nothing`.
-* **Integer types** are those of the C reference platform: `WFDB_Sample`
-  and C `int` are `Int32`; `WFDB_Time` and `long` are `Int64`.
-* **Structures** (`Siginfo`, `Calinfo`, `Anninfo`, `Annotation`,
-  `Seginfo`) have the C field names. Arrays that a C function fills are
-  passed as vectors, as in `isigopen(record, si::Vector{Siginfo}, nsig)`
-  or `getvec(v::Vector{Int32})`.
-* **Errors** are handled as in C. Functions return error codes and print
-  messages on the standard error unless `wfdbquiet()` was called.
-  `wfdberror()` returns the last message.
-* **No default sampling frequency, gain, ADC resolution or units** (wfdb-x
-  divergence; see
-  [`docs/DIVERGENCES.md`](../docs/DIVERGENCES.md)): `sampfreq` returns 0
-  for a header without a frequency; `strtim`, `timstr` and `mstimstr`
-  report an error without one (`wfdbx_time_needs_freq(string)`, a wfdb-x
-  addition, tells whether `strtim` needs it); `aduphys`, `physadu`,
-  `adumuv` and `muvadu` report an error and return `NaN` or
-  `WFDB_INVALID_SAMPLE` for an uncalibrated signal or an invalid signal
-  number. A header without an ADC resolution gives `adcres == 0`, and one
-  without units gives `units === nothing` (never millivolts).
-  `WFDB_DEFFREQ`, `WFDB_DEFGAIN` and `WFDB_DEFRES` remain defined but
-  unused.
-
-```julia
-n = isigopen("100s", nothing, 0)        # number of signals (reads the header only)
+n = isigopen("100s", nothing, 0)        # the number of signals (reads the header only)
 si = [Siginfo() for _ in 1:n]
-isigopen("100s", si, n)                 # open the signals; si receives their descriptions
+isigopen("100s", si, n)                 # open the signals; si receives their specifications
 v = zeros(Int32, n)
 for t in 0:9
-    getvec(v) > 0 || break
-    println(mstimstr(t), " ", aduphys(0, v[1]), " ", aduphys(1, v[2]))
+    getvec(v) > 0 || break              # v receives one sample per signal
+    println(mstimstr(t), " ", v[1], " ", v[2])
 end
-wfdbquit()
 
-annopen("100s", [Anninfo("atr", WFDB_READ)], 1)
 a = Annotation()
+annopen("100s", [Anninfo("atr", WFDB_READ)], 1)
 while getann(0, a) == 0
     println(a.time, " ", String(annstr(a.anntyp)))
 end
+wfdbquit()
 ```
 
-The library supports every signal format, including EDF and the FLAC
-formats 508, 516 and 524, as well as multi-segment and multi-frequency
-records. It reads and writes MIT and AHA annotation files. An output
-annotation file whose annotations are out of order is sorted when it is
-closed, as by `sortann` (see "Annotation order" above). `getvecs(v, n)` reads `n` sample vectors at
-once; the result is the same as `n` calls of `getvec`, but faster.
+Differences from C that come from the language:
 
-The parts of the C standard library that affect output are emulated
-exactly: glibc's `printf` (`cformat`, `cprintf`, `cfprintf`, including
-`%e`/`%f`/`%g` of every `Float64`), `strtol`/`strtod`/`sscanf`, `rand`, and
-C `FILE` streams (`WfdbFile`). They are not exported; use them as
-`WFDBX.cformat` and so on.
+* The library state lives in a `Wfdb` object instead of global variables.
+  Every function takes one as an optional first argument. Without it, a
+  function uses the default object, `lib()`. `Wfdb()` creates an
+  independent one:
 
-## FLAC
+  ```julia
+  w = Wfdb()
+  wfdbx_set_input_dir(w, "/path/to/wfdb-x/tests/data")
+  sampfreq(w, "100s")                   # 360.0
+  ```
 
-The FLAC formats use a FLAC decoder and encoder written in Julia (the C
-library uses libFLAC). The decoder handles every standard FLAC subframe and
-coding type. The encoder writes the same bytes as the other wfdb-x
-implementations; libFLAC's compressed bytes depend on its version, but both
-decode to the same samples.
+* Text is returned as bytes (`Vector{UInt8}`), because WFDB files are not
+  always UTF-8. Time and date strings (`timstr`, `mstimstr`, `datstr`) are
+  `String`s. Arguments may be `String`s or bytes. C's `NULL` is `nothing`.
+* Integer types are those of C: `WFDB_Sample` and `int` are `Int32`, and
+  `WFDB_Time` and `long` are `Int64`.
+* The structures (`Siginfo`, `Calinfo`, `Anninfo`, `Annotation`,
+  `Seginfo`) have the C field names. An annotation's `aux` is `nothing`, or
+  bytes whose first byte is the length of the text that follows, as in C.
+* `getvecs(v, n)` reads up to `n` sample vectors at once into `v`, as `n`
+  calls of `getvec` would, and returns the number it read.
+* Errors are reported by return values, as in C, not by exceptions.
+  `wfdberror()` returns the last message, and `wfdbquiet()` stops the
+  messages from being printed.
+* The library keeps the open record and annotators between calls, as in C.
+  `wfdbquit()` closes them; the directory and network settings are kept.
 
-## Performance
+The annotation codes (`WFDBX.NORMAL`, `WFDBX.PVC`, ...) and the functions of
+`<wfdb/ecgmap.h>` (`isqrs`, `map1`, `map2`, ...) are also provided. Type
+`?getvec` in the REPL for the documentation of a function.
 
-Tool processes load the precompiled package image and compile nothing at
-run time. A tool such as `wfdbwhich` takes about 0.23 s to run, of which
-about 0.21 s is Julia's own startup (`julia -e 'exit()'`). After that, the
-tools run at C speed. In one process, `rdsamp` prints a record of 648,000
-two-signal frames (format 212) in about 0.10 s in raw units and 0.13 s in
-physical units (`-p`). The C `rdsamp` takes about 0.13 s and 0.39 s on the
-same machine. `write_record` (which calls `putvec` for each frame) writes
-216,000 two-signal frames in 0.01-0.02 s in every format, about as fast as
-`read_record` reads them back.
+## Legacy mode
+
+Legacy mode reproduces the original WFDB package exactly, including its
+assumed signal parameters and its search for files. Use it only to reproduce
+old results:
+
+* tools: `--legacy` as the first argument, as in `wfdbx rdsamp --legacy -r 100s`,
+  run in the directory of the sample record `100s` (`tests/data` in a copy
+  of the repository). Legacy mode finds files through the WFDB path, which begins with the
+  current directory, and does not use the input directory;
+* high-level functions: `legacy=true`;
+* the whole library: `wfdbx_set_legacy(true)`.
+
+[DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md#legacy-mode)
+describes what changes in legacy mode.
+
+## Notes
+
+* **Strings are bytes.** Signal descriptions, units, annotation mnemonics,
+  aux strings and comments are returned as `Vector{UInt8}`. Use `String(x)`
+  or `String.(v)` to convert them.
+* **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
+  written without any external library. The C library reads files written
+  by wfdb-x with identical sample values, although the compressed bytes
+  differ from those of libFLAC.
+* **Speed.** After precompilation, a tool starts in about a quarter of a
+  second, most of which is Julia's own startup, and then runs as fast as
+  the C tool.
 
 ## Testing
 
@@ -430,23 +561,32 @@ From the root of the repository:
 
 ```sh
 julia --startup-file=no --project=julia julia/test/runtests.jl   # unit tests
-python3 tests/conformance/harness.py check --impl julia -j8        # conformance
+python3 tests/conformance/harness.py check --impl julia -j8        # conformance suite
 ```
 
-[`DEVELOPING.md`](DEVELOPING.md) describes how the code is organized and
-how to check that no tool compiles anything at run time.
+The conformance suite compares the output of every tool with that of the C
+implementation. [DEVELOPING.md](DEVELOPING.md) describes how the code is
+organized.
 
 ## Authors and license
 
-The Julia implementation was developed by Reza Sameni (2026), with AI
-assistance (see the project README). It ports
-the C code of the WFDB Software Package, written by George B. Moody
-(1983-2014), with revisions by Benjamin Moody (2010-2022) and
-contributions from others. [`docs/AUTHORS.md`](../docs/AUTHORS.md) lists
-the authors of each ported file, and each source file credits the authors
-of the C code it ports.
+The WFDB library and tools were written by George B. Moody, with revisions by
+Benjamin Moody and contributions from many others; `parsescp` was written by
+George B. Moody and Edna S. Moody. Each source file names the authors of
+the C code it implements, and
+[AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md)
+gives the details. The Julia implementation was developed by Reza Sameni
+(2026), through AI-assisted development, cross-language
+verification and unit testing.
 
-The licenses are those of the WFDB Software Package. The library is under
-the GNU Library General Public License, version 2 or later
-([`LICENSE.LIB`](../LICENSE.LIB)). The tools are under the GNU General
-Public License, version 2 or later ([`LICENSE`](../LICENSE)).
+wfdb-x is an independent reimplementation. Its Julia code is a
+translation of the C code of the WFDB Software Package into Julia,
+written for wfdb-x; it is not code by the original WFDB developers. It
+follows the original's logic and behavior, with the changes described
+in [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md).
+The authors of the original C code are credited in each file and in
+[AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
+
+wfdb-x is distributed under the GNU General Public License, version 3 or
+(at your option) any later version. See
+[LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).

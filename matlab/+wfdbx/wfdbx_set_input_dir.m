@@ -1,30 +1,39 @@
 function previous = wfdbx_set_input_dir(d)
 %WFDBX_SET_INPUT_DIR Set the directory from which input files are read.
 %   PREVIOUS = wfdbx.wfdbx_set_input_dir(DIR) makes the library read every
-%   file named by a relative name (a record's header, an annotation file,
-%   a file named on the command line, ...) as DIR/NAME.  DIR may be a
-%   local directory (relative to the current directory, or a ~ name) or
-%   the URL of a directory (e.g. 'https://physionet.org/files/mitdb/1.0.0/';
-%   reading it needs network access, see wfdbx.wfdbx_set_network).  Names
-%   given as absolute paths, ~ names or URLs are used as given; nothing
-%   else is searched.  [] or '' restores the default: the value of the
-%   environment variable WFDBX_INPUT_DIR if it is set, otherwise none
-%   (names are used as given, relative to the current directory).
-%   PREVIOUS is the previous directory ([] if none).  The setting is not
-%   used in legacy mode (which searches the WFDB path; see wfdbx.getwfdb).
-%   This function is a wfdb-x addition; the high-level readers set it for
-%   their 'input_dir' option.
+%   file named by a relative name, such as '100' or 'mitdb/100', from DIR.
+%   DIR is a local folder, a ~ path or the URL of a directory, such as
+%   'https://physionet.org/files/mitdb/1.0.0/'.  Reading a URL needs network
+%   access (see wfdbx.wfdbx_set_network).  Names given as full paths, ~
+%   paths or URLs are used as given.
 %
-%   Example:
+%   wfdbx.wfdbx_set_input_dir([]) restores the default: the environment
+%   variable WFDBX_INPUT_DIR if it is set, otherwise the current folder.
+%
+%   PREVIOUS is the previous setting ([] if none).  The high-level readers
+%   also take the input directory as their 'input_dir' option.
+%
+%   Example (/data/mitdb stands for a local copy of the MIT-BIH Arrhythmia
+%   Database in /data/mitdb):
 %       old = wfdbx.wfdbx_set_input_dir('/data/mitdb');
-%       rec = wfdbx.read_record('100');        % /data/mitdb/100.hea, ...
+%       rec = wfdbx.read_record('100');        % reads /data/mitdb/100.hea, ...
 %       wfdbx.wfdbx_set_input_dir(old);
 %
 %   See also wfdbx.wfdbx_get_input_dir, wfdbx.wfdbx_set_output_dir,
-%   wfdbx.wfdbx_set_network, wfdbx.setwfdb.
+%   wfdbx.wfdbx_set_network.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 d = wfdbx.internal.strarg(d);
 st = wfdbx.internal.io_state();

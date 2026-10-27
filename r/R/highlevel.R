@@ -4,13 +4,16 @@
 # what the WFDB library and tools do.  (read_annotations and
 # write_annotations are in highlevel_annot.R.)
 #
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
-# bits and millivolts), because a silently assumed value corrupts every result
-# derived from it. See docs/DIVERGENCES.md. The original behavior remains
-# available with --legacy (see docs/DIVERGENCES.md).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 #
 # Legacy mode (wfdb-x): with legacy = TRUE, each function behaves as in the
 # original package (the default gain of 200 adu/mV and ADC resolution based
@@ -22,26 +25,17 @@
 # the values it assumes are exactly the silent defaults this project removed,
 # so results produced with it carry the same risks.
 #
-# Design decision (Reza Sameni, after a code review, Oct 2026): the writers
-# (write_record, write_annotations) take a dir argument (the files are
-# created in that directory, and the record opens from there under its plain
-# name).
-#
-# Design decision (Reza Sameni, Oct 2026): files are found by explicit names
-# (the input directory, the output directory, or a full path or URL), not by
-# a search of the WFDB path, and PhysioNet (or any server) is accessed only
-# if asked for (network = TRUE): a search can silently open the wrong file,
-# fails in ways nobody notices, and sent local paths and record names to
-# physionet.org.  The readers take input_dir (the input directory for the
-# call) and network (allow URLs for the call), the writers dir (the output
-# directory).  The original behavior remains available with --legacy (see
-# docs/DIVERGENCES.md).
-#
-# Design decision (Reza Sameni, Oct 2026): a checksum error (getvec status
-# -4: the samples are complete, their sum does not match the header's
-# checksums) is not an error of read_record but a warning
-# (checksum_warning = FALSE: none); the data are returned.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# The functions have no built-in sampling frequency, gain, ADC resolution or
+# units: values that the record or the caller does not give are never assumed.
+# The writers (write_record, write_annotations) take a dir argument (the files
+# are created in that directory, and the record opens from there under its
+# plain name). Files are found by explicit names (the input directory, the
+# output directory, or a full path or URL), not by a search of the WFDB path,
+# and URLs are opened only if asked for (network = TRUE): the readers take
+# input_dir and network, the writers dir. A checksum error (getvec status -4:
+# the samples are complete, their sum does not match the header's checksums)
+# is not an error of read_record but a warning (checksum_warning = FALSE:
+# none); the data are returned. docs/DIVERGENCES.md gives the reasons.
 
 # A time argument: a sample number, or a WFDB time string (absolute times
 # give their magnitude, as in rdsamp).
@@ -212,7 +206,7 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' when the samples read to the end of the record do not match the
 #' checksums in its header (getvec status -4); the data, every frame
 #' included, are returned either way (FALSE: no warning).  wfdb-x; the same
-#' in all six implementations.
+#' in all seven implementations.
 #'
 #' record: relative to the input directory, or a full path, ~ path or URL
 #' (wfdb-x).  input_dir: the input directory for this call (a local

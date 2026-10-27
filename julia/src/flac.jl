@@ -1,6 +1,6 @@
-# flac.jl: FLAC decoder and encoder for the FLAC signal formats 508, 516
-# and 524 (port of rust/src/flac.rs, itself a port of cpp/src/flac.cpp and
-# python/src/wfdbx/_flac.py).
+# flac.jl: FLAC decoder and encoder for the FLAC signal formats 508, 516 and
+# 524 (a translation of rust/src/flac.rs, itself a translation of
+# cpp/src/flac.cpp and python/src/wfdbx/_flac.py).
 #
 # The C library uses libFLAC for these formats; wfdb-x implements, without
 # external libraries, a complete FLAC decoder (all subframe types, fixed and
@@ -12,11 +12,17 @@
 # written by libFLAC, whose output depends on its version, but the decoded
 # samples are identical).
 #
-# An independent implementation of the FLAC format (the C library uses
-# libFLAC). The FLAC support of the signal functions (signal.jl) ports that of
-# lib/signal.c, written by Benjamin Moody (2020).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+# has no counterpart in the original package: it is wfdb-x's own implementation
+# of the FLAC format, which the original package reads and writes with libFLAC.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 "`FLAC__MAX_CHANNELS`: the largest number of channels of a FLAC stream."
 const FLAC_MAX_CHANNELS = 8

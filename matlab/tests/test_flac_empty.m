@@ -5,8 +5,16 @@ function test_flac_empty()
 %   computes the MD5 signature of no data, and must leave no output state
 %   behind, so that a later wfdbquit does not fail again.
 
-% Part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It tests wfdb-x; it has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 assert_eq(hex(wfdbx.internal.md5(zeros(1, 0, 'uint8'))), ...
     'd41d8cd98f00b204e9800998ecf8427e', 'md5 of no data');

@@ -1,5 +1,16 @@
 # CMake build of the wfdb-x C++ library, command-line tools and unit tests
-# (see README.md).  Part of wfdb-x.
+# (see README.md).
+#
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 cmake_minimum_required(VERSION 3.14)
 
@@ -78,6 +89,13 @@ if(WFDBX_BUILD_TESTS)
     target_compile_definitions(wfdbx_tests PRIVATE
       WFDBX_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
     add_test(NAME unit COMMAND wfdbx_tests)
+    # check_record's reports for a corpus of python/tests/check_corpus.py
+    add_executable(wfdbx_check_corpus tests/tools/check_corpus.cpp)
+    target_link_libraries(wfdbx_check_corpus PRIVATE wfdbx)
+    # (the corpus is written by python/tests/check_corpus.py, with the
+    # Python package of python/src)
+    target_compile_definitions(wfdbx_tests PRIVATE
+      WFDBX_PYTHON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../python")
     if(WFDBX_BUILD_TOOLS)
       # (the legacy annotation sorting tests run the sortann tool)
       target_compile_definitions(wfdbx_tests PRIVATE

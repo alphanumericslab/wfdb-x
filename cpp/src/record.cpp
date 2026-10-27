@@ -1,18 +1,23 @@
 // record.cpp: high-level interface for reading and writing records
 // (see <wfdbx/record.hpp>; the equivalent of python/src/wfdbx/highlevel.py)
 //
-// C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-// gain, ADC resolution or units. Values that the record or the user does not
-// give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-// 12 bits and millivolts), because a silently assumed value corrupts every
-// result derived from it. See docs/DIVERGENCES.md. The original behavior
-// remains available with --legacy (see docs/DIVERGENCES.md).
-// Design decision (Reza Sameni, after a code review, Oct 2026): the writers
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It has no counterpart in the original package.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
+//
+// Like the library, these functions assume no sampling frequency, gain, ADC
+// resolution or units, and find files only where they are named; the writers
 // take an output directory (WriteOptions::dir, the `dir` parameter of
-// write_annotations()): the files are created in it, and the record opens
-// from there under its plain name.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// write_annotations): the files are created in it, and the record opens from
+// there under its plain name. The `legacy` options give the behavior of the
+// original package (see docs/DIVERGENCES.md).
 
 #include "wfdbx/record.hpp"
 
@@ -370,16 +375,19 @@ Record read_record(const std::string &record, const ReadOptions &options)
             int stat = 0;
             long long got = getvecs(all.data() + used, n, &stat);
             if (got < 0) got = 0;
-            // wfdb-x: status -4 (checksum error) is returned with the last
-            // frame of the record, whose samples are filled in: the frame is
-            // kept, and the error is reported after the read (a warning).
-            if (got < n && stat == -4) {
+            // wfdb-x: status -4 (checksum error) is returned with valid
+            // samples: for the frame at which the checksums are verified
+            // (in high-resolution mode, for each of its sample vectors).
+            // The vector is kept, reading continues, and the error is
+            // reported after the read (a warning).
+            bool mismatch = got < n && stat == -4;
+            if (mismatch) {
                 got++;
                 checksum_error = true;
             }
             all.resize(used + static_cast<size_t>(got) * nsig);
             if (remaining) *remaining -= got;
-            if (checksum_error) break;
+            if (mismatch) continue;
             if (got < n) {
                 // wfdb-x: another status below -1 (e.g. -3, unexpected EOF: a
                 // signal file shorter than its header says, or a decoder or
@@ -452,7 +460,8 @@ Annotations read_annotations(const std::string &record,
     res.record = record;
     res.annotator = annotator;
     WFDB_Annotation a;
-    while (getann(0, &a) == 0) {
+    int stat;
+    while ((stat = getann(0, &a)) == 0) {
         if (t1 && a.time >= *t1) break;
         res.samples.push_back(a.time);
         res.codes.push_back(a.anntyp);
@@ -469,6 +478,11 @@ Annotations read_annotations(const std::string &record,
         } else
             res.aux.push_back(std::nullopt);
     }
+    // wfdb-x: a status other than 0 and -1 (end of file), such as -3
+    // (unexpected end of file) or an I/O error, is an error.
+    if (stat != 0 && stat != -1)
+        fail("can't read annotation file " + annotator + " of record " +
+             record + " (getann status " + std::to_string(stat) + ")");
     res.fs = getiafreq(0);
     wfdbquit();
     return res;

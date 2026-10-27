@@ -34,6 +34,8 @@ One crate, `wfdbx` (`rust/Cargo.toml`):
 | `src/flac.rs` | FLAC decoder and encoder (port of `cpp/src/flac.cpp`; crate-private) |
 | `src/ecgcodes.rs` | annotation codes (`NORMAL`, ...) and the `ecgmap.h` functions |
 | `src/record.rs` | high-level API (`read_record`, `read_header`, `read_annotations`, `write_record`, `write_record_physical`, `write_annotations`) |
+| `src/check.rs` | `check_record` (a wfdb-x addition; `python/src/wfdbx/check.py` is the reference) |
+| `examples/check_cases.rs` | prints the `check_record` reports of a corpus made by `python/tests/check_corpus.py` (its `expected.txt` format) |
 | `src/bin/<tool>.rs` | the command-line tools, one binary each |
 | `tests/` | integration tests (`cargo test`) |
 
@@ -87,14 +89,42 @@ Methods that are library-private in C (`wfdb_open`, `wfdb_checkname`,
 ```rust
 impl Wfdb {
     /// C `sampfreq(record)`: ...
+    ///
+    /// Translation of the C function sampfreq() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: ...; see docs/DIVERGENCES.md.
     pub fn sampfreq(&mut self, record: impl OptBytes) -> f64 { ... }
 }
 
-/// C `sampfreq` on the default instance.
+/// C `sampfreq` on the default instance (see [`Wfdb::sampfreq`]).
+///
+/// Translation of the C function sampfreq() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results. Differences: ...; see docs/DIVERGENCES.md.
 pub fn sampfreq(record: impl OptBytes) -> f64 {
     with_default(|w| w.sampfreq(record))
 }
 ```
+
+The last paragraph of the documentation of a public function says where it
+comes from: "Translation of the C function NAME() (lib/FILE.c, WFDB
+10.7.0): same arguments and results.", followed by "Differences: ...; see
+docs/DIVERGENCES.md." when the wfdb-x behavior differs; or, for a function
+that wfdb-x adds (the high-level API, `check_record`, `getvecs`, the
+`wfdbx_*` settings, ...), "Part of wfdb-x; not in the original WFDB
+package."
+
+### File headers
+
+Each source file begins with its `//!` module documentation (its purpose),
+followed by a `//` header comment. For a file that translates C code, the
+header says that the file is part of wfdb-x, names the C file(s) it
+translates and their authors, lists the changes from the original ("Changes
+from the original: ..."; each is marked `wfdb-x:` in the code, and
+`docs/DIVERGENCES.md` gives the reasons), gives the copyright of the C code
+(from `docs/AUTHORS.md`) and of the translation, and the license notice
+(GPL-3 or later). A file with no C original (the high-level API,
+`check.rs`, `cstd`, `flac.rs`, the tests) says "It has no counterpart in the
+original package." instead. Copy the header of a similar file when adding
+one.
 
 * String arguments that C allows to be `NULL` are `impl OptBytes`
   (implemented for `&str`, `&[u8]`, `&[u8; N]`, `&Vec<u8>`, `&String`,
@@ -213,13 +243,56 @@ A tool's `main` reads `let argv = cstd::args();`, writes with `cprintf!` /
 `ceprintf!`, and ends with `cstd::exit(status)` (see `src/bin/wfdbwhich.rs`
 and `src/bin/wfdbcat.rs`).
 
+## The high-level API (`record.rs`)
+
+* Each high-level function is a method of `Wfdb` and a free function on
+  the default instance. It calls `wfdbquit` before and after its work, so
+  it closes whatever the C-style API had open in the same instance.
+* The per-call options are applied by setting the library settings and
+  restoring them afterwards, also on failure: `with_legacy`
+  (`wfdbx_set_legacy`), `with_input` (`wfdbx_set_input_dir`,
+  `wfdbx_set_network`) and `with_output_dir` (`wfdbx_set_output_dir`; the
+  record name must then be a plain name, and the header records it without
+  the directory). `AnnWriteOptions::sort` sets `AnnState::sort_override`
+  for the call; the environment (`WFDBANNSORT`) is not changed.
+* `read_record` reads blocks of frames with `getvecs_status`. A status
+  below -1 (for example -3, a signal file shorter than its header says) is
+  an error, also in legacy mode, since the high-level API has no C
+  counterpart; `getvec`, `getvecs` and the tools are unchanged. A checksum
+  error (status -4) is not an error: the last, complete frame is kept,
+  `getvec`'s own message is suppressed during the read
+  (`SigState::cksum_quiet`), and the warning `wfdb-x: checksum error in
+  record REC: ...` goes through `wfdb_error`, so `wfdbquiet` silences it.
+  Checksums are verified only when a read reaches the end of the record.
+* An output signal file that is one of the signal files of the open input
+  record (an open signal file, or a segment of an open multi-segment
+  record, even one not opened yet) is refused by `osigfopen`/`osigopen`
+  with status -3. Files are compared by identity: device and inode, or, on
+  Windows, the canonical path without regard to case. Legacy mode does not
+  check.
+* `wfdbx_legacy_args(&mut argv)` is what the tools call first: it removes a
+  leading `--legacy` and turns legacy mode on. In legacy mode the
+  high-level functions keep their checks of a read error (see above) and
+  their output directory.
+
 ## Testing
 
 ```sh
 cd rust && cargo build --release && cargo test --release
 cargo fmt && cargo clippy --release --all-targets         # formatting (rustfmt.toml), lints
 python3 tests/conformance/harness.py check --impl rust     # from the repository root
+python3 tests/conformance/harness.py check --legacy --impl rust   # legacy mode
 ```
+
+`cargo test` also runs the examples of the documentation. Most of them read
+the sample record `100s` (the first minute of record 100 of the MIT-BIH
+Arrhythmia Database) from `tests/data`. Every example that names a record
+says what it is and where it is read from: the visible line sets the input
+directory to `tests/data` (for a reader at the root of the repository),
+inside hidden `# /*` and `# */` lines, and a hidden line before it sets
+`../tests/data` (doctests run in the `rust` directory). The legacy values of the
+library functions are checked against the C reference
+(`tests/reference/api_expect.c`).
 
 The code must build without warnings (`cargo build`, `cargo clippy`).
 

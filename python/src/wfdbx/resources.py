@@ -13,11 +13,16 @@ annotations), so that examples run without a network connection::
 they can be opened and run (``wfdbx --examples DIR`` does the same from the
 command line).
 
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-This library is free software; you can redistribute it and/or modify it under
-the terms of the GNU Library General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your option) any
-later version.
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+has no counterpart in the original package.
+
+Copyright (C) 2026 Reza Sameni.
+
+This library is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import os
@@ -29,12 +34,18 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def sample_data_dir():
-    """Return the directory that holds the sample record ``100s``."""
+    """Return the directory that holds the sample record ``100s``.
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
     return os.path.join(_HERE, "sample_data")
 
 
 def examples_dir():
-    """Return the directory that holds the example notebooks (``*.ipynb``)."""
+    """Return the directory that holds the example notebooks (``*.ipynb``).
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
     return os.path.join(_HERE, "examples")
 
 
@@ -43,6 +54,8 @@ def copy_examples(dest):
 
     Existing files of the same names are replaced.  Returns the list of the
     paths of the copied notebooks, in order.
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     os.makedirs(dest, exist_ok=True)
     copied = []

@@ -39,6 +39,10 @@ PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl pyt
 # C++ implementation (after building it in cpp/build; see cpp/README.md)
 python3 tests/conformance/harness.py check --impl cpp
 
+# Kotlin implementation (after building the jar: cd kotlin && ./gradlew fatJar;
+# the JVM starts once per case, so use several jobs)
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl kotlin -j8
+
 # any implementation, given a command template
 python3 tests/conformance/harness.py check --impl "/path/to/bin/{tool}"
 
@@ -47,9 +51,11 @@ python3 tests/conformance/harness.py check --impl python rdsamp rdann -v
 ```
 
 `--impl` accepts `python`, `cpp`, `rust`, `julia`, `r`, `octave`, `matlab`,
-or a command template containing `{tool}`. The environment variable
-`WFDBX_<IMPL>_CMD` overrides the template of a named implementation, and
-(for `cpp` and `rust`) `WFDBX_<IMPL>_BIN` names another directory of tools.
+`kotlin`, or a command template containing `{tool}`. The environment
+variable `WFDBX_<IMPL>_CMD` overrides the template of a named
+implementation, (for `cpp` and `rust`) `WFDBX_<IMPL>_BIN` names another
+directory of tools, and (for `kotlin`) `WFDBX_KOTLIN_JAR` names another jar
+of the tools.
 
 ## Regenerating golden results
 

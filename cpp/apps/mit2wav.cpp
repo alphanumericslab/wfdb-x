@@ -1,15 +1,25 @@
-// mit2wav.cpp: convert WFDB format signal files to .wav format
-// (C++ port of convert/mit2wav.c)
+// mit2wav.cpp: convert WFDB format signal files to .wav format.
 //
-// Copyright (C) 2003-2010 George B. Moody (original C program,
-// convert/mit2wav.c; revised 2018 by Benjamin Moody).
-// C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-// gain, ADC resolution or units. Values that the record or the user does not
-// give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-// 12 bits and millivolts), because a silently assumed value corrupts every
-// result derived from it. See docs/DIVERGENCES.md.
-// GNU General Public License, version 2 or later (see LICENSE).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a C++ translation of convert/mit2wav.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original program, but it is new code, not the original C code.
+//
+// Changes from the original: no built-in sampling frequency: the record must
+// give it (the original assumed 250 Hz); --legacy, as the first argument,
+// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
+//
+// Original C program: convert/mit2wav.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 2003-2010 George B. Moody; revised 2018 by Benjamin Moody.
+// C++ translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 //
 // The output file has exactly three chunks (a header chunk, a format chunk,
 // and a data chunk); see the C source for a description.  The C program

@@ -1,5 +1,4 @@
-# ad2m: convert an AHA format signal file to MIT format (port of
-# convert/ad2m.c).
+# ad2m: convert an AHA format signal file to MIT format.
 #
 # The input is either an AHA DB distribution tape format file (read as
 # record `16`, two signals in format 16 on the standard input), or a
@@ -7,18 +6,33 @@
 #
 # Where the C program has undefined behavior (an input file name ending in
 # `/` without -r, a record name of more than 7 characters, or a directory as
-# input file), this port uses an empty record name, the full signal file
-# name, and reports the directory as unreadable (see
+# input file), this translation uses an empty record name, the full signal
+# file name, and reports the directory as unreadable (see
 # docs/KNOWN_C_BEHAVIORS.md).
 #
-# Copyright (C) 1983-2007 George B. Moody (original C program, convert/ad2m.c).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
-# bits and millivolts), because a silently assumed value corrupts every result
-# derived from it. See docs/DIVERGENCES.md.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is a Julia translation of convert/ad2m.c from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior of
+# the original program, but it is new code, not the original C code.
+#
+# Changes from the original: no built-in signal parameters: the new options -F
+# FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
+# resolution and units, and are required (-U unless the gain is 0; the original
+# assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
+# millivolts); the -f and -t times are converted at the -F frequency; --legacy,
+# as the first argument, restores the original behavior. Each change is marked
+# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+#
+# Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1983-2007 George B. Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 const _AD2M_HELP = (
     "usage: %s -i AHAFILE [ OPTIONS ... ]\n",

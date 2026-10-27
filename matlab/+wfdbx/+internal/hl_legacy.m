@@ -8,9 +8,19 @@ function c = hl_legacy(on, fname)
 %   calling function returns or throws an error.  If ON is false, the
 %   library's setting is left as it is (C = []); if that setting is on,
 %   the high-level functions behave as with ON true.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 if ~((islogical(on) || isnumeric(on)) && isscalar(on))
     error(['wfdbx:' fname], '%s: legacy must be true or false', fname);

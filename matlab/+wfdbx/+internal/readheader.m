@@ -7,27 +7,34 @@ function nsig = readheader(record)
 %   of signals, 0 for a multi-segment record's master header (or a record
 %   without signals), -1 if the header cannot be opened, -2 if it is
 %   invalid.  The record '~' is a null segment of a multi-segment record.
+%
+%   Translation of the C function readheader() (lib/signal.c, WFDB 10.7.0).
 
-% Copyright (C) 1989-2013 George B. Moody (original C implementation,
-% lib/signal.c; revised 2011-2022 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-% gain, ADC resolution or units. Values that the record or the user does
-% not give are never assumed (the original package assumed 250 Hz,
-% 200 adu/mV, 12 bits and millivolts), because a silently assumed value
-% corrupts every result derived from it. See docs/DIVERGENCES.md.
-% The original behavior remains available with --legacy (see
-% docs/DIVERGENCES.md).
-% Design decision (Reza Sameni, Oct 2026): the signal files named in a
-% header, and the segments named in the header of a multi-segment record,
-% are in the directory of that header (on disk or at its URL) or below it;
-% a name that is absolute, begins with '~', is a URL or contains a '..'
-% component is refused ('~' as a segment, a null segment, and '-' as a
-% signal file remain).  Nothing is searched: a search can silently open
-% the wrong file, and a header must not make the library read other local
-% files or contact other servers.  The original behavior remains
-% available with --legacy (see docs/DIVERGENCES.md).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original code, but it is new code, not the original C
+% code.
+%
+% Changes from the original: no sampling frequency or ADC resolution is
+% assumed when the header gives none (the C library assumed 250 Hz and 12
+% bits or a value based on the format); the signal files and segments named
+% in a header are read from the header's directory or below it, and a name
+% that is absolute, begins with '~', is a URL or contains '..' is refused.
+% Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% reasons.
+%
+% Original C code: lib/signal.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 S = wfdbx.internal.sig_state();
 sep = sprintf(' \t\n\r');

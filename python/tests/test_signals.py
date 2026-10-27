@@ -1,10 +1,15 @@
 """Signal I/O tests: every storage format round-trips exactly.
 
-Part of wfdb-x, Reza Sameni, Oct 2026.
-This program is free software; you can redistribute it and/or modify it under
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+tests wfdb-x; it has no counterpart in the original package.
+
+Copyright (C) 2026 Reza Sameni.
+
+This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
-version.
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import os
@@ -557,6 +562,104 @@ def test_read_record_dtype_and_checksum_ok(datadir):
                              checksum_warning=False).checksum_ok is False
         # (not read to the end: no checksum is verified)
         assert w.read_record("ck", sampto=3).checksum_ok is True
+
+
+# ---------------------------------------------------------------------------
+# High-resolution reads of a record with a checksum error: getvec returns -4
+# for each sample vector of the last frame, and read_record returns them all
+
+def _write_mf(name, spf, nframes, bad=None):
+    """Write a format 16 record of nframes frames with samples per frame
+    spf (a list, one entry per signal), samples 1, 2, 3, ...  With bad =
+    (frame, signal), that sample is set to 99 in the signal file only (the
+    header's checksums no longer match).  Returns the frames written to the
+    file."""
+    width = sum(spf)
+    x = np.arange(1, nframes * width + 1).reshape(nframes, width)
+    w.write_record(name, x, 100, samps_per_frame=spf, gains=100, adcres=16,
+                   units="mV")
+    if bad is not None:
+        frame, signal = bad
+        k = frame * width + sum(spf[:signal])
+        with open(name + ".dat", "r+b") as f:
+            f.seek(2 * k)
+            f.write(bytes([99, 0]))
+        x = x.copy()
+        x[frame, k - frame * width] = 99
+    return x
+
+
+def _read_quiet(*args, **kw):
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        return w.read_record(*args, checksum_warning=False, **kw)
+
+
+@pytest.mark.parametrize("spf", [[2], [3], [1, 2], [2, 3]])
+@pytest.mark.parametrize("where", ["first", "last"])
+def test_read_record_highres_checksum_error(datadir, spf, where):
+    nframes = 4
+    bad = (0 if where == "first" else nframes - 1, len(spf) - 1)
+    x = _write_mf("mf", spf, nframes, bad)
+    w.write_record("good", x, 100, samps_per_frame=spf, gains=100,
+                   adcres=16, units="mV")
+    n = nframes * max(spf)
+    for chans in (None, [len(spf) - 1], list(range(len(spf)))[::-1]):
+        good = w.read_record("good", channels=chans, highres=True)
+        assert good.checksum_ok is True and len(good.signals) == n
+        r = _read_quiet("mf", channels=chans, highres=True)
+        assert r.checksum_ok is False
+        assert r.signals.shape == good.signals.shape
+        assert (r.signals == good.signals).all()
+        with pytest.warns(RuntimeWarning) as rec:
+            r = w.read_record("mf", channels=chans, highres=True)
+        assert [str(m.message) for m in rec] == \
+            [_CKSUM_MSG.replace(" ck:", " mf:")]
+        assert r.checksum_ok is False and (r.signals == good.signals).all()
+        # physical units, and the low-resolution read (one vector per frame)
+        r = _read_quiet("mf", channels=chans, highres=True, physical=True)
+        assert (r.signals == good.signals / 100.0).all()
+        lo = w.read_record("good", channels=chans)
+        r = _read_quiet("mf", channels=chans)
+        assert r.checksum_ok is False and len(r.signals) == nframes
+        assert (r.signals == lo.signals).all()
+    # a read ending before the last frame verifies no checksum; one ending
+    # in the last frame returns all the samples requested
+    good = w.read_record("good", highres=True).signals
+    for sampto in (n - max(spf), n - max(spf) // 2 - 1, n - 1):
+        r = _read_quiet("mf", highres=True, sampto=sampto)
+        assert (r.signals == good[:sampto]).all()
+        if sampto <= n - max(spf):
+            assert r.checksum_ok is True
+    # (a read from a later sample: the samples to the end)
+    r = _read_quiet("mf", highres=True, sampfrom=n - max(spf) - 1)
+    assert (r.signals == good[n - max(spf) - 1:]).all()
+
+
+def test_read_record_highres_checksum_error_example(datadir):
+    """The example of the specification: spf 2, the first sample is 99."""
+    frames = np.arange(1, 9).reshape(4, 2)
+    w.write_record("mf", frames, fs=100, samps_per_frame=[2], gains=100,
+                   adcres=16, units="mV")
+    with open("mf.dat", "r+b") as f:
+        f.write(bytes([99, 0]))
+    r = _read_quiet("mf", highres=True)
+    assert r.signals[:, 0].tolist() == [99, 2, 3, 4, 5, 6, 7, 8]
+    assert r.checksum_ok is False
+    # the low-level API is unchanged: -4 for each vector of the last frame
+    w.wfdbquit()
+    w.isigopen("mf", [], 1)
+    w.setgvmode(w.WFDB_HIGHRES)
+    v = [0]
+    out = []
+    stats = []
+    for _ in range(9):
+        stats.append(w.getvec(v))
+        out.append(v[0])
+    w.wfdbquit()
+    assert stats == [1] * 6 + [-4, -4, -1]
+    assert out[:8] == [99, 2, 3, 4, 5, 6, 7, 8]
 
 
 # ---------------------------------------------------------------------------

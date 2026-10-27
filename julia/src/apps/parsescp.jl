@@ -1,5 +1,4 @@
-# parsescp: parse an SCP-ECG file read from the standard input (port of
-# convert/parsescp.c, by way of the Rust and C++ ports of wfdb-x).
+# parsescp: parse an SCP-ECG file read from the standard input.
 #
 # parsescp converts SCP-ECG files produced by SpaceLabs/Burdick ECG carts
 # into more easily usable formats:
@@ -14,9 +13,10 @@
 # With -a, an anonymized copy of the input is written to the standard output
 # instead.
 #
-# The input is held in one byte buffer, and the C program's pointers into it
-# are represented by 0-based offsets (_scp_b(s, off) is the byte at `off`).
-# Integer arithmetic uses the C types (wrapping), and floating-point
+# The translation was made by way of the Rust and C++ implementations of
+# wfdb-x. The input is held in one byte buffer, and the C program's pointers
+# into it are represented by 0-based offsets (_scp_b(s, off) is the byte at
+# `off`). Integer arithmetic uses the C types (wrapping), and floating-point
 # expressions are evaluated in the order of the C expressions, so that the
 # output is identical to C's. Behaviors of the C program that are undefined
 # (on defective inputs) are resolved as in the other wfdb-x implementations
@@ -29,15 +29,31 @@
 # is printed as `???`. Samples are written in little-endian byte order, as
 # the C program does on x86.
 #
-# Copyright (C) 2000-2014 George B. Moody and Edna S. Moody (original C
-# program, convert/parsescp.c; revised 2016-2020 by Benjamin Moody).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-# 12 bits and millivolts), because a silently assumed value corrupts every
-# result derived from it. See docs/DIVERGENCES.md.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is a Julia translation of convert/parsescp.c from the WFDB Software
+# Package 10.7.0, by George B. Moody and Edna S. Moody. The translation follows
+# the logic and behavior of the original program, but it is new code, not the
+# original C code.
+#
+# Changes from the original: the record is written with the sampling frequency
+# given in the SCP file, and is not written if the file gives none (the
+# original always wrote 500 Hz); signals and reference beats that could not be
+# allocated, and samples beyond the end of a signal shorter than lead 0, are
+# read as absent or as zeros (undefined behavior in the original); --legacy, as
+# the first argument, restores the original behavior. Each change is marked
+# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+#
+# Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
+#   2016-2020 by Benjamin Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 const _SCP_VERSION_STRING = b"#ECG/1.0"
 const _SCP_INVALID_SAMPLE = Int16(-32768)   # WFDB_INVALID_SAMPLE

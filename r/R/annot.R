@@ -3,21 +3,31 @@
 # tables (annstr, strann, anndesc, ecgstr, ...), annotation time
 # resolution (setafreq, setiafreq, ...), and bulk readers and writers.
 #
-# Copyright (C) 1989-2013 George B. Moody (original C implementation,
-# lib/annot.c; revised 2015-2020 by Benjamin Moody).
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
-# wfdb-x: oannclose rearranges an out-of-order output annotation file itself,
-# in the same process (.ann_sort_file), with a result identical to that of
-# the sortann program, which the C library ran through the shell (and found
-# only if it was in the PATH); decided by Reza Sameni after a code review,
-# Oct 2026.  The original behavior remains available with --legacy (see
-# docs/DIVERGENCES.md).
-# wfdb-x: the sort (as the sortann tool) no longer loses an out-of-order
-# annotation at time 0 (num 0, chan 0), nor those inserted after it, as
-# sortann did (decided by Reza Sameni, Oct 2026; --legacy keeps the
-# original).
+# It is an R translation of lib/annot.c from the WFDB Software Package 10.7.0,
+# by George B. Moody. The translation follows the logic and behavior of the
+# original code, but it is new code, not the original C code.
+#
+# Changes from the original: oannclose sorts an out-of-order output annotation
+# file in this process, with the same result as the sortann program, which the
+# original ran through the shell; the sort does not lose an out-of-order
+# annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
+# option of the high-level write_annotations decides, for its call, whether the
+# file is sorted; legacy mode (wfdbx_set_legacy) restores the original
+# behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# gives the reasons.
+#
+# Original C code: lib/annot.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by
+#   Benjamin Moody.
+# R translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 #
 # Design (as in the MATLAB/Octave port): an input annotation file is read
 # completely when it is opened and decoded with vector operations
@@ -1031,7 +1041,8 @@ iannclose <- function(n) {
 #' wfdb-x: .ann$sort_override (NULL, TRUE or FALSE), set by
 #' write_annotations for the duration of its call (its sort argument),
 #' decides instead of WFDBANNSORT when it is not NULL; the environment is
-#' not changed.
+#' not changed.  When it is FALSE, the advice to run sortann is not printed
+#' (the caller chose the order); WFDBANNSORT=0 still gives it.
 oannclose <- function(n) {
   oa <- .ann_oa(n)
   if (is.null(oa) || is.null(oa$file)) return(invisible())
@@ -1069,8 +1080,10 @@ oannclose <- function(n) {
     }
   }
   if (oa$out_of_order) {
-    wfdb_error("Use the command:\n  sortann -r %s -a %s\n", oa$rname, oa$name)
-    wfdb_error("to rearrange annotations in the correct order.\n")
+    if (!isFALSE(.ann$sort_override)) {
+      wfdb_error("Use the command:\n  sortann -r %s -a %s\n", oa$rname, oa$name)
+      wfdb_error("to rearrange annotations in the correct order.\n")
+    }
     if (.ann$annclose_error == 0) .ann$annclose_error <- -6
   }
   oad <- .ann$oad

@@ -1,10 +1,24 @@
 //! signum: print signal numbers for signals named as arguments (port of
 //! `app/signum.c`).
 //
-// Copyright (C) 2008 George B. Moody (original C program, app/signum.c;
-// revised 2021 by Benjamin Moody).
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU General Public License, version 2 or later (see LICENSE).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a Rust translation of app/signum.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original program, but it is new code, not the original C code.
+//
+// Changes from the original: none, apart from the language and the --legacy
+// option (as the first argument, it restores the original behavior).
+//
+// Original C program: app/signum.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 2008 George B. Moody; revised 2021 by Benjamin Moody.
+// Rust translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use wfdbx::cstd;
 use wfdbx::{ceprintf, cprintf, Siginfo};

@@ -1,17 +1,29 @@
 """wrsamp: read a text file of samples and write WFDB signal (and header) files.
 
-Copyright (C) 1993-2014 George B. Moody (original C program, app/wrsamp.c;
-revised 2020 by Benjamin Moody).
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency, gain,
-ADC resolution or units. Values that the record or the user does not give are
-never assumed (the original package assumed 250 Hz, 200 adu/mV, 12 bits and
-millivolts), because a silently assumed value corrupts every result derived
-from it. See docs/DIVERGENCES.md.
-This program is free software; you can redistribute it and/or modify it under
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+
+It is a Python translation of app/wrsamp.c from the WFDB Software Package
+10.7.0, by George B. Moody. The translation follows the logic and behavior of
+the original program, but it is new code, not the original C code.
+
+Changes from the original: no built-in sampling frequency, gain, ADC resolution
+or units: when a record is written (-o), -F, -G and the new option -R BITS are
+required, and the new option -U UNITS for calibrated signals unless the input
+gives the units (the original assumed 250 Hz, 200 adu/mV, a resolution based on
+the format, and millivolts); -G 0 declares the signals uncalibrated; -G, -R and
+-U take one value per signal; --legacy, as the first argument, restores the
+original behavior. Each change is marked "wfdb-x:" in the code;
+docs/DIVERGENCES.md gives the reasons.
+
+Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
+  Copyright (C) 1993-2014 George B. Moody; revised 2020 by Benjamin Moody.
+Python translation and changes: Copyright (C) 2026 Reza Sameni.
+
+This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
-version.
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import sys

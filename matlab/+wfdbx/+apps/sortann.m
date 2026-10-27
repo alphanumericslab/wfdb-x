@@ -20,25 +20,44 @@ function status = sortann(args)
 %   if the record had no header); without a header giving one, -F is
 %   required to convert the -f and -t times.  See docs/DIVERGENCES.md.
 %
-%   Example:
+%   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
+%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   the repository; the example writes the annotation file 100s.srt in the
+%   current folder):
+%       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.apps.sortann({'-r', '100s', '-a', 'atr', '-o', 'srt'})
 %
 %   See also wfdbx.apps.rdann, wfdbx.putann.
+%
+%   Translation of the C program sortann (app/sortann.c, WFDB 10.7.0): same
+%   options and output. Differences: -F gives the sampling frequency when
+%   the record header gives none; see docs/DIVERGENCES.md.
 
-% Copyright (C) 1997-2010 George B. Moody (original C program, app/sortann.c;
-% revised 2017-2018 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-% gain, ADC resolution or units. Values that the record or the user does
-% not give are never assumed (the original package assumed 250 Hz,
-% 200 adu/mV, 12 bits and millivolts), because a silently assumed value
-% corrupts every result derived from it. See docs/DIVERGENCES.md.
-% Design decision (Reza Sameni, after a code review, Oct 2026): an
-% out-of-order annotation at time 0 is no longer lost (the original
-% compared it with the list head; see docs/KNOWN_C_BEHAVIORS.md). The
-% original behavior remains available with --legacy (see
-% docs/DIVERGENCES.md).
-% GNU General Public License, version 2 or later (see LICENSE).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of app/sortann.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original program, but it is new code, not the original C
+% code.
+%
+% Changes from the original: no built-in sampling frequency: the new option -F
+% FREQ gives it when the record has no header or its header gives none, and is
+% then required for the -f and -t times (the original assumed 250 Hz); an
+% out-of-order annotation at time 0 (num 0, chan 0) is no longer lost, nor are
+% those inserted after it; --legacy, as the first argument, restores the
+% original behavior. Each change is marked "wfdb-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
+%
+% Original C program: app/sortann.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1997-2010 George B. Moody; revised 2017-2018 by
+%   Benjamin Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 if nargin < 1
     args = {};

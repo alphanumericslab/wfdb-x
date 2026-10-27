@@ -29,20 +29,43 @@ function status = ad2m(args)
 %   times of -f and -t are converted at the frequency given by -F; see
 %   docs/DIVERGENCES.md.
 %
-%   Example:
-%       wfdbx.apps.ad2m({'-i', '1201.CMP', '-r', 'adm', '-F', '250', ...
+%   Example (1201.CMP, a synthetic signal file in the format of the AHA
+%   Database, is in the folder tests/data of a copy of the wfdb-x
+%   repository; the example writes the record adm in the current folder):
+%       wfdbx.apps.ad2m({'-i', '/path/to/wfdb-x/tests/data/1201.CMP', ...
+%           '-r', 'adm', '-F', '250', ...
 %           '-G', '400', '-R', '12', '-U', 'mV'})
 %
 %   See also wfdbx.apps.md2a, wfdbx.apps.ahaecg2mit.
+%
+%   Translation of the C program ad2m (convert/ad2m.c, WFDB 10.7.0): same
+%   options and output. Differences: -F, -G, -R and -U are new and required;
+%   see docs/DIVERGENCES.md.
 
-% Copyright (C) 1983-2007 George B. Moody (original C program, convert/ad2m.c).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-% gain, ADC resolution or units. Values that the record or the user does
-% not give are never assumed (the original package assumed 250 Hz,
-% 200 adu/mV, 12 bits and millivolts), because a silently assumed value
-% corrupts every result derived from it. See docs/DIVERGENCES.md.
-% GNU General Public License, version 2 or later (see LICENSE).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of convert/ad2m.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original program, but it is new code, not the original C
+% code.
+%
+% Changes from the original: no built-in signal parameters: the new options -F
+% FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
+% resolution and units, and are required (-U unless the gain is 0; the original
+% assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
+% millivolts); the -f and -t times are converted at the -F frequency; --legacy,
+% as the first argument, restores the original behavior. Each change is marked
+% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+%
+% Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1983-2007 George B. Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 if nargin < 1
     args = {};

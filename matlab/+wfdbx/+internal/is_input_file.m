@@ -12,16 +12,31 @@ function tf = is_input_file(fname)
 %   java.nio.file.Files.isSameFile (which also recognizes links and hard
 %   links).  A file at a URL, or the standard input or output, is never
 %   one.  No message is printed.  openosig calls it in normal mode only.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% Copyright (C) 1989-2013 George B. Moody (original C implementation,
-% lib/signal.c; revised 2011-2022 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): an output signal file is never
-% one of the input files.  E.g., "xform -i vlay -o fmt16", fmt16 being a
-% segment of vlay, truncated fmt16.dat while reading it, with a
-% platform-dependent result and the input destroyed.  The original
-% behavior remains available with --legacy (see docs/DIVERGENCES.md).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original code, but it is new code, not the original C
+% code.
+%
+% Changes from the original: this function is a wfdb-x addition: it tells
+% whether an output signal file is one of the files of the open input
+% record, so that openosig can refuse it. docs/DIVERGENCES.md gives the
+% reasons.
+%
+% Original C code: lib/signal.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 tf = false;
 path = wfdbx.internal.output_file(fname);

@@ -3,8 +3,16 @@
 # encoder (output identical to the Python encoder's), MD5 (RFC 1321 test
 # suite), CRCs, and the signal-group glue functions.
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It tests wfdb-x; it has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 hex <- function(b) paste(sprintf("%02x", as.integer(b)), collapse = "")
 

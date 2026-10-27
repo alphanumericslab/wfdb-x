@@ -9,15 +9,37 @@ function status = wrann(args)
 %   TEXT-FILE (the standard input) should be in the format produced by
 %   rdann.
 %
-%   Example (from the shell):
+%   Example (from the shell; 100s, the first minute of record 100 of the
+%   MIT-BIH Arrhythmia Database, is included with wfdb-x in the folder
+%   tests/data of a copy of the repository; the example writes the
+%   annotation file 100s.cpy in the current folder):
+%       export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
 %       rdann -r 100s -a atr | wrann -r 100s -a cpy
 %
 %   See also wfdbx.apps.rdann, wfdbx.write_annotations.
+%
+%   Translation of the C program wrann (app/wrann.c, WFDB 10.7.0): same
+%   options and output.
 
-% Copyright (C) 1983-2010 George B. Moody (original C program, app/wrann.c;
-% revised 2018 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU General Public License, version 2 or later (see LICENSE).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of app/wrann.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original program, but it is new code, not the original C
+% code.
+%
+% Changes from the original: none, apart from the language and the --legacy
+% option (as the first argument, it restores the original behavior).
+%
+% Original C program: app/wrann.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1983-2010 George B. Moody; revised 2018 by Benjamin Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 if nargin < 1
     args = {};

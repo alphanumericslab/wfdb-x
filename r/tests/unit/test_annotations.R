@@ -6,8 +6,16 @@
 # the tools' parsers and formatters) against direct reference
 # implementations.
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It tests wfdb-x; it has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 data <- if (nzchar(.rdir)) file.path(dirname(dirname(.rdir)), "tests", "data") else ""
 if (!nzchar(data) || !dir.exists(data)) {
@@ -745,6 +753,41 @@ expect_equal(errmsg_a(write_annotations("100s", "s9", 1, symbol = "N", sort = NA
              "sort must be NULL, TRUE or FALSE", "sort: invalid value")
 wfdbverbose()
 
+# sort = FALSE: no advice to run sortann (the caller chose the order);
+# WFDBANNSORT=0 and the C-style API still give it
+stderr_of <- function(expr) {
+  tf <- tempfile()
+  con <- file(tf, open = "wb")
+  saved <- .cstd$err_con
+  .cstd$err_con <- con
+  on.exit({
+    .cstd$err_con <- saved
+    close(con)
+  })
+  expr
+  flush(con)
+  rawToChar(readBin(tf, "raw", max(1, file.size(tf))))
+}
+advice <- function(a) paste0("Use the command:\n  sortann -r 100s -a ", a,
+                             "\nto rearrange annotations in the correct order.\n")
+oldsort <- Sys.getenv("WFDBANNSORT", unset = NA)
+for (env in c(NA, "0", "1")) {
+  if (is.na(env)) Sys.unsetenv("WFDBANNSORT") else Sys.setenv(WFDBANNSORT = env)
+  for (lg in c(FALSE, TRUE))
+    expect_equal(stderr_of(write_annotations("100s", "u0", ooo_t, symbol = ooo_s,
+                                             sort = FALSE, legacy = lg)), "",
+                 paste("sort = FALSE: no advice, WFDBANNSORT", env, "legacy", lg))
+}
+Sys.setenv(WFDBANNSORT = "0")
+expect_equal(stderr_of(write_annotations("100s", "u1", ooo_t, symbol = ooo_s)),
+             advice("u1"), "WFDBANNSORT=0: advice")
+expect_equal(stderr_of({
+  annopen("100s", list(anninfo("u2", WFDB_WRITE)))
+  for (t in ooo_t) putann(0, annotation(t, NORMAL))
+  wfdbquit()
+}), advice("u2"), "C-style API, WFDBANNSORT=0: advice")
+if (is.na(oldsort)) Sys.unsetenv("WFDBANNSORT") else Sys.setenv(WFDBANNSORT = oldsort)
+
 # write_annotations(..., dir = ) (wfdb-x)
 dir.create("out")
 wfdbquiet()
@@ -771,4 +814,95 @@ expect_equal(errmsg(write_annotations("rec", "atr", 1, dir = "nosuch")),
              "directory nosuch does not exist", "write_annotations dir checks first: dir")
 expect_equal(errmsg(write_annotations("rec", "atr", 1, dir = "out")),
              "symbol or code must be given", "write_annotations dir checks first: then the rest")
+
+# --- read_annotations: a getann status other than 0 and -1 is an error
+# ("can't read annotation file ANN of record REC (getann status S)"), and
+# getann's own message is printed; a read limited by sampto stops at the
+# first annotation at or after sampto
+write_record("tra", matrix(1, 100, 1), fs = 100, gains = 100, adcres = 16, units = "mV")
+write_annotations("tra", "atr", c(10, 20, 30), code = c(1, 5, 1))
+full <- rf("tra.atr")
+expect_equal(read_annotations("tra", "atr")$sample, c(10, 20, 30), "truncated ann: complete file")
+writeBin(full[seq_len(length(full) - 2L)], "tra.atr")
+senv <- environment(wfdb_error)
+cerr0 <- get("cerr", senv)
+printed <- character(0)
+assign("cerr", function(x) printed <<- c(printed, if (is.raw(x)) rawToChar(x) else x), envir = senv)
+for (lg in c(FALSE, TRUE)) {
+  printed <- character(0)
+  expect_equal(errmsg(read_annotations("tra", "atr", legacy = lg)),
+               "can't read annotation file atr of record tra (getann status -3)",
+               paste("truncated ann: the error, legacy", lg))
+  expect_equal(printed, "getann: unexpected EOF in annotator atr\n",
+               paste("truncated ann: getann's message, legacy", lg))
+  printed <- character(0)
+  expect_equal(read_annotations("tra", "atr", sampto = 15, legacy = lg)$sample, 10,
+               paste("truncated ann: sampto before the truncation, legacy", lg))
+  expect_equal(printed, character(0), "truncated ann: sampto, nothing printed")
+}
+assign("cerr", cerr0, envir = senv)
+wfdbquiet()
+check(annopen("tra", list(anninfo("atr", WFDB_READ)), 1) == 0 &&
+        getann(0)$stat == 0 && getann(0)$stat == 0 && getann(0)$stat == -3,
+      "truncated ann: getann unchanged")
+wfdbquit()
+wfdbverbose()
+# every truncation of a file with an aux string and a SKIP, against a
+# getann loop: the same annotations, and an error exactly when the loop
+# ends with a status other than -1 (sampto: unless an annotation at or
+# after sampto is read first)
+write_annotations("tra", "cut", c(10, 20, 3000, 3010), code = c(1, 5, 1, 28),
+                  aux = c(NA, "(AFIB", NA, "x"))
+full <- rf("tra.cut")
+check(any(bitwShiftR(as.integer(full[seq(2L, length(full), 2L)]), 2L) == 59L),
+      "truncated ann: the file has a SKIP")
+wfdbquiet()
+nbad <- 0
+stats <- numeric(0)
+for (k in 0:length(full)) {
+  writeBin(full[seq_len(k)], "tra.cut")
+  wfdbquit()
+  ref <- list(time = numeric(0), aux = character(0))
+  if (annopen("tra", list(anninfo("cut", WFDB_READ)), 1) < 0) {
+    stat <- NA
+  } else {
+    repeat {
+      r <- getann(0)
+      stat <- r$stat
+      if (stat != 0) break
+      ref$time <- c(ref$time, r$annot$time)
+      ref$aux <- c(ref$aux, .hl_aux_text(list(r$annot$aux)))
+    }
+  }
+  wfdbquit()
+  stats <- c(stats, stat)
+  for (to in list(NULL, 15, 25, 3005, 5000)) {
+    got <- tryCatch(read_annotations("tra", "cut", sampto = to), error = function(e) conditionMessage(e))
+    if (is.na(stat)) {
+      ok <- identical(got, "can't read annotator cut for record tra")
+    } else {
+      j <- if (is.null(to)) NA else match(TRUE, ref$time >= to)
+      if (!is.na(j) || stat == -1) {
+        n <- if (is.na(j)) length(ref$time) else j - 1L
+        ok <- is.data.frame(got) && identical(got$sample, ref$time[seq_len(n)]) &&
+          identical(got$aux, ref$aux[seq_len(n)])
+      } else {
+        ok <- identical(got, sprintf("can't read annotation file cut of record tra (getann status %d)",
+                                     as.integer(stat)))
+      }
+    }
+    if (!ok) {
+      nbad <- nbad + 1
+      cat("  truncated at", k, "sampto", if (is.null(to)) "NULL" else to, "\n")
+    }
+  }
+}
+wfdbverbose()
+expect_equal(nbad, 0, "truncated ann: every truncation agrees with getann")
+check(any(stats == -3, na.rm = TRUE) && any(stats == -1, na.rm = TRUE),
+      "truncated ann: both endings occur")
+writeBin(full, "tra.cut")
+a <- read_annotations("tra", "cut")
+check(identical(a$sample, c(10, 20, 3000, 3010)) && identical(a$aux, c(NA, "(AFIB", NA, "x")),
+      "truncated ann: complete file with aux and SKIP")
 }

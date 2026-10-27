@@ -1,15 +1,25 @@
 // flac.cpp: FLAC decoder and encoder for signal formats 508, 516, and 524
 // (C++ port of python/src/wfdbx/_flac.py)
 //
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It has no counterpart in the original package: it is wfdb-x's own
+// implementation of the FLAC format, which the original package reads and
+// writes with libFLAC.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
+//
 // The C library uses libFLAC for these formats; wfdb-x implements, without
 // external libraries, a complete FLAC decoder (all subframe types, fixed and
 // LPC predictors, Rice and Rice2 partitions with escape codes, wasted bits,
 // stereo decorrelation, variable block sizes, CRC verification) and a
 // lossless encoder (fixed predictors and Rice coding).  The encoder writes
 // exactly the bytes written by the Python implementation of wfdb-x.
-//
-// C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #include "flac.hpp"
 

@@ -32,7 +32,9 @@ identically (the conformance suite checks this).
 The driver works both with the package installed (`library(wfdbx)`) and
 from the source tree (it then sources `R/*.R` itself), so that the
 conformance harness can run it without installation:
-`Rscript r/inst/bin/wfdbx.R rdsamp -r 100s`. From the source tree it caches
+`Rscript r/inst/bin/wfdbx.R rdsamp -r 100s` (`100s` is the sample record
+of `tests/data`, the first minute of record 100 of the MIT-BIH Arrhythmia
+Database; run it there, or set `WFDBX_INPUT_DIR` to that directory). From the source tree it caches
 the sourced and byte-compiled functions (`saveRDS` of the environment, in
 `~/.cache/R/wfdbx/`, keyed by the names, sizes and modification times of
 `R/*.R`; `WFDBX_NO_CACHE=1` disables it; `~` is the home directory of the
@@ -62,6 +64,32 @@ per tool invocation with the cache, about the time of `Rscript -e 0`
 itself (0.17 s); 0.23 s without the cache. Sourcing grows with the code,
 the cache does not much. Tool functions are named `app_<tool>`; `app_run`
 is the runner, not a tool.
+
+## File headers and help pages
+
+The header comment of each file follows the same pattern in all seven
+languages. A file that translates C code gives its purpose; the line
+"This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and
+Kotlin."; the C file(s) it translates and their authors; "Changes from the
+original:", a short list of how this file differs from the C code (each
+change is marked `wfdb-x:` in the code, and `docs/DIVERGENCES.md` gives the
+reasons), or "none, apart from the language."; the copyright of the
+original C code (from `docs/AUTHORS.md`) and "R translation and changes:
+Copyright (C) 2026 Reza Sameni."; and the GPL-3 notice. A file with no C
+original (the high-level API, `check.R`, `cli.R`, `cstd.R`, the driver,
+the tests) says "It has no counterpart in the original package." (tests:
+"It tests wfdb-x; ...") and gives only Reza Sameni's copyright. Keep the
+in-code `wfdb-x:` comments where each change happens.
+
+Each Rd page ends (before See Also) with a section "Origin": "Translation
+of the C function(s) ... (lib/FILE.c, WFDB 10.7.0): same arguments and
+results.", followed, when the behavior differs, by "Differences: ...; see
+docs/DIVERGENCES.md."; for wfdb-x additions, "Part of wfdb-x; not in the
+original WFDB package." An example that names a record says what the
+record is and where it is read from (the sample `100s` in `tests/data`, a
+PhysioNet database with its URL and network access, a local copy of a
+database, or a record written by the example).
 
 ## Data representation
 
@@ -454,6 +482,47 @@ group environments:
 | `flac_osopen(og)` | writes the stream header to `og$fp` (STREAMINFO completed at close, VORBIS_COMMENT vendor `wfdb-x`); returns 0. |
 | `flac_putsamp(v, fmt, og)`, `flac_putsamps(v, fmt, og)` | append one sample / a vector of samples in WFDB frame order (values wrapped to 8, 16 or 24 bits as `fmt` says); a frame of 4096 samples per signal is encoded and written whenever available; return 0. |
 | `flac_osclose(og)` | encodes the remaining complete frames (an incomplete last frame is discarded), rewrites STREAMINFO if `og$fp` can seek, sets `og$flac <- NULL` and `og$buf <- raw(0)`; returns 0.  The caller closes `og$fp`. |
+
+## Details of user-visible behavior
+
+The README leaves out these details, which matter when changing the code.
+
+* **Read errors of `read_record`.** Reading stops with the error "can't
+  read signal data of record REC (getvec status S)" when `.getframes`
+  ends with a status below -1 other than -4 (for example -3, a signal
+  file shorter than its header says, or a decoding or I/O error).
+  Reaching the end of the record (-1) before `sampto` is not an error.
+  This applies in legacy mode too, since the high-level API is a wfdb-x
+  addition; `getvec`, `getframes` and the tools are unchanged.
+* **Checksum errors.** Status -4 (the samples are complete, but their sum
+  does not match the header's checksums) is a warning, not an error:
+  `.getframes(n, keep_checksum_frame = TRUE)` keeps the last frame, and
+  `read_record` sets `.sig$cksum_quiet` during the read so that getvec's
+  own "getvec: checksum error in signal N" is not printed. `checksum_ok`
+  is `FALSE` whether or not the warning is on.
+* **Output file identity.** `osigfopen`/`osigopen` refuse an output signal
+  file that is one of the files of the open input record, with "osigfopen:
+  output file NAME is also an input file" (or `osigopen: ...`) and status
+  -3. R has no inode numbers in `file.info()`, so `.same_file` compares
+  normalized paths (`normalizePath`; case-insensitive on Windows) and, for
+  two files of equal size and modification time only, the "dev:ino" given
+  by the `stat` program (`stat -L -c` on GNU, `stat -L -f` on BSD). Legacy
+  mode does not check.
+* **Downloads.** `.fetch(url)` uses the system program `curl` if
+  `Sys.which("curl")` finds it, and base R's `url()` otherwise. Redirects
+  are followed, an HTTP status of 400 or more is a failure, and reading
+  gives up if connecting takes 30 s or no data arrives for 30 s, with no
+  limit on the total time. Each URL is requested at most once per process,
+  failures included.
+* **`write_annotations(sort = TRUE)` in legacy mode** runs the `sortann`
+  tool, as the library's legacy sorting does.
+* **Timings** (R 4.3, `Rscript` command line including start-up): `rdsamp`
+  prints a 650,000-sample, 2-signal format 212 record in about 2 s, and
+  `rdann` 400,000 annotations in about 4.5 s. A `getframes` call has a
+  fixed cost of about 0.05 ms (`sigamp -w 0.01` makes 6,000 measurements
+  of a 1-minute record in about 1.7 s). `write_record` writes 216,000
+  frames of 2 signals in about 0.03-0.08 s, and `read_record` reads them
+  back in about 0.02-0.06 s.
 
 ## Testing
 

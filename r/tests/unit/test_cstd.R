@@ -1,8 +1,16 @@
 # Tests of the C library emulation (cstd.R): integers, parsing, strtok,
 # sscanf, fgets, rand.
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It tests wfdb-x; it has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 # integer types
 expect_equal(cdiv(-7, 2), -3, "cdiv(-7,2)")
@@ -33,7 +41,7 @@ expect_equal(strtol("x 360 rest", 10, 2), c(360, 6), "strtol at pos")
 expect_equal(strtol("017", 0), c(15, 4), "strtol base 0 octal")
 expect_equal(strtol("0x", 0), c(0, 2), "strtol 0x")
 expect_equal(strtol("+", 10), c(0, 1), "strtol sign only")
-expect_equal(strtol("12345678901234567", 10), c(12345678901234567, 18), "strtol long")
+expect_equal(strtol("12345678901234567", 10), c(12345678901234568, 18), "strtol long")  # (the nearest double)
 expect_equal(strtol("zz", 36), c(1295, 3), "strtol base 36")
 expect_equal(strtol("100", 10, 1, -2147483648, 99)[1], 99, "strtol clamp")
 expect_equal(strtol(as.raw(c(49, 50, 0, 51))), c(12, 3), "strtol stops at NUL")
@@ -65,14 +73,17 @@ expect_equal(strtod("-1e400")[1], -Inf, "strtod -overflow")
 expect_equal(strtod("1e-400")[1], 0, "strtod underflow")
 expect_equal(strtod("-0")[1], 0, "strtod -0")
 check(1 / strtod("-0")[1] == -Inf, "strtod -0 sign")
-check(sprintf("%a", strtod("08000.8159627")[1]) == "0x1.f40d0e2ee7741p+12", "strtod correctly rounded")
-check(sprintf("%a", strtod("1.7976931348623158e308")[1]) == "0x1.fffffffffffffp+1023", "strtod DBL_MAX")
+# (expected values built exactly from integers below 2^53 and powers of 2,
+# not from long decimal literals, whose parsing by R is not always
+# correctly rounded: the literal 8000.8159627 is 0x1.f40d0e2ee7742p+12)
+check(identical(strtod("08000.8159627")[1], 0x1f40d0e2ee7741 * 2^-40), "strtod correctly rounded")
+check(identical(strtod("1.7976931348623158e308")[1], (2 - 2^-52) * 2^1023), "strtod DBL_MAX")
 expect_equal(strtod("1.7976931348623159e308")[1], Inf, "strtod rounds to inf")
 expect_equal(strtod("2.4703282292062327e-324")[1], 0, "strtod half min subnormal")
 expect_equal(strtod("2.4703282292062328e-324")[1], 2^-1074, "strtod above half min subnormal")
-check(sprintf("%a", strtod("0x1.00000000000018p0")[1]) == "0x1.0000000000002p+0", "strtod hex rounding")
+check(identical(strtod("0x1.00000000000018p0")[1], 1 + 2^-51), "strtod hex rounding")
 expect_equal(strtod("0x3p-1076")[1], 2^-1074, "strtod hex subnormal")
-expect_equal(strtod("123456789012345678901234567890")[1], 1.2345678901234568e+29, "strtod 30 digits")
+expect_equal(strtod("123456789012345678901234567890")[1], 7017705969039166 * 2^44, "strtod 30 digits")
 
 # strtok
 t <- strtok_new("  a  b\tc\r\n")

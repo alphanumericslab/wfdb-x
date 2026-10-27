@@ -1,28 +1,36 @@
 # Authors
 
 wfdb-x ports the C code of the WFDB Software Package, version 10.7.0
-(`third_party/wfdb-main.zip`), to Python, C++, MATLAB/Octave, Rust, Julia
-and R. **wfdb-x was developed by Reza Sameni (2026), with AI assistance in its
-implementation; the C code it ports was written by George B. Moody,
+(`third_party/wfdb-main.zip`), to Python, C++, MATLAB/Octave, Rust, Julia,
+R and Kotlin. **wfdb-x was developed by Reza Sameni (2026), through AI-assisted
+development, cross-language verification and unit testing; the C code it ports was written by George B. Moody,
 Benjamin Moody and the other authors credited below.** This file says who wrote the C code
 that each part of wfdb-x is a port of.
 
 ## File headers
 
-The header comment of every wfdb-x source file gives the same credit in
-short form:
+The header comment of every wfdb-x source file that translates a C file
+gives the same credit in short form, in the same order in every language:
 
-1. the original C authors and copyright of the C file it ports (for
-   example, "Copyright (C) 1989-2013 George B. Moody (original C
-   implementation, lib/signal.c; revised 2011-2022 by Benjamin Moody, ...)");
-2. the line "*Language* implementation part of wfdb-x, Reza Sameni, Oct
-   2026." (for example, "Python implementation part of wfdb-x, Reza Sameni,
-   Oct 2026.");
-3. the license: LGPL-2+ for the library, GPL-2+ for the tools.
+1. that the file is part of wfdb-x, an independent reimplementation of the
+   WFDB Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and
+   Kotlin;
+2. the C file or files it translates and their authors (for example, "It is
+   a Python translation of lib/annot.c from the WFDB Software Package
+   10.7.0, by George B. Moody");
+3. "Changes from the original": how the file differs from the C code (each
+   change is marked "wfdb-x:" in the code, and
+   [`DIVERGENCES.md`](DIVERGENCES.md) gives the reasons), or "none, apart
+   from the language";
+4. the copyright of the C file, with its revisers (for example, "Copyright
+   (C) 1989-2013 George B. Moody; revised 2015-2020 by Benjamin Moody"), and
+   "*Language* translation and changes: Copyright (C) 2026 Reza Sameni";
+5. the license: the GNU General Public License, version 3 or later.
 
 Tests and other code with no C original (see
-[below](#code-that-wfdb-x-doesnt-port-from-a-wfdb-c-file)) carry only the
-wfdb-x line and the license.
+[below](#code-that-wfdb-x-doesnt-port-from-a-wfdb-c-file)) say instead that
+they have no counterpart in the original package, and carry only the wfdb-x
+copyright and the license.
 
 ## Where these credits come from
 
@@ -50,11 +58,11 @@ wfdb-x line and the license.
   acknowledgments in `NEWS`, `README.NETFILES` and the WFDB Programmer's
   Guide.
 
-Licenses: the library (`lib/`) is under the GNU Library General Public
-License, version 2 or later (`lib/COPYING.LIB`; in wfdb-x, `LICENSE.LIB`).
-The applications (`app/`, `convert/`) are under the GNU General Public
-License, version 2 or later (`COPYING`; in wfdb-x, `LICENSE`). This was
-checked in each file's own notice. The one exception is `ahaecg2mit.c`,
+Licenses of the C package: the library (`lib/`) is under the GNU Library
+General Public License, version 2 or later (`lib/COPYING.LIB`). The
+applications (`app/`, `convert/`) are under the GNU General Public License,
+version 2 or later (`COPYING`). This was checked in each file's own
+notice. The one exception is `ahaecg2mit.c`,
 which has no notice; it is covered by the package's `COPYING` (GPL), like
 the rest of `convert/`.
 
@@ -119,16 +127,16 @@ the rest of `convert/`.
 
 Some files are wfdb-x's own code and credit no C author. These include the C
 standard-library emulation (`_cstd.py`, `rust/src/cstd*`,
-`matlab/+wfdbx/+internal/c*.m`, ...), the high-level APIs, the command-line drivers and the tests.
+`matlab/+wfdbx/+internal/c*.m`, `kotlin/src/commonMain/kotlin/wfdbx/cstd/`, ...), the high-level APIs, the command-line drivers and the tests.
 
-The FLAC codec (`cpp/src/flac.cpp`, `rust/src/flac.rs`, the codec parts of
-`python/src/wfdbx/_flac.py`, `julia/src/flac.jl` and `r/R/flac.R`, and the
-MATLAB `flac_crc`, `flac_decode`, `flac_encode_frame` and `flac_streaminfo`
-functions) is also wfdb-x's own: an
-independent implementation of the FLAC format. The C library uses libFLAC
-instead. The code that connects FLAC to the WFDB signal functions is
-different: it ports the FLAC support of `lib/signal.c` written by Benjamin
-Moody, and is credited to him.
+The FLAC codec (`cpp/src/flac.cpp`, `rust/src/flac.rs`, `julia/src/flac.jl`,
+`kotlin/src/commonMain/kotlin/wfdbx/Flac.kt`, the codec parts of
+`python/src/wfdbx/_flac.py` and `r/R/flac.R`, and the MATLAB `flac_crc`,
+`flac_decode`, `flac_encode_frame`, `flac_streaminfo` and `flac_block_end`
+functions) is also wfdb-x's own: an independent implementation of the FLAC
+format. The C library uses libFLAC instead. The code that connects FLAC to
+the WFDB signal functions is different: it translates the FLAC support of
+`lib/signal.c`, written by Benjamin Moody (2020), and is credited to him.
 
 ## Package-level acknowledgments
 
@@ -163,9 +171,9 @@ The guide also credits several pieces of work that wfdb-x doesn't port:
 
 ## wfdb-x
 
-The Python, C++, MATLAB/Octave, Rust, Julia and R reimplementations were
-developed by Reza Sameni (2026), with AI assistance (see "How wfdb-x was
-developed" in the project README). They are distributed under the same
-licenses as the C code they port: the library under the GNU Library General
-Public License, version 2 or later (`LICENSE.LIB`), and the tools under the
-GNU General Public License, version 2 or later (`LICENSE`).
+The Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin reimplementations were
+developed by Reza Sameni (2026), through AI-assisted development,
+cross-language verification and unit testing (see "How wfdb-x was
+developed" in the project README). They are distributed under the GNU
+General Public License, version 3 or later (`LICENSE`), which the "or later"
+terms of the C code's licenses allow.

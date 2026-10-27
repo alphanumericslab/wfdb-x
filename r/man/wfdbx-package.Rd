@@ -4,38 +4,43 @@
 \docType{package}
 \title{wfdb-x: The WFDB Software Package in Pure R}
 \description{
-  The \pkg{wfdbx} package is the R implementation of wfdb-x, a
-  reimplementation of the WFDB Software Package 10.7.0 (the WFDB library
-  and its command-line tools).  It reads and writes the signal, header and
-  annotation files used by PhysioNet and its databases, in all WFDB
-  formats (including EDF and FLAC-compressed signals), exactly as the
-  original C library does.  It is written in base R only: there is
-  nothing to compile and no other package is needed.
+  The \pkg{wfdbx} package reads and writes physiological signal records
+  in the WFDB format used by PhysioNet.  It is a complete R
+  implementation of the WFDB Software Package 10.7.0: the library and all
+  of its command-line tools.  It reads and writes the same files as the
+  original C library, and its tools print the same output.  It is written
+  in base R only.
 
-  One deliberate difference: wfdb-x never assumes a sampling frequency, a
-  gain, an ADC resolution or units (the C library assumes 250 Hz, 200
-  adu/mV, 12 bits and millivolts); functions and tools that need one that
-  is not specified report an error.  See
-  \file{docs/DIVERGENCES.md} in the wfdb-x sources, \code{\link{strtim}}
-  and \code{\link{read_record}}.  The original behavior remains available,
-  for compatibility only, in legacy mode (see
-  \code{\link{wfdbx_set_legacy}}).
+  wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+  that a record does not give.  Where one is needed, you must give it.
+  Legacy mode (\code{\link{wfdbx_set_legacy}}) reproduces the original
+  package exactly.  See
+  \url{https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md}.
 }
 \details{
-  The package offers three levels of access.
+  You can use the package in three ways.
 
   \strong{High-level functions.}  \code{\link{read_record}},
   \code{\link{read_header}} and \code{\link{write_record}} read and write
-  whole records (signals as a matrix);
+  whole records, with the signals as a matrix.
   \code{\link{read_annotations}} and \code{\link{write_annotations}} read
-  and write whole annotation files (as a data frame).  Most users only
-  need these.
+  and write whole annotation files, as a data frame.
 
-  \strong{The WFDB library.}  The functions of the C library are available
-  under their C names and with their C semantics, as described in the
-  \emph{WFDB Programmer's Guide}
-  (\url{https://physionet.org/physiotools/wpg/}).  They are grouped in
-  these help pages:
+  \strong{Command-line tools.}  The tools (\command{rdsamp},
+  \command{rdann}, \command{wrsamp}, \command{wfdbdesc}, \command{xform},
+  \command{mit2edf}, ...) are run from R with \code{\link{wfdbx_tool}}, or
+  from a shell with the driver script installed with the package.  This
+  command describes the sample record \code{100s} (the first minute of
+  record 100 of the MIT-BIH Arrhythmia Database, included with wfdb-x in
+  the \file{tests/data} directory of a copy of the repository), read from
+  that directory:
+  \preformatted{WFDBX_INPUT_DIR=wfdb-x/tests/data \\
+  Rscript "$(Rscript -e 'cat(system.file("bin", "wfdbx.R", package = "wfdbx"))')" wfdbdesc 100s}
+
+  \strong{The WFDB library functions.}  The functions of the C library
+  are available under their C names, as described in the \emph{WFDB
+  Programmer's Guide} (\url{https://physionet.org/physiotools/wpg/}).
+  They are grouped in these help pages:
   \itemize{
     \item \code{\link{isigopen}}: opening records, reading and writing
       samples, header files, info strings, unit conversion;
@@ -45,49 +50,31 @@
     \item \code{\link{ecgcodes}} and \code{\link{isann}}: annotation codes
       and their classification;
     \item \code{\link{calopen}}: the calibration list;
-    \item \code{\link{getwfdb}}: finding files (the input and output
-      directories, network access; the WFDB path in legacy mode), error
-      messages and version information;
+    \item \code{\link{getwfdb}}: finding files, error messages and version
+      information;
     \item \code{\link{siginfo}}: the structures used by these functions.
   }
-  The translation from C follows a few simple rules.  All numbers are
-  doubles.  Signal, signal-group and annotator numbers start at 0, as in
-  C.  C structures are lists with the C field names, and C \code{NULL} is
-  \code{NULL}.  Functions that fill arrays supplied by the caller in C
-  return them instead, usually together with the C return value: for
-  example \code{isigopen} returns \code{list(nsig, si)} and \code{getvec}
-  returns \code{list(stat, v)}.  Errors are reported as in C, by a
-  negative return value and a message on the standard error output (see
-  \code{\link{wfdbquiet}}), not by R errors.  The C function
-  \code{sample} is exported as \code{\link{wfdb_sample}}, so as not to
-  mask \code{base::sample}.  In addition, \code{\link{getframes}} and
-  \code{\link{putframes}} read and write many sample vectors at once.
+  Numbers are doubles.  Signal, group and annotator numbers start at 0, as
+  in C.  C structures are lists with the C field names, and C \code{NULL}
+  is \code{NULL}.  A function that fills arrays in C returns them: for
+  example, \code{isigopen} returns \code{list(nsig, si)} and
+  \code{getvec} returns \code{list(stat, v)}.  Errors are reported by
+  return values and messages, as in C (see \code{\link{wfdbquiet}}), not
+  by R errors.  The C function \code{sample} is
+  \code{\link{wfdb_sample}}.  \code{\link{getframes}} and
+  \code{\link{putframes}} read and write many frames at once.
 
-  \strong{The command-line tools.}  The WFDB tools (\command{rdsamp},
-  \command{rdann}, \command{wrsamp}, \command{wfdbdesc},
-  \command{xform}, \command{mit2edf}, ...) are run from R with
-  \code{\link{wfdbx_tool}}, or from a shell with the driver script
-  installed with the package, for example:
-  \preformatted{Rscript "$(Rscript -e 'cat(system.file("bin", "wfdbx.R", package = "wfdbx"))')" wfdbdesc 100s}
-  They accept the same options and produce the same output, byte for
-  byte, as the C programs.
-
-  Files are found by explicit names (see \code{\link{getwfdb}}): every
-  relative name is read under the input directory and written under the
-  output directory (by default, the current directory); a full path, a
-  \code{~} path or a URL is used as given; nothing else is searched.
-  Records on web servers (such as PhysioNet,
-  \samp{https://physionet.org/files/<database>/<version>/}) are read only
-  if network access is allowed (\code{\link{wfdbx_set_network}}).  Legacy
-  mode keeps the original search of the WFDB path, without network
-  access.
+  \strong{Where files are read and written.}  A full path, a \code{~} path
+  or a URL is used as given.  Any other name is read from the input
+  directory and written to the output directory, both the current
+  directory by default.  URLs, such as the PhysioNet databases at
+  \samp{https://physionet.org/files/<database>/<version>/}, are read only
+  when network access is on.  See \code{\link{wfdbx_set_input_dir}}.
 }
 \section{License}{
-  The library code is distributed under the GNU Library General Public
-  License, version 2 or later (file \file{LICENSE.LIB}), and the tools
-  under the GNU General Public License, version 2 or later (file
-  \file{COPYING} in the installed package, \file{LICENSE} in the
-  sources).
+  wfdb-x is distributed under the GNU General Public License, version 3
+  or later (file \file{COPYING} in the installed package, \file{LICENSE}
+  in the sources).
 }
 \author{
   The WFDB library and tools were written by George B. Moody, with
@@ -95,7 +82,16 @@
   \command{parsescp} by George B. Moody and Edna S. Moody, and
   \file{ecgcodes.h} and \command{rdann} by T. Baker and G. Moody (see
   \file{docs/AUTHORS.md} in the wfdb-x sources).  The R implementation was
-  written by Reza Sameni (October 2026).
+  developed by Reza Sameni (2026), through AI-assisted development,
+  cross-language verification and unit testing.
+
+  wfdb-x is an independent reimplementation.  Its R code is a translation
+  of the C code of the WFDB Software Package into R, written for wfdb-x;
+  it is not code by the original WFDB developers.  It follows the
+  original's logic and behavior, with the changes described in
+  \url{https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md}.
+  The authors of the original C code are credited in each file and in
+  \url{https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md}.
 
   Maintainer: Reza Sameni \email{reza.sameni@gmail.com}
 }
@@ -112,8 +108,9 @@
   \code{\link{wfdbx_tool}}.
 }
 \examples{
-## Write a small two-signal record in a temporary directory, then read it
-## back with the high-level and the low-level functions.
+## Write a small two-signal record, "demo" (written by this example), in a
+## temporary directory, then read it back with the high-level and the
+## low-level functions.
 old <- setwd(tempdir())
 x <- cbind(round(100 * sin(2 * pi * (0:999) / 250)), (0:999) \%\% 50)
 write_record("demo", x, fs = 250, gains = 200, adcres = 16, names = c("sine", "ramp"),

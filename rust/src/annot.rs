@@ -17,19 +17,31 @@
 //! `sortann` program (in legacy mode, by running `sortann`,
 //! [`crate::wfdbio::run_sortann`], as the C library does).
 //
-// Copyright (C) 1989-2013 George B. Moody (original C implementation,
-// lib/annot.c; revised 2015-2020 by Benjamin Moody).
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// Design decision (Reza Sameni, after a code review, Oct 2026): oannclose
-// rearranges an out-of-order output annotation file itself, in the same
-// process (sort_ann_file), with a result identical to that of the sortann
-// program, which the C library ran through the shell (and found only if it
-// was in the PATH). The sort (AnnList, shared with the sortann tool) no
-// longer loses out-of-order annotations at time 0, which the original
-// insertion took for duplicates of its list head (decided by Reza Sameni,
-// Oct 2026). The original behavior remains available with --legacy (see
-// docs/DIVERGENCES.md).
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a Rust translation of lib/annot.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original code, but it is new code, not the original C code.
+//
+// Changes from the original: oannclose sorts an out-of-order output annotation
+// file in this process, with the same result as the sortann program, which the
+// original ran through the shell; the sort does not lose an out-of-order
+// annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
+// option of the high-level write_annotations decides, for its call, whether
+// the file is sorted; legacy mode (wfdbx_set_legacy) restores the original
+// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// gives the reasons.
+//
+// Original C code: lib/annot.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by
+//   Benjamin Moody.
+// Rust translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use crate::cformat;
 use crate::cstd;
@@ -240,7 +252,7 @@ impl OaData {
 /// and flags marking the modified types. [`AnnState`] holds that of the
 /// library; `sort_ann_file` uses one of its own.
 #[derive(Clone, Debug)]
-struct AnnDefs {
+pub(crate) struct AnnDefs {
     /// Mnemonic strings for each code.
     astring: Vec<Vec<u8>>,
     /// Descriptions for each code.
@@ -866,10 +878,16 @@ impl Wfdb {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use wfdbx::{Annotation, Anninfo, Wfdb, WFDB_READ};
     ///
     /// let mut w = Wfdb::new();
+    /// // The sample record 100s, the first minute of record 100 of the MIT-BIH
+    /// // Arrhythmia Database, included with wfdb-x in tests/data:
+    /// # w.wfdbx_set_input_dir("../tests/data");
+    /// # /*
+    /// w.wfdbx_set_input_dir("tests/data"); // from the repository root
+    /// # */
     /// let ai = Anninfo { name: b"atr".to_vec(), stat: WFDB_READ };
     /// if w.annopen("100s", &[ai], 1) == 0 {
     ///     let mut a = Annotation::default();
@@ -880,6 +898,11 @@ impl Wfdb {
     /// }
     /// w.wfdbquit();
     /// ```
+    ///
+    /// Translation of the C function annopen() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: the annotation files are found
+    /// only where they are named, not by a search of the WFDB path; see
+    /// docs/DIVERGENCES.md.
     pub fn annopen(&mut self, record: impl OptBytes, aiarray: &[Anninfo], nann: u32) -> i32 {
         self.ann.annclose_error = 0;
         let mut record = record.opt_bytes().map(cstd::cstr).unwrap_or(b"");
@@ -1016,6 +1039,9 @@ impl Wfdb {
     /// following annotation has been read: where C would return aux data
     /// partly overwritten by those of the following annotation, so does
     /// this function.
+    ///
+    /// Translation of the C function getann() (lib/annot.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn getann(&mut self, n: u32, annot: &mut Annotation) -> i32 {
         let Some(ia) = self.ann.iad.get_mut(n as usize) else {
             self.wfdb_error(cformat!(b"getann: can't read annotator %d\n", n));
@@ -1031,6 +1057,9 @@ impl Wfdb {
     /// annotator `n`, so that the next `getann` returns it (one annotation
     /// at most). Returns 0, -1 if the push-back buffer is full, -2 if `n`
     /// is not an open input annotator.
+    ///
+    /// Translation of the C function ungetann() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn ungetann(&mut self, n: u32, annot: &Annotation) -> i32 {
         let Some(ia) = self.ann.iad.get_mut(n as usize) else {
             self.wfdb_error(cformat!(b"ungetann: annotator %d is not initialized\n", n));
@@ -1052,6 +1081,9 @@ impl Wfdb {
     /// C `putann(n, &annot)`: writes an annotation to output annotator `n`.
     /// Returns 0, -1 on a write error (or a time overflow), -2 if `n` is
     /// not an open output annotator.
+    ///
+    /// Translation of the C function putann() (lib/annot.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn putann(&mut self, n: u32, annot: &Annotation) -> i32 {
         let nu = n as usize;
         if nu >= self.ann.oad.len() {
@@ -1079,6 +1111,9 @@ impl Wfdb {
     /// values are treated as positive, except `WFDB_TIME_MIN`, which
     /// rewinds to the very beginning). Returns 0, or -1 if no input
     /// annotator remains valid.
+    ///
+    /// Translation of the C function iannsettime() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn iannsettime(&mut self, mut t: i64) -> i32 {
         let mut stat = 0;
         let mut niavalid = self.ann.iad.len() as i32;
@@ -1139,6 +1174,9 @@ impl Wfdb {
 
     /// C `ecgstr(code)`: the fixed mnemonic of an annotation code (`[N]`
     /// for codes outside 0..=ACMAX).
+    ///
+    /// Translation of the C function ecgstr() (lib/annot.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn ecgstr(&mut self, code: i32) -> Vec<u8> {
         if (0..=ACMAX).contains(&code) {
             self.ann.cstring[code as usize].clone()
@@ -1149,6 +1187,9 @@ impl Wfdb {
 
     /// C `strecg(str)`: the annotation code of a fixed mnemonic
     /// (`NOTQRS` if none).
+    ///
+    /// Translation of the C function strecg() (lib/annot.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn strecg(&mut self, s: impl OptBytes) -> i32 {
         let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
         (1..=ACMAX)
@@ -1159,6 +1200,9 @@ impl Wfdb {
     /// C `setecgstr(code, string)`: modifies the fixed mnemonic of an
     /// annotation code (the one `ecgstr` and `strecg` use). Returns 0, or
     /// -1 if `code` is outside 0..=ACMAX.
+    ///
+    /// Translation of the C function setecgstr() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setecgstr(&mut self, code: i32, s: impl OptBytes) -> i32 {
         if (NOTQRS..=ACMAX).contains(&code) {
             let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
@@ -1169,8 +1213,23 @@ impl Wfdb {
         -1
     }
 
+    /// wfdb-x (for `check_record`): the annotation mnemonics and
+    /// descriptions, to be restored by [`Wfdb::wfdbx_restore_ann_defs`].
+    pub(crate) fn wfdbx_save_ann_defs(&self) -> AnnDefs {
+        self.ann.defs.clone()
+    }
+
+    /// wfdb-x (for `check_record`): restores the annotation mnemonics and
+    /// descriptions saved by [`Wfdb::wfdbx_save_ann_defs`].
+    pub(crate) fn wfdbx_restore_ann_defs(&mut self, defs: AnnDefs) {
+        self.ann.defs = defs;
+    }
+
     /// C `annstr(code)`: the (possibly redefined) mnemonic of an annotation
     /// code (`[N]` for codes outside 0..=ACMAX).
+    ///
+    /// Translation of the C function annstr() (lib/annot.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn annstr(&mut self, code: i32) -> Vec<u8> {
         if (0..=ACMAX).contains(&code) {
             self.ann.defs.astring[code as usize].clone()
@@ -1181,6 +1240,9 @@ impl Wfdb {
 
     /// C `strann(str)`: the annotation code of a mnemonic (`NOTQRS` if
     /// none).
+    ///
+    /// Translation of the C function strann() (lib/annot.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn strann(&mut self, s: impl OptBytes) -> i32 {
         let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
         (1..=ACMAX)
@@ -1193,6 +1255,9 @@ impl Wfdb {
     /// modification labels of output annotation files written later; with
     /// a negative code (-code is modified), it is not. Returns 0, or -1 if
     /// the code is outside 0..=ACMAX.
+    ///
+    /// Translation of the C function setannstr() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setannstr(&mut self, code: i32, s: impl OptBytes) -> i32 {
         let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
         if self.ann.defs.set(false, code, s) == 0 {
@@ -1206,6 +1271,9 @@ impl Wfdb {
     /// C `anndesc(code)`: the description of an annotation code (`None` if
     /// it has none; `illegal annotation code` for codes outside
     /// 0..=ACMAX).
+    ///
+    /// Translation of the C function anndesc() (lib/annot.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn anndesc(&mut self, code: i32) -> Option<Vec<u8>> {
         if (0..=ACMAX).contains(&code) {
             self.ann.defs.tstring[code as usize].clone()
@@ -1217,6 +1285,9 @@ impl Wfdb {
     /// C `setanndesc(code, string)`: redefine the description of an
     /// annotation code (see [`Wfdb::setannstr`] for the sign of `code`).
     /// Returns 0, or -1 if the code is outside 0..=ACMAX.
+    ///
+    /// Translation of the C function setanndesc() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setanndesc(&mut self, code: i32, s: impl OptBytes) -> i32 {
         let s = s.opt_bytes().map(cstd::cstr).unwrap_or(b"");
         if self.ann.defs.set(true, code, s) == 0 {
@@ -1232,17 +1303,26 @@ impl Wfdb {
 
     /// C `setafreq(f)`: set the time resolution (ticks per second) of
     /// output annotation files opened later (0: the sampling frequency).
+    ///
+    /// Translation of the C function setafreq() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setafreq(&mut self, f: f64) {
         self.ann.oafreq = f;
     }
 
     /// C `getafreq()`: the time resolution of output annotation files.
+    ///
+    /// Translation of the C function getafreq() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn getafreq(&mut self) -> f64 {
         self.ann.oafreq
     }
 
     /// C `setiafreq(n, f)`: set the time resolution in which the times of
     /// the annotations of input annotator `n` are returned.
+    ///
+    /// Translation of the C function setiafreq() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setiafreq(&mut self, n: u32, f: f64) {
         let nu = n as usize;
         if nu >= self.ann.iad.len() {
@@ -1269,6 +1349,9 @@ impl Wfdb {
 
     /// C `getiafreq(n)`: the time resolution of the annotation times
     /// returned for input annotator `n` (-2 if `n` is not open).
+    ///
+    /// Translation of the C function getiafreq() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn getiafreq(&mut self, n: u32) -> f64 {
         let nu = n as usize;
         if nu < self.ann.iad.len() {
@@ -1283,6 +1366,9 @@ impl Wfdb {
 
     /// C `getiaorigfreq(n)`: the time resolution recorded in the file of
     /// input annotator `n` (0 if none; -2 if `n` is not open).
+    ///
+    /// Translation of the C function getiaorigfreq() (lib/annot.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn getiaorigfreq(&mut self, n: u32) -> f64 {
         match self.ann.iad.get(n as usize) {
             Some(ia) => ia.afreq,
@@ -1295,6 +1381,9 @@ impl Wfdb {
 
     /// C `iannclose(n)`: close input annotator `n` (the annotators after it
     /// are renumbered, as in C).
+    ///
+    /// Translation of the C function iannclose() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn iannclose(&mut self, n: u32) {
         let nu = n as usize;
         if nu < self.ann.iad.len() {
@@ -1309,6 +1398,11 @@ impl Wfdb {
     /// wfdb-x: in this process, with the result of the `sortann` program
     /// (see [`AnnList`]); in legacy mode, as in C, by running `sortann`
     /// ([`run_sortann`]).
+    ///
+    /// Translation of the C function oannclose() (lib/annot.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: an out-of-order file is sorted
+    /// in this process, without losing annotations, instead of by running
+    /// sortann; see docs/DIVERGENCES.md.
     pub fn oannclose(&mut self, n: u32) {
         let nu = n as usize;
         if nu >= self.ann.oad.len() {
@@ -1374,7 +1468,9 @@ impl Wfdb {
                 }
             }
         }
-        if out_of_order {
+        // wfdb-x: no advice to run sortann when the caller of
+        // write_annotations chose not to sort.
+        if out_of_order && self.ann.sort_override != Some(false) {
             self.wfdb_error(cformat!(
                 b"Use the command:\n  sortann -r %s -a %s\n",
                 oa.rname,
@@ -1659,101 +1755,165 @@ fn sort_ann_file(fname: &[u8], aname: &[u8], msgs: &mut Msgs) -> i32 {
 // Free functions (default instance)
 
 /// C `annopen` on the default instance (see [`Wfdb::annopen`]).
+///
+/// Translation of the C function annopen() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results. Differences: the annotation files are found only
+/// where they are named, not by a search of the WFDB path; see
+/// docs/DIVERGENCES.md.
 pub fn annopen(record: impl OptBytes, aiarray: &[Anninfo], nann: u32) -> i32 {
     with_default(|w| w.annopen(record, aiarray, nann))
 }
 
 /// C `getann` on the default instance (see [`Wfdb::getann`]).
+///
+/// Translation of the C function getann() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getann(n: u32, annot: &mut Annotation) -> i32 {
     with_default(|w| w.getann(n, annot))
 }
 
 /// C `ungetann` on the default instance (see [`Wfdb::ungetann`]).
+///
+/// Translation of the C function ungetann() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn ungetann(n: u32, annot: &Annotation) -> i32 {
     with_default(|w| w.ungetann(n, annot))
 }
 
 /// C `putann` on the default instance (see [`Wfdb::putann`]).
+///
+/// Translation of the C function putann() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn putann(n: u32, annot: &Annotation) -> i32 {
     with_default(|w| w.putann(n, annot))
 }
 
 /// C `iannsettime` on the default instance (see [`Wfdb::iannsettime`]).
+///
+/// Translation of the C function iannsettime() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn iannsettime(t: i64) -> i32 {
     with_default(|w| w.iannsettime(t))
 }
 
 /// C `ecgstr` on the default instance (see [`Wfdb::ecgstr`]).
+///
+/// Translation of the C function ecgstr() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn ecgstr(code: i32) -> Vec<u8> {
     with_default(|w| w.ecgstr(code))
 }
 
 /// C `strecg` on the default instance (see [`Wfdb::strecg`]).
+///
+/// Translation of the C function strecg() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn strecg(s: impl OptBytes) -> i32 {
     with_default(|w| w.strecg(s))
 }
 
 /// C `setecgstr` on the default instance (see [`Wfdb::setecgstr`]).
+///
+/// Translation of the C function setecgstr() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setecgstr(code: i32, s: impl OptBytes) -> i32 {
     with_default(|w| w.setecgstr(code, s))
 }
 
 /// C `annstr` on the default instance (see [`Wfdb::annstr`]).
+///
+/// Translation of the C function annstr() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn annstr(code: i32) -> Vec<u8> {
     with_default(|w| w.annstr(code))
 }
 
 /// C `strann` on the default instance (see [`Wfdb::strann`]).
+///
+/// Translation of the C function strann() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn strann(s: impl OptBytes) -> i32 {
     with_default(|w| w.strann(s))
 }
 
 /// C `setannstr` on the default instance (see [`Wfdb::setannstr`]).
+///
+/// Translation of the C function setannstr() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setannstr(code: i32, s: impl OptBytes) -> i32 {
     with_default(|w| w.setannstr(code, s))
 }
 
 /// C `anndesc` on the default instance (see [`Wfdb::anndesc`]).
+///
+/// Translation of the C function anndesc() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn anndesc(code: i32) -> Option<Vec<u8>> {
     with_default(|w| w.anndesc(code))
 }
 
 /// C `setanndesc` on the default instance (see [`Wfdb::setanndesc`]).
+///
+/// Translation of the C function setanndesc() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setanndesc(code: i32, s: impl OptBytes) -> i32 {
     with_default(|w| w.setanndesc(code, s))
 }
 
 /// C `setafreq` on the default instance (see [`Wfdb::setafreq`]).
+///
+/// Translation of the C function setafreq() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setafreq(f: f64) {
     with_default(|w| w.setafreq(f));
 }
 
 /// C `getafreq` on the default instance (see [`Wfdb::getafreq`]).
+///
+/// Translation of the C function getafreq() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getafreq() -> f64 {
     with_default(super::wfdb::Wfdb::getafreq)
 }
 
 /// C `setiafreq` on the default instance (see [`Wfdb::setiafreq`]).
+///
+/// Translation of the C function setiafreq() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setiafreq(n: u32, f: f64) {
     with_default(|w| w.setiafreq(n, f));
 }
 
 /// C `getiafreq` on the default instance (see [`Wfdb::getiafreq`]).
+///
+/// Translation of the C function getiafreq() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getiafreq(n: u32) -> f64 {
     with_default(|w| w.getiafreq(n))
 }
 
 /// C `getiaorigfreq` on the default instance (see [`Wfdb::getiaorigfreq`]).
+///
+/// Translation of the C function getiaorigfreq() (lib/annot.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn getiaorigfreq(n: u32) -> f64 {
     with_default(|w| w.getiaorigfreq(n))
 }
 
 /// C `iannclose` on the default instance (see [`Wfdb::iannclose`]).
+///
+/// Translation of the C function iannclose() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn iannclose(n: u32) {
     with_default(|w| w.iannclose(n));
 }
 
 /// C `oannclose` on the default instance (see [`Wfdb::oannclose`]).
+///
+/// Translation of the C function oannclose() (lib/annot.c, WFDB 10.7.0): same
+/// arguments and results. Differences: an out-of-order file is sorted in this
+/// process, without losing annotations, instead of by running sortann; see
+/// docs/DIVERGENCES.md.
 pub fn oannclose(n: u32) {
     with_default(|w| w.oannclose(n));
 }

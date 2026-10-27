@@ -3,8 +3,16 @@
 //! and `cpp/tests/test_api_c.cpp`. The expected values were produced by the
 //! original C library.
 //
-// Part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU General Public License, version 2 or later (see LICENSE).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It tests wfdb-x; it has no counterpart in the original package.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -1110,4 +1118,109 @@ fn sort_time0() {
     if let Some(p) = path {
         std::env::set_var("PATH", p);
     }
+}
+
+// ---------------------------------------------------------------------------
+// wfdb-x: read_annotations reports a truncated or unreadable annotation file
+
+/// Reads annotator `an` of record `rec` with getann: the times read and the
+/// final status (`None` if annopen fails).
+fn getann_all(w: &mut Wfdb, rec: &str, an: &str) -> Option<(Vec<i64>, i32)> {
+    w.wfdbquit();
+    if w.annopen(rec, &ai(an, WFDB_READ), 1) < 0 {
+        w.wfdbquit();
+        return None;
+    }
+    let mut a = Annotation::default();
+    let mut t = Vec::new();
+    let stat = loop {
+        let s = w.getann(0, &mut a);
+        if s != 0 {
+            break s;
+        }
+        t.push(a.time);
+    };
+    w.wfdbquit();
+    Some((t, stat))
+}
+
+#[test]
+fn read_annotations_truncated() {
+    let d = DataDir::new("trunc");
+    let mut w = d.wfdb();
+    w.wfdbquiet();
+    let o = record::WriteOptions {
+        gains: vec![100.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    w.write_record("tr", &[1; 3000], 1, 100.0, &o).unwrap();
+    // an aux string, and an interval that needs a SKIP
+    let a = record::Annotations {
+        samples: vec![10, 20, 2000, 2010],
+        codes: vec![1, 5, 1, 1],
+        aux: vec![None, Some(b"(AFIB".to_vec()), None, None],
+        ..Default::default()
+    };
+    w.write_annotations("tr", "atr", &a, 0.0, None).unwrap();
+    let full = std::fs::read("tr.atr").unwrap();
+    // a complete file reads as before
+    let r = w
+        .read_annotations("tr", "atr", None, None, None, false)
+        .unwrap();
+    assert_eq!(r.samples, a.samples);
+    assert_eq!(r.codes, a.codes);
+    assert_eq!(r.aux, a.aux);
+    let mut errors = 0;
+    for k in 0..full.len() {
+        std::fs::write("tr.atr", &full[..k]).unwrap();
+        let g = getann_all(&mut w, "tr", "atr");
+        for legacy in [false, true] {
+            let r = w.read_annotations("tr", "atr", None, None, None, legacy);
+            match &g {
+                None => assert!(r.is_err(), "cut {k}"),
+                Some((t, -1)) => assert_eq!(&r.unwrap().samples, t, "cut {k}"),
+                Some((_, s)) => {
+                    errors += 1;
+                    assert_eq!(
+                        r.unwrap_err().message(),
+                        format!("can't read annotation file atr of record tr (getann status {s})"),
+                        "cut {k}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(errors > 0);
+    // the EOF word removed: an error, with getann's own message recorded
+    std::fs::write("tr.atr", &full[..full.len() - 2]).unwrap();
+    let e = w
+        .read_annotations("tr", "atr", None, None, None, false)
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "can't read annotation file atr of record tr (getann status -3)"
+    );
+    assert_eq!(w.wfdberror(), b"getann: unexpected EOF in annotator atr\n");
+    // the annotator is closed: the record can be read again
+    assert!(w.read_header("tr", false).is_ok());
+    // a read that stops before the truncation is not an error
+    let r = w
+        .read_annotations("tr", "atr", None, Some("s2000".into()), None, false)
+        .unwrap();
+    assert_eq!(r.samples, [10, 20]);
+    // getann reports the missing EOF word when it reads the annotation at
+    // 2010: a read to 2010 is an error
+    assert_eq!(
+        getann_all(&mut w, "tr", "atr"),
+        Some((vec![10, 20, 2000], -3))
+    );
+    let e = w
+        .read_annotations("tr", "atr", None, Some("s2010".into()), None, false)
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "can't read annotation file atr of record tr (getann status -3)"
+    );
 }

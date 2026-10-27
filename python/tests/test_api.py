@@ -7,11 +7,16 @@ that program; run it to see the values).  The C++ and MATLAB/Octave
 counterparts of these tests are cpp/tests/test_api_c.cpp and
 matlab/tests/test_api_c.m.
 
-Part of wfdb-x, Reza Sameni, Oct 2026.
-This program is free software; you can redistribute it and/or modify it under
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+tests wfdb-x; it has no counterpart in the original package.
+
+Copyright (C) 2026 Reza Sameni.
+
+This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
-version.
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import math

@@ -21,7 +21,7 @@
    printed as (null).  Doubles are printed with %.17g.
 
    Part of wfdb-x, Reza Sameni, Oct 2026.
-   GNU General Public License, version 2 or later (see LICENSE). */
+   GNU General Public License, version 3 or later (see LICENSE). */
 
 #include <stdio.h>
 #include <stdlib.h>

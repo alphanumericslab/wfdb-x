@@ -1,15 +1,28 @@
-# wrann: translate an ASCII annotation file to binary format (port of
-# app/wrann.c).
+# wrann: translate an ASCII annotation file to binary format.
 #
 # The input is in the format produced by rdann. Where the C program has
 # undefined behavior (a line with no space after column 9, or a mnemonic
-# longer than 9 characters), this port treats the remainder of the line as
-# empty, and uses the full mnemonic (see docs/KNOWN_C_BEHAVIORS.md).
+# longer than 9 characters), this translation treats the remainder of the
+# line as empty, and uses the full mnemonic (see docs/KNOWN_C_BEHAVIORS.md).
 #
-# Copyright (C) 1983-2010 George B. Moody (original C program, app/wrann.c;
-# revised 2018 by Benjamin Moody).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is a Julia translation of app/wrann.c from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior of
+# the original program, but it is new code, not the original C code.
+#
+# Changes from the original: none, apart from the language and the --legacy
+# option (as the first argument, it restores the original behavior).
+#
+# Original C program: app/wrann.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1983-2010 George B. Moody; revised 2018 by Benjamin Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 const _WRANN_LINELEN = 400      # size of the input line buffer
 const _WRANN_TIMECOL = 9        # the sample number follows the first space from column 9

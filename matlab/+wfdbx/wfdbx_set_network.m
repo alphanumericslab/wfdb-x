@@ -1,29 +1,37 @@
 function previous = wfdbx_set_network(on)
 %WFDBX_SET_NETWORK Allow or forbid network access.
-%   PREVIOUS = wfdbx.wfdbx_set_network(ON) allows the library to open URLs
-%   (http:// and https:// names, or files under a URL input directory) if
-%   ON is true (or a positive number), and forbids it if ON is false (0).
-%   [] or a negative number restores the default: allowed if the
-%   environment variable WFDBX_NETWORK is set to a nonzero number,
-%   otherwise forbidden.  PREVIOUS is the previous setting (1 or 0).
-%   Network access is off by default: the first attempt to open a URL
-%   then prints a message.  Remote files are read in full (redirects are
-%   followed; an HTTP status of 400 or more is a failure, and reading
-%   gives up if connecting takes 30 s or no data arrives for 30 s, with no
-%   limit on the total time) and kept for the rest of the session (each URL is
-%   requested at most once).  Legacy mode reads no remote files.  This
-%   function is a wfdb-x addition; the high-level readers set it for
-%   their 'network' option.
+%   PREVIOUS = wfdbx.wfdbx_set_network(ON) allows the library to read URLs
+%   if ON is true, and forbids it if ON is false.  Network access is off by
+%   default.  With it off, the first attempt to open a URL prints a message.
 %
-%   Example:
+%   wfdbx.wfdbx_set_network([]) restores the default: on if the environment
+%   variable WFDBX_NETWORK is set to a nonzero number, otherwise off.
+%
+%   PREVIOUS is the previous setting (1 or 0).  Remote files are read once
+%   and kept for the rest of the session.  A download gives up when it
+%   cannot connect, or receives nothing, for 30 seconds.  The high-level
+%   readers also take this setting as their 'network' option.
+%
+%   Example (record 100 of the MIT-BIH Arrhythmia Database, read from
+%   PhysioNet):
 %       wfdbx.wfdbx_set_network(1);
 %       rec = wfdbx.read_record('100', 'input_dir', ...
 %           'https://physionet.org/files/mitdb/1.0.0/');
 %
 %   See also wfdbx.wfdbx_get_network, wfdbx.wfdbx_set_input_dir.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 previous = wfdbx.wfdbx_get_network();
 st = wfdbx.internal.io_state();

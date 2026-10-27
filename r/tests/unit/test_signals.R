@@ -5,8 +5,16 @@
 # expected values were produced by the C library
 # (tests/reference/api_expect.c).
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It tests wfdb-x; it has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 if (.mode == "source") {
   datasrc <- file.path(dirname(dirname(.rdir)), "tests", "data")
@@ -261,7 +269,7 @@ if (.mode == "source") {
   expect_equal(c(muvadu(0, 1000), muvadu(1, 1000), muvadu(2, -2500)), c(100, 150, -500),
                "muvadu fmt16")
   expect_equal(c(aduphys(0, 95), aduphys(1, 10), aduphys(2, -3)),
-               c(1, 0.033333333333333333, -0.089999999999999997), "aduphys fmt16")
+               c(1, 1 / 30, -0.09), "aduphys fmt16")
   expect_equal(c(physadu(0, 1), physadu(1, -2.25), physadu(2, 0.4)), c(95, -333, 95),
                "physadu fmt16")
   wfdbquit()
@@ -865,6 +873,58 @@ if (.mode == "source") {
           "checksum_ok TRUE: not read to the end")
   }
 
+  # ---- high-resolution reads with a checksum error: getvec returns -4
+  # for each vector of the frame at which the checksum is verified;
+  # read_record keeps them all and reads on to the end (the same samples
+  # as a record with good checksums), warns once, checksum_ok FALSE
+  hr_pair <- function(spf, nframes, pos) {
+    tspf <- sum(spf)
+    x <- matrix(seq_len(nframes * tspf), nframes, tspf, byrow = TRUE)
+    write_record("hrbad", x, 100, samps_per_frame = spf, gains = 100, adcres = 16, units = "mV")
+    b <- rf("hrbad.dat")
+    b[2 * pos + 1:2] <- as.raw(c(99, 0))      # stream sample pos (0-based): 99
+    writeBin(b, "hrbad.dat")
+    x[pos %/% tspf + 1, pos %% tspf + 1] <- 99
+    write_record("hrgood", x, 100, samps_per_frame = spf, gains = 100, adcres = 16, units = "mV")
+  }
+  hr_cases <- list(list(spf = 2, nf = 4), list(spf = 3, nf = 4),
+                   list(spf = c(1, 2), nf = 5), list(spf = c(2, 3), nf = 5))
+  for (cs in hr_cases) {
+    tspf <- sum(cs$spf)
+    ispfmax <- max(cs$spf)
+    for (pos in c(0, cs$nf * tspf - 1)) {      # first frame, last frame
+      lab <- paste0("highres checksum spf ", paste(cs$spf, collapse = ","), " pos ", pos, ": ")
+      hr_pair(cs$spf, cs$nf, pos)
+      chs <- list(NULL, length(cs$spf) - 1)
+      for (ch in chs) {
+        good <- read_record("hrgood", channels = ch, highres = TRUE)
+        expect_equal(nrow(good$signals), as.integer(cs$nf * ispfmax), paste0(lab, "good length"))
+        if (is.null(ch)) check(any(good$signals == 99), paste0(lab, "the corrupt sample is read"))
+        for (cw in c(TRUE, FALSE)) {
+          r <- catch(read_record("hrbad", channels = ch, highres = TRUE, checksum_warning = cw))
+          expect_equal(r$value$signals, good$signals, paste0(lab, "all samples, warning ", cw))
+          expect_equal(r$warnings, if (cw) sub("ck:", "hrbad:", CKSUM_MSG) else character(0),
+                       paste0(lab, "one warning or none, ", cw))
+          check(identical(r$value$checksum_ok, FALSE), paste0(lab, "checksum_ok FALSE, ", cw))
+        }
+      }
+      # sampto before the last frame: no checksum verified, all the
+      # requested samples
+      to <- (cs$nf - 1) * ispfmax
+      good <- read_record("hrgood", highres = TRUE, sampto = to)
+      r <- catch(read_record("hrbad", highres = TRUE, sampto = to))
+      check(length(r$warnings) == 0L && identical(r$value$signals, good$signals) &&
+              nrow(good$signals) == to && identical(r$value$checksum_ok, TRUE),
+            paste0(lab, "sampto before the last frame"))
+      # low resolution: unchanged (one vector per frame, every frame)
+      good <- read_record("hrgood")
+      r <- catch(read_record("hrbad"))
+      check(identical(r$value$signals, good$signals) && nrow(good$signals) == cs$nf &&
+              length(r$warnings) == 1L && identical(r$value$checksum_ok, FALSE),
+            paste0(lab, "low resolution"))
+    }
+  }
+
   # ---- read_header: the record header; base_time_ms and base_date in
   # read_record and read_header
   hdr <- function(name, line1, extra = character(0)) {
@@ -970,4 +1030,51 @@ if (.mode == "source") {
   expect_equal(file.size("fmt16.dat"), 0, "alias: legacy truncates")
   writeBin(fmt16, "fmt16.dat")
   wfdbverbose()
+
+  # ---- record names (wfdb-x): outside legacy mode, only the last component
+  # of a record name is checked when a header is written, and the names in a
+  # header are relative to its directory
+  x <- cbind(c(1, 2, 3, -4), c(5, 6, -7, 8))
+  hdr_lines <- function(f) strsplit(rawToChar(rf(f)), "\r\n", fixed = TRUE)[[1L]]
+  write_record("my.data/rec", x, 250, gains = 200, adcres = 16, units = "mV")
+  check(file.exists("my.data/rec.hea") && file.exists("my.data/rec.dat"), "dotdir: files")
+  h <- hdr_lines("my.data/rec.hea")
+  check(startsWith(h[1L], "rec 2 250") && startsWith(h[2L], "rec.dat 16"),
+        "dotdir: names relative to the header")
+  r <- read_record("my.data/rec")
+  expect_equal(unname(r$signals), unname(x), "dotdir: read back")
+  absd <- file.path(getwd(), "abs.dir", "sub")
+  write_record(file.path(absd, "rec"), x, 250, gains = 200, adcres = 16, units = "mV")
+  h <- hdr_lines(file.path(absd, "rec.hea"))
+  check(startsWith(h[1L], "rec 2 250") && startsWith(h[2L], "rec.dat 16"),
+        "absolute dotted directory: names relative to the header")
+  r <- read_record(file.path(absd, "rec"))
+  expect_equal(unname(r$signals), unname(x), "absolute dotted directory: read back")
+  # a multi-segment record in a dotted directory
+  expect_equal(setmsheader("my.data/ms", c("my.data/rec", "my.data/rec")), 0, "dotdir: setmsheader")
+  wfdbquit()
+  h <- hdr_lines("my.data/ms.hea")
+  check(startsWith(h[1L], "ms/2 2 250 8") && h[2L] == "rec 4" && h[3L] == "rec 4",
+        "dotdir: segment names relative to the header")
+  r <- read_record("my.data/ms")
+  expect_equal(unname(r$signals), unname(rbind(x, x)), "dotdir: multi-segment read back")
+  # the last component is checked as before
+  wfdbquiet()
+  expect_error(write_record("rec.1", x, 250, gains = 200, adcres = 16, units = "mV"),
+               "rec.1 refused")
+  expect_equal(newheader("my.data/rec.1"), -1, "newheader: rec.1 refused")
+  expect_equal(wfdberror(), "init: illegal character 46 in record name\n", "rec.1: message")
+  expect_equal(newheader("my.data/"), -1, "newheader: empty last component refused")
+  expect_equal(wfdberror(), "init: illegal character 0 in record name\n", "empty: message")
+  # legacy mode: the whole name is checked, names written unchanged
+  wfdbx_set_legacy(TRUE)
+  expect_equal(newheader("my.data/rec"), -1, "legacy: my.data/rec refused")
+  expect_equal(wfdberror(), "init: illegal character 46 in record name\n", "legacy: message")
+  wfdbx_set_legacy(FALSE)
+  wfdbverbose()
+  write_record("out/rec", x, 250, gains = 200, adcres = 16, units = "mV", legacy = TRUE)
+  h <- hdr_lines("out/rec.hea")
+  check(startsWith(h[1L], "out/rec 2 250") && startsWith(h[2L], "out/rec.dat 16"),
+        "legacy: names unchanged")
+  wfdbquit()
 }

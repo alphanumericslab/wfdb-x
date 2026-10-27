@@ -81,6 +81,15 @@ setannpos(a, x)
   illegal codes.  The setters return the value stored, or 0 if \code{a}
   is not a legal code (and nothing is stored).
 }
+\section{Origin}{
+  Translation of the macros isann(), isqrs(), setisqrs(), map1(),
+  setmap1(), map2(), setmap2(), ammap(), mamap(), annpos() and
+  setannpos() (lib/ecgmap.h) and of the C functions wfdb_isann(),
+  wfdb_isqrs(), wfdb_setisqrs(), wfdb_map1(), wfdb_setmap1(),
+  wfdb_map2(), wfdb_setmap2(), wfdb_ammap(), wfdb_mamap(), wfdb_annpos()
+  and wfdb_setannpos() (lib/annot.c, WFDB 10.7.0): same arguments and
+  results (the query functions take vectors).
+}
 \seealso{\code{\link{ecgcodes}}, \code{\link{annstr}}.}
 \examples{
 isqrs(c(NORMAL, NOTE, PVC))

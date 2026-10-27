@@ -1,4 +1,30 @@
-// annot.cpp: WFDB library functions for annotations (C++ port of lib/annot.c)
+// annot.cpp: WFDB library functions for annotations.
+//
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a C++ translation of lib/annot.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original code, but it is new code, not the original C code.
+//
+// Changes from the original: oannclose sorts an out-of-order output annotation
+// file in this process, with the same result as the sortann program, which the
+// original ran through the shell; the sort does not lose an out-of-order
+// annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
+// option of the high-level write_annotations decides, for its call, whether
+// the file is sorted; legacy mode (wfdbx_set_legacy) restores the original
+// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// gives the reasons.
+//
+// Original C code: lib/annot.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by
+//   Benjamin Moody.
+// C++ translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 //
 // This file contains annopen, getann, ungetann, putann, iannsettime, the
 // annotation code/mnemonic/description conversion functions (ecgstr,
@@ -13,20 +39,6 @@
 // annopen and written before the first annotation of each output file.
 // Output files whose annotations are not in canonical order are sorted when
 // they are closed, with the result of the sortann program.
-//
-// wfdb-x: oannclose rearranges an out-of-order output annotation file itself,
-// in the same process (sort_ann_file), with a result identical to that of the
-// sortann program, which the C library ran through the shell (and found only
-// if it was in the PATH); decided by Reza Sameni after a code review, Oct
-// 2026.  The original behavior remains available with --legacy (see
-// docs/DIVERGENCES.md); the program is then run without a shell.  The sort
-// also no longer loses an out-of-order annotation at time 0 (num 0, chan 0),
-// as sortann did (see AnnSortList); decided by Reza Sameni, Oct 2026.
-//
-// Copyright (C) 1989-2013 George B. Moody (original C implementation,
-// lib/annot.c; revised 2015-2020 by Benjamin Moody).
-// C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #include "wfdblib.hpp"
 
@@ -1217,6 +1229,16 @@ int annsort_mode = -1;      // see wfdbx_set_annsort
 
 } // namespace
 
+std::shared_ptr<void> wfdbx_save_anndefs()
+{
+    return std::make_shared<AnnDefs>(tables().defs);
+}
+
+void wfdbx_restore_anndefs(const std::shared_ptr<void> &saved)
+{
+    if (saved) tables().defs = *static_cast<const AnnDefs *>(saved.get());
+}
+
 int wfdbx_set_annsort(int mode)
 {
     int prev = annsort_mode;
@@ -1280,12 +1302,15 @@ void oannclose(WFDB_Annotator n)
                 if (st.annclose_error == 0) st.annclose_error = -6;
             }
         }
-        if (oa->out_of_order) {
+        // wfdb-x: no advice to run sortann when the caller chose not to sort
+        // (write_annotations with sort = false); WFDBANNSORT=0 still gives it.
+        if (oa->out_of_order && annsort_mode != 0) {
             wfdb_error("Use the command:\n  sortann -r %s -a %s\n",
                        oa->rname.c_str(), oa->info.name.c_str());
             wfdb_error("to rearrange annotations in the correct order.\n");
-            if (st.annclose_error == 0) st.annclose_error = -6;
         }
+        if (oa->out_of_order && st.annclose_error == 0)
+            st.annclose_error = -6;
         st.oad.erase(st.oad.begin() + n);
     }
 }

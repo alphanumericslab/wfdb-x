@@ -4,16 +4,32 @@ function [nsig, si_out] = openosig(func, si_in, nsig)
 %   signals described by the wfdbx.siginfo struct array SI_IN; FUNC is
 %   the name of the calling function (for messages).  Returns NSIG and
 %   the descriptions of the signals opened, or a negative value on error.
+%
+%   Translation of the C function openosig() (lib/signal.c, WFDB 10.7.0).
 
-% Copyright (C) 1989-2013 George B. Moody (original C implementation,
-% lib/signal.c; revised 2011-2022 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): in normal mode, an output
-% signal file that is the same file as a signal file of the open input
-% record is refused ("FUNC: output file NAME is also an input file", -3),
-% so that it is neither created nor truncated.  The original behavior
-% remains available with --legacy (see docs/DIVERGENCES.md).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original code, but it is new code, not the original C
+% code.
+%
+% Changes from the original: outside legacy mode, an output signal file that
+% is one of the files of the open input record is refused ("output file NAME
+% is also an input file"), so that it is neither created nor truncated. Each
+% change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% reasons.
+%
+% Original C code: lib/signal.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 S = wfdbx.internal.sig_state();
 si_out = wfdbx.siginfo(0);

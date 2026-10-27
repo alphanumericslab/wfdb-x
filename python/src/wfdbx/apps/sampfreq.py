@@ -1,16 +1,25 @@
 """sampfreq: print the sampling frequency of a record.
 
-Copyright (C) 1998-2012 George B. Moody (original C program, app/sampfreq.c).
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency, gain,
-ADC resolution or units. Values that the record or the user does not give are
-never assumed (the original package assumed 250 Hz, 200 adu/mV, 12 bits and
-millivolts), because a silently assumed value corrupts every result derived
-from it. See docs/DIVERGENCES.md.
-This program is free software; you can redistribute it and/or modify it under
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+
+It is a Python translation of app/sampfreq.c from the WFDB Software Package
+10.7.0, by George B. Moody. The translation follows the logic and behavior of
+the original program, but it is new code, not the original C code.
+
+Changes from the original: none, apart from the language and the --legacy
+option (as the first argument, it restores the original behavior). Through the
+library, a record whose header gives no sampling frequency has the frequency 0,
+which is printed (the original printed 250); see docs/DIVERGENCES.md.
+
+Original C program: app/sampfreq.c, WFDB Software Package 10.7.0.
+  Copyright (C) 1998-2012 George B. Moody.
+Python translation and changes: Copyright (C) 2026 Reza Sameni.
+
+This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
-version.
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import sys

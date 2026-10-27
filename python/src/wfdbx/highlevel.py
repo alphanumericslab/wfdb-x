@@ -1,79 +1,88 @@
-"""High-level functions for reading and writing WFDB records with NumPy.
+"""High-level functions that read and write WFDB records as NumPy arrays.
 
-These functions are built on the C-compatible API of wfdb-x (``isigopen``,
-``getvec``, ``getann``, ``putvec``, ``putann``, ...), so they read and
-write exactly what the WFDB library and applications do.
+Functions:
 
-Finding files: every relative name is read under the input directory and
-written under the output directory -- whatever is set as the input
-directory, a local directory or a URL, prefixes it; a name given as a full
-path (/Users/...), a ~ path or a URL is used as given; nothing else is
-searched.  The readers take ``input_dir=`` (the input directory for the
-call) and ``network=`` (allow URLs for the call), the writers ``dir=`` (the
-output directory); see also ``wfdbx_set_input_dir``,
-``wfdbx_set_output_dir`` and ``wfdbx_set_network``.  The signal files of a
-record are in the directory of its header.  Example (PhysioNet)::
+  read_record        read the signals of a record (returns a Record)
+  read_header        read the header of a record (returns a Header)
+  read_annotations   read an annotation file (returns an Annotations)
+  write_record       write a header and a signal file
+  write_annotations  write an annotation file
+
+Where files are read and written: a full path, a ~ path or a URL is used
+as given. Any other name is read from the input directory and written to
+the output directory. Both are the current directory unless you set them
+with ``wfdbx_set_input_dir`` and ``wfdbx_set_output_dir``. URLs are read
+only when network access is on (``wfdbx_set_network``). The readers also
+take ``input_dir=`` and ``network=``, and the writers take ``dir=``, for
+one call. The signal files that a header names are read from the header's
+directory.
+
+Signal parameters: no sampling frequency, gain, ADC resolution or units is
+ever assumed. Where one is needed and the record does not give it, you
+must give it. A record whose header gives no frequency has ``fs = 0``.
+
+Legacy mode: with ``legacy=True``, a function behaves as in the original
+WFDB package. See
+https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md#legacy-mode
+
+These functions call ``wfdbquit()``, which closes anything opened with
+the WFDB library functions.
+
+Example, with the sample record 100s, included with wfdb-x (the first minute
+of record 100 of the MIT-BIH Arrhythmia Database, in the directory
+``wfdbx.sample_data_dir()``)::
+
+    import wfdbx
+    wfdbx.wfdbx_set_input_dir(wfdbx.sample_data_dir())
+    rec = wfdbx.read_record("100s", sampto=1000, physical=True)
+    rec.signals.shape            # (1000, 2)
+    ann = wfdbx.read_annotations("100s", "atr")
+    ann.symbols[:3]              # ['+', 'N', 'N']
+
+Reading record 100 of the MIT-BIH Arrhythmia Database from PhysioNet (the
+input directory is its PhysioNet URL, and network access is on)::
 
     rec = wfdbx.read_record(
         "100", input_dir="https://physionet.org/files/mitdb/1.0.0/",
         network=True)
 
-These functions call ``wfdbquit()``, so they close any record or
-annotation file previously opened with the C-compatible API.
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+has no counterpart in the original package.
 
-wfdb-x never assumes a sampling frequency, a gain, an ADC resolution or
-units (the C library assumed 250 Hz, 200 adu/mV, 12 bits and millivolts):
-``write_record`` requires the gains, the ADC resolutions and the units of
-calibrated signals; ``read_record`` reports fs = 0 for a record whose
-header gives no frequency, an ADC resolution of 0 (``siginfo[k].adcres``)
-and units None where the header gives none; and conversions that need a
-missing value raise ValueError (see docs/DIVERGENCES.md).
+Copyright (C) 2026 Reza Sameni.
 
-Legacy mode: with ``legacy=True``, each function behaves as in the
-original package (the default gain of 200 adu/mV and ADC resolution based
-on the format in ``write_record``, 250 Hz for a record without a header or
-a frequency, a gain of 200 for uncalibrated signals in physical units, and
-so on), with the library's legacy mode (``wfdbx_set_legacy``) on for the
-duration of the call.  It is kept for compatibility only: the values it
-assumes are exactly the silent defaults this project removed, so results
-produced with it carry the same risks.
-
-Example::
-
-    import wfdbx
-    rec = wfdbx.read_record("100s", sampto=1000, physical=True)
-    rec.signals.shape            # (1000, 2)
-    ann = wfdbx.read_annotations("100s", "atr")
-    ann.symbols[:3], ann.samples[:3]
-
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency, gain,
-ADC resolution or units. Values that the record or the user does not give are
-never assumed (the original package assumed 250 Hz, 200 adu/mV, 12 bits and
-millivolts), because a silently assumed value corrupts every result derived
-from it. See docs/DIVERGENCES.md. The original behavior remains available
-with --legacy (see docs/DIVERGENCES.md).
-Design decision (Reza Sameni, Oct 2026): files are found by explicit names
-(the input directory, the output directory, or a full path or URL), not by a
-search of the WFDB path, and PhysioNet (or any server) is accessed only if
-asked for (network=True): a search can silently open the wrong file, fails in
-ways nobody notices, and sent local paths and record names to physionet.org.
-The original behavior remains available with --legacy (see
-docs/DIVERGENCES.md).
-Design decision (Reza Sameni, after a code review, Oct 2026): the writers
-take a dir argument (the files are created in that directory, and the record
-opens from there under its plain name), and write_record encodes the samples
-of the common formats with NumPy, byte for byte as putvec (calling putvec
-once per frame was 10-30 times slower than reading).
-Design decision (Reza Sameni, Oct 2026): a checksum error (getvec status -4:
-the samples are complete, their sum does not match the header's checksums)
-is not an error of read_record but a RuntimeWarning (checksum_warning=False:
-none); the data are returned.
-This library is free software; you can redistribute it and/or modify it under
-the terms of the GNU Library General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your option) any
-later version.
+This library is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
+
+# Developer notes (moved from the module docstring).
+# wfdb-x: no built-in sampling frequency, gain, ADC resolution or units.
+# Values that the record or the user does not give are never assumed (the
+# original package assumed 250 Hz, 200 adu/mV, 12 bits and millivolts),
+# because a silently assumed value corrupts every result derived from it. See
+# docs/DIVERGENCES.md. The original behavior remains available with --legacy.
+# wfdb-x: files are found by explicit names (the input directory, the output
+# directory, or a full path or URL), not by a search of the WFDB path, and
+# PhysioNet (or any server) is accessed only if asked for (network=True): a
+# search can silently open the wrong file, fails in ways nobody notices, and
+# sent local paths and record names to physionet.org. The original behavior
+# remains available with --legacy.
+# wfdb-x: the writers take a dir argument (the files are created in that
+# directory, and the record opens from there under its plain name), and
+# write_record encodes the samples of the common formats with NumPy, byte for
+# byte as putvec (calling putvec once per frame was 10-30 times slower than
+# reading).
+# wfdb-x: a checksum error (getvec status -4: the samples are complete, their
+# sum does not match the header's checksums) is not an error of read_record
+# but a RuntimeWarning (checksum_warning=False: none); the data are returned.
+# Legacy mode (legacy=True): the library's legacy mode (wfdbx_set_legacy)
+# is on for the duration of the call; the defaults are those of the
+# original package (200 adu/mV, an ADC resolution based on the format in
+# write_record, 250 Hz for a record without a header or a frequency, a gain
+# of 200 for uncalibrated signals in physical units).
 
 import functools
 import os
@@ -99,45 +108,37 @@ _LEGACY_DEFRES = {80: 8, 508: 8, 212: 12, 310: 10, 311: 10, 24: 24, 524: 24,
 
 
 class Record:
-    """A record (or part of one), as returned by read_record().
+    """A record, or part of one, as returned by read_record().
 
     Attributes:
-      name        record name
-      fs          sampling frequency of the returned samples (samples per
-                  second per signal; the highest frequency of a
-                  multi-frequency record read with highres=True), or 0 if
-                  the header does not specify it
-      signals     array of shape (nsamples, nsignals): int32 ADC units, or
-                  float64 physical units if read with physical=True.
-                  Invalid samples are WFDB_INVALID_SAMPLE (NaN in physical
-                  units).
-      siginfo     list of Siginfo objects, one per returned signal (their
-                  ``adcres`` is 0 if the header does not specify the ADC
-                  resolution)
-      names       signal descriptions (e.g. "MLII"), one per signal
-      units       physical units, one per signal (None if the header does
-                  not specify them; never assumed to be millivolts)
-      gains       ADC units per physical unit, one per signal (0 means the
-                  signal is uncalibrated)
-      baselines   ADC value corresponding to 0 physical units, per signal
-      base_time   start time and date of the record, as timstr(0) gives
-                  it (e.g. "[08:45:00 01/01/2001]", without milliseconds),
-                  or None if the header gives no start time
-      base_time_ms
-                  the start time as an int, in milliseconds after midnight
-                  (milliseconds included: "14:00:03.500" gives 50403500);
-                  None exactly when base_time is None
-      base_date   the start date as a tuple (year, month, day) of ints, or
-                  None if the header gives no date
-      sampfrom    sample number of the first returned sample
-      comments    list of info strings (header comment lines, without the
-                  leading '#'), followed by those of a .info file if any
-      checksum_ok False if the signal data were found not to match the
-                  checksums in the header (getvec status -4; see the
-                  checksum_warning argument of read_record), True
-                  otherwise.  The checksums are verified only when the read
-                  reaches the end of the record, so a read that stops
-                  before it gives True
+      name          record name, as given to read_record
+      fs            sampling frequency in Hz, or 0 if the header gives none.
+                    With highres=True, the highest sampling frequency of a
+                    multi-frequency record.
+      signals       NumPy array with one row per sample and one column per
+                    signal. It holds int32 ADC units, or float64 physical
+                    units if you read with physical=True. Invalid samples are
+                    WFDB_INVALID_SAMPLE, or NaN in physical units.
+      siginfo       list of Siginfo objects, one per signal. A signal's
+                    ``adcres`` is 0 if the header does not give it.
+      names         description of each signal, such as "MLII"
+      units         physical units of each signal, or None if the header
+                    gives none
+      gains         gain of each signal, in ADC units per physical unit.
+                    0 means the signal is uncalibrated.
+      baselines     ADC value of each signal that corresponds to 0 physical
+                    units
+      base_time     start time and date as text, to the second, such as
+                    "[14:00:03 21/06/2024]", or None if the header gives none
+      base_time_ms  start time in milliseconds after midnight, such as
+                    50403500 for 14:00:03.500, or None if base_time is None
+      base_date     start date as (year, month, day), or None if the header
+                    gives none
+      sampfrom      number of the first sample returned
+      comments      list of the info strings of the header
+      checksum_ok   False if the data do not match the header's checksums.
+                    Checksums are only checked when a read reaches the end of
+                    the record, so a shorter read gives True.
     """
 
     def __init__(self, **kw):
@@ -154,25 +155,21 @@ class Header:
 
     Attributes:
       name          record name, as given to read_header
-      fs            sampling frequency (as sampfreq() gives it after opening
-                    the header: 0 if the header does not specify it; 250
-                    in legacy mode)
-      counter_freq  counter frequency (as getcfreq() gives it)
-      base_counter  base counter value (as getbasecount() gives it)
-      nsamples      number of samples per signal, from the header's record
-                    line (0 if the header does not give it)
+      fs            sampling frequency in Hz, or 0 if the header gives none
+      counter_freq  counter frequency, as getcfreq() returns it
+      base_counter  base counter value, as getbasecount() returns it
+      nsamples      number of samples per signal, or 0 if the header does not
+                    give it
       nsig          number of signals
-      siginfo       list of Siginfo objects, one per signal (empty for a
-                    record with no signals; their ``adcres`` is 0 if the
-                    header does not specify the ADC resolution)
-      base_time     start time and date of the record, as timstr(0) gives
-                    it (e.g. "[08:45:00 01/01/2001]"), or None
-      base_time_ms  the start time in milliseconds after midnight (int), or
-                    None exactly when base_time is None
-      base_date     the start date as a tuple (year, month, day), or None if
-                    the header gives no date
-      comments      list of info strings (header comment lines, without the
-                    leading '#'), followed by those of a .info file if any
+      siginfo       list of Siginfo objects, one per signal. A signal's
+                    ``adcres`` is 0 if the header does not give it.
+      base_time     start time and date as text, such as
+                    "[08:45:00 01/01/2001]", or None if the header gives none
+      base_time_ms  start time in milliseconds after midnight, or None if
+                    base_time is None
+      base_date     start date as (year, month, day), or None if the header
+                    gives none
+      comments      list of the info strings of the header
     """
 
     def __init__(self, **kw):
@@ -184,26 +181,24 @@ class Header:
 
 
 class Annotations:
-    """The annotations of one annotator, as returned by read_annotations().
+    """The annotations of one file, as returned by read_annotations().
 
-    ``len(ann)`` is the number of annotations.
+    ``len(ann)`` is the number of annotations. They are in file order.
 
     Attributes:
       record     record name
-      annotator  annotator name (e.g. "atr")
-      samples    annotation times, in sample intervals (int64 array)
-      codes      annotation type codes (int64 array; see ``wfdbx.NORMAL``,
-                 ``wfdbx.PVC``, ...)
-      symbols    list of mnemonics (e.g. 'N', 'V', '+'), as annstr() gives
-      subtypes   annotation subtypes (int64 array)
-      chans      channel numbers (int64 array)
-      nums       annotator numbers (int64 array)
-      aux        list of auxiliary strings (None where absent)
-      fs         frequency in which ``samples`` are expressed (ticks per
-                 second), as getiafreq() reports it: normally the
-                 sampling frequency of the record (0 if neither the
-                 record nor the ``fs`` argument of read_annotations
-                 specifies one)
+      annotator  annotator name, such as "atr"
+      samples    annotation times, in samples (int64 array)
+      codes      annotation codes (int64 array), such as wfdbx.NORMAL or
+                 wfdbx.PVC
+      symbols    list of mnemonics, such as "N", "V" or "+"
+      subtypes   subtype of each annotation (int64 array)
+      chans      channel number of each annotation (int64 array)
+      nums       annotator number of each annotation (int64 array)
+      aux        list of the auxiliary text of each annotation, or None
+      fs         frequency in which ``samples`` are counted, normally the
+                 sampling frequency of the record. It is 0 if neither the
+                 record nor the ``fs`` argument of read_annotations gives one.
     """
 
     def __init__(self, **kw):
@@ -355,36 +350,37 @@ def _info_strings(record):
 def read_header(record, *, input_dir=None, network=None, legacy=False):
     """Read the header of a record.
 
-    No signal files are opened or read.
+    The signal files are not opened.
 
     Arguments:
-      record    record name: relative to the input directory, or a full
-                path, ~ path or URL
-      input_dir the input directory for this call (a local directory, a
-                ~ name or a URL; see wfdbx_set_input_dir); default: the
-                current setting (by default, the current directory)
-      network   True to allow reading URLs for this call (False to forbid
-                it; see wfdbx_set_network); default: the current setting
-                (by default, not allowed)
-      legacy    if True, read the header as the original package did
-                (missing ADC resolutions inferred from the format; see
-                the module documentation)
+      record     record name: a name in the input directory, or a full path,
+                 ~ path or URL
+      input_dir  input directory for this call only: a local directory, a
+                 ~ path or a URL. Default: the current setting (see
+                 wfdbx_set_input_dir).
+      network    True to allow reading URLs for this call only, False to
+                 forbid it. Default: the current setting (see
+                 wfdbx_set_network).
+      legacy     True to read the header as the original WFDB package does
+                 (see the module help)
 
     Returns:
-      a Header object (see Header): the sampling and counter frequencies,
-      the number of samples and of signals, the signal specifications
-      (``siginfo``, a list of Siginfo objects), the base time and date,
-      and the info strings
+      a Header object (see Header)
 
     Raises:
-      IOError   if the header cannot be found or read
+      IOError    if the header cannot be found or read
 
-    Example::
+    Example (100s is the sample record included with wfdb-x: the first
+    minute of record 100 of the MIT-BIH Arrhythmia Database, in the
+    directory wfdbx.sample_data_dir())::
 
+        wfdbx.wfdbx_set_input_dir(wfdbx.sample_data_dir())
         hdr = wfdbx.read_header("100s")
-        print(hdr.fs, hdr.nsamples, hdr.base_time)
+        print(hdr.fs, hdr.nsamples)          # 360.0 21600
         for s in hdr.siginfo:
             print(s.desc, s.fmt, s.gain, s.units)
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     init.wfdbquit()
     n = sig.isigopen(record, None, 0)
@@ -410,72 +406,71 @@ def read_header(record, *, input_dir=None, network=None, legacy=False):
 def read_record(record, channels=None, sampfrom=0, sampto=None,
                 physical=False, highres=False, pad=False, *, input_dir=None,
                 network=None, legacy=False, checksum_warning=True):
-    """Read the signals of a record (or part of it) into a NumPy array.
+    """Read the signals of a record, or part of it, into a NumPy array.
 
     Arguments:
-      record    record name: relative to the input directory, or a full
-                path, ~ path or URL (as for rdsamp)
-      channels  list of signal numbers (int) or names (str), in the order
-                wanted (default: all signals)
-      sampfrom  first sample to read: a sample number, or a time string
-                as accepted by strtim() (e.g. "0:10" for 10 seconds,
-                "s3600" for sample 3600); default 0.  Time strings other
-                than sample numbers ("s..."), "e", "i" and "o" need the
-                sampling frequency (see wfdbx_time_needs_freq)
-      sampto    end of the excerpt, exclusive (sample number or time
-                string, e.g. "e" for the end); default: end of the record
-      physical  if False (the default), return ADC units (int32); if
-                True, return physical units (float64, computed as
-                (adc - baseline) / gain; invalid samples become NaN).
-                Every selected signal must be calibrated (gain != 0):
-                there is no default gain
-      highres   if True, read every sample of oversampled signals of a
-                multi-frequency record (WFDB_HIGHRES mode); by default
-                such signals are averaged to one sample per frame
-      pad       if True, replace each invalid sample by the previous valid
-                sample of the same signal (WFDB_GVPAD mode)
-      input_dir the input directory for this call (a local directory, a
-                ~ name or a URL; see wfdbx_set_input_dir); default: the
-                current setting (by default, the current directory)
-      network   True to allow reading URLs for this call (False to forbid
-                it; see wfdbx_set_network); default: the current setting
-                (by default, not allowed)
-      legacy    if True, behave as the original package (250 Hz for a
-                header without a frequency, a gain of 200 for uncalibrated
-                signals in physical units; see the module documentation)
+      record     record name: a name in the input directory, or a full path,
+                 ~ path or URL
+      channels   list of the signals to read, by number (int) or name (str),
+                 in the order you want them. Default: all signals.
+      sampfrom   first sample to read: a sample number or a time string.
+                 Default: 0.
+      sampto     the sample after the last one to read: a sample number or a
+                 time string. Default: the end of the record.
+      physical   False (the default) to return ADC units (int32), True to
+                 return physical units (float64). Physical units are
+                 (adc - baseline) / gain, and every signal you read must have
+                 a gain.
+      highres    True to read every sample of a multi-frequency record, at its
+                 highest sampling frequency. By default, faster signals are
+                 averaged to one sample per frame.
+      pad        True to replace each invalid sample by the previous valid
+                 sample of the same signal
+      input_dir  input directory for this call only: a local directory, a
+                 ~ path or a URL. Default: the current setting (see
+                 wfdbx_set_input_dir).
+      network    True to allow reading URLs for this call only, False to
+                 forbid it. Default: the current setting (see
+                 wfdbx_set_network).
+      legacy     True to behave as the original WFDB package (see the module
+                 help)
       checksum_warning
-                if True (the default), warn (RuntimeWarning: "checksum
-                error in record REC: the signal data do not match the
-                checksums in its header") when the samples read to the end
-                of the record do not match the checksums in its header;
-                the data are returned either way (False: no warning)
+                 True (the default) to issue a RuntimeWarning when the data
+                 do not match the header's checksums. The data are returned
+                 either way, and ``checksum_ok`` of the result is False.
+
+    A time string is a WFDB time such as "0:10" (10 seconds), "1:02:03.5",
+    "s3600" (sample 3600) or "e" (the end of the record). A time in seconds
+    needs the sampling frequency.
 
     Returns:
-      a Record object (see Record); ``rec.signals`` has one row per
-      sample and one column per selected signal
+      a Record object (see Record). ``rec.signals`` has one row per sample
+      and one column per signal.
 
     Raises:
-      IOError     if the header or the signal files cannot be read, or the
-                  record has no signals, or sampfrom is beyond the end;
-                  also if reading stops with a getvec status below -1
-                  (e.g. -3: a signal file shorter than its header says,
-                  or a read or decoding error), with the message "can't
-                  read signal data of record REC (getvec status S)"
-                  (also in legacy mode); reaching the end of the record
-                  before sampto is not an error, nor is a checksum error
-                  (-4: see checksum_warning)
-      ValueError  if a channel number or name is not in the record, if
-                  sampfrom or sampto is a time string that needs the
-                  sampling frequency and the header does not specify it,
-                  or if physical=True and a selected signal is
-                  uncalibrated
+      IOError     if the header or a signal file cannot be read, if the
+                  record has no signals, if sampfrom is beyond the end of the
+                  record, or if a signal file is shorter than its header says
+                  ("can't read signal data of record REC (getvec status -3)")
+      ValueError  if a channel is not in the record, if a time string needs
+                  the sampling frequency and the header gives none, or if
+                  physical=True and a signal you read has no gain
 
-    Example::
+    Warns:
+      RuntimeWarning  "checksum error in record REC: the signal data do not
+                  match the checksums in its header" (see checksum_warning)
 
+    Example (100s is the sample record included with wfdb-x: the first
+    minute of record 100 of the MIT-BIH Arrhythmia Database, in the
+    directory wfdbx.sample_data_dir())::
+
+        wfdbx.wfdbx_set_input_dir(wfdbx.sample_data_dir())
         rec = wfdbx.read_record("100s", channels=["MLII"],
                                 sampfrom="0:10", sampto="0:20",
                                 physical=True)
-        rec.signals[:, 0]        # 10 s of lead MLII, in mV
+        rec.signals.shape            # (3600, 1): 10 s of lead MLII, in mV
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     import numpy as np
     init.wfdbquit()
@@ -554,12 +549,14 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                     bigger[nread] = probe[0]
                     data = bigger
             nread += m
-            # wfdb-x: -4, a checksum error: the frames are complete (the
-            # last one included), only their sum does not match the header:
-            # a warning (see below), not an error
+            # wfdb-x: -4, a checksum error: the samples are valid, only
+            # their sum does not match the header: a warning (see below),
+            # not an error. In high-resolution mode getvec returns -4 for
+            # each sample vector of the last frame, so reading continues
+            # until -1 (or sampto).
             if stat == -4:
                 cksum_error = True
-                break
+                continue
             if m < n:
                 # wfdb-x: a status below -1 (e.g. -3, unexpected EOF: the
                 # signal file is shorter than its header says, or a decoder
@@ -603,42 +600,46 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
 @_input_options
 def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
                      input_dir=None, network=None, legacy=False):
-    """Read an annotation file into NumPy arrays (as rdann reads it).
+    """Read an annotation file into NumPy arrays.
 
     Arguments:
-      record     record name (the header, if any, gives the sampling
-                 frequency)
-      annotator  annotator name, i.e. the file name suffix (e.g. "atr")
-      sampfrom   skip annotations before this time (sample number or
-                 strtim() time string); default 0
-      sampto     stop before the first annotation at or after this time
-                 (exclusive); default: read to the end of the file
-      fs         sampling frequency (> 0) to use if the record has no
-                 header or its header does not specify one (like the -F
-                 option of rdann); ignored otherwise.  There is no default
-                 (C assumed 250 Hz): without a frequency, ``fs`` of the
-                 result is 0, and time strings that need the frequency
-                 (see wfdbx_time_needs_freq) raise ValueError
-      input_dir  the input directory for this call (see read_record)
-      network    True to allow reading URLs for this call (see read_record)
-      legacy     if True, behave as the original package (250 Hz if the
-                 record has no header, or if its header gives no frequency,
-                 and fs is not given; see the module documentation)
+      record     record name. Its header, if there is one, gives the sampling
+                 frequency.
+      annotator  annotator name: the suffix of the annotation file. "atr"
+                 reads the file record.atr.
+      sampfrom   first time to read: a sample number or a time string (see
+                 read_record). Default: 0.
+      sampto     time at which to stop. Annotations at or after it are not
+                 read. Default: the end of the file.
+      fs         sampling frequency (> 0) to use when the record has no
+                 header, or its header gives none. It is ignored otherwise.
+      input_dir  input directory for this call only (see read_record)
+      network    True to allow reading URLs for this call only (see
+                 read_record)
+      legacy     True to behave as the original WFDB package (see the module
+                 help)
 
     Returns:
-      an Annotations object (see Annotations), with one entry per
-      annotation, in file order
+      an Annotations object (see Annotations), in file order. Its ``fs`` is
+      0 if neither the record nor the fs argument gives a sampling frequency.
 
     Raises:
-      IOError    if the annotation file cannot be opened or read
-      ValueError if fs is given and not > 0, or if sampfrom or sampto
-                 needs the sampling frequency and none is specified
+      IOError     if the annotation file cannot be opened or read, or if it
+                  ends before its end-of-file marker ("can't read annotation
+                  file ANN of record REC (getann status -3)")
+      ValueError  if fs is given and is not > 0, or if a time string needs
+                  the sampling frequency and none is known
 
-    Example::
+    Example (100s is the sample record included with wfdb-x: the first
+    minute of record 100 of the MIT-BIH Arrhythmia Database, in the
+    directory wfdbx.sample_data_dir())::
 
-        ann = wfdbx.read_annotations("100s", "atr", sampto="1:00")
+        wfdbx.wfdbx_set_input_dir(wfdbx.sample_data_dir())
+        ann = wfdbx.read_annotations("100s", "atr", sampto="0:30")
         qrs = [bool(wfdbx.isqrs(c)) for c in ann.codes]
-        beats = ann.samples[qrs]     # times of the QRS annotations
+        beats = ann.samples[qrs]     # times of the beats, in samples
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     import numpy as np
     if fs is not None and not fs > 0:
@@ -663,7 +664,10 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
         raise IOError("can't seek in annotator %s" % annotator)
     a = ann.Annotation()
     t, c, s, ch, nm, aux = [], [], [], [], [], []
-    while ann.getann(0, a) == 0:
+    while True:
+        stat = ann.getann(0, a)
+        if stat != 0:
+            break
         if to is not None and a.time >= to:
             break
         t.append(a.time)
@@ -672,6 +676,12 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
         ch.append(a.chan)
         nm.append(a.num)
         aux.append(a.aux_string())
+    # wfdb-x: a status other than 0 and -1 (e.g. -3, unexpected EOF: the
+    # file is truncated) is an error, not the end of the file
+    if stat not in (0, -1):
+        init.wfdbquit()
+        raise IOError("can't read annotation file %s of record %s "
+                      "(getann status %d)" % (annotator, record, stat))
     afs = ann.getiafreq(0)
     res = Annotations(record=record, annotator=annotator,
                       samples=np.array(t, np.int64),
@@ -690,78 +700,74 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                  baselines=None, adczeros=0, adcres=None, units=None,
                  names=None, base_time=None, comments=None, physical=False,
                  samps_per_frame=None, *, dir=None, legacy=False):
-    """Write signals as a new WFDB record (a header and one signal file).
+    """Write signals as a new record: a header and one signal file.
 
-    The signal file is named ``record + ".dat"`` and all signals are
-    written to it (in a single group, so they must share one format).  Any
-    existing files with these names are overwritten.
+    The files are named ``record + ".hea"`` and ``record + ".dat"``. All
+    signals go into the one signal file, so they must share one format.
+    Existing files with these names are overwritten.
+
+    You must give the sampling frequency, the gain and ADC resolution of each
+    signal, and the units of each calibrated signal. There are no defaults.
+    The per-signal arguments (fmt, gains, baselines, adczeros, adcres, units,
+    names) take one value for all signals, or a list with one value per
+    signal.
 
     Arguments:
       record     record name
-      signals    array of shape (nsamples, nsignals) (a 1-D array is one
-                 signal): integer ADC units, or physical units if
-                 physical=True
-      fs         sampling frequency (samples per second per signal; > 0)
-      fmt        storage format (e.g. 16, 212, 24, 516; default 16)
-      gains      ADC units per physical unit (required: there is no
-                 default gain; 0 means uncalibrated, which is allowed
-                 only for signals given in ADC units)
-      baselines  ADC value corresponding to 0 physical units (default:
-                 the ADC zero)
-      adczeros   ADC value at the middle of the ADC range (default 0)
-      adcres     ADC resolution in bits (required, >= 1: there is no
-                 default, and none is inferred from the format)
-      units      physical units (e.g. "mV"; required for every signal
-                 whose gain is not 0: there is no default unit)
-      names      signal descriptions (default: none)
-      base_time  start time and optional date, "hh:mm:ss dd/mm/yyyy"
-                 (default: none)
-      comments   list of info strings, written to the header as '#' lines
-      physical   if True, ``signals`` are in physical units, and are
-                 converted to ADC units as physadu() does
-                 (round(x * gain) + baseline); NaN becomes an invalid
-                 sample
-      samps_per_frame  samples per frame of each signal, to write a
-                 multi-frequency record; ``signals`` then has
-                 sum(samps_per_frame) columns, each row holding one frame
-                 (the samples of signal 0, then of signal 1, ...)
-      dir        if given, the directory (which must exist) in which the
-                 files are created; the header then names the record and
-                 its signal file without the directory, so that the record
-                 opens from that directory under its plain name (record
-                 must not contain a directory)
-      legacy     if True, behave as the original package: the gains
-                 default to 200 (also for physical signals of gain 0), the
-                 ADC resolutions to the sample width of the format (8 for
-                 formats 80 and 508, 10 for 310 and 311, 12 for 212, 24
-                 for 24 and 524, 32 for 32, and 16 otherwise), and no
-                 units or frequency are required (see the module
-                 documentation)
-
-    The per-signal arguments (fmt, gains, baselines, adczeros, adcres,
-    units, names) accept a scalar, applied to every signal, or a list with
-    one value per signal.
+      signals    array with one row per sample and one column per signal.
+                 A 1-D array is one signal. The values are integer ADC units,
+                 or physical units if physical=True.
+      fs         sampling frequency in Hz (> 0)
+      fmt        storage format, such as 16, 212, 24 or 516 (FLAC).
+                 Default: 16.
+      gains      gain in ADC units per physical unit. 0 marks a signal as
+                 uncalibrated, which is only allowed for ADC units.
+      baselines  ADC value that corresponds to 0 physical units. Default:
+                 the ADC zero.
+      adczeros   ADC value at the middle of the ADC range. Default: 0.
+      adcres     ADC resolution in bits (>= 1)
+      units      physical units, such as "mV". Required for each signal with
+                 a gain other than 0.
+      names      signal descriptions. Default: none.
+      base_time  start time, with an optional date: "hh:mm:ss dd/mm/yyyy".
+                 Default: none.
+      comments   list of info strings, written to the header
+      physical   True if ``signals`` are in physical units. They are
+                 converted to ADC units as round(x * gain) + baseline, and
+                 NaN becomes an invalid sample.
+      samps_per_frame
+                 samples per frame of each signal, for a multi-frequency
+                 record. ``signals`` then has sum(samps_per_frame) columns,
+                 and each row holds one frame: the samples of signal 0, then
+                 those of signal 1, and so on.
+      dir        directory in which to create the files. It must exist, and
+                 ``record`` must then be a plain name. The record opens from
+                 that directory under its plain name.
+      legacy     True to behave as the original WFDB package (see the module
+                 help)
 
     Returns:
       None
 
     Raises:
-      ValueError  if the gains or the ADC resolutions are not given (or a
-                  resolution is < 1), if the units of a signal whose gain
-                  is not 0 are not given, if fs is not > 0, if a signal
-                  given in physical units is uncalibrated (gain 0), if
-                  the signals do not all have the same format, or if
-                  record contains a directory and dir is given
-      IOError     if the signal file or the header cannot be created (a
-                  FileNotFoundError if dir does not exist)
+      ValueError         if fs, a gain, an ADC resolution or the units of a
+                         calibrated signal is missing or invalid, if a signal
+                         in physical units has a gain of 0, if the signals do
+                         not all have the same format, or if record contains a
+                         directory and dir is given
+      FileNotFoundError  if dir does not exist
+      IOError            if the signal file or the header cannot be created
 
-    Example::
+    Example (writes a record of random numbers, rand, in the output
+    directory: the files rand.hea and rand.dat)::
 
         import numpy as np
         x = np.random.randn(3600, 2)
         wfdbx.write_record("rand", x, fs=360, fmt=16, physical=True,
                            gains=1000, adcres=16, units="mV",
                            names=["A", "B"])
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     import numpy as np
     x = np.asarray(signals)
@@ -857,55 +863,53 @@ def write_record(record, signals, fs, fmt=16, gains=None,
 def write_annotations(record, annotator, samples, symbols=None, codes=None,
                       subtypes=0, chans=0, nums=0, aux=None, fs=None, *,
                       sort=None, dir=None, legacy=False):
-    """Write an annotation file (as wrann does).
+    """Write an annotation file.
 
-    The annotations are written in the order given.  If they are not in
-    canonical (time) order, the file is rearranged when it is closed (as
-    the sortann tool does; wfdb-x: in this process, whereas the C library,
-    as legacy mode, runs sortann), unless the WFDBANNSORT environment
-    variable is 0 or sort is False (the library reports this on the
-    standard error output, unless wfdbquiet() is in effect).
+    Give the annotation types as ``symbols`` or as ``codes``. If the
+    annotations are not in time order, the file is sorted when it is
+    written. ``sort`` controls this for one call. Without ``sort``, the
+    WFDBANNSORT environment variable decides: sorting is on unless it is 0.
 
     Arguments:
       record     record name
-      annotator  annotator name, i.e. the file name suffix (e.g. "atr");
-                 an existing file is overwritten
-      samples    annotation times (sample numbers)
-      symbols    mnemonics such as 'N' or 'V', converted by strann()
-                 (an unknown mnemonic becomes code 0, NOTQRS)
-      codes      annotation type codes, used instead of ``symbols``
+      annotator  annotator name: the suffix of the file. An existing file is
+                 overwritten.
+      samples    annotation times, in samples
+      symbols    mnemonics such as "N" or "V". An unknown mnemonic becomes
+                 code 0 (NOTQRS).
+      codes      annotation codes, used instead of ``symbols``
       subtypes, chans, nums
-                 subtype, channel and annotator number (a scalar for all
-                 annotations, or one value per annotation; default 0)
-      aux        list of auxiliary strings, or None entries (strings
-                 longer than 255 bytes are truncated); default: none
-      fs         if given, recorded in the file as its time resolution
-                 (ticks per second)
-      sort       None (the default): an out-of-order file is rearranged
-                 unless the WFDBANNSORT environment variable is 0; True:
-                 it is rearranged, False: it is left in the order given,
-                 for this call only, whatever WFDBANNSORT says (the
-                 environment is not changed; in legacy mode too, where
-                 True runs sortann)
-      dir        if given, the directory (which must exist) in which the
-                 file is created (record must not contain a directory)
-      legacy     if True, the library's legacy mode is on during the call
-                 (this function has no other legacy behavior)
+                 subtype, channel and annotator number: one value for all
+                 annotations, or one per annotation. Default: 0.
+      aux        list of auxiliary texts, with None where there is none.
+                 Texts longer than 255 bytes are cut. Default: none.
+      fs         if given, written to the file as the frequency in which the
+                 times are counted
+      sort       True to always sort, False to keep the order you gave
+                 (without the library's advice to run sortann), None (the
+                 default) to follow WFDBANNSORT
+      dir        directory in which to create the file. It must exist, and
+                 ``record`` must then be a plain name.
+      legacy     True to behave as the original WFDB package (see the module
+                 help)
 
     Returns:
       None
 
     Raises:
-      ValueError  if neither symbols nor codes is given, or if record
-                  contains a directory and dir is given
-      IOError     if the annotation file cannot be created (a
-                  FileNotFoundError if dir does not exist)
+      ValueError         if neither symbols nor codes is given, or if record
+                         contains a directory and dir is given
+      FileNotFoundError  if dir does not exist
+      IOError            if the annotation file cannot be created
 
-    Example::
+    Example (writes the annotation file rand.test, for the record rand
+    written in the example of write_record, in the output directory)::
 
         wfdbx.write_annotations("rand", "test", [100, 460, 820],
                                 symbols=["N", "V", "N"],
                                 aux=[None, "(VT", None])
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     import numpy as np
     n = len(samples)
@@ -915,29 +919,32 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
         codes = [ann.strann(s) for s in symbols]
 
     def ints(v):
-        # v (a sequence, or a scalar for all annotations) as a list of n
-        # Python ints
+        # v (a sequence, or a scalar for all annotations): an integer NumPy
+        # array as it is, else a list of n Python ints
         if isinstance(v, np.ndarray) and v.dtype.kind in "iu":
-            return v.tolist()
+            return v
         if isinstance(v, (list, tuple, np.ndarray)):
             return [int(x) for x in v]
-        return [int(v)] * n
-
-    def aux_bytes(x):
-        if x is None:
-            return None
-        b = x.encode("latin-1")[:_MAXAUX]
-        return bytes((len(b),)) + b
+        x = int(v)
+        if -(1 << 63) <= x < (1 << 63):
+            return np.full(n, x, np.int64)
+        return [x] * n
 
     times = ints(samples)
     codes, subtypes, chans, nums = ints(codes), ints(subtypes), \
         ints(chans), ints(nums)
+    # aux: the texts one after the other, as bytes, and the length of each
+    # (0: none; cut to _MAXAUX bytes by _putanns)
     if aux is None:
-        auxes = [None] * n
+        texts = [""] * n
     elif isinstance(aux, (list, tuple, np.ndarray)):
-        auxes = [aux_bytes(x) for x in aux]
+        texts = list(aux[:n])
+        if None in texts:
+            texts = ["" if x is None else x for x in texts]
     else:
-        auxes = [aux_bytes(aux)] * n
+        texts = [aux] * n
+    auxes = ("".join(texts).encode("latin-1"),
+             np.fromiter(map(len, texts), np.int64, len(texts)))
     init.wfdbquit()
     if fs is not None:
         ann.setafreq(float(fs))
@@ -947,7 +954,7 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
                       (annotator, record))
     # (as putann for each annotation, but encoded at once)
     ann._putanns(0, times[:n], codes[:n], subtypes[:n], chans[:n], nums[:n],
-                 auxes[:n])
+                 auxes, packed_aux=True)
     ann._a.sort_override = None if sort is None else bool(sort)
     try:
         init.wfdbquit()

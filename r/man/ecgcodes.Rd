@@ -119,6 +119,12 @@ ecgcodes()
   (3), \code{APATT} (4), \code{APAHIGH} (5) and \code{APALOW} (6).
 }
 \value{\code{ecgcodes()} returns a named list of all these constants.}
+\section{Origin}{
+  \code{ecgcodes()} is part of wfdb-x; not in the original WFDB package.
+
+  Translation of the constants of lib/ecgcodes.h and of the annotation
+  position codes of lib/ecgmap.h (WFDB 10.7.0): same names and values.
+}
 \seealso{
   \code{\link{annstr}} for mnemonics and descriptions;
   \code{\link{isqrs}} and \code{\link{map1}} for classifying codes.

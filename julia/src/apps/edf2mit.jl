@@ -1,22 +1,36 @@
 # edf2mit: convert EDF (European Data Format) file to MIT format header and
-# signal files (port of convert/edf2mit.c).
+# signal files.
 #
 # As in the C program, the header fields are read into one reusable 81-byte
 # buffer, so a 16-character signal label is followed by a space and by the
 # bytes that remain in the buffer from earlier fields (see
 # docs/KNOWN_C_BEHAVIORS.md). Where the C program has undefined behavior,
-# this port uses: 0 for header fields that cannot be parsed and are left
-# uninitialized in C; the characters of the input file name only (not the
-# bytes beyond its end) for the default record name; 0 for samples beyond
-# the end of a data record (if the samples per frame do not divide the
-# samples per record); 0 frames per record if a signal has 0 samples per
+# this translation uses: 0 for header fields that cannot be parsed and are
+# left uninitialized in C; the characters of the input file name only (not
+# the bytes beyond its end) for the default record name; 0 for samples
+# beyond the end of a data record (if the samples per frame do not divide
+# the samples per record); 0 frames per record if a signal has 0 samples per
 # frame; and INT_MIN for out-of-range conversions of doubles to int (as on
 # x86).
 #
-# Copyright (C) 1996-2004 George B. Moody (original C program,
-# convert/edf2mit.c).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is a Julia translation of convert/edf2mit.c from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior of
+# the original program, but it is new code, not the original C code.
+#
+# Changes from the original: none, apart from the language and the --legacy
+# option (as the first argument, it restores the original behavior).
+#
+# Original C program: convert/edf2mit.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1996-2004 George B. Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 "Size of the C program's header field buffer (the longest field is 80 bytes)."
 const _EDF2MIT_BUFLEN = 81

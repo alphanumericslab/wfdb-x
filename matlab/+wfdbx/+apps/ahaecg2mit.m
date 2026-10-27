@@ -21,21 +21,44 @@ function status = ahaecg2mit(args)
 %   400 adu/mV, 12 bits, millivolts): use -F 250 -G 400 -R 12 -U mV for
 %   the AHA DVD files; see docs/DIVERGENCES.md.
 %
-%   Example:
+%   Example (1001.ecg, a synthetic file in the format of the AHA DVD, is in
+%   the folder tests/data of a copy of the wfdb-x repository; the example
+%   writes the record 1001 in the current folder):
 %       wfdbx.apps.ahaecg2mit({'-F', '250', '-G', '400', '-R', '12', ...
-%           '-U', 'mV', '1001.ecg'})
+%           '-U', 'mV', '/path/to/wfdb-x/tests/data/1001.ecg'})
 %
 %   See also wfdbx.apps.a2m, wfdbx.apps.ad2m.
+%
+%   Translation of the C program ahaecg2mit (convert/ahaecg2mit.c, WFDB
+%   10.7.0): same options and output. Differences: -F, -G, -R and -U are new
+%   and required; see docs/DIVERGENCES.md.
 
-% Original C program, convert/ahaecg2mit.c, by George B. Moody (2008; revised
-% 2017 by Benjamin Moody); the C source has no copyright or license notice.
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-% gain, ADC resolution or units. Values that the record or the user does
-% not give are never assumed (the original package assumed 250 Hz,
-% 200 adu/mV, 12 bits and millivolts), because a silently assumed value
-% corrupts every result derived from it. See docs/DIVERGENCES.md.
-% GNU General Public License, version 2 or later (see LICENSE).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of convert/ahaecg2mit.c from the WFDB
+% Software Package 10.7.0, by George B. Moody. The translation follows the
+% logic and behavior of the original program, but it is new code, not the
+% original C code.
+%
+% Changes from the original: no built-in signal parameters: the new options -F
+% FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
+% resolution and units, and are required (-U unless the gain is 0; the original
+% assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
+% millivolts); the options precede the input files, in any order; the
+% short-format part of a long-format file (skipped by -s) is located from -F;
+% --legacy, as the first argument, restores the original behavior. Each change
+% is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+%
+% Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
+%   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source has
+%   no copyright or license notice.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 if nargin < 1
     args = {};

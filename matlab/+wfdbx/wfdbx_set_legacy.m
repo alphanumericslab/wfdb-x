@@ -1,32 +1,37 @@
 function previous = wfdbx_set_legacy(on)
-%WFDBX_SET_LEGACY Turn the library's legacy mode on or off.
-%   PREVIOUS = wfdbx.wfdbx_set_legacy(ON) turns legacy mode on if ON is
-%   true (nonzero) and off otherwise, and returns the previous setting (1:
-%   on, 0: off).  Legacy mode is off by default.
+%WFDBX_SET_LEGACY Turn legacy mode on or off.
+%   PREVIOUS = wfdbx.wfdbx_set_legacy(ON) turns legacy mode on if ON is true
+%   and off otherwise.  PREVIOUS is the previous setting (1: on, 0: off).
+%   Legacy mode is off by default.
 %
 %   In legacy mode, the library behaves exactly as the original WFDB
-%   library, with its built-in defaults: a header without a sampling
-%   frequency means 250 Hz (WFDB_DEFFREQ), a missing ADC resolution is
-%   inferred from the format or taken as 12 bits (WFDB_DEFRES), the time
-%   conversion functions use 1 sample per second when no frequency is
-%   known, setifreq reports "no open input record", and the unit conversion
-%   functions assume a gain of 200 (WFDB_DEFGAIN; and a baseline of 0 for
-%   invalid signal numbers).
+%   library, including its assumed signal parameters and its search for
+%   files.  Use it only to reproduce old results.  docs/DIVERGENCES.md
+%   describes what changes in legacy mode.
 %
-%   Legacy mode is kept for compatibility only: the values it assumes are
-%   exactly the silent defaults that wfdb-x removed, so results produced
-%   with it carry the same risks (see docs/DIVERGENCES.md).  This function
-%   is a wfdb-x addition.
-%
-%   Example:
+%   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
+%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   the repository; in legacy mode, the WFDB path, set by wfdbx.setwfdb,
+%   says where records are found):
 %       old = wfdbx.wfdbx_set_legacy(1);
-%       f = wfdbx.sampfreq('null');     % 250 for a header without frequency
+%       wfdbx.setwfdb('/path/to/wfdb-x/tests/data');
+%       rec = wfdbx.read_record('100s');   % read as the original package
 %       wfdbx.wfdbx_set_legacy(old);
 %
-%   See also wfdbx.wfdbx_get_legacy, wfdbx.wfdbx_legacy_args.
+%   See also wfdbx.wfdbx_get_legacy.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 S = wfdbx.internal.sig_state();
 previous = S.legacy_mode;

@@ -5,9 +5,19 @@ function args = hexargs(hex)
 %   row of char vectors with those bytes.  bin/wfdbx_matlab.sh passes the
 %   arguments of a tool to MATLAB this way, so that any bytes (quotes,
 %   non-ASCII characters) arrive unchanged.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 args = cell(1, numel(hex));
 for k = 1:numel(hex)

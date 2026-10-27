@@ -2,10 +2,27 @@
 # standard output) with the semantics of the C stdio functions used by the
 # WFDB library (lib/wfdbio.c).
 #
-# Copyright (C) 1988-2013 George B. Moody (original C implementation,
-# lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is an R translation of lib/wfdbio.c from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior
+# of the original code, but it is new code, not the original C code.
+#
+# Changes from the original: a remote file is read into memory (type WFDB_NET)
+# by wfdb-x's own code; the HTTP/FTP code of the original (libcurl) is not
+# translated. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# gives the reasons.
+#
+# Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
+#   Moody.
+# R translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 #
 # A WFDB_FILE is an environment (is_wfdb_file(); C NULL is NULL),
 # created by wfdb_fopen() / wfdb_open() (wfdbio.R).  Fields: `name` (file

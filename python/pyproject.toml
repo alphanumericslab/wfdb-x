@@ -8,8 +8,8 @@ dynamic = ["version"]
 description = "A faithful, lightweight Python implementation of the WFDB library and command-line tools (WFDB 10.7.0)"
 readme = "README.md"
 requires-python = ">=3.9"
-license = "LGPL-2.0-or-later AND GPL-2.0-or-later"
-license-files = ["LICENSE", "LICENSE.LIB"]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [{name = "Reza Sameni", email = "reza.sameni@gmail.com"}]
 maintainers = [{name = "Reza Sameni", email = "reza.sameni@gmail.com"}]
 keywords = ["WFDB", "PhysioNet", "physiologic signals", "ECG", "biomedical signal processing"]

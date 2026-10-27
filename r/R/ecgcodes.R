@@ -3,11 +3,32 @@
 # (WFDB_Siginfo, WFDB_Anninfo, WFDB_Annotation, WFDB_Calinfo,
 # WFDB_Seginfo).
 #
-# Copyright (C) 1999 George B. Moody (original C headers, lib/ecgcodes.h, by
-# T. Baker and G. Moody, and lib/ecgmap.h). The structure constructors are
-# wfdb-x's own.
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is an R translation of lib/ecgcodes.h, lib/ecgmap.h and the annotation
+# code mapping functions of lib/annot.c (wfdb_isann, wfdb_isqrs, wfdb_map1,
+# wfdb_map2, wfdb_ammap, wfdb_mamap, wfdb_annpos and their setters) from the
+# WFDB Software Package 10.7.0, by T. Baker and George B. Moody
+# (lib/ecgcodes.h) and George B. Moody (lib/ecgmap.h, lib/annot.c). The
+# translation follows the logic and behavior of the original code, but it is
+# new code, not the original C code. The constructors of the structures have no
+# counterpart in these files.
+#
+# Changes from the original: none, apart from the language.
+#
+# Original C code: lib/ecgcodes.h, lib/ecgmap.h and lib/annot.c, WFDB Software
+# Package 10.7.0.
+#   lib/ecgcodes.h: Copyright (C) 1999 George B. Moody.
+#   lib/ecgmap.h: Copyright (C) 1999 George B. Moody.
+#   lib/annot.c: Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by
+#   Benjamin Moody.
+# R translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 #
 # The annotation codes are exported as constants (doubles, as all numbers
 # in this package): NORMAL, PVC, ...; ecgcodes() returns them all as a

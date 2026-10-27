@@ -3,27 +3,37 @@
 # legacy mode), access to remote files, error reporting (wfdb_error,
 # wfdberror), version and configuration strings.
 #
-# Copyright (C) 1988-2013 George B. Moody (original C implementation,
-# lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
-# Design decision (Reza Sameni, Oct 2026): files are found by explicit names
-# instead of a search of the WFDB path.  A relative name is read under the
-# input directory and written under the output directory
-# (wfdbx_set_input_dir, wfdbx_set_output_dir; by default, the current
-# directory); an absolute name, a ~ name or a URL is used as given; nothing
-# else is searched.  A URL is opened only if network access was allowed
-# (wfdbx_set_network or WFDBX_NETWORK; read by the system program curl).
-# Reasons: a search can silently open the wrong file (a stale copy earlier
-# in the path) and fails in ways nobody notices, it sent local paths and
-# record names to physionet.org (in the Python port), and the network must
-# not be used without being asked for.  The original behavior remains
-# available with --legacy (see docs/DIVERGENCES.md); it reads no remote
-# files (as the reference C build, compiled without network support).
-# (Output files can also be created in a directory set with
-# wfdbx_set_output_dir, in both modes; decided by Reza Sameni after a code
-# review, Oct 2026.)
+# It is an R translation of lib/wfdbio.c from the WFDB Software Package 10.7.0,
+# by George B. Moody. The translation follows the logic and behavior of the
+# original code, but it is new code, not the original C code.
+#
+# Changes from the original: files are found only where they are named, not by
+# a search of the WFDB path: a relative name is read under the input directory
+# and written under the output directory (by default, the current directory),
+# and an absolute name, a ~ name or a URL is used as given; setwfdb, getwfdb
+# and resetwfdb set and return the input directory, and the WFDB environment
+# variable is ignored; a URL is opened only if network access is turned on
+# (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by the curl
+# program or R's url(); the original's HTTP and FTP code (NETFILES) is not
+# translated; ".." is accepted in names, and only the last component of a
+# record name is checked; additions: wfdbx_set_input_dir, wfdbx_get_input_dir,
+# wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network and
+# wfdbx_get_network; legacy mode (wfdbx_set_legacy) restores the original
+# behavior (the WFDB path, without network access). Each change is marked
+# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+#
+# Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
+#   Benjamin Moody.
+# R translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 WFDB_MAJOR <- 10
 WFDB_MINOR <- 7
@@ -899,9 +909,17 @@ wfdb_fopen <- function(fname, mode) {
 
 #' Check that a record or annotator name contains only legal characters
 #' (letters, digits, _ ~ - /); 0 if so, -1 (with an error message)
-#' otherwise.
+#' otherwise.  s is the kind of name ("record", "annotator", ...); for a
+#' record name, outside legacy mode, only the last component is checked.
 wfdb_checkname <- function(p, s) {
   b <- if (is.null(p)) integer(0) else as.integer(charToRaw(p))
+  # wfdb-x: a record name may be a path; outside legacy mode only its last
+  # component (the record's own name) is checked, so that directories with
+  # other characters (such as "my.data/rec") can be written.
+  if (s == "record" && !wfdbx_get_legacy()) {
+    k <- which(b == 47L)
+    if (length(k)) b <- b[-seq_len(k[length(k)])]
+  }
   if (length(b) == 0L) {
     wfdb_error("init: illegal character %d in %s name\n", 0, s)
     return(-1)

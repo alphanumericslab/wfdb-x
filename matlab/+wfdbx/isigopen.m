@@ -19,18 +19,44 @@ function [nsig, si] = isigopen(record, nsig)
 %   name ('rec.edf').  Multi-segment records are opened segment by segment
 %   as they are read.
 %
-%   Example:
+%   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
+%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   the repository):
+%       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       n = wfdbx.isigopen('100s', 0);         % number of signals
 %       [n, si] = wfdbx.isigopen('100s', n);   % open them
 %       [stat, v] = wfdbx.getvec();             % read a sample of each
 %
 %   See also wfdbx.getvec, wfdbx.getframes, wfdbx.isigsettime,
 %   wfdbx.siginfo, wfdbx.wfdbquit.
+%
+%   Translation of the C function isigopen() (lib/signal.c, WFDB 10.7.0): same
+%   arguments and results. Differences: the signal files and segments named in
+%   the header are read only from the header's directory, and no sampling
+%   frequency, gain, ADC resolution or units are assumed; see
+%   docs/DIVERGENCES.md.
 
-% Copyright (C) 1989-2013 George B. Moody (original C implementation,
-% lib/signal.c; revised 2011-2022 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original code, but it is new code, not the original C
+% code.
+%
+% Changes from the original: the signal files are read from the directory of
+% the header, not searched for. Each change is marked "wfdb-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
+%
+% Original C code: lib/signal.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 if isa(record, 'string')   % MATLAB string
     record = char(record);

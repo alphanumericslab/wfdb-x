@@ -1,29 +1,41 @@
-# wfdbio.jl: low-level I/O of the WFDB library (port of lib/wfdbio.c):
-# locating files (the input and output directories, wfdbx_set_input_dir,
-# wfdbx_set_output_dir; the WFDB path, getwfdb, setwfdb, ..., in legacy
-# mode), opening WFDB files (wfdb_open, wfdb_fopen, wfdbfile), remote files
-# (wfdbx_set_network), error reporting (wfdb_error, wfdberror, wfdbquiet),
-# and `WfdbFile`, the buffered file type used by the library and the tools
-# (C's WFDB_FILE / FILE *).
+# wfdbio.jl: low-level I/O of the WFDB library: locating files (the input
+# and output directories, wfdbx_set_input_dir, wfdbx_set_output_dir; the
+# WFDB path, getwfdb, setwfdb, ..., in legacy mode), opening WFDB files
+# (wfdb_open, wfdb_fopen, wfdbfile), remote files (wfdbx_set_network), error
+# reporting (wfdb_error, wfdberror, wfdbquiet), and `WfdbFile`, the buffered
+# file type used by the library and the tools (C's WFDB_FILE / FILE *).
 #
-# Design decision (Reza Sameni, Oct 2026): files are found by explicit names
-# instead of a search of the WFDB path. A relative name is read under the
-# input directory and written under the output directory (by default, the
-# current directory); an absolute name, a ~ name or a URL is used as given;
-# nothing else is searched. A URL is opened only if network access was
-# allowed (wfdbx_set_network or WFDBX_NETWORK; read with the Downloads
-# standard library). Reasons: a search can silently open the wrong file (a
-# stale copy earlier in the path) and fails in ways nobody notices, it sent
-# local paths and record names to physionet.org (in another port), and the
-# network must not be used without being asked for. The original behavior
-# remains available with --legacy (see docs/DIVERGENCES.md); it reads no
-# remote files (as the reference C build, compiled without network
-# support).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
-# Copyright (C) 1988-2013 George B. Moody (original C implementation,
-# lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# It is a Julia translation of lib/wfdbio.c from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior of
+# the original code, but it is new code, not the original C code.
+#
+# Changes from the original: files are found only where they are named, not by
+# a search of the WFDB path: a relative name is read under the input directory
+# and written under the output directory (by default, the current directory),
+# and an absolute name, a ~ name or a URL is used as given; setwfdb, getwfdb
+# and resetwfdb set and return the input directory, and the WFDB environment
+# variable is ignored; a URL is opened only if network access is turned on
+# (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by Julia's
+# Downloads standard library; the original's HTTP and FTP code (NETFILES) is
+# not translated; ".." is accepted in names, and only the last component of a
+# record name is checked; additions: wfdbx_set_input_dir, wfdbx_get_input_dir,
+# wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network and
+# wfdbx_get_network; legacy mode (wfdbx_set_legacy) restores the original
+# behavior (the WFDB path, without network access). Each change is marked
+# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+#
+# Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
+#   Benjamin Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 # The date reported by wfdberror (that of the 10.7.0 release; the C library
 # reports the date on which it was compiled).
@@ -480,6 +492,9 @@ end
 
 A 16-bit integer in PDP-11 (little-endian) byte order, sign-extended. At end
 of file the missing bytes read as 0xff (`EOF`).
+
+Translation of the C function wfdb_g16() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results.
 """
 @inline function wfdb_g16(f::WfdbFile)
     x = getc(f)
@@ -492,6 +507,9 @@ end
 
 A 32-bit integer in PDP-11 byte order (high 16-bit word first, each word
 little-endian), as a C `long`.
+
+Translation of the C function wfdb_g32() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results.
 """
 @inline function wfdb_g32(f::WfdbFile)
     x = Int64(wfdb_g16(f))
@@ -617,14 +635,20 @@ function cfprintf(f::WfdbFile, fmt::ByteStr, args::Vararg{Any,N}) where {N}
     Int32(n)
 end
 
-"`wfdb_p16`: write a 16-bit integer in PDP-11 byte order."
+"`wfdb_p16`: write a 16-bit integer in PDP-11 byte order.
+
+Translation of the C function wfdb_p16() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results."
 @inline function wfdb_p16(f::WfdbFile, x::Integer)
     putc(f, x % UInt8)
     putc(f, (x >> 8) % UInt8)
     nothing
 end
 
-"`wfdb_p32`: write a 32-bit integer in PDP-11 byte order (high word first)."
+"`wfdb_p32`: write a 32-bit integer in PDP-11 byte order (high word first).
+
+Translation of the C function wfdb_p32() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results."
 @inline function wfdb_p32(f::WfdbFile, x::Integer)
     x = Int64(x)
     wfdb_p16(f, x >> 16)
@@ -875,6 +899,10 @@ an `http://` or `https://` URL can only be read, and only if network access
 is allowed (see [`wfdbx_set_network`](@ref)). In legacy mode, names
 containing `..` or `://` are refused (as by the reference C library, built
 without network support).
+
+Translation of the C function wfdb_fopen() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results. Differences: a URL is read only if network access is on,
+and names containing ".." are accepted; see docs/DIVERGENCES.md.
 """
 function wfdb_fopen(w::Wfdb, fname::ByteStr, mode::ByteStr)
     fname = cstr(bytes(fname))
@@ -902,7 +930,10 @@ function wfdb_fopen(w::Wfdb, fname::ByteStr, mode::ByteStr)
     nothing
 end
 
-"`wfdb_striphea(record)`: the record name without a trailing `.hea`."
+"`wfdb_striphea(record)`: the record name without a trailing `.hea`.
+
+Translation of the C function wfdb_striphea() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results."
 function wfdb_striphea(record::ByteStr)
     r = cstr(bytes(record))
     (length(r) > 4 && r[end-3:end] == b".hea") ? r[1:end-4] : copy(r)
@@ -954,6 +985,9 @@ end
     wfdbversion() -> Vector{UInt8}
 
 C `wfdbversion`: the version of the WFDB library implemented, `"10.7.0"`.
+
+Translation of the C function wfdbversion() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results.
 """
 wfdbversion() = Vector{UInt8}(b"10.7.0")
 """
@@ -961,6 +995,10 @@ wfdbversion() = Vector{UInt8}(b"10.7.0")
 
 C `wfdbldflags`: the linker flags needed to use the C library. Empty, since
 there are none in Julia.
+
+Translation of the C function wfdbldflags() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results. Differences: the result is always empty; see
+docs/KNOWN_C_BEHAVIORS.md.
 """
 wfdbldflags() = UInt8[]
 """
@@ -968,6 +1006,10 @@ wfdbldflags() = UInt8[]
 
 C `wfdbcflags`: the compiler flags needed to use the C library. Empty, since
 there are none in Julia.
+
+Translation of the C function wfdbcflags() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results. Differences: the result is always empty; see
+docs/KNOWN_C_BEHAVIORS.md.
 """
 wfdbcflags() = UInt8[]
 """
@@ -975,6 +1017,9 @@ wfdbcflags() = UInt8[]
 
 C `wfdbdefwfdb`: the default WFDB path ([`DEFWFDB`](@ref)), used when the
 environment variable `WFDB` is not set.
+
+Translation of the C function wfdbdefwfdb() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results.
 """
 wfdbdefwfdb() = Vector{UInt8}(DEFWFDB)
 """
@@ -982,6 +1027,9 @@ wfdbdefwfdb() = Vector{UInt8}(DEFWFDB)
 
 C `wfdbdefwfdbcal`: the default calibration file name, `"wfdbcal"`, used
 when the environment variable `WFDBCAL` is not set.
+
+Translation of the C function wfdbdefwfdbcal() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results.
 """
 wfdbdefwfdbcal() = Vector{UInt8}(DEFWFDBCAL)
 wfdbversion(w::Wfdb) = wfdbversion()
@@ -1028,6 +1076,10 @@ C `getwfdb()`. wfdb-x: the input directory (see
 searched for. In legacy mode, the WFDB path, the list of places searched
 for WFDB files (initialized from the `WFDB` environment variable, or
 [`DEFWFDB`](@ref), on first use).
+
+Translation of the C function getwfdb() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results. Differences: it returns the input directory (the WFDB
+path in legacy mode); see docs/DIVERGENCES.md.
 """
 function getwfdb(w::Wfdb)
     io = w.io
@@ -1061,6 +1113,10 @@ last `setwfdb`.
 In legacy mode, set the WFDB path as C does (`nothing`: from the
 environment or the default), and export `WFDB` (and defaults of `WFDBCAL`,
 `WFDBANNSORT`, `WFDBGVMODE`) to the environment.
+
+Translation of the C function setwfdb() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results. Differences: it sets a single input directory (the WFDB
+path in legacy mode); see docs/DIVERGENCES.md.
 """
 function setwfdb(w::Wfdb, p::OptByteStr)
     if !_legacy(w)
@@ -1087,6 +1143,10 @@ C `resetwfdb()`. wfdb-x: restore the input directory set by the last
 [`setwfdb`](@ref), if any ([`wfdbquit`](@ref) does not call it, except in
 legacy mode). In legacy mode, restore the WFDB path to its initial value
 (only if `getwfdb` was called before any `setwfdb`).
+
+Translation of the C function resetwfdb() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results. Differences: it restores the input directory set by the
+last setwfdb() (the WFDB path in legacy mode); see docs/DIVERGENCES.md.
 """
 function resetwfdb(w::Wfdb)
     if !_legacy(w)
@@ -1104,6 +1164,9 @@ end
 C `wfdbquiet()`: stop printing the library's error messages on the
 standard error. The latest message is still available from
 [`wfdberror`](@ref).
+
+Translation of the C function wfdbquiet() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results.
 """
 wfdbquiet(w::Wfdb) = (w.io.error_print = false; nothing)
 """
@@ -1111,6 +1174,9 @@ wfdbquiet(w::Wfdb) = (w.io.error_print = false; nothing)
 
 C `wfdbverbose()`: print the library's error messages on the standard
 error (the default; undoes [`wfdbquiet`](@ref)).
+
+Translation of the C function wfdbverbose() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results.
 """
 wfdbverbose(w::Wfdb) = (w.io.error_print = true; nothing)
 
@@ -1119,6 +1185,9 @@ wfdbverbose(w::Wfdb) = (w.io.error_print = true; nothing)
 
 C `wfdberror()`: the most recent error message (or, before any error, the
 library version string).
+
+Translation of the C function wfdberror() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results.
 """
 function wfdberror(w::Wfdb)
     io = w.io
@@ -1136,6 +1205,9 @@ C `wfdb_error(format, ...)`: format the message (see [`sprintf!`](@ref)),
 record it as the latest error, and print it on the standard error unless
 `wfdbquiet()` was called. (A message that is already formatted can be
 recorded with [`wfdb_error_msg`](@ref).)
+
+Translation of the C function wfdb_error() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results.
 """
 function wfdb_error(w::Wfdb, fmt::ByteStr, args::Vararg{Any,N}) where {N}
     wfdb_error_msg(w, cformat(fmt, args...))
@@ -1156,9 +1228,15 @@ end
 C `wfdbmemerr(behavior)`: set whether memory allocation errors are fatal.
 The setting is stored (see `wfdb_me_fatal`) but has no other effect: in
 Julia, allocation failures are thrown as `OutOfMemoryError`.
+
+Translation of the C function wfdbmemerr() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results.
 """
 wfdbmemerr(w::Wfdb, behavior::Integer) = (w.io.mem_behavior = Int32(behavior); nothing)
-"C `wfdb_me_fatal()`."
+"C `wfdb_me_fatal()`.
+
+Translation of the C function wfdb_me_fatal() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results."
 wfdb_me_fatal(w::Wfdb) = w.io.mem_behavior
 
 "The name of the file most recently opened by `wfdb_open` (C's `wfdb_filename`)."
@@ -1203,19 +1281,27 @@ end
 """
     wfdbx_set_input_dir([w], dir) -> Union{Vector{UInt8},Nothing}
 
-wfdb-x addition: set the input directory; return the previous one
-(`nothing` if none). A file named by a relative name (a record name, an
-annotation file, a file named on a command line, ...) is read as
-`dir/NAME`. `dir` may be a local directory (relative to the current
-directory, or a `~` name) or the URL of a directory (e.g.
-`"https://physionet.org/files/mitdb/1.0.0/"`; see
-[`wfdbx_set_network`](@ref)). Names given as absolute paths, `~` names or
-URLs are used as given; nothing else is searched. `nothing` or `""`
-restores the default: the value of the environment variable
-`WFDBX_INPUT_DIR` if it is set, otherwise none (names are used as given,
-relative to the current directory). The setting belongs to the library
-state `w`; it is not reset by `wfdbquit`, and not used in legacy mode
-(which searches the WFDB path).
+Set the input directory, and return the previous one as bytes, or
+`nothing` if none was set.
+
+Every file named by a relative name, such as `"100"` or `"mitdb/100"`, is
+read from the input directory. A full path, a `~` path or a URL is used as
+given. `dir` is a local directory, a `~` path, or the URL of a directory
+such as `"https://physionet.org/files/mitdb/1.0.0/"`. Reading a URL needs
+network access (see [`wfdbx_set_network`](@ref)).
+
+`nothing` or `""` restores the default: the environment variable
+`WFDBX_INPUT_DIR` if it is set, and otherwise the current directory. The
+setting belongs to the library state `w`, and `wfdbquit` keeps it.
+
+# Examples
+```julia-repl
+julia> wfdbx_set_input_dir("/data/mitdb");   # a local copy of the MIT-BIH Arrhythmia Database
+
+julia> rec = read_record("100");      # reads /data/mitdb/100.hea and 100.dat
+```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_set_input_dir(w::Wfdb, dir::OptByteStr)
     _init_input_dir!(w)
@@ -1227,8 +1313,10 @@ end
 """
     wfdbx_get_input_dir([w]) -> Union{Vector{UInt8},Nothing}
 
-wfdb-x addition: the input directory (see [`wfdbx_set_input_dir`](@ref)),
-or `nothing`.
+Return the input directory as bytes (see [`wfdbx_set_input_dir`](@ref)),
+or `nothing` if none is set.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_get_input_dir(w::Wfdb)
     _init_input_dir!(w)
@@ -1254,20 +1342,30 @@ end
 """
     wfdbx_set_output_dir([w], dir) -> Union{Vector{UInt8},Nothing}
 
-wfdb-x addition: set the output directory; return the previous one
-(`nothing` if none). Output files (`WFDB_WRITE` and `WFDB_APPEND` modes of
-[`wfdb_open`](@ref)) named by a relative name (the record name and the file
-type; the record name may itself contain directories) are created as
-`dir/NAME` (in legacy mode, any name); `dir` may be relative to the current
-directory or a `~` name. `nothing` or `""` restores the default: the value
-of the environment variable `WFDBX_OUTPUT_DIR` if it is set, otherwise none
-(files are created as named). A URL is refused: an error is reported
-(`wfdbx_set_output_dir: the output directory must be a local directory`),
-the setting is unchanged, and its current value is returned. The directory
-is not checked: as for any output file, missing directories are created.
-The setting belongs to the library state `w`, is not reset by `wfdbquit`,
-and applies in legacy mode too. Header and signal file names recorded in
-headers are not changed.
+Set the output directory, and return the previous one as bytes, or
+`nothing` if none was set.
+
+Every file named by a relative name is created in the output directory. A
+full path or a `~` path is used as given. `dir` is a local directory or a
+`~` path. Missing directories are created when a file is written. A URL is
+refused: the error `"wfdbx_set_output_dir: the output directory must be a
+local directory"` is reported, and the setting is unchanged.
+
+`nothing` or `""` restores the default: the environment variable
+`WFDBX_OUTPUT_DIR` if it is set, and otherwise the current directory. The
+setting belongs to the library state `w`, and `wfdbquit` keeps it.
+
+# Examples
+The example writes the annotation file `out/100s.qrs`, for the record `100s`
+(the sample record of wfdb-x, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database):
+```julia-repl
+julia> wfdbx_set_output_dir("out");
+
+julia> write_annotations("100s", "qrs", Annotations(samples=[100], symbols=[b"N"]))  # writes out/100s.qrs
+```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_set_output_dir(w::Wfdb, dir::OptByteStr)
     _init_output_dir!(w)
@@ -1284,8 +1382,10 @@ end
 """
     wfdbx_get_output_dir([w]) -> Union{Vector{UInt8},Nothing}
 
-wfdb-x addition: the output directory (see [`wfdbx_set_output_dir`](@ref)),
-or `nothing`.
+Return the output directory as bytes (see [`wfdbx_set_output_dir`](@ref)),
+or `nothing` if none is set.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_get_output_dir(w::Wfdb)
     _init_output_dir!(w)
@@ -1295,16 +1395,28 @@ end
 """
     wfdbx_set_network([w], on) -> Int32
 
-wfdb-x addition: allow (`on` true or > 0) or forbid (`on` false or 0)
-network access, i.e., opening `http://` and `https://` URLs; return the
-previous setting (1 or 0). `nothing` or a negative number restores the
-default: allowed if the environment variable `WFDBX_NETWORK` is set to a
-non-zero number, otherwise forbidden. Remote files are read in full (with
-the Downloads standard library; redirects are followed, an HTTP status of
-400 or more is a failure; it gives up if connecting takes 30 s or no data
-arrives for 30 s, with no limit on the total time) and kept for the rest of the
-process (each URL is requested at most once). Never in legacy mode, which
-reads no remote files. The setting belongs to the library state `w`.
+Turn network access on (`on` is `true` or positive) or off (`on` is
+`false` or 0), and return the previous setting: 1 for on, 0 for off.
+Network access lets the library read `http://` and `https://` URLs. It is
+off by default.
+
+`nothing` or a negative number restores the default: on if the environment
+variable `WFDBX_NETWORK` is a non-zero number, and off otherwise. The
+setting belongs to the library state `w`.
+
+Remote files are read once and kept for the rest of the session. A download
+gives up when it cannot connect, or receives nothing, for 30 seconds.
+
+# Examples
+```julia-repl
+julia> wfdbx_set_network(true);
+
+julia> wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/");
+
+julia> rec = read_record("100"; to="0:10");   # record 100 of the MIT-BIH Arrhythmia Database
+```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_set_network(w::Wfdb, on::Union{Nothing,Bool,Integer})
     previous = wfdbx_get_network(w)
@@ -1316,8 +1428,10 @@ end
 """
     wfdbx_get_network([w]) -> Int32
 
-wfdb-x addition: 1 if network access is allowed (see
-[`wfdbx_set_network`](@ref)), otherwise 0.
+Return 1 if network access is on (see [`wfdbx_set_network`](@ref)), and 0
+otherwise.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_get_network(w::Wfdb)
     io = w.io
@@ -1465,6 +1579,11 @@ In legacy mode, an input file is searched for in each directory of the WFDB
 path (with `%r` in a path component replaced by the current record name,
 `%Nr` by its first N characters), and an output file is created as named
 (in the output directory, if one is set).
+
+Translation of the C function wfdb_open() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results. Differences: a file is opened only where its name says
+(under the input or output directory, or as given), never searched for, and a
+URL is read only if network access is on; see docs/DIVERGENCES.md.
 """
 function wfdb_open(w::Wfdb, s::OptByteStr, record::OptByteStr, mode::Integer)
     io = w.io
@@ -1673,10 +1792,22 @@ end
 
 0 if `name` contains only letters, digits, `_`, `~`, `-` and `/`;
 otherwise prints `init: illegal character N in DESCRIPTION name` and
-returns -1.
+returns -1. wfdb-x: for a record name (`description` `"record"`), only its
+last component (after the last `/`) is checked, except in legacy mode.
+
+Translation of the C function wfdb_checkname() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results. Differences: only the last component of a record
+name is checked; see docs/DIVERGENCES.md.
 """
 function wfdb_checkname(w::Wfdb, name::ByteStr, desc::ByteStr)
     nm = cstr(bytes(name))
+    # wfdb-x: a record name may be a path; outside legacy mode only its last
+    # component (the record's own name) is checked, so that directories with
+    # other characters (such as "my.data/rec") can be written.
+    if bytes(desc) == b"record" && !_legacy(w)
+        k = findlast(==(DSEP), nm)
+        k === nothing || (nm = nm[k+1:end])
+    end
     i = 1
     while true
         c = i <= length(nm) ? nm[i] : 0x00
@@ -1695,6 +1826,9 @@ end
 
 Set the current record name (its last path component, at most
 `WFDB_MAXRNL` bytes), used for `%r` in the WFDB path. `"-"` is ignored.
+
+Translation of the C function wfdb_setirec() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdb_setirec(w::Wfdb, p::ByteStr)
     pb = cstr(bytes(p))
@@ -1706,7 +1840,10 @@ function wfdb_setirec(w::Wfdb, p::ByteStr)
     nothing
 end
 
-"`wfdb_getirec()`: the current record name (`nothing` if not set)."
+"`wfdb_getirec()`: the current record name (`nothing` if not set).
+
+Translation of the C function wfdb_getirec() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results."
 wfdb_getirec(w::Wfdb) = isempty(w.io.irec) ? nothing : copy(w.io.irec)
 
 """
@@ -1714,6 +1851,10 @@ wfdb_getirec(w::Wfdb) = isempty(w.io.irec) ? nothing : copy(w.io.irec)
 
 Split a WFDB path into its components (separated by `;`, spaces, tabs or
 newlines; `:` also separates local components, but not the `://` of URLs).
+
+Translation of the C function wfdb_parse_path() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results. Differences: it is used only in legacy mode; see
+docs/DIVERGENCES.md.
 """
 function wfdb_parse_path(w::Wfdb, p::OptByteStr)
     pl = w.io.path_list
@@ -1763,6 +1904,10 @@ end
 Move (or add) the directory of `pathname` to the front of the WFDB path
 (after `.`, if `.` is first), so that other files of the same record are
 found quickly (used in legacy mode only).
+
+Translation of the C function wfdb_addtopath() (lib/wfdbio.c, WFDB 10.7.0):
+same arguments and results. Differences: it is used only in legacy mode; see
+docs/DIVERGENCES.md.
 """
 function wfdb_addtopath(w::Wfdb, s0::ByteStr)
     s = cstr(bytes(s0))
@@ -1810,6 +1955,10 @@ C `wfdbfile(type, record)`: the pathname (or URL) of a WFDB file (found as
 [`wfdb_open`](@ref) finds it: wfdb-x: under the input directory, for a
 relative name; in legacy mode, in the WFDB path), or `nothing`. With both arguments `nothing`,
 the name of the file most recently opened.
+
+Translation of the C function wfdbfile() (lib/wfdbio.c, WFDB 10.7.0): same
+arguments and results. Differences: the file is found as wfdb_open() finds it,
+not by a search of the WFDB path; see docs/DIVERGENCES.md.
 """
 function wfdbfile(w::Wfdb, s::OptByteStr, record::OptByteStr)
     (s === nothing && record === nothing) && return copy(w.io.filename)

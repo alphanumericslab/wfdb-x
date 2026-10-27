@@ -1,13 +1,19 @@
 # cli.R: the command-line dispatcher of the wfdb-x tools (used by
 # inst/bin/wfdbx.R) and wfdbx_tool(), which runs a tool from R.
 #
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
-# bits and millivolts), because a silently assumed value corrupts every result
-# derived from it. See docs/DIVERGENCES.md.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
+#
+# The tools have no built-in sampling frequency, gain, ADC resolution or units
+# (see docs/DIVERGENCES.md); the helpers they share for this are below.
 
 #' Names of the available tools (the functions app_<tool>).
 wfdbx_tools <- function() {

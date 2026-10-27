@@ -62,6 +62,12 @@ flushcal()
   \code{putcal} returns 0.  \code{newcal} returns 0, or -1 if the file
   cannot be written.  \code{flushcal} returns \code{NULL}, invisibly.
 }
+\section{Origin}{
+  Translation of the C functions calopen(), getcal(), putcal(), newcal()
+  and flushcal() (lib/calib.c, WFDB 10.7.0): same arguments and results.
+  Differences: the calibration file is read from the input directory,
+  not searched for in the WFDB path; see \file{docs/DIVERGENCES.md}.
+}
 \seealso{\code{\link{calinfo}}.}
 \examples{
 putcal(calinfo(low = 0, high = 1, scale = 1, sigtype = "ECG", units = "mV",

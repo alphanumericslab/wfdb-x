@@ -63,6 +63,11 @@ setecgstr(code, s)
 
   The setters return 0, or -1 for an illegal code.
 }
+\section{Origin}{
+  Translation of the C functions annstr(), strann(), setannstr(),
+  anndesc(), setanndesc(), ecgstr(), strecg() and setecgstr()
+  (lib/annot.c, WFDB 10.7.0): same arguments and results.
+}
 \seealso{
   \code{\link{ecgcodes}} for the list of codes; \code{\link{isqrs}} and
   \code{\link{map1}} for classifying them.

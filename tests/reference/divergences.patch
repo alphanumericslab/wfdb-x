@@ -3449,7 +3449,7 @@ index d90ca9a..e22a915 100644
  	while (n < noaf-1) {
  	    oad[n] = oad[n+1];
 diff --git a/lib/signal.c b/lib/signal.c
-index 901efc2..18950fa 100644
+index 901efc2..e67a49b 100644
 --- a/lib/signal.c
 +++ b/lib/signal.c
 @@ -185,7 +185,15 @@ void example(void)
@@ -3849,7 +3849,50 @@ index 901efc2..18950fa 100644
  	return (-1);
      }
      if (f > 0.0) {
-@@ -3971,7 +4256,9 @@ FINT setmsheader(char *record, char **segment_name, unsigned int nsegments)
+@@ -3827,6 +4112,22 @@ FINT setobsize(int n)
+     return (obsize = n);
+ }
+ 
++/* wfdb-x: outside legacy mode, a name written into the header of record is
++   written relative to the header's directory (where the reader looks for
++   it): the directory part of record is removed from name when name begins
++   with it. */
++static const char *hea_name(const char *record, const char *name)
++{
++    const char *q;
++    size_t n;
++
++    if (wfdbx_get_legacy() || name == NULL ||
++	(q = strrchr(record, '/')) == NULL)
++	return (name);
++    n = q - record + 1;
++    return (strncmp(name, record, n) == 0 ? name + n : name);
++}
++
+ FINT newheader(char *record)
+ {
+     int stat;
+@@ -3875,7 +4176,8 @@ FINT setheader(char *record, const WFDB_Siginfo *siarray, unsigned int nsig)
+     }
+ 
+     /* Write the general information line. */
+-    (void)wfdb_fprintf(oheader, "%s %d %.12g", record, nsig, ffreq);
++    (void)wfdb_fprintf(oheader, "%s %d %.12g", hea_name(record, record), nsig,
++		       ffreq);
+     if ((cfreq > 0.0 && cfreq != ffreq) || bcount != 0.0) {
+ 	(void)wfdb_fprintf(oheader, "/%.12g", cfreq);
+ 	if (bcount != 0.0)
+@@ -3898,7 +4200,8 @@ FINT setheader(char *record, const WFDB_Siginfo *siarray, unsigned int nsig)
+ 
+     /* Write a signal specification line for each signal. */
+     for (s = 0; s < nsig; s++) {
+-	(void)wfdb_fprintf(oheader, "%s %d", siarray[s].fname, siarray[s].fmt);
++	(void)wfdb_fprintf(oheader, "%s %d", hea_name(record, siarray[s].fname),
++			   siarray[s].fmt);
+ 	if (siarray[s].spf > 1)
+ 	    (void)wfdb_fprintf(oheader, "x%d", siarray[s].spf);
+ 	if (osd && osd[s]->skew)
+@@ -3971,7 +4274,9 @@ FINT setmsheader(char *record, char **segment_name, unsigned int nsegments)
  	}
  	in_msrec = 1;
  	nsamples = 0;
@@ -3859,7 +3902,26 @@ index 901efc2..18950fa 100644
  	in_msrec = old_in_msrec;
  	if (n < 0) {
  	    wfdb_error("setmsheader: can't read segment %s header\n",
-@@ -4325,13 +4612,42 @@ static char *ftimstr(WFDB_Time t, WFDB_Frequency f)
+@@ -4022,7 +4327,8 @@ FINT setmsheader(char *record, char **segment_name, unsigned int nsegments)
+     }
+ 
+     /* Write the first line of the master header. */
+-    (void)wfdb_fprintf(oheader,"%s/%u %d %.12g", record, nsegments, nsig, msfreq);
++    (void)wfdb_fprintf(oheader,"%s/%u %d %.12g", hea_name(record, record),
++		       nsegments, nsig, msfreq);
+     if ((mscfreq > 0.0 && mscfreq != msfreq) || msbcount != 0.0) {
+ 	(void)wfdb_fprintf(oheader, "/%.12g", mscfreq);
+ 	if (msbcount != 0.0)
+@@ -4044,7 +4350,7 @@ FINT setmsheader(char *record, char **segment_name, unsigned int nsegments)
+     /* Write a line for each segment. */
+     for (i = 0; i < nsegments; i++)
+ 	(void)wfdb_fprintf(oheader, "%s %"WFDB_Pd_TIME"\r\n",
+-			   segment_name[i], ns[i]);
++			   hea_name(record, segment_name[i]), ns[i]);
+ 
+     SFREE(ns);
+     return (0);
+@@ -4325,13 +4631,42 @@ static char *ftimstr(WFDB_Time t, WFDB_Frequency f)
      return (p);	
  }
  
@@ -3903,7 +3965,7 @@ index 901efc2..18950fa 100644
  
      return ftimstr(t, f);
  }
-@@ -4398,7 +4714,8 @@ FSTRING mstimstr(WFDB_Time t)
+@@ -4398,7 +4733,8 @@ FSTRING mstimstr(WFDB_Time t)
  
      if (ifreq > 0.) f = ifreq;
      else if (sfreq > 0.) f = sfreq;
@@ -3913,7 +3975,7 @@ index 901efc2..18950fa 100644
  
      return fmstimstr(t, f);
  }
-@@ -4475,7 +4792,11 @@ FSITIME strtim(const char *string)
+@@ -4475,7 +4811,11 @@ FSITIME strtim(const char *string)
  
      if (ifreq > 0.) f = ifreq;
      else if (sfreq > 0.) f = sfreq;
@@ -3926,7 +3988,7 @@ index 901efc2..18950fa 100644
  
      return fstrtim(string, f);
  }
-@@ -4533,12 +4854,33 @@ FDATE strdat(const char *string)
+@@ -4533,12 +4873,33 @@ FDATE strdat(const char *string)
      return (date);
  }
  
@@ -3962,7 +4024,7 @@ index 901efc2..18950fa 100644
      x = a*1000./g;
      if (x >= 0.0)
  	return ((int)(x + 0.5));
-@@ -4549,9 +4891,9 @@ FINT adumuv(WFDB_Signal s, WFDB_Sample a)
+@@ -4549,9 +4910,9 @@ FINT adumuv(WFDB_Signal s, WFDB_Sample a)
  FSAMPLE muvadu(WFDB_Signal s, int v)
  {
      double x;
@@ -3974,7 +4036,7 @@ index 901efc2..18950fa 100644
      x = g*v*0.001;
      if (x >= 0.0)
  	return ((int)(x + 0.5));
-@@ -4562,34 +4904,20 @@ FSAMPLE muvadu(WFDB_Signal s, int v)
+@@ -4562,34 +4923,20 @@ FSAMPLE muvadu(WFDB_Signal s, int v)
  FDOUBLE aduphys(WFDB_Signal s, WFDB_Sample a)
  {
      double b;
@@ -4015,7 +4077,7 @@ index 901efc2..18950fa 100644
      v *= g;
      if (v >= 0)
  	return ((int)(v + 0.5) + b);
-@@ -4689,6 +5017,9 @@ void wfdb_sigclose(void)
+@@ -4689,6 +5036,9 @@ void wfdb_sigclose(void)
      sfreq = ifreq = ffreq = (WFDB_Frequency)0;
      pdays = (WFDB_Date)-1;
      segments = in_msrec = skewmax = 0;
@@ -4082,7 +4144,7 @@ index 41a154d..f1eac11 100644
      wfdb_freeinfo();	/* release info strings */
  }
 diff --git a/lib/wfdbio.c b/lib/wfdbio.c
-index 10644e2..8e72510 100644
+index 10644e2..188a1c0 100644
 --- a/lib/wfdbio.c
 +++ b/lib/wfdbio.c
 @@ -38,6 +38,12 @@ This file contains definitions of the following WFDB library functions:
@@ -4770,7 +4832,7 @@ index 10644e2..8e72510 100644
      }
  
      /* Parse the WFDB path if not done previously. */
-@@ -1190,6 +1658,54 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+@@ -1190,12 +1658,67 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
      return (NULL);
  }
  
@@ -4825,7 +4887,20 @@ index 10644e2..8e72510 100644
  /* wfdb_checkname checks record and annotator names -- they must not be empty,
     and they must contain only letters, digits, hyphens, tildes, underscores, and
     directory separators. */
-@@ -2177,15 +2693,212 @@ int wfdb_fclose(WFDB_FILE *wp)
+ 
+ int wfdb_checkname(const char *p, const char *s)
+ {
++    /* wfdb-x: a record name may be a path; outside legacy mode only its last
++       component (the record's own name) is checked, so that directories
++       with other characters (such as "my.data/rec") can be written. */
++    if (!wfdbx_get_legacy() && strcmp(s, "record") == 0) {
++	const char *q = strrchr(p, DSEP);
++	if (q) p = q + 1;
++    }
+     do {
+ 	if (('0' <= *p && *p <= '9') || *p == '_' || *p == '~' || *p== '-' ||
+ 	    *p == DSEP ||
+@@ -2177,15 +2700,212 @@ int wfdb_fclose(WFDB_FILE *wp)
      return (status);
  }
  

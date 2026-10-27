@@ -11,13 +11,13 @@ Each implementation mirrors the C sources, file by file:
 
 | C source (`third_party/wfdb-main.zip`) | Python module | Contents |
 |---|---|---|
-| `lib/wfdbio.c` | `_wfdbio.py` | WFDB path, `wfdb_open`, error reporting, binary I/O helpers |
+| `lib/wfdbio.c` | `_wfdbio.py` | input and output directories, network access, the WFDB path of legacy mode, `wfdb_open`, error reporting, binary I/O helpers |
 | `lib/signal.c` | `_signal.py` | headers, signal I/O in all formats, time/date conversion, units |
 | `lib/annot.c` | `_annot.py` | annotation I/O (MIT and AHA formats), mnemonics |
 | `lib/calib.c` | `_calib.py` | calibration list |
 | `lib/wfdbinit.c` | `_wfdbinit.py` | `wfdbinit`, `wfdbquit`, `wfdbflush` |
-| `lib/ecgcodes.h`, `lib/ecgmap.h` | `_ecgcodes.py` | annotation codes and mapping tables |
-| FLAC support in `lib/signal.c` (libFLAC) | `_flac.py` | FLAC decoder and encoder |
+| `lib/ecgcodes.h`, `lib/ecgmap.h`, the mapping functions of `lib/annot.c` | `_ecgcodes.py` | annotation codes and mapping tables |
+| FLAC support in `lib/signal.c` (libFLAC) | `_flac.py` | the FLAC support of the signal functions, and wfdb-x's own FLAC decoder and encoder |
 | `app/*.c`, `convert/*.c` | `apps/*.py` | command-line tools |
 | (C standard library) | `_cstd.py` | `strtol`, `strtod`, `strtok`, `sscanf`, `fgets`, glibc `rand`, `printf` details |
 
@@ -80,8 +80,9 @@ Reference platform: x86-64 Linux, glibc, `-DWFDB_LARGETIME`.
 * Annotations: the 16-bit word encoding with `SKIP`, `NUM`, `SUB`, `CHN`,
   `AUX` pseudo-annotations; modification labels (`NOTE` annotations at time
   0) consumed by `annopen`; the time-resolution record written when
-  `setafreq` was called; out-of-order output sorted by running `sortann` in a
-  separate process when the file is closed.
+  `setafreq` was called; out-of-order output sorted when the file is closed
+  (in this process, with the result of `sortann`; by running `sortann` in
+  legacy mode, as the original does).
 * The counter frequency and base count are not reset by `wfdbquit()`.
 
 ## Applications

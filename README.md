@@ -1,12 +1,18 @@
 # WFDB-X
-## A cross-language implementation of the WFDB Software Package, in Python, C++, MATLAB/Octave, Rust, Julia and R, with identical behavior.
+## The WFDB Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically
 
 The [WFDB Software Package](https://physionet.org/content/wfdb/) (by George
 B. Moody and contributors) is the reference C library and set of
 command-line tools for reading, writing and converting physiologic signal
 and annotation files, such as the PhysioNet databases. wfdb-x is a faithful
-reimplementation of its version 10.7.0 in six languages, so that you can use
+reimplementation of its version 10.7.0 in seven languages, so that you can use
 the same files, the same functions and the same tools without the C library.
+
+wfdb-x is an independent project. It is not part of the
+[WFDB project](https://wfdb.io/) or of PhysioNet, and is not endorsed by
+them. It follows the WFDB format and the behavior of the original C
+package; see [Related projects](#related-projects) for the official WFDB
+software.
 
 Each implementation:
 
@@ -36,103 +42,50 @@ used in the field. Thousands of published studies, open-source tools and
 machine-learning benchmarks rest on what the WFDB library returns when it
 reads a record, and on what it writes.
 
-Today, the same record is read in many languages, through independent
-reimplementations that each interpret the format and the library in their
-own way. Small differences between them (a sample at the end of a segment,
-the rounding of a gain, a default value, the handling of a missing field)
-are enough for the same file to give different signals, times or
-annotations in Python, MATLAB or R. Such differences are rarely visible,
-yet they propagate into every feature, figure and model built on the data,
-and they make results hard to compare and to reproduce across groups and
-toolchains.
-
-wfdb-x addresses this at the root: one specification, the original C
-package, reimplemented in six languages and **tested to be identical**,
-byte for byte, against the original and against each other, for reading
-and for writing. A record read in Julia gives exactly the samples it gives
-in C++; a file written in R is exactly the file the original tools write.
-Researchers can then choose a language for their work, and move between
-languages, without changing their results.
+Researchers work with these records in many languages. wfdb-x offers one
+behavior across seven of them: it takes a single specification, the original
+C package, and reimplements it in Python, C++, MATLAB/Octave, Rust, Julia,
+R and Kotlin, **tested to be identical**, byte for byte, to the original and to
+each other, for reading and for writing. A record read in Julia gives
+exactly the samples it gives in C++, and a file written in R is exactly the
+file the original tools write. Researchers can choose a language for their
+work, and move between languages, with the same results. The Kotlin
+implementation brings the same behavior to mobile applications (Android,
+and iOS through Kotlin Multiplatform) and to the JVM.
 
 ## Deliberate differences from the original
 
-### No built-in signal parameters
+wfdb-x behaves exactly as the original package, with a few deliberate
+exceptions. They are the same in all seven languages and tested like
+everything else:
 
-The original package silently assumes a sampling frequency (250 Hz), a gain
-(200 adu/mV), an ADC resolution (12 bits) and units (millivolts) whenever a
-record or the user does not give them. These values describe the equipment
-of the first PhysioNet databases, recorded in the 1970s and 1980s, not
-modern recordings. A silently assumed value is worse than an error: every
-time, duration, resampled signal and physical value derived from it is
-wrong, the error propagates to every file and result built on it, and
-nothing in the output says that a value was assumed.
+* **No built-in signal parameters.** wfdb-x never assumes a sampling
+  frequency, gain, ADC resolution or units that a record does not give.
+  Tools that write them require them, for example
+  `wrsamp -F 250 -G 200 -R 16 -U mV`.
+* **Files are read and written only where they are named.** A full path,
+  a `~` path or a URL is used as given. Any other name is read from the
+  input directory and written to the output directory, which are both the
+  current directory unless you set them. Nothing is searched.
+* **Network access is off unless you turn it on.** To read from
+  PhysioNet, set the input directory to the database's URL and turn
+  network access on. For example, to print the first 10 seconds of record
+  100 of the MIT-BIH Arrhythmia Database:
 
-wfdb-x therefore has **no built-in signal parameters**. Tools that write
-them require them (for example `wrsamp -F FREQ -G GAIN -R BITS -U UNITS`),
-and an operation that needs a value missing from a record stops with a
-clear error instead of guessing. To reproduce the results of the original
-tools, give the values they assumed explicitly (for example
-`wrsamp -F 250 -G 200 -R 16 -U mV`, or `ad2m -F 250 -G 400 -R 12 -U mV` for
-AHA files). This design decision, its consequences, and the values that
-reproduce the original behavior are documented in
-[`docs/DIVERGENCES.md`](docs/DIVERGENCES.md).
+  ```sh
+  export WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/
+  export WFDBX_NETWORK=1
+  rdsamp -r 100 -t 10
+  ```
 
-For compatibility, the original behavior also remains available under the
-same names, on explicit request only: `--legacy` as the first argument of a
-tool (`wrsamp --legacy -o rec ...`), or the legacy option of the library and
-of the high-level functions. Legacy mode reproduces the original package
-exactly and is tested against its results, but it is kept for compatibility
-only: the values it assumes are exactly the silent defaults described above,
-so results produced with it carry the same risks.
+* **Annotation files are sorted without losing annotations**, inside the
+  library rather than by running a separate program.
+* **A tool never writes over a file it is reading.**
 
-### Files are found only where they are named
-
-The original finds a file by searching the WFDB path, a list of places
-tried in order; by default the current directory, an installation
-directory and, with network support, PhysioNet. `rdsamp -r 100` reads
-whichever `100` it finds first, or downloads it. A search like this can
-silently open the wrong file (a stale copy earlier on the path), turn a
-missing local file into a network request, send local paths and record
-names to a server (when looking for optional files), and let a downloaded
-header point the library at other local files.
-
-wfdb-x never searches. A full path (`/Users/...`), a `~` path or a URL is
-used as given; **any other name is read under the input directory and
-written under the output directory**, whatever they are set to (a local
-directory, or a URL for reading). Both default to the current directory.
-The files a header names (`100.dat`, `data/100.dat`) are found next to the
-header, and must stay inside its directory. Network access is off unless
-it is turned on.
-
-| Setting | Function | Environment variable | Default |
-|---|---|---|---|
-| input directory (a directory, `~...` or a URL) | `wfdbx_set_input_dir` | `WFDBX_INPUT_DIR` | the current directory |
-| output directory | `wfdbx_set_output_dir` | `WFDBX_OUTPUT_DIR` | the current directory |
-| network access | `wfdbx_set_network` | `WFDBX_NETWORK=1` | off |
-
-The cost is that PhysioNet has to be chosen explicitly, by setting the
-input directory to a database's URL and turning network access on:
-
-```sh
-WFDBX_NETWORK=1 WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/ \
-    rdsamp -r 100 -t 10
-```
-
-### Smaller differences, after code reviews
-
-* **Annotation files are sorted in-process.** When an annotation file is
-  written out of time order, the original sorts it by running the `sortann`
-  program through a shell, so the result depends on which `sortann` is on
-  the `PATH`. wfdb-x sorts it itself and writes exactly the file `sortann`
-  writes.
-* **Sorting does not lose annotations.** The original `sortann` silently
-  drops an annotation at sample 0 that arrives after later ones, and the
-  annotations later inserted directly behind it. wfdb-x keeps them, in the
-  `sortann` tool and in the automatic sorting.
-
-All of these are documented in [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md),
-and the original behavior of each remains available in legacy mode (for
-finding files: the WFDB search path, without network access).
+[`docs/DIVERGENCES.md`](docs/DIVERGENCES.md) explains each difference and
+the reasons for it. **Legacy mode** reproduces the original package
+exactly, for reproducing old results: `--legacy` as the first argument of a
+tool, or the legacy option of the library and of the high-level functions.
 
 ## What "identical behavior" means, and how it is checked
 
@@ -147,15 +100,15 @@ This is verified by tests whose expected results were all produced by the
 original C code, not written by hand:
 
 * **Conformance suite** ([`tests/conformance/`](tests/conformance/),
-  described in [`docs/conformance.md`](docs/conformance.md)): 987
+  described in [`docs/conformance.md`](docs/conformance.md)): 989
   command-line test cases, run by a language-independent harness. Their
   expected results were produced by the C programs, built from
   `third_party/` with FLAC support and with
   [`tests/reference/divergences.patch`](tests/reference/divergences.patch)
   applied ([`tests/reference/build_reference.sh`](tests/reference/build_reference.sh)).
   Every implementation passes all of them on the reference platform, x86-64
-  Linux with glibc (Python 3.13, GCC 13, Rust 1.97, Julia 1.13, R 4.3 and
-  GNU Octave 8.4). The MATLAB/Octave code is tested with GNU Octave, also
+  Linux with glibc (Python 3.13, GCC 13, Rust 1.97, Julia 1.13, R 4.3,
+  GNU Octave 8.4 and OpenJDK 21 for Kotlin). The MATLAB/Octave code is tested with GNU Octave, also
   through the MATLAB driver (`matlab/bin/wfdbx_matlab.sh`); it is written
   for MATLAB too, but MATLAB itself has not been available to run the
   tests. Other platforms can differ where the C behavior depends on the
@@ -177,7 +130,7 @@ with the behavior wfdb-x chose where C's is undefined.
 
 ## Implementations
 
-All six implement the complete library and all 33 tools (see
+All seven implement the complete library and all 33 tools (see
 [`docs/INVENTORY.md`](docs/INVENTORY.md) for the details). Each directory
 has a README with installation instructions, usage examples and
 requirements.
@@ -190,12 +143,13 @@ requirements.
 | Rust | [`rust/`](rust/README.md) | `cargo install --path rust` |
 | Julia | [`julia/`](julia/README.md) | `using Pkg; Pkg.develop(path="/path/to/wfdb-x/julia")` |
 | R | [`r/`](r/README.md) | `R CMD INSTALL r` |
+| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `implementation("io.github.alphanumericslab:wfdbx:1.0.0")` (Gradle), or `cd kotlin && ./gradlew publishToMavenLocal` |
 
 The Python package is distributed on PyPI as `wfdb-x`, with example
 notebooks and a sample record (`wfdbx --examples` copies the notebooks). In
 code, the packages are named
-`wfdbx` (Python, MATLAB, Rust, R, and the C++ namespace) or `WFDBX`
-(Julia).
+`wfdbx` (Python, MATLAB, Rust, R, Kotlin, and the C++ namespace) or
+`WFDBX` (Julia).
 
 ## Command-line tools
 
@@ -212,6 +166,8 @@ of `psd/` are outside the scope of this project.
 
 ## Documentation
 
+* [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md): the deliberate differences
+  from the original package, the reasons for them, and legacy mode
 * [`docs/INVENTORY.md`](docs/INVENTORY.md): every tool and library
   function, with its status in each language
 * [`docs/conformance.md`](docs/conformance.md): the conformance suite, and
@@ -228,46 +184,77 @@ of `psd/` are outside the scope of this project.
 
 ## How wfdb-x was developed
 
-The development of wfdb-x was **AI-assisted**. We designed the project and
-its requirements (faithfulness to the original C package, identical
-behavior across languages, the testing methodology, and the deliberate
-design decisions such as removing built-in signal parameters), and directed
-and reviewed the work. The code, tests and documentation were originally written with
-Claude Code, Anthropic's AI coding assistant, working from the original C
-sources and reviewed and tested by human engineers.
+wfdb-x was built through **AI-assisted development, cross-language
+verification and unit testing**.
 
-AI-written code calls for strong verification, and wfdb-x is built around
-it: every implementation is checked against the outputs of the original C
-tools and library on the conformance suite (987 cases, plus 868 for legacy
-mode), against the other five implementations, and by its own unit tests.
+* **AI-assisted development.** We designed the project and its
+  requirements: faithfulness to the original C package, identical behavior
+  across languages, the testing methodology, and deliberate design
+  decisions such as removing built-in signal parameters. We directed and
+  reviewed the work. The code, tests and documentation were written with
+  Claude Code, Anthropic's AI coding assistant, working from the original
+  C sources, and were reviewed and tested by human engineers.
+* **Cross-language verification.** Every implementation is checked
+  against the outputs of the original C tools and library on the
+  conformance suite: 989 cases, plus 869 for legacy mode. Because all
+  seven must pass the same cases, each implementation is also checked
+  against the other six.
+* **Unit testing.** Each implementation has its own unit tests of the
+  library and of the high-level functions, with expected values printed by
+  the C library.
+
 Reports of any difference from the original package are welcome as GitHub
 issues.
 
 ## Versions
 
-wfdb-x has its own version numbers, shared by the six implementations and
+wfdb-x has its own version numbers, shared by the seven implementations and
 following [semantic versioning](https://semver.org): 1.0.0 is the first
 release. They are independent of the version of the WFDB Software Package
 that wfdb-x implements, 10.7.0, which the library still reports as in C
 (`wfdbversion()` returns `"10.7.0"`, and `wfdberror()` names it).
 
+## Related projects
+
+These projects and initiatives are related to wfdb-x, which does not use or
+depend on any of them. wfdb-x is a port of the original C package to other
+languages, and the C programs produce the expected results of its tests.
+The other projects are acknowledged as related work.
+
+* **[The WFDB project](https://wfdb.io/)** maintains the WFDB format
+  specification and the official WFDB software, and coordinates their
+  development through its working group. WFDB was originally developed at
+  MIT by George B. Moody in 1989, and builds on decades of work by him,
+  Roger G. Mark and the broader research community.
+* **[The WFDB Software Package](https://physionet.org/content/wfdb/)**, by
+  George B. Moody, Benjamin Moody and contributors, distributed by
+  [PhysioNet](https://physionet.org/): the original C library and tools.
+  wfdb-x reimplements its version 10.7.0.
+* **[WFDB Python](https://wfdb.io/software/python.html)** and the
+  **[WFDB Toolbox for MATLAB](https://wfdb.io/software/matlab.html)**: the
+  Python and MATLAB implementations of the WFDB project, alongside its
+  C package.
+* **[wfdbcheck](https://github.com/bemoody/wfdbcheck)**, by Benjamin Moody:
+  a tool that finds common problems in WFDB records, from metadata errors
+  to out-of-range samples and annotation errors.
+
 ## Authors and license
 
-wfdb-x was developed by [Reza Sameni](https://sameni.info) (2026), with
-AI assistance in its implementation (see
-[How wfdb-x was developed](#how-wfdb-x-was-developed)). It is a
-reimplementation of the WFDB Software Package, whose C library and tools
-were written by George B. Moody, Benjamin Moody and the other contributors
-credited, file by file, in [`docs/AUTHORS.md`](docs/AUTHORS.md).
+wfdb-x was developed by [Reza Sameni](https://sameni.info)
+([GitHub](https://github.com/rsameni)) (2026), through
+AI-assisted development, cross-language verification and unit testing (see
+[How wfdb-x was developed](#how-wfdb-x-was-developed)). It is an
+independent reimplementation of the WFDB Software Package: its code in each
+language is a translation of the package's C code, written for wfdb-x, not
+code by the original WFDB developers. The C library and tools were written
+by George B. Moody, Benjamin Moody and the other contributors credited, file
+by file, in each wfdb-x source file and in [`docs/AUTHORS.md`](docs/AUTHORS.md).
 
-wfdb-x uses the same licenses as the original WFDB Software Package:
-
-* the **libraries** are distributed under the GNU Library General Public
-  License, version 2 or (at your option) any later version
-  ([`LICENSE.LIB`](LICENSE.LIB));
-* the **applications** (command-line tools) and the tests are distributed
-  under the GNU General Public License, version 2 or (at your option) any
-  later version ([`LICENSE`](LICENSE)).
+wfdb-x is distributed under the GNU General Public License, version 3 or
+(at your option) any later version ([`LICENSE`](LICENSE)). The original C
+sources in [`third_party/`](third_party/) keep their own licenses: the GNU
+Library General Public License, version 2 or later, for the library, and
+the GNU General Public License, version 2 or later, for the tools.
 
 The original WFDB Software Package is Copyright (C) 1983-2022 George B. Moody
 and the WFDB contributors.

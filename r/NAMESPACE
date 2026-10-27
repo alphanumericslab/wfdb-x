@@ -53,3 +53,8 @@ export(read_annotations, write_annotations)
 
 # cli.R
 export(wfdbx_tool, wfdbx_tools)
+
+# check.R
+export(check_record)
+S3method(format, wfdbx_check_report)
+S3method(print, wfdbx_check_report)

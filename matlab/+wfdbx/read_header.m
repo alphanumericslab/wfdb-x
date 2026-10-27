@@ -1,61 +1,56 @@
 function hdr = read_header(record, varargin)
 %READ_HEADER Read the header of a record.
-%   HDR = wfdbx.read_header(RECORD) reads the header of record RECORD
-%   (relative to the input directory, or a full path, ~ path or URL) and
-%   returns a structure with the fields
+%   HDR = wfdbx.read_header(RECORD) reads the header of the record RECORD
+%   without opening its signal files.  RECORD is a record name read from the
+%   input directory, or a full path, a ~ path or a URL.
 %
-%     name          the record name, as given
-%     fs            sampling frequency (Hz), as wfdbx.sampfreq gives it (0
-%                   if the header does not specify it)
-%     counter_freq  counter frequency, as wfdbx.getcfreq gives it
-%     base_counter  base counter value, as wfdbx.getbasecount gives it
-%     nsamples      number of samples per signal given by the header's
-%                   record line (0 if the header does not give it)
+%   HDR = wfdbx.read_header(RECORD, NAME, VALUE, ...) takes the options
+%   'input_dir', 'network' and 'legacy' of wfdbx.read_record.
+%
+%   HDR has these fields:
+%
+%     name          the record name
+%     fs            sampling frequency in Hz (0 if the header gives none)
+%     counter_freq  counter frequency
+%     base_counter  base counter value
+%     nsamples      number of samples per signal (0 if the header does not
+%                   give the length)
 %     nsig          number of signals
-%     siginfo       1-by-NSIG wfdbx.siginfo struct array describing the
-%                   signals (fname, desc, units, gain, fmt, spf, adcres,
+%     siginfo       the signal specifications, a wfdbx.siginfo structure
+%                   array (fname, desc, units, gain, fmt, spf, adcres,
 %                   adczero, baseline, nsamp, ...)
-%     base_time     start time and date, as wfdbx.timstr(0) gives it
-%                   (e.g. '[08:45:00 01/01/2001]'), or [] (as in
-%                   wfdbx.read_record)
-%     base_time_ms  the base time in milliseconds after midnight (a
-%                   double: '14:00:03.500' is 50403500), or [] exactly
-%                   when base_time is []
-%     base_date     the base date as a 1-by-3 double [year month day], or
-%                   [] if the header gives no date
-%     comments      NC-by-1 cell of the info strings (header comments, as
-%                   in wfdbx.read_record)
+%     base_time, base_time_ms, base_date, comments
+%                   as in wfdbx.read_record
 %
-%   No signal file is opened.  An error is thrown if the header cannot be
-%   read.
+%   Errors: an error (identifier 'wfdbx:read_header') is thrown if the
+%   header cannot be read.
 %
-%   HDR = wfdbx.read_header(RECORD, 'input_dir', DIR, 'network', NET)
-%   reads it with the input directory DIR and network access NET for
-%   this call (see wfdbx.read_record).
+%   The function calls wfdbx.wfdbquit, which closes anything opened with the
+%   WFDB library functions.
 %
-%   HDR = wfdbx.read_header(RECORD, 'legacy', true) reads the header as
-%   the original package did, with the library's legacy mode
-%   (wfdbx.wfdbx_set_legacy) on during the call: a missing sampling
-%   frequency is 250 Hz, and a missing ADC resolution is inferred from
-%   the format or taken as 12 bits (default false: they are 0).  For
-%   compatibility only: the values it assumes are exactly the silent
-%   defaults wfdb-x removed, so results produced with it carry the same
-%   risks.
-%
-%   The function calls wfdbx.wfdbquit when it is done, so any
-%   signals or annotators opened with the low-level functions
-%   (wfdbx.isigopen, wfdbx.annopen, ...) are closed.
-%
-%   Example:
+%   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
+%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   the repository):
+%       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       hdr = wfdbx.read_header('100s');
 %       hdr.fs                      % 360
 %       {hdr.siginfo.desc}          % {'MLII', 'V5'}
-%       [hdr.siginfo.gain]          % ADC units per mV of each signal
+%       [hdr.siginfo.gain]          % [200 200]
 %
 %   See also wfdbx.read_record, wfdbx.isigopen.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
 opt = wfdbx.internal.hl_options(struct('input_dir', [], 'network', [], ...

@@ -34,18 +34,29 @@ suite checks this).
 | `src/signal.jl`, `src/annot.jl`, `src/calib.jl`, `src/wfdbinit.jl`, `src/flac.jl` | the other library files (states `SigState`, `AnnState`, `CalState`) |
 | `src/wfdb.jl` | `WfdbLib`, the concrete `Wfdb` (assembles the states), the default instance `lib()` |
 | `src/highlevel.jl` | high-level API (`read_header`, `read_record`, `read_annotations`, `write_record`, `write_record_physical`, `write_annotations`) |
+| `src/check.jl` | `check_record`: checks a record and its annotation files and reports every problem |
 | `src/cli.jl` | the driver (`main_cli`), `run_tool`, `tool_function`, `tools()` |
 | `src/apps/<tool>.jl` | the command-line tools: `<tool>_main(args)` and the tool's precompilation workload; every `.jl` file in `src/apps/` is included automatically |
 | `src/precompile.jl` | the precompilation workload registry and helpers |
 | `bin/wfdbx.jl` | command-line driver: `julia --startup-file=no --project=julia julia/bin/wfdbx.jl TOOL ARGS...` |
 | `test/runtests.jl` | unit tests (`Test` standard library) |
 
-Each file starts with a comment saying what it is, then the credit of the
-C code it ports, as in `docs/AUTHORS.md` (`Copyright (C) <years> <authors>
-(original C implementation, lib/<file>.c; revised <years> by Benjamin
-Moody); Julia implementation part of wfdb-x.`), or `Part of wfdb-x.` for
-code that ports no C file, and the license: GNU LGPL 2+ (`LICENSE.LIB`)
-for the library, GNU GPL 2+ (`LICENSE`) for the tools.
+Each file starts with a comment saying what it is, then that it is part
+of wfdb-x, an independent reimplementation of the WFDB Software Package in
+Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. A file that
+translates a C file says so ("It is a Julia translation of lib/<file>.c
+from the WFDB Software Package 10.7.0, by ..."), lists its "Changes from
+the original" (each marked `wfdb-x:` in the code; `docs/DIVERGENCES.md`
+gives the reasons), and gives the copyright of the original C code, as in
+`docs/AUTHORS.md`, and of the Julia translation (Reza Sameni, 2026). Code
+with no C original says "It has no counterpart in the original package."
+Every header ends with the license: GNU GPL 3 or later (`LICENSE`).
+
+The docstring of a WFDB library function ends with "Translation of the C
+function NAME() (lib/FILE.c, WFDB 10.7.0): same arguments and results."
+(plus "Differences: ...; see docs/DIVERGENCES.md." where wfdb-x differs);
+that of a wfdb-x addition ends with "Part of wfdb-x; not in the original
+WFDB package."
 
 ## Data representation
 
@@ -251,6 +262,16 @@ end
 `bin/wfdbx.jl` loads the package (precompiled), runs `main_cli(ARGS)` and
 exits with its status; an unknown tool gives a message and status 1.
 
+Julia finds its package depot, which holds the compiled package, through
+`HOME`. When `HOME` was changed (to give `~` names another meaning, as the
+conformance suite does), `bin/wfdbx.jl` keeps using the depot of the user's
+own home directory (from the password database), so that the package is
+not compiled again. `JULIA_DEPOT_PATH`, if set, is used as given.
+
+Remote files are read with the `Downloads` standard library, which is
+loaded only when the first URL is opened. Each URL is requested at most
+once per `Wfdb` instance.
+
 ## Startup time
 
 Every conformance case starts a new Julia process, so the package must load
@@ -295,6 +316,15 @@ cd tests/data && julia --startup-file=no --trace-compile=stderr \
 prints every method compiled at run time (there should be none). Measured:
 `wfdbwhich` takes about 0.23 s, of which 0.21 s is Julia's own startup
 (`julia -e 'exit()'`).
+
+Measured throughput: in one
+process, `rdsamp` prints a record of 648,000 two-signal frames (format 212)
+in about 0.10 s in raw units and 0.13 s in physical units (`-p`); the C
+`rdsamp` takes about 0.13 s and 0.39 s on the same machine. `write_record`
+(which calls `putvec` for each frame) writes 216,000 two-signal frames in
+0.01-0.02 s in every format, about as fast as `read_record` reads them
+back. `getvecs(v, n)` (a wfdb-x addition) reads `n` sample vectors at
+once, with a fast path; `read_record` uses it.
 
 Changing any source file invalidates the package image: the next process
 precompiles again (with the workloads; parallel processes wait for it).

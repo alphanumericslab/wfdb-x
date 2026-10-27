@@ -136,6 +136,18 @@ aux_string(aux)
   message is also printed on the standard error output (see
   \code{\link{wfdbquiet}}).
 }
+\section{Origin}{
+  \code{aux_string} is part of wfdb-x; not in the original WFDB package.
+
+  Translation of the C functions annopen(), getann(), ungetann(),
+  putann(), iannsettime(), iannclose(), oannclose(), setafreq(),
+  getafreq(), setiafreq(), getiafreq() and getiaorigfreq() (lib/annot.c,
+  WFDB 10.7.0): same arguments and results. Differences: an out-of-order
+  output file is sorted in this process, without losing annotations,
+  instead of by running sortann, and input files are read from the input
+  directory, not searched for in the WFDB path; see
+  \file{docs/DIVERGENCES.md}.
+}
 \seealso{
   \code{\link{read_annotations}} and \code{\link{write_annotations}} for
   whole files; \code{\link{annotation}} and \code{\link{anninfo}} for the
@@ -144,6 +156,7 @@ aux_string(aux)
 }
 \examples{
 old <- setwd(tempdir())
+## "example" is a record written by this example.
 write_record("example", cbind(0:499), fs = 250, gains = 200, adcres = 16, units = "mV")
 
 ## write two annotations to annotator "tst"

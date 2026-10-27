@@ -7,7 +7,7 @@ access unless the user asks for it), it **sorts out-of-order annotation
 files itself** instead of running a separate program, and its sorting
 **does not lose annotations** as the original `sortann` does, and it **never
 writes over a file it is reading**. They are deliberate,
-the same in all six implementations, and tested like everything else: the
+the same in all seven implementations, and tested like everything else: the
 reference results of the conformance suite come from the C package with
 [`tests/reference/divergences.patch`](../tests/reference/divergences.patch)
 applied (see [`tests/reference/build_reference.sh`](../tests/reference/build_reference.sh)).
@@ -162,7 +162,8 @@ The C library finds a file by searching the **WFDB path**: a list of
 locations, tried in order until the file is found. Its default is
 `. /usr/local/database http://physionet.org/physiobank/database`: the
 current directory, an installation directory and, in builds with network
-support (libcurl), PhysioNet. `rdsamp -r 100` therefore reads `100` from
+support (libcurl), PhysioNet. `rdsamp -r 100` (record 100 of the MIT-BIH
+Arrhythmia Database) therefore reads `100` from
 whichever of these places has it first, and fetches it from PhysioNet if no
 local copy exists. That was convenient, but fragile, and it caused problems
 that are easy to miss:
@@ -182,9 +183,7 @@ that are easy to miss:
   entry of the path, PhysioNet, for it. An absolute record name is joined
   to the URL as it is, so the request contains the full local path
   (`GET /physiobank/database//Users/.../rec.info`); a missing header is
-  requested in the same way. (In wfdb-x, only the Python implementation had
-  network support, like a C build with libcurl; the other five, and the
-  reference build, had none.)
+  requested in the same way.
 * **Security.** A header names its signal files, and the library opened
   those names wherever they pointed. A downloaded or crafted header could
   make it read other local files (`../../.ssh/id_rsa`) or contact a
@@ -232,21 +231,57 @@ The tools use the environment variables.
 * **Network access is off by default.** A URL is opened only when it has
   been turned on (`wfdbx_set_network(1)`, `WFDBX_NETWORK=1`, or the
   `network` option); otherwise the library says once that network access is
-  disabled. All six implementations can read URLs (C++ and Rust through the
-  system `curl` program, which they run without a shell; a missing `curl`
-  is reported when a URL is opened). Remote files are read-only.
+  disabled: `wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or
+  call wfdbx_set_network(1) to open URL`. All seven implementations can read
+  URLs (C++ and Rust through the system `curl` program, which they run
+  without a shell; a missing `curl` is reported when a URL is opened;
+  Kotlin through `java.net.HttpURLConnection` on the JVM and Android, and
+  `NSURLSession` on iOS).
+* **Remote files** are read-only. Each is downloaded in full the first time
+  it is opened and kept for the rest of the process. Redirects are
+  followed, and an HTTP status of 400 or more is a failure. A download
+  gives up if connecting takes 30 seconds or no data arrive for 30
+  seconds; there is no limit on its total time, so large files on slow
+  connections still arrive. Python uses its standard `urllib`, Julia its
+  standard `Downloads`, and C++ and Rust the system `curl` program; R and
+  MATLAB/Octave use `curl` when it is installed, and otherwise R's `url()`
+  or MATLAB's `webread`/`websave`; Kotlin uses `java.net.HttpURLConnection`
+  on the JVM and Android (and `NSURLSession` on iOS).
+* **Absolute names** are opened as given. The C library joined them to each
+  entry of the WFDB path (`./` followed by the name, for the current
+  directory), so it found them only when the path had an empty entry or
+  the program ran from the root directory. In legacy mode this is still the
+  case; an empty path entry (`setwfdb(";")` or `WFDB=";"`) makes names be
+  used as given.
 * **`..`** means one level up, from the input or output directory, in names
   given by the user (the original refused every name containing `..`).
+* **Records written under a path.** In a record name such as `out/rec` or
+  `/Users/jane.doe/data/rec`, only the record's own name, the last
+  component, must be made of the characters of record names (letters,
+  digits, `_`, `-` and `~`); directory names may contain any characters.
+  A header names the record, its signal files and its segments relative to
+  its own directory (`rec`, `rec.dat`), which is where they are read from.
+  The original checked the whole name, so a directory with a dot could not
+  be written to, and it wrote the names as given (`out/rec.dat` in
+  `out/rec.hea`), so a record written into a directory could not be read
+  back by finding files relative to the header. Legacy mode does both as
+  the original.
 * **`setwfdb` and `getwfdb`** set and return the input directory: `setwfdb`
   accepts a single directory (as `setwfdb(".")`), and a path of several
-  entries is an error that points to `wfdbx_set_input_dir`. The `WFDB`
-  environment variable is used only in legacy mode; when it is set, the
-  library says once that it is ignored.
+  entries is an error that points to `wfdbx_set_input_dir`. Like the
+  original, `setwfdb` splits its argument at spaces, so a directory whose
+  name contains a space must be set with `wfdbx_set_input_dir`, which takes
+  the name as it is. `getwfdb` returns `.` when no input directory is set.
+  The `WFDB` environment variable is used only in legacy mode; when it is
+  set, the library says once that it is ignored (`wfdb-x: the WFDB
+  environment variable is ignored; set WFDBX_INPUT_DIR instead (or use
+  legacy mode)`).
 
 ### The cost: PhysioNet is chosen explicitly
 
 Reading PhysioNet records now has to be asked for, by setting the input
-directory to the database's URL and turning network access on:
+directory to the database's URL and turning network access on. For example,
+for record 100 of the MIT-BIH Arrhythmia Database:
 
 ```python
 wfdbx.wfdbx_set_network(1)
@@ -301,7 +336,12 @@ that cannot be found is reported only by the library's own messages
 (`Annotations still need to be rearranged.` and the `Use the command: ...`
 advice); the shell's `sortann: not found` line is gone. When the library
 writes into an output directory (see [Additions](#additions)), the program
-is run in that directory, so that it finds the file.
+is run in that directory, so that it finds the file. Each implementation
+runs its own `sortann` tool, with `--legacy`: Python as `python -m
+wfdbx.apps.sortann`, C++ and Rust from the directory of the running
+program or else from the `PATH`, R, Julia and MATLAB/Octave through a
+new process of the same language, and Kotlin through a new JVM (`java -cp
+CLASSPATH wfdbx.cli.MainKt sortann`; an iOS app cannot run it).
 
 ## Sorting does not lose annotations
 
@@ -339,12 +379,19 @@ read depends on how much of it the C library had read ahead (on glibc,
 
 wfdb-x refuses to create an output signal file that is the same file as a
 signal file of the record open for reading (the same file, not the same
-name: links and different spellings of a path are recognized), with the
-message `osigfopen: output file NAME is also an input file`; nothing is
-written. Every tool and high-level writer is protected, since the check is
-in the library, and the behavior is identical in all six implementations
-(it is part of the conformance suite). Legacy mode does not check, as the
-original.
+name: links and different spellings of a path are recognized; files are
+compared by device and inode number, by file ID on Windows, through
+`java.nio.file.Files.isSameFile` in MATLAB/Octave, and in R, which has no
+access to inode numbers, by normalized path and, for files of the same size
+and modification time, by the device and inode numbers that the `stat`
+program reports), with the
+message `osigfopen: output file NAME is also an input file` (`osigopen:`
+when the file is opened by `osigopen`); nothing is written. The check is in
+the library, so every tool and every program using the library functions
+is protected, and the behavior is identical in all seven implementations (it
+is part of the conformance suite). The high-level `write_record` reads
+nothing: it closes any open record first, so it simply replaces existing
+files of the same name. Legacy mode does not check, as the original.
 
 ## Additions
 
@@ -363,12 +410,29 @@ have no legacy counterpart:
   The library functions `wfdbx_set_output_dir(dir)` (returns the previous
   setting) and `wfdbx_get_output_dir()` set and return the directory in
   which output files are created; the high-level functions set it for the
-  duration of the call.
+  duration of the call. `wfdbquit` does not reset it. It prefixes relative
+  names only; absolute and `~` names are used as given. In legacy mode it
+  applies too, as a plain prefix of every output name, absolute names
+  included, since the original has no notion of an output directory.
+* **A record checker.** `check_record(record, annotators)` checks a
+  record's header, signal files and annotation files, and reports each
+  problem it finds with a severity (error, warning or information): missing
+  or inconsistent signal specifications, ADC resolutions and ranges that
+  the storage format cannot hold, samples outside the ADC range, checksum
+  and length mismatches, problematic names, inconsistent segments of
+  multi-segment records, and annotations that are out of order, undefined
+  or after the end of the signals. Its report, including the text of every
+  message, is identical in all seven implementations. It looks for problems
+  similar to those found by Benjamin Moody's
+  [wfdbcheck](https://github.com/bemoody/wfdbcheck), a separate C program;
+  wfdb-x's checker was written independently.
 * **Fast reading and writing.** The high-level functions read and write
   whole blocks of samples, and `write_annotations` encodes a whole MIT
   annotation file at once, instead of going sample by sample or
-  annotation by annotation through the C-style functions. The C-style
-  multi-frame readers of C++ and Rust decode whole blocks as well. The
+  annotation by annotation through the C-style functions. The multi-frame
+  readers added to the C-style API (`getframes` in Python, R and
+  MATLAB/Octave, `getvecs` in C++, Rust, Julia and Kotlin) decode whole
+  blocks as well. The
   samples and files are exactly those of the frame-by-frame path; only the
   frame at which a checksum is verified, and anything not stored in plain
   blocks (skewed, multi-segment or multi-frequency records, for example),
@@ -393,10 +457,13 @@ have no legacy counterpart:
   warning `checksum error in record REC: the signal data do not match the
   checksums in its header` in each language's usual way (Python `warnings`,
   R `warning()`, Julia `@warn`, MATLAB/Octave `warning()`, the standard
-  error in C++ and Rust). The `checksum_warning` option turns it off, and
+  error in C++, Rust and Kotlin, where an `onWarning` callback can receive
+  it instead). The `checksum_warning` option turns it off, and
   the record's `checksum_ok` field is false in either case, so a program
-  can test for it. Both behave identically in all six implementations. The C-style functions
-  and the tools report these as the original does.
+  can test for it. Both behave identically in all seven implementations,
+  in legacy mode too, since the high-level functions are not part of the
+  original package. The C-style functions and the tools report these as
+  the original does.
 
 ## Legacy mode
 
@@ -406,7 +473,9 @@ exactly as the original package, on request; the default is the behavior
 described above.
 
 * **Tools.** `--legacy` as the *first* argument of any of the tools
-  (`rdsamp --legacy -r 100s -t 10`, `rdann --legacy -r 100s -a atr`, ...) is
+  (`rdsamp --legacy -r 100s -t 10`, `rdann --legacy -r 100s -a atr`, ...,
+  where `100s` is the sample record included with wfdb-x, the first minute of
+  record 100 of the MIT-BIH Arrhythmia Database) is
   removed before the options are parsed, and the tool then behaves exactly
   as the original one: same options (the options added by wfdb-x, such as
   `-F` in `rdann` or `-R` in `wrsamp`, are unrecognized), outputs, messages,
@@ -423,8 +492,11 @@ described above.
   200 (and a baseline of 0 for invalid signal numbers), files are found
   through the WFDB search path (without network access), out-of-order
   annotation files are sorted by running `sortann` (without a shell), which
-  loses annotations as the original does, and an output file may be one of
-  the input files.
+  loses annotations as the original does, an output file may be one of
+  the input files, the whole record name is checked when a header is
+  written, and headers name records and files as given. The input directory and `WFDBX_NETWORK` are not used in
+  legacy mode, which reads no remote files; the output directory is used
+  (see [Additions](#additions)).
 * **High-level API** (an addition of wfdb-x, not part of the C package).
   `read_record`, `read_header`, `read_annotations`, `write_record` and the
   related functions of each language take a legacy option. When the option
@@ -440,7 +512,7 @@ described above.
 
 Legacy mode reproduces the original package exactly, and it is tested
 against its results: the legacy suite of the conformance tests
-([`tests/conformance/legacy`](../tests/conformance/legacy), 868 cases, run
+([`tests/conformance/legacy`](../tests/conformance/legacy), 869 cases, run
 with `harness.py check --legacy`) runs the original package's cases with
 `--legacy` and compares them with results produced by the unmodified C
 package, and the library's legacy values are checked in

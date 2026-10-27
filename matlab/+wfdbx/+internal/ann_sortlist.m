@@ -20,15 +20,32 @@ function [order, in_order] = ann_sortlist(t, num, chan, legacy)
 %   sortann tool uses the original insertion in legacy mode only.
 %   (wfdb-x: moved from the sortann tool into the library, as in the C
 %   reference, for wfdbx.internal.ann_sortfile.)
+%
+%   Part of the translation of lib/annot.c (WFDB 10.7.0).
 
-% Copyright (C) 1989-2013 George B. Moody (original C implementation,
-% lib/annot.c; revised 2015-2020 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, after a code review, Oct 2026): the list
-% head is never compared as an annotation, so that an out-of-order
-% annotation at time 0 is no longer lost.  The original behavior remains
-% available with --legacy (see docs/DIVERGENCES.md).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original code, but it is new code, not the original C
+% code.
+%
+% Changes from the original: moved from the sortann program into the
+% library; outside legacy mode the list head is never compared as an
+% annotation, so that an out-of-order annotation at time 0 is no longer
+% lost. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+% gives the reasons.
+%
+% Original C code: lib/annot.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 % Node 1 is the static list head (an all-zero annotation, which takes part
 % in comparisons); node k + 1 is annotation k.

@@ -1,5 +1,38 @@
-// signal.cpp: signal I/O functions of the WFDB library
-// (C++ port of lib/signal.c, WFDB 10.7.0)
+// signal.cpp: signal I/O functions of the WFDB library.
+//
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a C++ translation of lib/signal.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original code, but it is new code, not the original C code.
+//
+// Changes from the original: no built-in sampling frequency, gain, ADC
+// resolution or units (the original assumed 250 Hz, 200 adu/mV, 12 bits or a
+// resolution based on the format, and millivolts): a value that the header
+// does not give stays unspecified, and the time and amplitude conversions that
+// need it, and setifreq, report an error; the signal files and segments named
+// in a header are read only from the header's directory (on disk or at its
+// URL), never searched for, and a name that leaves that directory is refused;
+// an output signal file is never one of the input files of the open record; a
+// header written under a path names the record, its signal files and its
+// segments relative to its own directory; FLAC signal files are read and
+// written with wfdb-x's own codec (flac.cpp) instead of libFLAC; additions:
+// wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
+// wfdbx_time_needs_freq, getvecs, and the functions used by the high-level
+// functions and check_record; legacy mode (wfdbx_set_legacy) restores the
+// original behavior. Each change is marked "wfdb-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
+//
+// Original C code: lib/signal.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by
+//   Benjamin Moody, including FLAC support (2020).
+// C++ translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 //
 // This file contains the functions that read header files (including EDF
 // headers), read and write signal files in every WFDB storage format
@@ -13,24 +46,6 @@
 // (the C library uses libFLAC); the functions that connect it to the signal
 // functions (flac_isopen, flac_getsamp, ...) port the FLAC support of
 // signal.c.
-//
-// Copyright (C) 1989-2013 George B. Moody (original C implementation,
-// lib/signal.c; revised 2011-2022 by Benjamin Moody, including FLAC support,
-// 2020).
-// C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-// gain, ADC resolution or units. Values that the record or the user does not
-// give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-// 12 bits and millivolts), because a silently assumed value corrupts every
-// result derived from it. See docs/DIVERGENCES.md. The original behavior
-// remains available with --legacy (see docs/DIVERGENCES.md).
-// Design decision (Reza Sameni, Oct 2026): the signal files and segments
-// named in a header are in the directory of that header (on disk or at its
-// URL), or below it; nothing is searched (the C library searched the WFDB
-// path), because a search can silently open the wrong file, and a header must
-// not make the library read other local files or contact other servers. The
-// original behavior remains available with --legacy (see docs/DIVERGENCES.md).
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #include "wfdblib.hpp"
 #include "flac.hpp"
@@ -417,6 +432,21 @@ const char *cstr_or_null(const std::optional<std::string> &s)
 
 // ---------------------------------------------------------------------------
 // Variable-layout multi-segment records (see signal.c for a description)
+
+// wfdb-x: a name as written into the header of `record`.  Outside legacy
+// mode, names are written relative to the header's directory (where the
+// reader looks for them): the directory part of `record` (up to and
+// including its last '/') is removed from `name` when `name` begins with it.
+std::string hea_name(const char *record, const char *name)
+{
+    std::string n(name);
+    if (legacy_mode) return n;
+    const char *k = std::strrchr(record, '/');
+    if (!k) return n;
+    size_t len = static_cast<size_t>(k - record) + 1;
+    if (n.compare(0, len, record, len) == 0) return n.substr(len);
+    return n;
+}
 
 void sigmap_cleanup()
 {
@@ -2509,6 +2539,35 @@ bool wfdbx_set_checksum_quiet(bool on)
     return previous;
 }
 
+WFDB_Time wfdbx_header_nsamples(bool master)
+{
+    return master ? msnsamples : nsamples;
+}
+
+bool wfdbx_input_is_edf() { return isedf != 0; }
+
+unsigned wfdbx_input_groups() { return nigroup; }
+
+int wfdbx_input_cksum(unsigned s)
+{
+    return s < nisig ? isd[s]->info.cksum : 0;
+}
+
+long long wfdbx_input_file_size(unsigned g)
+{
+    if (g >= nigroup || !igd[g]) return -1;
+    const WFDBFile *f = igd[g]->fp.get();
+    if (!f || f->is_std() || f->type() != WFDB_LOCAL || !f->fp()) return -1;
+#if defined(_WIN32)
+    struct _stat64 st;
+    if (_fstat64(_fileno(f->fp()), &st) != 0) return -1;
+#else
+    struct stat st;
+    if (fstat(fileno(f->fp()), &st) != 0) return -1;
+#endif
+    return static_cast<long long>(st.st_size);
+}
+
 void wfdb_sampquit()
 {
     if (have_sbuf) {
@@ -3705,7 +3764,8 @@ int setheader(const char *record_arg, WFDB_Siginfo *siarray, unsigned int nsig)
     }
 
     // Write the general information line.
-    std::string out = strprintf("%s %d %.12g", record, nsig, ffreq);
+    std::string out = strprintf("%s %d %.12g", hea_name(record, record).c_str(),
+                                nsig, ffreq);
     if ((cfreq > 0.0 && cfreq != ffreq) || bcount != 0.0) {
         out += strprintf("/%.12g", cfreq);
         if (bcount != 0.0) out += strprintf("(%.12g)", bcount);
@@ -3724,7 +3784,11 @@ int setheader(const char *record_arg, WFDB_Siginfo *siarray, unsigned int nsig)
 
     // Write a signal specification line for each signal.
     for (unsigned s = 0; s < nsig; s++) {
-        out += strprintf("%s %d", cstr_or_null(siarray[s].fname), siarray[s].fmt);
+        out += strprintf("%s %d",
+                         siarray[s].fname
+                             ? hea_name(record, siarray[s].fname->c_str()).c_str()
+                             : cstr_or_null(siarray[s].fname),
+                         siarray[s].fmt);
         if (siarray[s].spf > 1) out += strprintf("x%d", siarray[s].spf);
         if (s < osd.size() && osd[s]->skew)
             out += strprintf(":%d", osd[s]->skew * siarray[s].spf);
@@ -3846,8 +3910,9 @@ int setmsheader(const char *record_arg, const char *const *segment_name,
     }
 
     // Write the first line of the master header.
-    std::string out = strprintf("%s/%u %d %.12g", record, nsegments, nsig,
-                                msfreq);
+    std::string out = strprintf("%s/%u %d %.12g",
+                                hea_name(record, record).c_str(), nsegments,
+                                nsig, msfreq);
     if ((mscfreq > 0.0 && mscfreq != msfreq) || msbcount != 0.0) {
         out += strprintf("/%.12g", mscfreq);
         if (msbcount != 0.0) out += strprintf("(%.12g)", msbcount);
@@ -3864,7 +3929,8 @@ int setmsheader(const char *record_arg, const char *const *segment_name,
 
     // Write a line for each segment.
     for (i = 0; i < nsegments; i++)
-        out += strprintf("%s %lld\r\n", segment_name[i], ns[i]);
+        out += strprintf("%s %lld\r\n",
+                         hea_name(record, segment_name[i]).c_str(), ns[i]);
     oheader->write(out.data(), 1, out.size());
     return 0;
 }

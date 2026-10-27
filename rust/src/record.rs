@@ -1,95 +1,79 @@
-//! High-level API: read and write whole records and annotation files
-//! ([`read_record`], [`read_header`], [`read_annotations`],
-//! [`write_record`], [`write_record_physical`], [`write_annotations`],
-//! [`write_annotations_with`]).
+//! The high-level functions: read and write whole records and annotation
+//! files in one call.
 //!
-//! These functions are built on the C-style API, so they read and write
-//! exactly what the WFDB library and the command-line tools do. Each is
-//! available as a free function, which uses the thread-local default
-//! instance, and as a method of [`Wfdb`]. A call closes any records and
-//! annotators open in the instance it uses (it calls `wfdbquit` before and
-//! after its work). Errors are returned as [`Error`]; the error message is
-//! also printed on the standard error by the underlying C-style functions,
-//! unless `wfdbquiet` has been called.
+//! | Function | What it does |
+//! |---|---|
+//! | [`read_record`] | reads the signals of a record into a [`Record`] |
+//! | [`read_header`], [`read_header_with`] | reads the header of a record into a [`Header`] |
+//! | [`read_annotations`], [`read_annotations_with`] | reads an annotation file into an [`Annotations`] value |
+//! | [`write_record`], [`write_record_physical`] | writes a record from samples in ADC units or in physical units |
+//! | [`write_annotations`], [`write_annotations_with`] | writes an annotation file |
 //!
-//! ```no_run
-//! use wfdbx::record::{read_record, read_annotations, ReadOptions};
+//! Each function returns a [`Result`] whose error type is [`Error`]. Each is
+//! a free function, which uses the default [`Wfdb`] value of the thread,
+//! and a method of [`Wfdb`]. A call closes the records and annotators open
+//! in the [`Wfdb`] value it uses.
+//!
+//! Text read from files, such as signal descriptions, units and annotation
+//! mnemonics, is given as bytes (`Vec<u8>`). You can set a `Vec<u8>` field
+//! from a `&str` with `.into()`.
+//!
+//! ```
+//! use wfdbx::record::{read_annotations, read_record, ReadOptions};
+//!
+//! // The sample record 100s, the first minute of record 100 of the MIT-BIH
+//! // Arrhythmia Database, included with wfdb-x in tests/data:
+//! # wfdbx::wfdbx_set_input_dir("../tests/data");
+//! # /*
+//! wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
+//! # */
 //! let opt = ReadOptions { to: Some("0:10".into()), ..Default::default() };
-//! let rec = read_record("100s", &opt).unwrap();   // the first 10 seconds
-//! let v = rec.physical(0, 1).unwrap();            // sample 0 of signal 1, in mV
-//! let ann = read_annotations("100s", "atr", None, None, None, false).unwrap();
+//! let rec = read_record("100s", &opt)?;          // the first 10 seconds
+//! let v = rec.physical(0, 1)?;                  // sample 0 of signal 1, in physical units
+//! let ann = read_annotations("100s", "atr", None, None, None, false)?;
 //! for i in 0..ann.len() {
 //!     println!("{} {}", ann.samples[i], String::from_utf8_lossy(&ann.symbols[i]));
 //! }
 //! # let _ = v;
+//! # Ok::<(), wfdbx::record::Error>(())
 //! ```
 //!
-//! wfdb-x never assumes a sampling frequency, a gain, an ADC resolution or
-//! units (C: `WFDB_DEFFREQ`, 250 Hz, `WFDB_DEFGAIN`, 200 adu/mV, a
-//! resolution based on the format or `WFDB_DEFRES`, 12 bits, and
-//! millivolts): [`write_record`] requires the gains, the ADC resolutions
-//! and the units of calibrated signals; a record whose header gives no
-//! frequency is read with `fs` 0, one without ADC resolutions with
-//! `adcres` 0, one without units with `units` `None`; and conversions that
-//! need a missing value return an [`Error`] (see `docs/DIVERGENCES.md`).
+//! # Signal parameters
+//!
+//! These functions never assume a sampling frequency, gain, ADC resolution
+//! or units that a record does not give. [`write_record`] needs the gains,
+//! the ADC resolutions and the units of the calibrated signals. A record
+//! whose header gives no frequency is read with `fs` 0, a signal without an
+//! ADC resolution has `adcres` 0, and a signal without units has `units`
+//! `None`. An operation that needs a missing value returns an [`Error`].
+//! See `docs/DIVERGENCES.md` in the repository.
+//!
+//! # Input and output directories
+//!
+//! [`ReadOptions::input_dir`] and [`ReadOptions::network`] set the input
+//! directory and network access for one call. [`WriteOptions::dir`] and
+//! [`AnnWriteOptions::dir`] set the output directory for one call. See
+//! [`Wfdb::wfdbx_set_input_dir`], [`Wfdb::wfdbx_set_network`] and
+//! [`Wfdb::wfdbx_set_output_dir`].
 //!
 //! # Legacy mode
 //!
-//! Each function also has a legacy option ([`ReadOptions::legacy`],
-//! [`WriteOptions::legacy`], and the `legacy` argument of [`read_header`]
-//! and [`read_annotations`]): with it, the function behaves as in the
-//! original package, with library legacy mode on for the duration of the
-//! call (see [`Wfdb::wfdbx_set_legacy`]): a header without a sampling
-//! frequency means 250 Hz, a missing ADC resolution is inferred from the
-//! format, [`Record::physical`] assumes a gain of 200 for uncalibrated
-//! signals, [`read_annotations`] assumes 250 Hz for a record without a
-//! header, and [`write_record`] uses a gain of 200, an ADC resolution based
-//! on the format and no units by default. It is kept for compatibility
-//! only: the values it assumes are exactly the silent defaults this project
-//! removed, so results produced with it carry the same risks.
-//!
-//! # Input directory and network access
-//!
-//! wfdb-x: [`ReadOptions::input_dir`] and [`ReadOptions::network`] set the
-//! input directory (a local directory or a URL) and network access for the
-//! duration of a call, restoring the previous settings afterwards (see
-//! [`Wfdb::wfdbx_set_input_dir`], [`Wfdb::wfdbx_set_network`]); for
-//! [`read_header`] and [`read_annotations`], use [`read_header_with`] and
-//! [`read_annotations_with`].
-//!
-//! # Output directory
-//!
-//! [`WriteOptions::dir`] and the `dir` argument of [`write_annotations`]
-//! (wfdb-x) create the files in a directory, which must exist; the header
-//! then names the record and its signal file without the directory (see
-//! [`Wfdb::wfdbx_set_output_dir`], which these functions set for the
-//! duration of the call).
-//!
-//! Strings read from files (signal descriptions, comments, annotation
-//! mnemonics and aux strings) are byte strings, as everywhere in the
-//! library (WFDB files are not UTF-8); `Vec<u8>` fields can be set from
-//! `&str` with `.into()`.
+//! [`ReadOptions::legacy`], [`WriteOptions::legacy`] and the `legacy`
+//! argument of [`read_header`] and [`read_annotations`] make a call behave
+//! as the original WFDB package, including its assumed signal parameters.
+//! Use legacy mode only to reproduce old results. See
+//! [`Wfdb::wfdbx_set_legacy`].
 //
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-// gain, ADC resolution or units. Values that the record or the user does not
-// give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-// 12 bits and millivolts), because a silently assumed value corrupts every
-// result derived from it. See docs/DIVERGENCES.md. The original behavior
-// remains available with --legacy (see docs/DIVERGENCES.md).
-// Design decision (Reza Sameni, after a code review, Oct 2026): the writers
-// take an output directory (WriteOptions::dir, the dir argument of
-// write_annotations), so that a record can be written to a directory and
-// opened from there under its plain name (with a record name containing the
-// directory, the header records that name). This is an addition, the same in
-// legacy mode.
-// Design decision (Reza Sameni, Oct 2026): the readers take an input
-// directory and network access options (ReadOptions::input_dir, network):
-// files are found only where they are named (a search of the WFDB path can
-// silently open the wrong file), and the network is used only when asked
-// for. The original behavior remains available with --legacy (see
-// docs/DIVERGENCES.md).
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It has no counterpart in the original package.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use std::path::{Path, PathBuf};
 
@@ -108,7 +92,7 @@ pub struct Error {
 }
 
 impl Error {
-    fn new(message: impl Into<String>) -> Error {
+    pub(crate) fn new(message: impl Into<String>) -> Error {
         Error {
             message: message.into(),
         }
@@ -223,9 +207,9 @@ impl From<&[u8]> for TimeSpec {
 pub struct Record {
     /// Record name.
     pub name: Vec<u8>,
-    /// Sampling frequency (Hz) of the returned samples (in
-    /// [`ReadOptions::highres`] mode, that of the fastest signal); 0 if the
-    /// header does not specify it (wfdb-x: no default frequency).
+    /// Sampling frequency in Hz of the returned samples. With
+    /// [`ReadOptions::highres`], it is that of the fastest signal. It is 0
+    /// if the header does not give it.
     pub fs: f64,
     /// Number of (returned) signals.
     pub nsig: usize,
@@ -237,31 +221,27 @@ pub struct Record {
     pub samples: Vec<i32>,
     /// Signal information, one per returned signal.
     pub siginfo: Vec<Siginfo>,
-    /// Base time and date of the record, as `timstr(0)` gives it (e.g.
-    /// `"[08:45:00 01/01/2001]"`), or `None` if the header defines none.
+    /// Start time and date as text, to the second, such as
+    /// `"[14:00:03 21/06/2024]"`. `None` if the header gives no start time.
     pub base_time: Option<String>,
-    /// Base time of the record in milliseconds after midnight (the
-    /// library's base time, which keeps the milliseconds that
-    /// [`base_time`](Record::base_time) leaves out: `14:00:03.500` gives
-    /// 50403500); `Some` exactly when `base_time` is.
+    /// Start time in milliseconds after midnight, such as `50403500` for
+    /// 14:00:03.500. `Some` exactly when `base_time` is.
     pub base_time_ms: Option<i64>,
-    /// Base date of the record as `[year, month, day]` (the date `datstr`
-    /// gives), or `None` if the header gives no date.
+    /// Start date as `[year, month, day]`. `None` if the header gives no
+    /// date.
     pub base_date: Option<[i32; 3]>,
     /// Sample number of the first returned sample.
     pub sampfrom: i64,
-    /// Info strings (comment lines) of the header and of the `.info` file,
-    /// if any.
+    /// The info strings of the header (its comment lines), and those of the
+    /// record's `.info` file if it has one.
     pub comments: Vec<Vec<u8>>,
-    /// `false` if the signal data were found not to match the checksums in
-    /// the header (`getvec` status -4 during the read; see
-    /// [`ReadOptions::checksum_warning`]), `true` otherwise. The checksums
-    /// are verified only when a read reaches the end of the record, so a
-    /// read that stops before the end gives `true`.
+    /// `false` if the signal data do not match the checksums in the header.
+    /// Checksums are only checked when a read reaches the end of the
+    /// record, so a read that stops earlier gives `true`. See
+    /// [`ReadOptions::checksum_warning`].
     pub checksum_ok: bool,
-    /// Read in legacy mode ([`ReadOptions::legacy`], or library legacy mode
-    /// already on): [`Record::physical`] then assumes a gain of 200 for
-    /// uncalibrated signals, as the original package did.
+    /// `true` if the record was read in legacy mode. [`Record::physical`]
+    /// then uses a gain of 200 for uncalibrated signals.
     pub legacy: bool,
 }
 
@@ -281,13 +261,12 @@ impl Record {
     }
 
     /// Returns sample `i` of signal `s` in physical units, computed as
-    /// `(value - baseline) / gain`; NaN for an invalid sample.
+    /// `(value - baseline) / gain`. An invalid sample gives NaN.
     ///
     /// # Errors
     ///
-    /// If the signal is uncalibrated (gain 0): `signal N of record R is
-    /// uncalibrated` (wfdb-x: no default gain; C assumed 200 adu/mV, as
-    /// a record read in legacy mode does).
+    /// If the signal is uncalibrated (gain 0): "signal N of record REC is
+    /// uncalibrated".
     ///
     /// # Panics
     ///
@@ -301,8 +280,8 @@ impl Record {
         Ok((v as f64 - self.siginfo[s].baseline as f64) / g)
     }
 
-    /// Returns all samples of signal `s` in physical units (see
-    /// [`physical`](Record::physical)).
+    /// Returns all samples of signal `s` in physical units, as
+    /// [`physical`](Record::physical) computes them.
     ///
     /// # Errors
     ///
@@ -340,17 +319,14 @@ impl Record {
 }
 
 /// The header of a record, as read by [`read_header`]: the data of its
-/// record line, its signal specifications and its info strings (no signal
-/// file is opened).
+/// record line, its signal specifications and its info strings.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Header {
     /// Record name, as given.
     pub name: Vec<u8>,
-    /// Sampling frequency (Hz), as `sampfreq` gives it: 0 if the header
-    /// does not specify it (wfdb-x: no default frequency; in legacy mode,
-    /// 250 Hz, as in the original package).
+    /// Sampling frequency in Hz. It is 0 if the header does not give it.
     pub fs: f64,
-    /// Counter frequency, as `getcfreq` gives it.
+    /// Counter frequency in Hz, as `getcfreq` gives it.
     pub counter_freq: f64,
     /// Base counter value, as `getbasecount` gives it.
     pub base_counter: f64,
@@ -362,73 +338,71 @@ pub struct Header {
     /// Signal specifications, one per signal (file name, format, gain,
     /// units, description, ...).
     pub siginfo: Vec<Siginfo>,
-    /// Base time and date, as [`Record::base_time`].
+    /// Start time and date as text, as in [`Record::base_time`].
     pub base_time: Option<String>,
-    /// Base time in milliseconds after midnight, as
+    /// Start time in milliseconds after midnight, as in
     /// [`Record::base_time_ms`].
     pub base_time_ms: Option<i64>,
-    /// Base date as `[year, month, day]`, as [`Record::base_date`].
+    /// Start date as `[year, month, day]`, as in [`Record::base_date`].
     pub base_date: Option<[i32; 3]>,
-    /// Info strings, as [`Record::comments`].
+    /// Info strings, as in [`Record::comments`].
     pub comments: Vec<Vec<u8>>,
 }
 
-/// Options of [`write_annotations_with`]. The default writes in the current
+/// Options of [`write_annotations_with`]. The default writes to the output
 /// directory and sorts an out-of-order file as `WFDBANNSORT` says.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AnnWriteOptions {
-    /// wfdb-x: the directory (which must exist) in which the file is
-    /// created; the record name must then be a plain name, without a
-    /// directory. `None`: the current directory, or the directory part of
-    /// the record name.
+    /// An existing directory in which to create the file, for this call
+    /// only. The record name must then be a plain name, without a
+    /// directory. `None`: the output directory.
     pub dir: Option<PathBuf>,
-    /// Whether a file whose annotations are not in canonical order is
-    /// sorted when it is closed: `Some(true)` sorts it and `Some(false)`
-    /// leaves it as written, for this call only, whatever the environment
-    /// variable `WFDBANNSORT` says (the environment is not changed; in
-    /// legacy mode, sorting runs `sortann`, as the original library did).
-    /// `None`: as `WFDBANNSORT` says (sorted unless it is 0).
+    /// Whether annotations that are not in time order are sorted when the
+    /// file is written. `Some(true)` always sorts, and `Some(false)` keeps
+    /// the order you gave (without the library's advice to run `sortann`),
+    /// for this call only. `None`: the environment
+    /// variable `WFDBANNSORT` decides (sorting is on unless it is 0).
     pub sort: Option<bool>,
 }
 
-/// Options of [`read_record`]. The default reads all signals of the whole
+/// Options of [`read_record`], [`read_header_with`] and
+/// [`read_annotations_with`]. The default reads all signals of the whole
 /// record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReadOptions {
-    /// Signals to read, by number (`"0"`, `"1"`, ...) or name (as
-    /// `findsig` accepts them); empty: all signals.
+    /// Signals to read, by number (`"0"`, `"1"`, ...) or name (`"MLII"`).
+    /// Empty: all signals.
     pub channels: Vec<String>,
-    /// First sample (default: 0).
+    /// First sample: a sample number or a time string (see [`TimeSpec`]).
+    /// Default: the start of the record.
     pub from: Option<TimeSpec>,
-    /// End, exclusive (default: end of record).
+    /// The sample after the last one: a sample number or a time string.
+    /// Default: the end of the record.
     pub to: Option<TimeSpec>,
-    /// For multi-frequency records: read in `WFDB_HIGHRES` mode (every sample
-    /// of the oversampled signals, others repeated) instead of the default
-    /// `WFDB_LOWRES` mode (samples of oversampled signals averaged over each
-    /// frame). See `setgvmode`.
+    /// Read a multi-frequency record at its highest sampling frequency:
+    /// every sample of the faster signals, with the samples of the slower
+    /// ones repeated. Default (`false`): one sample per signal and frame,
+    /// with the samples of the faster signals averaged over each frame.
     pub highres: bool,
-    /// Replace invalid samples by the previous valid sample (`WFDB_GVPAD`)
-    /// instead of returning [`WFDB_INVALID_SAMPLE`].
+    /// Replace invalid samples by the previous valid sample, instead of
+    /// returning [`WFDB_INVALID_SAMPLE`]. Default: `false`.
     pub pad: bool,
-    /// Legacy mode: read as the original package did, with library legacy
-    /// mode on during the call (a header without a sampling frequency means
-    /// 250 Hz, a missing ADC resolution is inferred from the format, and
-    /// [`Record::physical`] assumes a gain of 200 for uncalibrated signals).
-    /// For compatibility only: these are the silent defaults wfdb-x removed,
-    /// with the same risks.
+    /// Behave as the original WFDB package, including its assumed signal
+    /// parameters (see [`Wfdb::wfdbx_set_legacy`]). Use it only to
+    /// reproduce old results. Default: `false`.
     pub legacy: bool,
-    /// wfdb-x: the input directory for the call (a local directory, `~...`,
-    /// or the URL of a directory; see [`Wfdb::wfdbx_set_input_dir`]); an
-    /// empty string means the default. `None`: the current setting.
+    /// The input directory for this call only: a local directory, a `~`
+    /// path or a URL (see [`Wfdb::wfdbx_set_input_dir`]). An empty string
+    /// means the default. `None`: the current setting.
     pub input_dir: Option<String>,
-    /// wfdb-x: allow (`Some(true)`) or forbid (`Some(false)`) network
-    /// access for the call (see [`Wfdb::wfdbx_set_network`]). `None`: the
-    /// current setting.
+    /// Turn network access on (`Some(true)`) or off (`Some(false)`) for
+    /// this call only (see [`Wfdb::wfdbx_set_network`]). `None`: the current
+    /// setting.
     pub network: Option<bool>,
-    /// wfdb-x: warn (on the standard error, through the library's message
-    /// path, so that `wfdbquiet` silences it) when the signal data do not
-    /// match the checksums in the header; the data are returned either way.
-    /// Default: true.
+    /// Print a warning on the standard error when the signal data do not
+    /// match the checksums in the header. The data are returned either way,
+    /// and [`Record::checksum_ok`] is `false`. [`Wfdb::wfdbquiet`] also
+    /// turns the warning off. Default: `true`.
     pub checksum_warning: bool,
 }
 
@@ -448,25 +422,25 @@ impl Default for ReadOptions {
     }
 }
 
-/// The annotations of an annotation file, as parallel vectors (one entry
-/// per annotation in each), as read by [`read_annotations`] and written by
-/// [`write_annotations`].
+/// The annotations of an annotation file, as read by [`read_annotations`]
+/// and written by [`write_annotations`]. Each field is a vector with one
+/// entry per annotation, in file order.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Annotations {
     /// Record name.
     pub record: Vec<u8>,
     /// Annotator name.
     pub annotator: Vec<u8>,
-    /// Time resolution of `samples` (ticks per second, as `getiafreq`
-    /// gives it). Not used by [`write_annotations`], which takes its own
-    /// `fs` argument.
+    /// The frequency in which `samples` are counted, in Hz (0 if unknown).
+    /// [`write_annotations`] does not use it: it takes its own `fs`
+    /// argument.
     pub fs: f64,
-    /// Times (sample numbers).
+    /// Annotation times, in samples.
     pub samples: Vec<i64>,
-    /// Annotation types (`NORMAL`, `PVC`, ...).
+    /// Annotation codes ([`NORMAL`](crate::NORMAL), [`PVC`](crate::PVC), ...).
     pub codes: Vec<i32>,
-    /// Mnemonics, as `annstr` returns them (empty: use `codes` when
-    /// writing).
+    /// Mnemonics of the annotation codes (`b"N"`, `b"V"`, ...). When
+    /// writing, an empty or missing entry means: use `codes`.
     pub symbols: Vec<Vec<u8>>,
     /// Subtypes.
     pub subtypes: Vec<i32>,
@@ -474,8 +448,7 @@ pub struct Annotations {
     pub chans: Vec<i32>,
     /// Annotator numbers (the `num` fields).
     pub nums: Vec<i32>,
-    /// Auxiliary data (`None` if absent), without the leading length byte
-    /// of [`Annotation::aux`].
+    /// Auxiliary text of each annotation, or `None`.
     pub aux: Vec<Option<Vec<u8>>>,
 }
 
@@ -493,57 +466,46 @@ impl Annotations {
 
 /// Options of [`write_record`] and [`write_record_physical`].
 ///
-/// Each per-signal vector may be empty (the default value is used), hold a
-/// single value (used for all signals), or hold one value per signal (the
-/// default value is used for signals beyond its end). The default writes
-/// format 16 with an ADC zero of 0.
+/// A per-signal vector holds one value for all signals, or one value per
+/// signal. An optional one may also be empty, for its default value.
 ///
-/// The gains and the ADC resolutions have no default (wfdb-x: C assumed
-/// 200 adu/mV, and a resolution based on the format): `gains` and `adcres`
-/// must hold one value, or one value per signal. The units have no default
-/// either (C: millivolts): `units` must give those of every signal whose
-/// gain is not 0. With [`legacy`](WriteOptions::legacy), the original
-/// defaults apply instead.
+/// `gains`, `adcres` and `units` have no default: you must give the gain
+/// and the ADC resolution of every signal, and the units of every signal
+/// whose gain is not 0.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WriteOptions {
     /// Storage format (the same for all signals; default 16).
     pub fmt: i32,
-    /// Gains, in ADC units per physical unit: required (one value, or one
-    /// per signal). A gain of 0 declares a signal uncalibrated, which is
-    /// allowed only by [`write_record`] (samples in ADC units).
+    /// Gains, in ADC units per physical unit (required). A gain of 0 marks
+    /// a signal as uncalibrated, which is only allowed for samples given in
+    /// ADC units ([`write_record`]).
     pub gains: Vec<f64>,
     /// Baselines (default: the ADC zeros).
     pub baselines: Vec<i32>,
     /// ADC zeros (default: 0).
     pub adczeros: Vec<i32>,
-    /// ADC resolutions in bits (>= 1): required (one value, or one per
-    /// signal).
+    /// ADC resolutions in bits, at least 1 (required).
     pub adcres: Vec<i32>,
-    /// Units: required (one value, or one per signal) for each signal whose
-    /// gain is not 0; `None` (or empty) for an uncalibrated signal.
+    /// Physical units, such as `Some("mV".into())`. Required for each
+    /// signal whose gain is not 0; `None` for an uncalibrated signal.
     pub units: Vec<Option<Vec<u8>>>,
     /// Signal descriptions.
     pub names: Vec<Vec<u8>>,
     /// Samples per frame (default 1; more for the oversampled signals of
     /// a multi-frequency record).
     pub samps_per_frame: Vec<i32>,
-    /// Base time and date, as `setbasetime` accepts it (e.g.
-    /// `"12:00:00 01/01/2020"`); default: none.
+    /// Start time and date, such as `"12:00:00 01/01/2020"`. Default: none.
     pub base_time: Option<Vec<u8>>,
     /// Info strings (comment lines), written at the end of the header.
     pub comments: Vec<Vec<u8>>,
-    /// Legacy mode: write as the original package did, with library legacy
-    /// mode on during the call (default gain 200, ADC resolution based on
-    /// the format, no units required, and gain 200 for uncalibrated signals
-    /// in [`write_record_physical`]). For compatibility only: these are the
-    /// silent defaults wfdb-x removed, with the same risks.
+    /// Behave as the original WFDB package, including its assumed signal
+    /// parameters (see [`Wfdb::wfdbx_set_legacy`]). Use it only to
+    /// reproduce old results. Default: `false`.
     pub legacy: bool,
-    /// wfdb-x: the directory (which must exist) in which the files are
-    /// created; `record` must then be a plain name, without a directory.
-    /// The header names the record and its signal file without the
-    /// directory, so that the record opens from that directory under its
-    /// plain name. Default: none (the current directory, or the directory
-    /// part of the record name).
+    /// An existing directory in which to create the files, for this call
+    /// only. The record name must then be a plain name, without a
+    /// directory. The record can then be read from that directory under its
+    /// plain name. Default: `None`, the output directory.
     pub dir: Option<PathBuf>,
 }
 
@@ -729,7 +691,7 @@ impl Wfdb {
     /// Runs `f` with the input directory and network access of `opt`, if
     /// given, restoring the previous settings afterwards (also when `f`
     /// fails).
-    fn with_input<T>(&mut self, opt: &ReadOptions, f: impl FnOnce(&mut Wfdb) -> T) -> T {
+    pub(crate) fn with_input<T>(&mut self, opt: &ReadOptions, f: impl FnOnce(&mut Wfdb) -> T) -> T {
         let prev_dir = opt
             .input_dir
             .as_ref()
@@ -782,12 +744,14 @@ impl Wfdb {
         v
     }
 
-    /// Reads the header of a record, using this instance (see
+    /// Reads the header of a record, using this `Wfdb` value (see
     /// [`read_header`]).
     ///
     /// # Errors
     ///
     /// If the header cannot be read.
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn read_header(&mut self, record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Error> {
         let opt = ReadOptions {
             legacy,
@@ -796,13 +760,15 @@ impl Wfdb {
         self.read_header_with(record, &opt)
     }
 
-    /// Reads the header of a record, with the `legacy`, `input_dir` and
-    /// `network` options of `opt` (the others are not used), using this
-    /// instance (see [`read_header`]).
+    /// Reads the header of a record with the `input_dir`, `network` and
+    /// `legacy` options of `opt`, using this `Wfdb` value (see
+    /// [`read_header_with`]).
     ///
     /// # Errors
     ///
     /// If the header cannot be read.
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn read_header_with(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -843,19 +809,14 @@ impl Wfdb {
         Ok(h)
     }
 
-    /// Reads the signals of a record, using this instance (see
+    /// Reads the signals of a record, using this `Wfdb` value (see
     /// [`read_record`]).
     ///
     /// # Errors
     ///
-    /// If the record or its signals cannot be opened, a signal of `opt` does
-    /// not exist, the start time cannot be reached, or a time string of
-    /// `opt` needs the sampling frequency and the header does not give it;
-    /// also if reading stops with a `getvec` status below -1 (e.g. -3: a
-    /// signal file shorter than its header says, or a read or decoding
-    /// error), with the message "can't read signal data of record R (getvec
-    /// status S)" (also in legacy mode; reaching the end of the record
-    /// before `opt.to` is not an error).
+    /// As [`read_record`].
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn read_record(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -956,15 +917,19 @@ impl Wfdb {
             }
             let mut keep = got as usize;
             if stat == -4 {
-                // wfdb-x: a checksum error: the frame read last is complete
-                // (it is the last one of the record) and is returned; a
+                // wfdb-x: a checksum error: the vector read last holds valid
+                // data and is returned; reading continues (in high-resolution
+                // mode, each vector of the last frame returns -4), and a
                 // warning follows.
                 keep += 1;
                 checksum_error = true;
+                if let Some(r) = remaining.as_mut() {
+                    *r -= 1;
+                }
             }
             all.truncate(len + keep * nsig);
             if stat == -4 {
-                break;
+                continue;
             }
             if got < n {
                 // wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a
@@ -1008,14 +973,14 @@ impl Wfdb {
         Ok(rec)
     }
 
-    /// Reads an annotation file, using this instance (see
+    /// Reads an annotation file, using this `Wfdb` value (see
     /// [`read_annotations`]).
     ///
     /// # Errors
     ///
-    /// If `fs` is given and not positive, the annotation file cannot be
-    /// opened, `from` cannot be reached, or a time string needs the sampling
-    /// frequency and none is known.
+    /// As [`read_annotations`].
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn read_annotations(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1034,13 +999,14 @@ impl Wfdb {
         self.read_annotations_with(record, annotator, fs, &opt)
     }
 
-    /// Reads an annotation file, with the `from`, `to`, `legacy`,
-    /// `input_dir` and `network` options of `opt` (the others are not
-    /// used), using this instance (see [`read_annotations`]).
+    /// Reads an annotation file with the options of `opt`, using this `Wfdb`
+    /// value (see [`read_annotations_with`]).
     ///
     /// # Errors
     ///
-    /// As [`Wfdb::read_annotations`].
+    /// As [`read_annotations`].
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn read_annotations_with(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1113,7 +1079,20 @@ impl Wfdb {
             ..Default::default()
         };
         let mut a = Annotation::default();
-        while self.getann(0, &mut a) == 0 {
+        loop {
+            let stat = self.getann(0, &mut a);
+            if stat != 0 {
+                // wfdb-x: -1 is the end of the file; any other status (e.g.
+                // -3, unexpected EOF, or an I/O error) is an error.
+                if stat != -1 {
+                    return self.hl_fail(format!(
+                        "can't read annotation file {} of record {} (getann status {stat})",
+                        lossy(annotator),
+                        lossy(record)
+                    ));
+                }
+                break;
+            }
             if let Some(t1) = t1 {
                 if a.time >= t1 {
                     break;
@@ -1205,15 +1184,14 @@ impl Wfdb {
         Ok(())
     }
 
-    /// Writes a record from samples in ADC units, using this instance (see
-    /// [`write_record`]).
+    /// Writes a record from samples in ADC units, using this `Wfdb` value
+    /// (see [`write_record`]).
     ///
     /// # Errors
     ///
-    /// If there are no signals, `fs` is not positive, the gains or the ADC
-    /// resolutions are not specified, the units of a calibrated signal are
-    /// not specified, the number of samples is not a multiple of the frame
-    /// size, or the signal or header file cannot be written.
+    /// As [`write_record`].
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn write_record(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1228,12 +1206,14 @@ impl Wfdb {
         })
     }
 
-    /// Writes a record from samples in physical units, using this instance
-    /// (see [`write_record_physical`]).
+    /// Writes a record from samples in physical units, using this `Wfdb`
+    /// value (see [`write_record_physical`]).
     ///
     /// # Errors
     ///
-    /// As [`Wfdb::write_record`]; also if a gain is 0 (uncalibrated).
+    /// As [`write_record_physical`].
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn write_record_physical(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1308,13 +1288,14 @@ impl Wfdb {
         self.write_adc(record, &adc, nsig, fs, opt)
     }
 
-    /// Writes an annotation file, using this instance (see
+    /// Writes an annotation file, using this `Wfdb` value (see
     /// [`write_annotations`]).
     ///
     /// # Errors
     ///
-    /// If the annotation file cannot be created, or, with `dir`, if `dir`
-    /// does not exist or `record` contains a directory.
+    /// As [`write_annotations`].
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn write_annotations(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1330,12 +1311,14 @@ impl Wfdb {
         self.write_annotations_with(record, annotator, ann, fs, &opt)
     }
 
-    /// Writes an annotation file with the options `opt` (output directory,
-    /// sorting), using this instance (see [`write_annotations_with`]).
+    /// Writes an annotation file with the options `opt`, using this `Wfdb`
+    /// value (see [`write_annotations_with`]).
     ///
     /// # Errors
     ///
-    /// As [`Wfdb::write_annotations`].
+    /// As [`write_annotations`].
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn write_annotations_with(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1418,72 +1401,87 @@ impl Wfdb {
     }
 }
 
-/// Reads the signals of a record: all of it, or the part and the signals
-/// selected by `opt`.
+/// Reads the signals of a record.
 ///
-/// The record is found as [`Wfdb::wfdb_open`] finds files (wfdb-x: under
-/// the input directory, [`ReadOptions::input_dir`], or as given; in legacy
-/// mode, in the WFDB path). Samples are returned in ADC
-/// units, frame by frame, one value per signal and frame as `getvec`
-/// returns them (for multi-frequency records, see
-/// [`ReadOptions::highres`]). Uses the default instance; see
-/// [`Wfdb::read_record`] for an explicit one.
+/// Reads the whole record, or the part and the signals that `opt` selects.
+/// The samples are returned in ADC units, frame by frame. Use
+/// [`Record::physical_signal`] for physical units.
+///
+/// # Arguments
+///
+/// * `record`: the record name or path. A relative name is read from the
+///   input directory (see [`Wfdb::wfdbx_set_input_dir`]).
+/// * `opt`: the signals, the part of the record and other options (see
+///   [`ReadOptions`]).
+///
+/// Uses the default [`Wfdb`] value of the thread; [`Wfdb::read_record`]
+/// uses a given one.
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```
 /// use wfdbx::{read_record, ReadOptions};
 ///
-/// // Signals "MLII" and "V5" from 1 minute to 1 minute 10 seconds.
+/// // The sample record 100s, the first minute of record 100 of the MIT-BIH
+/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// # wfdbx::wfdbx_set_input_dir("../tests/data");
+/// # /*
+/// wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
+/// # */
+/// // Signals "MLII" and "V5" from 10 to 20 seconds.
 /// let opt = ReadOptions {
 ///     channels: vec!["MLII".into(), "V5".into()],
-///     from: Some("1:00".into()),
-///     to: Some("1:10".into()),
+///     from: Some("0:10".into()),
+///     to: Some("0:20".into()),
 ///     ..Default::default()
 /// };
 /// let rec = read_record("100s", &opt)?;
-/// let mlii: Vec<f64> = rec.physical_signal(0)?; // in physical units (mV)
-/// println!("{} samples at {} Hz", mlii.len(), rec.fs);
+/// let mlii: Vec<f64> = rec.physical_signal(0)?; // in physical units
+/// assert_eq!((mlii.len(), rec.fs), (3600, 360.0));
 /// # Ok::<(), wfdbx::record::Error>(())
 /// ```
 ///
-/// If the header does not specify the sampling frequency, `fs` is 0 in the
-/// result (wfdb-x: no default frequency), and time strings that need it
-/// (see [`wfdbx_time_needs_freq`](crate::wfdbx_time_needs_freq)) are
-/// errors. [`Record::physical`] fails for an uncalibrated signal. With
-/// [`ReadOptions::legacy`], the record is read as by the original package
-/// (250 Hz without a frequency in the header, gain 200 for uncalibrated
-/// signals): for compatibility only, with the risks of these silent
-/// defaults.
-///
 /// # Errors
 ///
-/// If the record or its signals cannot be opened, a signal of `opt` does
-/// not exist, the start time cannot be reached, or a time string needs the
-/// sampling frequency and the header does not specify it (`sampling
-/// frequency of record R is not specified`); also if reading stops with a
-/// `getvec` status below -1 (e.g. -3: a signal file shorter than its header
-/// says, or a read or decoding error): `can't read signal data of record R
-/// (getvec status S)`, also in legacy mode (reaching the end of the record
-/// before `opt.to` is not an error). A checksum error (status -4) is not an
-/// error (wfdb-x): every frame is returned, with a warning on the standard
-/// error unless [`ReadOptions::checksum_warning`] is false.
+/// * The record cannot be read, or a signal of `opt.channels` does not
+///   exist.
+/// * A time string of `opt` needs the sampling frequency, and the header does
+///   not give it: "sampling frequency of record REC is not specified".
+/// * A signal file is shorter than its header says, or cannot be read:
+///   "can't read signal data of record REC (getvec status S)".
+///
+/// When the data do not match the checksums in the header, every sample is
+/// returned, [`Record::checksum_ok`] is `false`, and a warning is printed
+/// unless [`ReadOptions::checksum_warning`] is `false`.
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record, Error> {
     with_default(|w| w.read_record(record, opt))
 }
 
-/// Reads the header of a record, without opening its signal files: a
-/// [`Header`] with the sampling frequency, counter frequency, base counter
-/// value, number of samples, base time and date of the record line, one
-/// [`Siginfo`] per signal (file name, format, gain, units, description,
-/// ...) and the info strings.
+/// Reads the header of a record, without opening its signal files.
 ///
-/// Uses the default instance; see [`Wfdb::read_header`] for an explicit
-/// one.
+/// # Arguments
+///
+/// * `record`: the record name or path. A relative name is read from the
+///   input directory (see [`Wfdb::wfdbx_set_input_dir`]).
+/// * `legacy`: behave as the original WFDB package (see
+///   [`ReadOptions::legacy`]). Normally `false`.
+///
+/// Returns a [`Header`]: the sampling frequency, counter frequency, base
+/// counter value, number of samples, start time and date, the
+/// specifications of each signal and the info strings. Uses the default
+/// [`Wfdb`] value of the thread; [`Wfdb::read_header`] uses a given one.
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```
+/// // The sample record 100s, the first minute of record 100 of the MIT-BIH
+/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// # wfdbx::wfdbx_set_input_dir("../tests/data");
+/// # /*
+/// wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
+/// # */
 /// let h = wfdbx::read_header("100s", false)?;
 /// println!("{} signals at {} Hz, {} samples", h.nsig, h.fs, h.nsamples);
 /// for s in &h.siginfo {
@@ -1493,58 +1491,60 @@ pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record
 /// # Ok::<(), wfdbx::record::Error>(())
 /// ```
 ///
-/// With `legacy`, the header is read as by the original package (library
-/// legacy mode on during the call): a missing ADC resolution is inferred
-/// from the format, or 12 bits. For compatibility only: this is one of the
-/// silent defaults wfdb-x removed, with the same risks.
-///
 /// # Errors
 ///
-/// If the header cannot be read.
+/// If the header cannot be read: "can't read header for record REC".
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn read_header(record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Error> {
     with_default(|w| w.read_header(record, legacy))
 }
 
-/// Reads the header of a record, as [`read_header`] does, with the `legacy`, `input_dir` and `network`
-/// options of `opt` (wfdb-x; the others are not used). Uses the default
-/// instance.
+/// Reads the header of a record, as [`read_header`] does, with the
+/// `input_dir`, `network` and `legacy` options of `opt`. The other options
+/// are not used. Uses the default [`Wfdb`] value of the thread.
 ///
 /// # Errors
 ///
-/// If the header cannot be read.
+/// If the header cannot be read: "can't read header for record REC".
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Header, Error> {
     with_default(|w| w.read_header_with(record, opt))
 }
 
-/// Reads the annotation file of `record` written by `annotator` (for
-/// example `"atr"`), optionally from time `from` to time `to` (exclusive).
+/// Reads an annotation file.
 ///
-/// The file is found as [`Wfdb::wfdb_open`] finds files (wfdb-x: under the
-/// input directory, or as given; see [`read_annotations_with`] for the
-/// `input_dir` and `network` options; in legacy mode, in the WFDB path).
-/// Annotation times are sample
-/// numbers. Uses the default instance; see [`Wfdb::read_annotations`] for
-/// an explicit one.
+/// # Arguments
 ///
-/// The sampling frequency is that of the record's header. If the record has
-/// no header, or its header does not specify one, `fs` (if positive) is
-/// used, as by the `-F` option of `rdann` (wfdb-x: there is no default
-/// frequency; C assumed 250 Hz); when `fs` is `None`, nothing is set.
-/// Without either, the result's `fs` is the
-/// time resolution of the annotation file (0 if it has none), and time
-/// strings in `from` or `to` that need the frequency are errors.
+/// * `record`: the record name or path. A relative name is read from the
+///   input directory (see [`Wfdb::wfdbx_set_input_dir`]).
+/// * `annotator`: the file suffix: `"atr"` reads `100s.atr` for record
+///   `100s`.
+/// * `from`, `to`: read only the annotations from time `from` up to, but not
+///   including, time `to`: sample numbers or time strings (see
+///   [`TimeSpec`]). `None`: from the start, or to the end.
+/// * `fs`: the sampling frequency to use when the record has no header, or
+///   its header gives none. `None`: no frequency is set.
+/// * `legacy`: behave as the original WFDB package (see
+///   [`ReadOptions::legacy`]). Normally `false`.
 ///
-/// With `legacy`, the file is read as by the original package (library
-/// legacy mode on during the call): a record without a header (and without
-/// `fs`) is read at 250 Hz, as is one whose header gives no frequency. For
-/// compatibility only: this is one of the silent defaults wfdb-x removed,
-/// with the same risks.
+/// Returns an [`Annotations`] value with the annotations in file order.
+/// Without a sampling frequency, its `fs` is the frequency stored in the
+/// annotation file, or 0. Uses the default [`Wfdb`] value of the thread;
+/// [`Wfdb::read_annotations`] uses a given one.
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```
 /// use wfdbx::{read_annotations, PVC};
 ///
+/// // The sample record 100s, the first minute of record 100 of the MIT-BIH
+/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// # wfdbx::wfdbx_set_input_dir("../tests/data");
+/// # /*
+/// wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
+/// # */
 /// let ann = read_annotations("100s", "atr", None, Some("0:30".into()), None, false)?;
 /// let npvc = ann.codes.iter().filter(|&&c| c == PVC).count();
 /// for i in 0..ann.len() {
@@ -1556,9 +1556,15 @@ pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<H
 ///
 /// # Errors
 ///
-/// If `fs` is given and not positive (`fs must be > 0`), the annotation
-/// file cannot be opened, `from` cannot be reached, or a time string needs the sampling frequency and none is known (`sampling
-/// frequency of record R is not specified`).
+/// * `fs` is not positive: "fs must be > 0".
+/// * The annotation file cannot be read, or `from` cannot be reached.
+/// * The annotation file ends early (it is truncated), or a read error
+///   occurs, before `to`: "can't read annotation file ANN of record REC
+///   (getann status S)".
+/// * A time string needs the sampling frequency, and none is known:
+///   "sampling frequency of record REC is not specified".
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn read_annotations(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,
@@ -1570,14 +1576,18 @@ pub fn read_annotations(
     with_default(|w| w.read_annotations(record, annotator, from, to, fs, legacy))
 }
 
-/// Reads an annotation file, as [`read_annotations`] does, with the
-/// `from`, `to`, `legacy`, `input_dir` and `network` options of `opt`
-/// (wfdb-x; the others are not used). Uses the default instance.
+/// Reads an annotation file, as [`read_annotations`] does, with the `from`,
+/// `to`, `input_dir`, `network` and `legacy` options of `opt`. The other
+/// options are not used. Uses the default [`Wfdb`] value of the thread.
+///
+/// # Examples
+///
+/// This reads the annotations of record 100 of the MIT-BIH Arrhythmia
+/// Database from PhysioNet.
 ///
 /// ```no_run
 /// use wfdbx::{read_annotations_with, ReadOptions};
 ///
-/// // mitdb record 100, from PhysioNet
 /// let opt = ReadOptions {
 ///     input_dir: Some("https://physionet.org/files/mitdb/1.0.0/".into()),
 ///     network: Some(true),
@@ -1590,6 +1600,8 @@ pub fn read_annotations(
 /// # Errors
 ///
 /// As [`read_annotations`].
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn read_annotations_with(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,
@@ -1599,36 +1611,38 @@ pub fn read_annotations_with(
     with_default(|w| w.read_annotations_with(record, annotator, fs, opt))
 }
 
-/// Writes a record (signal file `RECORD.dat` and header `RECORD.hea`) from
-/// samples in ADC units.
+/// Writes a record from samples in ADC units.
+///
+/// This creates the header `RECORD.hea` and the signal file `RECORD.dat`.
 ///
 /// # Arguments
 ///
-/// * `record`: the record name; the files are created in the current
-///   directory (or in the directory part of the name), or in
+/// * `record`: the record name. A relative name is written to the output
+///   directory (see [`Wfdb::wfdbx_set_output_dir`]), or to
 ///   [`WriteOptions::dir`].
-/// * `samples`: the samples, frame by frame: `nsig` values per frame
-///   (signal 0, signal 1, ...), or, for multi-frequency records, the sum of
-///   the `samps_per_frame` values per frame.
+/// * `samples`: the samples, frame by frame: `nsig` values per frame (signal
+///   0, signal 1, ...). In a multi-frequency record, a frame holds
+///   `samps_per_frame` values of each signal.
 /// * `nsig`: the number of signals.
-/// * `fs`: the sampling frequency (frames per second, > 0).
-/// * `opt`: format, gains, ADC resolutions and units (required), names, ...
-///   (see [`WriteOptions`]).
+/// * `fs`: the sampling frequency in Hz (frames per second, > 0).
+/// * `opt`: the gains, ADC resolutions and units (required), the format, the
+///   names and other options (see [`WriteOptions`]).
 ///
-/// Uses the default instance; see [`Wfdb::write_record`] for an explicit
-/// one.
+/// Uses the default [`Wfdb`] value of the thread; [`Wfdb::write_record`]
+/// uses a given one.
 ///
 /// # Examples
 ///
 /// ```no_run
 /// use wfdbx::{write_record, WriteOptions};
 ///
-/// // Two signals, three frames, at 360 Hz.
+/// // Two signals, three frames, at 360 Hz, written by this example as the
+/// // record "example" (example.hea and example.dat in the current directory).
 /// let samples = [0, 10, 5, 12, 9, 14];
 /// let opt = WriteOptions {
-///     gains: vec![200.0],      // adu/mV, for both signals (required)
-///     adcres: vec![16],        // bits (required)
-///     units: vec![Some("mV".into())], // required for calibrated signals
+///     gains: vec![200.0],                // ADC units per mV, for both signals
+///     adcres: vec![16],                  // bits
+///     units: vec![Some("mV".into())],
 ///     names: vec!["I".into(), "II".into()],
 ///     ..Default::default()
 /// };
@@ -1638,12 +1652,18 @@ pub fn read_annotations_with(
 ///
 /// # Errors
 ///
-/// If there are no signals, `fs` is not positive, the gains are not
-/// specified (`gains must be specified`), the ADC resolutions are not
-/// specified or are less than 1 (`ADC resolution(s) must be specified`),
-/// the units of a signal whose gain is not 0 are not specified (`units must
-/// be specified`), the number of samples is not a multiple of the frame
-/// size, or the signal or header file cannot be written.
+/// * There are no signals, or `fs` is not positive.
+/// * The gains are missing: "gains must be specified".
+/// * The ADC resolutions are missing or less than 1: "ADC resolution(s) must
+///   be specified".
+/// * The units of a signal whose gain is not 0 are missing: "units must be
+///   specified".
+/// * The number of samples is not a multiple of the frame size.
+/// * With [`WriteOptions::dir`], the directory does not exist or `record`
+///   contains a directory.
+/// * The signal file or the header cannot be written.
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn write_record(
     record: impl AsRef<[u8]>,
     samples: &[i32],
@@ -1654,19 +1674,37 @@ pub fn write_record(
     with_default(|w| w.write_record(record, samples, nsig, fs, opt))
 }
 
-/// Writes a record from samples in physical units, as [`write_record`]
-/// does from ADC units.
+/// Writes a record from samples in physical units, as [`write_record`] does
+/// from ADC units.
 ///
-/// Each value is converted to ADC units with the gain and baseline of its
-/// signal (`round(value * gain) + baseline`, rounding halves away from zero
-/// as `physadu` does); NaN becomes an invalid sample
-/// ([`WFDB_INVALID_SAMPLE`]). Uses the default instance; see
-/// [`Wfdb::write_record_physical`] for an explicit one.
+/// Each value is converted to ADC units as `round(value * gain) + baseline`,
+/// with halves rounded away from zero. NaN becomes an invalid sample. Uses
+/// the default [`Wfdb`] value of the thread; [`Wfdb::write_record_physical`]
+/// uses a given one.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wfdbx::{write_record_physical, WriteOptions};
+///
+/// // One signal at 250 Hz, in millivolts, written by this example as the
+/// // record "example" (example.hea and example.dat in the current directory).
+/// let x = [0.0, 0.25, 0.5, 0.25];
+/// let opt = WriteOptions {
+///     gains: vec![1000.0],
+///     adcres: vec![16],
+///     units: vec![Some("mV".into())],
+///     ..Default::default()
+/// };
+/// write_record_physical("example", &x, 1, 250.0, &opt)?;
+/// # Ok::<(), wfdbx::record::Error>(())
+/// ```
 ///
 /// # Errors
 ///
-/// As [`write_record`]; also if a gain is 0 (`signal N is uncalibrated`):
-/// physical values cannot be converted without a gain.
+/// As [`write_record`]. Also if a gain is 0: "signal N is uncalibrated".
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn write_record_physical(
     record: impl AsRef<[u8]>,
     samples: &[f64],
@@ -1677,26 +1715,27 @@ pub fn write_record_physical(
     with_default(|w| w.write_record_physical(record, samples, nsig, fs, opt))
 }
 
-/// Writes the annotation file of `record` for `annotator` (as `wrann`
-/// does). The file is created in the current directory (or in the
-/// directory part of the record name), or, with `dir` (wfdb-x), in that
-/// directory, which must exist (`record` must then be a plain name, without
-/// a directory).
+/// Writes an annotation file.
 ///
-/// The annotation type of each annotation is given by its `symbols` entry
-/// (a mnemonic such as `"N"` or `"V"`, converted with `strann`; an unknown
-/// mnemonic gives `NOTQRS`), or, if
-/// that entry is empty or missing, by its `codes` entry. Missing
-/// `subtypes`, `chans`, `nums` and `aux` entries are 0 or absent; aux data
-/// longer than 255 bytes are truncated. The annotations should be in time
-/// order; otherwise the file is sorted when it is closed, unless the
-/// environment variable `WFDBANNSORT` is 0 (wfdb-x: in this process, with
-/// the result of the `sortann` program; in library legacy mode, by running
-/// `sortann`, as the C library does; [`write_annotations_with`] decides
-/// this per call with its `sort` option). If `fs > 0`, it is
-/// recorded in the file as its time resolution (ticks per second); `ann.fs`
-/// is not used. Uses the default instance; see [`Wfdb::write_annotations`]
-/// for an explicit one.
+/// # Arguments
+///
+/// * `record`: the record name. A relative name is written to the output
+///   directory (see [`Wfdb::wfdbx_set_output_dir`]), or to `dir`.
+/// * `annotator`: the file suffix: `"qrs"` writes `RECORD.qrs`.
+/// * `ann`: the annotations. The type of each annotation is its `symbols`
+///   entry, a mnemonic such as `"N"` or `"V"`, or its `codes` entry if the
+///   mnemonic is empty or missing. Missing `subtypes`, `chans`, `nums` and
+///   `aux` entries are 0 or absent. An unknown mnemonic gives `NOTQRS`. Aux
+///   text longer than 255 bytes is cut.
+/// * `fs`: if positive, stored in the file as the frequency of its sample
+///   numbers. `ann.fs` is not used.
+/// * `dir`: an existing directory in which to create the file, for this call
+///   only. The record name must then be a plain name, without a directory.
+///
+/// If the annotations are not in time order, the file is sorted when it is
+/// written, unless the environment variable `WFDBANNSORT` is 0.
+/// [`write_annotations_with`] decides this for one call. Uses the default
+/// [`Wfdb`] value of the thread; [`Wfdb::write_annotations`] uses a given one.
 ///
 /// # Examples
 ///
@@ -1708,16 +1747,20 @@ pub fn write_record_physical(
 ///     symbols: vec!["N".into(), "V".into(), "N".into()],
 ///     ..Default::default()
 /// };
+/// // Writes the annotation file example.test, for a record "example" (such
+/// // as the one written by the example of write_record).
 /// write_annotations("example", "test", &ann, 0.0, None)?;
 /// # Ok::<(), wfdbx::record::Error>(())
 /// ```
 ///
 /// # Errors
 ///
-/// If the annotation file cannot be created, or, with `dir`, if `dir` does
-/// not exist (`directory DIR does not exist`) or `record` contains a
-/// directory (`record name must not contain a directory when dir is
-/// given`).
+/// * The annotation file cannot be created.
+/// * With `dir`, the directory does not exist ("directory DIR does not
+///   exist"), or `record` contains a directory ("record name must not
+///   contain a directory when dir is given").
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn write_annotations(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,
@@ -1729,12 +1772,13 @@ pub fn write_annotations(
 }
 
 /// Writes an annotation file, as [`write_annotations`] does, with the
-/// options `opt`: the output directory ([`AnnWriteOptions::dir`], as the
-/// `dir` argument of [`write_annotations`]) and whether an out-of-order
-/// file is sorted ([`AnnWriteOptions::sort`]: `Some(true)` or
-/// `Some(false)` decides for this call, whatever `WFDBANNSORT` says;
-/// `None`: as `WFDBANNSORT` says). Uses the default instance; see
-/// [`Wfdb::write_annotations_with`] for an explicit one.
+/// options `opt`.
+///
+/// [`AnnWriteOptions::dir`] is the output directory, as the `dir` argument
+/// of [`write_annotations`]. [`AnnWriteOptions::sort`] decides, for this call
+/// only, whether annotations that are not in time order are sorted. Uses the
+/// default [`Wfdb`] value of the thread; [`Wfdb::write_annotations_with`]
+/// uses a given one.
 ///
 /// # Examples
 ///
@@ -1747,13 +1791,17 @@ pub fn write_annotations(
 ///     ..Default::default()
 /// };
 /// let opt = AnnWriteOptions { sort: Some(false), ..Default::default() };
-/// write_annotations_with("example", "test", &ann, 0.0, &opt)?; // as given
+/// // Writes example.test, for a record "example" (such as the one written by
+/// // the example of write_record).
+/// write_annotations_with("example", "test", &ann, 0.0, &opt)?; // kept as given
 /// # Ok::<(), wfdbx::record::Error>(())
 /// ```
 ///
 /// # Errors
 ///
 /// As [`write_annotations`].
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn write_annotations_with(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,

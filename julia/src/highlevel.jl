@@ -5,8 +5,13 @@
 # These functions read and write exactly what the WFDB library and the
 # command-line tools do. Each takes an optional `Wfdb` first argument (the
 # default instance otherwise), whose state it uses and resets with
-# `wfdbquit`. Errors are thrown as `WfdbError`.
+# `wfdbquit`. Errors are thrown as `WfdbError`. In the examples below,
+# "100s" is the sample record included with wfdb-x (the first minute of
+# record 100 of the MIT-BIH Arrhythmia Database), read from tests/data in a
+# copy of the wfdb-x repository, and "new" is a record written by the
+# example:
 #
+#     wfdbx_set_input_dir("/path/to/wfdb-x/tests/data")
 #     rec = read_record("100s"; to="0:10")      # the first 10 seconds
 #     rec.samples                               # Matrix{Int32}: frame × signal
 #     physical(rec)                             # Matrix{Float64} (NaN: invalid)
@@ -16,56 +21,48 @@
 #
 # Finding files: every relative name is read under the input directory and
 # written under the output directory -- whatever is set as the input
-# directory, a local directory or a URL, prefixes it; a name given as a
-# full path (/Users/...), a ~ path or a URL is used as given; nothing else
-# is searched. The readers take `input_dir=` (the input directory for the
-# call) and `network=` (allow URLs for the call), the writers `dir=` (the
-# output directory); see also wfdbx_set_input_dir, wfdbx_set_output_dir and
-# wfdbx_set_network. The signal files of a record are in the directory of
-# its header.
+# directory, a local directory or a URL, prefixes it; a name given as a full
+# path (/Users/...), a ~ path or a URL is used as given; nothing else is
+# searched. The readers take `input_dir=` (the input directory for the call)
+# and `network=` (allow URLs for the call; PhysioNet or any server is
+# contacted only if asked for), the writers `dir=` (the output directory:
+# the files are created there, and the record opens from there under its
+# plain name; see `_with_output_dir`); see also wfdbx_set_input_dir,
+# wfdbx_set_output_dir and wfdbx_set_network. The signal files of a record
+# are in the directory of its header.
 #
 # wfdb-x: no sampling frequency, gain, ADC resolution or units are ever
 # assumed (the C library assumed 250 Hz, 200 adu/mV, 12 bits or a resolution
 # based on the format, and millivolts): see docs/DIVERGENCES.md. Each
 # function has a `legacy=false` keyword argument: with `legacy=true`, it
-# behaves as the original package did (see `_with_legacy`).
+# behaves as the original package did (see `_with_legacy`). A checksum error
+# (getvec status -4: the samples are complete, their sum does not match the
+# header's checksums) is not an error of read_record but a warning
+# (checksum_warning=false: none); the data are returned.
 #
 # Strings read from files (signal descriptions, comments, annotation
 # mnemonics and aux strings) are byte strings (`Vector{UInt8}`), as
 # everywhere in the library; string arguments may be `String`s.
 #
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
-# bits and millivolts), because a silently assumed value corrupts every result
-# derived from it. See docs/DIVERGENCES.md. The original behavior remains
-# available with --legacy (see docs/DIVERGENCES.md).
-# Design decision (Reza Sameni, Oct 2026): files are found by explicit names
-# (the input directory, the output directory, or a full path or URL), not by
-# a search of the WFDB path, and PhysioNet (or any server) is accessed only
-# if asked for (network=true): a search can silently open the wrong file,
-# fails in ways nobody notices, and (in another port) sent local paths and
-# record names to physionet.org. The original behavior remains available
-# with --legacy (see docs/DIVERGENCES.md).
-# Design decision (Reza Sameni, Oct 2026): a checksum error (getvec status
-# -4: the samples are complete, their sum does not match the header's
-# checksums) is not an error of read_record but a warning
-# (checksum_warning=false: none); the data are returned.
-# Design decision (Reza Sameni, after a code review, Oct 2026): the writers
-# take a `dir` keyword argument (the files are created in that directory,
-# and the record opens from there under its plain name; see
-# `_with_output_dir`).
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 """
     WfdbError(msg)
 
-Exception thrown by the high-level functions ([`read_record`](@ref),
-[`write_annotations`](@ref), ...) when an operation fails. `msg` says what
-failed, e.g. `"can't read record 100x"`. The WFDB library may also have
-printed a more specific message on the standard error (see
-[`wfdbquiet`](@ref)).
+The exception thrown by the high-level functions ([`read_record`](@ref),
+[`write_annotations`](@ref), ...) when an operation fails. The field `msg`
+says what failed, such as `"can't read record 100x"`. The library may also
+print a message on the standard error. [`wfdbquiet`](@ref) turns these
+messages off.
 """
 struct WfdbError <: Exception
     msg::String
@@ -82,40 +79,35 @@ The signals of a record, or of part of one, as returned by
 
 # Fields
 - `name::String`: the record name.
-- `fs::Float64`: the sampling frequency (Hz) of the returned samples.
+- `fs::Float64`: the sampling frequency in Hz, or 0 if the header gives
+  none.
 - `samples::Matrix{Int32}`: the samples in ADC units, one row per sample
-  time and one column per returned signal: `samples[i, s]` is sample `i`
-  of the `s`-th returned signal. Invalid samples are
-  `WFDB_INVALID_SAMPLE`. Use [`physical`](@ref) for physical units.
-- `siginfo::Vector{Siginfo}`: the description of each returned signal
-  (gain, baseline, units, format, ...; see [`Siginfo`](@ref)).
-- `base_time::Union{String,Nothing}`: the base time and date of the record,
-  as [`timstr`](@ref) formats it (e.g. `"[08:45:00 01/01/2001]"`), or
-  `nothing` if the header gives none.
-- `base_time_ms::Union{Nothing,Int64}`: the base time of the record in
-  milliseconds after midnight (the milliseconds included: `14:00:03.500`
-  gives `50403500`); `nothing` exactly when `base_time` is `nothing`.
-- `base_date::Union{Nothing,NTuple{3,Int}}`: the base date of the record as
-  `(year, month, day)` (the calendar of [`datstr`](@ref)), or `nothing` if
-  the header gives no date.
-- `sampfrom::Int64`: the sample number of the first returned sample.
-- `comments::Vector{Vector{UInt8}}`: the info strings (comment lines) of the
-  header and of the `.info` file, if any, as bytes.
-- `channels::Vector{Int}`: the number of each returned signal in the record
-  (`0` is the first signal of the record).
-- `checksum_ok::Bool`: `false` if the samples were found not to match the
-  checksums in the header (`getvec` status -4; whether or not
-  `checksum_warning` is on), `true` otherwise. The checksums are verified
-  only when a read reaches the end of the record, so a read that stops
-  before it gives `true`.
+  and one column per signal. `samples[i, s]` is sample `i` of signal `s`.
+  Invalid samples are `WFDB_INVALID_SAMPLE`. Use [`physical`](@ref) to get
+  physical units.
+- `siginfo::Vector{Siginfo}`: the specifications of each signal: `desc`,
+  `units`, `gain`, `baseline`, `adcres`, `fmt`, ... (see
+  [`Siginfo`](@ref)). `units` is `nothing` and `adcres` is 0 when the
+  header does not give them.
+- `base_time::Union{Nothing,String}`: the start time and date as text, to
+  the second, such as `"[14:00:03 21/06/2024]"`.
+- `base_time_ms::Union{Nothing,Int64}`: the start time in milliseconds
+  after midnight, such as `50403500` for 14:00:03.500.
+- `base_date::Union{Nothing,NTuple{3,Int}}`: the start date as
+  `(year, month, day)`.
+- `sampfrom::Int64`: the number of the first sample returned.
+- `comments::Vector{Vector{UInt8}}`: the info strings of the header, as
+  bytes.
+- `channels::Vector{Int}`: the number of each returned signal in the
+  record. `0` is the first signal.
+- `checksum_ok::Bool`: `false` if the data do not match the checksums in
+  the header. Checksums are only checked when a read reaches the end of
+  the record.
 
-`fs` is 0 if the header does not specify the sampling frequency; in
-`siginfo`, `adcres` is 0 if the header does not specify a signal's ADC
-resolution, and `units` is `nothing` if it does not specify its units
-(wfdb-x: the C library assumed 250 Hz, a resolution based on the format or
-12 bits, and millivolts; see `docs/DIVERGENCES.md`).
+`base_time`, `base_time_ms` and `base_date` are `nothing` when the header
+does not give them.
 
-See also [`signal_names`](@ref).
+See also [`physical`](@ref) and [`signal_names`](@ref).
 """
 struct Record
     name::String
@@ -138,17 +130,17 @@ The header of a record, as returned by [`read_header`](@ref).
 
 # Fields
 - `name::String`: the record name, as given.
-- `fs::Float64`: the sampling frequency (Hz), as [`sampfreq`](@ref) gives it
-  (0 if the header does not give one; with `legacy=true`, 250 Hz).
+- `fs::Float64`: the sampling frequency in Hz, or 0 if the header gives
+  none.
 - `counter_freq::Float64`: the counter frequency, as [`getcfreq`](@ref)
   gives it.
 - `base_counter::Float64`: the base counter value, as
   [`getbasecount`](@ref) gives it.
-- `nsamples::Int64`: the number of samples per signal given by the record
-  line of the header (0 if it does not give it).
+- `nsamples::Int64`: the number of samples per signal, or 0 if the header
+  does not give it.
 - `nsig::Int`: the number of signals.
-- `siginfo::Vector{Siginfo}`: the description of each signal (file name,
-  format, gain, baseline, units, description, ...; see
+- `siginfo::Vector{Siginfo}`: the specifications of each signal: signal
+  file name, format, gain, baseline, units, description, ... (see
   [`Siginfo`](@ref)).
 - `base_time`, `base_time_ms`, `base_date`, `comments`: as in
   [`Record`](@ref).
@@ -194,26 +186,31 @@ end
 """
     signal_names(rec::Record) -> Vector{Vector{UInt8}}
 
-Return the description (`desc` field, e.g. `"MLII"`) of each signal of
-`rec`, as bytes. Use `String.(signal_names(rec))` to get `String`s.
+Return the description of each signal of `rec`, such as `"MLII"`, as
+bytes. Use `String.(signal_names(rec))` to get `String`s.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 signal_names(rec::Record) = Vector{UInt8}[copy(_ostr(si.desc)) for si in rec.siginfo]
 
 """
     physical(rec::Record; legacy=false) -> Matrix{Float64}
 
-Return the samples of `rec` converted to physical units (e.g. mV):
+Return the samples of `rec` in physical units, computed as
 `(adc - baseline) / gain` for each signal. Invalid samples become `NaN`. The
 result has the same shape as `rec.samples`.
 
 Throws a [`WfdbError`](@ref) (`"signal N of record R is uncalibrated"`) if
-the gain of a signal of `rec` is 0 (wfdb-x: no default gain; the C library
-assumed 200 adu/mV; see `docs/DIVERGENCES.md`). With `legacy=true`, a gain
-of 0 is taken as `WFDB_DEFGAIN` (200), as in the original package (kept
-for compatibility only: see [`read_record`](@ref)).
+the gain of a signal is 0. `legacy=true` behaves as the original package
+(see [`wfdbx_set_legacy`](@ref)).
 
 # Examples
+The examples read `100s`, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
+of the wfdb-x repository:
 ```julia-repl
+julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
+
 julia> rec = read_record("100s"; to=2);
 
 julia> physical(rec)
@@ -221,6 +218,8 @@ julia> physical(rec)
  -0.145  -0.065
  -0.145  -0.065
 ```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function physical(rec::Record; legacy::Bool=false)
     legacy = _legacy(lib(), legacy)     # the default library's mode
@@ -248,30 +247,32 @@ end
 
 The contents of an annotation file, as returned by
 [`read_annotations`](@ref) and written by [`write_annotations`](@ref).
-Annotation `k` is described by element `k` of each vector field;
-`length(ann)` is the number of annotations.
+Element `k` of each vector field describes annotation `k`. `length(ann)` is
+the number of annotations.
 
 # Fields
-- `record::String`, `annotator::String`: the record and annotator names
-  (set by `read_annotations`; not used by `write_annotations`).
-- `fs::Float64`: the time resolution of the annotation times (ticks per
-  second; usually the sampling frequency).
-- `samples::Vector{Int64}`: the annotation times, in ticks (sample numbers).
-- `codes::Vector{Int32}`: the annotation type codes (e.g. 1 for a normal
-  beat, `N`).
-- `symbols::Vector{Vector{UInt8}}`: the annotation mnemonics (e.g. `"N"`),
-  as [`annstr`](@ref) returns them. When writing, a non-empty mnemonic takes
-  precedence over the code; an empty one means "use `codes`".
-- `subtypes`, `chans`, `nums` (`Vector{Int32}`): the `subtyp`, `chan` and
-  `num` fields of each annotation.
-- `aux::Vector{Union{Nothing,Vector{UInt8}}}`: the auxiliary data of each
-  annotation (without the leading length byte of
-  [`Annotation`](@ref)`.aux`), or `nothing` if it has none.
+- `record::String`, `annotator::String`: the names that were read. They
+  are not used by `write_annotations`.
+- `fs::Float64`: the frequency in which `samples` are counted, or 0 if it
+  is unknown.
+- `samples::Vector{Int64}`: the annotation times, in samples.
+- `codes::Vector{Int32}`: the annotation codes (`WFDBX.NORMAL`,
+  `WFDBX.PVC`, ...).
+- `symbols::Vector{Vector{UInt8}}`: the annotation mnemonics (`"N"`, `"V"`,
+  ...), as bytes. When writing, a non-empty mnemonic is used instead of the
+  code, and an empty one means "use `codes`".
+- `subtypes`, `chans`, `nums` (`Vector{Int32}`): the subtype, channel and
+  annotator number of each annotation.
+- `aux::Vector{Union{Nothing,Vector{UInt8}}}`: the auxiliary text of each
+  annotation as bytes, or `nothing`.
 
-When writing, missing trailing elements of `codes`, `subtypes`, `chans`,
-`nums` and `aux` are taken as 0 (or no aux data).
+When writing, `codes`, `subtypes`, `chans`, `nums` and `aux` may be shorter
+than `samples`. The missing elements are taken as 0, or no auxiliary text.
 
 # Examples
+The example writes the annotation file `100s.test` in the current directory
+(the output directory), for the record `100s` (the sample record of
+wfdb-x, the first minute of record 100 of the MIT-BIH Arrhythmia Database):
 ```julia-repl
 julia> ann = Annotations(samples=[100, 460], symbols=[b"N", b"V"]);
 
@@ -351,29 +352,22 @@ function _with_input_options(f::Function, w::Wfdb, input_dir, network)
 end
 
 const _INPUT_DOC = """
-- `input_dir`: the input directory for this call (a local directory, a `~`
-  name or a URL; `""` for the default; see
-  [`wfdbx_set_input_dir`](@ref)); `nothing` (the default) keeps the current
-  setting (by default, the current directory).
-- `network`: `true` to allow reading URLs for this call, `false` to forbid
-  it (see [`wfdbx_set_network`](@ref)); `nothing` (the default) keeps the
-  current setting (by default, not allowed)."""
+- `input_dir`: the input directory for this call only: a local directory,
+  a `~` path or a URL (see [`wfdbx_set_input_dir`](@ref)). `nothing`, the
+  default, keeps the current setting.
+- `network`: `true` turns network access on for this call only, and
+  `false` turns it off (see [`wfdbx_set_network`](@ref)). `nothing`, the
+  default, keeps the current setting."""
 
 const _DIR_DOC = """
-- `dir`: if given, the directory (which must exist) in which the files are
-  created; the header then names the record and its signal file without
-  the directory, so that the record opens from that directory under its
-  plain name (`record` must not contain a directory; wfdb-x addition, see
-  [`wfdbx_set_output_dir`](@ref))."""
+- `dir`: the directory in which to write, for this call only
+  (see [`wfdbx_set_output_dir`](@ref)). It must exist, and `record` must
+  not then contain a directory."""
 
 const _LEGACY_DOC = """
-`legacy=true` reproduces the original package (wfdb-x legacy mode, see
-`docs/DIVERGENCES.md`): the library's legacy mode is on during the call
-(see [`wfdbx_set_legacy`](@ref)), and the defaults removed by wfdb-x apply
-again (250 Hz, 200 adu per physical unit, an ADC resolution based on the
-format). Kept for compatibility only: the values it assumes are exactly
-the silent defaults wfdb-x removed, so results produced with it carry the
-same risks."""
+- `legacy`: `true` behaves as the original WFDB package, for this call
+  only (see [`wfdbx_set_legacy`](@ref)). Use it only to reproduce old
+  results."""
 
 # A time: a sample number, or a WFDB time string ("0:10", "s1000",
 # "[12:00:00]", "e" for the end of the record; see strtim), converted for
@@ -393,23 +387,23 @@ end
     read_header([w::Wfdb], record; input_dir=nothing, network=nothing,
                 legacy=false) -> Header
 
-Read the header file of `record` (a name relative to the input directory,
-or a full path, `~` path or URL) and return it as a [`Header`](@ref): the
-sampling and counter frequencies, the number of samples, the base time and
-date, the info strings, and the description of each signal (file name,
-format, gain, baseline, units, description, ...; see [`Siginfo`](@ref)) in
-`siginfo`. The signal files are not opened. A record with no signals gives
-an empty `siginfo`.
+Read the header of `record` without opening its signal files, and return it
+as a [`Header`](@ref). `record` is a record name, which is read from the
+input directory, or a full path, `~` path or URL.
 
 # Keyword arguments
 $_INPUT_DOC
-
-Throws a [`WfdbError`](@ref) if the header cannot be found or read.
-
 $_LEGACY_DOC
 
+Throws a [`WfdbError`](@ref) if the header cannot be read.
+
 # Examples
+The examples read `100s`, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
+of the wfdb-x repository:
 ```julia-repl
+julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
+
 julia> h = read_header("100s");
 
 julia> h.fs, h.nsamples, h.nsig
@@ -423,6 +417,8 @@ julia> [String(s.desc) for s in h.siginfo]
 julia> si = h.siginfo; si[1].fmt, si[1].gain, si[1].adcres, si[1].nsamp
 (212, 200.0, 11, 21600)
 ```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function read_header(w::Wfdb, record::ByteStr; input_dir::OptByteStr=nothing,
                      network::Union{Nothing,Bool}=nothing, legacy::Bool=false)
@@ -453,61 +449,55 @@ const READ_BLOCK = 65536
 
 """
     read_record([w::Wfdb], record; channels=nothing, from=0, to=nothing,
-                highres=false, pad=false, input_dir=nothing, network=nothing,
-                legacy=false, checksum_warning=true) -> Record
+                highres=false, pad=false, checksum_warning=true,
+                input_dir=nothing, network=nothing, legacy=false) -> Record
 
-Read the signals of `record` (all of them, or a time interval and a subset
-of the signals) and return them as a [`Record`](@ref). The samples are in
-ADC units; use [`physical`](@ref) to convert them. `record` is a name
-relative to the input directory, or a full path, `~` path or URL; the
-signal files are in the directory of its header.
+Read the signals of `record`, or of part of it, and return them as a
+[`Record`](@ref). The samples are in ADC units. Use [`physical`](@ref) to
+convert them to physical units. `record` is a record name, which is read
+from the input directory, or a full path, `~` path or URL.
 
 # Keyword arguments
-- `channels`: the signals to return, in the order given, by number (`0` is
-  the first signal) or by description (e.g. `"V5"`); all signals if
-  `nothing`.
-- `from`, `to`: the interval to read, from `from` (inclusive) to `to`
-  (exclusive). Each is a sample number or a WFDB time string as accepted by
-  [`strtim`](@ref) (`"0:10"` is 10 s, `"s1000"` is sample 1000, `"e"` is
-  the end of the record; a time of day in brackets, such as
-  `"[12:00:00]"`, is also accepted). `to=nothing` reads to the end of the
-  record. If the record does not specify its sampling frequency (`fs` is
-  0), only sample numbers and the strings that do not need a frequency
-  (see [`wfdbx_time_needs_freq`](@ref): `"s1000"`, `"e"`, ...) are
-  accepted.
-- `highres`: for a multi-frequency record, return every sample of the
-  oversampled signals at the highest sampling frequency (`WFDB_HIGHRES`
-  mode) rather than one (averaged) sample per signal per frame. `fs` is
-  then the high-resolution frequency.
-- `pad`: replace each invalid sample by the previous valid sample of the
-  same signal (`WFDB_GVPAD`).
+- `channels`: the signals to read, in the order given, by number (`0` is
+  the first signal) or by name, such as `"V5"`. `nothing`, the default,
+  reads all signals.
+- `from`, `to`: the first sample, and the sample after the last one. An
+  integer is a sample number. A string is a WFDB time string: `"0:10"`
+  (10 seconds), `"1:02:03.5"`, `"s3600"` (sample 3600) or `"e"` (the end
+  of the record). `to=nothing`, the default, reads to the end of the
+  record.
+- `highres`: `true` reads a multi-frequency record at its highest sampling
+  frequency. `fs` is then that frequency.
+- `pad`: `true` replaces each invalid sample by the previous valid sample
+  of the same signal.
+- `checksum_warning`: `true`, the default, logs a warning when the data do
+  not match the checksums in the header. `false` turns it off.
 $_INPUT_DOC
-- `checksum_warning`: if `true` (the default), warn (`@warn "checksum error
-  in record REC: the signal data do not match the checksums in its
-  header"`) when the samples read to the end of the record do not match
-  the checksums in its header; the data (every frame) are returned either
-  way (`false`: no warning; `checksum_ok` of the result is `false` in
-  both cases). (wfdb-x: getvec's own message, `getvec: checksum error in
-  signal N`, is not printed during the read.)
-- `legacy`: see below.
+$_LEGACY_DOC
 
-Throws a [`WfdbError`](@ref) if the record cannot be read or has no
-signals, if a signal in `channels` does not exist, if `from` is beyond
-the end of the record, or if `from` or `to` is a time string that needs
-the sampling frequency of a record that does not specify one (`"sampling
-frequency of record R is not specified"`); also if reading stops with a
-`getvec` status below -1 (e.g. -3: a signal file shorter than its header
-says, or a read or decoding error), with the message `"can't read signal
-data of record R (getvec status S)"`, also in legacy mode (reaching the end
-of the record before `to` is not an error).
+When the data do not match the checksums in the header, all the data are
+returned, `checksum_ok` is `false`, and a warning is logged: `"checksum
+error in record REC: the signal data do not match the checksums in its
+header"`. Checksums are only checked when a read reaches the end of the
+record.
 
-$_LEGACY_DOC (With it, a header without a sampling frequency gives 250 Hz,
-and time strings are converted at 250 Hz, or at 1 sample per second without
-a frequency; use `physical(rec; legacy=true)` for gain 200 for
-uncalibrated signals.)
+Throws a [`WfdbError`](@ref) if:
+- the record cannot be read, or has no signals;
+- a signal in `channels` does not exist;
+- `from` is beyond the end of the record;
+- `from` or `to` is a time string that needs the sampling frequency, and
+  the header gives none (`"sampling frequency of record REC is not
+  specified"`);
+- a signal file cannot be read to the length its header gives (`"can't
+  read signal data of record REC (getvec status -3)"`).
 
 # Examples
+The examples read `100s`, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
+of the wfdb-x repository:
 ```julia-repl
+julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
+
 julia> rec = read_record("100s"; to="0:10");   # the first 10 seconds
 
 julia> size(rec.samples), rec.fs
@@ -525,8 +515,10 @@ julia> size(v5.samples), v5.sampfrom
 ((360, 1), 360)
 
 julia> rec = read_record("100"; input_dir="https://physionet.org/files/mitdb/1.0.0/",
-                         network=true);     # (from PhysioNet)
+                         network=true);     # record 100 of the MIT-BIH Arrhythmia Database, from PhysioNet
 ```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function read_record(w::Wfdb, record::ByteStr; channels=nothing, from=0, to=nothing,
                      highres::Bool=false, pad::Bool=false, input_dir::OptByteStr=nothing,
@@ -591,11 +583,14 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
             got = max(got, Int64(0))
             nframes += got
             remaining === nothing || (remaining -= got)
-            # wfdb-x: -4, a checksum error: the frames are complete (the last
-            # one included), only their sum does not match the header: a
-            # warning (see below), not an error
+            # wfdb-x: -4, a checksum error: the vector is complete, only the
+            # sum of the samples does not match the header: a warning (see
+            # below), not an error. In high-resolution mode each of the spf
+            # vectors of the checksum frame has status -4: read on until -1
+            # (the end of the data) or the requested end.
             if stat == -4
                 cksum_error = true
+                got > 0 && continue
                 break
             end
             if got < n
@@ -638,33 +633,34 @@ read_record(record::ByteStr; kw...) = read_record(lib(), record; kw...)
                      fs=nothing, input_dir=nothing, network=nothing,
                      legacy=false) -> Annotations
 
-Read the annotation file of `record` written by `annotator` (the file
-`RECORD.ANNOTATOR`, e.g. `100s.atr` for annotator `"atr"`) and return its
-annotations as an [`Annotations`](@ref) object.
+Read the annotation file of `record` written by `annotator`, and return its
+annotations as an [`Annotations`](@ref) object, in file order. `annotator`
+is the file suffix: `"atr"` reads `100s.atr` for record `"100s"`.
 
-`from` and `to` restrict the result to annotations with times in
-`[from, to)`. Each is a sample number or a time string as accepted by
-[`strtim`](@ref) (e.g. `"0:10"`); `nothing` means the beginning or the end
-of the file. Times are interpreted using the sampling frequency in the
-record's header.
-
-`fs` (> 0) is the sampling frequency to use if the record has no header or
-its header does not specify one (like the `-F` option of `rdann`). Without
-it, the result's `fs` is the time resolution recorded in the annotation
-file, or 0 (wfdb-x: the C tools assumed 250 Hz; see `docs/DIVERGENCES.md`).
-
-`input_dir` and `network`: as for [`read_record`](@ref).
+# Keyword arguments
+- `from`, `to`: return only the annotations from `from` up to, but not
+  including, `to`. Each is a sample number or a time string, as in
+  [`read_record`](@ref). `nothing` means the beginning or the end of the
+  file.
+- `fs`: the sampling frequency to use when the record has no header, or
+  its header gives none. It must be positive.
+$_INPUT_DOC
+$_LEGACY_DOC
 
 Throws a [`WfdbError`](@ref) if the annotation file cannot be read, if `fs`
-is given and is not positive, or if `from` or `to` is a time string that
-needs the sampling frequency when none is known (`"sampling frequency of
-record R is not specified"`).
-
-$_LEGACY_DOC (With it, a record without a header, or whose header does not
-specify a sampling frequency, is taken as 250 Hz unless `fs` is given.)
+is not positive, if `from` or `to` is a time string that needs a
+sampling frequency and none is known (`"sampling frequency of record REC is
+not specified"`), or if reading ends with an error before `to` is reached,
+such as a truncated file (`"can't read annotation file ANN of record REC
+(getann status -3)"`).
 
 # Examples
+The examples read `100s`, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
+of the wfdb-x repository:
 ```julia-repl
+julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
+
 julia> ann = read_annotations("100s", "atr");
 
 julia> length(ann), ann.fs
@@ -676,6 +672,8 @@ julia> ann.samples[1:3], String.(ann.symbols[1:3])
 julia> length(read_annotations("100s", "atr"; from="0:10", to="0:20"))
 12
 ```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr; from=nothing,
                           to=nothing, fs::Union{Nothing,Real}=nothing,
@@ -711,7 +709,8 @@ function _read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, from, t
     end
     res = Annotations(record=_lossy(record), annotator=_lossy(annotator))
     a = Annotation()
-    while getann(w, 0, a) == 0
+    stat = Int32(0)
+    while (stat = getann(w, 0, a)) == 0
         (t1 !== nothing && a.time >= t1) && break
         push!(res.samples, a.time)
         push!(res.codes, Int32(a.anntyp))
@@ -728,6 +727,10 @@ function _read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, from, t
             push!(res.aux, nothing)
         end
     end
+    # wfdb-x: a status other than 0 and -1 (e.g. -3, unexpected EOF, or an
+    # I/O error) is an error, not the end of the file.
+    (stat == 0 || stat == -1) ||
+        _hl_fail(w, "can't read annotation file $(_lossy(annotator)) of record $rname (getann status $stat)")
     res.fs = getiafreq(w, 0)
     wfdbquit(w)
     res
@@ -842,61 +845,55 @@ end
                  names=nothing, samps_per_frame=nothing, base_time=nothing,
                  comments=(), dir=nothing, legacy=false)
 
-Write a new record in the current directory (or in `dir`): the signal file
-`RECORD.dat` and the header file `RECORD.hea`. Existing files are
-overwritten.
+Write a record: the header `RECORD.hea` and the signal file `RECORD.dat`.
+The files are created in the output directory, or in `dir`. Existing files
+are overwritten. Returns `nothing`.
 
-`samples` holds the samples in ADC units, one row per frame. Normally it
-has one column per signal. For a multi-frequency record, pass
-`samps_per_frame` as a vector giving the number of samples per frame of
-each signal; each row then holds `samps_per_frame[s]` consecutive columns
-for signal `s`. `fs` is the sampling frequency (frames per second, > 0).
+`samples` holds the samples in ADC units, one row per sample and one
+column per signal. `fs` is the sampling frequency in Hz. To write samples
+in physical units, use [`write_record_physical`](@ref).
+
+You must give the gain and ADC resolution of each signal, and the units of
+each calibrated signal; there are no defaults. Per-signal options take one
+value for all signals, or a vector with one value per signal.
 
 # Keyword arguments
-Each per-signal option may be a single value used for every signal, or a
-vector with one value per signal (a one-element vector also applies to
-every signal).
-
-- `fmt`: the storage format of the signal file (16, 212, 80, ...; one for
-  all signals).
-- `gains` (required): ADC units per physical unit; 0 declares a signal
-  uncalibrated (wfdb-x: there is no default gain; the C tools assumed
-  200 adu/mV; see `docs/DIVERGENCES.md`).
-- `adczeros`: the ADC value corresponding to 0 V (default 0).
-- `baselines`: the ADC value corresponding to 0 physical units (default:
-  the signal's `adczero`).
-- `adcres` (required): the ADC resolution in bits, >= 1 (wfdb-x: there is
-  no default; the C tools inferred it from `fmt` or assumed 12 bits).
-- `units` (required for every signal whose gain is not 0): the physical
-  units, e.g. `"mV"` (wfdb-x: there is no default; the C tools wrote none,
-  and readers assumed millivolts). For an uncalibrated signal, `nothing`
-  (or `""`) writes no units.
-- `names`: the signal descriptions (default: none).
-- `samps_per_frame`: samples per frame of each signal (default 1).
-- `base_time`: the base time and date, e.g. `"12:00:00 01/01/2020"` (see
-  [`setbasetime`](@ref)); `nothing` for none.
-- `comments`: info strings written as comment lines after the signal
-  lines of the header.
+- `gains` (required): ADC units per physical unit. A gain of 0 marks a
+  signal as uncalibrated.
+- `adcres` (required): the ADC resolution in bits, at least 1.
+- `units` (required unless the gain is 0): the physical units, such as
+  `"mV"`.
+- `fmt`: the storage format, such as 16, 212, 24 or 516 (FLAC), for all
+  signals. The default is 16.
+- `baselines`: the ADC value of 0 physical units. The default is the
+  signal's `adczero`.
+- `adczeros`: the ADC value of 0 volts. The default is 0.
+- `names`: the signal descriptions. The default is none.
+- `samps_per_frame`: the number of samples per frame of each signal, for a
+  multi-frequency record. Each row of `samples` then holds
+  `samps_per_frame[s]` consecutive columns for signal `s`. The default is 1.
+- `base_time`: the start time and date, as `"hh:mm:ss dd/mm/yyyy"`.
+- `comments`: info strings, written at the end of the header.
 $_DIR_DOC
-- `legacy`: see below.
+$_LEGACY_DOC
 
-Returns `nothing`. Throws a [`WfdbError`](@ref) if `gains` is missing
-(`"write_record: gains must be specified"`), if an ADC resolution is
-missing or less than 1 (`"write_record: ADC resolution(s) must be
-specified"`), if the units of a signal with a non-zero gain are missing
-(`"write_record: units must be specified"`), if `fs` is not positive, if
-the number of columns does not match the signals, if a file cannot be
-created, if `dir` does not exist (`"directory DIR does not exist"`), or if
-`record` contains a directory and `dir` is given (`"record name must not
-contain a directory when dir is given"`).
-
-$_LEGACY_DOC (With it, `gains` defaults to 200, `adcres` to a resolution
-based on `fmt` (8 for formats 80 and 508, 10 for 310 and 311, 12 for 212,
-24 for 24 and 524, 32 for 32, 16 otherwise), `units` are not required, and
-`fs` is not checked.)
+Throws a [`WfdbError`](@ref) if:
+- `gains`, `adcres` or `units` is missing (`"write_record: gains must be
+  specified"`, `"write_record: ADC resolution(s) must be specified"`,
+  `"write_record: units must be specified"`);
+- `fs` is not positive;
+- the number of columns of `samples` does not match the signals;
+- a file cannot be created;
+- `dir` does not exist, or `record` contains a directory and `dir` is given.
 
 # Examples
+The examples read `100s`, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
+of the wfdb-x repository; the record `new` is written by the example, in
+the current directory (the output directory):
 ```julia-repl
+julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
+
 julia> rec = read_record("100s"; to="0:10");
 
 julia> write_record("new", rec.samples, rec.fs; fmt=212, gains=200.0, adcres=11,
@@ -907,6 +904,8 @@ new 2 360 3600
 new.dat 212 200/mV 11 0 995 -17352 0 MLII
 new.dat 212 200/mV 11 0 1011 1171 0 V5
 ```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::Real;
                       fmt::Integer=16, gains=nothing, baselines=nothing, adczeros=0,
@@ -926,26 +925,29 @@ write_record(record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::Real; kw..
 
 """
     write_record_physical([w::Wfdb], record, samples::AbstractMatrix{<:Real}, fs;
-                          options...)
+                          gains, adcres, units, options...)
 
-Like [`write_record`](@ref), but `samples` are in physical units (e.g. mV).
-Each value `v` is converted to ADC units as `round(v * gain) + baseline`
-(halfway cases rounded away from zero, as [`physadu`](@ref) does), using
-the `gains` and `baselines` options; `NaN` is written as an invalid sample.
-The keyword arguments are those of `write_record` (`gains`, `adcres` and
-`units` are required; `dir` as there).
-A gain of 0 (uncalibrated) is an error here (`"write_record: signal N is
-uncalibrated"`, `N` counting from 0): physical values cannot be converted
-without a gain (wfdb-x: the C library assumed 200 adu/mV, as
-`legacy=true` does).
+Write a record as [`write_record`](@ref) does, from samples in physical
+units. Each value `v` is stored as `round(v * gain) + baseline`, with
+halfway cases rounded away from zero. `NaN` is stored as an invalid
+sample. The keyword arguments are those of `write_record`. Returns
+`nothing`.
+
+Throws a [`WfdbError`](@ref) in the cases listed for `write_record`, and if
+a gain is 0 (`"write_record: signal N is uncalibrated"`, where `N` counts
+from 0).
 
 # Examples
+The example writes the record `rand` (random samples), in the current
+directory (the output directory):
 ```julia-repl
-julia> rec = read_record("100s"; to="0:10");
+julia> x = randn(3600, 2);
 
-julia> write_record_physical("newp", physical(rec), rec.fs; gains=[200.0, 100.0], adcres=16,
-                             units="mV")
+julia> write_record_physical("rand", x, 360; gains=1000, adcres=16, units="mV",
+                             names=["A", "B"])
 ```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real;
                                fmt::Integer=16, gains=nothing, baselines=nothing,
@@ -995,45 +997,48 @@ write_record_physical(record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real
     write_annotations([w::Wfdb], record, annotator, ann::Annotations; fs=0.0,
                       sort=nothing, dir=nothing, legacy=false)
 
-Write the annotations `ann` to the annotation file `RECORD.ANNOTATOR` in
-the current directory (or in `dir`; an existing file is overwritten), in
-MIT format.
+Write the annotations `ann` to the annotation file `RECORD.ANNOTATOR`, in
+the output directory or in `dir`. An existing file is overwritten. Returns
+`nothing`.
 
-The type of each annotation is given by its mnemonic in `ann.symbols` if
-that entry is non-empty (see [`strann`](@ref)), otherwise by its code in
-`ann.codes`. Auxiliary data longer than 255 bytes are truncated. If the
-annotations are not in time order, the file is sorted when it is closed,
-as the `sortann` tool does (wfdb-x: in this process, whereas the C library,
-as legacy mode, runs `sortann`), unless the environment variable
-`WFDBANNSORT` is 0.
+The type of each annotation is its mnemonic in `ann.symbols` if that is not
+empty, and its code in `ann.codes` otherwise. Auxiliary text longer than
+255 bytes is truncated.
 
-`sort`: `true` to sort an out-of-order file, `false` to leave it in the
-order given, for this call only, whatever `WFDBANNSORT` says (the
-environment is not changed); `nothing` (the default): `WFDBANNSORT`
-decides, as above (wfdb-x addition).
+# Keyword arguments
+- `fs`: if positive, it is recorded in the file as the frequency in which
+  the annotation times are counted. Otherwise readers use the record's
+  sampling frequency. `ann.fs` is not used.
+- `sort`: if the annotations are not in time order, the file is sorted
+  when it is written. `false` keeps the order you gave (without the
+  library's advice to run `sortann`) and `true` always sorts, for this
+  call only. With `nothing`, the default, the environment
+  variable `WFDBANNSORT` decides: sorting is on unless it is `0`.
+$_DIR_DOC
+$_LEGACY_DOC
 
-If `fs > 0`, it is recorded in the file as the time resolution of the
-annotation times (ticks per second); otherwise no resolution is recorded,
-and readers use the record's sampling frequency. `ann.fs` is not used.
-
-`dir`: if given, the directory (which must exist) in which the file is
-created (`record` must not contain a directory; wfdb-x addition).
-
-Returns `nothing`. Throws a [`WfdbError`](@ref) if the file cannot be
-created, if `dir` does not exist, or if `record` contains a directory and
-`dir` is given.
-
-$_LEGACY_DOC (Writing annotations is the same in both modes.)
+Throws a [`WfdbError`](@ref) if the file cannot be created, if `dir` does
+not exist, or if `record` contains a directory and `dir` is given.
 
 # Examples
+The examples read `100s`, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
+of the wfdb-x repository; the annotation files `100s.cpy` and `100s.qrs`
+are written by the example, in the current directory (the output directory):
 ```julia-repl
+julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
+
 julia> ann = read_annotations("100s", "atr");
 
-julia> write_annotations("100s", "cpy", ann; fs=360)   # writes 100s.cpy
+julia> write_annotations("100s", "cpy", ann; fs=360)   # writes ./100s.cpy
 
-julia> read_annotations("100s", "cpy").samples == ann.samples
+julia> read_annotations("100s", "cpy"; input_dir=".").samples == ann.samples
 true
+
+julia> write_annotations("100s", "qrs", Annotations(samples=[100, 460], symbols=[b"N", b"V"]))
 ```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations;
                            fs::Real=0.0, sort::Union{Nothing,Bool}=nothing, dir=nothing,

@@ -1,19 +1,30 @@
-% wfdb-x: the WFDB library and tools for MATLAB and GNU Octave
+% wfdb-x: read and write WFDB records in MATLAB and GNU Octave
 % Version 10.7.0 (WFDB Software Package 10.7.0)
 %
-% Functions are called with the package name, e.g. wfdbx.read_record.
-% Text arguments are char vectors (MATLAB strings are also accepted);
-% samples, times and counts are doubles; signal numbers are 0-based.
-% Use "help wfdbx.NAME" for the description of a function.
+% Call the functions with the package name, such as wfdbx.read_record.
+% Text arguments are char vectors or MATLAB strings.  Samples, times and
+% counts are doubles.  Signal numbers start at 0.  Use "help wfdbx.NAME"
+% for the description of a function.
 %
-% High-level API
+% High-level functions
 %   read_record       - Read the signals of a record into a matrix.
 %   read_header       - Read the header of a record.
-%   write_record      - Write a matrix of samples as a WFDB record.
 %   read_annotations  - Read an annotation file into arrays.
+%   write_record      - Write a matrix of samples as a WFDB record.
 %   write_annotations - Write an annotation file from arrays.
+%   check_record      - Check a record and its annotation files.
 %
-% WFDB path and files
+% Settings
+%   wfdbx_set_input_dir, wfdbx_get_input_dir
+%                     - Directory from which input files are read.
+%   wfdbx_set_output_dir, wfdbx_get_output_dir
+%                     - Directory in which output files are created.
+%   wfdbx_set_network, wfdbx_get_network
+%                     - Allow or forbid network access.
+%   wfdbx_set_legacy, wfdbx_get_legacy
+%                     - Turn legacy mode on or off.
+%
+% Files
 %   getwfdb           - The input directory (legacy mode: the WFDB path).
 %   setwfdb           - Set the input directory (legacy: the WFDB path).
 %   resetwfdb         - Restore the input directory set by setwfdb.
@@ -29,12 +40,6 @@
 %   wfdbdefwfdbcal    - The default name of the calibration file.
 %   wfdbcflags, wfdbldflags - C compiler and linker flags (empty).
 %   wfdbmemerr, wfdb_me_fatal - Behavior on memory errors (compatibility).
-%   wfdbx_set_input_dir, wfdbx_get_input_dir - Directory from which input
-%                       files are read (wfdb-x).
-%   wfdbx_set_output_dir, wfdbx_get_output_dir - Directory in which output
-%                       files are created (wfdb-x).
-%   wfdbx_set_network, wfdbx_get_network - Allow or forbid network access
-%                       (wfdb-x).
 %
 % Signals
 %   isigopen          - Open the input signals of a record.
@@ -73,15 +78,12 @@
 %   seginfo           - A WFDB_Seginfo structure (segment information).
 %   adumuv, muvadu    - Convert between ADC units and microvolts.
 %   aduphys, physadu  - Convert between ADC units and physical units.
-%   wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args
-%                     - Legacy mode: the original built-in defaults
-%                       (wfdb-x; for compatibility only).
+%   wfdbx_legacy_args - Recognize --legacy as the first argument of a tool.
 %
 % Time and date
 %   sampfreq          - Sampling frequency of a record (setsampfreq).
 %   strtim            - Convert a time string to sample intervals.
-%   wfdbx_time_needs_freq - True if strtim needs a sampling frequency
-%                       (wfdb-x).
+%   wfdbx_time_needs_freq - True if strtim needs a sampling frequency.
 %   timstr, mstimstr  - Convert sample intervals to a time string.
 %   setbasetime       - Set the base time and date.
 %   datstr, strdat    - Convert between Julian dates and date strings.
@@ -130,21 +132,31 @@
 %   WFDB_INVALID_SAMPLE, WFDB_LOWRES, WFDB_HIGHRES, WFDB_GVPAD
 %                     - Sample value and getvec modes of lib/wfdb.h.
 %   WFDB_DEFFREQ, WFDB_DEFGAIN, WFDB_DEFRES, WFDB_MAXRNL, WFDB_MAXUSL,
-%   WFDB_MAXDSL       - Defaults and limits of lib/wfdb.h (WFDB_DEFFREQ,
-%                       WFDB_DEFGAIN and WFDB_DEFRES are not used: wfdb-x
-%                       never assumes a sampling frequency, a gain, an ADC
-%                       resolution or units; see docs/DIVERGENCES.md).
+%   WFDB_MAXDSL       - Defaults and limits of lib/wfdb.h.  WFDB_DEFFREQ,
+%                       WFDB_DEFGAIN and WFDB_DEFRES are the values that
+%                       the original package assumed (see
+%                       wfdbx_set_legacy).
 %
-% Command-line tools: STATUS = wfdbx.apps.TOOL({ARG1, ARG2, ...}) runs the
-% tool with the given arguments and returns its exit status; see "help
-% wfdbx.apps.TOOL" for its usage.
+% Command-line tools
+% STATUS = wfdbx.apps.TOOL({ARG1, ARG2, ...}) runs a tool with the given
+% arguments and returns its exit status.  "help wfdbx.apps.TOOL" shows its
+% usage.  From the shell, run the tools with matlab/bin/wfdbx_cli.m
+% (Octave) or matlab/bin/wfdbx_matlab.sh (MATLAB).
 %   rdsamp, wrsamp, rdann, wrann, sortann, ann2rr, rr2ann, sigamp, snip,
 %   xform, wfdbdesc, wfdbcat, wfdbwhich, wfdbtime, time2sec, sampfreq,
 %   signame, signum; converters a2m, ad2m, ahaecg2mit, edf2mit, m2a,
 %   makeid, md2a, mit2edf, mit2wav, parsescp, rdedfann, readid, revise,
 %   wav2mit, wfdb2mat.
 %
-% See matlab/README.md for installation and usage.
+% See matlab/README.md for installation and examples.
 
-% Part of wfdb-x. GNU Library General Public License, version 2 or later
-% (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.

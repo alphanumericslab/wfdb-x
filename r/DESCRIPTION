@@ -16,12 +16,12 @@ Authors@R: c(
     person("Reza", "Sameni", role = c("aut", "cre", "cph"),
            email = "reza.sameni@gmail.com",
            comment = "the R implementation (wfdb-x)"))
-Description: The R implementation of wfdb-x, a reimplementation in pure R
+Description: The R implementation of wfdb-x, an independent reimplementation in R
     of the WFDB Software Package 10.7.0 (the library and its command-line
     tools) for the physiologic signal, annotation and header files used by
     PhysioNet. It reads and writes the same files as the original C
     implementation, and its tools produce byte-identical output.
-License: GPL (>= 2)
+License: GPL (>= 3)
 URL: https://github.com/alphanumericslab/wfdb-x
 BugReports: https://github.com/alphanumericslab/wfdb-x/issues
 Depends: R (>= 4.1)

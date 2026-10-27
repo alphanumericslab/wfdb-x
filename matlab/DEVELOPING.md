@@ -84,7 +84,7 @@ followed by reading, not by running MATLAB:
 
 | Path | Contents |
 |---|---|
-| `+wfdbx/*.m` | the WFDB library API: one function per C function (`wfdbx.isigopen`, `wfdbx.getvec`, `wfdbx.strtim`, ...), annotation code constants (`wfdbx.NORMAL`, ...), and the high-level API (`wfdbx.read_record`, `wfdbx.read_annotations`, `wfdbx.write_record`, `wfdbx.write_annotations`) |
+| `+wfdbx/*.m` | the WFDB library API: one function per C function (`wfdbx.isigopen`, `wfdbx.getvec`, `wfdbx.strtim`, ...), annotation code constants (`wfdbx.NORMAL`, ...), and the high-level API (`wfdbx.read_record`, `wfdbx.read_annotations`, `wfdbx.write_record`, `wfdbx.write_annotations`, `wfdbx.check_record`) |
 | `+wfdbx/+internal/` | implementation: library state (handle classes), C standard library emulation, file I/O, signal formats, FLAC codec |
 | `+wfdbx/+apps/<tool>.m` | the command-line tools: `status = <tool>(args)` (`args` without the program name) |
 | `bin/wfdbx_cli.m` | Octave command-line driver: `octave-cli bin/wfdbx_cli.m TOOL ARGS...` |
@@ -99,28 +99,52 @@ package listing `+wfdbx/Contents.m` and the script `bin/wfdbx_cli.m`
 start directly with their help), an H1 line (`%NAME Short
 description.`) and help text in the MathWorks style (syntax lines with
 upper-case argument names, inputs, outputs and return codes, an example
-where useful, a "See also" line). Then, after a blank line, as a separate
-comment block that `help` does not show, comes the attribution, with the
-exact authors and years of [`docs/AUTHORS.md`](../docs/AUTHORS.md):
+where useful, a "See also" line), and as the last paragraph of the help one
+line on its origin: "Translation of the C function isigopen() (lib/signal.c,
+WFDB 10.7.0): same arguments and results." (with "Differences: ...; see
+docs/DIVERGENCES.md." where wfdb-x behaves differently; for a tool, "the C
+program rdsamp (app/rdsamp.c, ...): same options and output"; for an
+internal function, "Translation of the C function edfparse() (...)." or
+"Part of the translation of lib/signal.c (WFDB 10.7.0)."), or "Part of
+wfdb-x; not in the original WFDB package." Then, after a blank line, as a
+separate comment block that `help` does not show, comes the file header,
+with the exact authors and years of [`docs/AUTHORS.md`](../docs/AUTHORS.md):
 
 ```matlab
-% Copyright (C) 1989-2013 George B. Moody (original C implementation,
-% lib/annot.c; revised 2015-2020 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original code, but it is new code, not the original C
+% code.
+%
+% Changes from the original: none, apart from the language.
+%
+% Original C code: lib/annot.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 ```
 
-* library files (`+wfdbx/`, `+wfdbx/+internal/`): the `Copyright` lines
-  of the C file ported ("original C implementation, lib/<file>.c"), then
-  the two lines above;
-* tools (`+wfdbx/+apps/`, `bin/`): "Copyright (C) <years> <authors>
-  (original C program, app/<tool>.c; revised <years> by Benjamin
-  Moody).", the `MATLAB/Octave implementation` line and "GNU General
-  Public License, version 2 or later (see LICENSE).";
-* tests: "Part of wfdb-x, Reza Sameni, Oct 2026." and the licence line.
+* "Changes from the original" lists, in one short sentence each, how the
+  file differs from the C code ("Each change is marked "wfdb-x:" in the
+  code; docs/DIVERGENCES.md gives the reasons."), or says "none, apart from
+  the language.";
+* tools (`+wfdbx/+apps/`) say "original program" and "Original C program:
+  app/<tool>.c", and "This program is free software";
+* wfdb-x's own code (C library emulation, high-level API, drivers, FLAC
+  codec, tests) says, after the first sentence, "It has no counterpart in
+  the original package." (tests: "It tests wfdb-x; it has no counterpart
+  in the original package."), then "Copyright (C) 2026 Reza Sameni." and
+  the license paragraph.
 
-wfdb-x's own code (C library emulation, high-level API, drivers, FLAC
-codec) has no `Copyright` line for a C author. Only `%` comments; every
+Only `%` comments; every
 function ends with `end`.
 
 Numeric constants are named (local variables at the top of the function,
@@ -293,7 +317,7 @@ help text):
 | `in_header_dir(name)`, `expand_record(r)`, `output_file(name)` | the containment rule; the trailing-'/' expansion of `wfdb_open`; the local file that an output name designates |
 | `is_input_file(fname)` | (signal module) true if an output signal file is a signal file of the open input record, segments included (Octave: `stat` device and inode; MATLAB: `java.nio.file.Files.isSameFile`); `openosig` refuses such a file in normal mode |
 | `init_input_dir(st)`, `init_output_dir(st)`, `put_input_dir(st, d)`, `path_components(p)` | the settings (environment variables read once), and the path scanner shared by `wfdb_parse_path` and `setwfdb` |
-| `f = fetch_open(url)` | a remote file (network access allowed), fetched once per session (`webread` in Octave, `websave` in MATLAB) and served from a temporary file deleted by `close()` |
+| `f = fetch_open(url)` | a remote file (network access allowed), fetched once per session (the system program `curl`; if it is not found, `webread` in Octave, `websave` in MATLAB) and served from a temporary file deleted by `close()` |
 | `f = wfdb_fopen(fname, mode)` | `wfdb_fopen` (`'rb'`, `'wb'`, `'ab'`) |
 | `wfdb_parse_path(p)`, `wfdb_addtopath(s)`, `getiwfdb(p)` | path handling (legacy mode) |
 | `wfdb_checkname(p, what)`, `wfdb_setirec(p)`, `wfdb_getirec()`, `wfdb_striphea(p)` | the same |
@@ -411,8 +435,8 @@ frequency (C assumed 250 Hz)" or the like. An unspecified ADC resolution
 is 0, unspecified units are `[]` (shown as `nd` where a tool must print
 them). The converters' `-F`, `-G`, `-R`, `-U` options are parsed by
 `wfdbx.internal.opt_sigparam` and checked by `wfdbx.internal.sigparams`;
-the files affected by this design carry the "Design decision" note in
-their attribution block.
+the files affected by this design say so in the "Changes from the
+original" paragraph of their file header.
 
 **Legacy mode** (`--legacy`, docs/DIVERGENCES.md): the flag is the
 `SigState` property `legacy_mode` (`wfdbx.wfdbx_set_legacy`,
@@ -441,11 +465,13 @@ Octave's do not), and `isigsettime` relies on it: `WFDBFile.seek` emulates
 it (reads there find the end of the file; a write extends the file with
 zeros).
 
-**Speed** (Octave 8): `rdsamp -r 100s` runs in 0.2 s in all (process
+**Speed** (Octave 8): `rdsamp -r 100s` (the sample record of `tests/data`, the first minute of MIT-BIH record 100) runs in 0.2 s in all (process
 start included); for a record of 650,000 frames of two format-212
 signals, `getframes` takes 0.13 s, `putframes` 0.12 s, and `rdsamp`
 (raw or `-p`) 1.0 s in all. `getvec` and `putvec` cost about 0.4 and
 0.25 ms per call (a handle property access costs 3-5 microseconds).
+`write_record` (which uses `putframes`) writes 216,000 frames of two
+signals in about 0.08 s, and `read_record` reads them in about 0.05 s.
 
 ## Annotations (lib/annot.c)
 
@@ -578,11 +604,24 @@ function status = rdann(args)
 %RDANN Print an annotation file in ASCII form.
 %   STATUS = wfdbx.apps.rdann(ARGS) runs the rdann tool ...
 %   ... usage as for the C program, example, See also ...
+%
+%   Translation of the C program rdann (app/rdann.c, WFDB 10.7.0): same
+%   options and output. Differences: ...; see docs/DIVERGENCES.md.
 
-% Copyright (C) 1981-2010 George B. Moody (original C program, app/rdann.c, by
-% T. Baker and G. Moody; revised 2017-2018 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU General Public License, version 2 or later (see LICENSE).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of app/rdann.c from the WFDB Software
+% Package 10.7.0, by T. Baker and George B. Moody. ...
+%
+% Changes from the original: ...
+%
+% Original C program: app/rdann.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1981-2010 George B. Moody; revised 2017-2018 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: ... See LICENSE.
 
 if nargin < 1
     args = {};

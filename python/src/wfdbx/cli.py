@@ -5,11 +5,21 @@ Usage: wfdbx TOOL [ARGUMENTS ...]     (for example: wfdbx rdsamp -r 100s)
        wfdbx --examples [DIR]         (copy the example notebooks to DIR,
                                       by default ./wfdbx-examples)
 
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-This program is free software; you can redistribute it and/or modify it under
+In the example, 100s is the sample record included with wfdb-x (the first
+minute of record 100 of the MIT-BIH Arrhythmia Database); it is read when the
+environment variable WFDBX_INPUT_DIR is set to its directory,
+``wfdbx.sample_data_dir()``.
+
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+has no counterpart in the original package.
+
+Copyright (C) 2026 Reza Sameni.
+
+This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
-version.
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import importlib

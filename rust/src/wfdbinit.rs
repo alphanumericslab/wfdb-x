@@ -1,9 +1,26 @@
 //! Port of `lib/wfdbinit.c`: `wfdbinit`, `wfdbquit`, `wfdbflush`.
 //
-// Copyright (C) 1983-2012 George B. Moody (original C implementation,
-// lib/wfdbinit.c; revised 2012-2019 by Benjamin Moody).
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a Rust translation of lib/wfdbinit.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original code, but it is new code, not the original C code.
+//
+// Changes from the original: wfdbquit leaves the input and output directories
+// as they are (the original restored the WFDB path); legacy mode
+// (wfdbx_set_legacy) restores the original behavior. Each change is marked
+// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+//
+// Original C code: lib/wfdbinit.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 1983-2012 George B. Moody; revised 2012-2019 by
+//   Benjamin Moody.
+// Rust translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use crate::types::{Anninfo, Siginfo};
 use crate::wfdb::{with_default, OptBytes, Wfdb};
@@ -13,6 +30,10 @@ impl Wfdb {
     /// annotation files (`annopen`) and then the input signals
     /// (`isigopen`) of `record`. Returns the status of `annopen` if it
     /// failed, otherwise that of `isigopen`.
+    ///
+    /// Translation of the C function wfdbinit() (lib/wfdbinit.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: those of annopen() and
+    /// isigopen(); see docs/DIVERGENCES.md.
     pub fn wfdbinit(
         &mut self,
         record: impl OptBytes,
@@ -32,6 +53,11 @@ impl Wfdb {
     /// C `wfdbquit()`: close all annotators, signals and the info file,
     /// restore the WFDB path (legacy mode only; wfdb-x: the input directory
     /// is kept), and release the library's buffers.
+    ///
+    /// Translation of the C function wfdbquit() (lib/wfdbinit.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: the input and output
+    /// directories are kept (the WFDB path is restored only in legacy mode);
+    /// see docs/DIVERGENCES.md.
     pub fn wfdbquit(&mut self) {
         self.wfdb_anclose(); // close annotation files, reset variables
         self.wfdb_oinfoclose(); // close info file
@@ -47,6 +73,9 @@ impl Wfdb {
     }
 
     /// C `wfdbflush()`: write out buffered output annotations and samples.
+    ///
+    /// Translation of the C function wfdbflush() (lib/wfdbinit.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdbflush(&mut self) {
         self.wfdb_oaflush(); // flush buffered output annotations
         self.wfdb_osflush(); // flush buffered output samples
@@ -54,6 +83,10 @@ impl Wfdb {
 }
 
 /// C `wfdbinit` on the default instance (see [`Wfdb::wfdbinit`]).
+///
+/// Translation of the C function wfdbinit() (lib/wfdbinit.c, WFDB 10.7.0):
+/// same arguments and results. Differences: those of annopen() and isigopen();
+/// see docs/DIVERGENCES.md.
 pub fn wfdbinit(
     record: impl OptBytes,
     aiarray: &[Anninfo],
@@ -65,11 +98,19 @@ pub fn wfdbinit(
 }
 
 /// C `wfdbquit()` on the default instance (see [`Wfdb::wfdbquit`]).
+///
+/// Translation of the C function wfdbquit() (lib/wfdbinit.c, WFDB 10.7.0):
+/// same arguments and results. Differences: the input and output directories
+/// are kept (the WFDB path is restored only in legacy mode); see
+/// docs/DIVERGENCES.md.
 pub fn wfdbquit() {
     with_default(super::wfdb::Wfdb::wfdbquit);
 }
 
 /// C `wfdbflush()` on the default instance (see [`Wfdb::wfdbflush`]).
+///
+/// Translation of the C function wfdbflush() (lib/wfdbinit.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdbflush() {
     with_default(super::wfdb::Wfdb::wfdbflush);
 }

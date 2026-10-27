@@ -4,10 +4,24 @@
 //! calibration file) and `flushcal` (empties the list). Calibration files
 //! are written with `\r\n` line separators.
 //
-// Copyright (C) 1991-2013 George B. Moody (original C implementation,
-// lib/calib.c; revised 2019-2022 by Benjamin Moody).
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a Rust translation of lib/calib.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original code, but it is new code, not the original C code.
+//
+// Changes from the original: none, apart from the language.
+//
+// Original C code: lib/calib.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 1991-2013 George B. Moody; revised 2019-2022 by
+//   Benjamin Moody.
+// Rust translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use crate::cstd::{self, Strtok};
 use crate::types::*;
@@ -26,6 +40,11 @@ impl Wfdb {
     /// `WFDBCAL` (default `wfdbcal`) is read. Unless the name begins with
     /// `+`, the list is emptied first. The file is looked for in the WFDB
     /// path. Returns 0, or -2 if the file cannot be read.
+    ///
+    /// Translation of the C function calopen() (lib/calib.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: the calibration file is found
+    /// only where it is named, not by a search of the WFDB path; see
+    /// docs/DIVERGENCES.md.
     pub fn calopen(&mut self, cfname: impl OptBytes) -> i32 {
         // If no calibration file is specified, use the default.
         let name: Vec<u8> = match cfname.opt_bytes() {
@@ -109,6 +128,9 @@ impl Wfdb {
     /// whose signal type is a prefix of `desc` and whose units are `units`
     /// (a `NULL` argument matches anything), and copy it into `cal`.
     /// Returns 0, or -1 if there is none.
+    ///
+    /// Translation of the C function getcal() (lib/calib.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn getcal(&mut self, desc: impl OptBytes, units: impl OptBytes, cal: &mut Calinfo) -> i32 {
         let desc = desc.opt_bytes().map(cstd::cstr);
         let units = units.opt_bytes().map(cstd::cstr);
@@ -131,6 +153,9 @@ impl Wfdb {
     }
 
     /// C `putcal(&cal)`: append an entry to the calibration list.
+    ///
+    /// Translation of the C function putcal() (lib/calib.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn putcal(&mut self, cal: &Calinfo) -> i32 {
         self.cal.list.push(cal.clone());
         0
@@ -138,6 +163,9 @@ impl Wfdb {
 
     /// C `newcal(cfname)`: write the calibration list to a calibration
     /// file. Returns 0, or -1 on errors.
+    ///
+    /// Translation of the C function newcal() (lib/calib.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn newcal(&mut self, cfname: impl AsRef<[u8]>) -> i32 {
         let cfname = cstd::cstr(cfname.as_ref());
         if self.wfdb_checkname(cfname, b"calibration file") < 0 {
@@ -190,32 +218,52 @@ impl Wfdb {
     }
 
     /// C `flushcal()`: empty the calibration list.
+    ///
+    /// Translation of the C function flushcal() (lib/calib.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn flushcal(&mut self) {
         self.cal.list.clear();
     }
 }
 
 /// C `calopen` on the default instance (see [`Wfdb::calopen`]).
+///
+/// Translation of the C function calopen() (lib/calib.c, WFDB 10.7.0): same
+/// arguments and results. Differences: the calibration file is found only
+/// where it is named, not by a search of the WFDB path; see
+/// docs/DIVERGENCES.md.
 pub fn calopen(cfname: impl OptBytes) -> i32 {
     with_default(|w| w.calopen(cfname))
 }
 
 /// C `getcal` on the default instance (see [`Wfdb::getcal`]).
+///
+/// Translation of the C function getcal() (lib/calib.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getcal(desc: impl OptBytes, units: impl OptBytes, cal: &mut Calinfo) -> i32 {
     with_default(|w| w.getcal(desc, units, cal))
 }
 
 /// C `putcal` on the default instance (see [`Wfdb::putcal`]).
+///
+/// Translation of the C function putcal() (lib/calib.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn putcal(cal: &Calinfo) -> i32 {
     with_default(|w| w.putcal(cal))
 }
 
 /// C `newcal` on the default instance (see [`Wfdb::newcal`]).
+///
+/// Translation of the C function newcal() (lib/calib.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn newcal(cfname: impl AsRef<[u8]>) -> i32 {
     with_default(|w| w.newcal(cfname))
 }
 
 /// C `flushcal` on the default instance (see [`Wfdb::flushcal`]).
+///
+/// Translation of the C function flushcal() (lib/calib.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn flushcal() {
     with_default(super::wfdb::Wfdb::flushcal);
 }

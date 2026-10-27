@@ -5,10 +5,27 @@
 # Strings are byte strings (`Vector{UInt8}`); a field that C may set to
 # `NULL` is a `Union{Nothing,Vector{UInt8}}`.
 #
-# Copyright (C) 1983-2013 George B. Moody (original C header, lib/wfdb.h;
-# revised 2010-2020 by Benjamin Moody).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is a Julia translation of lib/wfdb.h from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior of
+# the original code, but it is new code, not the original C code.
+#
+# Changes from the original: WFDB_DEFFREQ, WFDB_DEFGAIN and WFDB_DEFRES remain
+# defined but are used only in legacy mode, and missing units are never taken
+# to be millivolts. Each change is marked "wfdb-x:" in the code;
+# docs/DIVERGENCES.md gives the reasons.
+#
+# Original C code: lib/wfdb.h, WFDB Software Package 10.7.0.
+#   Copyright (C) 1983-2013 George B. Moody; revised 2010-2020 by
+#   Benjamin Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 """
     Wfdb

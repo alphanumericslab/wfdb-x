@@ -4,8 +4,16 @@
 //! produced by the C library), python/tests/test_signals.py and
 //! python/tests/test_time.py.
 //
-// Part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU General Public License, version 2 or later (see LICENSE).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It tests wfdb-x; it has no counterpart in the original package.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -1596,11 +1604,12 @@ fn write_record_dir() {
     assert!(w.write_record("rec2", &x, 2, 360.0, &o).is_err());
     assert_eq!(w.wfdbx_get_output_dir(), Some(b"prev".to_vec()));
     w.wfdbx_set_output_dir(NULL);
-    // without dir: as before (the header records the name as given)
+    // without dir: the header names the record and its signal file
+    // relative to its directory
     o.gains = vec![200.0];
     o.dir = None;
     w.write_record("od/rec3", &x, 2, 360.0, &o).unwrap();
-    assert!(slurp("od/rec3.hea").starts_with(b"od/rec3 2 360 3\r\nod/rec3.dat "));
+    assert!(slurp("od/rec3.hea").starts_with(b"rec3 2 360 3\r\nrec3.dat "));
 }
 
 #[test]
@@ -2038,8 +2047,11 @@ fn write_annotations_sort_option() {
             } else {
                 vec![10, 20, 30]
             };
+            w.wfdb_error("-\n");
             w.write_annotations_with("rec", "srt", &ann, 0.0, &opt(Some(false)))
                 .unwrap();
+            // (no advice to run sortann: the caller chose the order)
+            assert_eq!(w.wfdberror(), b"-\n", "legacy {legacy} env {env:?}");
             assert_eq!(read(w), [30, 10, 20], "legacy {legacy} env {env:?}");
             w.write_annotations_with("rec", "srt", &ann, 0.0, &opt(Some(true)))
                 .unwrap();
@@ -2048,6 +2060,12 @@ fn write_annotations_sort_option() {
                 .unwrap();
             assert_eq!(read(w), dflt, "legacy {legacy} env {env:?}");
             w.write_annotations("rec", "srt", &ann, 0.0, None).unwrap();
+            if env == Some("0") {
+                assert_eq!(
+                    w.wfdberror(),
+                    b"to rearrange annotations in the correct order.\n"
+                );
+            }
             assert_eq!(read(w), dflt, "legacy {legacy} env {env:?}");
             // the environment is not changed
             assert_eq!(std::env::var("WFDBANNSORT").ok().as_deref(), env);
@@ -2073,4 +2091,195 @@ fn write_annotations_sort_option() {
     if let Some(p) = path {
         std::env::set_var("PATH", p);
     }
+}
+
+// ---------------------------------------------------------------------------
+// wfdb-x: a checksum error in a high-resolution read keeps every sample
+
+/// Writes record `name` in format 16 with the samples per frame `spf` and
+/// the raw (file order) samples `x`.
+fn write_spf(w: &mut Wfdb, name: &str, spf: &[i32], x: &[i32]) {
+    let n = spf.len();
+    let o = WriteOptions {
+        fmt: 16,
+        gains: vec![100.0; n],
+        adcres: vec![16; n],
+        units: vec![Some("mV".into()); n],
+        samps_per_frame: spf.to_vec(),
+        ..Default::default()
+    };
+    w.write_record(name, x, n, 100.0, &o).unwrap();
+}
+
+/// Writes record "mf" with sample `k` (in file order) changed to 99 after
+/// the header was written, and record "mfgood" with the same data and
+/// correct checksums; returns the number of raw samples.
+fn write_mf(w: &mut Wfdb, spf: &[i32], nframes: usize, k: usize) -> usize {
+    let tspf: i32 = spf.iter().sum();
+    let len = tspf as usize * nframes;
+    let x: Vec<i32> = (1..=len as i32).collect();
+    write_spf(w, "mf", spf, &x);
+    let mut dat = slurp("mf.dat");
+    dat[2 * k] = 99;
+    dat[2 * k + 1] = 0;
+    std::fs::write("mf.dat", &dat).unwrap();
+    let mut y = x;
+    y[k] = 99;
+    write_spf(w, "mfgood", spf, &y);
+    len
+}
+
+#[test]
+fn read_record_highres_checksum() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    // the reproduction: one signal, spf 2, the first sample changed
+    write_mf(w, &[2], 4, 0);
+    let hr = ReadOptions {
+        highres: true,
+        checksum_warning: false,
+        ..Default::default()
+    };
+    let r = w.read_record("mf", &hr).unwrap();
+    assert_eq!(r.samples, [99, 2, 3, 4, 5, 6, 7, 8]);
+    assert!(!r.checksum_ok);
+
+    let specs: [&[i32]; 5] = [&[2], &[3], &[1, 2], &[2, 3], &[3, 1, 2]];
+    for spf in specs {
+        let nframes = 4;
+        let tspf: usize = spf.iter().map(|&s| s as usize).sum();
+        let len = tspf * nframes;
+        // the changed sample in the first frame, and in the last frame
+        for k in [0, 1, len - tspf, len - 1] {
+            write_mf(w, spf, nframes, k);
+            let nsig = spf.len();
+            let mut chans: Vec<Vec<String>> = vec![vec![]];
+            chans.push(vec![(nsig - 1).to_string()]);
+            if nsig > 1 {
+                chans.push(vec!["1".into(), "0".into()]);
+            }
+            for highres in [true, false] {
+                for channels in &chans {
+                    for warn in [true, false] {
+                        let opt = ReadOptions {
+                            highres,
+                            channels: channels.clone(),
+                            checksum_warning: warn,
+                            ..Default::default()
+                        };
+                        let what = format!("spf {spf:?} k {k} hr {highres} {channels:?}");
+                        let good = w.read_record("mfgood", &opt).unwrap();
+                        assert!(good.checksum_ok);
+                        let r = w.read_record("mf", &opt).unwrap();
+                        assert_eq!(r.samples, good.samples, "{what}");
+                        let maxspf = *spf.iter().max().unwrap() as usize;
+                        let per = if highres { maxspf } else { 1 };
+                        assert_eq!(r.samples.len(), nframes * per * r.nsig, "{what}");
+                        assert!(!r.checksum_ok, "{what}");
+                        let msg = w.wfdberror();
+                        if warn {
+                            assert_eq!(
+                                msg,
+                                b"wfdb-x: checksum error in record mf: the signal data do not match the checksums in its header\n",
+                                "{what}"
+                            );
+                        } else {
+                            assert!(msg.starts_with(b"getvec: checksum error"), "{what}");
+                        }
+                        // a read that ends before the last frame: no
+                        // checksum check, every requested sample
+                        let part = ReadOptions {
+                            to: Some(format!("s{}", (nframes - 1) * per).as_str().into()),
+                            ..opt.clone()
+                        };
+                        let good = w.read_record("mfgood", &part).unwrap();
+                        let r = w.read_record("mf", &part).unwrap();
+                        assert_eq!(r.samples, good.samples, "{what}");
+                        assert_eq!(r.samples.len(), (nframes - 1) * per * r.nsig, "{what}");
+                        assert!(r.checksum_ok, "{what}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// wfdb-x: record names with directories (only the last component is
+// checked when writing; the header names files relative to its directory)
+
+#[test]
+fn write_record_dotted_directory() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let o = WriteOptions {
+        fmt: 16,
+        gains: vec![100.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    let x: Vec<i32> = (0..10).collect();
+    let abs = d.dir.join("a.b/c.d");
+    let abs_rec = format!("{}/rec", abs.display());
+    for name in ["my.data/rec", abs_rec.as_str()] {
+        w.write_record(name, &x, 1, 100.0, &o).unwrap();
+        let hea = std::fs::read(format!("{name}.hea")).unwrap();
+        assert!(hea.starts_with(b"rec 1 100 10\r\nrec.dat 16 "), "{name}");
+        let r = w.read_record(name, &ReadOptions::default()).unwrap();
+        assert_eq!(r.samples, x, "{name}");
+    }
+    // newheader too
+    let mut si = vec![Siginfo {
+        fname: Some(b"my.data/nh.dat".to_vec()),
+        desc: Some(b"x".to_vec()),
+        units: Some(b"mV".to_vec()),
+        gain: 100.0,
+        fmt: 16,
+        adcres: 16,
+        ..Default::default()
+    }];
+    assert_eq!(w.osigfopen(&si, 1), 1);
+    w.setsampfreq(100.0);
+    assert!(w.putvec(&[5]) > 0);
+    assert_eq!(w.newheader("my.data/nh"), 0);
+    w.wfdbquit();
+    let hea = std::fs::read("my.data/nh.hea").unwrap();
+    assert!(hea.starts_with(b"nh 1 100 1\r\nnh.dat 16 "));
+    assert_eq!(
+        w.read_record("my.data/nh", &ReadOptions::default())
+            .unwrap()
+            .samples,
+        [5]
+    );
+    // setheader's siarray is not changed
+    assert_eq!(w.setheader("my.data/nh", &mut si, 1), 0);
+    w.wfdbquit();
+    assert_eq!(si[0].fname.as_deref(), Some(&b"my.data/nh.dat"[..]));
+    // the last component must be a valid record name
+    let e = w.write_record("rec.1", &x, 1, 100.0, &o).unwrap_err();
+    assert!(e.message().contains("rec.1"), "{e}");
+    assert_eq!(
+        w.wfdberror(),
+        b"init: illegal character 46 in record name\n"
+    );
+    // legacy mode: the whole name is checked, and names are written as
+    // given
+    w.wfdbx_set_legacy(1);
+    let lo = WriteOptions {
+        legacy: true,
+        ..o.clone()
+    };
+    assert!(w.write_record("my.data/rec2", &x, 1, 100.0, &lo).is_err());
+    assert_eq!(
+        w.wfdberror(),
+        b"init: illegal character 46 in record name\n"
+    );
+    std::fs::create_dir("out").unwrap();
+    w.write_record("out/rec", &x, 1, 100.0, &lo).unwrap();
+    let hea = std::fs::read("out/rec.hea").unwrap();
+    assert!(hea.starts_with(b"out/rec 1 100 10\r\n"));
+    w.wfdbx_set_legacy(0);
 }

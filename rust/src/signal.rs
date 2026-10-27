@@ -14,28 +14,38 @@
 //! the samples per frame of all signals). If the slice is shorter than
 //! that, only its length is filled (the other values are discarded).
 //
-// Copyright (C) 1989-2013 George B. Moody (original C implementation,
-// lib/signal.c; revised 2011-2022 by Benjamin Moody, including FLAC support,
-// 2020).
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-// gain, ADC resolution or units. Values that the record or the user does not
-// give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-// 12 bits and millivolts), because a silently assumed value corrupts every
-// result derived from it. See docs/DIVERGENCES.md. The original behavior
-// remains available with --legacy (see docs/DIVERGENCES.md).
-// Design decision (Reza Sameni, Oct 2026): the signal files named in a
-// header, and the segments of a multi-segment record, are in the directory of
-// that header (on disk or at its URL) or below it; names that leave it are
-// refused, and nothing is searched (the C library searched the WFDB path):
-// a search can silently open the wrong file, and a header must not make the
-// library read other local files or contact other servers. The original
-// behavior remains available with --legacy (see docs/DIVERGENCES.md).
-// Design decision (Reza Sameni, Oct 2026): an output signal file is never
-// one of the input files of the open record (osigfopen and osigopen refuse
-// it): the original truncated the file it was reading. The original behavior
-// remains available with --legacy (see docs/DIVERGENCES.md).
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a Rust translation of lib/signal.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original code, but it is new code, not the original C code.
+//
+// Changes from the original: no built-in sampling frequency, gain, ADC
+// resolution or units (the original assumed 250 Hz, 200 adu/mV, 12 bits or a
+// resolution based on the format, and millivolts): a value that the header
+// does not give stays unspecified, and the time and amplitude conversions that
+// need it, and setifreq, report an error; the signal files and segments named
+// in a header are read only from the header's directory (on disk or at its
+// URL), never searched for, and a name that leaves that directory is refused;
+// an output signal file is never one of the input files of the open record; a
+// header written under a path names the record, its signal files and its
+// segments relative to its own directory; FLAC signal files are read and
+// written with wfdb-x's own codec (flac.rs) instead of libFLAC; additions:
+// wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
+// wfdbx_time_needs_freq, getvecs, getvecs_status and wfdbx_bulk_read; legacy
+// mode (wfdbx_set_legacy) restores the original behavior. Each change is
+// marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+//
+// Original C code: lib/signal.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by
+//   Benjamin Moody, including FLAC support (2020).
+// Rust translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 // (A line-by-line port of C: index loops are kept as in the C source.)
 #![allow(
@@ -3721,6 +3731,12 @@ impl Wfdb {
     /// input signals, -1 if the header cannot be read, -2 if the header is
     /// incorrect, -3 if the signal files cannot be opened (internal limits
     /// exceeded).
+    ///
+    /// Translation of the C function isigopen() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: the signal files and segments
+    /// named in the header are read only from the header's directory, and no
+    /// sampling frequency, gain, ADC resolution or units are assumed; see
+    /// docs/DIVERGENCES.md.
     pub fn isigopen(&mut self, record: impl OptBytes, siarray: &mut [Siginfo], nsig: i32) -> i32 {
         let rec_arg = record.opt_bytes().map(cstd::cstr).unwrap_or(b"").to_vec();
         let mut nsig = nsig;
@@ -4029,6 +4045,11 @@ impl Wfdb {
     /// or: -1 if the header cannot be read, -2 if it is incorrect, -3 if
     /// the output signal files cannot be opened (or, wfdb-x, one of them is
     /// one of the input files, as for [`Wfdb::osigfopen`]).
+    ///
+    /// Translation of the C function osigopen() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: an output signal file that is
+    /// one of the input files of the open record is refused; see
+    /// docs/DIVERGENCES.md.
     pub fn osigopen(&mut self, record: impl OptBytes, siarray: &mut [Siginfo], nsig: u32) -> i32 {
         let rec_arg = record.opt_bytes().map(cstd::cstr).unwrap_or(b"").to_vec();
         // Close previously opened output signals unless otherwise requested.
@@ -4081,6 +4102,11 @@ impl Wfdb {
     /// (`osigfopen: output file F is also an input file`; the file is not
     /// touched). With `nsig == 0` (or an empty `siarray`): 0, or -4 on a
     /// write error while closing the previous output signals.
+    ///
+    /// Translation of the C function osigfopen() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: an output signal file that is
+    /// one of the input files of the open record is refused; see
+    /// docs/DIVERGENCES.md.
     pub fn osigfopen(&mut self, siarray: &[Siginfo], nsig: u32) -> i32 {
         // Close any open output signals.
         let stat = self.osigclose();
@@ -4134,6 +4160,9 @@ impl Wfdb {
     /// C `findsig(p)`: returns the number of the input signal whose
     /// description is `p` (or whose number is `p`, a decimal number), or -1
     /// if there is none.
+    ///
+    /// Translation of the C function findsig() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn findsig(&mut self, p: impl AsRef<[u8]>) -> i32 {
         let p = cstd::cstr(p.as_ref());
         let st = &self.sig;
@@ -4169,6 +4198,9 @@ impl Wfdb {
 
     /// C `getspf()`: the number of samples per frame returned by `getvec`
     /// for each signal (1 unless in `WFDB_HIGHRES` mode).
+    ///
+    /// Translation of the C function getspf() (lib/signal.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn getspf(&mut self) -> i32 {
         let st = &self.sig;
         if st.sfreq != st.ffreq {
@@ -4181,6 +4213,9 @@ impl Wfdb {
     /// C `setgvmode(mode)`: set the getvec mode ([`WFDB_LOWRES`] or
     /// [`WFDB_HIGHRES`], optionally with [`WFDB_GVPAD`]); a negative mode
     /// selects the default (from `WFDBGVMODE`).
+    ///
+    /// Translation of the C function setgvmode() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setgvmode(&mut self, mut mode: i32) {
         if mode < 0 {
             // (re)set to default mode
@@ -4204,6 +4239,9 @@ impl Wfdb {
     /// C `getgvmode()`: the current `getvec` mode ([`WFDB_LOWRES`] or
     /// [`WFDB_HIGHRES`], with [`WFDB_GVPAD`] if invalid samples are
     /// replaced).
+    ///
+    /// Translation of the C function getgvmode() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn getgvmode(&mut self) -> i32 {
         self.sig.gvmode
     }
@@ -4217,6 +4255,11 @@ impl Wfdb {
     /// 0 on success, or -1 if no input record is open, its sampling
     /// frequency is not specified (wfdb-x), or `f` is not positive
     /// (resampling is then turned off).
+    ///
+    /// Translation of the C function setifreq() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: it fails if the sampling
+    /// frequency of the input record is not specified; see
+    /// docs/DIVERGENCES.md.
     pub fn setifreq(&mut self, f: f64) -> i32 {
         let mut f = f;
         let mut g = self.sig.sfreq;
@@ -4296,6 +4339,9 @@ impl Wfdb {
 
     /// C `getifreq()`: the sampling frequency of the samples returned by
     /// `getvec`.
+    ///
+    /// Translation of the C function getifreq() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn getifreq(&mut self) -> f64 {
         let st = &self.sig;
         if st.ifreq > 0.0 {
@@ -4317,6 +4363,9 @@ impl Wfdb {
     /// record (the contents of `vector` are then not valid), -3 at an
     /// unexpected end of file (or on a decoding error), -4 on a checksum
     /// error (detected at the end of the file).
+    ///
+    /// Translation of the C function getvec() (lib/signal.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn getvec(&mut self, vector: &mut [i32]) -> i32 {
         let need = self.vec_need();
         if vector.len() < need {
@@ -4372,6 +4421,9 @@ impl Wfdb {
     ///
     /// As [`Wfdb::getvec`]: the number of input signals, or a value `<= 0`
     /// at the end of the record or on an error.
+    ///
+    /// Translation of the C function getframe() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn getframe(&mut self, vector: &mut [i32]) -> i32 {
         let need = self.vec_need();
         if vector.len() < need {
@@ -4587,6 +4639,8 @@ impl Wfdb {
     /// by default) and returns the previous setting. The results are the
     /// same either way; this is for testing the bulk path against the
     /// per-frame path.
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     #[doc(hidden)]
     pub fn wfdbx_bulk_read(&mut self, on: bool) -> bool {
         let previous = !self.sig.bulk_off;
@@ -4605,6 +4659,8 @@ impl Wfdb {
     /// The number of vectors read (`>= 0`; less than `n` at the end of the
     /// record), or the negative status of `getvec` if the first read
     /// failed.
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn getvecs(&mut self, out: &mut [i32], n: i64) -> i64 {
         self.getvecs_status(out, n).0
     }
@@ -4614,6 +4670,8 @@ impl Wfdb {
     /// not be read (-1 at the end of the data, `< -1` on an error, e.g. -3
     /// for an unexpected end of file), or the number of values per vector
     /// if all `n` were read (0 if `n <= 0`). Not part of the C library.
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn getvecs_status(&mut self, out: &mut [i32], n: i64) -> (i64, i32) {
         if n <= 0 {
             return (0, 0);
@@ -4640,10 +4698,14 @@ impl Wfdb {
                     let mut tmp = vec![0; need];
                     stat = self.getskewedframe(&mut tmp);
                     self.sig.istime += 1;
+                    let m = out.len().saturating_sub(pos).min(stride);
+                    if stat == -4 {
+                        // (valid data with a checksum mismatch)
+                        out[pos..pos + m].copy_from_slice(&tmp[..m]);
+                    }
                     if stat < 0 {
                         break;
                     }
-                    let m = out.len().saturating_sub(pos).min(stride);
                     out[pos..pos + m].copy_from_slice(&tmp[..m]);
                     k += 1;
                     if m < stride {
@@ -4695,6 +4757,9 @@ impl Wfdb {
     /// The number of output signals (`> 0`), or: 0 if the slew rate is too
     /// high for a signal (difference formats only; the level is corrected
     /// later), -1 on a write error.
+    ///
+    /// Translation of the C function putvec() (lib/signal.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn putvec(&mut self, vector: &[i32]) -> i32 {
         let st = &mut self.sig;
         let mut stat = st.nosig as i32;
@@ -4801,6 +4866,9 @@ impl Wfdb {
     ///
     /// 0 on success, or -1 if `t` is beyond the end of the record or the
     /// signal files cannot be repositioned.
+    ///
+    /// Translation of the C function isigsettime() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn isigsettime(&mut self, t: i64) -> i32 {
         let st = &self.sig;
         // Return immediately if no seek is needed.
@@ -4842,6 +4910,9 @@ impl Wfdb {
     /// 0 on success, -1 if `t` is beyond the end of the record or the
     /// signal files cannot be repositioned, -2 if `g` is not a valid
     /// signal group.
+    ///
+    /// Translation of the C function isgsettime() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn isgsettime(&mut self, g: u32, t: i64) -> i32 {
         let mut t = t;
         let mut trem = 0i32;
@@ -4902,6 +4973,9 @@ impl Wfdb {
     /// input signal `s` at or after `t`, positioning the input signals
     /// there; a negative value (-1) at the end of the record or on an
     /// error.
+    ///
+    /// Translation of the C function tnextvec() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn tnextvec(&mut self, s: u32, t: i64) -> i64 {
         let mut t = t;
         let mut stat: i32 = 0;
@@ -5001,6 +5075,9 @@ impl Wfdb {
     /// The new size (`n`, or the default size if `n` is 0), or: -1 if input
     /// signals are open (the size cannot be changed then), -2 if `n` is
     /// negative.
+    ///
+    /// Translation of the C function setibsize() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setibsize(&mut self, n: i32) -> i32 {
         if self.sig.nisig != 0 {
             self.wfdb_error("setibsize: can't change buffer size after isigopen\n");
@@ -5024,6 +5101,9 @@ impl Wfdb {
     /// The new size (`n`, or the default size if `n` is 0), or: -1 if output
     /// signals are open (the size cannot be changed then), -2 if `n` is
     /// negative.
+    ///
+    /// Translation of the C function setobsize() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setobsize(&mut self, n: i32) -> i32 {
         if self.sig.nosig != 0 {
             self.wfdb_error("setobsize: can't change buffer size after osig[f]open\n");
@@ -5039,6 +5119,20 @@ impl Wfdb {
         n
     }
 
+    /// wfdb-x: `name` as written into the header of `record`: outside
+    /// legacy mode, names are written relative to the header's directory
+    /// (where the reader looks for them): the directory part of `record`
+    /// is removed from `name` when `name` begins with it.
+    fn hea_name(&self, record: &[u8], name: &[u8]) -> Vec<u8> {
+        if self.sig.legacy {
+            return name.to_vec();
+        }
+        match record.iter().rposition(|&c| c == b'/') {
+            Some(k) if name.starts_with(&record[..=k]) => name[k + 1..].to_vec(),
+            _ => name.to_vec(),
+        }
+    }
+
     /// C `newheader(record)`: writes the header file `record.hea` for the
     /// open output signals (with the sampling frequency, base time and
     /// number of samples written so far).
@@ -5047,6 +5141,12 @@ impl Wfdb {
     ///
     /// 0 on success, or a negative value if the header cannot be created
     /// (see [`Wfdb::setheader`]).
+    ///
+    /// Translation of the C function newheader() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: a header written under a path
+    /// names the record and its signal files relative to its own directory,
+    /// and only the record's own name (the last component) is checked; see
+    /// docs/DIVERGENCES.md.
     pub fn newheader(&mut self, record: impl AsRef<[u8]>) -> i32 {
         let rec = wfdb_striphea(record.as_ref());
         let st = &self.sig;
@@ -5068,6 +5168,12 @@ impl Wfdb {
     ///
     /// 0 on success, or -1 if the header file cannot be created (or the
     /// record name is illegal).
+    ///
+    /// Translation of the C function setheader() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: a header written under a path
+    /// names the record and its signal files relative to its own directory,
+    /// and only the record's own name (the last component) is checked; see
+    /// docs/DIVERGENCES.md.
     pub fn setheader(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -5106,7 +5212,12 @@ impl Wfdb {
             let st = &self.sig;
             (st.ffreq, st.cfreq, st.bcount, st.btime, st.bdate)
         };
-        let mut out = cformat!(b"%s %d %.12g", record, nsig as i32, ffreq);
+        let mut out = cformat!(
+            b"%s %d %.12g",
+            self.hea_name(&record, &record),
+            nsig as i32,
+            ffreq
+        );
         if (cfreq > 0.0 && cfreq != ffreq) || bcount != 0.0 {
             out.extend(cformat!(b"/%.12g", cfreq));
             if bcount != 0.0 {
@@ -5134,9 +5245,13 @@ impl Wfdb {
         out.extend_from_slice(b"\r\n");
 
         // Write a signal specification line for each signal.
+        let fnames: Vec<Option<Vec<u8>>> = siarray[..nsig]
+            .iter()
+            .map(|si| si.fname.as_ref().map(|f| self.hea_name(&record, f)))
+            .collect();
         let st = &self.sig;
         for (s, si) in siarray.iter_mut().enumerate().take(nsig) {
-            out.extend(cformat!(b"%s %d", si.fname, si.fmt));
+            out.extend(cformat!(b"%s %d", fnames[s], si.fmt));
             if si.spf > 1 {
                 out.extend(cformat!(b"x%d", si.spf));
             }
@@ -5191,6 +5306,9 @@ impl Wfdb {
     /// C `getseginfo(&sarray)`: the number of segments of the open
     /// multi-segment record (0 if it is not one); `sarray` receives a copy
     /// of the segment table (`None` if there is none).
+    ///
+    /// Translation of the C function getseginfo() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn getseginfo(&mut self, sarray: &mut Option<Vec<Seginfo>>) -> i32 {
         let st = &self.sig;
         *sarray = if st.have_segarray {
@@ -5212,6 +5330,12 @@ impl Wfdb {
     /// too long; -3 if a segment is itself a multi-segment record or its
     /// header cannot be read; -4 if a segment length is unspecified, or the
     /// segments differ in number of signals or sampling frequency.
+    ///
+    /// Translation of the C function setmsheader() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results. Differences: a header written
+    /// under a path names the record and its segments relative to its own
+    /// directory, and only the record's own name (the last component) is
+    /// checked; see docs/DIVERGENCES.md.
     pub fn setmsheader<S: AsRef<[u8]>>(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -5322,7 +5446,13 @@ impl Wfdb {
         }
 
         // Write the first line of the master header.
-        let mut out = cformat!(b"%s/%u %d %.12g", record, nsegments as u32, nsig, msfreq);
+        let mut out = cformat!(
+            b"%s/%u %d %.12g",
+            self.hea_name(&record, &record),
+            nsegments as u32,
+            nsig,
+            msfreq
+        );
         if (mscfreq > 0.0 && mscfreq != msfreq) || msbcount != 0.0 {
             out.extend(cformat!(b"/%.12g", mscfreq));
             if msbcount != 0.0 {
@@ -5351,7 +5481,7 @@ impl Wfdb {
         for i in 0..nsegments {
             out.extend(cformat!(
                 b"%s %lld\r\n",
-                cstd::cstr(segment_name[i].as_ref()),
+                self.hea_name(&record, cstd::cstr(segment_name[i].as_ref())),
                 ns[i]
             ));
         }
@@ -5362,6 +5492,9 @@ impl Wfdb {
     }
 
     /// C `wfdbgetskew(s)`: the skew (in frames) of input signal `s`.
+    ///
+    /// Translation of the C function wfdbgetskew() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdbgetskew(&mut self, s: u32) -> i32 {
         let st = &self.sig;
         if s < st.nvsig.max(0) as u32 {
@@ -5374,6 +5507,9 @@ impl Wfdb {
     /// C `wfdbsetiskew(s, skew)`: set the skew of input signal `s` (use
     /// with care: only to restore skews reset as a side effect of, e.g.,
     /// `sampfreq`).
+    ///
+    /// Translation of the C function wfdbsetiskew() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn wfdbsetiskew(&mut self, s: u32, skew: i32) {
         let st = &mut self.sig;
         if s < st.nvsig.max(0) as u32
@@ -5387,6 +5523,9 @@ impl Wfdb {
 
     /// C `wfdbsetskew(s, skew)`: set the skew to be written by `setheader`
     /// for output signal `s`.
+    ///
+    /// Translation of the C function wfdbsetskew() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn wfdbsetskew(&mut self, s: u32, skew: i32) {
         let st = &mut self.sig;
         if s < st.nosig {
@@ -5396,6 +5535,9 @@ impl Wfdb {
 
     /// C `wfdbgetstart(s)`: the byte offset of sample 0 in the signal file
     /// of input signal `s`.
+    ///
+    /// Translation of the C function wfdbgetstart() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn wfdbgetstart(&mut self, s: u32) -> i64 {
         let st = &self.sig;
         if s < st.nisig
@@ -5412,6 +5554,9 @@ impl Wfdb {
 
     /// C `wfdbsetstart(s, bytes)`: set the byte offset to be written by
     /// `setheader` for output signal `s`.
+    ///
+    /// Translation of the C function wfdbsetstart() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn wfdbsetstart(&mut self, s: u32, bytes: i64) {
         let st = &mut self.sig;
         if s < st.nosig {
@@ -5427,6 +5572,9 @@ impl Wfdb {
     /// prolog) to the signal file of output signal `s`, and records its
     /// length as the byte offset of sample 0 (see
     /// [`Wfdb::wfdbsetstart`]). Returns 0, or -1 on a write error.
+    ///
+    /// Translation of the C function wfdbputprolog() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn wfdbputprolog(&mut self, buf: &[u8], size: i64, s: u32) -> i32 {
         let mut n: i64 = 0;
         let st = &mut self.sig;
@@ -5458,6 +5606,9 @@ impl Wfdb {
     /// 0 on success, or: -1 if the record name is illegal or the file
     /// cannot be opened, -2 on a write error when closing it (with
     /// `NULL`).
+    ///
+    /// Translation of the C function setinfo() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setinfo(&mut self, record: impl OptBytes) -> i32 {
         // Close any previously opened output info file.
         let stat = self.wfdb_oinfoclose();
@@ -5494,6 +5645,9 @@ impl Wfdb {
     /// file opened by [`Wfdb::setinfo`], or else to the header file written
     /// last by `newheader`/`setheader`. Returns 0, or -1 if neither is
     /// open.
+    ///
+    /// Translation of the C function putinfo() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn putinfo(&mut self, s: impl AsRef<[u8]>) -> i32 {
         let st = &mut self.sig;
         if st.outinfo == OutInfo::None {
@@ -5522,6 +5676,9 @@ impl Wfdb {
     /// the info strings of the record (from its header and `.info` file)
     /// and return the first; with `NULL`, return the next one. `None` when
     /// there are no more.
+    ///
+    /// Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn getinfo(&mut self, record: impl OptBytes) -> Option<Vec<u8>> {
         let record = record.opt_bytes().map(|r| cstd::cstr(r).to_vec());
         if record.is_some() {
@@ -5618,6 +5775,9 @@ impl Wfdb {
     }
 
     /// C `wfdb_freeinfo()`: release the info strings.
+    ///
+    /// Translation of the C function wfdb_freeinfo() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn wfdb_freeinfo(&mut self) {
         let st = &mut self.sig;
         st.pinfo = Vec::new();
@@ -5634,6 +5794,10 @@ impl Wfdb {
     /// The frequency (`> 0`); 0 if the header does not specify it (wfdb-x:
     /// C assumed 250 Hz) and none was set with `setsampfreq`; -1 if the
     /// header cannot be read, -2 if it is incorrect.
+    ///
+    /// Translation of the C function sampfreq() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: it returns 0, not 250, if the
+    /// header gives no sampling frequency; see docs/DIVERGENCES.md.
     pub fn sampfreq(&mut self, record: impl OptBytes) -> f64 {
         if let Some(r) = record.opt_bytes() {
             // Remove trailing .hea, if any, from record name.
@@ -5656,6 +5820,9 @@ impl Wfdb {
     /// C `setsampfreq(freq)`: sets the sampling frequency (Hz) used for time
     /// conversions and written in headers. Returns 0, or -1 if `freq` is
     /// negative.
+    ///
+    /// Translation of the C function setsampfreq() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setsampfreq(&mut self, freq: f64) -> i32 {
         if freq >= 0.0 {
             let st = &mut self.sig;
@@ -5677,6 +5844,9 @@ impl Wfdb {
     /// (`"hh:mm:ss dd/mm/yyyy"`, the date being optional; `NULL` or empty:
     /// the current local time). Returns 0, or -1 if the string is
     /// incorrectly formatted.
+    ///
+    /// Translation of the C function setbasetime() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setbasetime(&mut self, string: impl OptBytes) -> i32 {
         self.sig.pdays = -1;
         let s = string.opt_bytes().map(cstd::cstr).unwrap_or(b"");
@@ -5917,6 +6087,8 @@ impl Wfdb {
     /// 0 if `string` (after leading spaces, tabs, newlines and carriage
     /// returns) begins with `e`, `i`, `o` or `s`, or with `c` while the
     /// counter frequency is not positive; 1 otherwise.
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn wfdbx_time_needs_freq(&mut self, string: impl AsRef<[u8]>) -> i32 {
         let string = string.as_ref();
         let first = string
@@ -5931,26 +6103,34 @@ impl Wfdb {
         }
     }
 
-    /// wfdb-x addition (C `wfdbx_set_legacy(on)`): turns legacy mode on
-    /// (`on != 0`) or off, and returns the previous setting (1: on, 0: off).
+    /// Turns legacy mode on (`on != 0`) or off, and returns the previous
+    /// setting (1: on, 0: off).
     ///
-    /// In legacy mode, the library behaves exactly as the original WFDB
-    /// library 10.7.0, with its built-in defaults: WFDB_DEFFREQ (250 Hz) for
-    /// a header without a sampling frequency, an ADC resolution inferred
-    /// from the format or WFDB_DEFRES (12 bits), 1 sample per second in the
-    /// time conversion functions, and WFDB_DEFGAIN (200 adu per physical
-    /// unit, with a baseline of 0 for invalid signal numbers) in the unit
-    /// conversion functions. Legacy mode is off by default; it exists for
-    /// compatibility only, and results produced with it carry the risks of
-    /// these silent defaults (see `docs/DIVERGENCES.md`).
+    /// In legacy mode, the library behaves exactly as the original WFDB library
+    /// 10.7.0, including its assumed signal parameters and its search for files.
+    /// Legacy mode is off by default. Use it only to reproduce old results. See
+    /// `docs/DIVERGENCES.md` in the repository for what changes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut w = wfdbx::Wfdb::new();
+    /// let previous = w.wfdbx_set_legacy(1);
+    /// assert_eq!(w.wfdbx_get_legacy(), 1);
+    /// w.wfdbx_set_legacy(previous);
+    /// ```
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn wfdbx_set_legacy(&mut self, on: i32) -> i32 {
         let previous = self.sig.legacy as i32;
         self.sig.legacy = on != 0;
         previous
     }
 
-    /// wfdb-x addition (C `wfdbx_get_legacy()`): 1 if legacy mode is on, 0
-    /// otherwise (see [`Wfdb::wfdbx_set_legacy`]).
+    /// Returns 1 if legacy mode is on, 0 otherwise (see
+    /// [`Wfdb::wfdbx_set_legacy`]).
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn wfdbx_get_legacy(&self) -> i32 {
         self.sig.legacy as i32
     }
@@ -5960,6 +6140,8 @@ impl Wfdb {
     /// name (`argv[1]`) is exactly `--legacy`, removes it from `argv`, turns
     /// legacy mode on and returns 1; otherwise changes nothing and returns
     /// 0. Only the first argument is recognized.
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn wfdbx_legacy_args(&mut self, argv: &mut Vec<Vec<u8>>) -> i32 {
         if argv.len() < 2 || argv[1] != b"--legacy" {
             return 0;
@@ -5974,6 +6156,12 @@ impl Wfdb {
     ///
     /// wfdb-x: if no sampling frequency is specified, reports an error and
     /// returns the time as a sample number (`"s"` followed by `|t|`).
+    ///
+    /// Translation of the C function timstr() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: if the sampling frequency is
+    /// not specified, it reports an error and returns the time as a sample
+    /// number (the original assumed 1 sample per second); see
+    /// docs/DIVERGENCES.md.
     pub fn timstr(&mut self, t: i64) -> Vec<u8> {
         let f = self.tfreq();
         if f <= 0.0 {
@@ -5986,6 +6174,12 @@ impl Wfdb {
     ///
     /// wfdb-x: if no sampling frequency is specified, reports an error and
     /// returns the time as a sample number (`"s"` followed by `|t|`).
+    ///
+    /// Translation of the C function mstimstr() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: if the sampling frequency is
+    /// not specified, it reports an error and returns the time as a sample
+    /// number (the original assumed 1 sample per second); see
+    /// docs/DIVERGENCES.md.
     pub fn mstimstr(&mut self, t: i64) -> Vec<u8> {
         let f = self.tfreq();
         if f <= 0.0 {
@@ -5995,6 +6189,9 @@ impl Wfdb {
     }
 
     /// C `getcfreq()`: the counter frequency.
+    ///
+    /// Translation of the C function getcfreq() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn getcfreq(&mut self) -> f64 {
         let st = &self.sig;
         if st.cfreq > 0.0 {
@@ -6005,11 +6202,17 @@ impl Wfdb {
     }
 
     /// C `setcfreq(freq)`: set the counter frequency.
+    ///
+    /// Translation of the C function setcfreq() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results.
     pub fn setcfreq(&mut self, freq: f64) {
         self.sig.cfreq = freq;
     }
 
     /// C `getbasecount()`: the base counter value.
+    ///
+    /// Translation of the C function getbasecount() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn getbasecount(&mut self) -> f64 {
         self.sig.bcount
     }
@@ -6026,6 +6229,43 @@ impl Wfdb {
         }
     }
 
+    /// wfdb-x (for `check_record`): the number of samples of the record
+    /// opened last: that of the master header for a multi-segment record
+    /// (`multi`, or while one is open), otherwise that of its header.
+    pub(crate) fn wfdbx_record_nsamples(&self, multi: bool) -> i64 {
+        let st = &self.sig;
+        if st.in_msrec != 0 || multi {
+            st.msnsamples
+        } else {
+            st.nsamples
+        }
+    }
+
+    /// wfdb-x (for `check_record`): whether the open record is an EDF file.
+    pub(crate) fn wfdbx_is_edf(&self) -> bool {
+        self.sig.isedf != 0
+    }
+
+    /// wfdb-x (for `check_record`): the checksum accumulator of each open
+    /// input signal (the header's checksum less the samples read so far).
+    pub(crate) fn wfdbx_cksum_residuals(&self) -> Vec<i32> {
+        let st = &self.sig;
+        st.isd[..st.nisig as usize]
+            .iter()
+            .map(|s| s.info.cksum)
+            .collect()
+    }
+
+    /// wfdb-x (for `check_record`): the size of the file of each open input
+    /// signal group, if it is a local file (`None` otherwise).
+    pub(crate) fn wfdbx_group_file_sizes(&self) -> Vec<Option<u64>> {
+        let st = &self.sig;
+        st.igd[..st.nigroup as usize]
+            .iter()
+            .map(|g| g.fp.as_ref().and_then(WfdbFile::local_size))
+            .collect()
+    }
+
     /// wfdb-x (for the high-level API): the base time, in milliseconds
     /// after midnight (C `btime`), and the base date, as (year, month, day)
     /// (`None` if the header gives no date: C `bdate` 0).
@@ -6036,6 +6276,9 @@ impl Wfdb {
     }
 
     /// C `setbasecount(count)`: set the base counter value.
+    ///
+    /// Translation of the C function setbasecount() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn setbasecount(&mut self, counter: f64) {
         self.sig.bcount = counter;
     }
@@ -6057,6 +6300,11 @@ impl Wfdb {
     /// wfdb-x: if no sampling frequency is specified and the string needs
     /// one (see [`Wfdb::wfdbx_time_needs_freq`]), reports an error and
     /// returns 0.
+    ///
+    /// Translation of the C function strtim() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: if the string needs a sampling
+    /// frequency and none is specified, it reports an error and returns 0 (the
+    /// original assumed 1 sample per second); see docs/DIVERGENCES.md.
     pub fn strtim(&mut self, string: impl AsRef<[u8]>) -> i64 {
         let string = string.as_ref();
         let mut f = self.tfreq();
@@ -6074,6 +6322,9 @@ impl Wfdb {
 
     /// C `datstr(date)`: a Julian date as ` dd/mm/yyyy` (with a leading
     /// space).
+    ///
+    /// Translation of the C function datstr() (lib/signal.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn datstr(&mut self, date: i64) -> Vec<u8> {
         let [y, m, d] = julian_to_ymd(date);
         let mut ds = cformat!(b" %02d/%02d/%d", d, m, y);
@@ -6085,6 +6336,9 @@ impl Wfdb {
 
     /// C `strdat(string)`: the Julian date of a `dd/mm/yyyy` date (0 if
     /// it is invalid).
+    ///
+    /// Translation of the C function strdat() (lib/signal.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn strdat(&mut self, string: impl AsRef<[u8]>) -> i64 {
         let string = cstd::cstr(string.as_ref());
         let Some(mp) = strchr(string, b'/') else {
@@ -6161,6 +6415,11 @@ impl Wfdb {
     ///
     /// wfdb-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
     /// `s` is invalid or the signal is uncalibrated.
+    ///
+    /// Translation of the C function adumuv() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: an uncalibrated signal or an
+    /// invalid signal number is an error (the original assumed a gain of 200);
+    /// see docs/DIVERGENCES.md.
     pub fn adumuv(&mut self, s: u32, a: i32) -> i32 {
         let g = self.conversion_gain("adumuv", s);
         if g == 0.0 {
@@ -6178,6 +6437,11 @@ impl Wfdb {
     ///
     /// wfdb-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
     /// `s` is invalid or the signal is uncalibrated.
+    ///
+    /// Translation of the C function muvadu() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: an uncalibrated signal or an
+    /// invalid signal number is an error (the original assumed a gain of 200);
+    /// see docs/DIVERGENCES.md.
     pub fn muvadu(&mut self, s: u32, v: i32) -> i32 {
         let g = self.conversion_gain("muvadu", s);
         if g == 0.0 {
@@ -6195,6 +6459,11 @@ impl Wfdb {
     ///
     /// wfdb-x: returns NaN (after reporting an error) if `s` is invalid or
     /// the signal is uncalibrated.
+    ///
+    /// Translation of the C function aduphys() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: an uncalibrated signal or an
+    /// invalid signal number is an error (the original assumed a gain of 200);
+    /// see docs/DIVERGENCES.md.
     pub fn aduphys(&mut self, s: u32, a: i32) -> f64 {
         let g = self.conversion_gain("aduphys", s);
         if g == 0.0 {
@@ -6208,6 +6477,11 @@ impl Wfdb {
     ///
     /// wfdb-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
     /// `s` is invalid or the signal is uncalibrated.
+    ///
+    /// Translation of the C function physadu() (lib/signal.c, WFDB 10.7.0):
+    /// same arguments and results. Differences: an uncalibrated signal or an
+    /// invalid signal number is an error (the original assumed a gain of 200);
+    /// see docs/DIVERGENCES.md.
     pub fn physadu(&mut self, s: u32, v: f64) -> i32 {
         let g = self.conversion_gain("physadu", s);
         if g == 0.0 {
@@ -6224,6 +6498,9 @@ impl Wfdb {
 
     /// C `sample(s, t)`: sample number `t` of input signal `s` (buffered
     /// random access); see [`Wfdb::sample_valid`].
+    ///
+    /// Translation of the C function sample() (lib/signal.c, WFDB 10.7.0): same
+    /// arguments and results.
     pub fn sample(&mut self, s: u32, t: i64) -> i32 {
         let mut t = t;
         let nsig = self.sig.nvsig.max(self.sig.nisig as i32).max(0);
@@ -6298,6 +6575,9 @@ impl Wfdb {
 
     /// C `sample_valid()`: 1 if the value returned by the last `sample()`
     /// call was valid, -1 if it was invalid, 0 at the end of the record.
+    ///
+    /// Translation of the C function sample_valid() (lib/signal.c, WFDB
+    /// 10.7.0): same arguments and results.
     pub fn sample_valid(&mut self) -> i32 {
         self.sig.sample_vflag
     }
@@ -6307,280 +6587,467 @@ impl Wfdb {
 // Free functions (default instance)
 
 /// C `isigopen` on the default instance (see [`Wfdb::isigopen`]).
+///
+/// Translation of the C function isigopen() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: the signal files and segments named in
+/// the header are read only from the header's directory, and no sampling
+/// frequency, gain, ADC resolution or units are assumed; see
+/// docs/DIVERGENCES.md.
 pub fn isigopen(record: impl OptBytes, siarray: &mut [Siginfo], nsig: i32) -> i32 {
     with_default(|w| w.isigopen(record, siarray, nsig))
 }
 
 /// C `osigopen` on the default instance (see [`Wfdb::osigopen`]).
+///
+/// Translation of the C function osigopen() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: an output signal file that is one of
+/// the input files of the open record is refused; see docs/DIVERGENCES.md.
 pub fn osigopen(record: impl OptBytes, siarray: &mut [Siginfo], nsig: u32) -> i32 {
     with_default(|w| w.osigopen(record, siarray, nsig))
 }
 
 /// C `osigfopen` on the default instance (see [`Wfdb::osigfopen`]).
+///
+/// Translation of the C function osigfopen() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: an output signal file that is one of
+/// the input files of the open record is refused; see docs/DIVERGENCES.md.
 pub fn osigfopen(siarray: &[Siginfo], nsig: u32) -> i32 {
     with_default(|w| w.osigfopen(siarray, nsig))
 }
 
 /// C `findsig` on the default instance (see [`Wfdb::findsig`]).
+///
+/// Translation of the C function findsig() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn findsig(p: impl AsRef<[u8]>) -> i32 {
     with_default(|w| w.findsig(p))
 }
 
 /// C `getspf` on the default instance (see [`Wfdb::getspf`]).
+///
+/// Translation of the C function getspf() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getspf() -> i32 {
     with_default(super::wfdb::Wfdb::getspf)
 }
 
 /// C `setgvmode` on the default instance (see [`Wfdb::setgvmode`]).
+///
+/// Translation of the C function setgvmode() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setgvmode(mode: i32) {
     with_default(|w| w.setgvmode(mode));
 }
 
 /// C `getgvmode` on the default instance (see [`Wfdb::getgvmode`]).
+///
+/// Translation of the C function getgvmode() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getgvmode() -> i32 {
     with_default(super::wfdb::Wfdb::getgvmode)
 }
 
 /// C `setifreq` on the default instance (see [`Wfdb::setifreq`]).
+///
+/// Translation of the C function setifreq() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: it fails if the sampling frequency of
+/// the input record is not specified; see docs/DIVERGENCES.md.
 pub fn setifreq(f: f64) -> i32 {
     with_default(|w| w.setifreq(f))
 }
 
 /// C `getifreq` on the default instance (see [`Wfdb::getifreq`]).
+///
+/// Translation of the C function getifreq() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getifreq() -> f64 {
     with_default(super::wfdb::Wfdb::getifreq)
 }
 
 /// C `getvec` on the default instance (see [`Wfdb::getvec`]).
+///
+/// Translation of the C function getvec() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getvec(vector: &mut [i32]) -> i32 {
     with_default(|w| w.getvec(vector))
 }
 
 /// C `getframe` on the default instance (see [`Wfdb::getframe`]).
+///
+/// Translation of the C function getframe() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getframe(vector: &mut [i32]) -> i32 {
     with_default(|w| w.getframe(vector))
 }
 
 /// C `getvecs` on the default instance (see [`Wfdb::getvecs`]).
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn getvecs(out: &mut [i32], n: i64) -> i64 {
     with_default(|w| w.getvecs(out, n))
 }
 
 /// `getvecs_status` on the default instance (see [`Wfdb::getvecs_status`]).
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn getvecs_status(out: &mut [i32], n: i64) -> (i64, i32) {
     with_default(|w| w.getvecs_status(out, n))
 }
 
 /// C `putvec` on the default instance (see [`Wfdb::putvec`]).
+///
+/// Translation of the C function putvec() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn putvec(vector: &[i32]) -> i32 {
     with_default(|w| w.putvec(vector))
 }
 
 /// C `isigsettime` on the default instance (see [`Wfdb::isigsettime`]).
+///
+/// Translation of the C function isigsettime() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn isigsettime(t: i64) -> i32 {
     with_default(|w| w.isigsettime(t))
 }
 
 /// C `isgsettime` on the default instance (see [`Wfdb::isgsettime`]).
+///
+/// Translation of the C function isgsettime() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn isgsettime(g: u32, t: i64) -> i32 {
     with_default(|w| w.isgsettime(g, t))
 }
 
 /// C `tnextvec` on the default instance (see [`Wfdb::tnextvec`]).
+///
+/// Translation of the C function tnextvec() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn tnextvec(s: u32, t: i64) -> i64 {
     with_default(|w| w.tnextvec(s, t))
 }
 
 /// C `setibsize` on the default instance (see [`Wfdb::setibsize`]).
+///
+/// Translation of the C function setibsize() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setibsize(n: i32) -> i32 {
     with_default(|w| w.setibsize(n))
 }
 
 /// C `setobsize` on the default instance (see [`Wfdb::setobsize`]).
+///
+/// Translation of the C function setobsize() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setobsize(n: i32) -> i32 {
     with_default(|w| w.setobsize(n))
 }
 
 /// C `newheader` on the default instance (see [`Wfdb::newheader`]).
+///
+/// Translation of the C function newheader() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: a header written under a path names the
+/// record and its signal files relative to its own directory, and only the
+/// record's own name (the last component) is checked; see docs/DIVERGENCES.md.
 pub fn newheader(record: impl AsRef<[u8]>) -> i32 {
     with_default(|w| w.newheader(record))
 }
 
 /// C `setheader` on the default instance (see [`Wfdb::setheader`]).
+///
+/// Translation of the C function setheader() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: a header written under a path names the
+/// record and its signal files relative to its own directory, and only the
+/// record's own name (the last component) is checked; see docs/DIVERGENCES.md.
 pub fn setheader(record: impl AsRef<[u8]>, siarray: &mut [Siginfo], nsig: u32) -> i32 {
     with_default(|w| w.setheader(record, siarray, nsig))
 }
 
 /// C `getseginfo` on the default instance (see [`Wfdb::getseginfo`]).
+///
+/// Translation of the C function getseginfo() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getseginfo(sarray: &mut Option<Vec<Seginfo>>) -> i32 {
     with_default(|w| w.getseginfo(sarray))
 }
 
 /// C `wfdbgetskew` on the default instance (see [`Wfdb::wfdbgetskew`]).
+///
+/// Translation of the C function wfdbgetskew() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdbgetskew(s: u32) -> i32 {
     with_default(|w| w.wfdbgetskew(s))
 }
 
 /// C `wfdbsetiskew` on the default instance (see [`Wfdb::wfdbsetiskew`]).
+///
+/// Translation of the C function wfdbsetiskew() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdbsetiskew(s: u32, skew: i32) {
     with_default(|w| w.wfdbsetiskew(s, skew));
 }
 
 /// C `wfdbsetskew` on the default instance (see [`Wfdb::wfdbsetskew`]).
+///
+/// Translation of the C function wfdbsetskew() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdbsetskew(s: u32, skew: i32) {
     with_default(|w| w.wfdbsetskew(s, skew));
 }
 
 /// C `wfdbgetstart` on the default instance (see [`Wfdb::wfdbgetstart`]).
+///
+/// Translation of the C function wfdbgetstart() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdbgetstart(s: u32) -> i64 {
     with_default(|w| w.wfdbgetstart(s))
 }
 
 /// C `wfdbsetstart` on the default instance (see [`Wfdb::wfdbsetstart`]).
+///
+/// Translation of the C function wfdbsetstart() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdbsetstart(s: u32, bytes: i64) {
     with_default(|w| w.wfdbsetstart(s, bytes));
 }
 
 /// C `wfdbputprolog` on the default instance (see [`Wfdb::wfdbputprolog`]).
+///
+/// Translation of the C function wfdbputprolog() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdbputprolog(buf: &[u8], size: i64, s: u32) -> i32 {
     with_default(|w| w.wfdbputprolog(buf, size, s))
 }
 
 /// C `setinfo` on the default instance (see [`Wfdb::setinfo`]).
+///
+/// Translation of the C function setinfo() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setinfo(record: impl OptBytes) -> i32 {
     with_default(|w| w.setinfo(record))
 }
 
 /// C `putinfo` on the default instance (see [`Wfdb::putinfo`]).
+///
+/// Translation of the C function putinfo() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn putinfo(s: impl AsRef<[u8]>) -> i32 {
     with_default(|w| w.putinfo(s))
 }
 
 /// C `getinfo` on the default instance (see [`Wfdb::getinfo`]).
+///
+/// Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getinfo(record: impl OptBytes) -> Option<Vec<u8>> {
     with_default(|w| w.getinfo(record))
 }
 
 /// C `wfdb_freeinfo` on the default instance (see [`Wfdb::wfdb_freeinfo`]).
+///
+/// Translation of the C function wfdb_freeinfo() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn wfdb_freeinfo() {
     with_default(super::wfdb::Wfdb::wfdb_freeinfo);
 }
 
 /// C `sampfreq` on the default instance (see [`Wfdb::sampfreq`]).
+///
+/// Translation of the C function sampfreq() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: it returns 0, not 250, if the header
+/// gives no sampling frequency; see docs/DIVERGENCES.md.
 pub fn sampfreq(record: impl OptBytes) -> f64 {
     with_default(|w| w.sampfreq(record))
 }
 
 /// C `setsampfreq` on the default instance (see [`Wfdb::setsampfreq`]).
+///
+/// Translation of the C function setsampfreq() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn setsampfreq(freq: f64) -> i32 {
     with_default(|w| w.setsampfreq(freq))
 }
 
 /// C `setbasetime` on the default instance (see [`Wfdb::setbasetime`]).
+///
+/// Translation of the C function setbasetime() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn setbasetime(string: impl OptBytes) -> i32 {
     with_default(|w| w.setbasetime(string))
 }
 
 /// C `timstr` on the default instance (see [`Wfdb::timstr`]).
+///
+/// Translation of the C function timstr() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: if the sampling frequency is not
+/// specified, it reports an error and returns the time as a sample number (the
+/// original assumed 1 sample per second); see docs/DIVERGENCES.md.
 pub fn timstr(t: i64) -> Vec<u8> {
     with_default(|w| w.timstr(t))
 }
 
 /// C `mstimstr` on the default instance (see [`Wfdb::mstimstr`]).
+///
+/// Translation of the C function mstimstr() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: if the sampling frequency is not
+/// specified, it reports an error and returns the time as a sample number (the
+/// original assumed 1 sample per second); see docs/DIVERGENCES.md.
 pub fn mstimstr(t: i64) -> Vec<u8> {
     with_default(|w| w.mstimstr(t))
 }
 
 /// C `getcfreq` on the default instance (see [`Wfdb::getcfreq`]).
+///
+/// Translation of the C function getcfreq() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn getcfreq() -> f64 {
     with_default(super::wfdb::Wfdb::getcfreq)
 }
 
 /// C `setcfreq` on the default instance (see [`Wfdb::setcfreq`]).
+///
+/// Translation of the C function setcfreq() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn setcfreq(freq: f64) {
     with_default(|w| w.setcfreq(freq));
 }
 
 /// C `getbasecount` on the default instance (see [`Wfdb::getbasecount`]).
+///
+/// Translation of the C function getbasecount() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn getbasecount() -> f64 {
     with_default(super::wfdb::Wfdb::getbasecount)
 }
 
 /// C `setbasecount` on the default instance (see [`Wfdb::setbasecount`]).
+///
+/// Translation of the C function setbasecount() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn setbasecount(counter: f64) {
     with_default(|w| w.setbasecount(counter));
 }
 
 /// C `strtim` on the default instance (see [`Wfdb::strtim`]).
+///
+/// Translation of the C function strtim() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: if the string needs a sampling
+/// frequency and none is specified, it reports an error and returns 0 (the
+/// original assumed 1 sample per second); see docs/DIVERGENCES.md.
 pub fn strtim(string: impl AsRef<[u8]>) -> i64 {
     with_default(|w| w.strtim(string))
 }
 
 /// wfdb-x addition: `wfdbx_time_needs_freq` on the default instance (see
 /// [`Wfdb::wfdbx_time_needs_freq`]).
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn wfdbx_time_needs_freq(string: impl AsRef<[u8]>) -> i32 {
     with_default(|w| w.wfdbx_time_needs_freq(string))
 }
 
-/// wfdb-x addition: `wfdbx_set_legacy` on the default instance (see
-/// [`Wfdb::wfdbx_set_legacy`]).
+/// Turns legacy mode on or off for the default `Wfdb` value of the thread
+/// (see [`Wfdb::wfdbx_set_legacy`]). Returns the previous setting.
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn wfdbx_set_legacy(on: i32) -> i32 {
     with_default(|w| w.wfdbx_set_legacy(on))
 }
 
-/// wfdb-x addition: `wfdbx_get_legacy` on the default instance (see
-/// [`Wfdb::wfdbx_get_legacy`]).
+/// Returns 1 if legacy mode is on for the default `Wfdb` value of the
+/// thread, 0 otherwise (see [`Wfdb::wfdbx_get_legacy`]).
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn wfdbx_get_legacy() -> i32 {
     with_default(|w| w.wfdbx_get_legacy())
 }
 
 /// wfdb-x addition: `wfdbx_legacy_args` on the default instance (see
 /// [`Wfdb::wfdbx_legacy_args`]).
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn wfdbx_legacy_args(argv: &mut Vec<Vec<u8>>) -> i32 {
     with_default(|w| w.wfdbx_legacy_args(argv))
 }
 
 /// C `datstr` on the default instance (see [`Wfdb::datstr`]).
+///
+/// Translation of the C function datstr() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn datstr(date: i64) -> Vec<u8> {
     with_default(|w| w.datstr(date))
 }
 
 /// C `strdat` on the default instance (see [`Wfdb::strdat`]).
+///
+/// Translation of the C function strdat() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn strdat(string: impl AsRef<[u8]>) -> i64 {
     with_default(|w| w.strdat(string))
 }
 
 /// C `adumuv` on the default instance (see [`Wfdb::adumuv`]).
+///
+/// Translation of the C function adumuv() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: an uncalibrated signal or an invalid
+/// signal number is an error (the original assumed a gain of 200); see
+/// docs/DIVERGENCES.md.
 pub fn adumuv(s: u32, a: i32) -> i32 {
     with_default(|w| w.adumuv(s, a))
 }
 
 /// C `muvadu` on the default instance (see [`Wfdb::muvadu`]).
+///
+/// Translation of the C function muvadu() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: an uncalibrated signal or an invalid
+/// signal number is an error (the original assumed a gain of 200); see
+/// docs/DIVERGENCES.md.
 pub fn muvadu(s: u32, v: i32) -> i32 {
     with_default(|w| w.muvadu(s, v))
 }
 
 /// C `aduphys` on the default instance (see [`Wfdb::aduphys`]).
+///
+/// Translation of the C function aduphys() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: an uncalibrated signal or an invalid
+/// signal number is an error (the original assumed a gain of 200); see
+/// docs/DIVERGENCES.md.
 pub fn aduphys(s: u32, a: i32) -> f64 {
     with_default(|w| w.aduphys(s, a))
 }
 
 /// C `physadu` on the default instance (see [`Wfdb::physadu`]).
+///
+/// Translation of the C function physadu() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results. Differences: an uncalibrated signal or an invalid
+/// signal number is an error (the original assumed a gain of 200); see
+/// docs/DIVERGENCES.md.
 pub fn physadu(s: u32, v: f64) -> i32 {
     with_default(|w| w.physadu(s, v))
 }
 
 /// C `sample` on the default instance (see [`Wfdb::sample`]).
+///
+/// Translation of the C function sample() (lib/signal.c, WFDB 10.7.0): same
+/// arguments and results.
 pub fn sample(s: u32, t: i64) -> i32 {
     with_default(|w| w.sample(s, t))
 }
 
 /// C `sample_valid` on the default instance (see [`Wfdb::sample_valid`]).
+///
+/// Translation of the C function sample_valid() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results.
 pub fn sample_valid() -> i32 {
     with_default(super::wfdb::Wfdb::sample_valid)
 }
 
 /// C `setmsheader` on the default instance (see [`Wfdb::setmsheader`]).
+///
+/// Translation of the C function setmsheader() (lib/signal.c, WFDB 10.7.0):
+/// same arguments and results. Differences: a header written under a path
+/// names the record and its segments relative to its own directory, and only
+/// the record's own name (the last component) is checked; see
+/// docs/DIVERGENCES.md.
 pub fn setmsheader<S: AsRef<[u8]>>(
     record: impl AsRef<[u8]>,
     segment_name: &[S],

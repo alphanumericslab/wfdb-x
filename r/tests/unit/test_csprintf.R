@@ -1,8 +1,16 @@
 # Tests of csprintf() (glibc printf semantics); cases from
 # matlab/tests/test_csprintf.m, checked against glibc.
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It tests wfdb-x; it has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 cases <- list(
   list("42", "%d", 42),
@@ -27,8 +35,7 @@ cases <- list(
   list("1.500000 0 2 2 0.1", "%f %.0f %.0f %.0f %.1f", 1.5, 0.5, 1.5, 2.5, 0.05),
   list("2.001 1.00    -3.1416 2.50      |", "%.3f %.2f %10.4f %-10.2f|", 2.0005, 1.005, -3.14159, 2.5),
   list("1.234568e+04 1.23e-04 1.000000E+100 2e+10", "%e %.2e %E %.0e", 12345.678, 0.000123456, 1e100, 2.5e10),
-  list(paste0("1000000000000000052504760255204420248704468581108159154915854115511802457988908195786371375080447864043704443832883878176942523235360430575644792184786706982848387200926575803737830233794788090059368953234970799945081119038967640880074652742780142494579258788820056842838115669472196386865459400540160.000000",
-              " 4.940656e-324 1.79769e+308"), "%f %e %g", 1e300, 2^-1074, .Machine$double.xmax),
+  list("4.940656e-324 1.79769e+308", "%e %g", 2^-1074, (2 - 2^-52) * 2^1023),
   list("+1.000  1.000 -001.500", "%+.3f % .3f %08.3f", 1, 1, -1.5),
   list("    42|42    |3.14|   2.500", "%*d|%-*d|%.*f|%*.*f", 6, 42, 6, 42, 2, 3.14159, 8, 3, 2.5),
   list("42    |", "%*d|", -6, 42),
@@ -71,12 +78,28 @@ cases <- list(
   list("1777777777777777777777", "%lo", -1),
   list("0X00FF", "%#06X", 255),
   list("      0x1234567890", "%#18lx", 78187493520),
-  list("12345678901234567168", "%lu", 12345678901234567890),
+  # (the double nearest 12345678901234567890, from strtod: R's parser does
+  # not always round long decimal literals correctly)
+  list("12345678901234567168", "%lu", strtod("12345678901234567890")[1]),
   list("-1234567890123", "%d", -1234567890123),
   list("  -00001234567890123", "%20.17ld", -1234567890123),
   list("", "%.0d", 0),
   list("0", "%#.0o", 0),
   list("-0001.5", "%07.1f", -1.5))
+
+# Integers of more than 15 digits are formatted exactly by csprintf itself
+# (base-1e5 limbs), so their expected strings above hold whatever the
+# platform's printf does past 17 significant digits.  The exact digits of
+# a large double printed with %f are not computed by csprintf (they come
+# from the C library): checked here through the number they denote (read
+# back with strtod, which rounds correctly, unlike R's parser).
+x <- strtod("1e300")[1]
+s <- rawToChar(csprintf("%f", x))
+check(grepl("^1[0-9]+\\.0{6}$", s) && nchar(s) == 308 && startsWith(s, "10000000000000000") &&
+        strtod(s)[1] == x, "%f of 1e300: 301 digits, 6 decimals, the same value")
+expect_equal(.u64_dec(c(0, 0, 2^32 - 1, 2^31, 2^21, 2^28, 2^32 - 1), c(0, 99999, 2^32 - 1, 0, 2, 0, 2^32 - 2048)),
+             c("0", "99999", "18446744073709551615", "9223372036854775808", "9007199254740994",
+               "1152921504606846976", "18446744073709549568"), ".u64_dec exact digits")
 
 for (k in seq_along(cases)) {
   c <- cases[[k]]

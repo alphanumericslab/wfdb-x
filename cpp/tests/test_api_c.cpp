@@ -7,8 +7,16 @@
 // counterparts of these tests are python/tests/test_api.py and
 // matlab/tests/test_api_c.m.
 //
-// Part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU General Public License, version 2 or later (see LICENSE).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It tests wfdb-x; it has no counterpart in the original package.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 #include "tests.hpp"
 
@@ -1463,7 +1471,8 @@ WFDBX_TEST(c_sort_option)
         CHECK(times("s0") == sorted);
         write("s1", false);
         CHECK(times("s1") == given);
-        CHECK_EQ(wfdberror(), "to rearrange annotations in the correct order.\n");
+        // (sort = false: no advice to run sortann)
+        CHECK(wfdberror().find("rearrange") == std::string::npos);
         CHECK(std::getenv("WFDBANNSORT") == nullptr);
         write("s2", std::nullopt);      // (the next call: as before)
         CHECK(times("s2") == sorted);

@@ -3,18 +3,21 @@
 # (annopen, getann, putann), so that they read and write exactly what the
 # WFDB library and the rdann and wrann tools do.
 #
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
-# bits and millivolts), because a silently assumed value corrupts every result
-# derived from it. See docs/DIVERGENCES.md.
-# Design decision (Reza Sameni, after a code review, Oct 2026):
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
+#
+# No sampling frequency is assumed (read_annotations takes an optional fs).
 # write_annotations takes a dir argument (the file is created in that
 # directory), and an out-of-order file is sorted in this process (see
-# annot.R).  The original behavior remains available with --legacy (see
-# docs/DIVERGENCES.md).
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# annot.R). docs/DIVERGENCES.md gives the reasons.
 
 # A time argument: a sample number, or a time string (strtim; absolute
 # times are taken as their magnitude).
@@ -50,6 +53,13 @@
 #' second).  sampfrom and sampto (sample numbers or time strings) select
 #' the annotations at or after sampfrom and before sampto.  Modification
 #' labels at the start of the file are consumed by annopen, as in C.
+#'
+#' Errors: stop() if the annotator cannot be opened, or if reading ends
+#' with a getann status other than 0 and -1 (e.g. -3, unexpected EOF),
+#' with the message "can't read annotation file ANN of record REC (getann
+#' status S)" (also in legacy mode); getann's own message is printed too.
+#' A read limited by sampto stops at the first annotation at or after
+#' sampto and reads no further.  wfdb-x.
 #'
 #' fs: the sampling frequency of the record, used (like the -F option of
 #' rdann) only if the record has no header or its header does not specify
@@ -99,11 +109,22 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
     wfdbquit()
     stop(sprintf("can't seek in annotator %s", annotator))
   }
-  A <- .getann_bulk(0, Inf)
+  # (nofail: the annotations that getann returns before it fails; the
+  # failing call is made only if no annotation at or after sampto was read)
+  A <- .getann_bulk(0, Inf, nofail = TRUE)
   n <- length(A$time)
-  if (!is.null(to)) {
-    k <- match(TRUE, A$time >= to)
-    if (!is.na(k)) n <- k - 1L
+  k <- if (is.null(to)) NA else match(TRUE, A$time >= to)
+  if (!is.na(k)) {
+    n <- k - 1L
+  } else {
+    stat <- getann(0)$stat
+    # -1: the end of the file; anything else (e.g. -3, unexpected EOF)
+    # is an error
+    if (stat != 0 && stat != -1) {
+      wfdbquit()
+      stop(sprintf("can't read annotation file %s of record %s (getann status %d)",
+                   annotator, record, as.integer(stat)))
+    }
   }
   s <- seq_len(n)
   afs <- getiafreq(0)

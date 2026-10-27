@@ -204,7 +204,7 @@ wfdbflush()
     the files are compared, not their names): it reports
     \samp{osigfopen: output file NAME is also an input file} (or
     \samp{osigopen: ...}) and returns -3, without creating or truncating
-    the file (not in legacy mode; identical in all six implementations).
+    the file (not in legacy mode; identical in all seven implementations).
     \code{putvec} writes one sample vector,
     \code{putframes} one per row of a matrix (exactly as many calls of
     \code{putvec}).  \code{newheader} then writes the header file of the
@@ -312,6 +312,26 @@ wfdbflush()
       \code{isigopen}.}
   }
 }
+\section{Origin}{
+  \code{getframes} and \code{putframes} are part of wfdb-x; not in the
+  original WFDB package.
+
+  Translation of the C functions isigopen(), osigopen(), osigfopen(),
+  findsig(), getspf(), setgvmode(), getgvmode(), setifreq(), getifreq(),
+  getvec(), getframe(), putvec(), isigsettime(), isgsettime(),
+  tnextvec(), setibsize(), setobsize(), newheader(), setheader(),
+  setmsheader(), getseginfo(), wfdbgetskew(), wfdbsetiskew(),
+  wfdbsetskew(), wfdbgetstart(), wfdbsetstart(), wfdbputprolog(),
+  setinfo(), putinfo(), getinfo(), wfdb_freeinfo(), sampfreq(),
+  setsampfreq(), getcfreq(), setcfreq(), getbasecount(), setbasecount(),
+  adumuv(), muvadu(), aduphys(), physadu(), sample() (here
+  \code{wfdb_sample}) and sample_valid() (lib/signal.c, WFDB 10.7.0),
+  and wfdbinit(), wfdbquit() and wfdbflush() (lib/wfdbinit.c, WFDB
+  10.7.0): same arguments and results. Differences: no sampling
+  frequency, gain or ADC resolution is assumed, the files named in a
+  header are read only from its directory, and an output signal file is
+  never one of the input files; see \file{docs/DIVERGENCES.md}.
+}
 \seealso{
   \code{\link{read_record}} and \code{\link{write_record}} for whole
   records; \code{\link{siginfo}} for the structures; \code{\link{timstr}}
@@ -320,6 +340,7 @@ wfdbflush()
 }
 \examples{
 old <- setwd(tempdir())
+## "example" and "rec2" are records written by this example.
 write_record("example", cbind(0:499, 499:0), fs = 250, gains = 200, adcres = 16,
              units = "mV", names = c("up", "down"))
 

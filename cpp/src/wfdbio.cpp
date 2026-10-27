@@ -1,31 +1,42 @@
-// wfdbio.cpp: low-level I/O functions of the WFDB library
-// (C++ port of lib/wfdbio.c, WFDB 10.7.0)
+// wfdbio.cpp: low-level I/O functions of the WFDB library.
+//
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a C++ translation of lib/wfdbio.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original code, but it is new code, not the original C code.
+//
+// Changes from the original: files are found only where they are named, not by
+// a search of the WFDB path: a relative name is read under the input directory
+// and written under the output directory (by default, the current directory),
+// and an absolute name, a ~ name or a URL is used as given; setwfdb, getwfdb
+// and resetwfdb set and return the input directory, and the WFDB environment
+// variable is ignored; a URL is opened only if network access is turned on
+// (wfdbx_set_network or WFDBX_NETWORK), and is then read in full by the curl
+// program, run without a shell; the original's HTTP and FTP code (NETFILES) is
+// not translated; ".." is accepted in names, and only the last component of a
+// record name is checked; additions: wfdbx_set_input_dir, wfdbx_get_input_dir,
+// wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network and
+// wfdbx_get_network; legacy mode (wfdbx_set_legacy) restores the original
+// behavior (the WFDB path, without network access). Each change is marked
+// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+//
+// Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
+//   Benjamin Moody.
+// C++ translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 //
 // This file contains the WFDB path functions (getwfdb, setwfdb, ...), the
 // functions that find and open WFDB files (wfdb_open, wfdb_fopen), error
 // reporting (wfdb_error, wfdberror), the stdio wrappers of WFDB_FILE, and
 // the wfdb-x settings that locate files (wfdbx_set_input_dir,
 // wfdbx_set_output_dir, wfdbx_set_network).
-//
-// wfdb-x: files are found by explicit names instead of a search of the WFDB
-// path: a relative name is read under the input directory and written under
-// the output directory (by default, the current directory), and an absolute
-// name, a ~ name or a URL is used as given; nothing else is searched.  A URL
-// is opened only if network access was allowed (wfdbx_set_network or
-// WFDBX_NETWORK); it is then read in full by the curl program, run without a
-// shell.  Decided by Reza Sameni, Oct 2026: a search can silently open the
-// wrong file (a stale copy earlier in the path) and fails in ways nobody
-// notices, and the network must not be used without being asked for.  The
-// sortann program (legacy mode, see annot.cpp) is run without a shell, in the
-// output directory if one is set (Reza Sameni, after a code review, Oct
-// 2026).  The original behavior remains available with --legacy (see
-// docs/DIVERGENCES.md); legacy mode searches the WFDB path, and has no
-// network access (as the C library built without libcurl).
-//
-// Copyright (C) 1988-2013 George B. Moody (original C implementation,
-// lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
-// C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #include "wfdblib.hpp"
 
@@ -510,12 +521,7 @@ const std::string &wfdb_filename() { return io().filename; }
 // kept for the rest of the process, so that each URL is requested at most
 // once.  The file is read from a temporary copy.
 
-namespace {
-
-#if defined(_WIN32)
-// An argument of a command line, quoted as the MS-Windows C runtime parses it
-// (_spawnvp joins its arguments with spaces, without quoting them).
-std::string quote_arg(const std::string &a)
+std::string wfdbx_quote_arg(const std::string &a)
 {
     if (!a.empty() && a.find_first_of(" \t\"") == std::string::npos)
         return a;
@@ -533,15 +539,30 @@ std::string quote_arg(const std::string &a)
     q.append(2 * backslashes, '\\');
     return q + "\"";
 }
-#endif
+
+std::vector<std::string> wfdbx_curl_args(const std::string &url, bool quote)
+{
+    std::vector<std::string> args = {
+        "curl", "--silent", "--fail", "--location",
+        "--connect-timeout", "30", "--speed-limit", "1", "--speed-time", "30"};
+    args.push_back(quote ? wfdbx_quote_arg(url) : url);
+    return args;
+}
+
+namespace {
 
 // Read the URL into data.  Returns 1 on success, 0 on failure, or -1 if curl
 // could not be started.
 int run_curl(const std::string &url, std::string &data)
 {
-    const char *argv[] = {"curl", "--silent", "--fail", "--location",
-                          "--connect-timeout", "30", "--speed-limit", "1",
-                          "--speed-time", "30", url.c_str(), nullptr};
+#if defined(_WIN32)
+    const std::vector<std::string> args = wfdbx_curl_args(url, true);
+#else
+    const std::vector<std::string> args = wfdbx_curl_args(url, false);
+#endif
+    std::vector<const char *> argv;
+    for (const std::string &a : args) argv.push_back(a.c_str());
+    argv.push_back(nullptr);
     int status;
     data.clear();
     std::fflush(stdout);
@@ -551,12 +572,10 @@ int run_curl(const std::string &url, std::string &data)
     // error to NUL (both redirected while it runs).  (Untested.)
     std::FILE *tf = std::tmpfile();
     if (tf == nullptr) return 0;
-    std::string quoted = quote_arg(url);
-    argv[6] = quoted.c_str();
     int so = _dup(1), se = _dup(2), nul = _open("NUL", _O_WRONLY);
     _dup2(_fileno(tf), 1);
     if (nul >= 0) _dup2(nul, 2);
-    intptr_t r = _spawnvp(_P_WAIT, "curl", argv);
+    intptr_t r = _spawnvp(_P_WAIT, "curl", argv.data());
     _dup2(so, 1);
     _dup2(se, 2);
     _close(so);
@@ -584,7 +603,7 @@ int run_curl(const std::string &url, std::string &data)
     posix_spawn_file_actions_addclose(&fa, fd[1]);
     pid_t pid;
     int err = posix_spawnp(&pid, "curl", &fa, nullptr,
-                           const_cast<char *const *>(argv), environ);
+                           const_cast<char *const *>(argv.data()), environ);
     posix_spawn_file_actions_destroy(&fa);
     close(fd[1]);
     if (err != 0) {
@@ -851,6 +870,13 @@ std::string wfdbx_dirname(const std::string &path)
 int wfdb_checkname(const char *p, const char *s)
 {
     if (p == nullptr) p = "";
+    // wfdb-x: a record name may be a path; outside legacy mode only its last
+    // component (the record's own name) is checked, so that directories with
+    // other characters (such as "my.data/rec") can be written.
+    if (std::strcmp(s, "record") == 0 && !wfdbx_get_legacy()) {
+        const char *k = std::strrchr(p, DSEP);
+        if (k) p = k + 1;
+    }
     do {
         char c = *p;
         if (('0' <= c && c <= '9') || c == '_' || c == '~' || c == '-' ||

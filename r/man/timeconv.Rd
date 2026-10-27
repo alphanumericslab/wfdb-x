@@ -85,6 +85,15 @@ setbasetime(string)
 
   \code{setbasetime} returns 0, or -1 if the string is not valid.
 }
+\section{Origin}{
+  \code{wfdbx_time_needs_freq} is part of wfdb-x; not in the original
+  WFDB package.
+
+  Translation of the C functions timstr(), mstimstr(), strtim(),
+  datstr(), strdat() and setbasetime() (lib/signal.c, WFDB 10.7.0): same
+  arguments and results. Differences: no sampling frequency is assumed
+  when none is known; see \file{docs/DIVERGENCES.md}.
+}
 \seealso{
   \code{\link{sampfreq}}, \code{\link{setsampfreq}},
   \code{\link{isigsettime}}.

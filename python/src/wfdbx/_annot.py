@@ -5,22 +5,30 @@ either MIT or AHA format.  An annotation's ``aux`` field, when present, is
 a ``bytes`` object whose first byte is the length of the data that follows,
 exactly as in the C library.
 
-wfdb-x: oannclose rearranges an out-of-order output annotation file itself,
-in the same process, with a result identical to that of the sortann program,
-which the C library ran through the shell (and found only if it was in the
-PATH); decided by Reza Sameni after a code review, Oct 2026.  The original
-behavior remains available with --legacy (see docs/DIVERGENCES.md).
-wfdb-x: the sort (as the sortann tool) no longer loses an out-of-order
-annotation at time 0 (num 0, chan 0), nor those inserted after it, as sortann
-did (decided by Reza Sameni, Oct 2026; --legacy keeps the original).
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
-Copyright (C) 1989-2013 George B. Moody (original C implementation,
-lib/annot.c; revised 2015-2020 by Benjamin Moody).
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-This library is free software; you can redistribute it and/or modify it under
-the terms of the GNU Library General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your option) any
-later version.
+It is a Python translation of lib/annot.c from the WFDB Software Package
+10.7.0, by George B. Moody. The translation follows the logic and behavior of
+the original code, but it is new code, not the original C code.
+
+Changes from the original: oannclose sorts an out-of-order output annotation
+file in this process, with the same result as the sortann program, which the
+original ran through the shell; the sort does not lose an out-of-order
+annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
+option of the high-level write_annotations decides, for its call, whether the
+file is sorted; legacy mode (wfdbx_set_legacy) restores the original behavior.
+Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+reasons.
+
+Original C code: lib/annot.c, WFDB Software Package 10.7.0.
+  Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by Benjamin Moody.
+Python translation and changes: Copyright (C) 2026 Reza Sameni.
+
+This library is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import os
@@ -368,6 +376,11 @@ def annopen(record, aiarray, nann=None):
       -6  output annotations closed by this call could not be sorted
           (only if nann is 0)
       -7  write error while closing output annotations (only if nann is 0)
+
+    Translation of the C function annopen() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results. Differences: the annotation files are found only
+    where they are named, not by a search of the WFDB path; see
+    docs/DIVERGENCES.md.
     """
     if nann is None:
         nann = len(aiarray) if aiarray else 0
@@ -443,6 +456,9 @@ def getann(n, annot):
       -1  end of file (annot is not valid)
       -2  n is not an open input annotator
       -3  unexpected physical end of file
+
+    Translation of the C function getann() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     iad = _a.iad
     if n < 0 or n >= len(iad) or iad[n] is None or iad[n].file is None:
@@ -564,6 +580,9 @@ def ungetann(n, annot):
     The next getann(n, ...) returns a copy of ``annot``.  Only one
     annotation can be pushed back at a time.  Returns 0 on success, -1 if
     the push-back buffer is full, or -2 if n is not an input annotator.
+
+    Translation of the C function ungetann() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     iad = _a.iad
     if n < 0 or n >= len(iad) or iad[n] is None:
@@ -596,6 +615,9 @@ def putann(n, annot):
     channel); otherwise the file is sorted when it is closed (see
     oannclose).  Returns 0 on success, -1 on a write error, or -2 if n is
     not an open output annotator.
+
+    Translation of the C function putann() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     oad = _a.oad
     if n < 0 or n >= len(oad) or oad[n] is None or oad[n].file is None:
@@ -686,25 +708,33 @@ def _put_ann_word(oa, n, annot):
     return 0
 
 
-def _putanns(n, times, anntyps, subtyps, chans, nums, auxes):
-    """putann(n, annot) for each annotation given by the lists times,
+def _putanns(n, times, anntyps, subtyps, chans, nums, auxes,
+             packed_aux=False):
+    """putann(n, annot) for each annotation given by the sequences times,
     anntyps, subtyps, chans, nums and auxes (aux: None, or bytes as in
     Annotation.aux), in order (wfdb-x: for write_annotations).  An
     annotation that putann rejects (time overflow) is skipped, with
     putann's message.  Returns 0, -1 on a write error, or -2 if n is not
-    an open output annotator.
+    an open output annotator.  With packed_aux=True, auxes is a pair
+    (data, lengths): the aux texts one after the other in data (bytes,
+    without length bytes), and the length of each (0: none); a text
+    longer than 255 bytes is cut.
 
-    For an MIT-format file the annotations are encoded into one buffer,
-    byte for byte as by _put_ann_word, and written at once (calling putann
-    for each was the slowest part of writing a file); other formats use
-    putann."""
+    For an MIT-format file the annotations are encoded with NumPy into one
+    buffer, byte for byte as by _put_ann_word, and written at once (calling
+    putann for each was the slowest part of writing a file); other formats
+    use putann."""
     oad = _a.oad
     if n < 0 or n >= len(oad) or oad[n] is None or oad[n].file is None:
         wfdb_error("putann: can't write annotation file %d\n", n)
         return -2
     oa = oad[n]
     count = len(times)
+    if packed_aux and oa.info.stat != WFDB_WRITE:
+        auxes = _unpacked_aux(auxes, count)
     if oa.info.stat != WFDB_WRITE:
+        times, anntyps, subtyps, chans, nums = (
+            _int_list(v) for v in (times, anntyps, subtyps, chans, nums))
         stat = 0
         for k in range(count):
             a = Annotation(times[k], anntyps[k], subtyps[k], chans[k],
@@ -718,6 +748,293 @@ def _putanns(n, times, anntyps, subtyps, chans, nums, auxes):
         oa.table_written = 1
         if _put_ann_table(oa, n, _a.oafreq, _lib_defs) < 0:
             return -1
+    buf = _encode_anns(oa, n, times, anntyps, subtyps, chans, nums, auxes,
+                       packed_aux)
+    if buf is None:     # (values beyond 64 bits, or aux not bytes)
+        if packed_aux:
+            auxes = _unpacked_aux(auxes, count)
+        times, anntyps, subtyps, chans, nums = (
+            _int_list(v) for v in (times, anntyps, subtyps, chans, nums))
+        return _putanns_loop(oa, n, count, times, anntyps, subtyps, chans,
+                             nums, auxes)
+    f = oa.file
+    f.write(buf)
+    if f.ferror():
+        wfdb_error("putann: write error on annotation file %s\n",
+                   oa.info.name)
+        return -1
+    return 0
+
+
+def _unpacked_aux(packed, count):
+    # packed aux texts (see _putanns) as a list of count auxes as in
+    # Annotation.aux (None, or a length byte and the text, cut to 255
+    # bytes)
+    data, lens = packed
+    out, pos = [], 0
+    for ln in lens[:count]:
+        ln = int(ln)
+        x = data[pos:pos + ln]
+        pos += ln
+        out.append(bytes((min(ln, 255),)) + bytes(x[:255]) if ln else None)
+    return out
+
+
+def _int_list(v):
+    # v (a sequence of integers, or a NumPy array) as a list of Python ints
+    if hasattr(v, "tolist"):
+        v = v.tolist()
+    return [int(x) for x in v]
+
+
+def _int64_array(v, np):
+    """v as an int64 NumPy array, or None if a value does not fit in 64
+    bits (signed) or is not an integer."""
+    if isinstance(v, np.ndarray):
+        if v.dtype.kind == "i":
+            return v.astype(np.int64, copy=False)
+        if v.dtype.kind == "u":
+            if v.size and int(v.max()) > LONG_MAX:
+                return None
+            return v.astype(np.int64)
+        if v.dtype.kind != "O":
+            return None
+        v = v.tolist()
+    try:
+        a = np.array(v, dtype=np.int64)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    if a.ndim != 1:
+        return None
+    # (np.array truncates floats; putann took Python ints only)
+    if any(type(x) is not int and not isinstance(x, np.integer) for x in v):
+        return None
+    return a
+
+
+def _encode_anns(oa, n, times, anntyps, subtyps, chans, nums, auxes,
+                 packed_aux=False):
+    """The bytes that putann writes for the given annotations in an
+    MIT-format file (after the table), computed with NumPy (wfdb-x), or
+    None if the values cannot be handled so (an integer beyond 64 bits, an
+    aux that is not bytes): _putanns_loop then encodes them.  Updates
+    oa.ann (the last annotation written) and oa.out_of_order as putann
+    does, and prints putann's message for each time overflow (skipped).
+    With packed_aux, auxes holds the texts packed (see _putanns).
+
+    Every item of an MIT-format annotation is a whole number of 16-bit
+    words (an aux string is padded to an even length), so the output is
+    laid out as words: each annotation gets, in this order, the SKIPs of a
+    gap longer than MAXSKIP (rare: written one by one), the SKIP of a gap
+    longer than MAXRR or of a code 0, its annotation word, and the SUB,
+    CHN, NUM and AUX words that it needs, then the aux bytes."""
+    import numpy as np
+    count = len(times)
+    cols = [_int64_array(v, np) for v in (times, anntyps, subtyps, chans,
+                                           nums)]
+    if any(c is None or len(c) < count for c in cols):
+        return None
+    t_all, typ_all, sub_all, chan_all, num_all = (c[:count] for c in cols)
+    # aux: the texts given as bytes with their length bytes (items, with
+    # aux_idx the annotations that have one, None: all), or packed
+    if packed_aux:
+        pdata, plens = auxes
+        plens = plens_all = np.asarray(plens, np.int64)
+        if len(plens) < count or not isinstance(pdata, bytes) or \
+                int(plens.sum()) > len(pdata) or (plens < 0).any():
+            return None
+        plens = plens[:count]
+        pstarts = np.zeros(count, np.int64)
+        np.cumsum(plens[:-1], out=pstarts[1:])
+        pstarts_all = pstarts
+        aux_idx, items = None, None
+    else:
+        if len(auxes) != count:
+            auxes = auxes[:count]
+        types = set(map(type, auxes))
+        if types <= {bytes, bytearray}:
+            aux_idx, items = None, auxes
+        elif types <= {bytes, bytearray, type(None)}:
+            aux_idx = [k for k, x in enumerate(auxes) if x is not None]
+            items = [auxes[k] for k in aux_idx]
+        else:
+            return None
+    achan_all = chan_all & 0xFF
+    anum_all = ((num_all + 128) & 0xFF) - 128       # (signed char)
+    keep = (t_all != WFDB_TIME_MIN) & (t_all != WFDB_TIME_MAX)
+    if keep.all():
+        # the previous annotation written: the one before, or oa.ann
+        sel = None
+        t, typ, sub, achan, anum = t_all, typ_all, sub_all, achan_all, \
+            anum_all
+        pt = np.empty(count, np.int64)
+        pt[0] = oa.ann.time
+        pt[1:] = t[:-1]
+        pchan = np.empty(count, np.int64)
+        pchan[0] = uint8(oa.ann.chan)
+        pchan[1:] = achan[:-1]
+        pnum = np.empty(count, np.int64)
+        pnum[0] = int8(oa.ann.num)
+        pnum[1:] = anum[:-1]
+        in_order = (achan > pchan) | (anum > pnum) | (t > pt) | \
+            ((t == 0) & (pt == 0))
+    else:
+        # time overflows (skipped): the previous annotation written is the
+        # last one kept before each annotation, or oa.ann
+        k_idx = np.where(keep, np.arange(count), -1)
+        prev = np.empty(count, np.int64)
+        prev[0] = -1
+        prev[1:] = np.maximum.accumulate(k_idx)[:-1]
+        first = prev < 0
+        p = np.where(first, 0, prev)
+        pt_all = np.where(first, oa.ann.time, t_all[p])
+        pchan_all = np.where(first, uint8(oa.ann.chan), achan_all[p])
+        pnum_all = np.where(first, int8(oa.ann.num), anum_all[p])
+        in_order = (achan_all > pchan_all) | (anum_all > pnum_all) | \
+            (t_all > pt_all) | ((t_all == 0) & (pt_all == 0))
+        for k in np.flatnonzero(~keep).tolist():
+            wfdb_error("putann: time overflow in annotation file %d\n", n)
+        sel = np.flatnonzero(keep)
+        t, typ, sub = t_all[sel], typ_all[sel], sub_all[sel]
+        achan, anum = achan_all[sel], anum_all[sel]
+        pt, pchan, pnum = pt_all[sel], pchan_all[sel], pnum_all[sel]
+        if packed_aux:
+            plens, pstarts = plens[sel], pstarts[sel]
+        elif aux_idx is None:
+            items = [items[k] for k in sel.tolist()]
+        else:
+            pos = {k: i for i, k in enumerate(sel.tolist())}
+            aux_sel = [(pos[k], x) for k, x in zip(aux_idx, items)
+                       if k in pos]
+            aux_idx = [i for i, _ in aux_sel]
+            items = [x for _, x in aux_sel]
+    oa.out_of_order = oa.out_of_order or not bool(in_order.all())
+    m = len(t)
+    if m == 0:
+        return b""
+    last = int(sel[-1]) if sel is not None else count - 1
+    # The interval from the previous annotation, as putann computes it
+    # (modulo 2^64).  A gap of more than MAXSKIP samples forward, or
+    # -MINSKIP backward, takes SKIPs of MAXSKIP (or MINSKIP) first, and
+    # leaves an interval of 1..MAXSKIP (or -MAXSKIP..0); such gaps are
+    # rare, and computed with Python ints.
+    delta = t - pt                  # (wraps around if |t - pt| >= 2^63)
+    nloop = None
+    big = (delta > MAXSKIP) | (delta < MINSKIP) | ((t > pt) != (delta > 0))
+    if big.any():
+        nloop = np.zeros(m, np.int64)
+        for i in np.flatnonzero(big).tolist():
+            ti, pi = int(t[i]), int(pt[i])
+            mag = abs(ti - pi)
+            q = (mag - 1) // MAXSKIP
+            nloop[i] = q
+            mag -= q * MAXSKIP
+            delta[i] = mag if ti > pi else -mag
+    zero = typ == 0
+    skip = zero | (delta < 0) | (delta > MAXRR)
+    skipval = np.where(zero, delta - 1, delta) & 0xFFFFFFFF
+    delta = np.where(zero, 1, np.where(skip, 0, delta))
+    has_sub = sub != 0
+    has_chn = achan != pchan
+    has_num = anum != pnum
+    # aux strings: the length stated (the first byte, or the length of a
+    # raw text), the bytes given
+    nitem = m if packed_aux else len(items)
+    if nitem:
+        if packed_aux:
+            blob = np.frombuffer(pdata, np.uint8)
+            stated = np.minimum(plens, 255)
+            avail = stated
+            src0 = pstarts
+        else:
+            lens = np.fromiter(map(len, items), np.int64, nitem)
+            if lens.min() == 0:
+                return None
+            blob = np.frombuffer(b"".join(items), np.uint8)
+            starts = np.zeros(nitem, np.int64)
+            np.cumsum(lens[:-1], out=starts[1:])
+            stated = blob[starts].astype(np.int64)
+            avail = np.minimum(stated, lens - 1)
+            src0 = starts + 1
+        if aux_idx is None:
+            aux_len = stated
+            aidx = None
+        else:
+            aidx = np.array(aux_idx, np.int64)
+            aux_len = np.zeros(m, np.int64)
+            aux_len[aidx] = stated
+    else:
+        aux_len = np.zeros(m, np.int64)
+    has_aux = aux_len != 0
+    nwords = 3 * skip + 1 + has_sub + has_chn + has_num + has_aux + \
+        (aux_len + 1) // 2
+    if nloop is not None:
+        nwords += 3 * nloop
+    off = np.zeros(m + 1, np.int64)
+    np.cumsum(nwords, out=off[1:])
+    nbytes = 2 * int(off[-1])
+    out = np.zeros(nbytes + 1, np.uint8)      # (+1: see the aux bytes)
+    words = out[:nbytes].view("<u2")
+    w = off[:-1]
+    if nloop is not None:
+        for i in np.flatnonzero(nloop).tolist():
+            val = MAXSKIP if t[i] > pt[i] else MINSKIP
+            rep = np.array([SKIP, (val >> 16) & 0xFFFF, val & 0xFFFF], "<u2")
+            o = int(off[i])
+            words[o:o + 3 * int(nloop[i])] = np.tile(rep, int(nloop[i]))
+        w = w + 3 * nloop
+    ws = w[skip]
+    words[ws] = SKIP
+    sv = skipval[skip]
+    words[ws + 1] = sv >> 16
+    words[ws + 2] = sv & 0xFFFF
+    w = w + 3 * skip
+    words[w] = (delta + (typ << CS)) & 0xFFFF
+    w = w + 1
+    if has_sub.any():
+        words[w[has_sub]] = (SUB + (DATA & sub[has_sub])) & 0xFFFF
+        w = w + has_sub
+    if has_chn.any():
+        words[w[has_chn]] = (CHN + (DATA & achan[has_chn])) & 0xFFFF
+        w = w + has_chn
+    if has_num.any():
+        words[w[has_num]] = (NUM + (DATA & anum[has_num])) & 0xFFFF
+        w = w + has_num
+    if nitem:
+        words[w[has_aux]] = (AUX + aux_len[has_aux]) & 0xFFFF
+        w = w + has_aux
+        # the given bytes of each string, at byte 2 * w (the zero padding
+        # to the stated length and to an even length is there already):
+        # the bytes in the strings, marked as runs of 1 by a running sum
+        dst0 = 2 * (w if aidx is None else w[aidx])
+        total = int(avail.sum())
+        if total:
+            def runs(size, p0):
+                # (starts are distinct, and so are ends; an end may be the
+                # start of the next string)
+                mark = np.zeros(size + 1, np.int8)
+                nz = avail > 0
+                mark[p0[nz]] += 1
+                mark[(p0 + avail)[nz]] -= 1
+                return np.cumsum(mark[:size], dtype=np.int8).view(bool)
+            if packed_aux and len(blob) == total:
+                data = blob         # (all the texts, none cut)
+            else:
+                data = blob[runs(len(blob), src0)]
+            out[:nbytes][runs(nbytes, dst0)] = data
+    oa.ann = Annotation(int(t_all[last]), int(typ_all[last]),
+                        int(sub_all[last]), int(chan_all[last]),
+                        int(num_all[last]),
+                        _unpacked_aux((pdata[pstarts_all[last]:],
+                                       plens_all[last:last + 1]), 1)[0]
+                        if packed_aux else auxes[last])
+    return memoryview(out)[:nbytes]
+
+
+def _putanns_loop(oa, n, count, times, anntyps, subtyps, chans, nums,
+                  auxes):
+    """The MIT-format encoder of _putanns, one annotation at a time (for
+    values that _encode_anns does not take)."""
     buf = bytearray()
     put = buf.extend
 
@@ -806,6 +1123,9 @@ def iannsettime(t):
     ``t`` is in sample intervals (a negative t, as returned by strtim() for
     a time of day, is negated).  Returns 0 on success, or -1 on an
     improper seek or if every input annotator reached the end of its file.
+
+    Translation of the C function iannsettime() (lib/annot.c, WFDB 10.7.0):
+    same arguments and results.
     """
     stat = 0
     niavalid = len(_a.iad)
@@ -909,6 +1229,9 @@ def ecgstr(code):
     Unlike annstr(), the result is not affected by setannstr() or by the
     mnemonics defined in annotation files.  A code out of range gives
     "[code]".
+
+    Translation of the C function ecgstr() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if 0 <= code <= ACMAX:
         return _cstring[code]
@@ -919,6 +1242,9 @@ def strecg(s):
     """Return the annotation code of a standard mnemonic (see ecgstr()).
 
     Returns NOTQRS (0) if the mnemonic is not defined.
+
+    Translation of the C function strecg() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if s is None:
         s = ""
@@ -932,6 +1258,9 @@ def setecgstr(code, s):
     """Redefine the standard mnemonic used by ecgstr() and strecg() for a code.
 
     Returns 0 on success, or -1 if the code is illegal.
+
+    Translation of the C function setecgstr() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if NOTQRS <= code <= ACMAX:
         _cstring[code] = s if s is not None else ""
@@ -945,6 +1274,9 @@ def annstr(code):
 
     The mnemonic may have been redefined by setannstr() or by an annotation
     file opened for reading.  A code out of range gives "[code]".
+
+    Translation of the C function annstr() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if 0 <= code <= ACMAX:
         return _astring[code]
@@ -955,6 +1287,9 @@ def strann(s):
     """Return the annotation code of a mnemonic (see annstr()).
 
     Returns NOTQRS (0) if the mnemonic is not defined.
+
+    Translation of the C function strann() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if s is None:
         s = ""
@@ -990,6 +1325,9 @@ def setannstr(code, s):
     A positive code marks the new mnemonic to be recorded in output
     annotation files; a negative code (-code) changes it for this program
     only.  Returns 0 on success, or -1 if the code is illegal.
+
+    Translation of the C function setannstr() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if _set_def_string(_astring, _a.modified, code, s) == 0:
         return 0
@@ -1002,6 +1340,9 @@ def anndesc(code):
 
     Returns None if the code has no description, or "illegal annotation
     code" if the code is out of range.
+
+    Translation of the C function anndesc() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if 0 <= code <= ACMAX:
         return _tstring[code]
@@ -1014,6 +1355,9 @@ def setanndesc(code, s):
     A positive code marks the new description to be recorded in output
     annotation files; a negative code (-code) changes it for this program
     only.  Returns 0 on success, or -1 if the code is illegal.
+
+    Translation of the C function setanndesc() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if _set_def_string(_tstring, _a.modified, code, s) == 0:
         return 0
@@ -1028,12 +1372,19 @@ def setafreq(f):
     the value is recorded at the start of each such file.  0 (the
     default) records no time resolution: times are then in sample
     intervals of the record.
+
+    Translation of the C function setafreq() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     _a.oafreq = f
 
 
 def getafreq():
-    """Return the time resolution set by setafreq() (0 if not set)."""
+    """Return the time resolution set by setafreq() (0 if not set).
+
+    Translation of the C function getafreq() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     return _a.oafreq
 
 
@@ -1041,6 +1392,9 @@ def setiafreq(n, f):
     """Set the frequency in which times of input annotator n are expressed.
 
     After this call, getann(n, ...) returns times in units of 1/f seconds.
+
+    Translation of the C function setiafreq() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     iad = _a.iad
     if 0 <= n < len(iad) and iad[n] is not None:
@@ -1063,6 +1417,9 @@ def getiafreq(n):
     """Return the frequency (Hz) of the times returned by input annotator n.
 
     Returns -2.0 if n is not an open input annotator.
+
+    Translation of the C function getiafreq() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     iad = _a.iad
     if 0 <= n < len(iad) and iad[n] is not None:
@@ -1079,6 +1436,9 @@ def getiaorigfreq(n):
 
     Returns 0.0 if the file does not record one, or -2.0 if n is not an
     open input annotator.
+
+    Translation of the C function getiaorigfreq() (lib/annot.c, WFDB 10.7.0):
+    same arguments and results.
     """
     iad = _a.iad
     if 0 <= n < len(iad) and iad[n] is not None:
@@ -1090,6 +1450,9 @@ def iannclose(n):
     """Close input annotator n.
 
     Input annotators with higher numbers are renumbered down by one.
+
+    Translation of the C function iannclose() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results.
     """
     iad = _a.iad
     if 0 <= n < len(iad) and iad[n] is not None and iad[n].file is not None:
@@ -1283,6 +1646,11 @@ def oannclose(n):
     rearranged (in this process; in legacy mode, by running the sortann
     tool), unless the WFDBANNSORT environment variable is 0.  Output
     annotators with higher numbers are renumbered down by one.
+
+    Translation of the C function oannclose() (lib/annot.c, WFDB 10.7.0): same
+    arguments and results. Differences: an out-of-order file is sorted in this
+    process, without losing annotations, instead of by running sortann; see
+    docs/DIVERGENCES.md.
     """
     oad = _a.oad
     if not (0 <= n < len(oad) and oad[n] is not None and
@@ -1326,10 +1694,13 @@ def oannclose(n):
                 wfdb_error("\nAnnotations still need to be rearranged.\n")
             if _a.annclose_error == 0:
                 _a.annclose_error = -6
-    if oa.out_of_order:
+    # wfdb-x: no advice to run sortann when the caller chose not to sort
+    # (write_annotations(sort=False)); WFDBANNSORT=0 still gives it.
+    if oa.out_of_order and _a.sort_override is not False:
         wfdb_error("Use the command:\n  sortann -r %s -a %s\n",
                    oa.rname, oa.info.name)
         wfdb_error("to rearrange annotations in the correct order.\n")
+    if oa.out_of_order:
         if _a.annclose_error == 0:
             _a.annclose_error = -6
     del oad[n]

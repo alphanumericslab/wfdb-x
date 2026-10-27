@@ -1,10 +1,15 @@
 """Annotation I/O tests.
 
-Part of wfdb-x, Reza Sameni, Oct 2026.
-This program is free software; you can redistribute it and/or modify it under
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+tests wfdb-x; it has no counterpart in the original package.
+
+Copyright (C) 2026 Reza Sameni.
+
+This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
-version.
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import os
@@ -331,6 +336,32 @@ def test_write_annotations_sort_option(datadir, monkeypatch, capfd, legacy):
         w.wfdbverbose()
 
 
+def test_write_annotations_sort_false_no_advice(datadir, monkeypatch, capfd):
+    # sort=False: the caller chose the order, so the library does not advise
+    # running sortann; WFDBANNSORT=0 (and the C-style API) still does
+    t, s = [300, 100, 200], ["N", "V", "N"]
+    advice = ("Use the command:\n  sortann -r rec -a %s\nto rearrange "
+              "annotations in the correct order.\n")
+    capfd.readouterr()
+    for env in (None, "0", "1"):
+        if env is None:
+            monkeypatch.delenv("WFDBANNSORT", raising=False)
+        else:
+            monkeypatch.setenv("WFDBANNSORT", env)
+        for legacy in (False, True):
+            w.write_annotations("rec", "uns", t, symbols=s, sort=False,
+                                legacy=legacy)
+            assert capfd.readouterr().err == ""
+    monkeypatch.setenv("WFDBANNSORT", "0")
+    w.write_annotations("rec", "env0", t, symbols=s)
+    assert capfd.readouterr().err == advice % "env0"
+    assert w.annopen("rec", [w.Anninfo("low", w.WFDB_WRITE)]) == 0
+    for k in range(3):
+        w.putann(0, w.Annotation(t[k], 1, 0, 0, 0, None))
+    w.wfdbquit()
+    assert capfd.readouterr().err == advice % "low"
+
+
 # ---------------------------------------------------------------------------
 # The bulk MIT-format encoder of write_annotations (_putanns) writes the same
 # bytes as putann for each annotation
@@ -424,6 +455,74 @@ def test_bulk_annotation_encoder(datadir, monkeypatch):
         w.wfdbverbose()
 
 
+def test_bulk_annotation_encoder_large(datadir, monkeypatch):
+    # many random annotations (long gaps in both directions, time
+    # overflows, code 0, long aux texts that are cut, aux
+    # stated longer or shorter than given): the NumPy encoder writes the
+    # same bytes as putann for each annotation
+    import numpy as np
+    from wfdbx import _annot
+    from wfdbx._annot import WFDB_TIME_MAX, WFDB_TIME_MIN
+    monkeypatch.setenv("WFDBANNSORT", "0")
+    w.wfdbquiet()
+    try:
+        rng = np.random.default_rng(1234)
+        n = 100000
+        times, codes, subtypes, chans, nums, aux = \
+            _random_annotations(rng, n)
+        times = np.array(times, np.int64)
+        far = rng.random(n) < 0.001
+        times[far] = rng.integers(-(1 << 36), 1 << 36, int(far.sum()))
+        times[rng.random(n) < 0.0005] = WFDB_TIME_MAX
+        times[rng.random(n) < 0.0005] = WFDB_TIME_MIN
+        times = times.tolist()
+        for k in rng.choice(n, 300, replace=False).tolist():
+            aux[k] = "y" * int(rng.integers(256, 600))
+        anns = (times, codes, subtypes, chans, nums, aux)
+        ref = _write_low_level("ref", anns, False, 360.0)
+        w.setafreq(0.0)
+        w.write_annotations("rec", "hl", np.array(times), codes=codes,
+                            subtypes=subtypes, chans=np.array(chans),
+                            nums=nums, aux=aux, fs=360, sort=False)
+        assert open("rec.hl", "rb").read() == ref
+        assert _write_low_level("blk", anns, True, 360.0) == ref
+        # aux as given to putann: a length byte that differs from the
+        # length of the text (the text is cut, or padded with zeros)
+        auxb = [_aux_bytes(x) for x in aux]
+        for k in rng.choice(n, 500, replace=False).tolist():
+            b = auxb[k] or b"\0"
+            auxb[k] = bytes((int(rng.integers(0, 256)),)) + b[1:]
+        out = []
+        for bulk in (False, True):
+            assert w.annopen("rec", [w.Anninfo("b2", w.WFDB_WRITE)]) == 0
+            if bulk:
+                assert _annot._putanns(0, times, codes, subtypes, chans,
+                                       nums, auxb) == 0
+            else:
+                for k in range(n):
+                    w.putann(0, w.Annotation(times[k], codes[k],
+                                             subtypes[k], chans[k],
+                                             nums[k], auxb[k]))
+            w.wfdbquit()
+            out.append(open("rec.b2", "rb").read())
+        assert out[0] == out[1]
+        # values beyond 64 bits (encoded one by one) and a pair of
+        # annotations after a first call (the previous annotation is
+        # carried over)
+        assert w.annopen("rec", [w.Anninfo("b3", w.WFDB_WRITE)]) == 0
+        _annot._putanns(0, [5, 9], [1, 1], [0, 0], [1 << 70, 2], [0, 0],
+                        [None, None])
+        _annot._putanns(0, [9, 20], [1, 0], [3, 0], [2, 2], [-1, 0],
+                        [b"\x02ab", None])
+        w.wfdbquit()
+        assert open("rec.b3", "rb").read() == _write_low_level(
+            "ref", ([5, 9, 9, 20], [1, 1, 1, 0], [0, 0, 3, 0],
+                    [1 << 70, 2, 2, 2], [0, 0, -1, 0],
+                    [None, None, "ab", None]), False)
+    finally:
+        w.wfdbverbose()
+
+
 def test_bulk_annotation_encoder_aha(datadir):
     # (an AHA-format output annotator: _putanns uses putann)
     from wfdbx import _annot
@@ -441,3 +540,106 @@ def test_bulk_annotation_encoder_aha(datadir):
         w.wfdbquit()
         out.append(open("rec.aha", "rb").read())
     assert out[0] == out[1] and len(out[0]) > 0
+
+
+# ---------------------------------------------------------------------------
+# A truncated annotation file is an error of read_annotations (getann status
+# other than 0 and -1), with the annotations getann returns up to that point
+
+def _getann_all(record, annotator):
+    """The annotations (time, code, aux) getann returns, and its final
+    status."""
+    w.wfdbquit()
+    out = []
+    a = w.Annotation()
+    if w.annopen(record, [w.Anninfo(annotator, w.WFDB_READ)], 1) < 0:
+        w.wfdbquit()
+        return None, None
+    while True:
+        stat = w.getann(0, a)
+        if stat != 0:
+            break
+        out.append((a.time, a.anntyp, a.aux_string()))
+    w.wfdbquit()
+    return out, stat
+
+
+def test_read_truncated_annotation_file(datadir, capfd):
+    import numpy as np
+    w.write_record("ann", np.ones((5000, 1), int), 100, gains=100, adcres=16,
+                   units="mV")
+    # (an aux string, and a SKIP before the annotation at 4000)
+    w.write_annotations("ann", "atr", [10, 20, 4000, 4010],
+                        codes=[1, w.RHYTHM, 5, 1],
+                        aux=[None, "(AFIB", None, None])
+    with open("ann.atr", "rb") as f:
+        data = f.read()
+    full = w.read_annotations("ann", "atr")
+    assert full.samples.tolist() == [10, 20, 4000, 4010]
+    assert full.aux == [None, "(AFIB", None, None]
+    expect, stat = _getann_all("ann", "atr")
+    assert stat == -1
+    assert expect == list(zip(full.samples.tolist(), full.codes.tolist(),
+                              full.aux))
+    capfd.readouterr()
+    errors = 0
+    for cut in range(len(data)):
+        with open("cut.atr", "wb") as f:
+            f.write(data[:cut])
+        os.replace("cut.atr", "ann.atr")
+        capfd.readouterr()
+        anns, stat = _getann_all("ann", "atr")
+        printed = capfd.readouterr().err     # (the library's messages)
+        if anns is None:            # (not opened: an empty file)
+            with pytest.raises(IOError, match="can't read annotator"):
+                w.read_annotations("ann", "atr")
+            continue
+        if stat == -1:
+            r = w.read_annotations("ann", "atr")
+            assert list(zip(r.samples.tolist(), r.codes.tolist(),
+                            r.aux)) == anns
+            continue
+        errors += 1
+        msg = ("can't read annotation file atr of record ann "
+               "(getann status %d)" % stat)
+        with pytest.raises(IOError) as e:
+            w.read_annotations("ann", "atr")
+        assert str(e.value) == msg
+        assert printed and capfd.readouterr().err == printed
+        # stopped by sampto before the truncation: no error, nothing more
+        # read
+        if anns:
+            t = anns[-1][0]
+            r = w.read_annotations("ann", "atr", sampto=t)
+            assert r.samples.tolist() == [x[0] for x in anns if x[0] < t]
+            assert capfd.readouterr().err == ""
+        # legacy mode too
+        with pytest.raises(IOError) as e:
+            w.read_annotations("ann", "atr", legacy=True)
+        assert str(e.value) == msg
+    assert errors > 0
+    capfd.readouterr()
+
+
+def test_read_truncated_annotation_file_example(datadir, capfd):
+    w.write_record("ann", [[1]] * 100, fs=100, gains=100, adcres=16,
+                   units="mV")
+    w.write_annotations("ann", "atr", [10, 20, 30], codes=[1, 5, 1])
+    assert w.read_annotations("ann", "atr").samples.tolist() == [10, 20, 30]
+    with open("ann.atr", "rb") as f:
+        data = f.read()
+    with open("ann.atr", "wb") as f:
+        f.write(data[:-2])                  # (without the EOF word)
+    capfd.readouterr()
+    with pytest.raises(IOError, match=r"^can't read annotation file atr of "
+                       r"record ann \(getann status -3\)$"):
+        w.read_annotations("ann", "atr")
+    assert capfd.readouterr().err == \
+        "getann: unexpected EOF in annotator atr\n"
+    assert w.read_annotations("ann", "atr", sampto=20).samples.tolist() == \
+        [10]
+    # the annotator was closed: the low-level API starts fresh
+    assert w.annopen("ann", [w.Anninfo("atr", w.WFDB_READ)], 1) == 0
+    a = w.Annotation()
+    assert [w.getann(0, a) for _ in range(3)] == [0, 0, -3]
+    w.wfdbquit()

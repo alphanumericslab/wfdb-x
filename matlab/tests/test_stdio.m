@@ -1,8 +1,16 @@
 function test_stdio()
 %TEST_STDIO Tests of the standard input emulation and of app_run/cexit.
 
-% Part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It tests wfdb-x; it has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 name = [tempname() '.in'];
 fid = fopen(name, 'wb');
@@ -36,7 +44,9 @@ assert_eq(wfdbx.internal.app_run(@(argv) exit_with(3), {'x'}), 3, 'cexit');
 assert_eq(wfdbx.internal.app_run(@(argv) numel(argv), {'x', 'y'}), 2, ...
     'return status');
 try
-    wfdbx.internal.app_run(@(argv) error('wfdbx:test', 'boom'), {'x'});
+    % (a named function: app_run calls MAIN with one output argument,
+    % which an anonymous function whose body is error() cannot return)
+    wfdbx.internal.app_run(@fail_with_boom, {'x'});
     error('wfdbx:test', 'error not passed on');
 catch err
     assert_eq(err.message, 'boom', 'error passed on');
@@ -46,6 +56,10 @@ end
 function s = exit_with(st)
 wfdbx.internal.cexit(st);
 s = 0;
+end
+
+function s = fail_with_boom(argv) %#ok<INUSD,STOUT>
+error('wfdbx:test', 'boom');
 end
 
 function restore(old, name)

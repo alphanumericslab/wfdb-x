@@ -48,7 +48,9 @@ platform's:
   command (see [`DIVERGENCES.md`](DIVERGENCES.md)); in legacy mode it
   reproduces glibc's result, but an implementation whose own runtime reads
   ahead further (R's file connections on macOS, for example) reads more of
-  the old file.
+  the old file. That is why the legacy conformance case
+  `xform-i_vlay_o_fmt16_n_xf_f_s1320` fails for R on macOS (180 frames
+  instead of 45); every other case passes there.
 
 ## Documented behaviors (reproduced)
 
@@ -80,10 +82,10 @@ These look surprising but are described in the documentation.
   were read, and give a warning, `checksum error in record REC: the signal
   data do not match the checksums in its header`, in each language's usual
   way (Python `warnings`, R `warning()`, Julia `@warn`, MATLAB/Octave
-  `warning()`; the standard error in C++ and Rust, also silenced by
+  `warning()`; the standard error in C++, Rust and Kotlin, also silenced by
   `wfdbquiet()`). The `checksum_warning` option turns the warning off, and
   the record's `checksum_ok` field is false either way; this behaves
-  identically in all six implementations.
+  identically in all seven implementations.
 - **Modification labels.** `annopen` consumes the `NOTE` annotations at time
   0 (subtype 0) at the start of an annotation file, so `getann` does not
   return them. WPG (glossary, "Modification label"): "An 'invisible'
@@ -298,6 +300,7 @@ whether the wfdb-x choice matches it.
 | `ahaecg2mit -s` with a record name of fewer than 2 characters | the terminating NUL of the name is incremented, so the name runs into the following memory | the name is left unchanged (the documented renaming, n0nn to n2nn and n1nn to n3nn, applies to 4-digit AHA names) |
 | `a2m`, `ad2m` without `-r`, with an input file name ending in `/` | the extension search starts past the end of the (empty) record name | the record name is empty |
 | `ad2m` with a record name of more than 7 characters | the signal file name overflows its 12-byte buffer | the full name (`RECORD.dat`) is used |
+| A header that gives no description for a signal, with a record name (or path) longer than about 85 characters | `readheader` writes the default description "record NAME, signal N" into a 101-byte buffer (`lib/signal.c`), overflowing the heap; the C tools crash (`malloc(): invalid next size`) | the full description is used |
 | `a2m`, `ad2m` with a directory as input file (`-i DIR`) | reads forever | `can't read input file`, exit status 2 |
 | `mit2edf`, `makeid` | uninitialized variables in rare cases (e.g. a single annotation) | 0 is used |
 | `parsescp -v`/`-x` with a section 7 (global measurements) | the dump of the remaining bytes of section 7 reads one byte past its end (past the end of the input if section 7 is the last section) | bytes beyond the end of the input are read as 0 |

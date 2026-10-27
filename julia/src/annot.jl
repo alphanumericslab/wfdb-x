@@ -1,11 +1,10 @@
-# annot.jl: annotations (port of lib/annot.c): MIT and AHA annotation
-# files, annotation code mnemonics and descriptions, annotation time
-# resolution.
+# annot.jl: annotations: MIT and AHA annotation files, annotation code
+# mnemonics and descriptions, annotation time resolution.
 #
 # This file contains annopen, getann, ungetann, putann, iannsettime, the
-# annotation code/mnemonic/description conversion functions (ecgstr,
-# strecg, setecgstr, annstr, strann, setannstr, anndesc, setanndesc), the
-# time resolution functions (setafreq, getafreq, setiafreq, getiafreq,
+# annotation code/mnemonic/description conversion functions (ecgstr, strecg,
+# setecgstr, annstr, strann, setannstr, anndesc, setanndesc), the time
+# resolution functions (setafreq, getafreq, setiafreq, getiafreq,
 # getiaorigfreq), iannclose, oannclose, and the library-private functions
 # wfdb_anclose and wfdb_oaflush (called by wfdbquit and wfdbflush).
 #
@@ -16,19 +15,31 @@
 # they are closed (`_sort_ann_file`; in legacy mode, by running the sortann
 # program, `run_sortann`).
 #
-# wfdb-x: oannclose rearranges an out-of-order output annotation file itself,
-# in the same process, with a result identical to that of the sortann
-# program, which the C library ran through the shell (and found only if it
-# was in the PATH); decided by Reza Sameni after a code review, Oct 2026. The
-# original behavior remains available with --legacy (see docs/DIVERGENCES.md).
-# wfdb-x: the sort (as the sortann tool) no longer loses an out-of-order
-# annotation at time 0 (num 0, chan 0), nor those inserted after it, as
-# sortann did (decided by Reza Sameni, Oct 2026; --legacy keeps the original).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
-# Copyright (C) 1989-2013 George B. Moody (original C implementation,
-# lib/annot.c; revised 2015-2020 by Benjamin Moody).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# It is a Julia translation of lib/annot.c from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior of
+# the original code, but it is new code, not the original C code.
+#
+# Changes from the original: oannclose sorts an out-of-order output annotation
+# file in this process, with the same result as the sortann program, which the
+# original ran through the shell; the sort does not lose an out-of-order
+# annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
+# option of the high-level write_annotations decides, for its call, whether the
+# file is sorted; legacy mode (wfdbx_set_legacy) restores the original
+# behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# gives the reasons.
+#
+# Original C code: lib/annot.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by
+#   Benjamin Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 # Annotation word format
 const _CODE = UInt32(0o176000)  # annotation code segment of word
@@ -329,6 +340,9 @@ end
     wfdb_oaflush([w])
 
 Flush the output annotation files (library-private; called by `wfdbflush`).
+
+Translation of the C function wfdb_oaflush() (lib/annot.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdb_oaflush(w::Wfdb)
     for oa in w.ann.oad
@@ -341,6 +355,9 @@ end
     wfdb_anclose([w])
 
 Close all annotators (library-private; called by `wfdbquit` and `annopen`).
+
+Translation of the C function wfdb_anclose() (lib/annot.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdb_anclose(w::Wfdb)
     for an in length(w.ann.iad)-1:-1:0
@@ -511,7 +528,12 @@ be written, or an illegal annotator name), -5 (an illegal `stat`); with
 on errors).
 
 # Examples
+The examples read `100s`, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
+of the wfdb-x repository:
 ```julia-repl
+julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
+
 julia> annopen("100s", [Anninfo("atr", WFDB_READ)], 1)
 0
 
@@ -520,6 +542,10 @@ julia> a = Annotation();
 julia> getann(0, a), a.time, String(annstr(a.anntyp))
 (0, 18, "+")
 ```
+
+Translation of the C function annopen() (lib/annot.c, WFDB 10.7.0): same
+arguments and results. Differences: the annotation files are found only where
+they are named, not by a search of the WFDB path; see docs/DIVERGENCES.md.
 """
 function annopen(w::Wfdb, record::OptByteStr, aiarray::AbstractVector{Anninfo}, nann::Integer)
     w.ann.annclose_error = 0
@@ -601,6 +627,9 @@ buffer of the library, which already holds the data of the following
 annotation when `getann` returns; that data can overwrite the end of long
 aux strings. The copy reproduces the C result exactly, including in that
 case.
+
+Translation of the C function getann() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function getann(w::Wfdb, n::Integer, annot::Annotation)
     k = Int(n % UInt32)
@@ -642,6 +671,9 @@ end
 C `ungetann`: push back an annotation into input annotator `n` (one
 annotation only). Returns 0, -1 if the pushback buffer is full, -2 if `n`
 is not an open input annotator.
+
+Translation of the C function ungetann() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function ungetann(w::Wfdb, n::Integer, annot::Annotation)
     k = Int(n % UInt32)
@@ -675,6 +707,9 @@ C `putann`: write the annotation `annot` to output annotator `n`
 should be written in time order; if they are not, the file is sorted when
 it is closed (see [`oannclose`](@ref)). Returns 0, -1 on a write error (or
 a time overflow), -2 if `n` is not an open output annotator.
+
+Translation of the C function putann() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function putann(w::Wfdb, n::Integer, annot::Annotation)
     k = Int(n % UInt32)
@@ -785,6 +820,9 @@ C `iannsettime`: skip ahead (or rewind) the input annotators so that the
 next annotation read from each has a time >= `t` (negative values are
 treated as positive, except `WFDB_TIME_MIN`, which rewinds to the very
 beginning). Returns 0, or -1 if no input annotator remains valid.
+
+Translation of the C function iannsettime() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function iannsettime(w::Wfdb, t::Integer)
     t = Int64(t)
@@ -840,6 +878,9 @@ _validcode(code::Integer) = 0 <= code <= ACMAX
 
 C `ecgstr`: the fixed mnemonic of an annotation code (`[N]` for codes
 outside 0..ACMAX).
+
+Translation of the C function ecgstr() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 ecgstr(w::Wfdb, code::Integer) =
     _validcode(code) ? copy(w.ann.cstring[code+1]) : cformat("[%d]", code % Int32)
@@ -848,6 +889,9 @@ ecgstr(w::Wfdb, code::Integer) =
     strecg([w], str) -> Int32
 
 C `strecg`: the annotation code of a fixed mnemonic (`NOTQRS` if none).
+
+Translation of the C function strecg() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function strecg(w::Wfdb, s::OptByteStr)
     str = s === nothing ? UInt8[] : cstr(bytes(s))
@@ -861,6 +905,9 @@ end
     setecgstr([w], code, string) -> Int32
 
 C `setecgstr`: modify a fixed mnemonic.
+
+Translation of the C function setecgstr() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function setecgstr(w::Wfdb, code::Integer, s::OptByteStr)
     if NOTQRS <= code <= ACMAX
@@ -876,6 +923,9 @@ end
 
 C `annstr`: the (possibly redefined) mnemonic of an annotation code (`[N]`
 for codes outside 0..ACMAX).
+
+Translation of the C function annstr() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 annstr(w::Wfdb, code::Integer) =
     _validcode(code) ? copy(w.ann.astring[code+1]) : cformat("[%d]", code % Int32)
@@ -884,6 +934,9 @@ annstr(w::Wfdb, code::Integer) =
     strann([w], str) -> Int32
 
 C `strann`: the annotation code of a mnemonic (`NOTQRS` if none).
+
+Translation of the C function strann() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function strann(w::Wfdb, s::OptByteStr)
     str = s === nothing ? UInt8[] : cstr(bytes(s))
@@ -900,6 +953,9 @@ C `setannstr`: redefine the mnemonic of an annotation code. With a positive
 code, the change is recorded in the modification labels of output
 annotation files written later; with a negative code (-code is modified),
 it is not.
+
+Translation of the C function setannstr() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function setannstr(w::Wfdb, code::Integer, s::OptByteStr)
     _set_def_string(w.ann.astring, w.ann.modified, code, s) == 0 && return Int32(0)
@@ -928,6 +984,9 @@ end
 
 C `anndesc`: the description of an annotation code (`nothing` if it has
 none; `illegal annotation code` for codes outside 0..ACMAX).
+
+Translation of the C function anndesc() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function anndesc(w::Wfdb, code::Integer)
     if _validcode(code)
@@ -942,6 +1001,9 @@ end
 
 C `setanndesc`: redefine the description of an annotation code (see
 [`setannstr`](@ref) for the sign of `code`).
+
+Translation of the C function setanndesc() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function setanndesc(w::Wfdb, code::Integer, s::OptByteStr)
     _set_def_string(w.ann.tstring, w.ann.modified, code, s) == 0 && return Int32(0)
@@ -957,6 +1019,9 @@ end
 
 C `setafreq`: set the time resolution (ticks per second) of output
 annotation files opened later (0: the sampling frequency).
+
+Translation of the C function setafreq() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 setafreq(w::Wfdb, f::Real) = (w.ann.oafreq = Float64(f); nothing)
 
@@ -964,6 +1029,9 @@ setafreq(w::Wfdb, f::Real) = (w.ann.oafreq = Float64(f); nothing)
     getafreq([w]) -> Float64
 
 C `getafreq`: the time resolution of output annotation files.
+
+Translation of the C function getafreq() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 getafreq(w::Wfdb) = w.ann.oafreq
 
@@ -972,6 +1040,9 @@ getafreq(w::Wfdb) = w.ann.oafreq
 
 C `setiafreq`: set the time resolution in which the times of the
 annotations of input annotator `n` are returned.
+
+Translation of the C function setiafreq() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function setiafreq(w::Wfdb, n::Integer, f::Real)
     f = Float64(f)
@@ -998,6 +1069,9 @@ end
 
 C `getiafreq`: the time resolution of the annotation times returned for
 input annotator `n` (-2 if `n` is not open).
+
+Translation of the C function getiafreq() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function getiafreq(w::Wfdb, n::Integer)
     k = Int(n % UInt32)
@@ -1014,6 +1088,9 @@ end
 
 C `getiaorigfreq`: the time resolution recorded in the file of input
 annotator `n` (0 if none; -2 if `n` is not open).
+
+Translation of the C function getiaorigfreq() (lib/annot.c, WFDB 10.7.0):
+same arguments and results.
 """
 function getiaorigfreq(w::Wfdb, n::Integer)
     k = Int(n % UInt32)
@@ -1028,6 +1105,9 @@ end
 
 C `iannclose`: close input annotator `n` (the annotators after it are
 renumbered, as in C).
+
+Translation of the C function iannclose() (lib/annot.c, WFDB 10.7.0): same
+arguments and results.
 """
 function iannclose(w::Wfdb, n::Integer)
     k = Int(n % UInt32)
@@ -1187,6 +1267,11 @@ C `oannclose`: close output annotator `n`, writing its end mark. If its
 annotations were not written in canonical order, the file is sorted, as
 `sortann` does (unless the environment variable `WFDBANNSORT` is 0):
 wfdb-x: in this process; in legacy mode, as in C, by running `sortann`.
+
+Translation of the C function oannclose() (lib/annot.c, WFDB 10.7.0): same
+arguments and results. Differences: an out-of-order file is sorted in this
+process, without losing annotations, instead of by running sortann; see
+docs/DIVERGENCES.md.
 """
 function oannclose(w::Wfdb, n::Integer)
     k = Int(n % UInt32)
@@ -1232,8 +1317,12 @@ function oannclose(w::Wfdb, n::Integer)
         end
     end
     if out_of_order
-        wfdb_error(w, "Use the command:\n  sortann -r %s -a %s\n", oa.rname, name)
-        wfdb_error(w, "to rearrange annotations in the correct order.\n")
+        # wfdb-x: no advice to run sortann when the caller chose not to sort
+        # (write_annotations(sort=false)); WFDBANNSORT=0 still gives it.
+        if w.ann.sort_override !== false
+            wfdb_error(w, "Use the command:\n  sortann -r %s -a %s\n", oa.rname, name)
+            wfdb_error(w, "to rearrange annotations in the correct order.\n")
+        end
         w.ann.annclose_error == 0 && (w.ann.annclose_error = -6)
     end
     nothing

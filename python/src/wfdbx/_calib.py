@@ -1,12 +1,22 @@
 """Calibration list functions (port of lib/calib.c).
 
-Copyright (C) 1991-2013 George B. Moody (original C implementation,
-lib/calib.c; revised 2019-2022 by Benjamin Moody).
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-This library is free software; you can redistribute it and/or modify it under
-the terms of the GNU Library General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your option) any
-later version.
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+
+It is a Python translation of lib/calib.c from the WFDB Software Package
+10.7.0, by George B. Moody. The translation follows the logic and behavior of
+the original code, but it is new code, not the original C code.
+
+Changes from the original: none, apart from the language.
+
+Original C code: lib/calib.c, WFDB Software Package 10.7.0.
+  Copyright (C) 1991-2013 George B. Moody; revised 2019-2022 by Benjamin Moody.
+Python translation and changes: Copyright (C) 2026 Reza Sameni.
+
+This library is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import os
@@ -73,6 +83,11 @@ def calopen(cfname=None):
     environment variable (or "wfdbcal") is used.  The list is emptied
     first, unless the name begins with '+'.  Returns 0 on success, or -2 if
     the file cannot be read.
+
+    Translation of the C function calopen() (lib/calib.c, WFDB 10.7.0): same
+    arguments and results. Differences: the calibration file is found only
+    where it is named, not by a search of the WFDB path; see
+    docs/DIVERGENCES.md.
     """
     if cfname is None:
         cfname = os.environ.get("WFDBCAL")
@@ -139,6 +154,9 @@ def getcal(desc, units, cal):
     An entry matches if its sigtype is a prefix of ``desc`` and its units
     equal ``units`` (None matches anything).  The entry is copied into the
     Calinfo object ``cal``.  Returns 0 if found, or -1 otherwise.
+
+    Translation of the C function getcal() (lib/calib.c, WFDB 10.7.0): same
+    arguments and results.
     """
     for c in _cal:
         if (desc is None or desc[:len(c.sigtype)] == c.sigtype) and \
@@ -154,7 +172,11 @@ def getcal(desc, units, cal):
 
 
 def putcal(cal):
-    """Append a copy of cal to the calibration list; return 0."""
+    """Append a copy of cal to the calibration list; return 0.
+
+    Translation of the C function putcal() (lib/calib.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     _cal.append(cal.copy())
     return 0
 
@@ -164,6 +186,9 @@ def newcal(cfname):
 
     Returns 0 on success, or -1 if the name is illegal or the file cannot
     be written.
+
+    Translation of the C function newcal() (lib/calib.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if wio.wfdb_checkname(cfname, "calibration file") < 0:
         return -1
@@ -196,5 +221,9 @@ def newcal(cfname):
 
 
 def flushcal():
-    """Empty the calibration list."""
+    """Empty the calibration list.
+
+    Translation of the C function flushcal() (lib/calib.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     del _cal[:]

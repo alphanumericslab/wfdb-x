@@ -19,7 +19,7 @@ Each case is a dict with keys:
 Part of wfdb-x, Reza Sameni, Oct 2026.
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
+Foundation; either version 3 of the License, or (at your option) any later
 version.
 """
 
@@ -248,6 +248,7 @@ for args in ["-o w1", "-o w1 -z", "-o w1 1 2", "-o w1 2 0", "-o w1 -O 212",
          [x.replace("_", " ") for x in args.split()], stdin=_TXT)
 case("wrsamp", ["-o", "w2", "-G", "100 50", "-x", "1.5 0.5"], stdin=_TXT)
 case("wrsamp", "-o w3", stdin=_HDRTXT)
+case("wrsamp", "-o my.data/w1", stdin=_TXT, cid="wrsamp-dotdir")
 case("wrsamp", "-o w3 -z", stdin=_HDRTXT)
 case("wrsamp", "-o w4", stdin=_TABTXT)
 case("wrsamp", "-o w4 -x 1000", stdin=_TABTXT)

@@ -7,10 +7,31 @@
 # them take a `Wfdb` (or use the default instance). isann, ammap and mamap
 # use constant tables.
 #
-# Copyright (C) 1999 George B. Moody (original C headers, lib/ecgcodes.h, by
-# T. Baker and G. Moody, and lib/ecgmap.h).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is a Julia translation of lib/ecgcodes.h, lib/ecgmap.h and the annotation
+# code mapping functions of lib/annot.c (wfdb_isann, wfdb_isqrs, wfdb_map1,
+# wfdb_map2, wfdb_ammap, wfdb_mamap, wfdb_annpos and their setters) from the
+# WFDB Software Package 10.7.0, by T. Baker and George B. Moody
+# (lib/ecgcodes.h) and George B. Moody (lib/ecgmap.h, lib/annot.c). The
+# translation follows the logic and behavior of the original code, but it is
+# new code, not the original C code.
+#
+# Changes from the original: none, apart from the language.
+#
+# Original C code: lib/ecgcodes.h, lib/ecgmap.h and lib/annot.c, WFDB Software
+# Package 10.7.0.
+#   lib/ecgcodes.h: Copyright (C) 1999 George B. Moody.
+#   lib/ecgmap.h: Copyright (C) 1999 George B. Moody.
+#   lib/annot.c: Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by
+#   Benjamin Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 const NOTQRS = Int32(0)     # not-QRS (not a getann/putann code)
 const NORMAL = Int32(1)     # normal beat
@@ -137,6 +158,9 @@ EcgMaps() = EcgMaps(copy(_QRS_TABLE), copy(_MP1_TABLE), copy(_MP2_TABLE), copy(_
 
 C `isann(code)` (`<wfdb/ecgmap.h>`): 1 if `code` is a legal annotation code
 (1 to `ACMAX`), 0 otherwise.
+
+Translation of the C macro isann() (lib/ecgmap.h, WFDB 10.7.0): same
+arguments and results.
 """
 @inline isann(code::Integer) = Int32(0 < code <= ACMAX)
 const wfdb_isann = isann
@@ -146,6 +170,9 @@ const wfdb_isann = isann
 
 C `ammap(code)`: the MIT annotation code of an AHA annotation code (a
 character, `'E'` to `']'`); `NOTQRS` for other codes.
+
+Translation of the C macro ammap() (lib/ecgmap.h, WFDB 10.7.0): same
+arguments and results.
 """
 @inline function ammap(code::Integer)
     (Int('D') < code <= Int(']')) ? Int32(_AMMP_TABLE[code-Int('E')+1]) : NOTQRS
@@ -157,6 +184,9 @@ const wfdb_ammap = ammap
 
 C `mamap(code, subtype)`: the AHA annotation code (a character) of an MIT
 annotation code and subtype; `'O'` for codes with no AHA equivalent.
+
+Translation of the C macro mamap() (lib/ecgmap.h, WFDB 10.7.0): same
+arguments and results.
 """
 @inline function mamap(code::Integer, subtype::Integer)
     wfdb_isann(code) == 0 && return Int32('O')
@@ -181,6 +211,9 @@ for (get, set, tab, what) in (
                    $(get)([w], code) -> Int32
 
                C `$(get)(code)`: $(what) (0 if `code` is not a legal annotation code).
+
+               Translation of the C macro $(get)() (lib/ecgmap.h, WFDB 10.7.0): same
+               arguments and results.
                """)
         function $get end
         @doc $("""
@@ -188,6 +221,9 @@ for (get, set, tab, what) in (
 
                C `$(set)(code, value)`: change the result of `$(get)(code)` (stored as a C
                `char`); returns the new value, or 0 if `code` is not a legal annotation code.
+
+               Translation of the C macro $(set)() (lib/ecgmap.h, WFDB 10.7.0): same
+               arguments and results.
                """)
         function $set end
         function $wget(w::Wfdb, code::Integer)

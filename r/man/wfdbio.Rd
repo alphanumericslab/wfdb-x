@@ -13,12 +13,6 @@
 \alias{wfdbcflags}
 \alias{wfdbdefwfdb}
 \alias{wfdbdefwfdbcal}
-\alias{wfdbx_set_output_dir}
-\alias{wfdbx_get_output_dir}
-\alias{wfdbx_set_input_dir}
-\alias{wfdbx_get_input_dir}
-\alias{wfdbx_set_network}
-\alias{wfdbx_get_network}
 \alias{WFDB_READ}
 \alias{WFDB_WRITE}
 \alias{WFDB_AHA_READ}
@@ -30,9 +24,10 @@
   files, calibration files) by explicit names: a relative name is read
   under the input directory and written under the output directory; an
   absolute name, a \code{~} name or a URL is used as given; nothing else
-  is searched.  These functions set the input and output directories and
-  the network permission, find the file of a record, control the error
-  messages of the library, and give version information.  (In legacy mode,
+  is searched.  These functions set the input directory, find the file of a record,
+  control the error messages of the library, and give version
+  information.  \code{\link{wfdbx_set_input_dir}} and the related
+  functions set the input and output directories and network access.  (In legacy mode,
   files are searched for in the WFDB path, as by the C library.)
 }
 \usage{
@@ -50,12 +45,6 @@ wfdbldflags()
 wfdbcflags()
 wfdbdefwfdb()
 wfdbdefwfdbcal()
-wfdbx_set_input_dir(dir)
-wfdbx_get_input_dir()
-wfdbx_set_output_dir(dir)
-wfdbx_get_output_dir()
-wfdbx_set_network(on)
-wfdbx_get_network()
 }
 \arguments{
   \item{p}{\code{setwfdb}: the input directory (a character string naming
@@ -70,23 +59,12 @@ wfdbx_get_network()
   \item{s}{a file type (the extension of the file, such as \code{"hea"}
     or \code{"atr"}), or a file name if \code{record} is \code{NULL}.}
   \item{record}{a record name, or \code{NULL}.}
-  \item{dir}{\code{wfdbx_set_input_dir}: the input directory (a local
-    directory, a \code{~} name or the URL of a directory);
-    \code{wfdbx_set_output_dir}: the directory in which output files are
-    created (local).  \code{NULL} or \code{""}: the default (the
-    environment variable \env{WFDBX_INPUT_DIR} or \env{WFDBX_OUTPUT_DIR}
-    if it is set, otherwise none: the current directory).}
-  \item{on}{\code{TRUE} or a positive number to allow network access,
-    \code{FALSE} or 0 to forbid it, \code{NULL} or a negative number for
-    the default (allowed if the environment variable \env{WFDBX_NETWORK}
-    is a non-zero number).}
   \item{behavior}{the behaviour on memory allocation errors.  It is only
     stored, to be returned by \code{wfdb_me_fatal}, since such errors are
     handled by R.}
 }
 \details{
-  wfdb-x (design decision of Reza Sameni, Oct 2026): a name is resolved
-  to exactly one location.  \code{"-"} is the standard input or output;
+  A name is resolved to exactly one location.  \code{"-"} is the standard input or output;
   an absolute name (and on Windows \samp{X:\\}, \samp{X:/} or
   \samp{\\\\}) and an \samp{http://} or \samp{https://} URL are used
   as given; \samp{~} and \samp{~/...} are expanded to the home directory
@@ -101,28 +79,13 @@ wfdbx_get_network()
   not in the header's directory}); \samp{~} as a segment (a null segment)
   and \samp{-} as a signal file keep their meaning.
 
-  The settings are read from the environment variables
-  \env{WFDBX_INPUT_DIR}, \env{WFDBX_OUTPUT_DIR} and \env{WFDBX_NETWORK}
-  when first needed; the functions override them.  They are not reset by
-  \code{\link{wfdbquit}}.  \code{wfdbx_set_output_dir} refuses a URL (an
-  error message; the setting is unchanged and its current value is
-  returned).  The \code{input_dir} and \code{network} arguments of
-  \code{\link{read_record}}, \code{\link{read_header}} and
-  \code{\link{read_annotations}}, and the \code{dir} argument of
-  \code{\link{write_record}} and \code{\link{write_annotations}}, set
-  them for the duration of a call.
-
-  Network access is off by default: a URL is then not opened, and the
-  first attempt prints \samp{wfdb-x: network access is disabled; set
-  WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open URL}.  With it on,
-  a remote file is read in full by the system program \code{curl} (or
-  base R's \code{url()} if there is none): redirects are followed, an
-  HTTP status of 400 or more is a failure, and reading gives up if
-  connecting takes 30 s or no data arrives for 30 s, with no limit on the
-  total time.  It is kept for the rest of the R session (each URL
-  is requested at most once, failures included).  The files of a
-  PhysioNet database are under
-  \samp{https://physionet.org/files/<database>/<version>/}.
+  The input directory, the output directory and network access are set
+  with \code{\link{wfdbx_set_input_dir}}, \code{\link{wfdbx_set_output_dir}}
+  and \code{\link{wfdbx_set_network}}, or with the environment variables
+  \env{WFDBX_INPUT_DIR}, \env{WFDBX_OUTPUT_DIR} and \env{WFDBX_NETWORK}.
+  With network access off, a URL is not opened, and the first attempt
+  prints \samp{wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or
+  call wfdbx_set_network(1) to open URL}.
 
   \code{setwfdb} sets the input directory (see \code{p}); with more than
   one directory it reports \samp{setwfdb: wfdb-x reads from a single input
@@ -168,12 +131,6 @@ wfdbx_get_network()
   \code{wfdberror} returns the last error message (with its newline), or a
   message giving the library version if there has been no error.
 
-  \code{wfdbx_set_input_dir} and \code{wfdbx_set_output_dir} return the
-  previous directory (\code{NULL} if none), \code{wfdbx_get_input_dir}
-  and \code{wfdbx_get_output_dir} the current one;
-  \code{wfdbx_set_network} returns the previous setting (1 or 0),
-  \code{wfdbx_get_network} the current one.
-
   \code{wfdb_me_fatal} returns the value last given to \code{wfdbmemerr}
   (initially 1).
 
@@ -184,20 +141,33 @@ wfdbx_get_network()
 
   The other functions return \code{NULL}, invisibly.
 }
+\section{Origin}{
+  Translation of the C functions getwfdb(), setwfdb(), resetwfdb(),
+  wfdbquiet(), wfdbverbose(), wfdberror(), wfdbfile(), wfdbmemerr(),
+  wfdb_me_fatal(), wfdbversion(), wfdbldflags(), wfdbcflags(),
+  wfdbdefwfdb() and wfdbdefwfdbcal() (lib/wfdbio.c, WFDB 10.7.0), and of
+  the file mode constants of lib/wfdb.h: same arguments and results.
+  Differences: files are found by explicit names, under the input and
+  output directories, not by a search of the WFDB path, URLs are opened
+  only when network access is on, and \code{setwfdb} takes a single
+  directory; see \file{docs/DIVERGENCES.md}.
+}
 \seealso{
-  \code{\link{isigopen}}, \code{\link{annopen}}, \code{\link{calopen}}.
+  \code{\link{wfdbx_set_input_dir}}, \code{\link{isigopen}},
+  \code{\link{annopen}}, \code{\link{calopen}}.
 }
 \examples{
 getwfdb()
 wfdbversion()
 
-old <- wfdbx_set_input_dir(tempdir())  # read relative names there
+setwfdb(tempdir())              # read relative names there
 getwfdb()
 wfdbfile("hea", "nonexistent")  # NULL: not found
-wfdbx_set_input_dir(old)
+setwfdb("")                     # the default: the current directory
 
 \dontrun{
-# PhysioNet (network access must be allowed explicitly)
+# Record 100 of the MIT-BIH Arrhythmia Database, from PhysioNet (network
+# access must be allowed explicitly)
 wfdbx_set_network(1)
 rec <- read_record("100", input_dir = "https://physionet.org/files/mitdb/1.0.0/",
                    sampto = 10)

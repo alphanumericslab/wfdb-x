@@ -13,17 +13,35 @@ function oannclose(an)
 %   directory if one is set: wfdbx.wfdbx_set_output_dir).
 %
 %   See also wfdbx.annopen, wfdbx.putann, wfdbx.iannclose.
+%
+%   Translation of the C function oannclose() (lib/annot.c, WFDB 10.7.0): same
+%   arguments and results. Differences: an out-of-order file is sorted in this
+%   process, without losing annotations, instead of by running sortann; see
+%   docs/DIVERGENCES.md.
 
-% Copyright (C) 1989-2013 George B. Moody (original C implementation,
-% lib/annot.c; revised 2015-2020 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, after a code review, Oct 2026): an
-% out-of-order output annotation file is rearranged in this process, with
-% a result identical to that of the sortann program, which the C library
-% ran through the shell (and found only if it was in the PATH).  The
-% original behavior remains available with --legacy (see
-% docs/DIVERGENCES.md).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original code, but it is new code, not the original C
+% code.
+%
+% Changes from the original: an out-of-order output annotation file is
+% rearranged in this process (the C library ran the sortann program through
+% the shell); write_annotations' 'sort' option can decide for one call. Each
+% change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% reasons.
+%
+% Original C code: lib/annot.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 st = wfdbx.internal.ann_state();
 if ~(an >= 0 && an < numel(st.oad) && ~isempty(st.oad{an+1}))
@@ -102,11 +120,15 @@ if oa.out_of_order
         end
     end
 end
-if oa.out_of_order
+% wfdb-x: no advice to run sortann when the caller chose not to sort
+% (write_annotations with 'sort' false); WFDBANNSORT=0 still gives it.
+if oa.out_of_order && (isempty(st.sort_override) || st.sort_override)
     wfdbx.internal.wfdb_error( ...
         'Use the command:\n  sortann -r %s -a %s\n', oa.rname, oa.name);
     wfdbx.internal.wfdb_error( ...
         'to rearrange annotations in the correct order.\n');
+end
+if oa.out_of_order
     if st.annclose_error == 0
         st.annclose_error = -6;
     end

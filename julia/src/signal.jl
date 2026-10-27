@@ -1,40 +1,52 @@
-# signal.jl: signals and headers (port of lib/signal.c): header files
-# (including EDF headers), signal files in every storage format (0, 8, 16,
-# 61, 80, 160, 212, 310, 311, 24, 32, and the FLAC formats 508, 516 and
-# 524), multi-segment and multi-frequency records, header and info files,
-# and conversion of times, dates and amplitudes.
+# signal.jl: signals and headers: header files (including EDF headers),
+# signal files in every storage format (0, 8, 16, 61, 80, 160, 212, 310,
+# 311, 24, 32, and the FLAC formats 508, 516 and 524), multi-segment and
+# multi-frequency records, header and info files, and conversion of times,
+# dates and amplitudes.
 #
-# This is a translation of the C library (by way of the Rust port of
-# wfdb-x, rust/src/signal.rs), with the same integer types and the same
-# state (`SigState`, the `sig` field of a `Wfdb`), so that its behavior is
-# that of the C library in every detail. Arrays of the C library (signal
-# and group tables) are Julia vectors indexed by the C index plus one;
-# signal and group numbers (as in messages and `Siginfo.group`) are C's.
+# The translation was made by way of the Rust implementation of wfdb-x
+# (rust/src/signal.rs), with the same integer types and the same state
+# (`SigState`, the `sig` field of a `Wfdb`), so that its behavior is that of
+# the C library in every detail. Arrays of the C library (signal and group
+# tables) are Julia vectors indexed by the C index plus one; signal and
+# group numbers (as in messages and `Siginfo.group`) are C's.
 #
 # Functions that fill a caller's array take a vector: `getvec` stores one
 # sample per signal, `getframe` one frame (the sum of the samples per frame
 # of all signals); a vector that is too short receives what fits.
 #
-# Copyright (C) 1989-2013 George B. Moody (original C implementation,
-# lib/signal.c; revised 2011-2022 by Benjamin Moody, including FLAC support,
-# 2020).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): the signal files named in a
-# header, and the segments named in the header of a multi-segment record,
-# are in the directory of that header (on disk or at its URL) or below it; a
-# name that is absolute, begins with '~', is a URL or contains a ".."
-# component is refused ("~" as a segment, a null segment, and "-" as a
-# signal file remain). Nothing is searched: a search can silently open the
-# wrong file, and a header must not make the library read other local files
-# or contact other servers. The original behavior remains available with
-# --legacy (see docs/DIVERGENCES.md).
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-# 12 bits and millivolts), because a silently assumed value corrupts every
-# result derived from it. See docs/DIVERGENCES.md. The original behavior
-# remains available with --legacy (see docs/DIVERGENCES.md).
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is a Julia translation of lib/signal.c from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior of
+# the original code, but it is new code, not the original C code.
+#
+# Changes from the original: no built-in sampling frequency, gain, ADC
+# resolution or units (the original assumed 250 Hz, 200 adu/mV, 12 bits or a
+# resolution based on the format, and millivolts): a value that the header does
+# not give stays unspecified, and the time and amplitude conversions that need
+# it, and setifreq, report an error; the signal files and segments named in a
+# header are read only from the header's directory (on disk or at its URL),
+# never searched for, and a name that leaves that directory is refused; an
+# output signal file is never one of the input files of the open record; a
+# header written under a path names the record, its signal files and its
+# segments relative to its own directory; FLAC signal files are read and
+# written with wfdb-x's own codec (flac.jl) instead of libFLAC; additions:
+# wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq,
+# getvecs and getvecs_status; legacy mode (wfdbx_set_legacy) restores the
+# original behavior. Each change is marked "wfdb-x:" in the code;
+# docs/DIVERGENCES.md gives the reasons.
+#
+# Original C code: lib/signal.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by
+#   Benjamin Moody, including FLAC support (2020).
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 "`BUFSIZ` of the reference platform (default buffer sizes)."
 const WFDB_BUFSIZ = Int32(8192)
@@ -342,17 +354,25 @@ SigState() = SigState(
 """
     wfdbx_set_legacy([w], on) -> Int32
 
-wfdb-x addition: turn legacy mode on (if `on` is true or nonzero) or off,
-and return the previous setting (1: on, 0: off). In legacy mode, the
-library behaves exactly as the original WFDB library 10.7.0, with its
-built-in defaults: `WFDB_DEFFREQ` (250 Hz) for a header without a sampling
-frequency, an ADC resolution inferred from the format or `WFDB_DEFRES`,
-1 sample per second in the time conversions when no frequency is known,
-and `WFDB_DEFGAIN` (with a baseline of 0 for invalid signal numbers) in the
-unit conversions. The setting belongs to the library state `w` (default:
-[`lib()`](@ref)); it is off by default. Kept for compatibility only: the
-values it assumes are exactly the silent defaults wfdb-x removed (see
-`docs/DIVERGENCES.md`, "Legacy mode").
+Turn legacy mode on (`on` is `true` or non-zero) or off, and return the
+previous setting: 1 for on, 0 for off. Legacy mode is off by default.
+
+In legacy mode, the library behaves exactly as the original WFDB library
+10.7.0, including its assumed signal parameters and its search for files.
+Use it only to reproduce old results. `docs/DIVERGENCES.md` describes what
+changes. The setting belongs to the library state `w` (by default,
+[`lib()`](@ref)).
+
+# Examples
+```julia-repl
+julia> wfdbx_set_legacy(true)
+0
+
+julia> wfdbx_set_legacy(false)
+1
+```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_set_legacy(w::Wfdb, on::Union{Bool,Integer})
     previous = Int32(w.sig.legacy)
@@ -363,8 +383,10 @@ end
 """
     wfdbx_get_legacy([w]) -> Int32
 
-wfdb-x addition: 1 if legacy mode is on (see [`wfdbx_set_legacy`](@ref)),
-0 otherwise.
+Return 1 if legacy mode is on (see [`wfdbx_set_legacy`](@ref)), and 0
+otherwise.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 wfdbx_get_legacy(w::Wfdb) = Int32(w.sig.legacy)
 
@@ -376,6 +398,8 @@ element of `args` (the arguments without the program name) is exactly
 `"--legacy"`, remove it, turn legacy mode on, and return 1; the tool then
 behaves exactly as the original one. Otherwise, change nothing and return
 0. Only the first argument is recognized.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_legacy_args(w::Wfdb, args::Vector{String})
     (isempty(args) || args[1] != "--legacy") && return Int32(0)
@@ -2528,6 +2552,9 @@ end
     wfdb_sampquit([w])
 
 Release the `sample()` buffer (called by `wfdbquit`).
+
+Translation of the C function wfdb_sampquit() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdb_sampquit(w::Wfdb)
     st = w.sig
@@ -2543,6 +2570,9 @@ end
     wfdb_sigclose([w])
 
 Close all signals and reset the signal state (called by `wfdbquit`).
+
+Translation of the C function wfdb_sigclose() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdb_sigclose(w::Wfdb)
     isigclose(w)
@@ -2587,6 +2617,9 @@ end
     wfdb_osflush([w])
 
 Write out buffered output samples (called by `wfdbflush`).
+
+Translation of the C function wfdb_osflush() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdb_osflush(w::Wfdb)
     st = w.sig
@@ -2640,6 +2673,9 @@ end
     wfdb_oinfoclose([w]) -> Int32
 
 Close the output info file (called by `wfdbquit`).
+
+Translation of the C function wfdb_oinfoclose() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdb_oinfoclose(w::Wfdb)
     st = w.sig
@@ -2688,7 +2724,12 @@ negative value on error: -1 if the header cannot be found or read, -2 if it
 is invalid, -3 if a signal file cannot be opened.
 
 # Examples
+The examples read `100s`, the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
+of the wfdb-x repository:
 ```julia-repl
+julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
+
 julia> n = isigopen("100s", nothing, 0)
 2
 
@@ -2700,6 +2741,11 @@ julia> isigopen("100s", si, n)
 julia> String(si[1].desc), si[1].gain
 ("MLII", 200.0)
 ```
+
+Translation of the C function isigopen() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: the signal files and segments named in the
+header are read only from the header's directory, and no sampling frequency,
+gain, ADC resolution or units are assumed; see docs/DIVERGENCES.md.
 """
 function isigopen(w::Wfdb, record::OptByteStr, siarray::SiginfoArg, nsig::Integer)
     st = w.sig
@@ -2933,6 +2979,10 @@ end
 C `osigopen`: open output signals as described by the header of `record`
 (filling `siarray`, a vector of [`Siginfo`](@ref) or `nothing`). Returns
 the number of signals opened, or a negative error code.
+
+Translation of the C function osigopen() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: an output signal file that is one of the
+input files of the open record is refused; see docs/DIVERGENCES.md.
 """
 function osigopen(w::Wfdb, record::OptByteStr, siarray::SiginfoArg, nsig::Integer)
     rec_arg = record === nothing ? UInt8[] : copy(cstr(bytes(record)))
@@ -2968,6 +3018,10 @@ given in `fname`); output signals open before are closed first. Write the
 samples with [`putvec`](@ref) and the header with [`newheader`](@ref).
 
 Returns the number of signals opened, or a negative value on error.
+
+Translation of the C function osigfopen() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: an output signal file that is one of the
+input files of the open record is refused; see docs/DIVERGENCES.md.
 """
 function osigfopen(w::Wfdb, siarray::SiginfoArg, nsig::Integer)
     st = w.sig
@@ -3005,6 +3059,9 @@ end
     findsig([w], p) -> Int32
 
 C `findsig`: the number of the input signal named (or numbered) `p`, or -1.
+
+Translation of the C function findsig() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function findsig(w::Wfdb, p::ByteStr)
     st = w.sig
@@ -3035,6 +3092,9 @@ end
 
 C `getspf`: the number of samples per frame returned by `getvec` for each
 signal (1 unless in `WFDB_HIGHRES` mode).
+
+Translation of the C function getspf() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function getspf(w::Wfdb)
     st = w.sig
@@ -3047,6 +3107,9 @@ end
 C `setgvmode`: set the getvec mode (`WFDB_LOWRES` or `WFDB_HIGHRES`,
 optionally with `WFDB_GVPAD`); a negative mode selects the default (from
 `WFDBGVMODE`).
+
+Translation of the C function setgvmode() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function setgvmode(w::Wfdb, mode::Integer)
     mode = mode % Int32
@@ -3068,7 +3131,10 @@ end
 
 "    getgvmode([w]) -> Int32
 
-C `getgvmode`: the getvec mode (see [`setgvmode`](@ref))."
+C `getgvmode`: the getvec mode (see [`setgvmode`](@ref)).
+
+Translation of the C function getgvmode() (lib/signal.c, WFDB 10.7.0): same
+arguments and results."
 getgvmode(w::Wfdb) = w.sig.gvmode
 
 """
@@ -3078,6 +3144,10 @@ C `setifreq`: make `getvec` return the input signals resampled (by linear
 interpolation) at `f` Hz. As in C, this also sets the time resolution of
 output annotation files to `f` (see [`setafreq`](@ref)). Returns 0, or -1
 if `f` is not positive or no record is open.
+
+Translation of the C function setifreq() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: it fails if the sampling frequency of the
+input record is not specified; see docs/DIVERGENCES.md.
 """
 function setifreq(w::Wfdb, f::Real)
     st = w.sig
@@ -3141,6 +3211,9 @@ end
     getifreq([w]) -> Float64
 
 C `getifreq`: the sampling frequency of the samples returned by `getvec`.
+
+Translation of the C function getifreq() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 getifreq(w::Wfdb) = w.sig.ifreq > 0.0 ? w.sig.ifreq : w.sig.sfreq
 
@@ -3172,6 +3245,9 @@ samples are `WFDB_INVALID_SAMPLE`.
 
 Returns the number of input signals, 0 or -1 at the end of the record, or
 -3 (unexpected end of file or decoding error) or -4 (checksum error).
+
+Translation of the C function getvec() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 getvec(w::Wfdb, vector::Vector{Int32}) = _with_room(getvec_at, w, vector)
 
@@ -3206,6 +3282,9 @@ end
 
 C `getframe`: read the next frame (all samples of every signal, `spf`
 samples of an oversampled signal).
+
+Translation of the C function getframe() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 getframe(w::Wfdb, vector::Vector{Int32}) = _with_room(getframe_at, w, vector)
 
@@ -3264,6 +3343,8 @@ receives `n` times the number of values `getvec` stores (one per signal).
 Returns the number of vectors read (`>= 0`), or the negative status of
 `getvec` if the first call failed. (An addition to the C library, with a
 fast path for the common case.)
+
+Part of wfdb-x; not in the original WFDB package.
 """
 getvecs(w::Wfdb, out::Vector{Int32}, n::Integer) = getvecs_status(w, out, n)[1]
 
@@ -3504,6 +3585,8 @@ read (0 if `n <= 0`). (An addition to the C library.) With
 `keep_checksum_frame=true` (wfdb-x, for the high-level reader), the vector
 for which `getvec` returns -4 (a checksum error: it was read completely, it
 is the last one of the record) is included in the count and in `out`.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function getvecs_status(w::Wfdb, out::Vector{Int32}, n::Integer; keep_checksum_frame::Bool=false)
     _getvecs_into(w, out, 0, Int64(n), keep_checksum_frame)
@@ -3602,6 +3685,9 @@ consecutive values of `vector` for an oversampled signal (one frame in all).
 
 Returns the number of output signals, 0 if a sample difference had to be
 clipped (format 8), or -1 on a write error.
+
+Translation of the C function putvec() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function putvec(w::Wfdb, vector::AbstractVector{Int32})
     st = w.sig
@@ -3694,6 +3780,9 @@ C `isigsettime`: make sample `t` (a sample number of the open record) the
 next one read by `getvec` from every input signal. Returns 0, or a negative
 value if the position cannot be reached (e.g. it is beyond the end of the
 record).
+
+Translation of the C function isigsettime() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function isigsettime(w::Wfdb, t::Integer)
     st = w.sig
@@ -3722,6 +3811,9 @@ end
     isgsettime([w], g, t) -> Int32
 
 C `isgsettime`: skip to sample `t` in signal group `g`.
+
+Translation of the C function isgsettime() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function isgsettime(w::Wfdb, g::Integer, t::Integer)
     st = w.sig
@@ -3773,6 +3865,9 @@ end
 
 C `tnextvec`: the time of the next valid sample of signal `s` at or after
 `t` (or a negative value).
+
+Translation of the C function tnextvec() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function tnextvec(w::Wfdb, s::Integer, t::Integer)
     st = w.sig
@@ -3855,6 +3950,9 @@ end
     setibsize([w], n) -> Int32
 
 C `setibsize`: set the default input buffer size.
+
+Translation of the C function setibsize() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function setibsize(w::Wfdb, n::Integer)
     n = n % Int32
@@ -3875,6 +3973,9 @@ end
     setobsize([w], n) -> Int32
 
 C `setobsize`: set the default output buffer size.
+
+Translation of the C function setobsize() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function setobsize(w::Wfdb, n::Integer)
     n = n % Int32
@@ -3901,6 +4002,11 @@ C `newheader`: write the header file `RECORD.hea` (in the current
 directory) for the open output signals, with the sampling frequency, base
 time and the number of samples written so far. Returns 0, or a negative
 value on error.
+
+Translation of the C function newheader() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: a header written under a path names the
+record and its signal files relative to its own directory, and only the
+record's own name (the last component) is checked; see docs/DIVERGENCES.md.
 """
 function newheader(w::Wfdb, record::ByteStr)
     rec = wfdb_striphea(record)
@@ -3909,12 +4015,29 @@ function newheader(w::Wfdb, record::ByteStr)
     setheader(w, rec, osi, st.nosig)
 end
 
+# A name as written into the header of record. wfdb-x: outside legacy mode,
+# names are written relative to the header's directory (where the reader
+# looks for them): the directory part of record is removed from name when
+# name begins with it.
+function _hea_name(w::Wfdb, record::AbstractVector{UInt8}, name)
+    (wfdbx_get_legacy(w) != 0 || name === nothing) && return name
+    k = findlast(==(UInt8('/')), record)
+    k === nothing && return name
+    nb = cstr(bytes(name))
+    (length(nb) >= k && nb[1:k] == record[1:k]) ? nb[k+1:end] : name
+end
+
 """
     setheader([w], record, siarray, nsig) -> Int32
 
 C `setheader`: write a header file. As in C, the `units` and `desc`
 strings of `siarray` are truncated at their first space or line ending (C
 applies `strtok` to them).
+
+Translation of the C function setheader() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: a header written under a path names the
+record and its signal files relative to its own directory, and only the
+record's own name (the last component) is checked; see docs/DIVERGENCES.md.
 """
 function setheader(w::Wfdb, record::ByteStr, siarray::AbstractVector{Siginfo}, nsig::Integer)
     st = w.sig
@@ -3941,7 +4064,7 @@ function setheader(w::Wfdb, record::ByteStr, siarray::AbstractVector{Siginfo}, n
     nsig = min(Int(nsig % UInt32), length(siarray))
 
     # Write the general information line.
-    out = cformat("%s %d %.12g", rec, Int32(nsig), st.ffreq)
+    out = cformat("%s %d %.12g", _hea_name(w, rec, rec), Int32(nsig), st.ffreq)
     if (st.cfreq > 0.0 && st.cfreq != st.ffreq) || st.bcount != 0.0
         sprintf!(out, "/%.12g", st.cfreq)
         st.bcount != 0.0 && sprintf!(out, "(%.12g)", st.bcount)
@@ -3964,7 +4087,7 @@ function setheader(w::Wfdb, record::ByteStr, siarray::AbstractVector{Siginfo}, n
     # Write a signal specification line for each signal.
     for s in 1:nsig
         si = siarray[s]
-        sprintf!(out, "%s %d", si.fname, si.fmt)
+        sprintf!(out, "%s %d", _hea_name(w, rec, si.fname), si.fmt)
         si.spf > 1 && sprintf!(out, "x%d", si.spf)
         if s <= length(st.osd) && st.osd[s].skew != 0
             sprintf!(out, ":%d", st.osd[s].skew * si.spf)
@@ -4008,6 +4131,9 @@ end
 C `getseginfo`: the number of segments of the open multi-segment record (0
 if it is not one); `sarray[]` receives a copy of the segment table
 (`nothing` if there is none).
+
+Translation of the C function getseginfo() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function getseginfo(w::Wfdb, sarray::Ref)
     st = w.sig
@@ -4019,6 +4145,11 @@ end
     setmsheader([w], record, segment_names, nsegments) -> Int32
 
 C `setmsheader`: write the header of a multi-segment record.
+
+Translation of the C function setmsheader() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: a header written under a path names the
+record and its segments relative to its own directory, and only the record's
+own name (the last component) is checked; see docs/DIVERGENCES.md.
 """
 function setmsheader(w::Wfdb, record::ByteStr, segment_name::AbstractVector, nsegments::Integer)
     st = w.sig
@@ -4099,7 +4230,7 @@ function setmsheader(w::Wfdb, record::ByteStr, segment_name::AbstractVector, nse
     st.oheader = f
 
     # Write the first line of the master header.
-    out = cformat("%s/%u %d %.12g", rec, UInt32(nseg), nsig, msfreq)
+    out = cformat("%s/%u %d %.12g", _hea_name(w, rec, rec), UInt32(nseg), nsig, msfreq)
     if (mscfreq > 0.0 && mscfreq != msfreq) || msbcount != 0.0
         sprintf!(out, "/%.12g", mscfreq)
         msbcount != 0.0 && sprintf!(out, "(%.12g)", msbcount)
@@ -4115,7 +4246,7 @@ function setmsheader(w::Wfdb, record::ByteStr, segment_name::AbstractVector, nse
 
     # Write a line for each segment.
     for i in 1:nseg
-        sprintf!(out, "%s %lld\r\n", cstr(bytes(segment_name[i])), ns[i])
+        sprintf!(out, "%s %lld\r\n", _hea_name(w, rec, cstr(bytes(segment_name[i]))), ns[i])
     end
     fwrite(f, out)
     Int32(0)
@@ -4128,6 +4259,9 @@ end
     wfdbgetskew([w], s) -> Int32
 
 C `wfdbgetskew`: the skew (in frames) of input signal `s`.
+
+Translation of the C function wfdbgetskew() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdbgetskew(w::Wfdb, s::Integer)
     st = w.sig
@@ -4140,6 +4274,9 @@ end
 
 C `wfdbsetiskew`: set the skew of input signal `s` (use with care: only to
 restore skews reset as a side effect of, e.g., `sampfreq`).
+
+Translation of the C function wfdbsetiskew() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdbsetiskew(w::Wfdb, s::Integer, skew::Integer)
     st = w.sig
@@ -4156,6 +4293,9 @@ end
 
 C `wfdbsetskew`: set the skew to be written by `setheader` for output
 signal `s`.
+
+Translation of the C function wfdbsetskew() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdbsetskew(w::Wfdb, s::Integer, skew::Integer)
     st = w.sig
@@ -4169,6 +4309,9 @@ end
 
 C `wfdbgetstart`: the byte offset of sample 0 in the signal file of input
 signal `s`.
+
+Translation of the C function wfdbgetstart() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdbgetstart(w::Wfdb, s::Integer)
     st = w.sig
@@ -4187,6 +4330,9 @@ end
 
 C `wfdbsetstart`: set the byte offset to be written by `setheader` for
 output signal `s`.
+
+Translation of the C function wfdbsetstart() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdbsetstart(w::Wfdb, s::Integer, nbytes::Integer)
     st = w.sig
@@ -4204,6 +4350,9 @@ end
 
 C `wfdbputprolog`: write `size` bytes of `buf` (a prolog) to the signal
 file of output signal `s`.
+
+Translation of the C function wfdbputprolog() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdbputprolog(w::Wfdb, buf::ByteStr, size::Integer, s::Integer)
     st = w.sig
@@ -4231,6 +4380,9 @@ end
 
 C `setinfo`: create a `.info` file for `record` (or open it for
 appending), to which `putinfo` writes; `nothing` closes it.
+
+Translation of the C function setinfo() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function setinfo(w::Wfdb, record::OptByteStr)
     # Close any previously opened output info file.
@@ -4261,6 +4413,9 @@ end
 
 C `putinfo`: write an info string to the open output `.hea` or `.info`
 file.
+
+Translation of the C function putinfo() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function putinfo(w::Wfdb, s::ByteStr)
     st = w.sig
@@ -4302,6 +4457,9 @@ C `getinfo`: on the first call (or with a record name), read the info
 strings of the record (from its header and `.info` file) and return the
 first; with `nothing`, return the next one. `nothing` when there are no
 more.
+
+Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function getinfo(w::Wfdb, record::OptByteStr)
     st = w.sig
@@ -4374,6 +4532,9 @@ end
     wfdb_freeinfo([w])
 
 C `wfdb_freeinfo`: release the info strings.
+
+Translation of the C function wfdb_freeinfo() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function wfdb_freeinfo(w::Wfdb)
     st = w.sig
@@ -4392,6 +4553,10 @@ end
 C `sampfreq`: the sampling frequency of `record` (reading its header), or
 of the open record if `record` is `nothing`; a negative value if the
 header cannot be read.
+
+Translation of the C function sampfreq() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: it returns 0, not 250, if the header gives
+no sampling frequency; see docs/DIVERGENCES.md.
 """
 function sampfreq(w::Wfdb, record::OptByteStr)
     if record !== nothing
@@ -4413,6 +4578,9 @@ end
     setsampfreq([w], freq) -> Int32
 
 C `setsampfreq`: set the sampling frequency.
+
+Translation of the C function setsampfreq() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function setsampfreq(w::Wfdb, freq::Real)
     freq = Float64(freq)
@@ -4433,6 +4601,9 @@ end
 
 C `setbasetime`: set the base time and date of the record (`nothing` or
 empty: the current local time).
+
+Translation of the C function setbasetime() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 function setbasetime(w::Wfdb, string::OptByteStr)
     st = w.sig
@@ -4611,6 +4782,8 @@ sampling frequency to convert `string`, 0 otherwise (sample numbers `s...`,
 `e`, `i`, `o`, and counter values `c...` when no counter frequency is set).
 Leading spaces, tabs, newlines and carriage returns are skipped. See
 `docs/DIVERGENCES.md`.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function wfdbx_time_needs_freq(w::Wfdb, string::ByteStr)
     s = _bv(string)
@@ -4636,6 +4809,11 @@ C `timstr`: a time string (`hh:mm:ss`, or `[hh:mm:ss dd/mm/yyyy]` for a
 time of day: `t <= 0` when the base time is defined). wfdb-x: if the
 sampling frequency is not specified, reports an error and returns `"s"`
 followed by `|t|` (C assumed 1 sample per second; see `docs/DIVERGENCES.md`).
+
+Translation of the C function timstr() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: if the sampling frequency is not specified,
+it reports an error and returns the time as a sample number (the original
+assumed 1 sample per second); see docs/DIVERGENCES.md.
 """
 function timstr(w::Wfdb, t::Integer)
     f = _tfreq(w.sig)
@@ -4648,6 +4826,11 @@ end
 
 C `mstimstr`: as `timstr`, with milliseconds (wfdb-x: the same error as
 `timstr` if the sampling frequency is not specified).
+
+Translation of the C function mstimstr() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: if the sampling frequency is not specified,
+it reports an error and returns the time as a sample number (the original
+assumed 1 sample per second); see docs/DIVERGENCES.md.
 """
 function mstimstr(w::Wfdb, t::Integer)
     f = _tfreq(w.sig)
@@ -4657,19 +4840,31 @@ end
 
 "    getcfreq([w]) -> Float64
 
-C `getcfreq`: the counter frequency (the frame frequency if none is set)."
+C `getcfreq`: the counter frequency (the frame frequency if none is set).
+
+Translation of the C function getcfreq() (lib/signal.c, WFDB 10.7.0): same
+arguments and results."
 getcfreq(w::Wfdb) = w.sig.cfreq > 0.0 ? w.sig.cfreq : w.sig.ffreq
 "    setcfreq([w], freq)
 
-C `setcfreq`: set the counter frequency (0: none)."
+C `setcfreq`: set the counter frequency (0: none).
+
+Translation of the C function setcfreq() (lib/signal.c, WFDB 10.7.0): same
+arguments and results."
 setcfreq(w::Wfdb, freq::Real) = (w.sig.cfreq = Float64(freq); nothing)
 "    getbasecount([w]) -> Float64
 
-C `getbasecount`: the base counter value."
+C `getbasecount`: the base counter value.
+
+Translation of the C function getbasecount() (lib/signal.c, WFDB 10.7.0):
+same arguments and results."
 getbasecount(w::Wfdb) = w.sig.bcount
 "    setbasecount([w], counter)
 
-C `setbasecount`: set the base counter value."
+C `setbasecount`: set the base counter value.
+
+Translation of the C function setbasecount() (lib/signal.c, WFDB 10.7.0):
+same arguments and results."
 setbasecount(w::Wfdb, counter::Real) = (w.sig.bcount = Float64(counter); nothing)
 
 """
@@ -4679,6 +4874,11 @@ C `strtim`: convert a time string to a sample number (negative for a time
 of day). wfdb-x: if the sampling frequency is not specified and the
 string needs one ([`wfdbx_time_needs_freq`](@ref)), reports an error and
 returns 0 (C assumed 1 sample per second; see `docs/DIVERGENCES.md`).
+
+Translation of the C function strtim() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: if the string needs a sampling frequency
+and none is specified, it reports an error and returns 0 (the original assumed
+1 sample per second); see docs/DIVERGENCES.md.
 """
 function strtim(w::Wfdb, string::ByteStr)
     f = _tfreq(w.sig)
@@ -4729,6 +4929,9 @@ end
     datstr([w], date) -> String
 
 C `datstr`: a Julian date as ` dd/mm/yyyy` (with a leading space).
+
+Translation of the C function datstr() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 datstr(w::Wfdb, date::Integer) = String(_datstr!(w, Int64(date)))
 
@@ -4738,6 +4941,9 @@ datstr(w::Wfdb, date::Integer) = String(_datstr!(w, Int64(date)))
 C `strdat`: the Julian date of a `dd/mm/yyyy` date (0 if it is invalid).
 (The numeric constants are those of `julday` of *Numerical Recipes in C*,
 as in the C library.)
+
+Translation of the C function strdat() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function strdat(w::Wfdb, string::ByteStr)
     s = cstr(Vector{UInt8}(_bv(string)))
@@ -4793,6 +4999,11 @@ _conversion_baseline(st::SigState, s::UInt32) =
 C `adumuv`: convert ADC units of signal `s` to microvolts. wfdb-x: for an
 uncalibrated signal or an invalid signal number, reports an error and
 returns `WFDB_INVALID_SAMPLE`.
+
+Translation of the C function adumuv() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: an uncalibrated signal or an invalid signal
+number is an error (the original assumed a gain of 200); see
+docs/DIVERGENCES.md.
 """
 function adumuv(w::Wfdb, s::Integer, a::Integer)
     g = _conversion_gain(w, "adumuv", s % UInt32)
@@ -4807,6 +5018,11 @@ end
 C `muvadu`: convert microvolts to ADC units of signal `s`. wfdb-x: for an
 uncalibrated signal or an invalid signal number, reports an error and
 returns `WFDB_INVALID_SAMPLE`.
+
+Translation of the C function muvadu() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: an uncalibrated signal or an invalid signal
+number is an error (the original assumed a gain of 200); see
+docs/DIVERGENCES.md.
 """
 function muvadu(w::Wfdb, s::Integer, v::Integer)
     g = _conversion_gain(w, "muvadu", s % UInt32)
@@ -4821,6 +5037,11 @@ end
 C `aduphys`: convert ADC units of signal `s` to physical units. wfdb-x: for
 an uncalibrated signal or an invalid signal number, reports an error and
 returns `NaN`.
+
+Translation of the C function aduphys() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: an uncalibrated signal or an invalid signal
+number is an error (the original assumed a gain of 200); see
+docs/DIVERGENCES.md.
 """
 function aduphys(w::Wfdb, s::Integer, a::Integer)
     s = s % UInt32
@@ -4836,6 +5057,11 @@ end
 C `physadu`: convert physical units to ADC units of signal `s`. wfdb-x: for
 an uncalibrated signal or an invalid signal number, reports an error and
 returns `WFDB_INVALID_SAMPLE`.
+
+Translation of the C function physadu() (lib/signal.c, WFDB 10.7.0): same
+arguments and results. Differences: an uncalibrated signal or an invalid signal
+number is an error (the original assumed a gain of 200); see
+docs/DIVERGENCES.md.
 """
 function physadu(w::Wfdb, s::Integer, v::Real)
     s = s % UInt32
@@ -4854,6 +5080,9 @@ end
 
 C `sample`: sample number `t` of input signal `s` (buffered random access);
 see [`sample_valid`](@ref).
+
+Translation of the C function sample() (lib/signal.c, WFDB 10.7.0): same
+arguments and results.
 """
 function sample(w::Wfdb, s::Integer, t::Integer)
     st = w.sig
@@ -4918,6 +5147,9 @@ end
 
 C `sample_valid`: 1 if the value returned by the last `sample()` call was
 valid, -1 if it was invalid, 0 at the end of the record.
+
+Translation of the C function sample_valid() (lib/signal.c, WFDB 10.7.0):
+same arguments and results.
 """
 sample_valid(w::Wfdb) = w.sig.sample_vflag
 

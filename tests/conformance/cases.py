@@ -20,7 +20,7 @@ The placeholders are also replaced in stdin, env, files and www_files.
 Part of wfdb-x, Reza Sameni, Oct 2026.
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
+Foundation; either version 3 of the License, or (at your option) any later
 version.
 """
 
@@ -292,6 +292,10 @@ _wr("-o w9 x", stdin=_TXT)
 _wr("-o w9 -q", stdin=_TXT)
 _wr("-h", stdin="\n")
 _wr("-o w10 -i rdsamp_x.xml", units=False)
+# record names: only the record's own name (the last component) is checked,
+# and the header names the record and its files relative to its directory
+_wr("-o my.data/w1", stdin=_TXT, cid="wrsamp-dotdir")
+_wr("-o rec.1", stdin=_TXT, cid="wrsamp-dotname")
 for f in ["-f", "-F", "-G", "-i", "-o", "-O", "-r", "-s", "-t", "-x"]:
     case("wrsamp", [f])
 

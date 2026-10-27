@@ -12,14 +12,37 @@ function status = md2a(args)
 %       -n NEWREC  create a header file for the output signal file, so it
 %                  may be read as record NEWREC
 %
-%   Example:
+%   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
+%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   the repository; the example writes out.aha and the record outaha in the
+%   current folder):
+%       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.apps.md2a({'-r', '100s', '-o', 'out.aha', '-n', 'outaha'})
 %
 %   See also wfdbx.apps.ad2m, wfdbx.apps.m2a.
+%
+%   Translation of the C program md2a (convert/md2a.c, WFDB 10.7.0): same
+%   options and output.
 
-% Copyright (C) 2001 George B. Moody (original C program, convert/md2a.c).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU General Public License, version 2 or later (see LICENSE).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of convert/md2a.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original program, but it is new code, not the original C
+% code.
+%
+% Changes from the original: none, apart from the language and the --legacy
+% option (as the first argument, it restores the original behavior).
+%
+% Original C program: convert/md2a.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 2001 George B. Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 if nargin < 1
     args = {};

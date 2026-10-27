@@ -1,8 +1,16 @@
 function test_annotations()
 %TEST_ANNOTATIONS Annotation I/O tests (annopen, getann, putann, ...).
 
-% Part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It tests wfdb-x; it has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 here = fileparts(mfilename('fullpath'));
 data = fullfile(fileparts(fileparts(here)), 'tests', 'data');
@@ -116,6 +124,7 @@ sort_legacy_in_output_dir();
 sort_list_time0();
 sort_disabled(C);
 sort_option();
+sort_false_no_advice();
 sort_keeps_other_annotators(C);
 
 % AHA format
@@ -504,6 +513,50 @@ catch
     failed = true;
 end
 assert_eq(failed, true, 'sort must be true, false or []');
+end
+
+function sort_false_no_advice()
+% 'sort' false: the caller chose the order, so the library does not advise
+% running sortann; WFDBANNSORT=0 (and the C-style API) still does
+old = getenv('WFDBANNSORT');
+c = onCleanup(@() setenv('WFDBANNSORT', old)); %#ok<NASGU>
+st = wfdbx.internal.io_state();
+t = [300 100 200];
+codes = [1 5 1];
+advice = 'to rearrange annotations in the correct order.\n';
+legacies = false;
+if wfdbx.internal.is_octave()   % (the sortann driver for Octave)
+    legacies = [false true];
+end
+for env = {'', '0', '1'}
+    setenv('WFDBANNSORT', env{1});
+    for legacy = legacies
+        wfdbx.wfdbquiet();
+        st.error_message = [];
+        wfdbx.write_annotations('100s', 'uns', t, 'codes', codes, ...
+            'sort', false, 'legacy', legacy);
+        wfdbx.wfdbverbose();
+        assert_eq(st.error_message, [], 'sort false: no message');
+    end
+end
+setenv('WFDBANNSORT', '0');
+wfdbx.wfdbquiet();
+st.error_message = [];
+wfdbx.write_annotations('100s', 'env0', t, 'codes', codes);
+wfdbx.wfdbverbose();
+assert_eq(st.error_message, sprintf(advice), 'WFDBANNSORT=0: advice');
+wfdbx.annopen('100s', wfdbx.anninfo('low', wfdbx.WFDB_WRITE()));
+a = wfdbx.annotation();
+for k = 1:numel(t)
+    a.time = t(k);
+    a.anntyp = codes(k);
+    wfdbx.putann(0, a);
+end
+wfdbx.wfdbquiet();
+st.error_message = [];
+wfdbx.wfdbquit();
+wfdbx.wfdbverbose();
+assert_eq(st.error_message, sprintf(advice), 'putann: advice');
 end
 
 function sort_keeps_other_annotators(C)

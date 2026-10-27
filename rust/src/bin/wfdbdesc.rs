@@ -3,15 +3,31 @@
 //! This program is an expanded version of Example 5 in the WFDB
 //! Programmer's Guide.
 //
-// Copyright (C) 1989-2012 George B. Moody (original C program, app/wfdbdesc.c;
-// revised 2018-2020 by Benjamin Moody).
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-// gain, ADC resolution or units. Values that the record or the user does not
-// give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-// 12 bits and millivolts), because a silently assumed value corrupts every
-// result derived from it. See docs/DIVERGENCES.md.
-// GNU General Public License, version 2 or later (see LICENSE).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+//
+// It is a Rust translation of app/wfdbdesc.c from the WFDB Software Package
+// 10.7.0, by George B. Moody. The translation follows the logic and behavior
+// of the original program, but it is new code, not the original C code.
+//
+// Changes from the original: no built-in sampling frequency, gain, ADC
+// resolution or units: an unspecified sampling frequency or ADC resolution is
+// shown as "not specified" (lengths are then given in sample intervals only),
+// a gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"),
+// and unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
+// millivolts); --legacy, as the first argument, restores the original
+// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// gives the reasons.
+//
+// Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
+//   Copyright (C) 1989-2012 George B. Moody; revised 2018-2020 by
+//   Benjamin Moody.
+// Rust translation and changes: Copyright (C) 2026 Reza Sameni.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use wfdbx::cstd;
 use wfdbx::{ceprintf, cprintf, Siginfo, NULL, WFDB_DEFGAIN, WFDB_LOWRES};

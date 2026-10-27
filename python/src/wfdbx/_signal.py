@@ -8,29 +8,44 @@ The implementation follows the C library closely, including its global
 (per-process) state: a WFDB application opens one input record and any
 number of output signals at a time, exactly as with the C library.
 
-Copyright (C) 1989-2013 George B. Moody (original C implementation,
-lib/signal.c; revised 2011-2022 by Benjamin Moody, including FLAC support,
-2020).
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-Design decision (Reza Sameni, Oct 2026): the signal files named in a header,
-and the segments named in the header of a multi-segment record, are in the
-directory of that header (on disk or at its URL) or below it; a name that
-is absolute, begins with '~', is a URL or contains a ".." component is
-refused ("~" as a segment, a null segment, and "-" as a signal file remain).
-Nothing is searched: a search can silently open the wrong file, and a header
-must not make the library read other local files or contact other servers.
-The original behavior remains available with --legacy (see
-docs/DIVERGENCES.md).
-Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency, gain,
-ADC resolution or units. Values that the record or the user does not give are
-never assumed (the original package assumed 250 Hz, 200 adu/mV, 12 bits and
-millivolts), because a silently assumed value corrupts every result derived
-from it. See docs/DIVERGENCES.md. The original behavior remains available
-with --legacy (see docs/DIVERGENCES.md).
-This library is free software; you can redistribute it and/or modify it under
-the terms of the GNU Library General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your option) any
-later version.
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+
+It is a Python translation of lib/signal.c, lib/wfdb.h and lib/wfdblib.h from
+the WFDB Software Package 10.7.0, by George B. Moody. The translation follows
+the logic and behavior of the original code, but it is new code, not the
+original C code.
+
+Changes from the original: no built-in sampling frequency, gain, ADC resolution
+or units (the original assumed 250 Hz, 200 adu/mV, 12 bits or a resolution
+based on the format, and millivolts): a value that the header does not give
+stays unspecified, and the time and amplitude conversions that need it, and
+setifreq, report an error; the signal files and segments named in a header are
+read only from the header's directory (on disk or at its URL), never searched
+for, and a name that leaves that directory is refused; an output signal file is
+never one of the input files of the open record; a header written under a path
+names the record, its signal files and its segments relative to its own
+directory; FLAC signal files are read and written with wfdb-x's own codec
+(_flac.py) instead of libFLAC; additions: wfdbx_set_legacy, wfdbx_get_legacy,
+wfdbx_legacy_args, wfdbx_time_needs_freq, getframes, and the readers and
+writers used by the high-level functions; legacy mode (wfdbx_set_legacy)
+restores the original behavior. Each change is marked "wfdb-x:" in the code;
+docs/DIVERGENCES.md gives the reasons.
+
+Original C code: lib/signal.c, lib/wfdb.h and lib/wfdblib.h, WFDB Software
+Package 10.7.0.
+  lib/signal.c: Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by
+  Benjamin Moody, including FLAC support (2020).
+  lib/wfdb.h: Copyright (C) 1983-2013 George B. Moody; revised 2010-2020 by
+  Benjamin Moody.
+  lib/wfdblib.h: Copyright (C) 1989-2012 George B. Moody; revised 2017-2022 by
+  Benjamin Moody.
+Python translation and changes: Copyright (C) 2026 Reza Sameni.
+
+This library is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import math
@@ -590,10 +605,26 @@ _legacy_mode = 0
 
 
 def wfdbx_set_legacy(on):
-    """Turn legacy mode on (if ``on`` is true) or off.
+    """Turn legacy mode on or off, and return the previous setting.
 
-    A wfdb-x addition (see docs/DIVERGENCES.md): returns the previous
-    setting (1: on, 0: off).
+    The setting applies to the whole library. Legacy mode reproduces the
+    original WFDB package, including its assumed signal parameters and its
+    search for files. Use it only to reproduce old results. See
+    https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md#legacy-mode
+
+    Arguments:
+      on  True (or 1) to turn legacy mode on, False (or 0) to turn it off
+
+    Returns:
+      the previous setting: 1 (on) or 0 (off)
+
+    Example::
+
+        wfdbx.wfdbx_set_legacy(1)
+        ...
+        wfdbx.wfdbx_set_legacy(0)
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     global _legacy_mode
     previous = _legacy_mode
@@ -602,7 +633,12 @@ def wfdbx_set_legacy(on):
 
 
 def wfdbx_get_legacy():
-    """Return 1 if legacy mode is on, 0 otherwise (a wfdb-x addition)."""
+    """Return 1 if legacy mode is on, 0 otherwise.
+
+    See wfdbx_set_legacy.
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
     return _legacy_mode
 
 
@@ -613,6 +649,8 @@ def wfdbx_legacy_args(argv):
     If argv[1] is exactly "--legacy", it is removed (in place), legacy mode
     is turned on, and 1 is returned; otherwise nothing changes and 0 is
     returned.
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     if len(argv) < 2 or argv[1] != "--legacy":
         return 0
@@ -1784,6 +1822,12 @@ def isigopen(record, siarray=None, nsig=0):
       -1  the header cannot be read (probably an incorrect record name)
       -2  incorrect header format
       -3  internal limits exceeded (all signal files are closed)
+
+    Translation of the C function isigopen() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: the signal files and segments named in
+    the header are read only from the header's directory, and no sampling
+    frequency, gain, ADC resolution or units are assumed; see
+    docs/DIVERGENCES.md.
     """
     s_ = _s
     first_segment = 0
@@ -1939,8 +1983,8 @@ def isigopen(record, siarray=None, nsig=0):
 # multi-segment record (read from the segment's header; segments are opened
 # later, as they are reached).  "The same file" is decided by the files, not
 # by their names: device and inode numbers (os.fstat; on MS-Windows, the
-# volume serial number and file index).  Decided by Reza Sameni, Oct 2026:
-# e.g., "xform -i vlay -o fmt16", fmt16 being a segment of vlay, truncated
+# volume serial number and file index).  Without this check, for example,
+# "xform -i vlay -o fmt16", fmt16 being a segment of vlay, truncates
 # fmt16.dat while reading it, with a platform-dependent result and the input
 # destroyed.  Legacy mode: no check (the original behavior).
 def _file_id(f):
@@ -2104,6 +2148,10 @@ def osigopen(record, siarray=None, nsig=0):
     read), -2 (incorrect header format or signal specification), or -3
     (cannot open the output signals, or the record has fewer than nsig
     signals).
+
+    Translation of the C function osigopen() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: an output signal file that is one of
+    the input files of the open record is refused; see docs/DIVERGENCES.md.
     """
     if record.startswith("+"):
         record = record[1:]
@@ -2135,6 +2183,10 @@ def osigfopen(siarray, nsig=None):
     specification: name too long, illegal fmt or bsize, or wrong group),
     -3 (cannot open a signal file), or -4 (write error while closing the
     previous output signals, only if nsig is 0).
+
+    Translation of the C function osigfopen() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: an output signal file that is one of
+    the input files of the open record is refused; see docs/DIVERGENCES.md.
     """
     stat = _osigclose()
     if nsig is None:
@@ -2166,6 +2218,9 @@ def findsig(p):
 
     ``p`` is either a signal number written in decimal ("0", "1", ...) or a
     signal description (e.g. "MLII"), which must match exactly.
+
+    Translation of the C function findsig() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     if all("0" <= c <= "9" for c in p):    # all digits (or empty)
@@ -2190,6 +2245,9 @@ def getspf():
 
     This is 1, except in WFDB_HIGHRES mode, where it is the largest number
     of samples per frame of any input signal.
+
+    Translation of the C function getspf() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     return int(s_.sfreq / s_.ffreq + 0.5) if s_.sfreq != s_.ffreq else 1
@@ -2204,6 +2262,9 @@ def setgvmode(mode):
     oversampled signals, repeating the samples of the others.  WFDB_GVPAD
     replaces invalid samples with the previous valid sample.  A negative
     mode uses the WFDBGVMODE environment variable (default WFDB_LOWRES).
+
+    Translation of the C function setgvmode() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     if mode < 0:
@@ -2219,7 +2280,11 @@ def setgvmode(mode):
 
 
 def getgvmode():
-    """Return the getvec() mode (see setgvmode)."""
+    """Return the getvec() mode (see setgvmode).
+
+    Translation of the C function getgvmode() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     return _s.gvmode
 
 
@@ -2232,6 +2297,10 @@ def setifreq(f):
     resolution of new output annotators (see setafreq).  Returns 0 on
     success, or -1 if no record is open, if the sampling frequency of the
     open record is not specified (wfdb-x), or if ``f`` is not positive.
+
+    Translation of the C function setifreq() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: it fails if the sampling frequency of
+    the input record is not specified; see docs/DIVERGENCES.md.
     """
     s_ = _s
     g = s_.sfreq
@@ -2277,6 +2346,9 @@ def getifreq():
 
     This is the value set by setifreq(), or the record's sampling frequency
     if setifreq() was not called.
+
+    Translation of the C function getifreq() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     return s_.ifreq if s_.ifreq > 0 else s_.sfreq
@@ -2295,6 +2367,9 @@ def getvec(vector):
       -1  end of data (the contents of vector are not valid)
       -3  unexpected physical end of file
       -4  checksum error (detected only at the end of the file)
+
+    Translation of the C function getvec() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     if s_.ifreq == 0.0 or s_.ifreq == s_.sfreq:
@@ -2324,6 +2399,9 @@ def getframe(vector):
     Unlike getvec(), all samples of oversampled signals are returned: the
     spf samples of signal 0, then those of signal 1, and so on.  Returns
     the same values as getvec().
+
+    Translation of the C function getframe() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     stat = -1
@@ -2377,6 +2455,9 @@ def putvec(vector):
     Returns the number of output signals on success, 0 if the slew rate
     was too high for a signal in format 8 (difference format), or -1 on a
     write error.
+
+    Translation of the C function putvec() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     stat = s_.nosig
@@ -2585,6 +2666,9 @@ def isigsettime(t):
     The next getvec() returns the samples at time t.  Returns 0 on
     success, or a negative value at the end of the data or on an improper
     seek.
+
+    Translation of the C function isigsettime() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     s_ = _s
     stat = 0
@@ -2611,6 +2695,9 @@ def isgsettime(g, t):
 
     Signals in other groups are unaffected.  Returns 0 on success, or a
     negative value at the end of the data or on an improper seek.
+
+    Translation of the C function isgsettime() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     s_ = _s
     trem = 0
@@ -2651,6 +2738,9 @@ def tnextvec(s, t):
     The input signals are left positioned at that time.  Returns -1 at
     the end of the data, on an improper seek, or if s is not an input
     signal.
+
+    Translation of the C function tnextvec() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     stat = 0
@@ -2706,6 +2796,9 @@ def setibsize(n):
 
     Must be called before isigopen().  Returns the new buffer size, -1 if
     input signals are already open, or -2 if n is negative.
+
+    Translation of the C function setibsize() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     if s_.nisig:
@@ -2725,6 +2818,9 @@ def setobsize(n):
 
     Must be called before osigopen()/osigfopen().  Returns the new buffer
     size, -1 if output signals are already open, or -2 if n is negative.
+
+    Translation of the C function setobsize() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     if s_.nosig:
@@ -2739,6 +2835,22 @@ def setobsize(n):
     return n
 
 
+def _hea_name(record, name):
+    """A name as written into the header of record.
+
+    wfdb-x: outside legacy mode, names are written relative to the header's
+    directory (where the reader looks for them): the directory part of
+    record is removed from name when name begins with it.
+    """
+    if wfdbx_get_legacy() or name is None:
+        return name
+    k = record.rfind("/")
+    if k < 0:
+        return name
+    d = record[:k + 1]
+    return name[len(d):] if name.startswith(d) else name
+
+
 def newheader(record):
     """Create a header file for the currently open output signals.
 
@@ -2746,6 +2858,11 @@ def newheader(record):
     that the header records their number and checksums.  Returns 0 on
     success, or -1 if the header cannot be created (or the record name is
     illegal).
+
+    Translation of the C function newheader() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: a header written under a path names the
+    record and its signal files relative to its own directory, and only the
+    record's own name (the last component) is checked; see docs/DIVERGENCES.md.
     """
     record = wio.wfdb_striphea(record)
     osi = [_s.osd[s].info.copy() for s in range(_s.nosig)]
@@ -2779,6 +2896,11 @@ def setheader(record, siarray, nsig=None):
     ``desc`` string of a Siginfo object is truncated at its first
     whitespace (units) or newline (desc).  Returns 0 on success, or -1 if
     the header cannot be created.
+
+    Translation of the C function setheader() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: a header written under a path names the
+    record and its signal files relative to its own directory, and only the
+    record's own name (the last component) is checked; see docs/DIVERGENCES.md.
     """
     s_ = _s
     if nsig is None:
@@ -2796,7 +2918,8 @@ def setheader(record, siarray, nsig=None):
         wfdb_error("newheader: can't create header for record %s\n", record)
         return -1
     out = []
-    out.append("%s %d %s" % (record, nsig, _fmt_g12(s_.ffreq)))
+    out.append("%s %d %s" % (_hea_name(record, record), nsig,
+                             _fmt_g12(s_.ffreq)))
     if (s_.cfreq > 0.0 and s_.cfreq != s_.ffreq) or s_.bcount != 0.0:
         out.append("/%s" % _fmt_g12(s_.cfreq))
         if s_.bcount != 0.0:
@@ -2814,7 +2937,7 @@ def setheader(record, siarray, nsig=None):
     out.append("\r\n")
     for s in range(nsig):
         si = siarray[s]
-        out.append("%s %d" % (si.fname, si.fmt))
+        out.append("%s %d" % (_hea_name(record, si.fname), si.fmt))
         if si.spf > 1:
             out.append("x%d" % si.spf)
         if s_.osd and s < len(s_.osd) and s_.osd[s].skew:
@@ -2848,6 +2971,9 @@ def getseginfo():
     """Return the list of Seginfo objects of the open multi-segment record.
 
     The list is empty if the open record is not a multi-segment record.
+
+    Translation of the C function getseginfo() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     return _s.segarray if _s.segarray is not None else []
 
@@ -2861,6 +2987,12 @@ def setmsheader(record, segment_name, nsegments=None):
     (segment name too long), -3 (nested multi-segment record or unreadable
     segment header), or -4 (segment length unspecified, or segments whose
     numbers of signals or sampling frequencies differ).
+
+    Translation of the C function setmsheader() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results. Differences: a header written under a path
+    names the record and its segments relative to its own directory, and only
+    the record's own name (the last component) is checked; see
+    docs/DIVERGENCES.md.
     """
     s_ = _s
     if nsegments is None:
@@ -2925,7 +3057,8 @@ def setmsheader(record, segment_name, nsegments=None):
         wfdb_error("setmsheader: can't create header file for record %s\n",
                    record)
         return -1
-    out = ["%s/%d %d %s" % (record, nsegments, nsig, _fmt_g12(msfreq))]
+    out = ["%s/%d %d %s" % (_hea_name(record, record), nsegments, nsig,
+                            _fmt_g12(msfreq))]
     if (mscfreq > 0.0 and mscfreq != msfreq) or msbcount != 0.0:
         out.append("/%s" % _fmt_g12(mscfreq))
         if msbcount != 0.0:
@@ -2940,13 +3073,17 @@ def setmsheader(record, segment_name, nsegments=None):
         out.append(datstr(s_.msbdate))
     out.append("\r\n")
     for i in range(nsegments):
-        out.append("%s %d\r\n" % (segment_name[i], ns[i]))
+        out.append("%s %d\r\n" % (_hea_name(record, segment_name[i]), ns[i]))
     s_.oheader.write("".join(out).encode("latin-1"))
     return 0
 
 
 def wfdbgetskew(s):
-    """Return the skew (in frames) of input signal s (0 if s is not open)."""
+    """Return the skew (in frames) of input signal s (0 if s is not open).
+
+    Translation of the C function wfdbgetskew() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     if s < _s.nvsig:
         return _s.vsd[s].skew
     return 0
@@ -2957,6 +3094,9 @@ def wfdbsetiskew(s, skew):
 
     The value is ignored unless it is within the range allowed by the
     skews in the header of the open record.
+
+    Translation of the C function wfdbsetiskew() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     s_ = _s
     if s < s_.nvsig and skew >= 0 and s_.tspf and \
@@ -2965,13 +3105,21 @@ def wfdbsetiskew(s, skew):
 
 
 def wfdbsetskew(s, skew):
-    """Set the skew (in frames) that setheader() writes for output signal s."""
+    """Set the skew (in frames) that setheader() writes for output signal s.
+
+    Translation of the C function wfdbsetskew() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     if s < _s.nosig:
         _s.osd[s].skew = skew
 
 
 def wfdbgetstart(s):
-    """Return the prolog length (bytes) of the signal file of signal s."""
+    """Return the prolog length (bytes) of the signal file of signal s.
+
+    Translation of the C function wfdbgetstart() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     s_ = _s
     if s < s_.nisig:
         return s_.igd[s_.vsd[s].info.group].start
@@ -2981,7 +3129,11 @@ def wfdbgetstart(s):
 
 
 def wfdbsetstart(s, nbytes):
-    """Set the prolog length (bytes) that setheader() writes for signal s."""
+    """Set the prolog length (bytes) that setheader() writes for signal s.
+
+    Translation of the C function wfdbsetstart() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     s_ = _s
     if s < s_.nosig:
         s_.ogd[s_.osd[s].info.group].start = nbytes
@@ -2995,6 +3147,9 @@ def wfdbputprolog(buf, size, s):
     ``size`` bytes, before any samples, and its length is recorded for
     setheader().  Returns 0 on success, or -1 if fewer than size bytes were
     written.
+
+    Translation of the C function wfdbputprolog() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     s_ = _s
     g = s_.osd[s].info.group
@@ -3013,6 +3168,9 @@ def setinfo(record):
     Any .info file opened by a previous setinfo() call is closed first;
     ``setinfo(None)`` just closes it.  Returns 0 on success, or -1 if the
     record name is illegal or the file cannot be opened.
+
+    Translation of the C function setinfo() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     stat = _wfdb_oinfoclose()
     if record is None:
@@ -3034,6 +3192,9 @@ def putinfo(s):
     not been called, it is appended to the header created by the last
     newheader()/setheader() call.  Returns 0 on success, or -1 if neither
     is open.
+
+    Translation of the C function putinfo() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     if s_.outinfo is None:
@@ -3064,6 +3225,9 @@ def getinfo(record=None):
     '#') followed by those of the record's .info file, if any.  Passing a
     record name starts again from the first string of that record; passing
     None continues with the record most recently opened or named.
+
+    Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     if record is not None:
@@ -3133,6 +3297,10 @@ def sampfreq(record):
     failure.
     wfdb-x: the result is 0 if the header does not specify the sampling
     frequency (C assumed 250 Hz).
+
+    Translation of the C function sampfreq() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: it returns 0, not 250, if the header
+    gives no sampling frequency; see docs/DIVERGENCES.md.
     """
     s_ = _s
     record = wio.wfdb_striphea(record)
@@ -3149,6 +3317,9 @@ def setsampfreq(freq):
     """Set the sampling frequency (for output and for time conversions).
 
     Returns 0 on success, or -1 if freq is negative.
+
+    Translation of the C function setsampfreq() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     s_ = _s
     if freq >= 0.0:
@@ -3168,6 +3339,9 @@ def setbasetime(string):
     ``string`` has the form "hh:mm:ss" or "hh:mm:ss dd/mm/yyyy"; an empty
     string or None uses the current local time and date.  Returns 0 on
     success, or -1 if the string cannot be parsed.
+
+    Translation of the C function setbasetime() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     s_ = _s
     s_.pdays = -1
@@ -3223,6 +3397,8 @@ def wfdbx_time_needs_freq(string):
     (after leading spaces, tabs, newlines and carriage returns) begins with
     "e", "i", "o" or "s", or with "c" while no counter frequency is
     defined; 1 otherwise.
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     c = string.lstrip(" \t\n\r")[:1]
     if c in ("e", "i", "o", "s"):
@@ -3244,6 +3420,11 @@ def timstr(t):
     wfdb-x: if no sampling frequency is specified, reports an error and
     returns the time as a sample number, "s" followed by |t| (C used 1
     sample per second); see docs/DIVERGENCES.md.
+
+    Translation of the C function timstr() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: if the sampling frequency is not
+    specified, it reports an error and returns the time as a sample number (the
+    original assumed 1 sample per second); see docs/DIVERGENCES.md.
     """
     s_ = _s
     if s_.ifreq > 0.0:
@@ -3311,6 +3492,11 @@ def mstimstr(t):
     or "[hh:mm:ss.sss dd/mm/yyyy]" for a time of day).
 
     wfdb-x: without a sampling frequency, behaves as timstr() does.
+
+    Translation of the C function mstimstr() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: if the sampling frequency is not
+    specified, it reports an error and returns the time as a sample number (the
+    original assumed 1 sample per second); see docs/DIVERGENCES.md.
     """
     s_ = _s
     if s_.ifreq > 0.0:
@@ -3325,23 +3511,39 @@ def mstimstr(t):
 
 
 def getcfreq():
-    """Return the counter frequency in Hz (the frame frequency if not set)."""
+    """Return the counter frequency in Hz (the frame frequency if not set).
+
+    Translation of the C function getcfreq() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     s_ = _s
     return s_.cfreq if s_.cfreq > 0.0 else s_.ffreq
 
 
 def setcfreq(freq):
-    """Set the counter frequency in Hz (0 or less: no counter frequency)."""
+    """Set the counter frequency in Hz (0 or less: no counter frequency).
+
+    Translation of the C function setcfreq() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     _s.cfreq = freq
 
 
 def getbasecount():
-    """Return the base counter value (the counter value at sample 0)."""
+    """Return the base counter value (the counter value at sample 0).
+
+    Translation of the C function getbasecount() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     return _s.bcount
 
 
 def setbasecount(counter):
-    """Set the base counter value (the counter value at sample 0)."""
+    """Set the base counter value (the counter value at sample 0).
+
+    Translation of the C function setbasecount() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     _s.bcount = counter
 
 
@@ -3419,6 +3621,11 @@ def strtim(string):
     wfdb-x: if no sampling frequency is specified and the string needs one
     (see wfdbx_time_needs_freq), reports an error and returns 0 (C used 1
     sample per second).
+
+    Translation of the C function strtim() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: if the string needs a sampling
+    frequency and none is specified, it reports an error and returns 0 (the
+    original assumed 1 sample per second); see docs/DIVERGENCES.md.
     """
     s_ = _s
     if s_.ifreq > 0.0:
@@ -3461,7 +3668,11 @@ def _julian_ymd(date):
 
 
 def datstr(date):
-    """Convert a Julian date to a string " dd/mm/yyyy" (leading space)."""
+    """Convert a Julian date to a string " dd/mm/yyyy" (leading space).
+
+    Translation of the C function datstr() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     y, m, d = _julian_ymd(date)
     _s.date_string = " %02d/%02d/%d" % (d, m, y)
     _s.pdays = -1
@@ -3469,7 +3680,11 @@ def datstr(date):
 
 
 def strdat(string):
-    """Convert a date string ("dd/mm/yyyy") to a Julian date (0 if invalid)."""
+    """Convert a date string ("dd/mm/yyyy") to a Julian date (0 if invalid).
+
+    Translation of the C function strdat() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     mp = string.find("/")
     if mp < 0:
         return 0
@@ -3532,6 +3747,11 @@ def adumuv(s, a):
 
     wfdb-x: returns WFDB_INVALID_SAMPLE (and reports an error) if s is not
     an input signal or is uncalibrated (C assumed a gain of 200).
+
+    Translation of the C function adumuv() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: an uncalibrated signal or an invalid
+    signal number is an error (the original assumed a gain of 200); see
+    docs/DIVERGENCES.md.
     """
     g = _conversion_gain("adumuv", s)
     if g == 0.0:
@@ -3545,6 +3765,11 @@ def muvadu(s, v):
 
     wfdb-x: returns WFDB_INVALID_SAMPLE (and reports an error) if s is not
     an input signal or is uncalibrated (C assumed a gain of 200).
+
+    Translation of the C function muvadu() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: an uncalibrated signal or an invalid
+    signal number is an error (the original assumed a gain of 200); see
+    docs/DIVERGENCES.md.
     """
     g = _conversion_gain("muvadu", s)
     if g == 0.0:
@@ -3559,6 +3784,11 @@ def aduphys(s, a):
     The baseline and gain are those of input signal s.  wfdb-x: returns
     NaN (and reports an error) if s is not an input signal or is
     uncalibrated (C assumed a gain of 200).
+
+    Translation of the C function aduphys() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: an uncalibrated signal or an invalid
+    signal number is an error (the original assumed a gain of 200); see
+    docs/DIVERGENCES.md.
     """
     g = _conversion_gain("aduphys", s)
     if g == 0.0:
@@ -3572,6 +3802,11 @@ def physadu(s, v):
     This is the inverse of aduphys(), with the baseline and gain of input
     signal s.  wfdb-x: returns WFDB_INVALID_SAMPLE (and reports an error)
     if s is not an input signal or is uncalibrated.
+
+    Translation of the C function physadu() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results. Differences: an uncalibrated signal or an invalid
+    signal number is an error (the original assumed a gain of 200); see
+    docs/DIVERGENCES.md.
     """
     g = _conversion_gain("physadu", s)
     if g == 0.0:
@@ -3590,6 +3825,9 @@ def sample(s, t):
     using a buffer of recent samples.  If the sample cannot be read, the
     result is WFDB_INVALID_SAMPLE or the last sample read; call
     sample_valid() to tell which.
+
+    Translation of the C function sample() (lib/signal.c, WFDB 10.7.0): same
+    arguments and results.
     """
     s_ = _s
     nsig = s_.nvsig if s_.nvsig > s_.nisig else s_.nisig
@@ -3629,6 +3867,9 @@ def sample_valid():
     1 if the value was valid, -1 if it was invalid (signal not available at
     that time, or illegal signal number), 0 if the time was past the end of
     the record.
+
+    Translation of the C function sample_valid() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     return _s.sample_vflag
 
@@ -3706,6 +3947,9 @@ def wfdb_freeinfo():
 
     The next getinfo(None) starts again from the first info string of the
     current record (the record name survives wfdbquit(), as in C).
+
+    Translation of the C function wfdb_freeinfo() (lib/signal.c, WFDB 10.7.0):
+    same arguments and results.
     """
     _s.pinfo = None
     _s.ninfo = 0
@@ -4020,6 +4264,8 @@ def getframes(n):
     status of the first frame that could not be read (or the number of
     signals if all n frames were read).  This is equivalent to calling
     getvec() up to n times, stopping at the first negative return value.
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     import numpy as np
     s_ = _s

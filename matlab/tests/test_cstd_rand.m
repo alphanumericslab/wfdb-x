@@ -1,8 +1,16 @@
 function test_cstd_rand()
 %TEST_CSTD_RAND Tests of the glibc rand() emulation.
 
-% Part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It tests wfdb-x; it has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 r = wfdbx.internal.GlibcRand(0);
 assert_eq([r.rand() r.rand() r.rand()], [1804289383 846930886 1681692777], ...

@@ -4,11 +4,16 @@ Each module in this package provides a ``main(argv=None)`` function that
 behaves exactly like the corresponding C application, and can be run as
 ``python -m wfdbx.apps.NAME`` or through the ``wfdbx`` command.
 
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-This program is free software; you can redistribute it and/or modify it under
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+has no counterpart in the original package.
+
+Copyright (C) 2026 Reza Sameni.
+
+This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
-version.
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 TOOLS = [

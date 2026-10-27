@@ -18,15 +18,16 @@ Usage:
   of the unmodified C package)
   harness.py list                             list the test cases
 
-IMPL is one of: python, cpp, rust, julia, r, octave, matlab, c, or a
-command template containing {tool} (e.g. "/path/to/bin/{tool}").
+IMPL is one of: python, cpp, rust, julia, r, octave, matlab, kotlin, c, or
+a command template containing {tool} (e.g. "/path/to/bin/{tool}").
 Set WFDBX_<IMPL>_CMD to override the command template of an implementation,
-or (for cpp and rust) WFDBX_<IMPL>_BIN to use another directory of tools.
+or (for cpp and rust) WFDBX_<IMPL>_BIN to use another directory of tools,
+or (for kotlin) WFDBX_KOTLIN_JAR to use another jar of the tools.
 
 Part of wfdb-x, Reza Sameni, Oct 2026.
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option) any later
+Foundation; either version 3 of the License, or (at your option) any later
 version.
 """
 
@@ -94,6 +95,9 @@ IMPL_TEMPLATES = {
                os.path.join(ROOT, "matlab", "bin", "wfdbx_cli.m"), "{tool}"],
     "matlab": [os.path.join(ROOT, "matlab", "bin", "wfdbx_matlab.sh"),
                "{tool}"],
+    # (the jar: $WFDBX_KOTLIN_JAR, else kotlin/build/libs/wfdbx-all.jar,
+    # built by `./gradlew fatJar` in kotlin/)
+    "kotlin": [os.path.join(ROOT, "kotlin", "bin", "wfdbx"), "{tool}"],
 }
 
 

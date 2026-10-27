@@ -1,0 +1,50 @@
+#!/bin/sh
+# wfdbx: command-line driver of the wfdb-x tools for Kotlin (JVM).
+#
+#   bin/wfdbx TOOL [ARGUMENTS ...]     (e.g. bin/wfdbx rdsamp -r 100s)
+#   bin/wfdbx --list | --version
+#
+# Runs `java -cp JAR wfdbx.cli.MainKt TOOL ARGUMENTS...`, where JAR is
+# $WFDBX_KOTLIN_JAR if set, else build/libs/wfdbx-all.jar next to this
+# directory (built by `./gradlew fatJar`). $JAVA, if set, names the java
+# program. A link to this script named after a tool (e.g. rdsamp -> wfdbx)
+# runs that tool.
+#
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
+
+case "$0" in
+    */*) here=${0%/*} ;;
+    *) here=$(dirname "$(command -v -- "$0")") ;;
+esac
+# follow a link named after a tool to find the jar
+self=$0
+if [ -L "$self" ]; then
+    t=$(readlink -- "$self")
+    case "$t" in
+        /*) here=${t%/*} ;;
+        */*) here=$here/${t%/*} ;;
+    esac
+fi
+JAR=${WFDBX_KOTLIN_JAR:-$here/../build/libs/wfdbx-all.jar}
+# The JVM reports JAVA_TOOL_OPTIONS on the standard error ("Picked up
+# JAVA_TOOL_OPTIONS: ..."): the options are given on the command line
+# instead, so that the tools' standard error is theirs alone.
+set -f  # (no file name expansion of the options)
+opts=${JAVA_TOOL_OPTIONS-}
+unset JAVA_TOOL_OPTIONS
+name=${0##*/}
+if [ "$name" != wfdbx ]; then
+    # shellcheck disable=SC2086
+    exec "${JAVA:-java}" $opts -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xshare:auto -cp "$JAR" wfdbx.cli.MainKt "$name" "$@"
+fi
+# shellcheck disable=SC2086
+exec "${JAVA:-java}" $opts -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xshare:auto -cp "$JAR" wfdbx.cli.MainKt "$@"

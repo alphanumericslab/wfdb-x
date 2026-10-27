@@ -2,11 +2,19 @@
 # (`main_cli`), and `run_tool`, which runs a tool in-process with its
 # standard streams captured (for tests and the precompilation workload).
 #
-# Each tool is a function `<tool>_main(args::Vector{String})::Integer`
-# (args without the program name) defined in src/apps/<tool>.jl.
+# Each tool is a function `<tool>_main(args::Vector{String})::Integer` (args
+# without the program name) defined in src/apps/<tool>.jl.
 #
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 # A tool name: lowercase letters, digits and underscores, not starting with
 # an underscore (private functions such as `_run_main` are not tools).
@@ -32,6 +40,8 @@ end
 
 Return the names of the available command-line tools (`"a2m"`, `"ad2m"`,
 ..., `"xform"`), sorted.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function tools()
     v = String[]
@@ -83,6 +93,8 @@ run the tool `args[1]` with the arguments `args[2:end]`, writing to the
 process's standard output and error, and return its exit status. With no
 arguments or an unknown tool name, print a message on the standard error
 and return 1.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function main_cli(args::Vector{String})
     if isempty(args)
@@ -125,8 +137,12 @@ restored when the tool returns. Throws an `ArgumentError` if there is no
 such tool.
 
 # Examples
+The example prints the first samples of `100s`, the first minute of record
+100 of the MIT-BIH Arrhythmia Database, which is included with wfdb-x in
+`tests/data` of a copy of the wfdb-x repository (the tool runs in that
+directory, its input directory):
 ```julia-repl
-julia> status, out, err = WFDBX.run_tool("rdsamp", ["-r", "100s", "-t", "s3"]; dir="/path/to/data");
+julia> status, out, err = WFDBX.run_tool("rdsamp", ["-r", "100s", "-t", "s3"]; dir="/path/to/wfdb-x/tests/data");
 
 julia> status
 0
@@ -134,6 +150,8 @@ julia> status
 julia> first(eachline(IOBuffer(out)))   # sample number, then one column per signal
 "              0\\t    995\\t   1011"
 ```
+
+Part of wfdb-x; not in the original WFDB package.
 """
 function run_tool(tool::AbstractString, args::AbstractVector{<:AbstractString};
                   stdin::ByteStr=UInt8[], dir=nothing, env=nothing)

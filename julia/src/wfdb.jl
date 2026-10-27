@@ -3,9 +3,9 @@
 # C-named functions called without a `Wfdb` argument.
 #
 # Organization: each C library function is a Julia function with the C name
-# whose first argument is a `w::Wfdb`, defined in the file that ports the
-# corresponding C source file; the state of each C source file is a field of
-# `WfdbLib` whose type is defined in that file:
+# whose first argument is a `w::Wfdb`, defined in the file that translates
+# the corresponding C source file; the state of each C source file is a
+# field of `WfdbLib` whose type is defined in that file:
 #
 # | field  | type       | file        |
 # |--------|------------|-------------|
@@ -15,11 +15,19 @@
 # | `cal`  | `CalState` | calib.jl    |
 # | `maps` | `EcgMaps`  | ecgcodes.jl |
 #
-# Every function also has a method without the `Wfdb` argument that uses
-# the default instance `lib()`: `getwfdb() = getwfdb(lib())`.
+# Every function also has a method without the `Wfdb` argument that uses the
+# default instance `lib()`: `getwfdb() = getwfdb(lib())`.
 #
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 """
     WfdbLib <: Wfdb
@@ -41,6 +49,8 @@ WfdbLib() = WfdbLib(IoState(), SigState(), AnnState(), CalState(), EcgMaps())
     Wfdb() -> WfdbLib
 
 Create a new, independent library state, as at the start of a C program.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 Wfdb() = WfdbLib()
 
@@ -54,6 +64,8 @@ when they are called without a `Wfdb` argument (the equivalent of the C
 library's global variables). It is created when the package is loaded.
 While a tool runs in-process with [`run_tool`](@ref), `lib()` is a fresh
 instance, and the previous one is restored afterwards.
+
+Part of wfdb-x; not in the original WFDB package.
 """
 @inline lib() = _LIB[]
 

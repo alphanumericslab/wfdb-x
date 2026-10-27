@@ -6,15 +6,29 @@
 // failure and ends the test.  WFDBX_TEST_DATA is the directory of the test
 // records (tests/data).
 //
-// Part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU General Public License, version 2 or later (see LICENSE).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It tests wfdb-x; it has no counterpart in the original package.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 #ifndef WFDBX_TESTS_HPP
 #define WFDBX_TESTS_HPP
 
+#include <cstdio>
 #include <cstdlib>
 #include <optional>
 #include <string>
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace wfdbx_tests {
 
@@ -56,6 +70,45 @@ struct EnvVar {
         else
             unsetenv(name.c_str());
 #endif
+    }
+};
+
+// What is written on the standard error (file descriptor 2) during the
+// lifetime of the object, or until text() is called.
+struct StderrCapture {
+    std::FILE *tmp = nullptr;
+    int saved = -1;
+    StderrCapture() {
+        std::fflush(stderr);
+        tmp = std::tmpfile();
+#if defined(_WIN32)
+        if (tmp) { saved = _dup(2); _dup2(_fileno(tmp), 2); }
+#else
+        if (tmp) { saved = dup(2); dup2(fileno(tmp), 2); }
+#endif
+    }
+    ~StderrCapture() { text(); }
+    StderrCapture(const StderrCapture &) = delete;
+    StderrCapture &operator=(const StderrCapture &) = delete;
+    // Stop capturing; returns the text captured.
+    std::string text() {
+        std::string out;
+        if (!tmp) return out;
+        std::fflush(stderr);
+#if defined(_WIN32)
+        _dup2(saved, 2);
+        _close(saved);
+#else
+        dup2(saved, 2);
+        close(saved);
+#endif
+        std::rewind(tmp);
+        char buf[4096];
+        size_t k;
+        while ((k = std::fread(buf, 1, sizeof buf, tmp)) > 0) out.append(buf, k);
+        std::fclose(tmp);
+        tmp = nullptr;
+        return out;
     }
 };
 

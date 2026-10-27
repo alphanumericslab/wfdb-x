@@ -3,26 +3,38 @@
 # through flac.R), multi-segment and multi-frequency records, time and date
 # conversion, unit conversion, info strings.
 #
-# Copyright (C) 1989-2013 George B. Moody (original C implementation,
-# lib/signal.c; revised 2011-2022 by Benjamin Moody, including FLAC support,
-# 2020).
-# R implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
-# bits and millivolts), because a silently assumed value corrupts every result
-# derived from it. See docs/DIVERGENCES.md. The original behavior remains
-# available with --legacy (see docs/DIVERGENCES.md).
-# Design decision (Reza Sameni, Oct 2026): the signal files named in a
-# header, and the segments named in the header of a multi-segment record,
-# are in the directory of that header (on disk or at its URL) or below it; a
-# name that is absolute, begins with '~', is a URL or contains a ".."
-# component is refused ("~" as a segment, a null segment, and "-" as a
-# signal file remain).  Nothing is searched: a search can silently open the
-# wrong file, and a header must not make the library read other local files
-# or contact other servers.  The original behavior remains available with
-# --legacy (see docs/DIVERGENCES.md).
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is an R translation of lib/signal.c from the WFDB Software Package 10.7.0,
+# by George B. Moody. The translation follows the logic and behavior of the
+# original code, but it is new code, not the original C code.
+#
+# Changes from the original: no built-in sampling frequency, gain, ADC
+# resolution or units (the original assumed 250 Hz, 200 adu/mV, 12 bits or a
+# resolution based on the format, and millivolts): a value that the header does
+# not give stays unspecified, and the time and amplitude conversions that need
+# it, and setifreq, report an error; the signal files and segments named in a
+# header are read only from the header's directory (on disk or at its URL),
+# never searched for, and a name that leaves that directory is refused; an
+# output signal file is never one of the input files of the open record; a
+# header written under a path names the record, its signal files and its
+# segments relative to its own directory; FLAC signal files are read and
+# written with wfdb-x's own codec (flac.R) instead of libFLAC; additions:
+# wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq,
+# getframes and putframes; legacy mode (wfdbx_set_legacy) restores the original
+# behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# gives the reasons.
+#
+# Original C code: lib/signal.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by
+#   Benjamin Moody, including FLAC support (2020).
+# R translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 #
 # The C library's global (file-scope) state is kept in the environment
 # .sig (sig_reset() restores it).  Internal objects (no class attribute, see
@@ -2517,6 +2529,21 @@ newheader <- function(record) {
 #' lists.  Returns 0 or -1.  (setheader in C modifies the units and desc
 #' strings of the caller's siarray, cutting them at their first token;
 #' .setheader() returns the modified array as $si.)
+# A name as written into the header of record.  wfdb-x: outside legacy
+# mode, names are written relative to the header's directory (where the
+# reader looks for them): the directory part of record (up to and including
+# its last '/') is removed from name when name begins with it.
+.hea_name <- function(record, name) {
+  if (wfdbx_get_legacy() || is.null(name)) return(name)
+  rb <- charToRaw(record)
+  k <- which(rb == as.raw(47L))
+  if (!length(k)) return(name)
+  d <- rb[seq_len(k[length(k)])]
+  nb <- charToRaw(name)
+  if (length(nb) >= length(d) && identical(nb[seq_along(d)], d))
+    rawToChar(nb[-seq_along(d)]) else name
+}
+
 setheader <- function(record, siarray, nsig = length(siarray)) {
   .setheader(record, siarray, nsig)$stat
 }
@@ -2535,7 +2562,7 @@ setheader <- function(record, siarray, nsig = length(siarray)) {
     wfdb_error("newheader: can't create header for record %s\n", record)
     return(list(stat = -1, si = siarray))
   }
-  out <- list(csprintf("%s %d %.12g", record, nsig, st$ffreq))
+  out <- list(csprintf("%s %d %.12g", .hea_name(record, record), nsig, st$ffreq))
   if ((st$cfreq > 0 && st$cfreq != st$ffreq) || st$bcount != 0) {
     out[[length(out) + 1L]] <- csprintf("/%.12g", st$cfreq)
     if (st$bcount != 0) out[[length(out) + 1L]] <- csprintf("(%.12g)", st$bcount)
@@ -2554,7 +2581,7 @@ setheader <- function(record, siarray, nsig = length(siarray)) {
   out[[length(out) + 1L]] <- charToRaw("\r\n")
   for (s in seq_len(nsig) - 1) {
     si <- siarray[[s + 1]]
-    out[[length(out) + 1L]] <- csprintf("%s %d", .cs(si$fname), si$fmt)
+    out[[length(out) + 1L]] <- csprintf("%s %d", .hea_name(record, .cs(si$fname)), si$fmt)
     if (si$spf > 1) out[[length(out) + 1L]] <- csprintf("x%d", si$spf)
     if (s < length(st$osd) && st$osd[[s + 1]]$skew)
       out[[length(out) + 1L]] <- csprintf(":%d", st$osd[[s + 1]]$skew * si$spf)
@@ -2664,7 +2691,7 @@ setmsheader <- function(record, segment_name, nsegments = length(segment_name)) 
     wfdb_error("setmsheader: can't create header file for record %s\n", record)
     return(-1)
   }
-  out <- list(csprintf("%s/%d %d %.12g", record, nsegments, nsig, msfreq))
+  out <- list(csprintf("%s/%d %d %.12g", .hea_name(record, record), nsegments, nsig, msfreq))
   if ((mscfreq > 0 && mscfreq != msfreq) || msbcount != 0) {
     out[[length(out) + 1L]] <- csprintf("/%.12g", mscfreq)
     if (msbcount != 0) out[[length(out) + 1L]] <- csprintf("(%.12g)", msbcount)
@@ -2680,7 +2707,7 @@ setmsheader <- function(record, segment_name, nsegments = length(segment_name)) 
   if (st$msbdate) out[[length(out) + 1L]] <- charToRaw(datstr(st$msbdate))
   out[[length(out) + 1L]] <- charToRaw("\r\n")
   for (i in seq_len(nsegments))
-    out[[length(out) + 1L]] <- csprintf("%s %d\r\n", segment_name[[i]], ns[i])
+    out[[length(out) + 1L]] <- csprintf("%s %d\r\n", .hea_name(record, segment_name[[i]]), ns[i])
   wf_write(st$oheader, unlist(out, use.names = FALSE))
   0
 }
@@ -3731,9 +3758,12 @@ wfdb_freeinfo <- function() {
 getframes <- function(n, minstat = 0) .getframes(n, minstat)
 
 # getframes; with keep_checksum_frame (wfdb-x, for the high-level reader),
-# the vector for which getvec returns -4 (a checksum error: the frame was
-# read completely, it is the last one of the record) is included in the
-# matrix, and stat is -4.  (.bulk_frames never decodes that frame.)
+# a vector for which getvec returns -4 (a checksum error: the samples are
+# valid, their sum does not match the header) is included in the matrix and
+# reading continues (in high-resolution mode, getvec returns -4 for each
+# of the vectors of the frame at which the checksum is verified); stat is
+# then -4 unless reading stops at a status below -1.  (.bulk_frames never
+# decodes that frame.)
 .getframes <- function(n, minstat = 0, keep_checksum_frame = FALSE) {
   st <- .sig
   nsig <- max(st$nvsig, st$nisig)
@@ -3751,6 +3781,7 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
   stat <- nsig
   acc <- NULL
   nrows <- 0
+  cksum_err <- FALSE
   repeat {
     if (!is.null(blk) && nrow(blk) > 0) {
       if (nrows > 0) {
@@ -3764,13 +3795,10 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
       st$gvec <- r$v
       stat <- r$stat
       if (stat == -4 && keep_checksum_frame) {
-        if (nrows > 0) parts[[length(parts) + 1L]] <- acc[seq_len(nrows), , drop = FALSE]
-        parts[[length(parts) + 1L]] <- matrix(r$v[seq_len(nsig)], 1L, nsig)
-        nrows <- 0
-        got <- got + 1
+        cksum_err <- TRUE
+      } else if (stat < minstat || stat < 0) {
         break
       }
-      if (stat < minstat || stat < 0) break
       if (is.null(acc) || nrows == nrow(acc)) {
         if (nrows > 0) {
           parts[[length(parts) + 1L]] <- acc
@@ -3791,6 +3819,7 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
   } else {
     matrix(0, 0, nsig)
   }
+  if (cksum_err && stat >= -1) stat <- -4
   list(v = v, stat = stat)
 }
 

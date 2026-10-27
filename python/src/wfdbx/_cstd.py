@@ -8,11 +8,16 @@ allows wfdb-x to read and write byte-identical files and text.
 All text is handled as Python ``str`` decoded with ISO-8859-1 (latin-1), so
 that every byte maps to exactly one character and round-trips unchanged.
 
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-This library is free software; you can redistribute it and/or modify it under
-the terms of the GNU Library General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your option) any
-later version.
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+has no counterpart in the original package.
+
+Copyright (C) 2026 Reza Sameni.
+
+This library is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import math

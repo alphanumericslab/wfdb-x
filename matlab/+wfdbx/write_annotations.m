@@ -1,66 +1,63 @@
 function write_annotations(record, annotator, samples, varargin)
 %WRITE_ANNOTATIONS Write an annotation file from arrays.
 %   wfdbx.write_annotations(RECORD, ANNOTATOR, SAMPLES, NAME, VALUE, ...)
-%   writes the annotation file RECORD.ANNOTATOR, as wrann does, with one
-%   annotation at each of the sample numbers SAMPLES.  The other fields
-%   are given as name-value pairs:
+%   writes the annotation file RECORD.ANNOTATOR, with one annotation at each
+%   of the sample numbers SAMPLES.  The other fields are given as options:
 %
-%     'symbols'   cell of mnemonics ('N', 'V', ...; wfdbx.strann), or a
-%                 char vector of one-character mnemonics ('NNVN'), or
-%     'codes'     annotation codes (one of the two is required)
-%     'subtypes', 'chans', 'nums'   values (scalars apply to all; default 0)
-%     'aux'       cell of auxiliary strings (char, [] for none; at most
-%                 255 bytes are written), or one char vector for all
-%     'fs'        time resolution to record in the file (ticks per second)
-%     'dir'       the directory (which must exist) in which the file is
-%                 created (default: the current directory, or the
-%                 directory part of RECORD; RECORD must not contain a
-%                 directory when 'dir' is given)
-%     'sort'      true to rearrange an out-of-order file in canonical
-%                 order when it is closed, false to leave it in the order
-%                 given, for this call only, whatever the environment
-%                 variable WFDBANNSORT says (in legacy mode too: true
-%                 runs sortann as legacy mode does); default [] (unset):
-%                 WFDBANNSORT decides (see below).  The environment is
-%                 not changed.
-%     'legacy'    true to run with the library's legacy mode
-%                 (wfdbx.wfdbx_set_legacy) on during the call (default
-%                 false; writing annotations does not depend on it)
+%     'symbols'   cell array of mnemonics ('N', 'V', ...), or a char vector
+%                 of one-character mnemonics ('NNV'); or
+%     'codes'     annotation codes (wfdbx.NORMAL(), ...).  One of the two is
+%                 required.
+%     'subtypes', 'chans', 'nums'   one value for all annotations, or one
+%                 per annotation (default 0)
+%     'aux'       cell array of auxiliary texts ([] for none), or one char
+%                 vector for all
+%     'fs'        time resolution to record in the file, in ticks per second
+%     'dir'       folder in which to create the file (default: the output
+%                 directory).  RECORD must then be a plain name.
+%     'sort'      true to always sort the file, false to keep the order given
+%                 (without the library's advice to run sortann; default []:
+%                 the environment variable WFDBANNSORT decides)
+%     'legacy'    true to behave as the original WFDB package (default
+%                 false; see wfdbx.wfdbx_set_legacy)
 %
-%   SAMPLES and the other values may be row or column vectors.
+%   If the annotations are not in time order, the file is sorted when it is
+%   written, unless 'sort' is false, or 'sort' is not given and WFDBANNSORT
+%   is 0.
 %
-%   Annotations that are not in canonical order are rearranged when the
-%   file is closed, unless 'sort' is false, or 'sort' is unset and the
-%   environment variable WFDBANNSORT is 0 (as
-%   the sortann tool does; wfdb-x: in this process, whereas the C library,
-%   as legacy mode, runs sortann; see wfdbx.oannclose).  An error is
-%   thrown if the file cannot be created, or if 'dir' is given and does
-%   not exist or RECORD contains a directory.
+%   Errors: an error (identifier 'wfdbx:write_annotations') is thrown if
+%   neither 'symbols' nor 'codes' is given, if 'dir' does not exist, or if
+%   the file cannot be created.
 %
-%   The function calls wfdbx.wfdbquit before and after its work, so any
-%   signals or annotators opened with the low-level functions
-%   (wfdbx.isigopen, wfdbx.annopen, ...) are closed.
+%   The function calls wfdbx.wfdbquit, which closes anything opened with the
+%   WFDB library functions.
 %
-%   Example:
+%   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
+%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   the repository; the example writes the annotation file 100s.test in the
+%   current folder):
+%       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.write_annotations('100s', 'test', [100 460], ...
 %           'symbols', {'N', 'V'});
-%       ann = wfdbx.read_annotations('100s', 'test');
-%       wfdbx.write_annotations('100s', 'test', [100 460], ...
-%           'symbols', 'NV', 'dir', 'out');     % creates out/100s.test
+%       ann = wfdbx.read_annotations('100s', 'test', 'input_dir', '.', ...
+%           'fs', 360);
 %
-%   See also wfdbx.read_annotations, wfdbx.annopen, wfdbx.putann.
+%   See also wfdbx.read_annotations, wfdbx.write_record.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, after a code review, Oct 2026): the
-% writers take a 'dir' option (the files are created in that directory,
-% and the record opens from there under its plain name), and an
-% out-of-order file is rearranged in this process (see wfdbx.oannclose).
-% Design decision (Reza Sameni, Oct 2026): the 'sort' option decides, for
-% one call, whether an out-of-order file is rearranged, instead of the
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package. Its 'sort' option decides,
+% for one call, whether an out-of-order file is rearranged, instead of the
 % process-wide WFDBANNSORT environment variable.
-% The original behavior remains available with --legacy (see
-% docs/DIVERGENCES.md).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
 annotator = wfdbx.internal.strarg(annotator);

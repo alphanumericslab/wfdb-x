@@ -3,8 +3,16 @@
 # parts of cpp/tests/test_api.cpp and cpp/tests/test_api_c.cpp). The
 # expected values were produced by the original C library.
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It tests wfdb-x; it has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 # Run f(w) in a fresh copy of tests/data (the current directory), with a new
 # library state whose WFDB path is ".".
@@ -552,10 +560,9 @@ end
                 err = capture_stderr() do
                     W.write_annotations(w, "100s", "nos", ann; sort=false, legacy=legacy)
                 end
-                # (as with WFDBANNSORT=0: the file is left as written, and
-                # the library says how to sort it)
-                @test err == "Use the command:\n  sortann -r 100s -a nos\n" *
-                             "to rearrange annotations in the correct order.\n"
+                # (the file is left as written; the caller chose the order,
+                # so the library does not advise running sortann)
+                @test err == ""
                 @test times("nos") == [300, 100, 200]
                 err = capture_stderr(() -> W.write_annotations(w, "100s", "dfl", ann;
                                                                 legacy=legacy))
@@ -573,8 +580,31 @@ end
                 @test times("uns") == [300, 100, 200]
             end
             withenv("WFDBANNSORT" => "1") do
-                W.write_annotations(w, "100s", "nos", ann; sort=false, legacy=legacy)
-                @test times("nos") == [300, 100, 200]
+                err = capture_stderr() do
+                    W.write_annotations(w, "100s", "nos", ann; sort=false, legacy=legacy)
+                end
+                @test err == "" && times("nos") == [300, 100, 200]
+            end
+            withenv("WFDBANNSORT" => "0") do
+                err = capture_stderr() do
+                    W.write_annotations(w, "100s", "nos", ann; sort=false, legacy=legacy)
+                end
+                @test err == ""
+                # WFDBANNSORT=0 without the option, and the C-style API, give
+                # the advice
+                err = capture_stderr(() -> W.write_annotations(w, "100s", "env0", ann;
+                                                                legacy=legacy))
+                @test err == "Use the command:\n  sortann -r 100s -a env0\n" *
+                             "to rearrange annotations in the correct order.\n"
+                err = capture_stderr() do
+                    @test W.annopen(w, "100s", [Anninfo("low", WFDB_WRITE)], 1) == 0
+                    for t in (300, 100, 200)
+                        W.putann(w, 0, Annotation(time=t, anntyp=Int8(1)))
+                    end
+                    W.wfdbquit(w)
+                end
+                @test err == "Use the command:\n  sortann -r 100s -a low\n" *
+                             "to rearrange annotations in the correct order.\n"
             end
             @test w.ann.sort_override === nothing      # (restored)
         end
@@ -742,5 +772,90 @@ end
         @test_throws W.WfdbError W.write_annotations(w, "rec", "atr", ann; dir="nosuch")
         @test_throws W.WfdbError W.write_annotations(w, "x/rec", "atr", ann; dir="out")
         @test readdir("out") == ["rec.atr"]
+    end
+end
+
+# wfdb-x: read_annotations throws when reading ends with a getann status
+# other than 0 and -1 (a truncated file: -3); the library's message is
+# still printed. Each truncation of a small file is compared with getann.
+@testset "read_annotations: truncated file" begin
+    with_data("trunc") do w
+        W.write_record(w, "ann", fill(Int32(1), 3000, 1), 100.0; gains=100.0, adcres=16,
+                       units="mV")
+        # an aux string, and a SKIP (the interval 30 -> 2500 exceeds 1023)
+        src = W.Annotations(samples=[10, 20, 30, 2500, 2510], codes=Int32[1, 5, 1, 1, 1],
+                            aux=[nothing, b"(N", nothing, nothing, b"x"])
+        W.write_annotations(w, "ann", "atr", src)
+        full = read("ann.atr")
+        @test any(i -> full[i] == 0x00 && full[i+1] == 0xec, 1:2:length(full)-1)   # SKIP
+        msg(s) = "can't read annotation file cut of record ann (getann status $s)"
+        # a complete file reads as before
+        a = W.read_annotations(w, "ann", "atr")
+        @test a.samples == src.samples && a.codes == src.codes && a.aux == src.aux
+        nerr = 0
+        for legacy in (false, true), cut in 0:length(full)
+            write("ann.cut", full[1:cut])
+            W.wfdbquiet(w)
+            # getann
+            got = Int64[]
+            gaux = Any[]
+            st = Int32(-1)
+            ok = W.annopen(w, "ann", ai1("cut", WFDB_READ), 1) == 0
+            if ok
+                x = Annotation()
+                while (st = W.getann(w, 0, x)) == 0
+                    push!(got, x.time)
+                    push!(gaux, x.aux === nothing || isempty(x.aux) ? nothing :
+                                copy(W.cstr(x.aux[2:min(1 + Int(x.aux[1]), end)])))
+                end
+            end
+            W.wfdbquit(w)
+            if !ok
+                @test_throws W.WfdbError W.read_annotations(w, "ann", "cut"; legacy=legacy)
+            elseif st == 0 || st == -1
+                r = W.read_annotations(w, "ann", "cut"; legacy=legacy)
+                @test r.samples == got && r.aux == gaux
+            else
+                @test cut < length(full)
+                e = try
+                    W.read_annotations(w, "ann", "cut"; legacy=legacy)
+                    nothing
+                catch err
+                    err
+                end
+                nerr += 1
+                @test e isa W.WfdbError && e.msg == msg(st)
+                @test isempty(w.ann.iad)        # (closed by wfdbquit)
+                # a read ending before the truncation point is not an error
+                if !isempty(got)
+                    r = W.read_annotations(w, "ann", "cut"; to=got[end], legacy=legacy)
+                    @test r.samples == got[1:end-1]
+                end
+            end
+            W.wfdbverbose(w)
+        end
+        @test nerr > length(full)      # (most truncations are errors)
+        # the exact message, with the library's own message printed too
+        write("ann.cut", full[1:end-2])
+        local e
+        err = lib_stderr() do
+            e = try
+                W.read_annotations(w, "ann", "cut")
+            catch x
+                x
+            end
+        end
+        @test e isa W.WfdbError && e.msg == msg(-3)
+        @test sprint(showerror, e) == "WfdbError: " * msg(-3)
+        @test occursin("getann: unexpected EOF in annotator cut", err)
+        # (getann returns -3 after 2500: the annotation at 2510 is lost)
+        r = W.read_annotations(w, "ann", "cut"; to=2500)
+        @test r.samples == [10, 20, 30]
+        r = W.read_annotations(w, "ann", "cut"; from=20, to=2500)
+        @test r.samples == [20, 30]
+        W.wfdbquiet(w)
+        @test_throws W.WfdbError W.read_annotations(w, "ann", "cut"; to=2501)
+        @test_throws W.WfdbError W.read_annotations(w, "ann", "cut"; legacy=true)
+        W.wfdbverbose(w)
     end
 end

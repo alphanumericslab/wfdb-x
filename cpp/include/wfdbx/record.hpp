@@ -1,79 +1,56 @@
-// wfdbx/record.hpp: high-level interface for reading and writing records
+// wfdbx/record.hpp: high-level functions for reading and writing records
 //
-// These functions read and write whole records and annotation files with a
-// few calls.  They are built on the WFDB library API (<wfdbx/wfdb.hpp>), so
-// they read and write exactly what the WFDB library and the command-line
-// tools do.  Files are found by explicit names (wfdb-x: nothing is searched):
-// a relative record name is read under the input directory (the
-// `input_dir` option, or wfdbx_set_input_dir(); by default the current
-// directory) and written under the output directory (the `dir` option of the
-// writers, or wfdbx_set_output_dir()); an absolute name, a "~" name or a URL
-// is used as given.  URLs need network access (the `network` option, or
-// wfdbx_set_network()).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It has no counterpart in the original package.
 //
-// Errors are reported by throwing wfdbx::Error.  The functions call
-// wfdbquit() before and after their work, closing any record opened with the
-// WFDB library API; like the rest of the library, they are not thread-safe.  Results are
-// returned by value and own their data.
+// Copyright (C) 2026 Reza Sameni.
 //
-// wfdb-x never assumes a sampling frequency, a gain, an ADC resolution or
-// units (C: WFDB_DEFFREQ, 250 Hz, WFDB_DEFGAIN, 200 adu/mV, WFDB_DEFRES or a
-// resolution based on the format, 12 bits, and millivolts): write_record()
-// requires the gains, the ADC resolutions and the units of calibrated
-// signals, a record without a frequency is read with fs = 0, an unspecified
-// resolution is read as 0 and unspecified units as std::nullopt, and
-// conversions that need a missing value throw Error (see
-// docs/DIVERGENCES.md).
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 //
-// Input directory and network access (wfdb-x): with the `input_dir` and
-// `network` options of the readers (ReadOptions::input_dir and
-// ReadOptions::network, an InputOptions argument of read_header() and
-// read_annotations()), the setting is changed for the duration of the call
-// and restored afterwards, also on errors; unset options keep the current
-// settings.
+// These functions read and write whole records and annotation files in a few
+// calls: read_record(), read_header(), read_annotations(), write_record(),
+// write_record_physical() and write_annotations(); check_record() checks a
+// record and its annotation files.  They read and write the
+// same files as the WFDB library functions of <wfdbx/wfdb.hpp> and the
+// command-line tools.
 //
-// Output directory (wfdb-x): with WriteOptions::dir (or the `dir` parameter
-// of write_annotations()), the files are created in that directory, and the
-// header names the record and its signal file without it, so that the record
-// opens from there under its plain name.  The library's output directory
-// (wfdbx_set_output_dir()) is set for the duration of the call and restored
-// afterwards, also on errors.
+// Files are read and written exactly where they are named.  A full path, a
+// "~" path or a URL is used as given.  Any other name is read from the input
+// directory and written to the output directory, both the current directory
+// by default.  Set them with wfdbx_set_input_dir() and
+// wfdbx_set_output_dir(), or for one call with the `input_dir` option of the
+// readers and the `dir` option of the writers.  URLs need network access:
+// wfdbx_set_network(1), or the `network` option of the readers.
 //
-// Legacy mode: with the `legacy` option (ReadOptions::legacy,
-// WriteOptions::legacy, the `legacy` parameter of read_header() and
-// read_annotations()), a function behaves exactly as in the original
-// package (250 Hz, 200 adu/mV, a resolution based on the format), with the
-// library's legacy mode on for the duration of the call (see
-// wfdbx_set_legacy()).  It is kept for compatibility only: the values it
-// assumes are exactly the silent defaults this project removed, so results
-// produced with it carry the same risks.
+// No sampling frequency, gain, ADC resolution or units are assumed.  You give
+// them to write_record().  A record whose header gives no frequency is read
+// with fs = 0, and an operation that needs a missing value throws Error.
+//
+// The `legacy` option of each function makes it behave as the original WFDB
+// package, for that call only.  Use it only to reproduce old results.
+//
+// Errors throw wfdbx::Error.  The functions call wfdbquit() before and after
+// their work, which closes anything opened with the WFDB library functions.
+// They are not thread-safe.  Results are returned by value.
 //
 //     #include <wfdbx/record.hpp>
 //
+//     // The sample record 100s (the first minute of record 100 of the
+//     // MIT-BIH Arrhythmia Database), included with wfdb-x in the tests/data
+//     // directory of a copy of the repository:
+//     wfdbx::wfdbx_set_input_dir("tests/data");
 //     wfdbx::ReadOptions opt;
 //     opt.to = "0:10";                    // the first 10 seconds
 //     wfdbx::Record rec = wfdbx::read_record("100s", opt);
 //     double v = rec.physical(0, 1);      // sample 0 of signal 1, in
-                                        // rec.siginfo[1].units
+//                                         // rec.siginfo[1].units
 //     wfdbx::Annotations ann = wfdbx::read_annotations("100s", "atr");
 //     for (size_t i = 0; i < ann.size(); i++)
 //         std::printf("%lld %s\n", ann.samples[i], ann.symbols[i].c_str());
-//
-// C++ implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-// gain, ADC resolution or units. Values that the record or the user does not
-// give are never assumed (the original package assumed 250 Hz, 200 adu/mV,
-// 12 bits and millivolts), because a silently assumed value corrupts every
-// result derived from it. See docs/DIVERGENCES.md.
-// Design decision (Reza Sameni, after a code review, Oct 2026): the writers
-// take an output directory (the record then opens from there under its plain
-// name).
-// Design decision (Reza Sameni, Oct 2026): files are found only where they are
-// named (no search path), and the readers take an input directory and the
-// permission to use the network, because a search can silently open the
-// wrong file, and the network must not be used without being asked for. The
-// original behavior remains available with --legacy (see docs/DIVERGENCES.md).
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
 
 #ifndef WFDBX_RECORD_HPP
 #define WFDBX_RECORD_HPP
@@ -90,19 +67,19 @@
 namespace wfdbx {
 
 /// Exception thrown by the functions of this header.  what() describes the
-/// failed operation (e.g. "can't read record 100s"); the message of the WFDB
-/// library, if any, is printed on stderr (see wfdbquiet()) and available
-/// from wfdberror().
+/// failed operation, such as "can't read record 100s".  The library's own
+/// message, if any, is printed on stderr (see wfdbquiet()) and returned by
+/// wfdberror().
 class Error : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
 
-/// A time: a sample number, or a WFDB time string ("0:10", "s1000",
-/// "[12:00:00]", "e" for the end of the record; see strtim()).  Converts
-/// implicitly from integers and strings, so `opt.from = 3600;` and
-/// `opt.from = "0:10";` both work.  A default-constructed TimeSpec is
-/// empty (meaning "not specified").
+/// A time: a sample number, or a WFDB time string such as "0:10" (10
+/// seconds), "s1000" (sample 1000), "[12:00:00]" (a time of day) or "e" (the
+/// end of the record); see strtim().  It converts from integers and strings,
+/// so `opt.from = 3600;` and `opt.from = "0:10";` both work.  A
+/// default-constructed TimeSpec is empty: no time is given.
 class TimeSpec {
 public:
     TimeSpec() = default;
@@ -117,32 +94,39 @@ public:
     /// converted (see wfdbx_time_needs_freq()).
     bool needs_freq() const;
     /// The sample number (0 if empty).  Time strings are converted with
-    /// strtim() for the record currently open; a time of day gives the
-    /// (positive) sample number it corresponds to.
+    /// strtim() for the record currently open.  A time of day gives the
+    /// positive sample number it corresponds to.
     WFDB_Time resolve() const;
 private:
     std::optional<WFDB_Time> t_;
     std::optional<std::string> s_;
 };
 
-/// Where the readers find files (wfdb-x): each option that is set changes the
-/// library's setting for the duration of the call (restored afterwards, also
-/// on errors); unset options keep the current settings.
+/// Where read_header() and read_annotations() find files, for one call.
+/// An option that is set applies to that call only.  An option that is not
+/// set keeps the current setting.
+///
+///     // Record 100 of the MIT-BIH Arrhythmia Database, from PhysioNet:
+///     wfdbx::InputOptions in;
+///     in.input_dir = "https://physionet.org/files/mitdb/1.0.0/";
+///     in.network = true;
+///     wfdbx::Header hdr = wfdbx::read_header("100", false, in);
 struct InputOptions {
     /// The input directory (see wfdbx_set_input_dir()): a local directory or
-    /// the URL of a directory; "" means the default (WFDBX_INPUT_DIR, or the
-    /// current directory).
+    /// the URL of a directory.  "" means the default: WFDBX_INPUT_DIR, or the
+    /// current directory.
     std::optional<std::string> input_dir;
     /// Network access (see wfdbx_set_network()): true allows opening URLs,
     /// false forbids it.
     std::optional<bool> network;
 };
 
-/// Signals of a record (or of a part of one), read by read_record().
+/// The signals of a record, or of a part of one, as read_record() returns
+/// them.
 struct Record {
     std::string name;           ///< record name, as given to read_record()
-    /// Sampling frequency of the returned samples; 0 if the header does not
-    /// specify it (wfdb-x: no default frequency).
+    /// Sampling frequency of the returned samples, in Hz; 0 if the header
+    /// does not give it.
     WFDB_Frequency fs = 0;
     int nsig = 0;               ///< number of (returned) signals
     /// Signal number, in the record, of each returned signal.
@@ -151,28 +135,26 @@ struct Record {
     /// sample i of signal s.  Invalid samples are WFDB_INVALID_SAMPLE.
     std::vector<WFDB_Sample> samples;
     std::vector<WFDB_Siginfo> siginfo;  ///< one per returned signal
-    /// Base time of the record, as timstr(0) gives it (to the second), e.g.
-    /// "[08:45:00 01/01/2001]"; nullopt if the header has none.
+    /// Start time and date of the record as text, to the second, such as
+    /// "[08:45:00 01/01/2001]"; nullopt if the header gives none.
     std::optional<std::string> base_time;
-    /// Base time of the record in milliseconds after midnight (the
-    /// library's base time, with its milliseconds: "14:00:03.500" gives
-    /// 50403500); given exactly when base_time is, nullopt otherwise.
+    /// Start time in milliseconds after midnight: "14:00:03.500" gives
+    /// 50403500.  Given exactly when base_time is, nullopt otherwise.
     std::optional<long long> base_time_ms;
-    /// Base date of the record as {year, month, day} (computed as datstr()
-    /// does); nullopt if the header gives no date.
+    /// Start date as {year, month, day}; nullopt if the header gives no
+    /// date.
     std::optional<std::array<int, 3>> base_date;
     WFDB_Time sampfrom = 0;     ///< sample number of the first returned sample
-    /// Info strings of the record (header comments and .info file; see
-    /// getinfo()).
+    /// Info strings of the record: the comments of the header, and the
+    /// lines of its .info file if it has one (see getinfo()).
     std::vector<std::string> comments;
-    /// false if the signal data were found not to match the checksums in
-    /// the header (getvec status -4 during the read; see
-    /// ReadOptions::checksum_warning, which does not change this field),
-    /// true otherwise.  The checksums are verified only when a read reaches
-    /// the end of the record: a read that stops before it gives true.
+    /// false if the signal data do not match the checksums in the header,
+    /// true otherwise.  Checksums are only checked when a read reaches the
+    /// end of the record.  ReadOptions::checksum_warning does not change
+    /// this field.
     bool checksum_ok = true;
-    /// Read in legacy mode (ReadOptions::legacy): physical() then assumes
-    /// WFDB_DEFGAIN for uncalibrated signals, as the original package did.
+    /// true if the record was read in legacy mode (ReadOptions::legacy).
+    /// physical() then uses a gain of 200 for uncalibrated signals.
     bool legacy = false;
 
     /// Number of samples per signal.
@@ -181,9 +163,9 @@ struct Record {
     WFDB_Sample at(size_t i, int s) const { return samples[i * nsig + s]; }
     /// Sample i of signal s in physical units: (value - baseline) / gain;
     /// NaN if the sample is invalid.  The units are siginfo[s].units
-    /// (std::nullopt if the header does not specify them; wfdb-x: they are
-    /// not assumed to be millivolts).  Throws Error ("signal N of record R is uncalibrated") if
-    /// the gain of the signal is 0 (wfdb-x: no default gain).
+    /// (std::nullopt if the header does not give them).  Throws Error
+    /// ("signal N of record R is uncalibrated") if the gain of the signal is
+    /// 0.
     double physical(size_t i, int s) const;
     /// All samples of signal s in physical units (see physical()).
     std::vector<double> physical_signal(int s) const;
@@ -191,56 +173,62 @@ struct Record {
     std::vector<std::string> names() const;
 };
 
-/// Options of read_record().  The InputOptions (input_dir, network) say
-/// where the files are found.
+/// Options of read_record().  The fields inherited from InputOptions
+/// (input_dir, network) say where the files are found, for that call only.
 struct ReadOptions : InputOptions {
-    /// Signals to return, in this order, by number ("0", "1", ...) or
-    /// description (as findsig() accepts them); empty: all signals.
+    /// Signals to return, in this order, by number ("0", "1", ...) or by
+    /// description ("V5"); empty: all signals.
     std::vector<std::string> channels;
     TimeSpec from;              ///< first sample (default: 0)
     TimeSpec to;                ///< end, exclusive (default: end of record)
-    /// Multi-frequency records: return every sample of oversampled signals,
-    /// repeating those of the other signals (WFDB_HIGHRES mode); otherwise
-    /// oversampled signals are averaged to one sample per frame.
+    /// For a multi-frequency record: true returns every sample of the
+    /// oversampled signals, repeating those of the other signals; false
+    /// averages oversampled signals to one sample per frame.
     bool highres = false;
-    /// Replace invalid samples by the previous valid sample (WFDB_GVPAD).
+    /// Replace invalid samples by the previous valid sample.
     bool pad = false;
-    /// wfdb-x: if the signal data do not match the checksums of the header
-    /// (getvec status -4), the data are returned all the same (every frame),
-    /// and, if this is true (the default), the warning "wfdb-x: checksum
+    /// When the signal data do not match the checksums of the header, all
+    /// the data are returned.  If this is true, the warning "wfdb-x: checksum
     /// error in record REC: the signal data do not match the checksums in
-    /// its header" is printed on stderr as a library message (silenced by
-    /// wfdbquiet(); getvec's own checksum message is not printed during the
-    /// read).
+    /// its header" is also printed on stderr (wfdbquiet() silences it).
     bool checksum_warning = true;
-    /// Legacy mode (original behavior, for compatibility only: a header
-    /// without a frequency means 250 Hz, a missing resolution is inferred
-    /// from the format, and physical() assumes 200 adu/unit for uncalibrated
-    /// signals; see the note at the top of this header).
+    /// Behave as the original WFDB package, for this call only (see
+    /// docs/DIVERGENCES.md).  Use it only to reproduce old results.
     bool legacy = false;
 };
 
-/// Read the signals of `record` from opt.from to opt.to (the samples
-/// available, if the record ends before opt.to).  Throws Error if the record
-/// cannot be read or has no signals, if a requested signal does not exist,
-/// or if opt.from cannot be reached; also if reading stops with a getvec
-/// status below -1 (e.g. -3: a signal file shorter than its header says,
-/// or a read or decoding error), with the message "can't read signal data
-/// of record R (getvec status S)" (also in legacy mode; reaching the end of
-/// the record before opt.to is not an error).  wfdb-x: a checksum error
-/// (status -4) is not an error: every frame is returned, with a warning
-/// (see ReadOptions::checksum_warning).  If the header does not specify the
-/// sampling frequency, rec.fs is 0, and a time string in opt.from or opt.to
-/// that needs it throws Error ("sampling frequency of record R is not
-/// specified").
+/// Read the signals of `record` from opt.from up to opt.to, exclusive.  If
+/// the record ends before opt.to, the samples up to its end are returned.
+/// Returns a Record, with the samples in ADC units.
+///
+/// Throws Error if the record cannot be read or has no signals, if a
+/// requested signal does not exist, or if opt.from cannot be reached.  A
+/// signal file that is shorter than its header says, or that cannot be read
+/// or decoded, throws "can't read signal data of record R (getvec status
+/// S)".  If the header gives no sampling frequency, rec.fs is 0, and a time
+/// string in opt.from or opt.to that needs it throws "sampling frequency of
+/// record R is not specified".  Data that do not match the header's
+/// checksums are returned, with a warning (see
+/// ReadOptions::checksum_warning).
+///
+///     // The sample record 100s (the first minute of record 100 of the
+///     // MIT-BIH Arrhythmia Database), included with wfdb-x in tests/data:
+///     wfdbx::ReadOptions opt;
+///     opt.input_dir = "tests/data";
+///     opt.channels = {"MLII"};
+///     opt.from = "0:10";
+///     opt.to = "0:20";
+///     wfdbx::Record rec = wfdbx::read_record("100s", opt);
+///     std::vector<double> mlii = rec.physical_signal(0);
+///
+/// Part of wfdb-x; not in the original WFDB package.
 Record read_record(const std::string &record, const ReadOptions &opt = {});
 
-/// The header of a record, read by read_header().
+/// The header of a record, as read_header() returns it.
 struct Header {
     std::string name;           ///< record name, as given to read_header()
-    /// Sampling frequency, as sampfreq() gives it; 0 if the header does not
-    /// specify it (wfdb-x: no default frequency; in legacy mode, the
-    /// original default, 250 Hz).
+    /// Sampling frequency in Hz, as sampfreq() gives it; 0 if the header does
+    /// not give it.
     WFDB_Frequency fs = 0;
     WFDB_Frequency counter_freq = 0;    ///< counter frequency (getcfreq())
     double base_counter = 0;    ///< base counter value (getbasecount())
@@ -262,47 +250,64 @@ struct Header {
 };
 
 /// Read the header of `record`: its frequencies, length, signal
-/// specifications, base time and date and info strings (see Header).  The
-/// signal files are not opened.  `input` says where the header is found
-/// (see InputOptions).  Throws Error if the header cannot be read.  With
-/// `legacy` (for compatibility only), the header is read as by the original
-/// package (250 Hz if it has no frequency, ADC resolutions inferred from the
-/// format).
+/// specifications, start time and date, and info strings.  The signal files
+/// are not opened.  Returns a Header.  `legacy` behaves as the original WFDB
+/// package, for this call only.  `input` says where the header is found (see
+/// InputOptions).  Throws Error if the header cannot be read.
+///
+///     // The sample record 100s (see read_record()), in tests/data:
+///     wfdbx::InputOptions in;
+///     in.input_dir = "tests/data";
+///     wfdbx::Header hdr = wfdbx::read_header("100s", false, in);
+///     for (const wfdbx::WFDB_Siginfo &s : hdr.siginfo)
+///         std::printf("%s %d %g\n", s.desc->c_str(), s.fmt, s.gain);
+///
+/// Part of wfdb-x; not in the original WFDB package.
 Header read_header(const std::string &record, bool legacy = false,
                    const InputOptions &input = {});
 
 /// An annotation file, as parallel arrays: annotation i is samples[i],
-/// codes[i], symbols[i], ...  Returned by read_annotations(); also the input
-/// of write_annotations().
+/// codes[i], symbols[i], ...  read_annotations() returns it, and
+/// write_annotations() writes it.
 struct Annotations {
     std::string record, annotator;  ///< e.g. "100s" and "atr"
-    WFDB_Frequency fs = 0;      ///< time resolution (ticks per second)
+    WFDB_Frequency fs = 0;      ///< frequency of `samples` (0 if unknown)
     std::vector<WFDB_Time> samples;     ///< times (sample numbers)
     std::vector<int> codes;     ///< annotation types (NORMAL, PVC, ...)
     std::vector<std::string> symbols;   ///< mnemonics, as annstr() returns
     std::vector<int> subtypes, chans, nums;  ///< subtyp, chan, num fields
-    /// Auxiliary information as text (without the length byte of
-    /// WFDB_Annotation::aux; up to its first null byte); nullopt if absent.
+    /// Auxiliary text of each annotation, up to its first null byte;
+    /// nullopt if absent.
     std::vector<std::optional<std::string>> aux;
 
     /// Number of annotations.
     size_t size() const { return samples.size(); }
 };
 
-/// Read the annotations of `annotator` for `record` (as rdann does), from
-/// time `from` (default: the start) up to `to`, exclusive (default: the
-/// end); `input` says where the files are found (see InputOptions).  The
-/// sampling frequency is that of the record's header; if the
-/// record has no header, or its header does not specify one, `fs` (if
-/// given) is used, as by the -F option of rdann (wfdb-x: there is no default
-/// frequency).  A given `fs` must be > 0 (otherwise Error "read_annotations:
-/// fs must be > 0" is thrown); std::nullopt (the default) gives none.  Without either, the result's fs is the time resolution of
-/// the annotation file (0 if it has none), and a time string in `from` or
-/// `to` that needs the frequency throws Error ("sampling frequency of record
-/// R is not specified").  Throws Error if the annotation file cannot be
-/// read.  With `legacy` (for compatibility only), the original behavior:
-/// WFDB_DEFFREQ (250 Hz) if the record has no header or its header has no
-/// frequency (and `fs` is not given).
+/// Read the annotation file of `annotator` for `record`, such as "atr" for
+/// "100s.atr", from time `from` (default: the start) up to `to`, exclusive
+/// (default: the end).  Returns the annotations in file order.
+///
+/// The sampling frequency is that of the record's header.  If the record
+/// has no header, or its header gives none, `fs` is used, as the -F option
+/// of rdann.  Without either, the result's fs is the time resolution of the
+/// annotation file (0 if it has none).  `legacy` behaves as the original
+/// WFDB package, for this call only.  `input` says where the files are found
+/// (see InputOptions).
+///
+/// Throws Error if the annotation file cannot be read, if `fs` is given and
+/// is not greater than 0 ("read_annotations: fs must be > 0"), or if a time
+/// string in `from` or `to` needs a frequency that is not known ("sampling
+/// frequency of record R is not specified").  A file that ends early or
+/// cannot be read before `to` is reached throws "can't read annotation file
+/// A of record R (getann status S)", where S is the status getann() returned
+/// (e.g. -3, unexpected end of file).
+///
+///     // The sample record 100s (see read_record()), in tests/data:
+///     wfdbx::wfdbx_set_input_dir("tests/data");
+///     wfdbx::Annotations ann = wfdbx::read_annotations("100s", "atr", "0:10", "0:30");
+///
+/// Part of wfdb-x; not in the original WFDB package.
 Annotations read_annotations(const std::string &record,
                              const std::string &annotator,
                              const TimeSpec &from = {},
@@ -312,22 +317,19 @@ Annotations read_annotations(const std::string &record,
                              const InputOptions &input = {});
 
 /// Options of write_record() and write_record_physical().  Each per-signal
-/// vector may hold one value (used for every signal) or one value per
-/// signal; signals without a value get the default.
+/// vector holds one value for all signals, or one value per signal.
+/// gains, adcres and units have no default: you must give them.
 struct WriteOptions {
     int fmt = 16;               ///< storage format (the same for all signals)
-    /// Gains (adu per physical unit): REQUIRED, one value or one per signal
-    /// (wfdb-x: there is no default gain).  A gain of 0 declares a signal
-    /// uncalibrated, which is allowed only by write_record() (ADC units).
+    /// Gains, in ADC units per physical unit: required.  A gain of 0 marks a
+    /// signal as uncalibrated, which only write_record() (ADC units) allows.
     std::vector<WFDB_Gain> gains;
     std::vector<int> baselines;         ///< default: the adczeros values
     std::vector<int> adczeros{0};       ///< ADC output for 0 V input
-    /// ADC resolutions in bits: REQUIRED, one value or one per signal, each
-    /// >= 1 (wfdb-x: no default; C inferred them from the format).
+    /// ADC resolutions in bits: required, each at least 1.
     std::vector<int> adcres;
-    /// Units: REQUIRED (not empty) for every signal whose gain is not 0
-    /// (wfdb-x: units are not assumed to be millivolts); optional for
-    /// uncalibrated signals.
+    /// Physical units, such as "mV": required for every signal whose gain is
+    /// not 0; optional for uncalibrated signals.
     std::vector<std::optional<std::string>> units;
     std::vector<std::string> names;     ///< signal descriptions (default: "")
     /// Samples per frame of each signal, for multi-frequency records
@@ -335,66 +337,139 @@ struct WriteOptions {
     std::vector<int> samps_per_frame;
     std::optional<std::string> base_time;   ///< e.g. "12:00:00 01/01/2020"
     std::vector<std::string> comments;  ///< info strings (header comments)
-    /// If not empty, the directory (which must exist) in which the files are
-    /// created; the header then names the record and its signal file without
-    /// the directory, so that the record opens from that directory under its
-    /// plain name (the record name must not contain a directory).  The same
-    /// in legacy mode.  (wfdb-x addition; see wfdbx_set_output_dir().)
+    /// If not empty, the directory in which the files are created.  The
+    /// directory must exist, and the record name must not contain a
+    /// directory.  The record then opens from that directory under its
+    /// plain name.
     std::string dir;
-    /// Legacy mode (original behavior, for compatibility only): gains
-    /// default to WFDB_DEFGAIN (200; write_record_physical() also uses it
-    /// for a gain of 0), ADC resolutions to a value based on the format, and
-    /// neither the units nor fs > 0 are required (see the note at the top
-    /// of this header).
+    /// Behave as the original WFDB package, for this call only (see
+    /// docs/DIVERGENCES.md).  Use it only to reproduce old results.
     bool legacy = false;
 };
 
-/// Write a record: the signal file "<record>.dat" and the header
-/// "<record>.hea".  `samples` holds the samples in ADC units, frame by frame
-/// (nsig values per frame, or the sum of opt.samps_per_frame values per
-/// frame for multi-frequency records); WFDB_INVALID_SAMPLE marks invalid
-/// samples.  Throws Error if nsig <= 0, if fs <= 0, if the gains are not
-/// specified ("gains must be specified"), if the ADC resolutions are not
-/// specified or < 1 ("ADC resolution(s) must be specified"), if the units of
-/// a signal whose gain is not 0 are not specified ("units must be
-/// specified"), if samples.size() is not a
-/// multiple of the frame size, if the files cannot be created, or, with
-/// opt.dir, if the directory does not exist ("directory D does not exist") or
-/// the record name contains one ("record name must not contain a directory
-/// when dir is given").
+/// Write a record: the header "<record>.hea" and the signal file
+/// "<record>.dat".  `samples` holds the samples in ADC units, frame by
+/// frame: nsig values per frame, or the sum of opt.samps_per_frame for a
+/// multi-frequency record.  WFDB_INVALID_SAMPLE marks invalid samples.  `fs`
+/// is the sampling frequency in Hz.
+///
+/// Throws Error if nsig or fs is not greater than 0, if the gains, the ADC
+/// resolutions or the units of a calibrated signal are missing ("gains must
+/// be specified", "ADC resolution(s) must be specified", "units must be
+/// specified"), if samples.size() is not a multiple of the frame size, or if
+/// the files cannot be created.  With opt.dir, it also throws if the
+/// directory does not exist ("directory D does not exist") or the record
+/// name contains one ("record name must not contain a directory when dir is
+/// given").
+///
+///     wfdbx::WriteOptions w;
+///     w.fmt = 212;
+///     w.gains = {200};
+///     w.adcres = {11};
+///     w.units = {"mV"};
+///     // writes the new record "new" (new.hea, new.dat) from `samples`
+///     wfdbx::write_record("new", samples, 2, 360, w);
+///
+/// Part of wfdb-x; not in the original WFDB package.
 void write_record(const std::string &record,
                   const std::vector<WFDB_Sample> &samples, int nsig,
                   WFDB_Frequency fs, const WriteOptions &opt = {});
 
-/// As write_record(), with samples in physical units: each is converted to
-/// round(v * gain) + baseline (as physadu() does), and NaN becomes an
-/// invalid sample.  Throws Error ("signal N is uncalibrated") if a gain is 0
-/// (wfdb-x: no default gain).
+/// As write_record(), with samples in physical units.  Each sample v is
+/// stored as round(v * gain) + baseline, and NaN is stored as an invalid
+/// sample.  Throws Error ("signal N is uncalibrated") if a gain is 0.
+///
+/// Part of wfdb-x; not in the original WFDB package.
 void write_record_physical(const std::string &record,
                            const std::vector<double> &samples, int nsig,
                            WFDB_Frequency fs, const WriteOptions &opt = {});
 
-/// Write the annotation file of `annotator` for `record` (as wrann does),
-/// "<record>.<annotator>".  The type of each annotation is given by its
-/// `symbols` entry (converted with strann(); unknown mnemonics give NOTQRS),
-/// or by its `codes` entry if the symbol is empty or missing; missing
-/// subtypes, chans, nums and aux entries are 0 or absent, and aux texts are
-/// truncated to 255 bytes.  If fs > 0, it is recorded as the time
-/// resolution of the file (ann.fs is not used).  Annotations should be in
-/// time order; otherwise, the file is sorted when it is closed (see
-/// oannclose(); wfdb-x: in this process, whereas the C library, as legacy
-/// mode, runs sortann) if `sort` says so: std::nullopt (the default): as
-/// the WFDBANNSORT environment variable says (by default, sorted); true:
-/// sorted; false: left in the order given (for this call only, whatever
-/// WFDBANNSORT says; the environment is not changed; the same in legacy
-/// mode).  If `dir` is not empty, the file is created in that directory,
-/// which must exist (the record name must not contain a directory).  Throws
-/// Error if the file cannot be created, or for a `dir` as write_record()
-/// does.
+/// Write the annotation file of `annotator` for `record`,
+/// "<record>.<annotator>".  The type of each annotation is its `symbols`
+/// entry ("N", "V", ...; an unknown mnemonic gives NOTQRS), or its `codes`
+/// entry if the symbol is empty or missing.  Missing subtypes, chans, nums
+/// and aux entries are 0 or absent, and aux texts are cut to 255 bytes.  If
+/// fs > 0, it is recorded in the file (ann.fs is not used).  If `dir` is not
+/// empty, the file is created in that directory, which must exist.
+///
+/// If the annotations are not in time order, the file is sorted when it is
+/// written.  sort = false keeps the order given (without the library's
+/// advice to run sortann) and sort = true always
+/// sorts, for this call only.  Without `sort`, the WFDBANNSORT environment
+/// variable decides: sorting is on unless it is 0.
+///
+/// Throws Error if the file cannot be created, or for a `dir` as
+/// write_record() does.
+///
+///     wfdbx::Annotations qrs;
+///     qrs.samples = {100, 460, 820};
+///     qrs.symbols = {"N", "N", "V"};
+///     // writes the annotation file rec.qrs of a record "rec"
+///     wfdbx::write_annotations("rec", "qrs", qrs);
+///
+/// Part of wfdb-x; not in the original WFDB package.
 void write_annotations(const std::string &record, const std::string &annotator,
                        const Annotations &ann, WFDB_Frequency fs = 0,
                        const std::string &dir = {},
                        std::optional<bool> sort = std::nullopt);
+
+/// A problem found by check_record().
+struct Issue {
+    /// "error" (the record is damaged or does not follow the WFDB format),
+    /// "warning" (something is missing or unusual, and may give wrong
+    /// results) or "info" (a fact worth knowing).
+    std::string severity;
+    /// A stable identifier, such as "checksum" or "gain_missing".
+    std::string code;
+    /// "" (the record), "signal N", "segment SEG", "segment SEG, signal N"
+    /// or "annotator ANN".
+    std::string where;
+    std::string message;    ///< the description of the problem
+    /// One line: "SEVERITY: WHERE: MESSAGE" ("SEVERITY: MESSAGE" if `where`
+    /// is empty).
+    std::string to_string() const;
+};
+
+/// The result of check_record().
+struct CheckReport {
+    std::string record;     ///< the record name, as given
+    bool ok = true;         ///< true if no issue has the severity "error"
+    std::vector<Issue> issues;  ///< the problems, in the order of the checks
+    /// The text form, one line per issue (Issue::to_string()), or the single
+    /// line "no problems found".
+    std::vector<std::string> lines() const;
+    /// The lines of lines(), joined by newlines (no final newline).
+    std::string to_string() const;
+};
+
+/// Check a record and its annotation files, and report every problem: the
+/// header, the signal specifications, the signal files (all samples are
+/// read) and the annotation files of `annotators` (such as {"atr"}).
+/// Problems in the record are reported, never thrown.  `input` says where
+/// the files are found (see InputOptions).  The checks run in normal mode,
+/// even if legacy mode is on, and the library prints no messages during the
+/// call (the previous settings are restored afterwards).
+///
+/// Throws Error ("record must not be empty") if `record` is empty.
+///
+///     // The sample record 100s (see read_record()), in tests/data:
+///     wfdbx::InputOptions in;
+///     in.input_dir = "tests/data";
+///     wfdbx::CheckReport r = wfdbx::check_record("100s", {"atr"}, in);
+///     std::printf("%s\n", r.to_string().c_str());  // or "no problems found"
+///     if (!r.ok) ...                               // there is an error
+///
+/// A line of the report reads, for example:
+///
+///     error: signal 1: the checksum does not match: the header gives 12, the samples sum to 13
+///
+/// It checks for problems similar to those found by Benjamin Moody's
+/// wfdbcheck (https://github.com/bemoody/wfdbcheck).
+///
+/// Part of wfdb-x; not in the original WFDB package.
+CheckReport check_record(const std::string &record,
+                         const std::vector<std::string> &annotators = {},
+                         const InputOptions &input = {});
 
 } // namespace wfdbx
 

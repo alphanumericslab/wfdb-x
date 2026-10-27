@@ -1,100 +1,79 @@
 function write_record(record, signals, fs, varargin)
 %WRITE_RECORD Write a matrix of samples as a WFDB record.
-%   wfdbx.write_record(RECORD, SIGNALS, FS) writes the NSAMPLES-by-NSIG
-%   matrix SIGNALS (integer samples in ADC units) as record RECORD: the
-%   signal file RECORD.dat and the header
-%   RECORD.hea, with sampling frequency FS (Hz, > 0).  Each column is one
-%   signal (a single signal is a column vector).  The gains, the ADC
-%   resolutions and the units of the calibrated signals are required
-%   (options 'gains', 'adcres' and 'units').  wfdb-x never assumes a
-%   sampling frequency, a gain, an ADC resolution or units (C: 250 Hz,
-%   200 adu/mV, a resolution based on the format, millivolts); see
-%   docs/DIVERGENCES.md.
+%   wfdbx.write_record(RECORD, SIGNALS, FS, NAME, VALUE, ...) writes the
+%   header RECORD.hea and the signal file RECORD.dat.  SIGNALS has one row
+%   per sample and one column per signal, in ADC units (or in physical units
+%   with 'physical').  FS is the sampling frequency in Hz.
 %
-%   Options (name-value pairs; a scalar applies to all signals, a vector
-%   or cell gives one value per signal):
-%     'fmt'         storage format (default 16; 8, 16, 61, 80, 160, 212,
-%                   310, 311, 24, 32, 508, 516, 524); all signals must
-%                   have the same format
-%     'gains'       ADC units per physical unit (required; 0 means
-%                   uncalibrated, allowed only if SIGNALS are in ADC
-%                   units)
-%     'baselines'   ADC values corresponding to 0 physical units
-%                   (default: the ADC zeros)
-%     'adczeros'    ADC output for zero input (default 0)
-%     'adcres'      ADC resolution in bits (required, >= 1)
-%     'units'       physical units (char, or cell; required for each
-%                   signal whose gain is not 0; [] or '' = unspecified)
-%     'names'       signal descriptions (char, or cell; default '')
-%     'base_time'   base time (and date), e.g. '12:00:00 01/02/2003'
-%     'comments'    cell of info strings, written as header comments
-%     'physical'    true if SIGNALS are in physical units: they are then
-%                   converted with the gains and baselines (rounding as
-%                   wfdbx.physadu does; NaN becomes an invalid sample)
-%     'samps_per_frame'  samples per frame of each signal, to write a
-%                   multi-frequency record: SIGNALS then has
-%                   sum(samps_per_frame) columns, frame by frame (the spf
-%                   samples of signal 0, then those of signal 1, ...)
-%     'dir'         the directory (which must exist) in which the files
-%                   are created (default: the current directory, or the
-%                   directory part of RECORD); the header then names the
-%                   record and its signal file without the directory, so
-%                   that the record opens from that directory under its
-%                   plain name (RECORD must not contain a directory)
-%     'legacy'      true to behave as the original package (default
-%                   false): the library's legacy mode
-%                   (wfdbx.wfdbx_set_legacy) is on during the call, and
-%                   the gains default to 200, the ADC resolutions to a
-%                   value based on the format (8 for formats 80 and 508,
-%                   10 for 310 and 311, 12 for 212, 24 for 24 and 524, 32
-%                   for 32, otherwise 16), the units are not required (a
-%                   gain of 0 is taken as 200 with 'physical'), and FS is
-%                   not checked.  For compatibility only: the values it
-%                   assumes are exactly the silent defaults wfdb-x
-%                   removed, so results produced with it carry the same
-%                   risks.
+%   You must give the gain and ADC resolution of each signal, and the units
+%   of each calibrated signal; there are no defaults.  Per-signal options
+%   take one value for all signals, or a vector or cell array with one value
+%   per signal.
 %
-%   An error is thrown if the gains are not given, if FS is not > 0, if
-%   the ADC resolutions are not given or are < 1, if the units of a
-%   signal whose gain is not 0 are not given, if
-%   'physical' is true and a gain is 0 (uncalibrated signal), if 'dir' is
-%   given and does not exist or RECORD contains a directory, or if the
-%   files cannot be written.
+%     'fmt'         storage format: 8, 16, 61, 80, 160, 212, 310, 311, 24,
+%                   32, 508, 516 or 524 (default 16, the same for all
+%                   signals)
+%     'gains'       ADC units per physical unit (required); 0 marks a signal
+%                   as uncalibrated, which is only allowed for samples in ADC
+%                   units
+%     'adcres'      ADC resolution in bits (required)
+%     'units'       physical units (required for each signal whose gain is
+%                   not 0)
+%     'baselines'   baselines, in ADC units (default: the ADC zeros)
+%     'adczeros'    ADC zeros (default 0)
+%     'names'       signal descriptions (default: none)
+%     'base_time'   start time and date, such as '12:00:00 01/02/2003'
+%     'comments'    cell array of info strings
+%     'physical'    true if SIGNALS are in physical units; they are converted
+%                   with the gains and baselines, and NaN becomes an invalid
+%                   sample (default false)
+%     'samps_per_frame'  samples per frame of each signal, for a
+%                   multi-frequency record.  Each row of SIGNALS then holds
+%                   one frame: the samples of signal 0, then those of
+%                   signal 1, and so on.
+%     'dir'         folder in which to create the files (default: the output
+%                   directory).  RECORD must then be a plain name.
+%     'legacy'      true to behave as the original WFDB package (default
+%                   false; see wfdbx.wfdbx_set_legacy)
 %
-%   The samples are written with wfdbx.putframes, which encodes them with
-%   vector operations, byte for byte as wfdbx.putvec would.
+%   Errors: an error (identifier 'wfdbx:write_record') is thrown if FS is not
+%   greater than 0, if the gains, ADC resolutions or required units are not
+%   given, if 'physical' is true and a gain is 0, if 'dir' does not exist, or
+%   if the files cannot be written.  A record is never written over one of
+%   the files being read ("osigfopen: output file NAME is also an input
+%   file").
 %
-%   The function calls wfdbx.wfdbquit before and after its work, so any
-%   signals or annotators opened with the low-level functions
-%   (wfdbx.isigopen, wfdbx.annopen, ...) are closed.
+%   The function calls wfdbx.wfdbquit, which closes anything opened with the
+%   WFDB library functions.
 %
-%   Example:
+%   Examples:
 %       x = round(1000 * sin(2 * pi * (0:999)' / 100));
 %       wfdbx.write_record('sine', [x, -x], 250, 'fmt', 212, ...
 %           'gains', 200, 'adcres', 12, 'units', 'mV', ...
 %           'names', {'sin', '-sin'});
-%       rec = wfdbx.read_record('sine');
 %
-%       % physical units (mV), with 360 Hz sampling and a start time
+%       % physical units (mV) at 360 Hz, with a start time
 %       t = (0:3599)' / 360;
 %       wfdbx.write_record('phys', [sin(2*pi*t), cos(2*pi*t)], 360, ...
 %           'physical', true, 'gains', 200, 'adcres', 16, 'units', 'mV', ...
 %           'base_time', '12:00:00 01/02/2003');
 %
-%   See also wfdbx.read_record, wfdbx.putframes, wfdbx.osigfopen.
+%   See also wfdbx.read_record, wfdbx.write_annotations.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-% gain, ADC resolution or units. Values that the record or the user does
-% not give are never assumed (the original package assumed 250 Hz,
-% 200 adu/mV, 12 bits and millivolts), because a silently assumed value
-% corrupts every result derived from it. See docs/DIVERGENCES.md.
-% The original behavior remains available with --legacy (see
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package. Like the rest of wfdb-x, it
+% never assumes a sampling frequency, gain, ADC resolution or units (see
 % docs/DIVERGENCES.md).
-% Design decision (Reza Sameni, after a code review, Oct 2026): the
-% writers take a 'dir' option (the files are created in that directory,
-% and the record opens from there under its plain name).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
 % wfdb-x: the gains are required (C's default was WFDB_DEFGAIN)

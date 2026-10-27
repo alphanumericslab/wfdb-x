@@ -7,7 +7,10 @@
 # temporary directories), so that the native code of everything they
 # exercise is cached in the package image.
 #
-# Each library file or tool registers its own workload:
+# Each library file or tool registers its own workload (here, "100s" is the
+# sample record of tests/data, the first minute of record 100 of the MIT-BIH
+# Arrhythmia Database, which `with_workload_data` copies into the temporary
+# directory):
 #
 #     register_workload("rdsamp") do
 #         with_workload_data() do dir
@@ -16,13 +19,21 @@
 #         end
 #     end
 #
-# Keep workloads short (they run at every precompilation) but cover the
-# code paths (each tool option, signal format, annotation path, ...):
-# anything not exercised is compiled when it is first used, which costs
-# startup time in every process.
+# Keep workloads short (they run at every precompilation) but cover the code
+# paths (each tool option, signal format, annotation path, ...): anything
+# not exercised is compiled when it is first used, which costs startup time
+# in every process.
 #
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+# It has no counterpart in the original package.
+#
+# Copyright (C) 2026 Reza Sameni.
+#
+# This library is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 const _WORKLOADS = Pair{String,Function}[]
 

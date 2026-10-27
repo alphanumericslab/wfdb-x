@@ -1,68 +1,67 @@
 function ann = read_annotations(record, annotator, varargin)
 %READ_ANNOTATIONS Read an annotation file into arrays.
-%   ANN = wfdbx.read_annotations(RECORD, ANNOTATOR) reads all annotations
-%   of annotator ANNOTATOR (e.g. 'atr') of record RECORD, as rdann does,
-%   and returns a structure with the fields
+%   ANN = wfdbx.read_annotations(RECORD, ANNOTATOR) reads all annotations of
+%   the record RECORD from the annotation file with the suffix ANNOTATOR:
+%   wfdbx.read_annotations('100s', 'atr') reads 100s.atr.
 %
-%     record, annotator   the arguments
-%     samples   N-by-1 annotation times (sample numbers)
-%     codes     N-by-1 annotation codes (wfdbx.NORMAL(), ...)
-%     symbols   N-by-1 cell of mnemonics ('N', 'V', '+', ...; wfdbx.annstr)
-%     subtypes, chans, nums   N-by-1, the other fields of the annotations
-%     aux       N-by-1 cell of auxiliary strings (char, up to the first
-%               null byte), [] where there is none
-%     fs        time resolution of the times (ticks per second; 0 if no
-%               sampling frequency is known)
+%   ANN = wfdbx.read_annotations(RECORD, ANNOTATOR, NAME, VALUE, ...) takes
+%   these options:
 %
-%   Options (name-value pairs):
-%     'sampfrom'  read the annotations at or after this time (sample
-%                 number, or a time string for wfdbx.strtim; default 0)
+%     'sampfrom'  read the annotations at or after this time: a sample
+%                 number or a time string (default 0)
 %     'sampto'    read the annotations before this time (default: all)
-%     'fs'        sampling frequency (Hz, > 0), used if the record has no
-%                 header or its header does not specify one (as the -F
-%                 option of rdann); default: none
-%     'input_dir' the input directory for this call (a local directory,
-%                 a ~ name or a URL; '' for the default; see
-%                 wfdbx.wfdbx_set_input_dir); default: the current setting
-%                 (by default, the current directory)
-%     'network'   true to allow reading URLs for this call (false to
-%                 forbid it; see wfdbx.wfdbx_set_network); default: the
-%                 current setting (by default, not allowed)
-%     'legacy'    true to behave as the original package (default false):
-%                 the library's legacy mode (wfdbx.wfdbx_set_legacy) is on
-%                 during the call, and a record without a header (or a
-%                 header without a sampling frequency) means 250 Hz.  For
-%                 compatibility only: the values it assumes are exactly
-%                 the silent defaults wfdb-x removed, so results produced
-%                 with it carry the same risks.
-%   (wfdbx.read_annotations(RECORD, ANNOTATOR, SAMPFROM, SAMPTO) is also
-%   accepted, optionally followed by name-value pairs.)
+%     'fs'        sampling frequency in Hz, used when the record has no
+%                 header or its header gives none (default: none)
+%     'input_dir', 'network', 'legacy'
+%                 as in wfdbx.read_record
 %
-%   An error is thrown if the annotation file cannot be read, or if a
-%   time string needs the sampling frequency and none is known (wfdb-x
-%   never assumes one; C assumed 250 Hz: see docs/DIVERGENCES.md).
+%   wfdbx.read_annotations(RECORD, ANNOTATOR, SAMPFROM, SAMPTO) is also
+%   accepted.
 %
-%   The function calls wfdbx.wfdbquit before and after its work, so any
-%   signals or annotators opened with the low-level functions
-%   (wfdbx.isigopen, wfdbx.annopen, ...) are closed.
+%   ANN has these fields, one row per annotation, in file order:
 %
-%   Example:
+%     samples     annotation times, in samples
+%     codes       annotation codes (wfdbx.NORMAL(), wfdbx.PVC(), ...)
+%     symbols     cell array of their mnemonics ('N', 'V', ...)
+%     subtypes, chans, nums   subtype, channel and annotator number
+%     aux         cell array of the auxiliary texts ([] where there is none)
+%     fs          the frequency in which the times are counted (0 if
+%                 unknown)
+%     record, annotator   the arguments
+%
+%   Errors: an error (identifier 'wfdbx:read_annotations') is thrown if the
+%   annotation file cannot be opened, if it ends unexpectedly or cannot be
+%   read before 'sampto' ("can't read annotation file ANNOTATOR of record
+%   RECORD (getann status S)"), or if a time string needs the sampling
+%   frequency and none is known.
+%
+%   The function calls wfdbx.wfdbquit, which closes anything opened with the
+%   WFDB library functions.
+%
+%   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
+%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   the repository):
+%       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       ann = wfdbx.read_annotations('100s', 'atr', 'sampto', '0:30');
-%       ann.symbols(1:3), ann.samples(1:3)
+%       ann.symbols(1:3)'                                   % {'+', 'N', 'N'}
 %       beats = ann.samples(wfdbx.isqrs(ann.codes) == 1);   % QRS times
-%       rr = diff(beats) / ann.fs;                          % RR (s)
+%       rr = diff(beats) / ann.fs;                          % RR intervals (s)
 %
-%   See also wfdbx.write_annotations, wfdbx.annopen, wfdbx.getann.
+%   See also wfdbx.write_annotations, wfdbx.read_record.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-% gain, ADC resolution or units. Values that the record or the user does
-% not give are never assumed (the original package assumed 250 Hz,
-% 200 adu/mV, 12 bits and millivolts), because a silently assumed value
-% corrupts every result derived from it. See docs/DIVERGENCES.md.
-% The original behavior remains available with --legacy (see
-% docs/DIVERGENCES.md).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package. Like the rest of wfdb-x, it
+% never assumes a sampling frequency (see docs/DIVERGENCES.md).
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
 annotator = wfdbx.internal.strarg(annotator);
@@ -144,7 +143,15 @@ if ~isempty(to)
     k = find(A.time >= to, 1);
 end
 if stat == 1 && isempty(k)
-    wfdbx.getann(0);                    % the call that fails (error message)
+    stat = wfdbx.getann(0);             % the call that fails (error message)
+end
+% wfdb-x: a read that ends with a status other than -1 (end of the file)
+% before reaching 'sampto' (e.g. -3, unexpected EOF) is an error
+if isempty(k) && stat < 0 && stat ~= -1
+    wfdbx.wfdbquit();
+    error('wfdbx:read_annotations', ...
+        'can''t read annotation file %s of record %s (getann status %d)', ...
+        annotator, record, stat);
 end
 if ~isempty(to)
     if ~isempty(k)

@@ -1,130 +1,98 @@
 function rec = read_record(record, varargin)
 %READ_RECORD Read the signals of a record into a matrix.
-%   REC = wfdbx.read_record(RECORD) reads all samples of all signals of
-%   record RECORD (as rdsamp does: relative to the input directory, or a
-%   full path, ~ path or URL) and returns a structure with the fields
+%   REC = wfdbx.read_record(RECORD) reads all samples of all signals of the
+%   record RECORD and returns them in a structure.  RECORD is a record name
+%   read from the input directory, or a full path, a ~ path or a URL (see
+%   wfdbx.wfdbx_set_input_dir).
 %
-%     name        the record name
-%     fs          sampling frequency (Hz) of the returned samples (0 if
-%                 the header does not specify it)
-%     signals     NSAMPLES-by-NSIG matrix (double) of samples in ADC units
-%                 (invalid samples are wfdbx.WFDB_INVALID_SAMPLE(), i.e.
-%                 -32768), or in physical units with 'physical' (invalid
-%                 samples are NaN)
-%     siginfo     1-by-NSIG wfdbx.siginfo struct array of the signals
-%     names       1-by-NSIG cell of signal descriptions
-%     units       1-by-NSIG cell of physical units ([] if unspecified;
-%                 never assumed to be millivolts)
-%     gains       1-by-NSIG ADC units per physical unit (0: uncalibrated)
-%     baselines   1-by-NSIG ADC values corresponding to 0 physical units
-%     base_time   start time and date from the header, as wfdbx.timstr(0)
-%                 gives it (e.g. '[08:45:00 01/01/2001]'), or [] if the
-%                 header has none
-%     base_time_ms  the base time in milliseconds after midnight (a
-%                 double: '14:00:03.500' is 50403500), or [] exactly when
-%                 base_time is []
-%     base_date   the base date as a 1-by-3 double [year month day], or
-%                 [] if the header gives no date
-%     sampfrom    sample number of the first returned sample
-%     comments    NC-by-1 cell of the info strings (header comments)
-%     checksum_ok false if the samples were found not to match the
-%                 checksums in the header (the case of the checksum
-%                 warning, whether or not 'checksum_warning' is on), true
-%                 otherwise; the checksums are verified only when a read
-%                 reaches the end of the record
+%   REC = wfdbx.read_record(RECORD, NAME, VALUE, ...) takes these options:
 %
-%   Options (name-value pairs):
-%     'channels'  signals to read: signal numbers (0-based, as in WFDB),
-%                 or a cell of numbers and names (default: all)
-%     'sampfrom'  first sample: sample number, or a WFDB time string such
-%                 as '0:10' or 's3600' (default 0); a time string other
-%                 than a sample number ('sN') needs the sampling frequency
-%     'sampto'    end (exclusive): sample number or time string
-%                 (default: the end of the record)
-%     'physical'  true to return physical units, (ADC - baseline) / gain
-%                 (default false; all selected signals must be calibrated)
-%     'highres'   true to read multi-frequency records in WFDB_HIGHRES
-%                 mode (all samples of the fastest signals; default false:
-%                 one sample per frame, averaged)
+%     'channels'  signals to read: signal numbers (starting at 0), or a cell
+%                 array of numbers and names (default: all signals)
+%     'sampfrom'  first sample: a sample number, or a time string such as
+%                 '0:10' (10 seconds) or 's3600' (sample 3600); default 0
+%     'sampto'    the sample after the last one: a sample number or a time
+%                 string (default: the end of the record)
+%     'physical'  true to return physical units instead of ADC units
+%                 (default false)
+%     'highres'   true to read a multi-frequency record at its highest
+%                 sampling frequency (default false)
 %     'pad'       true to replace invalid samples by the previous valid
-%                 sample (WFDB_GVPAD mode; default false)
-%     'input_dir' the input directory for this call (a local directory,
-%                 a ~ name or a URL; '' for the default; see
-%                 wfdbx.wfdbx_set_input_dir); default: the current setting
-%                 (by default, the current directory)
-%     'network'   true to allow reading URLs for this call (false to
-%                 forbid it; see wfdbx.wfdbx_set_network); default: the
-%                 current setting (by default, not allowed)
-%     'legacy'    true to behave as the original package (default false):
-%                 the library's legacy mode (wfdbx.wfdbx_set_legacy) is on
-%                 during the call (a header without a sampling frequency
-%                 means 250 Hz, a missing ADC resolution is inferred from
-%                 the format), and 'physical' converts uncalibrated
-%                 signals with a gain of 200.  For compatibility only: the
-%                 values it assumes are exactly the silent defaults wfdb-x
-%                 removed, so results produced with it carry the same
-%                 risks.
-%     'checksum_warning'  true (the default) to warn when the samples read
-%                 to the end of the record do not match the checksums in
-%                 its header (false: no warning); the data are returned
-%                 either way (see below)
+%                 one (default false)
+%     'checksum_warning'  false to turn off the warning given when the data
+%                 do not match the header's checksums (default true)
+%     'input_dir' input directory for this call only (default: the current
+%                 setting)
+%     'network'   true to allow network access for this call only (default:
+%                 the current setting)
+%     'legacy'    true to behave as the original WFDB package (default
+%                 false; see wfdbx.wfdbx_set_legacy)
 %
-%   An error is thrown if the record cannot be read, if a requested
-%   signal does not exist, if a time string needs the sampling frequency
-%   and the header does not specify it, or if 'physical' is true and a
-%   selected signal is uncalibrated (gain 0).  An error is also thrown,
-%   'can't read signal data of record REC (getvec status S)', if reading
-%   stops with a getvec status below -1 (e.g. -3 for a signal file
-%   shorter than its header says, or a read or decoding error), also with
-%   'legacy'; reaching the end of the record before 'sampto' is not an
-%   error.  Nor is a checksum error (getvec status -4: the samples are
-%   complete, their sum does not match the header's checksums): every
-%   frame is returned, the last one included, with the warning
-%   'wfdbx:checksum' ("checksum error in record REC: the signal data do
-%   not match the checksums in its header"; option 'checksum_warning'),
-%   which replaces getvec's own message; this behavior is identical in
-%   all six implementations of wfdb-x.  wfdb-x never assumes a
-%   sampling frequency, a gain, an ADC resolution or units (C: 250 Hz,
-%   200 adu/mV, 12 bits, millivolts): an unspecified ADC resolution is
-%   reported as 0 (siginfo.adcres) and unspecified units as [].  See
-%   docs/DIVERGENCES.md.
+%   REC has these fields:
 %
-%   The function calls wfdbx.wfdbquit before and after its work, so any
-%   signals or annotators opened with the low-level functions
-%   (wfdbx.isigopen, wfdbx.annopen, ...) are closed.
+%     signals     matrix of doubles, one row per sample and one column per
+%                 signal, in ADC units, or in physical units with
+%                 'physical'.  Invalid samples are wfdbx.WFDB_INVALID_SAMPLE()
+%                 (-32768), or NaN in physical units.
+%     fs          sampling frequency in Hz (0 if the header gives none)
+%     names       cell array of the signal descriptions
+%     units       cell array of the physical units ([] if the header gives
+%                 none)
+%     gains       ADC units per physical unit of each signal (0 means
+%                 uncalibrated)
+%     baselines   baseline of each signal, in ADC units
+%     siginfo     the full signal specifications (wfdbx.siginfo structures)
+%     name        the record name
+%     sampfrom    the number of the first sample returned
+%     base_time   start time and date as text, to the second, such as
+%                 '[14:00:03 21/06/2024]', or []
+%     base_time_ms  start time in milliseconds after midnight (50403500 for
+%                 14:00:03.500), or []
+%     base_date   start date as [year month day], or []
+%     comments    the info strings of the header (a cell column)
+%     checksum_ok false if the data do not match the header's checksums
 %
-%   Examples:
+%   Errors: an error (identifier 'wfdbx:read_record') is thrown if the
+%   record cannot be read, if a signal file is shorter than its header says
+%   ("can't read signal data of record REC (getvec status -3)"), if a
+%   requested signal does not exist, if a time string needs the sampling
+%   frequency and the header gives none, or if 'physical' is true and a
+%   selected signal is uncalibrated.  If the data do not match the header's
+%   checksums, all the data are returned with the warning 'wfdbx:checksum'.
+%   Checksums are only checked when a read reaches the end of the record.
+%
+%   The function calls wfdbx.wfdbquit, which closes anything opened with the
+%   WFDB library functions.
+%
+%   Examples (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
+%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   the repository):
+%       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       rec = wfdbx.read_record('100s', 'sampto', 1000, 'physical', true);
 %       size(rec.signals)       % [1000 2]
 %       plot((0:999) / rec.fs, rec.signals(:, 1));
-%       xlabel('time (s)'); ylabel(rec.names{1});
 %
-%       % 10 seconds of signal V5, starting 30 s into the record
+%       % signal V5, from 30 to 40 seconds
 %       rec = wfdbx.read_record('100s', 'channels', {'V5'}, ...
 %                               'sampfrom', '0:30', 'sampto', '0:40');
 %
-%   See also wfdbx.write_record, wfdbx.read_header, wfdbx.getframes.
+%   See also wfdbx.read_header, wfdbx.write_record, wfdbx.read_annotations.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% Design decision (Reza Sameni, Oct 2026): a checksum error (getvec
-% status -4: the samples are complete, their sum does not match the
-% header's checksums) is not an error of read_record but a warning
-% ('checksum_warning', false: none); the data are returned.
-% Design decision (Reza Sameni, Oct 2026): files are found by explicit
-% names (the input directory, the output directory, or a full path or
-% URL), not by a search of the WFDB path, and PhysioNet (or any server) is
-% accessed only if asked for ('network', true): a search can silently open
-% the wrong file, fails in ways nobody notices, and sent local paths and
-% record names to physionet.org.  The original behavior remains available
-% with --legacy (see docs/DIVERGENCES.md).
-% Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-% gain, ADC resolution or units. Values that the record or the user does
-% not give are never assumed (the original package assumed 250 Hz,
-% 200 adu/mV, 12 bits and millivolts), because a silently assumed value
-% corrupts every result derived from it. See docs/DIVERGENCES.md.
-% The original behavior remains available with --legacy (see
-% docs/DIVERGENCES.md).
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It has no counterpart in the original package. Like the rest of wfdb-x, it
+% never assumes a sampling frequency or gain, finds files only where they
+% are named, and opens URLs only if network access is allowed; a checksum
+% error is a warning, not an error (see docs/DIVERGENCES.md).
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
 opt = struct('channels', [], 'sampfrom', 0, 'sampto', [], ...
@@ -232,11 +200,14 @@ quiet = onCleanup(@() set_cksum_quiet(S, false)); %#ok<NASGU>
 while remaining > 0
     n = min(CHUNK, remaining);
     [x, stat, last] = wfdbx.getframes(n);
-    % wfdb-x: -4, a checksum error: the frames are complete (the last one,
-    % for which getvec returned -4, included), only their sum does not
-    % match the header: a warning (see below), not an error
+    % wfdb-x: -4, a checksum error: the samples are valid (the vector for
+    % which getvec returned -4 included), only their sum does not match
+    % the header: a warning (see below), not an error.  In high-resolution
+    % mode getvec returns -4 for each sample vector of the frame at which
+    % the checksums are verified, so the reading continues to -1.
     if stat == -4
         x = [x; last]; %#ok<AGROW>
+        cksum_error = true;
     end
     k = size(x, 1);
     if k > 0
@@ -248,8 +219,7 @@ while remaining > 0
     end
     remaining = remaining - size(x, 1);
     if stat == -4
-        cksum_error = true;
-        break;
+        continue;
     end
     if size(x, 1) < n
         % wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a signal

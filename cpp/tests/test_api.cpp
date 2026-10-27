@@ -2,8 +2,16 @@
 // (the C++ counterparts of python/tests/test_signals.py, test_time.py, and
 // test_annotations.py)
 //
-// Part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU General Public License, version 2 or later (see LICENSE).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It tests wfdb-x; it has no counterpart in the original package.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 #include "tests.hpp"
 
@@ -731,7 +739,8 @@ std::vector<std::string> list_dir(const std::string &d)
     return v;
 }
 
-bool throws_with(void (*fn)(), const std::string &what)
+template <class F>
+bool throws_with(F fn, const std::string &what)
 {
     try {
         fn();
@@ -822,6 +831,112 @@ WFDBX_TEST(write_annotations_dir)
         write_annotations("x/rec", "atr", Annotations(), 0, "out");
     }, "record name must not contain a directory when dir is given"));
     CHECK(!wfdbx_get_output_dir());
+}
+
+// sort = false: the caller chose the order, so the library does not advise
+// running sortann; WFDBANNSORT=0 (and the C-style API) still does.
+WFDBX_TEST(write_annotations_sort_false_no_advice)
+{
+    DataDir d;
+    setafreq(0.0);
+    Annotations a;
+    a.samples = {300, 100, 200};
+    a.symbols = {"N", "V", "N"};
+    const std::string advice = "Use the command:\n  sortann -r rec -a %s\n"
+        "to rearrange annotations in the correct order.\n";
+    auto advice_for = [&](const char *an) {
+        std::string s = advice;
+        return s.replace(s.find("%s"), 2, an);
+    };
+    for (const char *env : {static_cast<const char *>(nullptr), "0", "1"}) {
+        wfdbx_tests::EnvVar sort("WFDBANNSORT", env);
+        for (int legacy = 0; legacy < 2; legacy++) {
+            int prev = wfdbx_set_legacy(legacy);
+            wfdbx_tests::StderrCapture cap;
+            write_annotations("rec", "uns", a, 0, {}, false);
+            CHECK_EQ(cap.text(), "");
+            wfdbx_set_legacy(prev);
+        }
+    }
+    wfdbx_tests::EnvVar sort("WFDBANNSORT", "0");
+    {
+        wfdbx_tests::StderrCapture cap;
+        write_annotations("rec", "env0", a);
+        CHECK_EQ(cap.text(), advice_for("env0"));
+    }
+    {
+        wfdbx_tests::StderrCapture cap;
+        WFDB_Anninfo ai;
+        ai.name = "low";
+        ai.stat = WFDB_WRITE;
+        REQUIRE(annopen("rec", &ai, 1) == 0);
+        for (int k = 0; k < 3; k++) {
+            WFDB_Annotation x;
+            x.time = a.samples[k];
+            x.anntyp = 1;
+            putann(0, &x);
+        }
+        wfdbquit();
+        CHECK_EQ(cap.text(), advice_for("low"));
+    }
+    CHECK(read_annotations("rec", "uns", {}, {}, 360.0).samples ==
+          (std::vector<WFDB_Time>{300, 100, 200}));
+}
+
+// Record names: outside legacy mode, only the last component of the name is
+// checked, and the header names the record and its files relative to its
+// directory.  Legacy mode checks the whole name, and writes names as given.
+WFDBX_TEST(record_names_last_component)
+{
+    DataDir d;
+    const std::vector<WFDB_Sample> v = {1, 2, 3, 4, 5, 6};
+    WriteOptions w;
+    w.gains = {200};
+    w.adcres = {12};
+    w.units = {"mV"};
+    fs::create_directory("my.data");
+    write_record("my.data/rec", v, 2, 360, w);
+    CHECK(slurp("my.data/rec.hea").rfind("rec 2 360 3\r\nrec.dat 16 ", 0) == 0);
+    Record r = read_record("my.data/rec");
+    CHECK(r.samples == v);
+    // an absolute path with a dot in a directory name
+    fs::create_directories("a.b/c.d");
+    std::string abs = (fs::current_path() / "a.b" / "c.d" / "rec").string();
+    write_record(abs, v, 2, 360, w);
+    CHECK(read_record(abs).samples == v);
+    CHECK(slurp("a.b/c.d/rec.hea").rfind("rec 2 360 3\r\n", 0) == 0);
+    // newheader with a dotted directory
+    WFDB_Siginfo si;
+    si.fname = "my.data/n.dat";
+    si.desc = "x";
+    si.units = "mV";
+    si.gain = 200;
+    si.fmt = 16;
+    si.adcres = 12;
+    REQUIRE(osigfopen(&si, 1) == 1);
+    setsampfreq(360);
+    WFDB_Sample x = 7;
+    putvec(&x);
+    CHECK(newheader("my.data/n") == 0);
+    wfdbquit();
+    CHECK(slurp("my.data/n.hea").rfind("n 1 360 1\r\nn.dat 16 ", 0) == 0);
+    // a last component with an illegal character is refused
+    wfdbquiet();
+    CHECK(throws_with([&] { write_record("rec.1", v, 2, 360, w); },
+                      "can't create header for record rec.1"));
+    wfdbverbose();
+    CHECK_EQ(wfdberror(), "init: illegal character 46 in record name\n");
+    // legacy mode: the whole name is checked; names are written as given
+    WriteOptions lw = w;
+    lw.legacy = true;
+    wfdbquiet();
+    CHECK(throws_with([&] { write_record("my.data/rec2", v, 2, 360, lw); },
+                      "my.data/rec2"));
+    wfdbverbose();
+    CHECK_EQ(wfdberror(), "init: illegal character 46 in record name\n");
+    fs::create_directory("out");
+    write_record("out/rec", v, 2, 360, lw);
+    CHECK(slurp("out/rec.hea").rfind("out/rec 2 360 3\r\nout/rec.dat 16 ", 0) == 0);
 }
 
 // The dir checks come before any other validation (wfdb-x), with exactly

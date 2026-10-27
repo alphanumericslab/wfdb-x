@@ -34,8 +34,16 @@
 //! from inside a closure passed to [`with_default`]: the default instance
 //! would be borrowed twice, which panics.
 //
-// Rust implementation part of wfdb-x, Reza Sameni, Oct 2026.
-// GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+// It has no counterpart in the original package.
+//
+// Copyright (C) 2026 Reza Sameni.
+//
+// This library is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See LICENSE.
 
 use std::cell::RefCell;
 
@@ -60,10 +68,16 @@ use crate::wfdbio::IoState;
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```
 /// use wfdbx::{Siginfo, Wfdb};
 ///
 /// let mut w = Wfdb::new();
+/// // The sample record 100s, the first minute of record 100 of the MIT-BIH
+/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// # w.wfdbx_set_input_dir("../tests/data");
+/// # /*
+/// w.wfdbx_set_input_dir("tests/data"); // from the repository root
+/// # */
 /// let mut si = vec![Siginfo::default(); 2];
 /// if w.isigopen("100s", &mut si, 2) == 2 {
 ///     let mut v = [0i32; 2];
@@ -97,6 +111,8 @@ impl Wfdb {
     /// records; the settings that locate files, wfdb-x: `WFDBX_INPUT_DIR`,
     /// `WFDBX_OUTPUT_DIR`, `WFDBX_NETWORK`, or in legacy mode the WFDB path,
     /// are read from the environment on first use).
+    ///
+    /// Part of wfdb-x; not in the original WFDB package.
     pub fn new() -> Wfdb {
         Wfdb::default()
     }
@@ -125,6 +141,8 @@ thread_local! {
 /// let path = wfdbx::with_default(|w| w.getwfdb());
 /// assert_eq!(path, b".");
 /// ```
+///
+/// Part of wfdb-x; not in the original WFDB package.
 pub fn with_default<R>(f: impl FnOnce(&mut Wfdb) -> R) -> R {
     DEFAULT.with(|d| f(&mut d.borrow_mut()))
 }

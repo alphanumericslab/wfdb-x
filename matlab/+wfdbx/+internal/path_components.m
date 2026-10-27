@@ -6,11 +6,30 @@ function [prefix, ptype] = path_components(p)
 %   row of char, empty ones included) and their types (0 = WFDB_LOCAL, 1 =
 %   WFDB_NET).  (wfdb-x: the scanner of wfdb_parse_path, which setwfdb
 %   uses too.)
+%
+%   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
 
-% Copyright (C) 1988-2013 George B. Moody (original C implementation,
-% lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+%
+% It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software
+% Package 10.7.0, by George B. Moody. The translation follows the logic and
+% behavior of the original code, but it is new code, not the original C
+% code.
+%
+% Changes from the original: the scanner of wfdb_parse_path(), taken out so
+% that setwfdb can use it. Each change is marked "wfdb-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
+%
+% Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
+%   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
+%   Moody.
+% MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 prefix = cell(1, 0);
 ptype = zeros(1, 0);

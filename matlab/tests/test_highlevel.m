@@ -2,8 +2,16 @@ function test_highlevel()
 %TEST_HIGHLEVEL Tests of the high-level API (read_record, write_record,
 %read_header, read_annotations, write_annotations).
 
-% Part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It tests wfdb-x; it has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 here = fileparts(mfilename('fullpath'));
 data = fullfile(fileparts(fileparts(here)), 'tests', 'data');
@@ -398,12 +406,195 @@ assert_error(@() wfdbx.write_annotations('100s', 'zz', [1 2]), 'no codes');
 
 % --- wfdb-x: the 'dir' option of the writers
 write_dir();
+dotted_names();
 dir_checks_first();
 
 % --- wfdb-x: a signal file shorter than its header says
 truncated_signal_file();
 checksum_warning();
+highres_checksum();
+truncated_annotations();
 base_time_fields();
+end
+
+function highres_checksum()
+% In high-resolution mode getvec returns -4 for each sample vector of the
+% frame at which the checksums are verified; read_record returns all the
+% samples, with one warning.
+wfdbx.wfdbquiet();
+q = onCleanup(@() wfdbx.wfdbverbose()); %#ok<NASGU>
+% the reproduction: spf 2 and 3, first sample changed to 99
+for spf = [2 3]
+    frames = reshape(1:4 * spf, spf, 4).';
+    wfdbx.write_record('hc', frames, 100, 'samps_per_frame', spf, ...
+        'gains', 100, 'adcres', 16, 'units', 'mV');
+    poke('hc.dat', 0, 99);
+    r = wfdbx.read_record('hc', 'highres', true, 'checksum_warning', false);
+    assert_eq(r.signals, [99, 2:4 * spf].', sprintf('highres spf %d', spf));
+    assert_eq(r.checksum_ok, false, sprintf('highres spf %d checksum_ok', spf));
+end
+cases = {2, [1 2], [2 3], [3 1 2]};
+for c = 1:numel(cases)
+    spf = cases{c};
+    nf = 5;
+    x = reshape(1:nf * sum(spf), sum(spf), nf).';
+    for where = 1:2
+        y = x;
+        if where == 1
+            y(1, 1) = 99;
+            pos = 0;
+        else
+            y(end, end) = 99;
+            pos = 2 * (numel(x) - 1);
+        end
+        what = sprintf('highres spf %s, sample %d', mat2str(spf), pos / 2);
+        wfdbx.write_record('hc', x, 100, 'samps_per_frame', spf, ...
+            'gains', 100, 'adcres', 16, 'units', 'mV');
+        poke('hc.dat', pos, 99);
+        % (the same samples with correct checksums)
+        wfdbx.write_record('hg', y, 100, 'samps_per_frame', spf, ...
+            'gains', 100, 'adcres', 16, 'units', 'mV');
+        for hr = [true false]
+            m = 1;
+            if hr
+                m = max(spf);
+            end
+            good = wfdbx.read_record('hg', 'highres', hr);
+            assert_eq(size(good.signals, 1), nf * m, [what ': length']);
+            for warn = [true false]
+                [r, n] = read_counting('hc', {'highres', hr, ...
+                    'checksum_warning', warn});
+                assert_eq(r.signals, good.signals, [what ': samples']);
+                assert_eq(r.checksum_ok, false, [what ': checksum_ok']);
+                assert_eq(n, double(warn), [what ': number of warnings']);
+            end
+            % channel selection
+            for ch = 0:numel(spf) - 1
+                r = wfdbx.read_record('hc', 'highres', hr, 'channels', ch, ...
+                    'checksum_warning', false);
+                assert_eq(r.signals, good.signals(:, ch + 1), ...
+                    sprintf('%s: channel %d', what, ch));
+                assert_eq(r.checksum_ok, false, [what ': channel checksum_ok']);
+            end
+            % sampto before the last frame: no checksum is verified
+            r = wfdbx.read_record('hc', 'highres', hr, 'sampto', (nf - 1) * m);
+            assert_eq(r.signals, good.signals(1:(nf - 1) * m, :), ...
+                [what ': sampto']);
+            assert_eq(r.checksum_ok, true, [what ': sampto checksum_ok']);
+        end
+    end
+end
+end
+
+function [r, n] = read_counting(record, args)
+% read_record, without displaying its warnings, and the number of checksum
+% warnings it gives (other warnings are ignored)
+txt = evalc('r = wfdbx.read_record(record, args{:});');
+n = numel(strfind(txt, ['checksum error in record ' record ':']));
+end
+
+function poke(name, pos, value)
+% set the 16-bit sample at byte POS of file NAME
+fid = fopen(name, 'r+b');
+fseek(fid, pos, 'bof');
+fwrite(fid, [value 0], 'uint8');
+fclose(fid);
+end
+
+function truncated_annotations()
+% An annotation file cut at every byte position: read_annotations returns
+% what getann returns, or (if getann ends with a status other than -1
+% before 'sampto') throws an error naming that status.
+wfdbx.write_record('ta', ones(100, 1), 100, 'gains', 100, 'adcres', 16, ...
+    'units', 'mV');
+% (an aux string, a SKIP (5000 - 20 > 1023) and a channel change)
+wfdbx.write_annotations('ta', 'atr', [10 20 5000 5010], ...
+    'codes', [1 5 28 1], 'aux', {[], [], '(AFIB', []}, 'chans', [0 0 0 1]);
+full = readfile('ta.atr');
+ref = wfdbx.read_annotations('ta', 'atr');
+assert_eq(ref.samples, [10; 20; 5000; 5010], 'complete file');
+assert_eq(ref.aux{3}, '(AFIB', 'complete file: aux');
+% the reproduction: the EOF word removed
+wfdbx.write_annotations('ta', 'ab', [10 20 30], 'codes', [1 5 1]);
+b = readfile('ta.ab');
+writefile('ta.ab', b(1:end - 2));
+for legacy = [false true]
+    assert_error_msg(@() wfdbx.read_annotations('ta', 'ab', 'legacy', legacy), ...
+        'can''t read annotation file ab of record ta (getann status -3)', ...
+        'truncated annotations: error');
+    a = wfdbx.read_annotations('ta', 'ab', 'sampto', 15, 'legacy', legacy);
+    assert_eq(a.samples, 10, 'truncated annotations: sampto 15');
+end
+wfdbx.wfdbquiet();
+q = onCleanup(@() wfdbx.wfdbverbose()); %#ok<NASGU>
+tos = {[], 15, 20, 5000, 5005, 6000};
+for cut = 0:numel(full)
+    writefile('ta.atr', full(1:cut));
+    for j = 1:numel(tos)
+        to = tos{j};
+        [t, c, aux, stat, ok] = getann_all('ta', 'atr', to);
+        what = sprintf('cut %d, sampto %s', cut, mat2str(to));
+        m = '';
+        a = [];
+        try
+            if isempty(to)
+                a = wfdbx.read_annotations('ta', 'atr');
+            else
+                a = wfdbx.read_annotations('ta', 'atr', 'sampto', to);
+            end
+        catch err
+            m = err.message;
+        end
+        wfdbx.wfdbquit();
+        if ~ok
+            assert_eq(m, 'can''t read annotator atr for record ta', ...
+                [what ': annopen']);
+        elseif stat == 0 || stat == -1
+            assert_eq(m, '', [what ': no error']);
+            assert_eq(a.samples, t, [what ': samples']);
+            assert_eq(a.codes, c, [what ': codes']);
+            assert_eq(a.aux, aux, [what ': aux']);
+        else
+            assert_eq(m, sprintf(['can''t read annotation file atr of ' ...
+                'record ta (getann status %d)'], stat), [what ': error']);
+        end
+    end
+end
+writefile('ta.atr', full);
+a = wfdbx.read_annotations('ta', 'atr');
+assert_eq(a.samples, ref.samples, 'complete file again');
+end
+
+function [t, c, aux, stat, ok] = getann_all(record, annotator, to)
+% the annotations getann reads before 'to' (all if empty), and the status
+% of the last call (0 if an annotation at or after 'to' was read)
+t = zeros(0, 1);
+c = zeros(0, 1);
+aux = cell(0, 1);
+stat = 0;
+wfdbx.wfdbquit();
+ok = wfdbx.annopen(record, wfdbx.anninfo(annotator, 0)) >= 0;
+while ok
+    [stat, a] = wfdbx.getann(0);
+    if stat ~= 0 || (~isempty(to) && a.time >= to)
+        break;
+    end
+    t(end + 1, 1) = a.time; %#ok<AGROW>
+    c(end + 1, 1) = a.anntyp; %#ok<AGROW>
+    x = [];
+    if ~isempty(a.aux)
+        x = a.aux(2:min(end, double(a.aux(1)) + 1));
+        x = char(x(1:find([x 0] == 0, 1) - 1));
+    end
+    aux{end + 1, 1} = x; %#ok<AGROW>
+end
+wfdbx.wfdbquit();
+end
+
+function writefile(name, b)
+fid = fopen(name, 'wb');
+fwrite(fid, b, 'uint8');
+fclose(fid);
 end
 
 function base_time_fields()
@@ -514,12 +705,10 @@ wfdbx.write_record('good', y, 100, 'gains', 100, 'adcres', 16, 'units', 'mV');
 for legacy = [false true]
     good = wfdbx.read_record('good', 'legacy', legacy);
     for phys = [false true]
-        lastwarn('');
         wfdbx.wfdbquiet();      % (wfdberror shows what would be printed)
-        r = read_quietly('ck', {'physical', phys, 'legacy', legacy});
+        [r, n] = read_counting('ck', {'physical', phys, 'legacy', legacy});
         wfdbx.wfdbverbose();
-        [m, id] = lastwarn();
-        assert_eq({m, id}, {msg, 'wfdbx:checksum'}, 'checksum warning');
+        assert_eq(n, 1, 'checksum warning given once');
         if phys
             assert_eq(r.signals, y / 100, 'checksum: physical');
         else
@@ -533,7 +722,10 @@ for legacy = [false true]
     end
     assert_eq(r.checksum_ok, false, 'checksum_ok false (warning on)');
     assert_eq(good.checksum_ok, true, 'checksum_ok true');
-    lastwarn('');
+    % the identifier and message of the warning (turned into an error)
+    [id, m] = warning_of(@() wfdbx.read_record('ck', 'legacy', legacy), ...
+        'wfdbx:checksum');
+    assert_eq({id, m}, {'wfdbx:checksum', msg}, 'checksum warning');
     r = wfdbx.read_record('ck', 'checksum_warning', false, 'legacy', legacy);
     assert_eq(r.signals, good.signals, 'checksum_warning false: same frames');
     assert_eq(r.checksum_ok, false, 'checksum_ok false (warning off)');
@@ -541,10 +733,10 @@ for legacy = [false true]
     r = wfdbx.read_record('ck', 'sampto', 3, 'legacy', legacy);
     assert_eq(r.signals, y(1:3, :), 'checksum: sampto 3');
     assert_eq(r.checksum_ok, true, 'checksum_ok: not verified before the end');
-    r = wfdbx.read_record('ck', 'sampfrom', 1, 'sampto', 'e', ...
-        'checksum_warning', false, 'legacy', legacy);
+    [r, n] = read_counting('ck', {'sampfrom', 1, 'sampto', 'e', ...
+        'checksum_warning', false, 'legacy', legacy});
     assert_eq(r.signals, y(2:end, :), 'checksum: sampfrom 1');
-    assert_eq(lastwarn(), '', 'no warning');
+    assert_eq(n, 0, 'no warning');
     % the truncated case is still an error
     wfdbx.wfdbquiet();
     assert_error_msg(@() wfdbx.read_record('tr', 'legacy', legacy), ...
@@ -572,9 +764,21 @@ wfdbx.wfdbquit();
 wfdbx.wfdbverbose();
 end
 
-function r = read_quietly(record, args)
-% read_record, without displaying its warning (lastwarn is still set)
-txt = evalc('r = wfdbx.read_record(record, args{:});'); %#ok<NASGU>
+function [id, m] = warning_of(f, wid)
+% the identifier and message of the warning WID given by F (by turning
+% that warning, and no other, into an error); '' if there is none
+old = warning('query', wid);
+warning('error', wid);
+id = '';
+m = '';
+try
+    f();
+catch err
+    id = err.identifier;
+    m = err.message;
+end
+warning(old);
+wfdbx.wfdbquit();
 end
 
 function dir_checks_first()
@@ -657,6 +861,66 @@ assert_error_msg(@() wfdbx.write_annotations('x/rec', 'atr', 1, ...
     'symbols', 'N', 'dir', 'out'), ...
     'record name must not contain a directory when dir is given', ...
     'write_annotations record with a directory');
+end
+
+function dotted_names()
+% A record in a directory whose name has a dot: only the last component of
+% a record name is checked when writing (not in legacy mode), and the
+% header names the record and its signal file without the directory.
+x = reshape(0:19, 2, 10).';
+args = {'gains', 200, 'adcres', 12, 'units', 'mV'};
+mkdir('my.data');
+wfdbx.write_record('my.data/rec', x, 360, args{:});
+hea = char(readfile(fullfile('my.data', 'rec.hea')));
+assert_eq(hea(1:find(hea == char(13), 1) - 1), 'rec 2 360 10', ...
+    'dotted directory: record line');
+assert_true(strncmp(hea(find(hea == char(10), 1) + 1:end), 'rec.dat 16 ', 11), ...
+    'dotted directory: signal file');
+r = wfdbx.read_record('my.data/rec');
+assert_eq(r.signals, x, 'dotted directory: read back');
+% an absolute path with a dotted directory
+p = [pwd() '/abs.dir/sub'];
+mkdir(p);
+wfdbx.write_record([p '/rec'], x, 360, args{:});
+hea = char(readfile(fullfile(p, 'rec.hea')));
+assert_true(strncmp(hea, 'rec 2 360 10', 12), 'absolute path: record line');
+r = wfdbx.read_record([p '/rec']);
+assert_eq(r.signals, x, 'absolute path: read back');
+% newheader with the C-style API
+wfdbx.wfdbquit();
+si = wfdbx.siginfo(1);
+si.fname = 'my.data/c.dat';
+si.desc = 'sig';
+si.units = 'mV';
+si.gain = 200;
+si.fmt = 16;
+si.adcres = 12;
+assert_eq(wfdbx.osigfopen(si, 1), 1, 'osigfopen');
+wfdbx.setsampfreq(100);
+wfdbx.putvec(5);
+assert_eq(wfdbx.newheader('my.data/c'), 0, 'newheader my.data/c');
+wfdbx.wfdbquit();
+hea = char(readfile(fullfile('my.data', 'c.hea')));
+assert_true(strncmp(hea, 'c 1 100', 7) && strncmp(hea(find(hea == char(10), 1) ...
+    + 1:end), 'c.dat 16 200/mV 12', 18), ...
+    'newheader: names relative to the header');
+r = wfdbx.read_record('my.data/c');
+assert_eq(r.signals, 5, 'newheader: read back');
+% the last component is checked as before
+wfdbx.wfdbquiet();
+assert_error(@() wfdbx.write_record('rec.1', x, 360, args{:}), 'rec.1 refused');
+assert_eq(wfdbx.wfdberror(), sprintf('init: illegal character 46 in record name\n'), ...
+    'rec.1 message');
+% legacy mode: the whole name is checked, and names are written as given
+assert_error(@() wfdbx.write_record('my.data/leg', x, 360, args{:}, ...
+    'legacy', true), 'legacy: my.data/rec refused');
+wfdbx.wfdbverbose();
+mkdir('out2');
+wfdbx.write_record('out2/leg', x, 360, args{:}, 'legacy', true);
+hea = char(readfile(fullfile('out2', 'leg.hea')));
+assert_true(strncmp(hea, 'out2/leg 2 360 10', 17), 'legacy: record line as given');
+assert_true(strncmp(hea(find(hea == char(10), 1) + 1:end), 'out2/leg.dat 16 ', 16), ...
+    'legacy: signal file as given');
 end
 
 function x = pseudo(n, nsig, hi, seed)

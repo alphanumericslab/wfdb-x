@@ -1,8 +1,16 @@
 function test_wfdbio()
 %TEST_WFDBIO Tests of the WFDB path, file lookup and WFDBFile I/O.
 
-% Part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+% It tests wfdb-x; it has no counterpart in the original package.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This program is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 old = pwd();
 oldpath = getenv('WFDB');
@@ -73,6 +81,25 @@ assert_eq(wfdbx.internal.wfdb_checkname(['a' char(200)], 'annotator'), -1, ...
     'checkname high');
 assert_eq(wfdbx.wfdberror(), ...
     sprintf('init: illegal character -56 in annotator name\n'), 'signed char');
+% (a record name: only its last component, outside legacy mode)
+assert_eq(wfdbx.internal.wfdb_checkname('my.data/rec', 'record'), 0, ...
+    'checkname directory with a dot');
+assert_eq(wfdbx.internal.wfdb_checkname('/a.b/c d/rec', 'record'), 0, ...
+    'checkname absolute path');
+assert_eq(wfdbx.internal.wfdb_checkname('my.data/rec.1', 'record'), -1, ...
+    'checkname last component');
+assert_eq(wfdbx.wfdberror(), sprintf('init: illegal character 46 in record name\n'), ...
+    'checkname last component message');
+assert_eq(wfdbx.internal.wfdb_checkname('dir/', 'record'), -1, ...
+    'checkname empty last component');
+assert_eq(wfdbx.wfdberror(), sprintf('init: illegal character 0 in record name\n'), ...
+    'checkname empty message');
+assert_eq(wfdbx.internal.wfdb_checkname('my.data/atr', 'annotator'), -1, ...
+    'checkname annotator: whole name');
+wfdbx.wfdbx_set_legacy(1);
+assert_eq(wfdbx.internal.wfdb_checkname('my.data/rec', 'record'), -1, ...
+    'checkname legacy: whole name');
+wfdbx.wfdbx_set_legacy(0);
 wfdbx.wfdbverbose();
 assert_eq(wfdbx.internal.wfdb_striphea('x.hea'), 'x', 'striphea');
 assert_eq(wfdbx.internal.wfdb_striphea('.hea'), '.hea', 'striphea short');

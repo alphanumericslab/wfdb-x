@@ -4,9 +4,20 @@ function c = flac_crc(data, bits)
 %   initial value 0) of the bytes DATA (a uint8 or double vector), as in
 %   FLAC frame headers; C = wfdbx.internal.flac_crc(DATA, 16) is the CRC-16
 %   (polynomial 0x8005, initial value 0) that ends each FLAC frame.
+%
+%   Part of wfdb-x; not in the original WFDB package.
 
-% MATLAB/Octave implementation part of wfdb-x, Reza Sameni, Oct 2026.
-% GNU Library General Public License, version 2 or later (see LICENSE.LIB).
+% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
+% has no counterpart in the original package: it is wfdb-x's own implementation
+% of the FLAC format, which the original package reads and writes with libFLAC.
+%
+% Copyright (C) 2026 Reza Sameni.
+%
+% This library is free software: you can redistribute it and/or modify it
+% under the terms of the GNU General Public License as published by the Free
+% Software Foundation, either version 3 of the License, or (at your option)
+% any later version. See LICENSE.
 
 persistent t8 t16
 if isempty(t8)

@@ -77,6 +77,12 @@ seginfo(recname = "", nsamp = 0, samp0 = 0)
   them, for example \code{replicate(2, siginfo(), simplify = FALSE)}.
 }
 \value{A named list with the fields of the structure.}
+\section{Origin}{
+  The structures are those of lib/wfdb.h (WFDB 10.7.0), with the same
+  fields; these functions, which create them, are new.
+
+  Part of wfdb-x; not in the original WFDB package.
+}
 \seealso{
   \code{\link{isigopen}}, \code{\link{osigfopen}} and
   \code{\link{read_header}} (\code{siginfo}); \code{\link{annopen}}

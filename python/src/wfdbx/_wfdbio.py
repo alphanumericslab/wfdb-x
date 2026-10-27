@@ -5,26 +5,43 @@ directories, and the WFDB path in legacy mode), access to remote files,
 error reporting (``wfdb_error``/``wfdberror``), and the small binary helpers
 used by the signal and annotation modules.
 
-Design decision (Reza Sameni, Oct 2026): files are found by explicit names
-instead of a search of the WFDB path.  A relative name is read under the
-input directory and written under the output directory
-(``wfdbx_set_input_dir``, ``wfdbx_set_output_dir``; by default, the current
-directory); an absolute name, a ~ name or a URL is used as given; nothing
-else is searched.  A URL is opened only if network access was allowed
-(``wfdbx_set_network`` or WFDBX_NETWORK).  Reasons: a search can silently
-open the wrong file (a stale copy earlier in the path) and fails in ways
-nobody notices, it sent local paths and record names to physionet.org, and
-the network must not be used without being asked for.  The original behavior
-remains available with --legacy (see docs/DIVERGENCES.md); it reads no
-remote files (as the reference C build, compiled without network support).
+This file is part of wfdb-x, an independent reimplementation of the WFDB
+Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
-Copyright (C) 1988-2013 George B. Moody (original C implementation,
-lib/wfdbio.c; revised 2010-2022 by Benjamin Moody).
-Python implementation part of wfdb-x, Reza Sameni, Oct 2026.
-This library is free software; you can redistribute it and/or modify it under
-the terms of the GNU Library General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your option) any
-later version.
+It is a Python translation of lib/wfdbio.c, lib/wfdb.h and lib/wfdblib.h from
+the WFDB Software Package 10.7.0, by George B. Moody. The translation follows
+the logic and behavior of the original code, but it is new code, not the
+original C code.
+
+Changes from the original: files are found only where they are named, not by a
+search of the WFDB path: a relative name is read under the input directory and
+written under the output directory (by default, the current directory), and an
+absolute name, a ~ name or a URL is used as given; setwfdb, getwfdb and
+resetwfdb set and return the input directory, and the WFDB environment variable
+is ignored; a URL is opened only if network access is turned on
+(wfdbx_set_network or WFDBX_NETWORK), and is then read in full by Python's
+urllib; the original's HTTP and FTP code (NETFILES) is not translated; ".." is
+accepted in names, and only the last component of a record name is checked;
+additions: wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
+wfdbx_get_output_dir, wfdbx_set_network and wfdbx_get_network; legacy mode
+(wfdbx_set_legacy) restores the original behavior (the WFDB path, without
+network access). Each change is marked "wfdb-x:" in the code;
+docs/DIVERGENCES.md gives the reasons.
+
+Original C code: lib/wfdbio.c, lib/wfdb.h and lib/wfdblib.h, WFDB Software
+Package 10.7.0.
+  lib/wfdbio.c: Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
+  Benjamin Moody.
+  lib/wfdb.h: Copyright (C) 1983-2013 George B. Moody; revised 2010-2020 by
+  Benjamin Moody.
+  lib/wfdblib.h: Copyright (C) 1989-2012 George B. Moody; revised 2017-2022 by
+  Benjamin Moody.
+Python translation and changes: Copyright (C) 2026 Reza Sameni.
+
+This library is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
 """
 
 import io
@@ -290,6 +307,10 @@ def resetwfdb():
 
     wfdb-x: in normal mode, restore the input directory set by the last
     setwfdb(), if any (wfdbquit() does not call resetwfdb in normal mode).
+
+    Translation of the C function resetwfdb() (lib/wfdbio.c, WFDB 10.7.0): same
+    arguments and results. Differences: it restores the input directory set by
+    the last setwfdb() (the WFDB path in legacy mode); see docs/DIVERGENCES.md.
     """
     if not _legacy():
         if _io.setwfdb_called:
@@ -308,6 +329,10 @@ def getwfdb():
     WFDB is not set; its components (directories or URL prefixes) are
     separated by spaces or semicolons (or colons, other than in URLs), and a
     value "@file" means that the path is read from that file.
+
+    Translation of the C function getwfdb() (lib/wfdbio.c, WFDB 10.7.0): same
+    arguments and results. Differences: it returns the input directory (the
+    WFDB path in legacy mode); see docs/DIVERGENCES.md.
     """
     if not _legacy():
         _init_input_dir()
@@ -338,6 +363,10 @@ def setwfdb(p):
     ``p`` replaces the current path; None restores the value of the WFDB
     environment variable (or DEFWFDB); the WFDB environment variable is also
     set to ``p``, so that programs started afterwards inherit it.
+
+    Translation of the C function setwfdb() (lib/wfdbio.c, WFDB 10.7.0): same
+    arguments and results. Differences: it sets a single input directory (the
+    WFDB path in legacy mode); see docs/DIVERGENCES.md.
     """
     if not _legacy():
         _setwfdb_normal(p)
@@ -427,7 +456,12 @@ def _path_components(p):
 
 def wfdb_parse_path(p):
     """Split a WFDB path string into the components searched by wfdb_open()
-    (legacy mode)."""
+    (legacy mode).
+
+    Translation of the C function wfdb_parse_path() (lib/wfdbio.c, WFDB
+    10.7.0): same arguments and results. Differences: it is used only in legacy
+    mode; see docs/DIVERGENCES.md.
+    """
     _io.path_list = [] if p is None else \
         [list(c) for c in _path_components(p)]
     return 0
@@ -440,6 +474,10 @@ def wfdb_addtopath(s):
     The directory is placed first (after '.', if '.' is first), so that the
     other files of the same record are found there.  Nothing is done if
     it is already in that position.
+
+    Translation of the C function wfdb_addtopath() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results. Differences: it is used only in legacy mode;
+    see docs/DIVERGENCES.md.
     """
     if not s:
         return
@@ -487,12 +525,20 @@ def _strncmp_eq(a, b, n):
 # Error handling
 
 def wfdbquiet():
-    """Suppress WFDB library error messages."""
+    """Suppress WFDB library error messages.
+
+    Translation of the C function wfdbquiet() (lib/wfdbio.c, WFDB 10.7.0): same
+    arguments and results.
+    """
     _io.error_print = False
 
 
 def wfdbverbose():
-    """Enable WFDB library error messages."""
+    """Enable WFDB library error messages.
+
+    Translation of the C function wfdbverbose() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     _io.error_print = True
 
 
@@ -501,6 +547,9 @@ def wfdberror():
 
     If no error has occurred, a string giving the library version is
     returned instead.
+
+    Translation of the C function wfdberror() (lib/wfdbio.c, WFDB 10.7.0): same
+    arguments and results.
     """
     if not _io.error_flag:
         _io.error_message = "WFDB library version %d.%d.%d (%s).\n" % (
@@ -510,7 +559,11 @@ def wfdberror():
 
 def wfdb_error(fmt, *args):
     """Record an error message (printf-style) and print it, unless wfdbquiet()
-    is in effect."""
+    is in effect.
+
+    Translation of the C function wfdb_error() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     _io.error_flag = True
     _io.error_message = sprintf(fmt, *args) if args else sprintf(fmt)
     if _io.error_print:
@@ -518,37 +571,67 @@ def wfdb_error(fmt, *args):
 
 
 def wfdbmemerr(behavior):
-    """Set the behavior on memory errors (accepted for compatibility only)."""
+    """Set the behavior on memory errors (accepted for compatibility only).
+
+    Translation of the C function wfdbmemerr() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     _io.mem_behavior = behavior
 
 
 def wfdb_me_fatal():
-    """Return the value set by wfdbmemerr() (1 by default)."""
+    """Return the value set by wfdbmemerr() (1 by default).
+
+    Translation of the C function wfdb_me_fatal() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     return _io.mem_behavior
 
 
 def wfdbversion():
-    """Return the version of the WFDB library reproduced by wfdb-x."""
+    """Return the version of the WFDB library reproduced by wfdb-x.
+
+    Translation of the C function wfdbversion() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     return WFDB_VERSION
 
 
 def wfdbldflags():
-    """Return the linker flags of the C library (always empty in wfdb-x)."""
+    """Return the linker flags of the C library (always empty in wfdb-x).
+
+    Translation of the C function wfdbldflags() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results. Differences: the result is always empty; see
+    docs/KNOWN_C_BEHAVIORS.md.
+    """
     return ""
 
 
 def wfdbcflags():
-    """Return the compiler flags of the C library (always empty in wfdb-x)."""
+    """Return the compiler flags of the C library (always empty in wfdb-x).
+
+    Translation of the C function wfdbcflags() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results. Differences: the result is always empty; see
+    docs/KNOWN_C_BEHAVIORS.md.
+    """
     return ""
 
 
 def wfdbdefwfdb():
-    """Return the default WFDB path (used when WFDB is not set)."""
+    """Return the default WFDB path (used when WFDB is not set).
+
+    Translation of the C function wfdbdefwfdb() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     return DEFWFDB
 
 
 def wfdbdefwfdbcal():
-    """Return the default calibration file name (if WFDBCAL is not set)."""
+    """Return the default calibration file name (if WFDBCAL is not set).
+
+    Translation of the C function wfdbdefwfdbcal() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     return DEFWFDBCAL
 
 
@@ -560,6 +643,10 @@ def wfdbfile(s, record):
     input directory, for a relative name; in legacy mode, in the WFDB path).
     If both are None, the name of the file most recently opened by the
     library is returned.
+
+    Translation of the C function wfdbfile() (lib/wfdbio.c, WFDB 10.7.0): same
+    arguments and results. Differences: the file is found as wfdb_open() finds
+    it, not by a search of the WFDB path; see docs/DIVERGENCES.md.
     """
     if s is None and record is None:
         return _io.wfdb_filename
@@ -577,7 +664,10 @@ def _set_filename(name):
 
 
 def get_filename():
-    """Return the name of the file most recently opened by wfdb_open."""
+    """Return the name of the file most recently opened by wfdb_open.
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
     return _io.wfdb_filename
 
 
@@ -612,20 +702,35 @@ def _put_input_dir(d):
     _io.input_dir = d if d else _io.env_input_dir
 
 
+# wfdb-x: the input directory is not used in legacy mode, which searches the
+# WFDB path.
 def wfdbx_set_input_dir(d):
-    """Set the input directory (a wfdb-x addition); return the previous one
-    (None if none).
+    """Set the input directory, and return the previous one.
 
-    A file named by a relative name (a record name, an annotation file, a
-    signal file named on the command line, ...) is read as ``d + "/" +
-    name``.  ``d`` may be a local directory (relative to the current
-    directory, or a ~ name) or the URL of a directory (e.g.
-    "https://physionet.org/files/mitdb/1.0.0/"; see wfdbx_set_network).
-    Names given as absolute paths, ~ names or URLs are used as given;
-    nothing else is searched.  None or "" restores the default: the value of
-    the environment variable WFDBX_INPUT_DIR if it is set, otherwise none
-    (names are used as given, relative to the current directory).  Not
-    used in legacy mode (which searches the WFDB path).
+    A file named by a plain or relative name, such as "100" or "mitdb/100",
+    is read from the input directory. A full path, a ~ path or a URL is used
+    as given. The setting applies to the high-level functions, the WFDB
+    library functions and the tools.
+
+    Arguments:
+      d   a local directory, a ~ path, or the URL of a directory, such as
+          "https://physionet.org/files/mitdb/1.0.0/". Reading from a URL also
+          needs network access (see wfdbx_set_network). None or "" restores
+          the default: the WFDBX_INPUT_DIR environment variable if it is set,
+          otherwise the current directory.
+
+    Returns:
+      the previous input directory, or None if none was set
+
+    Example (100s is the sample record included with wfdb-x: the first
+    minute of record 100 of the MIT-BIH Arrhythmia Database, in the
+    directory wfdbx.sample_data_dir())::
+
+        wfdbx.wfdbx_set_input_dir(wfdbx.sample_data_dir())
+        rec = wfdbx.read_record("100s")
+        wfdbx.wfdbx_set_input_dir(None)      # back to the default
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     _init_input_dir()
     previous = _io.input_dir
@@ -634,7 +739,12 @@ def wfdbx_set_input_dir(d):
 
 
 def wfdbx_get_input_dir():
-    """Return the input directory (see wfdbx_set_input_dir), or None."""
+    """Return the input directory, or None if none is set.
+
+    See wfdbx_set_input_dir.
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
     _init_input_dir()
     return _io.input_dir
 
@@ -655,16 +765,32 @@ def _init_output_dir():
 
 
 def wfdbx_set_output_dir(d):
-    """Set the output directory (a wfdb-x addition); return the previous one
-    (None if none).
+    """Set the output directory, and return the previous one.
 
-    Output files (WFDB_WRITE or WFDB_APPEND mode) named by a relative name
-    (the record name and the file type) are created as ``d + "/" + name``
-    (in legacy mode, any name); ``d`` may be relative to the current
-    directory or a ~ name.  None or "" restores the default: the value of
-    the environment variable WFDBX_OUTPUT_DIR if it is set, otherwise none
-    (files are created as named).  A URL is refused: an error is reported,
-    the setting is unchanged, and its current value is returned.
+    A file you write under a plain or relative name, such as "rec" or
+    "out/rec", is created in the output directory. A full path or a ~ path is
+    used as given. The setting applies to the high-level functions, the WFDB
+    library functions and the tools.
+
+    Arguments:
+      d   a local directory or a ~ path. None or "" restores the default: the
+          WFDBX_OUTPUT_DIR environment variable if it is set, otherwise the
+          current directory. A URL is refused: an error is reported and the
+          setting does not change.
+
+    Returns:
+      the previous output directory, or None if none was set. If d is a URL,
+      the current output directory.
+
+    Example (the example writes an annotation file, out/100s.qrs, for the
+    sample record 100s included with wfdb-x: the first minute of record 100
+    of the MIT-BIH Arrhythmia Database)::
+
+        wfdbx.wfdbx_set_output_dir("out")
+        wfdbx.write_annotations("100s", "qrs", [100, 460], symbols=["N", "N"])
+        # writes out/100s.qrs
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     _init_output_dir()
     if d and _is_url(d):
@@ -676,22 +802,46 @@ def wfdbx_set_output_dir(d):
 
 
 def wfdbx_get_output_dir():
-    """Return the output directory (see wfdbx_set_output_dir), or None."""
+    """Return the output directory, or None if none is set.
+
+    See wfdbx_set_output_dir.
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
     _init_output_dir()
     return _io.output_dir
 
 
+# wfdb-x: remote files are read in full with urllib; redirects are followed,
+# an HTTP status of 400 or more is a failure, and reading gives up if
+# connecting takes 30 s or no data arrives for 30 s, with no limit on the
+# total time. Each URL is requested at most once per process. Legacy mode
+# reads no remote files.
 def wfdbx_set_network(on):
-    """Allow (on true) or forbid (on false) network access, i.e., opening
-    URLs (a wfdb-x addition); return the previous setting (1 or 0).
+    """Turn network access on or off, and return the previous setting.
 
-    None or a negative number restores the default: allowed if the
-    environment variable WFDBX_NETWORK is set to a non-zero number,
-    otherwise forbidden.  Remote files are read in full (urllib; redirects
-    are followed, an HTTP status of 400 or more is a failure, and reading
-    gives up if connecting takes 30 s or no data arrives for 30 s, with no
-    limit on the total time) and kept for the rest of the process (each URL is requested at most
-    once).  Never in legacy mode, which reads no remote files.
+    With network access on, files can be read from URLs, such as a PhysioNet
+    database. It is off by default. Remote files are read once and kept for
+    the rest of the session. A download gives up when it cannot connect, or
+    receives nothing, for 30 seconds.
+
+    Arguments:
+      on  True (or 1) to turn network access on, False (or 0) to turn it off.
+          None or a negative number restores the default: on if the
+          WFDBX_NETWORK environment variable is a non-zero number, otherwise
+          off.
+
+    Returns:
+      the previous setting: 1 (on) or 0 (off)
+
+    Example (reads record 100 of the MIT-BIH Arrhythmia Database from
+    PhysioNet)::
+
+        wfdbx.wfdbx_set_network(1)
+        wfdbx.wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/")
+        rec = wfdbx.read_record("100", sampto="0:10")
+
+    Part of wfdb-x; not in the original WFDB package.
     """
     previous = wfdbx_get_network()
     if on is None or (not isinstance(on, bool) and on < 0):
@@ -702,8 +852,12 @@ def wfdbx_set_network(on):
 
 
 def wfdbx_get_network():
-    """Return 1 if network access is allowed (see wfdbx_set_network), else
-    0."""
+    """Return 1 if network access is on, 0 otherwise.
+
+    See wfdbx_set_network.
+
+    Part of wfdb-x; not in the original WFDB package.
+    """
     if _io.network is None:
         v = os.environ.get("WFDBX_NETWORK")
         _io.env_network = v is not None and strtol(v, 10)[0] != 0
@@ -917,6 +1071,12 @@ def wfdb_open(s, record, mode):
     an input file is searched for in the WFDB path (see getwfdb), and an
     output file is created as named (in the output directory, if one is
     set).  Returns a WFDBFile, or None on failure.
+
+    Translation of the C function wfdb_open() (lib/wfdbio.c, WFDB 10.7.0): same
+    arguments and results. Differences: a file is opened only where its name
+    says (under the input or output directory, or as given), never searched
+    for, and a URL is read only if network access is on; see
+    docs/DIVERGENCES.md.
     """
     if s is None:
         s = ""
@@ -1043,6 +1203,11 @@ def wfdb_fopen(fname, mode):
     in its path are created and the attempt is repeated.  In legacy mode,
     names containing ".." or "://" are refused (as by the reference C
     library, built without network support).
+
+    Translation of the C function wfdb_fopen() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results. Differences: a URL is read only if network
+    access is on, and names containing ".." are accepted; see
+    docs/DIVERGENCES.md.
     """
     if fname is None:
         return None
@@ -1082,9 +1247,18 @@ def wfdb_checkname(p, s):
     Legal characters are letters, digits, '_', '~', '-' and '/'.  Returns
     0 if the name is legal, or -1 (after reporting an error naming the
     kind of name, ``s``) otherwise.
+
+    Translation of the C function wfdb_checkname() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results. Differences: only the last component of a
+    record name is checked; see docs/DIVERGENCES.md.
     """
     if p is None:
         p = ""
+    # wfdb-x: a record name may be a path; outside legacy mode only its last
+    # component (the record's own name) is checked, so that directories with
+    # other characters (such as "my.data/rec") can be written.
+    if s == "record" and not _legacy():
+        p = p[p.rfind(DSEP) + 1:]
     if p == "":
         wfdb_error("init: illegal character %d in %s name\n", 0, s)
         return -1
@@ -1101,7 +1275,11 @@ def wfdb_checkname(p, s):
 
 
 def wfdb_setirec(p):
-    """Save the current record name (substituted for '%r' in the WFDB path)."""
+    """Save the current record name (substituted for '%r' in the WFDB path).
+
+    Translation of the C function wfdb_setirec() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     i = p.rfind(DSEP)
     if i >= 0:
         p = p[i + 1:]
@@ -1110,12 +1288,20 @@ def wfdb_setirec(p):
 
 
 def wfdb_getirec():
-    """Return the current record name (None if not set)."""
+    """Return the current record name (None if not set).
+
+    Translation of the C function wfdb_getirec() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     return _io.irec if _io.irec else None
 
 
 def wfdb_striphea(p):
-    """Return p without a trailing '.hea' (if present)."""
+    """Return p without a trailing '.hea' (if present).
+
+    Translation of the C function wfdb_striphea() (lib/wfdbio.c, WFDB 10.7.0):
+    same arguments and results.
+    """
     if p is not None and len(p) > 4 and p.endswith(".hea"):
         return p[:-4]
     return p

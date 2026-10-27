@@ -1,5 +1,4 @@
-# a2m: convert an AHA format annotation file to MIT format (port of
-# convert/a2m.c).
+# a2m: convert an AHA format annotation file to MIT format.
 #
 # This program converts four types of AHA format annotation files to MIT
 # format:
@@ -22,23 +21,35 @@
 #          depending on the record name (x2xx or x3xx: short format, x0xx or
 #          x1xx: long format).
 #
-# wfdb-x: times in milliseconds (types 1-3) are converted at the sampling
-# frequency of the record (or -F); the C program assumed 4 ms per sample, as
-# legacy mode does.
-#
 # Where the C program has undefined behavior (an input file name ending in
-# `/` without -r, or a directory as input file), this port uses an empty
-# record name, and reports the directory as unreadable (see
+# `/` without -r, or a directory as input file), this translation uses an
+# empty record name, and reports the directory as unreadable (see
 # docs/KNOWN_C_BEHAVIORS.md).
 #
-# Copyright (C) 1983-2010 George B. Moody (original C program, convert/a2m.c).
-# Julia implementation part of wfdb-x, Reza Sameni, Oct 2026.
-# Design decision (Reza Sameni, Oct 2026): no built-in sampling frequency,
-# gain, ADC resolution or units. Values that the record or the user does not
-# give are never assumed (the original package assumed 250 Hz, 200 adu/mV, 12
-# bits and millivolts), because a silently assumed value corrupts every result
-# derived from it. See docs/DIVERGENCES.md.
-# GNU General Public License, version 2 or later (see LICENSE).
+# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
+#
+# It is a Julia translation of convert/a2m.c from the WFDB Software Package
+# 10.7.0, by George B. Moody. The translation follows the logic and behavior of
+# the original program, but it is new code, not the original C code.
+#
+# Changes from the original: no built-in sampling frequency: the new option -F
+# FREQ gives it when the record has no header or its header gives none, and is
+# then required (the original assumed 250 Hz, or 1 sample per second without a
+# header); annotation times given in milliseconds (AHA file types 1 to 3) are
+# converted at the record's sampling frequency (the original assumed 4 ms per
+# sample); --legacy, as the first argument, restores the original behavior.
+# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# reasons.
+#
+# Original C program: convert/a2m.c, WFDB Software Package 10.7.0.
+#   Copyright (C) 1983-2010 George B. Moody.
+# Julia translation and changes: Copyright (C) 2026 Reza Sameni.
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. See LICENSE.
 
 const _A2M_HELP = (
     "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
