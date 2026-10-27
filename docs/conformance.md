@@ -21,10 +21,26 @@ their results with *golden* results produced by the C programs.
 
 Each case runs one tool with given arguments (and optionally standard input,
 extra input files, and environment variables) in a fresh copy of
-`tests/data`, with `WFDB=.`, `LC_ALL=C` and `TZ=UTC`. `{cwd}` in an argument
-stands for the absolute path of that work directory, which is written back as
-`{cwd}` in the recorded standard output and error. Blobs larger than 64 KB
-are stored as SHA-256 digests (`*.sha256`).
+`tests/data`, in the same environment wherever it runs:
+
+* `LC_ALL=C` and `TZ=UTC`; `HOME` is an empty directory inside the work
+  directory;
+* the variables `WFDB`, `WFDBCAL`, `WFDBANNSORT`, `WFDBGVMODE`,
+  `WFDBX_INPUT_DIR`, `WFDBX_OUTPUT_DIR` and `WFDBX_NETWORK` are removed
+  (the legacy suite sets `WFDB=.`, the original search path);
+* the standard input is the case's input, or empty;
+* on macOS and Linux, the tool runs in a session of its own, with no
+  controlling terminal, as under a CI service. This matters for `xform`
+  without `-o`, which asks for the output record's specifications: like the
+  C program, it reads the answers from the terminal (`/dev/tty`) when there
+  is one, and from the standard input otherwise. The case gives them on the
+  standard input, as when the golden results were made;
+* a tool that runs longer than the time limit (120 seconds; `--timeout`
+  changes it) fails its case, and the other cases still run.
+
+`{cwd}` in an argument stands for the absolute path of that work directory,
+which is written back as `{cwd}` in the recorded standard output and error.
+Blobs larger than 64 KB are stored as SHA-256 digests (`*.sha256`).
 
 Write errors are tested with `/dev/full`, a device on which every write
 fails ("no space left on device"): a case can create output files as links
@@ -45,16 +61,20 @@ FLAC files depend on the libFLAC version and on the processor.
 
 ## Running
 
+From the root of the repository:
+
 ```sh
-# Python implementation (from the repository root)
-PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl python
+# Python implementation (python/src of the repository; nothing to install)
+python3 tests/conformance/harness.py check --impl python
 
 # C++ implementation (after building it in cpp/build; see cpp/README.md)
 python3 tests/conformance/harness.py check --impl cpp
 
-# Kotlin implementation (after building the jar: cd kotlin && ./gradlew fatJar;
-# the JVM starts once per case, so use several jobs)
-PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl kotlin -j8
+# Kotlin implementation (after building the jar: cd kotlin && ./gradlew fatJar)
+python3 tests/conformance/harness.py check --impl kotlin
+
+# the legacy suite (each tool run with --legacy)
+python3 tests/conformance/harness.py check --impl python --legacy
 
 # any implementation, given a command template
 python3 tests/conformance/harness.py check --impl "/path/to/bin/{tool}"
@@ -62,6 +82,13 @@ python3 tests/conformance/harness.py check --impl "/path/to/bin/{tool}"
 # selected tools or cases, verbose
 python3 tests/conformance/harness.py check --impl python rdsamp rdann -v
 ```
+
+Cases run in parallel, as many at a time as the computer has processors;
+`-j N` sets the number (`-j 1` runs them one by one). `-x` stops at the
+first failure. The harness itself needs only Python 3.9 or later (the
+Python implementation also needs NumPy).
+The cases that write to `/dev/full` are skipped where it does not exist
+(macOS and Windows), and the summary says how many.
 
 `--impl` accepts `python`, `cpp`, `rust`, `julia`, `r`, `octave`, `matlab`,
 `kotlin`, or a command template containing `{tool}`. The environment

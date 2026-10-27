@@ -16,6 +16,8 @@ Each case is a dict with keys:
   full    (optional) names of output files created as links to /dev/full,
           on which every write fails ("no space left on device")
   stdout_full (optional) True: the standard output is /dev/full
+  timeout (optional) seconds the tool may run (default: the harness's
+          --timeout)
   wfdb    (optional) value of the WFDB environment variable (default: not
           set; "." in the legacy suite)
 The placeholders are also replaced in stdin, env, files and www_files.

@@ -69,6 +69,6 @@ two-signal, 648,000-frame format 212 record generated for the benchmark:
 ```sh
 cmake --build cpp/build
 ctest --test-dir cpp/build
-PYTHONPATH=python/src python3 tests/conformance/harness.py check --impl cpp -j8
-PYTHONPATH=python/src python3 tests/conformance/harness.py check --impl cpp -j8 --legacy
+python3 tests/conformance/harness.py check --impl cpp -j8
+python3 tests/conformance/harness.py check --impl cpp -j8 --legacy
 ```

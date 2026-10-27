@@ -9,7 +9,13 @@ work directory; a case that uses {url} also gets a local HTTP server
 the server are written as {cwd}, {home} and {url} in the recorded outputs.
 A case can also name output files that are links to /dev/full, and send the
 standard output there, to test write errors (/dev/full fails every write;
-such cases are skipped where it does not exist).
+such cases are skipped where it does not exist).  On macOS and Linux each
+tool runs in a session of its own, without a controlling terminal, as under
+a CI service: a tool that would ask its questions at the terminal (xform
+without -o reads its answers from /dev/tty, as the C program does) reads
+them from the standard input instead, as when the golden results were made.
+A tool that does not finish within the time limit (--timeout, default
+CASE_TIMEOUT seconds) fails its case.
 Golden results are produced by the original C implementation (WFDB 10.7.0,
 built from third_party/) and stored in tests/conformance/golden/.  Each
 WFDB-x implementation must reproduce them byte for byte.
@@ -22,7 +28,8 @@ Usage:
   harness.py list                             list the test cases
 
 IMPL is one of: python, cpp, rust, julia, r, octave, matlab, kotlin, c, or
-a command template containing {tool} (e.g. "/path/to/bin/{tool}").
+a command template containing {tool} (e.g. "/path/to/bin/{tool}").  The
+python implementation is the one in python/src of this repository.
 Set WFDBX_<IMPL>_CMD to override the command template of an implementation,
 or (for cpp and rust) WFDBX_<IMPL>_BIN to use another directory of tools,
 or (for kotlin) WFDBX_KOTLIN_JAR to use another jar of the tools.
@@ -172,6 +179,11 @@ def _uses_url(case):
 
 
 DEV_FULL = "/dev/full"     # a device on which every write fails (ENOSPC)
+CASE_TIMEOUT = 120          # seconds a tool may run (see --timeout)
+
+
+class CaseTimeout(Exception):
+    """A tool did not finish within the time limit."""
 
 
 def needs_dev_full(case):
@@ -179,8 +191,9 @@ def needs_dev_full(case):
     return bool(case.get("full") or case.get("stdout_full"))
 
 
-def run_case(case, cmd_prefix, extra_env=None):
-    """Run a case; return dict with stdout, stderr, status, files."""
+def run_case(case, cmd_prefix, extra_env=None, timeout=CASE_TIMEOUT):
+    """Run a case; return dict with stdout, stderr, status, files.  Raises
+    CaseTimeout if the tool runs for more than timeout seconds."""
     work = tempfile.mkdtemp(prefix="wfdbx-")
     server = None
     try:
@@ -260,11 +273,17 @@ def run_case(case, cmd_prefix, extra_env=None):
         # empty)
         out = open(DEV_FULL, "wb") if case.get("stdout_full") \
             else subprocess.PIPE
+        # (start_new_session: no controlling terminal, so /dev/tty cannot be
+        # opened; see the module help)
         try:
             p = subprocess.run(cmd_prefix + args, cwd=wd, env=env,
                                input=stdin if stdin is not None else b"",
                                stdout=out, stderr=subprocess.PIPE,
-                               timeout=case.get("timeout", 600))
+                               timeout=case.get("timeout", timeout),
+                               start_new_session=os.name == "posix")
+        except subprocess.TimeoutExpired:
+            raise CaseTimeout("%s did not finish within %d seconds" %
+                              (case["tool"], case.get("timeout", timeout)))
         finally:
             if out is not subprocess.PIPE:
                 out.close()
@@ -475,6 +494,8 @@ def main():
     g.add_argument("--cbin", required=True)
     g.add_argument("--legacy", action="store_true",
                    help="the legacy suite (unmodified C package)")
+    g.add_argument("--timeout", type=int, default=CASE_TIMEOUT,
+                   help="seconds a tool may run (default %d)" % CASE_TIMEOUT)
     g.add_argument("cases", nargs="*")
     c = sub.add_parser("check")
     c.add_argument("--impl", required=True)
@@ -485,6 +506,9 @@ def main():
     c.add_argument("-x", "--exitfirst", action="store_true")
     c.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 1,
                    help="number of cases to run in parallel")
+    c.add_argument("--timeout", type=int, default=CASE_TIMEOUT,
+                   help="seconds a tool may run before its case fails "
+                        "(default %d)" % CASE_TIMEOUT)
     c.add_argument("cases", nargs="*")
     sub.add_parser("list")
     a = ap.parse_args()
@@ -506,7 +530,7 @@ def main():
             path = os.path.abspath(a.cbin) + os.pathsep + \
                 os.environ.get("PATH", "")
             res = run_case(case, impl_command("c", case["tool"]),
-                           {"PATH": path})
+                           {"PATH": path}, a.timeout)
             save_golden(case["id"], res)
             print("%-40s status %d, %d bytes out, %d files" % (
                 case["id"], res["status"], len(res["stdout"]),
@@ -530,8 +554,15 @@ def main():
             if bindir and not os.environ.get("WFDBX_%s_CMD" % a.impl.upper()):
                 extra = {"PATH": os.path.abspath(bindir) + os.pathsep +
                          os.environ.get("PATH", "")}
-            act = run_case(case, impl_command(a.impl, case["tool"], a.cbin),
-                           extra)
+            if a.impl == "python" and not os.environ.get("WFDBX_PYTHON_CMD"):
+                # (the Python tools of this repository, installed or not)
+                extra = {"PYTHONPATH": os.path.join(ROOT, "python", "src") +
+                         os.pathsep + os.environ.get("PYTHONPATH", "")}
+            try:
+                act = run_case(case, impl_command(a.impl, case["tool"],
+                                                  a.cbin), extra, a.timeout)
+            except CaseTimeout as e:
+                return case, [str(e)]
             return case, compare(exp, act, case)
 
         nfail = 0

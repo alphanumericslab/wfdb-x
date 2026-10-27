@@ -357,8 +357,8 @@ Conformance (from the repository root; the harness runs
 `kotlin/bin/wfdbx TOOL ...`, and passes `WFDBX_KOTLIN_JAR` through):
 
 ```sh
-PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl kotlin -j8 [TOOL|CASE ...]
-PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy [TOOL|CASE ...]
+python3 tests/conformance/harness.py check --impl kotlin -j8 [TOOL|CASE ...]
+python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy [TOOL|CASE ...]
 ```
 
 ## The high-level API (`Record.kt`, `Check.kt`)

@@ -513,7 +513,18 @@ pytest python/tests
 ```
 
 This runs the unit tests, the example notebooks and the cross-language
-conformance suite. Set `WFDBX_CONFORMANCE=0` to skip the conformance suite.
+conformance suite (about 1000 command-line cases, a few minutes). Set
+`WFDBX_CONFORMANCE=0` to skip the conformance suite, or, for example,
+`WFDBX_CONFORMANCE=rdsamp,rdann` to run the cases of some tools only. The
+conformance suite can also be run on its own, with more options (see
+[conformance.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/conformance.md)):
+
+```sh
+python3 tests/conformance/harness.py check --impl python
+```
+
+The tests that write to `/dev/full` (write errors) are skipped where it does
+not exist, on macOS and Windows.
 
 ## Authors and license
 

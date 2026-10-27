@@ -1077,19 +1077,21 @@ def test_bulk_multifrequency_interleaved(datadir, monkeypatch, hr):
 def test_names_without_spaces(datadir):
     # Descriptions that end (or begin) with white space in the header are
     # given without it by the high-level readers, and found by that name;
-    # the C-style functions keep it, as in C.
+    # the C-style functions keep it, as in C.  (The header gives no
+    # checksums, so the checksum warning is turned off.)
     with open("sp.hea", "w") as f:
         f.write("sp 3 250 4\n"
                 "fmt16.dat 16 200/mV 16 0 0 0 0 III \n"
                 "fmt16.dat 16 200/mV 16 0 0 0 0 ABP\t \n"
                 "fmt16.dat 16 200/mV 16 0 0 0 0 PLETH\n")
     for legacy in (False, True):
-        r = w.read_record("sp", legacy=legacy)
+        r = w.read_record("sp", legacy=legacy, checksum_warning=False)
         assert r.names == ["III", "ABP", "PLETH"]
         assert [s.desc for s in r.siginfo] == ["III", "ABP", "PLETH"]
         h = w.read_header("sp", legacy=legacy)
         assert [s.desc for s in h.siginfo] == ["III", "ABP", "PLETH"]
-        r2 = w.read_record("sp", channels=["ABP", "III ", 2])
+        r2 = w.read_record("sp", channels=["ABP", "III ", 2],
+                           checksum_warning=False)
         assert r2.names == ["ABP", "III", "PLETH"]
         assert np.array_equal(r2.signals, r.signals[:, [1, 0, 2]])
     si = []
