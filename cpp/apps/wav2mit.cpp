@@ -1,6 +1,6 @@
 // wav2mit.cpp: convert a .wav format file to WFDB format.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of convert/wav2mit.c from the WFDB Software Package
@@ -67,7 +67,7 @@ static void help();
 // data chunk ("data", length).
 constexpr long WAVHDRLEN = 44;
 
-// Exit after reporting an unrecognized option (wfdb-x: also the wfdb-x
+// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -94,7 +94,7 @@ int main(int argc, char **argv)
     pname = prog_name(argv[0]);
     for (i = 1; i < argc; i++) {
         if (*argv[i] == '-') switch (*(argv[i]+1)) {
-          case 'G':     // gain in adu per physical unit (wfdb-x)
+          case 'G':     // gain in adu per physical unit (WFDB-x)
               if (wfdbx_get_legacy())   // wfdb-x: not in the original
                   unrecognized(argv[i]);
             if (++i >= argc || std::sscanf(argv[i], "%lf", &Ggain) != 1 ||
@@ -133,7 +133,7 @@ int main(int argc, char **argv)
             }
             record = argv[i];
             break;
-          case 'U':     // physical units (wfdb-x)
+          case 'U':     // physical units (WFDB-x)
               if (wfdbx_get_legacy())   // wfdb-x: not in the original
                   unrecognized(argv[i]);
             if (++i >= argc) {

@@ -36,7 +36,7 @@ function status = parsescp(args)
 %   same options and output. Differences: the sampling frequency is the one
 %   in the SCP file (C: always 500 Hz); see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/parsescp.c from the WFDB

@@ -39,7 +39,7 @@ function ann = read_annotations(record, annotator, varargin)
 %   WFDB library functions.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       ann = wfdbx.read_annotations('100s', 'atr', 'sampto', '0:30');
@@ -49,11 +49,11 @@ function ann = read_annotations(record, annotator, varargin)
 %
 %   See also wfdbx.write_annotations, wfdbx.read_record.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It has no counterpart in the original package. Like the rest of wfdb-x, it
+% It has no counterpart in the original package. Like the rest of WFDB-x, it
 % never assumes a sampling frequency (see docs/DIVERGENCES.md).
 %
 % Copyright (C) 2026 Reza Sameni.

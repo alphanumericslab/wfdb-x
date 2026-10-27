@@ -8,7 +8,7 @@ function wfdb_osflush()
 %   Translation of the C function wfdb_osflush() (lib/signal.c, WFDB
 %   10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software

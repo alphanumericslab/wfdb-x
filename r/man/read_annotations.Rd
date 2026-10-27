@@ -108,7 +108,7 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
   an error.
 }
 \section{Origin}{
-  Part of wfdb-x; not in the original WFDB package.
+  Part of WFDB-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{read_record}} for signals; \code{\link{annstr}} and

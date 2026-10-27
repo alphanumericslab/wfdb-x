@@ -10,7 +10,7 @@ kotlin/benchmarks/run.sh):
 Each prints the best time of REPS runs (after one untimed run) and, for
 read, a digest of the samples (FNV-1a).
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 It has no counterpart in the original package.
 

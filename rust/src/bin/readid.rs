@@ -5,7 +5,7 @@
 //! for longer IDs; this port prints the whole ID, as the C program does (see
 //! `docs/KNOWN_C_BEHAVIORS.md`).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of convert/readid.c from the WFDB Software Package

@@ -22,7 +22,7 @@
 \alias{WFDB_APPEND}
 \title{Finding Files, Error Messages and Library Information}
 \description{
-  wfdb-x finds the files of a record (headers, signal files, annotation
+  WFDB-x finds the files of a record (headers, signal files, annotation
   files, calibration files) by explicit names: a relative name is read
   under the input directory and written under the output directory; an
   absolute name, a \code{~} name or a URL is used as given; nothing else
@@ -171,7 +171,7 @@ wfdbx_note_write_error()
   only when network access is on, and \code{setwfdb} takes a single
   directory; see \file{docs/DIVERGENCES.md}.
   \code{wfdbx_write_errors} and \code{wfdbx_note_write_error}: part of
-  wfdb-x; not in the original WFDB package.
+  WFDB-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{wfdbx_set_input_dir}}, \code{\link{isigopen}},

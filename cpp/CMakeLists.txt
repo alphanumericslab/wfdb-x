@@ -1,7 +1,7 @@
-# CMake build of the wfdb-x C++ library, command-line tools and unit tests
+# CMake build of the WFDB-x C++ library, command-line tools and unit tests
 # (see README.md).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #

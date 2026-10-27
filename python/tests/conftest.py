@@ -1,8 +1,8 @@
-"""Shared fixtures for the wfdb-x Python tests.
+"""Shared fixtures for the WFDB-x Python tests.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
-tests wfdb-x; it has no counterpart in the original package.
+tests WFDB-x; it has no counterpart in the original package.
 
 Copyright (C) 2026 Reza Sameni.
 
@@ -32,11 +32,11 @@ import wfdbx  # noqa: E402
 def datadir(tmp_path, monkeypatch):
     """A temporary copy of tests/data as the current directory and WFDB.
 
-    The test records are those of the wfdb-x repository: tests that need them
+    The test records are those of the WFDB-x repository: tests that need them
     are skipped where they are not available (e.g., in a source distribution).
     """
     if not os.path.isdir(DATA):
-        pytest.skip("the test records of the wfdb-x repository are not available")
+        pytest.skip("the test records of the WFDB-x repository are not available")
     d = tmp_path / "data"
     shutil.copytree(DATA, d)
     monkeypatch.chdir(d)

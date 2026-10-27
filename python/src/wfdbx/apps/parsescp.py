@@ -4,7 +4,7 @@ The input is held in one byte buffer and the C program's pointers into it are
 represented by offsets.  Bytes beyond the end of the input (which the C program
 reads in a few places, e.g. at the end of section 7 with -v) are read as 0.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of convert/parsescp.c from the WFDB Software Package

@@ -7,9 +7,9 @@
 // counterparts of these tests are python/tests/test_api.py and
 // matlab/tests/test_api_c.m.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -198,7 +198,7 @@ WFDBX_TEST(c_version_and_errors)
 {
     DataDir d;
     // wfdbversion, wfdbdefwfdb, wfdbldflags and wfdbcflags depend on how
-    // the C library was built (with configure); wfdb-x gives the values of
+    // the C library was built (with configure); WFDB-x gives the values of
     // a release build installed in /usr/local, and empty flags strings.
     CHECK_EQ(wfdbversion(), "10.7.0");
     CHECK_EQ(wfdbdefwfdb(),
@@ -1022,7 +1022,7 @@ WFDBX_TEST(c_flac_failed_seek)
 }
 
 // ---------------------------------------------------------------------------
-// t_nodefaults (wfdb-x divergence: no default sampling frequency, gain, ADC
+// t_nodefaults (WFDB-x divergence: no default sampling frequency, gain, ADC
 // resolution or units; see docs/DIVERGENCES.md)
 
 WFDBX_TEST(c_time_needs_freq)
@@ -1128,7 +1128,7 @@ WFDBX_TEST(c_no_default_adcres_or_units)
 }
 
 // ---------------------------------------------------------------------------
-// t_legacy (wfdb-x legacy mode, wfdbx_set_legacy(): the library behaves as
+// t_legacy (WFDB-x legacy mode, wfdbx_set_legacy(): the library behaves as
 // the original WFDB library, with its built-in defaults; see
 // docs/DIVERGENCES.md).  The values are those of the original library.
 

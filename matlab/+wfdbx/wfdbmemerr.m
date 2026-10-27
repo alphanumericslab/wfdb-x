@@ -2,7 +2,7 @@ function wfdbmemerr(behavior)
 %WFDBMEMERR Set the behavior of the library on memory allocation errors.
 %   wfdbx.wfdbmemerr(BEHAVIOR) is accepted for compatibility with C (where
 %   BEHAVIOR 0 makes allocation errors return instead of aborting); memory
-%   errors are MATLAB errors in wfdb-x.
+%   errors are MATLAB errors in WFDB-x.
 %
 %   See also wfdbx.wfdberror.
 %
@@ -10,7 +10,7 @@ function wfdbmemerr(behavior)
 %   same arguments and results. Differences: it has no effect (memory errors
 %   are MATLAB errors); see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software

@@ -1,4 +1,4 @@
-# wfdb-x for Rust: implementation notes
+# WFDB-x for Rust: implementation notes
 
 These notes describe how the Rust implementation is organized. They
 complement [`docs/porting-guide.md`](../docs/porting-guide.md) (the C
@@ -34,7 +34,7 @@ One crate, `wfdbx` (`rust/Cargo.toml`):
 | `src/flac.rs` | FLAC decoder and encoder (port of `cpp/src/flac.cpp`; crate-private) |
 | `src/ecgcodes.rs` | annotation codes (`NORMAL`, ...) and the `ecgmap.h` functions |
 | `src/record.rs` | high-level API (`read_record`, `read_header`, `read_annotations`, `write_record`, `write_record_physical`, `write_annotations`) |
-| `src/check.rs` | `check_record` (a wfdb-x addition; `python/src/wfdbx/check.py` is the reference) |
+| `src/check.rs` | `check_record` (a WFDB-x addition; `python/src/wfdbx/check.py` is the reference) |
 | `examples/check_cases.rs` | prints the `check_record` reports of a corpus made by `python/tests/check_corpus.py` (its `expected.txt` format) |
 | `src/bin/<tool>.rs` | the command-line tools, one binary each |
 | `tests/` | integration tests (`cargo test`) |
@@ -107,16 +107,16 @@ pub fn sampfreq(record: impl OptBytes) -> f64 {
 The last paragraph of the documentation of a public function says where it
 comes from: "Translation of the C function NAME() (lib/FILE.c, WFDB
 10.7.0): same arguments and results.", followed by "Differences: ...; see
-docs/DIVERGENCES.md." when the wfdb-x behavior differs; or, for a function
-that wfdb-x adds (the high-level API, `check_record`, `getvecs`, the
-`wfdbx_*` settings, ...), "Part of wfdb-x; not in the original WFDB
+docs/DIVERGENCES.md." when the WFDB-x behavior differs; or, for a function
+that WFDB-x adds (the high-level API, `check_record`, `getvecs`, the
+`wfdbx_*` settings, ...), "Part of WFDB-x; not in the original WFDB
 package."
 
 ### File headers
 
 Each source file begins with its `//!` module documentation (its purpose),
 followed by a `//` header comment. For a file that translates C code, the
-header says that the file is part of wfdb-x, names the C file(s) it
+header says that the file is part of WFDB-x, names the C file(s) it
 translates and their authors, lists the changes from the original ("Changes
 from the original: ..."; each is marked `wfdb-x:` in the code, and
 `docs/DIVERGENCES.md` gives the reasons), gives the copyright of the C code
@@ -253,6 +253,26 @@ A tool's `main` reads `let argv = cstd::args();`, writes with `cprintf!` /
 `ceprintf!`, and ends with `cstd::exit(status)` (see `src/bin/wfdbwhich.rs`
 and `src/bin/wfdbcat.rs`).
 
+## Bulk reading in `getvecs`
+
+`getvecs(buf, n)` reads `n` sample vectors with the semantics of `n` calls
+of `getvec`. `Wfdb::bulk_frames` decodes whole frames at once, straight
+from the input buffers, where it can: formats 8, 16, 24, 32, 61, 80, 160,
+212, 310 and 311 (one format per signal group), and null signals (format 0)
+of known length, without deskewing or resampling. This covers records of
+several sampling frequencies, in low-resolution mode (averaging the
+oversampled signals with `meansamp`) and in high-resolution mode (from the
+start of a frame), and the segments of multi-segment records, of fixed or
+variable layout (mapped with `sigmap`), null segments included. Only the
+complete frames already in the input buffers are decoded: a frame that
+crosses the end of a buffer (whose reading refills it), the frame at which
+checksums are verified or a null signal ends, the change from one segment
+to the next and everything the bulk path does not decode go through
+`getvec`, so the files are read in the same blocks, and the statuses,
+messages and state (samples, checksums, counts, `gvc`) are those of
+frame-by-frame reading. `wfdbx_bulk_read(false)` turns it off;
+`tests/bulk.rs` compares both paths.
+
 ## The high-level API (`record.rs`)
 
 * Each high-level function is a method of `Wfdb` and a free function on
@@ -265,7 +285,12 @@ and `src/bin/wfdbcat.rs`).
   record name must then be a plain name, and the header records it without
   the directory). `AnnWriteOptions::sort` sets `AnnState::sort_override`
   for the call; the environment (`WFDBANNSORT`) is not changed.
-* `read_record` reads blocks of frames with `getvecs_status`. A status
+* `read_record` reads blocks of vectors with `getvecs_status`: whole
+  frames, and a multiple of 6 of them, so that formats 212, 310 and 311 end
+  each block on a whole packed unit. The signal descriptions it returns
+  (and those of `read_header`) have no white space at either end, and a
+  channel given by name is looked up among them first, then with `findsig`.
+  A status
   below -1 (for example -3, a signal file shorter than its header says) is
   an error, also in legacy mode, since the high-level API has no C
   counterpart; `getvec`, `getvecs` and the tools are unchanged. A checksum

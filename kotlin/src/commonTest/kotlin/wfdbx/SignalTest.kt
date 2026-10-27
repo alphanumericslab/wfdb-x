@@ -7,9 +7,9 @@
 // (osigfopen/putvec/newheader, isigopen/getvecs); the high-level API
 // itself is tested in phase 4.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -978,7 +978,7 @@ class SignalTest {
         assertEquals(GetvecsResult(3, -4), w.getvecs_status(buf, 10))
         assertEquals(listOf(1, 2, 30, 4, 5, 6, 7, 8), buf.copyOf(8).toList())
         w.wfdbquit()
-        // wfdb-x (for the high-level read): the message recorded, not printed
+        // WFDB-x (for the high-level read): the message recorded, not printed
         assertEquals(2, w.isigopen("ck", si, 2))
         w.wfdbverbose()
         val p = w.wfdbxSetCksumQuiet(true)

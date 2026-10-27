@@ -22,11 +22,13 @@ classdef SigState < handle
 %   the current multi-segment record (msrec_name [] if there is none);
 %   user_segments is true while setmsheader reads the headers of the
 %   segments it was given; cksum_quiet is true while a high-level reader
-%   reads (getvec then records its checksum message without printing it).
+%   reads (getvec then records its checksum message without printing it);
+%   bulk_read and bulk_vectors are the switch and counter of the bulk
+%   reader (wfdbx.internal.bulk_frames).
 %
 %   Part of the translation of lib/signal.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -36,9 +38,10 @@ classdef SigState < handle
 %
 % Changes from the original: fields hold the directory of the last header
 % read, the directory and name of the current multi-segment record, the
-% legacy-mode setting, and whether checksum messages are quieted during a
-% high-level read. Each change is marked "wfdb-x:" in the code;
-% docs/DIVERGENCES.md gives the reasons.
+% legacy-mode setting, whether checksum messages are quieted during a
+% high-level read, and the switch and counter of the bulk reader. Each
+% change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
@@ -54,7 +57,7 @@ classdef SigState < handle
         % header data
         hsd = []
         hheader = []
-        hdr_dir = []            % wfdb-x (see above)
+        hdr_dir = []            % WFDB-x (see above)
         msrec_dir = []
         msrec_name = []
         user_segments = false
@@ -144,5 +147,10 @@ classdef SigState < handle
         pdays = -1
         % wfdb-x: legacy mode (wfdbx.wfdbx_set_legacy; not reset by wfdbquit)
         legacy_mode = 0
+        % wfdb-x: the bulk reader (wfdbx.internal.bulk_frames): off when
+        % false (for the tests), and the number of vectors it has read
+        % (neither is reset by wfdbquit)
+        bulk_read = true
+        bulk_vectors = 0
     end
 end

@@ -5,7 +5,7 @@
 // NULL is nullable. Fields of C char types hold Int values normalized to
 // the range of the C type (as a C assignment would convert them).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of lib/wfdb.h from the WFDB Software Package

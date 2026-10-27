@@ -3,7 +3,7 @@ function stat = ann_sortfile(fname, aname)
 %   STAT = wfdbx.internal.ann_sortfile(FNAME, ANAME) rearranges the
 %   annotations of the (closed) annotation file FNAME of annotator ANAME
 %   in the canonical order (by time, then num, then chan), in this process
-%   (wfdb-x; see wfdbx.oannclose).  The result is identical, byte for
+%   (WFDB-x; see wfdbx.oannclose).  The result is identical, byte for
 %   byte, to that of the sortann program as the C library ran it
 %   ("sortann -r. RECORD -a ANNOTATOR"), but the header of the record is
 %   not looked up.  As sortann does, the file (FNAME itself, not searched
@@ -19,9 +19,9 @@ function stat = ann_sortfile(fname, aname)
 %   tables and settings are not changed.  STAT is 0 on success, or -1 if
 %   the file cannot be read (or ends unexpectedly) or written.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software
@@ -29,7 +29,7 @@ function stat = ann_sortfile(fname, aname)
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: this function is a wfdb-x addition: it
+% Changes from the original: this function is a WFDB-x addition: it
 % rearranges an out-of-order output annotation file in this process, with
 % the result of the sortann program, which the C library ran through the
 % shell. docs/DIVERGENCES.md gives the reasons.

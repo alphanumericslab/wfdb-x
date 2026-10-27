@@ -1,6 +1,6 @@
-// wfdblib.hpp: internal definitions of the wfdb-x C++ library (not installed).
+// wfdblib.hpp: internal definitions of the WFDB-x C++ library (not installed).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of lib/wfdblib.h from the WFDB Software Package
@@ -8,7 +8,7 @@
 // translation follows the logic and behavior of the original code, but it is
 // new code, not the original C code.
 //
-// Changes from the original: it also declares wfdb-x's internal functions (the
+// Changes from the original: it also declares WFDB-x's internal functions (the
 // location of files by name, the remote file reader, the in-process sorting of
 // annotation files, and what the high-level functions and check_record use);
 // the stream functions read and write without locking the stream. Each change
@@ -73,7 +73,7 @@ constexpr int DEFWFDBGVMODE = WFDB_LOWRES;
 
 // Path component types
 constexpr int WFDB_LOCAL = 0;   // a local file
-constexpr int WFDB_NET = 1;     // a remote file read via libwww (not used by wfdb-x)
+constexpr int WFDB_NET = 1;     // a remote file read via libwww (not used by WFDB-x)
 constexpr int WFDB_FETCHED = 2; // wfdb-x: a remote file, fetched in full and
                                 // read from a temporary copy (see wfdbio.cpp)
 
@@ -218,6 +218,11 @@ bool wfdbx_set_checksum_quiet(bool on);
 // frame by frame (for the unit tests, which compare the two).  Returns the
 // previous setting.
 bool wfdbx_set_bulk_read(bool on);
+// wfdb-x: the number of sample vectors read by the bulk reader so far, and
+// the state of the input signals as text (istime, gvc, and each signal's
+// last sample, checksum and remaining samples), for the unit tests.
+long long wfdbx_bulk_vectors();
+std::string wfdbx_input_state();
 // wfdb-x: the number of samples per signal given by the header of the
 // record opened last (that of the whole record for a multi-segment record;
 // 0 if not given), its base time (btime, in milliseconds after midnight) and

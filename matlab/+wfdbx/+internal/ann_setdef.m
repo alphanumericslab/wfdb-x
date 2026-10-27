@@ -1,7 +1,7 @@
 function [tab, mflags, stat] = ann_setdef(tab, mflags, code, s)
 %ANN_SETDEF Redefine a string of an annotation type definition table.
 %   [TAB, MFLAGS, STAT] = wfdbx.internal.ann_setdef(TAB, MFLAGS, CODE, S)
-%   is the body of setannstr and setanndesc (wfdb-x), for a string table
+%   is the body of setannstr and setanndesc (WFDB-x), for a string table
 %   TAB (of mnemonics or descriptions: a 1-by-50 cell, index code+1) and
 %   the modification flags MFLAGS of a definition table (see
 %   wfdbx.internal.ann_defs): it sets the string of code abs(CODE) to S
@@ -11,7 +11,7 @@ function [tab, mflags, stat] = ann_setdef(tab, mflags, code, s)
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software

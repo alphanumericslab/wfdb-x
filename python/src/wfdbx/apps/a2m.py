@@ -1,6 +1,6 @@
 """a2m: convert an AHA-format annotation file to MIT format.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of convert/a2m.c from the WFDB Software Package
@@ -63,7 +63,7 @@ LEGACY_HELP = legacy_help(HELP, {
 
 
 def help(pname):
-    hs = LEGACY_HELP if legacy() else HELP     # wfdb-x
+    hs = LEGACY_HELP if legacy() else HELP     # WFDB-x
     eprintf(hs[0], pname)
     for s in hs[1:]:
         eprintf("%s\n", s)
@@ -74,7 +74,7 @@ def redirect_stdin(ifname, pname):
     if ifname == "-":
         return True
     if os.path.isdir(ifname):
-        # (C reads a directory forever; wfdb-x reports it as unreadable)
+        # (C reads a directory forever; WFDB-x reports it as unreadable)
         return False
     try:
         fd = os.open(ifname, os.O_RDONLY)
@@ -102,7 +102,7 @@ def basename_record(ifname):
 
 def _ms_to_samples(t):
     # Times in milliseconds are converted at the sampling frequency of the
-    # record (wfdb-x; C assumed 4 ms per sample, i.e., 250 Hz, whatever the
+    # record (WFDB-x; C assumed 4 ms per sample, i.e., 250 Hz, whatever the
     # record's frequency, as legacy mode does).
     if legacy():
         return t >> 2       # 4 msec/sample
@@ -129,7 +129,7 @@ def _main(argv):
                             pname)
                     raise Exit(1)
                 oann = argv[i]
-            elif c == "F" and not legacy():    # sampling frequency (wfdb-x)
+            elif c == "F" and not legacy():    # sampling frequency (WFDB-x)
                 i += 1
                 n, v = sscanf(argv[i], "%lf") if i < argc else (0, [])
                 if n != 1 or v[0] <= 0.0:

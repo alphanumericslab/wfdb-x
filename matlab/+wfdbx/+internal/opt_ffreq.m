@@ -1,5 +1,5 @@
 function [ffreq, i, ok] = opt_ffreq(argv, i, ffreq)
-%OPT_FFREQ Parse the -F FREQ option of the annotation tools (wfdb-x).
+%OPT_FFREQ Parse the -F FREQ option of the annotation tools (WFDB-x).
 %   [FFREQ, I, OK] = wfdbx.internal.opt_ffreq(ARGV, I, FFREQ) parses the
 %   argument that follows the -F option at ARGV{I+1} (ARGV{K+1} is C's
 %   argv[K]), as rdann, ann2rr, sortann, m2a and a2m do:
@@ -8,14 +8,14 @@ function [ffreq, i, ok] = opt_ffreq(argv, i, ffreq)
 %   I is advanced past the option.  If the frequency is missing or not
 %   > 0, "PNAME: sampling frequency (> 0) must follow -F" is printed and
 %   OK is false (the tool then exits with status 1).  The -F option is a
-%   wfdb-x addition: there is no default sampling frequency (see
+%   WFDB-x addition: there is no default sampling frequency (see
 %   docs/DIVERGENCES.md).
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It has no counterpart in the original package. wfdb-x never assumes a
+% It has no counterpart in the original package. WFDB-x never assumes a
 % sampling frequency, gain, ADC resolution or units (see
 % docs/DIVERGENCES.md).
 %

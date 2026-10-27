@@ -1,7 +1,7 @@
 //! ann2rr: extract a list of intervals from an annotation file (port of
 //! `app/ann2rr.c`).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of app/ann2rr.c from the WFDB Software Package
@@ -68,7 +68,7 @@ const MAXDIGITS: i32 = 15;
 /// Lines of the usage summary shown before each "--More--" prompt.
 const PAGELINES: usize = 23;
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by wfdb-x, left out of the
+/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] =
     &[b" -F FREQ sampling frequency, if the record header does not specify one"];
@@ -125,7 +125,7 @@ fn main() {
     let mut a1f = [false; ACMAX as usize + 1];
     let mut annot = Annotation::default();
     let (mut from, mut to): (i64, i64) = (0, 0);
-    let mut ffreq = 0.0f64; // -F (wfdb-x)
+    let mut ffreq = 0.0f64; // -F (WFDB-x)
 
     // Interpret command-line options.
     a0f[0] = true;
@@ -156,7 +156,7 @@ fn main() {
                     from = i as i64; // to be converted to sample intervals below
                 }
                 b'F' if !legacy => {
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i += 1;
                     if i >= argc || csscanf!(&argv[i], b"%lf", &mut ffreq) != 1 || ffreq <= 0.0 {
                         ceprintf!(b"%s: sampling frequency (> 0) must follow -F\n", pname);

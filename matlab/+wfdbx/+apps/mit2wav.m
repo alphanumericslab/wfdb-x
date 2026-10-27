@@ -16,7 +16,7 @@ function status = mit2wav(args)
 %   assumed 250 Hz); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; the example writes 100s.wav in the current folder):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.apps.mit2wav({'-r', '100s', '-o', '100s.wav'})
@@ -27,7 +27,7 @@ function status = mit2wav(args)
 %   same options and output. Differences: no sampling frequency is assumed;
 %   see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/mit2wav.c from the WFDB Software

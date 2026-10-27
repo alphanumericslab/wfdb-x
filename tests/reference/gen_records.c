@@ -1,10 +1,10 @@
-/* gen_records.c: generate the wfdb-x conformance test records using the
+/* gen_records.c: generate the WFDB-x conformance test records using the
    original WFDB library (so that the test data is written by the reference
    implementation).
 
    Usage: gen_records OUTPUT_DIRECTORY
 
-   Part of wfdb-x, Reza Sameni, Oct 2026.
+   Part of WFDB-x, Reza Sameni, Oct 2026.
    GNU General Public License, version 3 or later (see LICENSE). */
 
 #include <stdio.h>

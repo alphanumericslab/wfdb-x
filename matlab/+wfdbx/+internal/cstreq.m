@@ -3,9 +3,9 @@ function tf = cstreq(a, b)
 %   TF = wfdbx.internal.cstreq(A, B) is true if A and B are both char
 %   vectors with the same contents, or both NULL (non-char).
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

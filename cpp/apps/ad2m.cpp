@@ -1,6 +1,6 @@
 // ad2m.cpp: convert an AHA format signal file to MIT format.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of convert/ad2m.c from the WFDB Software Package
@@ -144,7 +144,7 @@ static int getcvec(int *v)
     return 2;
 }
 
-// Exit after reporting an unrecognized option (wfdb-x: also the wfdb-x
+// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -191,7 +191,7 @@ int main(int argc, char **argv)
                 if (wfdbx_get_legacy())     // wfdb-x: as in the C program
                     start_time = strtim(argv[i]);
                 else
-                    fstr = argv[i]; // converted once -F is known (wfdb-x)
+                    fstr = argv[i]; // converted once -F is known (WFDB-x)
                 break;
             case 'h': // help requested
                 help();
@@ -223,9 +223,9 @@ int main(int argc, char **argv)
                 if (wfdbx_get_legacy())     // wfdb-x: as in the C program
                     end_time = strtim(argv[i]);
                 else
-                    tstr = argv[i]; // converted once -F is known (wfdb-x)
+                    tstr = argv[i]; // converted once -F is known (WFDB-x)
                 break;
-            case 'F': // sampling frequency (wfdb-x)
+            case 'F': // sampling frequency (WFDB-x)
                 if (wfdbx_get_legacy())   // wfdb-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ffreq) != 1 ||
@@ -236,7 +236,7 @@ int main(int argc, char **argv)
                     std::exit(1);
                 }
                 break;
-            case 'G': // gain in adu per physical unit (wfdb-x)
+            case 'G': // gain in adu per physical unit (WFDB-x)
                 if (wfdbx_get_legacy())   // wfdb-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ggain) != 1 ||
@@ -247,7 +247,7 @@ int main(int argc, char **argv)
                 }
                 Gset = 1;
                 break;
-            case 'R': // ADC resolution in bits (wfdb-x)
+            case 'R': // ADC resolution in bits (WFDB-x)
                 if (wfdbx_get_legacy())   // wfdb-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%d", &Rres) != 1 ||
@@ -258,7 +258,7 @@ int main(int argc, char **argv)
                     std::exit(1);
                 }
                 break;
-            case 'U': // physical units (wfdb-x)
+            case 'U': // physical units (WFDB-x)
                 if (wfdbx_get_legacy())   // wfdb-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc) {
@@ -320,7 +320,7 @@ int main(int argc, char **argv)
     }
 
     // Attach the input file to the standard input.
-    // (C reads a directory forever; wfdb-x reports it as unreadable)
+    // (C reads a directory forever; WFDB-x reports it as unreadable)
     if (std::strcmp(ifname, "-") != 0 &&
         (is_directory(ifname) ||
          std::freopen(ifname, "rb", stdin) == nullptr)) {

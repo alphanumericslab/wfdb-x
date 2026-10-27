@@ -5,7 +5,7 @@
 # Strings are byte strings (`Vector{UInt8}`); a field that C may set to
 # `NULL` is a `Union{Nothing,Vector{UInt8}}`.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of lib/wfdb.h from the WFDB Software Package
@@ -156,7 +156,7 @@ const WFDB_CAL_UNDEF = Int32(8)
 Default WFDB path, used in legacy mode when the environment variable `WFDB`
 is not set (the value of a release build of the C library 10.7.0 installed
 in `/usr/local`; legacy mode opens no URLs, so there is no default URL
-anywhere in wfdb-x).
+anywhere in WFDB-x).
 """
 const DEFWFDB = b". /usr/local/database http://physionet.org/physiobank/database"
 "Default calibration file name."

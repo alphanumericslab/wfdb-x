@@ -1,6 +1,6 @@
 # snip: copy an excerpt of a database record.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of app/snip.c from the WFDB Software Package
@@ -215,7 +215,7 @@ function _snip_copy_sig(sn::_SnipState, nrec::Vector{UInt8}, irec::Vector{UInt8}
             end
             cfprintf(ohfile, "%s %ld\r\n", orseg, len)
         end
-        wfdbx_fclose_output(ohfile, sn.pname, ohfname)     # wfdb-x
+        wfdbx_fclose_output(ohfile, sn.pname, ohfname)     # WFDB-x
         return
     end
 

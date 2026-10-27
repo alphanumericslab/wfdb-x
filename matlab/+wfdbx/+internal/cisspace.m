@@ -3,9 +3,9 @@ function tf = cisspace(c)
 %   TF = wfdbx.internal.cisspace(C) is true for the characters (or codes)
 %   space, \t, \n, \v, \f and \r.  C may be an array; TF has its size.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

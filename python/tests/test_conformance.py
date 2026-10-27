@@ -3,9 +3,9 @@
 The full suite takes a few minutes; set WFDBX_CONFORMANCE=0 to skip it, or
 WFDBX_CONFORMANCE=rdsamp,rdann (for example) to run selected tools.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
-tests wfdb-x; it has no counterpart in the original package.
+tests WFDB-x; it has no counterpart in the original package.
 
 Copyright (C) 2026 Reza Sameni.
 
@@ -28,7 +28,7 @@ SEL = os.environ.get("WFDBX_CONFORMANCE", "all")
 
 @pytest.mark.skipif(SEL == "0", reason="disabled by WFDBX_CONFORMANCE=0")
 @pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, "tests", "conformance")),
-                    reason="the conformance suite of the wfdb-x repository "
+                    reason="the conformance suite of the WFDB-x repository "
                            "is not available")
 def test_conformance():
     env = dict(os.environ)

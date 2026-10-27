@@ -10,7 +10,7 @@ function [stat, si] = wfdbinit(record, aiarray, nann, nsig)
 %   same arguments and results. Differences: those of annopen() and isigopen();
 %   see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbinit.c from the WFDB Software

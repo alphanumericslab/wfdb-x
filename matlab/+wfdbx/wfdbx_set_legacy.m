@@ -10,7 +10,7 @@ function previous = wfdbx_set_legacy(on)
 %   describes what changes in legacy mode.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; in legacy mode, the WFDB path, set by wfdbx.setwfdb,
 %   says where records are found):
 %       old = wfdbx.wfdbx_set_legacy(1);
@@ -20,9 +20,9 @@ function previous = wfdbx_set_legacy(on)
 %
 %   See also wfdbx.wfdbx_get_legacy.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

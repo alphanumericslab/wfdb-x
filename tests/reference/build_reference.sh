@@ -1,8 +1,8 @@
 #!/bin/sh
 # build_reference.sh: build the original C WFDB Software Package (10.7.0,
 # from third_party/wfdb-main.zip) with FLAC support, to serve as the
-# reference implementation for the wfdb-x conformance tests.  The few
-# deliberate divergences of wfdb-x (divergences.patch) are applied to it.
+# reference implementation for the WFDB-x conformance tests.  The few
+# deliberate divergences of WFDB-x (divergences.patch) are applied to it.
 #
 # Usage: tests/reference/build_reference.sh OUTPUT_DIRECTORY
 #
@@ -11,7 +11,7 @@
 # installed, set FLAC_PREFIX to a directory containing include/FLAC/*.h and
 # lib/libFLAC.so.
 #
-# Part of wfdb-x, Reza Sameni, Oct 2026.
+# Part of WFDB-x, Reza Sameni, Oct 2026.
 # GNU General Public License, version 3 or later (see LICENSE).
 set -e
 OUT=$(mkdir -p "$1" && cd "$1" && pwd)
@@ -25,7 +25,7 @@ unzip -q "$ROOT/third_party/wfdb-main.zip"
 # configure takes the version number from the directory name
 mv wfdb-main wfdb-10.7.0
 cd wfdb-10.7.0
-# Apply the deliberate divergences of wfdb-x from the C package (see
+# Apply the deliberate divergences of WFDB-x from the C package (see
 # docs/DIVERGENCES.md), unless WFDBX_ORIGINAL=1 (the unmodified package).
 if [ "$WFDBX_ORIGINAL" != 1 ]; then
     patch -p1 -s <"$HERE/divergences.patch"

@@ -34,7 +34,7 @@
 //! from inside a closure passed to [`with_default`]: the default instance
 //! would be borrowed twice, which panics.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -73,7 +73,7 @@ use crate::wfdbio::IoState;
 ///
 /// let mut w = Wfdb::new();
 /// // The sample record 100s, the first minute of record 100 of the MIT-BIH
-/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// // Arrhythmia Database, included with WFDB-x in tests/data:
 /// # w.wfdbx_set_input_dir("../tests/data");
 /// # /*
 /// w.wfdbx_set_input_dir("tests/data"); // from the repository root
@@ -112,7 +112,7 @@ impl Wfdb {
     /// `WFDBX_OUTPUT_DIR`, `WFDBX_NETWORK`, or in legacy mode the WFDB path,
     /// are read from the environment on first use).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn new() -> Wfdb {
         Wfdb::default()
     }
@@ -142,7 +142,7 @@ thread_local! {
 /// assert_eq!(path, b".");
 /// ```
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn with_default<R>(f: impl FnOnce(&mut Wfdb) -> R) -> R {
     DEFAULT.with(|d| f(&mut d.borrow_mut()))
 }

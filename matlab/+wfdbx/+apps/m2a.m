@@ -18,7 +18,7 @@ function status = m2a(args)
 %   or -F is required.  See docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; the example writes the AHA-format file aha in the
 %   current folder):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
@@ -30,7 +30,7 @@ function status = m2a(args)
 %   options and output. Differences: -F gives the sampling frequency when
 %   the record header gives none; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/m2a.c from the WFDB Software
@@ -79,7 +79,7 @@ end
 
 function status = main(argv)
 pname = argv{1};
-Ffreq = 0;      % -F (wfdb-x)
+Ffreq = 0;      % -F (WFDB-x)
 legacy = wfdbx.wfdbx_get_legacy();
 argc = numel(argv);
 ep = @wfdbx.internal.ceprintf;
@@ -110,7 +110,7 @@ while i < argc
                 ianame = argv{i+1};
                 i = i + 1;
                 oaname = argv{i+1};
-            case 'F'    % sampling frequency follows (wfdb-x)
+            case 'F'    % sampling frequency follows (WFDB-x)
                 [Ffreq, i, ok] = wfdbx.internal.opt_ffreq(argv, i, Ffreq);
                 if ~ok
                     status = 1;

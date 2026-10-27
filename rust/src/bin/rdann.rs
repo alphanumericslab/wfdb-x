@@ -3,7 +3,7 @@
 //! Caution: if the output format of `rdann` is modified, `wrann` will
 //! require modification as well!
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of app/rdann.c from the WFDB Software Package
@@ -48,7 +48,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b"* Only one of -e and -x can be used.",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by wfdb-x, left out of the
+/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] = &[
     b" -F FREQ             sampling frequency, if the record header does not",
@@ -78,7 +78,7 @@ fn main() {
     let c0 = |i: usize| -> u8 { argv[i].first().copied().unwrap_or(0) };
     let c1 = |i: usize| -> u8 { argv[i].get(1).copied().unwrap_or(0) };
 
-    let mut ffreq = 0.0f64; // -F (wfdb-x)
+    let mut ffreq = 0.0f64; // -F (WFDB-x)
     let mut record: Option<&[u8]> = None;
     let mut ainame: Option<&[u8]> = None;
     let (mut cflag, mut chanmatch, mut nflag, mut nummatch, mut sflag, mut submatch) =
@@ -160,7 +160,7 @@ fn main() {
                     from = i as i64; // to be converted to sample intervals below
                 }
                 b'F' if !legacy => {
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i += 1;
                     if i >= argc || csscanf!(arg(i), b"%lf", &mut ffreq) != 1 || ffreq <= 0.0 {
                         ceprintf!(b"%s: sampling frequency (> 0) must follow -F\n", pname);

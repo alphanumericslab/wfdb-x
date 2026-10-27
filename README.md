@@ -4,11 +4,11 @@
 The [WFDB Software Package](https://physionet.org/content/wfdb/) (by George
 B. Moody and contributors) is the reference C library and set of
 command-line tools for reading, writing and converting physiologic signal
-and annotation files, such as the PhysioNet databases. wfdb-x is a faithful
+and annotation files, such as the PhysioNet databases. WFDB-x is a faithful
 reimplementation of its version 10.7.0 in seven languages, so that you can use
 the same files, the same functions and the same tools without the C library.
 
-wfdb-x is an independent project. It is not part of the
+WFDB-x is an independent project. It is not part of the
 [WFDB project](https://wfdb.io/) or of PhysioNet, and is not endorsed by
 them. It follows the WFDB format and the behavior of the original C
 package; see [Related projects](#related-projects) for the official WFDB
@@ -33,7 +33,7 @@ The original C sources are kept, unmodified, in
 [`third_party/wfdb-main.zip`](third_party/), and serve as the reference
 implementation for testing.
 
-## Why wfdb-x
+## Why WFDB-x
 
 For more than four decades, the WFDB Software Package has been the common
 ground of physiologic signal processing. PhysioNet distributes its
@@ -42,7 +42,7 @@ used in the field. Thousands of published studies, open-source tools and
 machine-learning benchmarks rest on what the WFDB library returns when it
 reads a record, and on what it writes.
 
-Researchers work with these records in many languages. wfdb-x offers one
+Researchers work with these records in many languages. WFDB-x offers one
 behavior across seven of them: it takes a single specification, the original
 C package, and reimplements it in Python, C++, MATLAB/Octave, Rust, Julia,
 R and Kotlin, **tested to be identical**, byte for byte, to the original and to
@@ -55,11 +55,11 @@ and iOS through Kotlin Multiplatform) and to the JVM.
 
 ## Deliberate differences from the original
 
-wfdb-x behaves exactly as the original package, with a few deliberate
+WFDB-x behaves exactly as the original package, with a few deliberate
 exceptions. They are the same in all seven languages and tested like
 everything else:
 
-* **No built-in signal parameters.** wfdb-x never assumes a sampling
+* **No built-in signal parameters.** WFDB-x never assumes a sampling
   frequency, gain, ADC resolution or units that a record does not give.
   Tools that write them require them, for example
   `wrsamp -F 250 -G 200 -R 16 -U mV`.
@@ -92,7 +92,7 @@ tool, or the legacy option of the library and of the high-level functions.
 
 ## What "identical behavior" means, and how it is checked
 
-For the same input, a wfdb-x tool produces **byte for byte** the same
+For the same input, a WFDB-x tool produces **byte for byte** the same
 standard output, standard error (including error messages), exit status and
 output files as the original C tool. The library functions return the same
 values as their C counterparts. (The exceptions are the deliberate
@@ -129,7 +129,7 @@ original C code, not written by hand:
 A few behaviors of the C code are undefined (crashes or reads of
 uninitialized memory), and many are surprising but well-defined. Both kinds
 are documented in [`docs/KNOWN_C_BEHAVIORS.md`](docs/KNOWN_C_BEHAVIORS.md),
-with the behavior wfdb-x chose where C's is undefined.
+with the behavior WFDB-x chose where C's is undefined.
 
 ## Implementations
 
@@ -180,14 +180,14 @@ of `psd/` are outside the scope of this project.
 * [`docs/porting-guide.md`](docs/porting-guide.md): architecture, and the C
   semantics that every implementation must reproduce
 * [`docs/AUTHORS.md`](docs/AUTHORS.md): the authors of the C code that each
-  part of wfdb-x ports
+  part of WFDB-x ports
 * The WFDB Applications Guide ([`third_party/wag.pdf`](third_party/))
   describes the tools, and the WFDB Programmer's Guide (in
-  `third_party/wfdb-main.zip`) the library API; wfdb-x reproduces both.
+  `third_party/wfdb-main.zip`) the library API; WFDB-x reproduces both.
 
-## How wfdb-x was developed
+## How WFDB-x was developed
 
-wfdb-x was built through **AI-assisted development, cross-language
+WFDB-x was built through **AI-assisted development, cross-language
 verification and unit testing**.
 
 * **AI-assisted development.** We designed the project and its
@@ -211,16 +211,16 @@ issues.
 
 ## Versions
 
-wfdb-x has its own version numbers, shared by the seven implementations and
+WFDB-x has its own version numbers, shared by the seven implementations and
 following [semantic versioning](https://semver.org): 1.0.0 is the first
 release. They are independent of the version of the WFDB Software Package
-that wfdb-x implements, 10.7.0, which the library still reports as in C
+that WFDB-x implements, 10.7.0, which the library still reports as in C
 (`wfdbversion()` returns `"10.7.0"`, and `wfdberror()` names it).
 
 ## Related projects
 
-These projects and initiatives are related to wfdb-x, which does not use or
-depend on any of them. wfdb-x is a port of the original C package to other
+These projects and initiatives are related to WFDB-x, which does not use or
+depend on any of them. WFDB-x is a port of the original C package to other
 languages, and the C programs produce the expected results of its tests.
 The other projects are acknowledged as related work.
 
@@ -232,7 +232,7 @@ The other projects are acknowledged as related work.
 * **[The WFDB Software Package](https://physionet.org/content/wfdb/)**, by
   George B. Moody, Benjamin Moody and contributors, distributed by
   [PhysioNet](https://physionet.org/): the original C library and tools.
-  wfdb-x reimplements its version 10.7.0.
+  WFDB-x reimplements its version 10.7.0.
 * **[WFDB Python](https://wfdb.io/software/python.html)** and the
   **[WFDB Toolbox for MATLAB](https://wfdb.io/software/matlab.html)**: the
   Python and MATLAB implementations of the WFDB project, alongside its
@@ -243,17 +243,17 @@ The other projects are acknowledged as related work.
 
 ## Authors and license
 
-wfdb-x was developed by [Reza Sameni](https://sameni.info)
+WFDB-x was developed by [Reza Sameni](https://sameni.info)
 ([GitHub](https://github.com/rsameni)) (2026), through
 AI-assisted development, cross-language verification and unit testing (see
-[How wfdb-x was developed](#how-wfdb-x-was-developed)). It is an
+[How WFDB-x was developed](#how-wfdb-x-was-developed)). It is an
 independent reimplementation of the WFDB Software Package: its code in each
-language is a translation of the package's C code, written for wfdb-x, not
+language is a translation of the package's C code, written for WFDB-x, not
 code by the original WFDB developers. The C library and tools were written
 by George B. Moody, Benjamin Moody and the other contributors credited, file
-by file, in each wfdb-x source file and in [`docs/AUTHORS.md`](docs/AUTHORS.md).
+by file, in each WFDB-x source file and in [`docs/AUTHORS.md`](docs/AUTHORS.md).
 
-wfdb-x is distributed under the GNU General Public License, version 3 or
+WFDB-x is distributed under the GNU General Public License, version 3 or
 (at your option) any later version ([`LICENSE`](LICENSE)). The original C
 sources in [`third_party/`](third_party/) keep their own licenses: the GNU
 Library General Public License, version 2 or later, for the library, and

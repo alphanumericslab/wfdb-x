@@ -1,4 +1,4 @@
-# wfdb-x for R
+# WFDB-x for R
 
 The R package `wfdbx` reads and writes physiological signal records in the
 WFDB format used by [PhysioNet](https://physionet.org). It is a complete R
@@ -21,7 +21,7 @@ The package is written in base R only: it needs no other package and has
 nothing to compile. It needs R 4.1 or later, and runs on Linux and macOS.
 On Windows, see [Notes](#notes).
 
-wfdb-x is part of a project that provides the same package in seven languages
+WFDB-x is part of a project that provides the same package in seven languages
 with identical behavior; see the
 [project README](https://github.com/alphanumericslab/wfdb-x#readme).
 
@@ -43,7 +43,7 @@ library(wfdbx)
 
 ## Quick start
 
-wfdb-x includes a sample record, `100s`, in the `tests/data` directory of
+WFDB-x includes a sample record, `100s`, in the `tests/data` directory of
 the repository: the first minute of record 100 of the
 [MIT-BIH Arrhythmia Database](https://physionet.org/content/mitdb/), with
 two ECG signals at 360 Hz and its beat annotations. This example reads it
@@ -94,7 +94,7 @@ rec <- read_record("100s", channels = "MLII", sampfrom = "0:10", sampto = "0:20"
 | Argument | Meaning | Default |
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
-| `channels` | signals to read, by number (starting at 0) or name | all signals |
+| `channels` | signals to read, by number (starting at 0) or by name, as in `names` | all signals |
 | `sampfrom`, `sampto` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
 | `physical` | return physical units instead of ADC units | `FALSE` |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `FALSE` |
@@ -112,9 +112,9 @@ The result is a list with these elements:
 |---|---|
 | `signals` | numeric matrix, one row per sample and one column per signal, in ADC units, or in physical units with `physical = TRUE` |
 | `fs` | sampling frequency in Hz (0 if the header gives none) |
-| `names`, `gains`, `baselines` | description, gain (ADC units per physical unit; 0 means uncalibrated) and baseline of each signal, as vectors |
+| `names`, `gains`, `baselines` | description (without the white space that a header may put at either end of it), gain (ADC units per physical unit; 0 means uncalibrated) and baseline of each signal, as vectors |
 | `units` | physical units of each signal, as a list (`NULL` where the header gives none) |
-| `siginfo` | the full signal specifications: one `siginfo` list per signal |
+| `siginfo` | the full signal specifications: one `siginfo` list per signal (its `desc` without the white space at either end) |
 | `name` | the record name |
 | `sampfrom` | the number of the first sample returned |
 | `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
@@ -302,7 +302,7 @@ error: annotator atr: 3 annotations are out of order; the first is at sample 50,
 ```
 
 `format(report)` returns these lines as a character vector. The lines are
-the same in the seven languages of wfdb-x. The checks run in normal mode, even if legacy mode is on, and the library
+the same in the seven languages of WFDB-x. The checks run in normal mode, even if legacy mode is on, and the library
 prints no messages during the call.
 
 What is checked:
@@ -322,7 +322,7 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-wfdb-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where you name them, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
@@ -393,7 +393,7 @@ seconds.
 
 ## Signal parameters
 
-wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
 that a record does not give. Where one is needed, you must give it: in
 `write_record`, as the `fs` argument of `read_annotations`, or as an option
 of the tools (see below). A record whose header gives no frequency has
@@ -510,7 +510,7 @@ Differences from C that come from the language:
 * Errors are reported by return values, as in C, not by R errors.
   `wfdberror()` returns the last message, and `wfdbquiet()` stops the
   messages from being printed.
-* `wfdbx_write_errors()` (a wfdb-x addition) returns the number of output
+* `wfdbx_write_errors()` (a WFDB-x addition) returns the number of output
   files that the library could not write, flush or close, plus those
   counted by `wfdbx_note_write_error()` (also an addition), which a program
   that writes a file itself calls. The tools exit with status 1 when the
@@ -545,7 +545,7 @@ describes what changes in legacy mode.
 
 * **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
   written in R, without any external library. The C library reads files
-  written by wfdb-x with identical sample values, although the compressed
+  written by WFDB-x with identical sample values, although the compressed
   bytes differ from those of libFLAC.
 * **Speed.** Reading and writing whole records is vectorized: `read_record`
   and `write_record` handle 200,000 frames of 2 signals in a few hundredths
@@ -601,14 +601,14 @@ gives the details. The R implementation was developed by Reza Sameni
 (2026), through AI-assisted development, cross-language
 verification and unit testing.
 
-wfdb-x is an independent reimplementation. Its R code is a
+WFDB-x is an independent reimplementation. Its R code is a
 translation of the C code of the WFDB Software Package into R,
-written for wfdb-x; it is not code by the original WFDB developers. It
+written for WFDB-x; it is not code by the original WFDB developers. It
 follows the original's logic and behavior, with the changes described
 in [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md).
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-wfdb-x is distributed under the GNU General Public License, version 3 or
+WFDB-x is distributed under the GNU General Public License, version 3 or
 (at your option) any later version. See
 [LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).

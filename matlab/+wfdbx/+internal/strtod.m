@@ -12,9 +12,9 @@ function [v, e] = strtod(s, pos)
 %
 %   See also wfdbx.internal.atof, wfdbx.internal.strtol.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

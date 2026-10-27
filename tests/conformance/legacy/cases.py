@@ -1,6 +1,6 @@
 """Legacy conformance test cases: the cases of the original package.
 
-These are the conformance cases as they were before wfdb-x removed the
+These are the conformance cases as they were before WFDB-x removed the
 built-in signal parameters of the C package (docs/DIVERGENCES.md).  The
 harness runs each of them with --legacy as the first argument, and compares
 the results with those of the original C tools (golden/, produced by the
@@ -19,7 +19,7 @@ Each case is a dict with keys:
   stdout_full (optional) True: the standard output is /dev/full
   wfdb    (optional) value of the WFDB environment variable (default ".")
 
-Part of wfdb-x, Reza Sameni, Oct 2026.
+Part of WFDB-x, Reza Sameni, Oct 2026.
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
 Foundation; either version 3 of the License, or (at your option) any later
@@ -674,7 +674,7 @@ case("snip", "-i 100s -n snp -a atr -f 0:10 -a ooo atr -t 0:20")
 case("snip", "-i fms -n snp -m -O 516 -f e", flac_files=["snp_0001.dat"])
 
 # ---------------------------------------------------------------------------
-# Absolute record names ({cwd} is the absolute work directory).  wfdb-x opens
+# Absolute record names ({cwd} is the absolute work directory).  WFDB-x opens
 # an input file named by an absolute path directly (and finds the signal and
 # annotation files next to its header); the C library searched the WFDB path
 # for it ("./" + the name), as legacy mode does, unless the WFDB path has an
@@ -742,7 +742,7 @@ case("wrann", "-r 100s -a srt", cid="annsort-long", stdin=_SORT_LONG)
 # ---------------------------------------------------------------------------
 # An out-of-order annotation at time 0 (num 0, chan 0), after later ones:
 # sortann lost it, and those inserted after it (5, 0, 3 -> 5), as legacy mode
-# does; wfdb-x keeps them (5, 0, 3 -> 0, 3, 5).  With aux strings, and with
+# does; WFDB-x keeps them (5, 0, 3 -> 0, 3, 5).  With aux strings, and with
 # several channels (a later time-0, chan 0 annotation replaces the first).
 # sortann on such a file (written with WFDBANNSORT=0): with -o, and in place.
 _T0 = _ann_lines([(5, "N", 0, 0, 0, ""), (0, "V", 0, 0, 0, ""),

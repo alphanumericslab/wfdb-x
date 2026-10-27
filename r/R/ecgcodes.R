@@ -3,7 +3,7 @@
 # (WFDB_Siginfo, WFDB_Anninfo, WFDB_Annotation, WFDB_Calinfo,
 # WFDB_Seginfo).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of lib/ecgcodes.h, lib/ecgmap.h and the annotation

@@ -1,14 +1,14 @@
 function [stat, A, ia] = ann_getbulk(ia, m, noaux, nofail)
 %ANN_GETBULK Read many annotations from an input annotator structure.
 %   [STAT, A, IA] = wfdbx.internal.ann_getbulk(IA, M, NOAUX, NOFAIL) is the
-%   body of wfdbx.internal.getann_bulk (wfdb-x), after its checks, for the
+%   body of wfdbx.internal.getann_bulk (WFDB-x), after its checks, for the
 %   input annotator structure IA, whose updated state is returned (see
 %   getann_bulk for the arguments and results; wfdbx.internal.ann_sortfile
 %   uses it too).
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software

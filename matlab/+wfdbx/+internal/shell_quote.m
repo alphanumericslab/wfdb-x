@@ -4,9 +4,9 @@ function s = shell_quote(s)
 %   (with each single quote in S written as '\''), for use in a command
 %   passed to system().
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

@@ -7,12 +7,12 @@ function c = hl_outdir(d, record, fname)
 %   error is thrown otherwise, before anything is written); the library's
 %   output directory (wfdbx.wfdbx_set_output_dir) is then set to D, and
 %   the onCleanup object C restores the previous one when it is cleared,
-%   i.e. when the calling function returns or throws an error.  (wfdb-x;
+%   i.e. when the calling function returns or throws an error.  (WFDB-x;
 %   see wfdbx.write_record.)
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

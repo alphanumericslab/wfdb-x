@@ -1,10 +1,10 @@
 # Inventory: tools and library functions by language
 
 This table lists every command-line tool and every library function of
-wfdb-x, what it does, and its status in each implementation. The original
+WFDB-x, what it does, and its status in each implementation. The original
 C code (WFDB Software Package 10.7.0, `third_party/`) is the reference: the
 expected results of all tests were produced by it, with the deliberate
-divergences of wfdb-x applied ([`DIVERGENCES.md`](DIVERGENCES.md)).
+divergences of WFDB-x applied ([`DIVERGENCES.md`](DIVERGENCES.md)).
 
 Legend: **✓** implemented and tested.
 

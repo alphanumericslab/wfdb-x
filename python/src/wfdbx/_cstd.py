@@ -3,12 +3,12 @@
 The WFDB library relies on the exact semantics of a handful of C library
 functions (``strtol``, ``strtod``, ``strtok``, ``sscanf``, integer division,
 fixed-width integer casts, ``printf``).  Reproducing them precisely is what
-allows wfdb-x to read and write byte-identical files and text.
+allows WFDB-x to read and write byte-identical files and text.
 
 All text is handled as Python ``str`` decoded with ISO-8859-1 (latin-1), so
 that every byte maps to exactly one character and round-trips unchanged.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
 has no counterpart in the original package.
 

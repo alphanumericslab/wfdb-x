@@ -1,13 +1,13 @@
 function tf = in_header_dir(name)
 %IN_HEADER_DIR True if a name in a header stays in the header's directory.
-%   TF = wfdbx.internal.in_header_dir(NAME) (wfdb-x) is true for a
+%   TF = wfdbx.internal.in_header_dir(NAME) (WFDB-x) is true for a
 %   relative name that does not begin with '~' and has no '..' component
 %   (on MS-Windows, no drive letter either): the containment rule for the
 %   files named in a header (see wfdbx.internal.open_in).
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

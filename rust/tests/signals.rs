@@ -4,9 +4,9 @@
 //! produced by the C library), python/tests/test_signals.py and
 //! python/tests/test_time.py.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -669,7 +669,7 @@ fn signal_roundtrip() {
                     *v = (r % (2 * hi) - hi + 1) as i32;
                 }
             }
-            // the ADC resolution of the samples (required: wfdb-x)
+            // the ADC resolution of the samples (required: WFDB-x)
             let bits = if fmt == 8 {
                 16
             } else {

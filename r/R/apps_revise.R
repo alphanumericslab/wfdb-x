@@ -1,7 +1,7 @@
 # apps_revise.R: revise -- convert an obsolete-format header file into a
 # current one.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/revise.c from the WFDB Software Package

@@ -26,7 +26,7 @@
 # empty record name, and reports the directory as unreadable (see
 # docs/KNOWN_C_BEHAVIORS.md).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/a2m.c from the WFDB Software Package
@@ -141,7 +141,7 @@ function a2m_main(args::Vector{String})
                     cexit(1)
                 end
                 oann = argv[i]
-            elseif c == UInt8('F') && !legacy   # sampling frequency follows (wfdb-x)
+            elseif c == UInt8('F') && !legacy   # sampling frequency follows (WFDB-x)
                 i += 1
                 if i >= argc || csscanf(argv[i], "%lf", ffreq) != 1 || ffreq[] <= 0.0
                     ceprintf("%s: sampling frequency (> 0) must follow -F\n", pname)
@@ -202,7 +202,7 @@ function a2m_main(args::Vector{String})
     end
 
     # Attach the input file to the standard input. (C reads a directory
-    # forever; wfdb-x reports it as unreadable.)
+    # forever; WFDB-x reports it as unreadable.)
     if ifname != b"-" && (_is_directory(ifname) || !freopen_stdin(ifname))
         ceprintf("%s: can't read input file `%s'\n", pname, ifname)
         cexit(2)
@@ -262,7 +262,7 @@ function a2m_main(args::Vector{String})
             putann(0, annot) < 0 && break
         end
     # Times in milliseconds are converted at the sampling frequency of the
-    # record (wfdb-x; the C program assumed 4 ms per sample, i.e., 250 Hz,
+    # record (WFDB-x; the C program assumed 4 ms per sample, i.e., 250 Hz,
     # whatever the record's frequency).
     elseif ftype == 1 || ftype == 2
         while getann(0, annot) >= 0

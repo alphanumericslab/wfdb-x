@@ -1,7 +1,7 @@
 # apps_rdedfann.R: rdedfann -- print the annotations of an EDF+ file (in
 # the text format read by wrann).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/rdedfann.c from the WFDB Software Package

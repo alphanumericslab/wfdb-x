@@ -5,7 +5,7 @@
 # Each tool is a function `<tool>_main(args::Vector{String})::Integer` (args
 # without the program name) defined in src/apps/<tool>.jl.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -41,7 +41,7 @@ end
 Return the names of the available command-line tools (`"a2m"`, `"ad2m"`,
 ..., `"xform"`), sorted.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function tools()
     v = String[]
@@ -53,7 +53,7 @@ function tools()
 end
 
 # wfdb-x: the help text of an original tool (printed in legacy mode): the
-# lines of `help` except those (indices) that document wfdb-x options.
+# lines of `help` except those (indices) that document WFDB-x options.
 _help_without(help::Tuple, lines) = Tuple(_help_without(collect(help), lines))
 _help_without(help::Vector{String}, lines) = String[help[k] for k in eachindex(help) if !(k in lines)]
 
@@ -110,7 +110,7 @@ process's standard output and error, and return its exit status. With no
 arguments or an unknown tool name, print a message on the standard error
 and return 1.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function main_cli(args::Vector{String})
     if isempty(args)
@@ -154,8 +154,8 @@ such tool.
 
 # Examples
 The example prints the first samples of `100s`, the first minute of record
-100 of the MIT-BIH Arrhythmia Database, which is included with wfdb-x in
-`tests/data` of a copy of the wfdb-x repository (the tool runs in that
+100 of the MIT-BIH Arrhythmia Database, which is included with WFDB-x in
+`tests/data` of a copy of the WFDB-x repository (the tool runs in that
 directory, its input directory):
 ```julia-repl
 julia> status, out, err = WFDBX.run_tool("rdsamp", ["-r", "100s", "-t", "s3"]; dir="/path/to/wfdb-x/tests/data");
@@ -167,7 +167,7 @@ julia> first(eachline(IOBuffer(out)))   # sample number, then one column per sig
 "              0\\t    995\\t   1011"
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function run_tool(tool::AbstractString, args::AbstractVector{<:AbstractString};
                   stdin::ByteStr=UInt8[], dir=nothing, env=nothing)

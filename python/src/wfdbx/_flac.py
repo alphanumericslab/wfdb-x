@@ -12,17 +12,17 @@ the C WFDB library obtains from libFLAC:
   identical to those written by libFLAC, whose output depends on its
   version and on the processor it runs on.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of the FLAC support of lib/signal.c (the code that
 connects FLAC to the signal functions) from the WFDB Software Package 10.7.0,
 by Benjamin Moody (2020). The translation follows the logic and behavior of the
 original code, but it is new code, not the original C code. Its FLAC codec is
-wfdb-x's own implementation of the FLAC format; it has no counterpart in the
+WFDB-x's own implementation of the FLAC format; it has no counterpart in the
 original package, which uses libFLAC.
 
-Changes from the original: FLAC streams are decoded and encoded by wfdb-x's own
+Changes from the original: FLAC streams are decoded and encoded by WFDB-x's own
 codec instead of libFLAC; the files written decode to the same samples, but
 their bytes differ from libFLAC's. Each change is marked "wfdb-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.

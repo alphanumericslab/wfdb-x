@@ -1,4 +1,4 @@
-# wfdb-x for Python
+# WFDB-x for Python
 
 `wfdbx` reads and writes physiological signal records in the WFDB format used
 by [PhysioNet](https://physionet.org). It is a complete Python implementation
@@ -20,7 +20,7 @@ You can use it in three ways:
 The package is pure Python. It needs Python 3.9 or later and NumPy, and runs
 on Linux, macOS and Windows.
 
-wfdb-x is part of a project that provides the same package in seven languages
+WFDB-x is part of a project that provides the same package in seven languages
 with identical behavior; see the
 [project README](https://github.com/alphanumericslab/wfdb-x#readme).
 
@@ -64,7 +64,7 @@ wfdbx.write_record("copy", x.signals, fs=x.fs, fmt=16, gains=x.gains,
 ## Reading and writing records
 
 The examples in this section read the sample record `100s` (the first minute
-of record 100 of the MIT-BIH Arrhythmia Database, included with wfdb-x, in
+of record 100 of the MIT-BIH Arrhythmia Database, included with WFDB-x, in
 the directory `wfdbx.sample_data_dir()`), and write records of their own in
 the current directory.
 
@@ -79,7 +79,7 @@ rec = wfdbx.read_record("100s", channels=["MLII"], sampfrom="0:10", sampto="0:20
 | Argument | Meaning | Default |
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
-| `channels` | signals to read, by number or name | all signals |
+| `channels` | signals to read, by number or name (as in `names`) | all signals |
 | `sampfrom`, `sampto` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
 | `physical` | return physical units (float64) instead of ADC units (int32) | `False` |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `False` |
@@ -97,7 +97,7 @@ The result is a `Record`:
 |---|---|
 | `signals` | NumPy array, one row per sample and one column per signal: int32 ADC units, or float64 physical units with `physical=True` |
 | `fs` | sampling frequency in Hz (0 if the header gives none) |
-| `names`, `units`, `gains`, `baselines` | description, physical units, gain (ADC units per physical unit; 0 means uncalibrated) and baseline of each signal |
+| `names`, `units`, `gains`, `baselines` | description (without white space at either end, which some headers add), physical units, gain (ADC units per physical unit; 0 means uncalibrated) and baseline of each signal |
 | `siginfo` | the full signal specifications (`Siginfo` objects) |
 | `sampfrom` | the number of the first sample returned |
 | `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
@@ -256,7 +256,7 @@ error: annotator atr: 3 annotations are out of order; the first is at sample 50,
 ```
 
 `report.lines()` returns these lines as a list. The lines are the same in
-the seven languages of wfdb-x. The checks run in normal mode, even if legacy mode is on, and the library
+the seven languages of WFDB-x. The checks run in normal mode, even if legacy mode is on, and the library
 prints no messages during the call.
 
 What is checked:
@@ -276,7 +276,7 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-wfdb-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where you name them, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
@@ -344,7 +344,7 @@ gives up when it cannot connect, or receives nothing, for 30 seconds.
 
 ## Signal parameters
 
-wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
 that a record does not give. Where one is needed, you must give it: in
 `write_record`, as the `fs` argument of `read_annotations`, or as an option
 of the tools (see below). A record whose header gives no frequency has
@@ -410,7 +410,7 @@ same arguments and return values, so programs and documentation written for
 the C library carry over directly. Where a C function fills an array, the
 Python function fills a list that you pass. This example reads the sample
 record `100s` (the first minute of record 100 of the MIT-BIH Arrhythmia
-Database, included with wfdb-x):
+Database, included with WFDB-x):
 
 ```python
 import wfdbx as w
@@ -437,7 +437,9 @@ Differences from C that come from the language:
 * An annotation's `aux` is `None`, or `bytes` whose first byte is the length
   of the text that follows, as in C. `Annotation.aux_string()` returns the
   text.
-* `getframes(n)` reads up to `n` frames at once. It returns a NumPy array
+* `getframes(n)` reads up to `n` frames at once, as `n` calls of `getvec`
+  would, but decoding whole blocks of the signal files (also for
+  multi-frequency and multi-segment records). It returns a NumPy array
   with one row per frame, and the `getvec` status of the first frame it
   could not read. If it read all `n` frames, the status is the number of
   signals.
@@ -495,7 +497,7 @@ jupyter lab
 
 * **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
   written without any external library. The C library reads files written
-  by wfdb-x with identical sample values, although the compressed bytes
+  by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
 * **Speed.** Reading and writing whole records is vectorized with NumPy. On
   a typical laptop, `read_record` reads 8 million samples in a few hundredths
@@ -524,14 +526,14 @@ gives the details. The Python implementation was developed by Reza Sameni
 (2026), through AI-assisted development, cross-language
 verification and unit testing.
 
-wfdb-x is an independent reimplementation. Its Python code is a
+WFDB-x is an independent reimplementation. Its Python code is a
 translation of the C code of the WFDB Software Package into Python,
-written for wfdb-x; it is not code by the original WFDB developers. It
+written for WFDB-x; it is not code by the original WFDB developers. It
 follows the original's logic and behavior, with the changes described
 in [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md).
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-wfdb-x is distributed under the GNU General Public License, version 3 or
+WFDB-x is distributed under the GNU General Public License, version 3 or
 (at your option) any later version. See
 [LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).

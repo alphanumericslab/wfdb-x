@@ -24,7 +24,7 @@ classdef AnnState < handle
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software
@@ -51,7 +51,7 @@ classdef AnnState < handle
         oad = cell(1, 0)
         oafreq = 0
         annclose_error = 0
-        sort_override = []          % wfdb-x (see above)
+        sort_override = []          % WFDB-x (see above)
         modified = zeros(1, 50)     % ACMAX + 1 codes
         cstring = {}
         astring = {}

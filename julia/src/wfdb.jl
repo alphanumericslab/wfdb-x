@@ -18,7 +18,7 @@
 # Every function also has a method without the `Wfdb` argument that uses the
 # default instance `lib()`: `getwfdb() = getwfdb(lib())`.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -50,7 +50,7 @@ WfdbLib() = WfdbLib(IoState(), SigState(), AnnState(), CalState(), EcgMaps())
 
 Create a new, independent library state, as at the start of a C program.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 Wfdb() = WfdbLib()
 
@@ -65,7 +65,7 @@ library's global variables). It is created when the package is loaded.
 While a tool runs in-process with [`run_tool`](@ref), `lib()` is a fresh
 instance, and the previous one is restored afterwards.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 @inline lib() = _LIB[]
 

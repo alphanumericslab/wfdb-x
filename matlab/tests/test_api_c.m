@@ -6,9 +6,9 @@ function test_api_c()
 %   C++ counterparts of these tests are python/tests/test_api.py and
 %   cpp/tests/test_api_c.cpp.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It tests wfdb-x; it has no counterpart in the original package.
+% It tests WFDB-x; it has no counterpart in the original package.
 %
 % Copyright (C) 2026 Reza Sameni.
 %
@@ -43,7 +43,7 @@ end
 
 function t_version()
 % wfdbversion, wfdbdefwfdb, wfdbldflags and wfdbcflags depend on how the C
-% library was built (with configure); wfdb-x gives the values of a release
+% library was built (with configure); WFDB-x gives the values of a release
 % build installed in /usr/local, and empty flags strings.
 assert_eq(wfdbx.wfdbversion(), '10.7.0', 'wfdbversion');
 assert_eq(wfdbx.wfdbdefwfdb(), ...
@@ -1122,7 +1122,7 @@ wfdbx.wfdbquit();
 end
 
 function t_legacy()
-% wfdb-x legacy mode (wfdbx_set_legacy, docs/DIVERGENCES.md): the original
+% WFDB-x legacy mode (wfdbx_set_legacy, docs/DIVERGENCES.md): the original
 % library's built-in defaults (t_legacy of api_expect.c; nf.hea and nr.hea
 % were written by t_nodefaults)
 assert_eq(wfdbx.wfdbx_set_legacy(1), 0, 'wfdbx_set_legacy 1');

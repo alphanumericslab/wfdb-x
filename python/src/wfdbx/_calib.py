@@ -1,6 +1,6 @@
 """Calibration list functions (port of lib/calib.c).
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of lib/calib.c from the WFDB Software Package

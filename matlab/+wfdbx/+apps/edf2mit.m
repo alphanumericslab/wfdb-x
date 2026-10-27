@@ -25,7 +25,7 @@ function status = edf2mit(args)
 %   Translation of the C program edf2mit (convert/edf2mit.c, WFDB 10.7.0):
 %   same options and output.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/edf2mit.c from the WFDB Software

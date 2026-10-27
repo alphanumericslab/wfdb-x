@@ -1,10 +1,10 @@
-"""Command-line applications of wfdb-x (ports of the WFDB applications).
+"""Command-line applications of WFDB-x (ports of the WFDB applications).
 
 Each module in this package provides a ``main(argv=None)`` function that
 behaves exactly like the corresponding C application, and can be run as
 ``python -m wfdbx.apps.NAME`` or through the ``wfdbx`` command.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
 has no counterpart in the original package.
 

@@ -5,7 +5,7 @@ either MIT or AHA format.  An annotation's ``aux`` field, when present, is
 a ``bytes`` object whose first byte is the length of the data that follows,
 exactly as in the C library.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of lib/annot.c from the WFDB Software Package
@@ -206,7 +206,7 @@ _a = _AnnState()
 
 
 class _AnnDefs:
-    """A table of annotation type definitions (wfdb-x): mnemonics,
+    """A table of annotation type definitions (WFDB-x): mnemonics,
     descriptions, and flags marking the modified types.  _lib_defs (defined
     below) is that of the library; _sort_ann_file uses one of its own."""
     __slots__ = ("astr", "tstr", "mod")
@@ -237,7 +237,7 @@ def _cstr(b):
 
 
 def _read_ann_table(ia, defs):
-    """The body of _get_ann_table (wfdb-x), for the input annotator ia and
+    """The body of _get_ann_table (WFDB-x), for the input annotator ia and
     the definition table defs (the library's, or that of _sort_ann_file)."""
     ia.tmul = 1.0
     ia.afreq = 0.0
@@ -468,7 +468,7 @@ def getann(n, annot):
 
 
 def _getann_ia(ia, annot):
-    """The body of getann (wfdb-x), for the input annotator ia."""
+    """The body of getann (WFDB-x), for the input annotator ia."""
     if ia.pann.anntyp:
         annot.assign(ia.pann)
         ia.pann.anntyp = 0
@@ -598,7 +598,7 @@ def ungetann(n, annot):
 
 
 def _ungetann_ia(ia, annot):
-    """The body of ungetann (wfdb-x), after its checks, for the input
+    """The body of ungetann (WFDB-x), after its checks, for the input
     annotator ia (whose pushback buffer is empty)."""
     ia.pann = annot.copy()
     if annot.time == ia.prev_time:
@@ -632,7 +632,7 @@ def putann(n, annot):
 
 
 def _put_ann_word(oa, n, annot):
-    """The body of putann (wfdb-x), after the table, for the output
+    """The body of putann (WFDB-x), after the table, for the output
     annotator oa (number n, in messages)."""
     t = annot.time
     f = oa.file
@@ -815,7 +815,7 @@ def _int64_array(v, np):
 def _encode_anns(oa, n, times, anntyps, subtyps, chans, nums, auxes,
                  packed_aux=False):
     """The bytes that putann writes for the given annotations in an
-    MIT-format file (after the table), computed with NumPy (wfdb-x), or
+    MIT-format file (after the table), computed with NumPy (WFDB-x), or
     None if the values cannot be handled so (an integer beyond 64 bits, an
     aux that is not bytes): _putanns_loop then encodes them.  Updates
     oa.ann (the last annotation written) and oa.out_of_order as putann
@@ -1300,7 +1300,7 @@ def strann(s):
 
 
 def _set_def_string(table, mod, code, s):
-    """The body of setannstr and setanndesc (wfdb-x), for a string table (of
+    """The body of setannstr and setanndesc (WFDB-x), for a string table (of
     mnemonics or descriptions) and the modification flags (mod) of a
     definition table.  Returns 0, or -1 if code is illegal."""
     mflag = 0
@@ -1529,7 +1529,7 @@ class _AnnList:
         self.in_order = 0
         ap = last
         while ap is not None:
-            if ap is head and not self.legacy:      # wfdb-x (see above)
+            if ap is head and not self.legacy:      # WFDB-x (see above)
                 ap = None
                 break
             aa = ap.ann
@@ -1577,10 +1577,10 @@ class _AnnList:
 
 def _sort_ann_file(fname, aname):
     """Rearrange the annotations of the (closed) annotation file fname of
-    annotator aname in the canonical order (wfdb-x).
+    annotator aname in the canonical order (WFDB-x).
 
     The result is identical, byte for byte, to that of the sortann program
-    (the wfdb-x one; the original lost an out-of-order annotation at time
+    (the WFDB-x one; the original lost an out-of-order annotation at time
     0, see _AnnList) as the C library ran it ("sortann -r. RECORD -a
     ANNOTATOR", see oannclose), but the header of the record is not looked
     up.  As sortann

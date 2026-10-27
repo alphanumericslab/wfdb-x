@@ -12,7 +12,7 @@ function name = wfdbfile(s, record)
 %   (or tried) by the library.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.wfdbfile('hea', '100s')   % '/path/to/wfdb-x/tests/data/100s.hea'
@@ -23,7 +23,7 @@ function name = wfdbfile(s, record)
 %   arguments and results. Differences: the file is found as wfdb_open() finds
 %   it, not by a search of the WFDB path; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software

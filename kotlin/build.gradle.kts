@@ -1,6 +1,6 @@
-// wfdb-x for Kotlin: build script.
+// WFDB-x for Kotlin: build script.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //

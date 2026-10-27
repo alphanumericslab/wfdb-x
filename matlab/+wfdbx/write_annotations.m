@@ -35,7 +35,7 @@ function write_annotations(record, annotator, samples, varargin)
 %   WFDB library functions.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; the example writes the annotation file 100s.test in the
 %   current folder):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
@@ -46,9 +46,9 @@ function write_annotations(record, annotator, samples, varargin)
 %
 %   See also wfdbx.read_annotations, wfdbx.write_record.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package. Its 'sort' option decides,
 % for one call, whether an out-of-order file is rearranged, instead of the

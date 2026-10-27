@@ -1,5 +1,5 @@
 function test_files()
-%TEST_FILES Tests of finding files (wfdb-x): the input and output
+%TEST_FILES Tests of finding files (WFDB-x): the input and output
 %directories, network access, files named in headers, and legacy mode.
 %   Remote files are served by a local HTTP server (127.0.0.1, a Python
 %   script started here; these tests are skipped if python3 cannot be
@@ -7,9 +7,9 @@ function test_files()
 %   variables run Octave in a new process (Octave only).  The Python
 %   counterpart is python/tests/test_files.py.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It tests wfdb-x; it has no counterpart in the original package.
+% It tests WFDB-x; it has no counterpart in the original package.
 %
 % Copyright (C) 2026 Reza Sameni.
 %

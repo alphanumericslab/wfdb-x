@@ -2,7 +2,7 @@
 // annotation files); see <wfdbx/record.hpp> and the equivalent
 // python/src/wfdbx/check.py, which is the reference.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -13,9 +13,9 @@
 // Software Foundation, either version 3 of the License, or (at your option)
 // any later version. See LICENSE.
 //
-// check_record is a wfdb-x addition, specified in the same way for the seven
+// check_record is a WFDB-x addition, specified in the same way for the seven
 // languages (the messages, their order and the formatting of numbers are
-// identical).  The checks were designed for wfdb-x; no code or text of
+// identical).  The checks were designed for WFDB-x; no code or text of
 // Benjamin Moody's wfdbcheck was used.  The record is read with the library's
 // functions (isigopen, getvecs, getseginfo, annopen, getann, annstr); the
 // header file's text is read only for the checks of its lines and of the

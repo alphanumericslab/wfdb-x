@@ -10,7 +10,7 @@ function status = makeid(args)
 %   description of it to the standard error output.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.apps.makeid({'atr', '100s'})
@@ -20,7 +20,7 @@ function status = makeid(args)
 %   Translation of the C program makeid (convert/makeid.c, WFDB 10.7.0):
 %   same options and output.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/makeid.c from the WFDB Software

@@ -11,9 +11,9 @@ function c = ecgcodes()
 %
 %   See also wfdbx.isqrs, wfdbx.map1, wfdbx.annpos.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/ecgcodes.h from the WFDB Software

@@ -4,9 +4,9 @@
 // python/tests/test_files.py and rust/tests/network.rs), and the parts of
 // python/tests/test_check.py that do not need the corpus.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //

@@ -1,12 +1,12 @@
 function d = wfdb_dirname(name)
 %WFDB_DIRNAME The directory part of a file name or URL.
-%   D = wfdbx.internal.wfdb_dirname(NAME) (wfdb-x) returns NAME up to and
+%   D = wfdbx.internal.wfdb_dirname(NAME) (WFDB-x) returns NAME up to and
 %   including its last directory separator ('/', and on MS-Windows '\'),
 %   or '' if it has none.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

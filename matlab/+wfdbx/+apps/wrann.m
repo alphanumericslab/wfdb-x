@@ -10,7 +10,7 @@ function status = wrann(args)
 %   rdann.
 %
 %   Example (from the shell; 100s, the first minute of record 100 of the
-%   MIT-BIH Arrhythmia Database, is included with wfdb-x in the folder
+%   MIT-BIH Arrhythmia Database, is included with WFDB-x in the folder
 %   tests/data of a copy of the repository; the example writes the
 %   annotation file 100s.cpy in the current folder):
 %       export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
@@ -21,7 +21,7 @@ function status = wrann(args)
 %   Translation of the C program wrann (app/wrann.c, WFDB 10.7.0): same
 %   options and output.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of app/wrann.c from the WFDB Software
@@ -287,7 +287,7 @@ function aux = auxof(astr, rest, k)
 if ~isempty(k)
     ap = rest(k:end);
     if numel(astr) + numel(ap) + 2 > 256
-        e = 256 - numel(astr) - 3;      % (as a Python slice, as in wfdb-x)
+        e = 256 - numel(astr) - 3;      % (as a Python slice, as in WFDB-x)
         if e < 0
             e = numel(ap) + e;
         end

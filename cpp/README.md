@@ -1,4 +1,4 @@
-# wfdb-x for C++
+# WFDB-x for C++
 
 `libwfdbx` reads and writes physiological signal records in the WFDB format
 used by [PhysioNet](https://physionet.org). It is a complete C++17
@@ -22,7 +22,7 @@ Everything is in namespace `wfdbx`. The library needs only the C++17
 standard library. It builds with CMake 3.14 or later and GCC 8, Clang 7 or
 MSVC 2019 and later, on Linux, macOS and Windows.
 
-wfdb-x is part of a project that provides the same package in seven languages
+WFDB-x is part of a project that provides the same package in seven languages
 with identical behavior; see the
 [project README](https://github.com/alphanumericslab/wfdb-x#readme).
 
@@ -118,7 +118,7 @@ throw `wfdbx::Error` when they fail.
 `read_record(record, opt)` reads the signals of a record. The options are
 fields of a `ReadOptions`. The examples of this section read the sample
 record `100s` (the first minute of record 100 of the MIT-BIH Arrhythmia
-Database), which is included with wfdb-x in the `tests/data` directory of a
+Database), which is included with WFDB-x in the `tests/data` directory of a
 copy of the repository; run them from the root of the repository:
 
 ```cpp
@@ -133,7 +133,7 @@ std::vector<double> mlii = rec.physical_signal(0);    // 3600 values
 
 | Field of `ReadOptions` | Meaning | Default |
 |---|---|---|
-| `channels` | signals to read, by number (`"0"`) or name (`"V5"`) | all signals |
+| `channels` | signals to read, by number (`"0"`) or name (`"V5"`, as in `names()`) | all signals |
 | `from`, `to` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `pad` | replace invalid samples by the previous valid one | `false` |
@@ -154,7 +154,7 @@ The result is a `Record`:
 | `physical_signal(s)` | all the samples of signal `s` in physical units, as a `std::vector<double>` |
 | `nsamples()`, `nsig` | the number of samples per signal, and the number of signals |
 | `fs` | sampling frequency in Hz (0 if the header gives none) |
-| `names()` | the description of each signal |
+| `names()` | the description of each signal, without the white space that a header may put at either end of it |
 | `siginfo` | the signal specifications (`WFDB_Siginfo`): `desc`, `units`, `gain` (ADC units per physical unit; 0 means uncalibrated), `baseline`, `adcres`, `fmt`, ... |
 | `signals` | the number, in the record, of each signal returned |
 | `sampfrom` | the number of the first sample returned |
@@ -366,7 +366,7 @@ error: annotator atr: 3 annotations are out of order; the first is at sample 50,
 
 `report.lines()` returns these lines as a `std::vector<std::string>`, and
 `issue.to_string()` the line of one issue. The lines are the same in the seven
-languages of wfdb-x. The checks run in normal mode, even if legacy mode is
+languages of WFDB-x. The checks run in normal mode, even if legacy mode is
 on, and the library prints no messages during the call.
 
 What is checked:
@@ -386,7 +386,7 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-wfdb-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where you name them, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
@@ -459,7 +459,7 @@ when it cannot connect, or receives nothing, for 30 seconds.
 
 ## Signal parameters
 
-wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
 that a record does not give. Where one is needed, you must give it: in
 `write_record`, as the `fs` argument of `read_annotations`, or as an option
 of the tools (see below). A record whose header gives no frequency has
@@ -473,7 +473,7 @@ Each tool is a separate program in `cpp/build/bin/`, or in the `bin`
 directory of the installation. With that directory in your `PATH`, run a
 tool by its name. These commands read the sample record `100s` (the first
 minute of record 100 of the MIT-BIH Arrhythmia Database), included with
-wfdb-x in the `tests/data` directory of a copy of the repository:
+WFDB-x in the `tests/data` directory of a copy of the repository:
 
 ```sh
 export WFDBX_INPUT_DIR=tests/data   # run from the root of the repository
@@ -602,9 +602,9 @@ describes what changes in legacy mode.
 
 * **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
   written without any external library. The C library reads files written
-  by wfdb-x with identical sample values, although the compressed bytes
+  by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
-* **Speed.** wfdb-x for C++ is faster than the C library: `rdsamp` prints a
+* **Speed.** WFDB-x for C++ is faster than the C library: `rdsamp` prints a
   30-minute, two-signal record two to three times as fast.
 
 ## Testing
@@ -637,14 +637,14 @@ gives the details. The C++ implementation was developed by Reza Sameni
 (2026), through AI-assisted development, cross-language
 verification and unit testing.
 
-wfdb-x is an independent reimplementation. Its C++ code is a
+WFDB-x is an independent reimplementation. Its C++ code is a
 translation of the C code of the WFDB Software Package into C++,
-written for wfdb-x; it is not code by the original WFDB developers. It
+written for WFDB-x; it is not code by the original WFDB developers. It
 follows the original's logic and behavior, with the changes described
 in [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md).
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-wfdb-x is distributed under the GNU General Public License, version 3 or
+WFDB-x is distributed under the GNU General Public License, version 3 or
 (at your option) any later version. See
 [LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).

@@ -6,7 +6,7 @@ function [stat, annot, ia] = ann_get1(ia)
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software

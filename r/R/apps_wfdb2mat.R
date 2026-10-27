@@ -1,7 +1,7 @@
 # apps_wfdb2mat.R: wfdb2mat -- convert (all or part of) a WFDB record to a
 # MATLAB/Octave .mat file.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/wfdb2mat.c from the WFDB Software Package

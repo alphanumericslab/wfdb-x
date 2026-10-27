@@ -52,7 +52,7 @@ function report = check_record(record, varargin)
 %   wfdbcheck (https://github.com/bemoody/wfdbcheck).
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       report = wfdbx.check_record('100s', 'annotators', {'atr'});
@@ -63,12 +63,12 @@ function report = check_record(record, varargin)
 %
 %   See also wfdbx.read_record, wfdbx.read_header, wfdbx.read_annotations.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package. The checks were designed
-% for wfdb-x and are the same in the seven languages (the messages, their
+% for WFDB-x and are the same in the seven languages (the messages, their
 % order and the formatting of numbers; python/src/wfdbx/check.py is the
 % reference); no code or text of wfdbcheck was used.
 %

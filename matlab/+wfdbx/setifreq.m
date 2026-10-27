@@ -4,7 +4,7 @@ function stat = setifreq(f)
 %   Hz (by linear interpolation); times given to isigsettime and strtim
 %   are then in sample intervals at F Hz.  Returns 0, or -1 if F <= 0, if
 %   no record is open, or if the sampling frequency of the open record is
-%   not specified (wfdb-x; in legacy mode the message is always "no open
+%   not specified (WFDB-x; in legacy mode the message is always "no open
 %   input record", as in C; see docs/DIVERGENCES.md).
 %
 %   See also wfdbx.getifreq, wfdbx.getvec.
@@ -13,7 +13,7 @@ function stat = setifreq(f)
 %   arguments and results. Differences: it fails if the sampling frequency of
 %   the input record is not specified; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software

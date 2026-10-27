@@ -1,6 +1,6 @@
 # Porting guide
 
-This document describes how every wfdb-x implementation is organized, and the
+This document describes how every WFDB-x implementation is organized, and the
 details of the C implementation that an implementation must reproduce to pass
 the conformance suite. The Python implementation (`python/src/wfdbx/`) is the
 template for the others.
@@ -17,7 +17,7 @@ Each implementation mirrors the C sources, file by file:
 | `lib/calib.c` | `_calib.py` | calibration list |
 | `lib/wfdbinit.c` | `_wfdbinit.py` | `wfdbinit`, `wfdbquit`, `wfdbflush` |
 | `lib/ecgcodes.h`, `lib/ecgmap.h`, the mapping functions of `lib/annot.c` | `_ecgcodes.py` | annotation codes and mapping tables |
-| FLAC support in `lib/signal.c` (libFLAC) | `_flac.py` | the FLAC support of the signal functions, and wfdb-x's own FLAC decoder and encoder |
+| FLAC support in `lib/signal.c` (libFLAC) | `_flac.py` | the FLAC support of the signal functions, and WFDB-x's own FLAC decoder and encoder |
 | `app/*.c`, `convert/*.c` | `apps/*.py` | command-line tools |
 | (C standard library) | `_cstd.py` | `strtol`, `strtod`, `strtok`, `sscanf`, `fgets`, glibc `rand`, `printf` details |
 
@@ -90,7 +90,7 @@ Reference platform: x86-64 Linux, glibc, `-DWFDB_LARGETIME`.
 Each tool is a line-by-line port of its C source. Several C programs rely on
 stale buffer contents, modify their arguments in place, or have undefined
 behavior; [`KNOWN_C_BEHAVIORS.md`](KNOWN_C_BEHAVIORS.md) lists them, with the
-behavior chosen by wfdb-x where C's is undefined.
+behavior chosen by WFDB-x where C's is undefined.
 
 Messages that include the program name use the name the program was invoked
 by (`argv[0]` or its last path component, as the C source does). Ports must

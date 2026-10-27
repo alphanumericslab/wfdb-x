@@ -2,7 +2,7 @@
 // library's WFDB_FILE), the buffered file type used by the library and the
 // tools (port of the WfdbFile of rust/src/wfdbio.rs).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of lib/wfdbio.c from the WFDB Software Package
@@ -10,7 +10,7 @@
 // of the original code, but it is new code, not the original C code.
 //
 // Changes from the original: a remote file is read into memory (type WFDB_NET)
-// by wfdb-x's own code; the HTTP and FTP code of the original (NETFILES) is
+// by WFDB-x's own code; the HTTP and FTP code of the original (NETFILES) is
 // not translated; an output file of the library that cannot be written counts
 // as a write error (see wfdbx_write_errors). Each change is marked "wfdb-x:"
 // in the code; docs/DIVERGENCES.md gives the reasons.

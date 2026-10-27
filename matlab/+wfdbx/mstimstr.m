@@ -3,7 +3,7 @@ function s = mstimstr(t)
 %   S = wfdbx.mstimstr(T) is as wfdbx.timstr(T), with milliseconds
 %   ("hh:mm:ss.mmm" or "[hh:mm:ss.mmm dd/mm/yyyy]").  If no sampling
 %   frequency is specified, an error is reported and T is returned as a
-%   sample number, 'sN' with N = |T| (wfdb-x; in legacy mode, 1 sample per
+%   sample number, 'sN' with N = |T| (WFDB-x; in legacy mode, 1 sample per
 %   second is used, as in C; see docs/DIVERGENCES.md).
 %
 %   See also wfdbx.timstr, wfdbx.strtim.
@@ -13,7 +13,7 @@ function s = mstimstr(t)
 %   specified, it reports an error and returns the time as a sample number (the
 %   original assumed 1 sample per second); see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software

@@ -1,7 +1,7 @@
 //! wfdbtime: convert between times and sample numbers (port of
 //! `app/wfdbtime.c`).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of app/wfdbtime.c from the WFDB Software Package

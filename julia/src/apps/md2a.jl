@@ -6,7 +6,7 @@
 # distribution of the AHA database on floppy disk; ad2m can perform the
 # reverse conversion, however.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/md2a.c from the WFDB Software Package

@@ -1,6 +1,6 @@
 // a2m.cpp: convert an AHA format annotation file to MIT format.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of convert/a2m.c from the WFDB Software Package
@@ -73,11 +73,11 @@ static bool is_directory(const char *name)
 static const char *pname;
 
 constexpr size_t AHA_ANNLEN = 6;    // length of a compressed AHA annotation
-// Sampling frequency of the AHA DB (Hz), assumed in legacy mode (wfdb-x)
+// Sampling frequency of the AHA DB (Hz), assumed in legacy mode (WFDB-x)
 constexpr double AHA_FREQ = 250.;
 
 // A time in milliseconds as a sample number, at the sampling frequency of the
-// record (wfdb-x; the C program, like legacy mode, assumed 4 ms per sample).
+// record (WFDB-x; the C program, like legacy mode, assumed 4 ms per sample).
 static WFDB_Time ms_to_samples(WFDB_Time t)
 {
     if (wfdbx_get_legacy()) return t >> 2;  // 4 msec/sample
@@ -180,7 +180,7 @@ static int getcann(WFDB_Annotation *ap)
     return 0;
 }
 
-// Exit after reporting an unrecognized option (wfdb-x: also the wfdb-x
+// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -216,7 +216,7 @@ int main(int argc, char **argv)
                 }
                 oann = argv[i];
                 break;
-            case 'F': // sampling frequency follows (wfdb-x)
+            case 'F': // sampling frequency follows (WFDB-x)
                 if (wfdbx_get_legacy())   // wfdb-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ffreq) != 1 ||
@@ -289,7 +289,7 @@ int main(int argc, char **argv)
     }
 
     // Attach the input file to the standard input.
-    // (C reads a directory forever; wfdb-x reports it as unreadable)
+    // (C reads a directory forever; WFDB-x reports it as unreadable)
     if (std::strcmp(ifname, "-") != 0 &&
         (is_directory(ifname) ||
          std::freopen(ifname, "rb", stdin) == nullptr)) {
@@ -379,7 +379,7 @@ int main(int argc, char **argv)
         }
         break;
     // Times in milliseconds are converted at the sampling frequency of the
-    // record (wfdb-x; the C program assumed 4 ms per sample, i.e., 250 Hz,
+    // record (WFDB-x; the C program assumed 4 ms per sample, i.e., 250 Hz,
     // whatever the record's frequency, as legacy mode does).
     case 1:
     case 2:

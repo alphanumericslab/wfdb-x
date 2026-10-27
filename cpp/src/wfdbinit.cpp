@@ -1,6 +1,6 @@
 // wfdbinit.cpp: WFDB library functions wfdbinit, wfdbquit, and wfdbflush.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of lib/wfdbinit.c from the WFDB Software Package

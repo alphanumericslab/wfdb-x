@@ -1,8 +1,8 @@
 """Signal I/O tests: every storage format round-trips exactly.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
-tests wfdb-x; it has no counterpart in the original package.
+tests WFDB-x; it has no counterpart in the original package.
 
 Copyright (C) 2026 Reza Sameni.
 
@@ -237,7 +237,7 @@ def test_read_header_legacy(datadir):
 
 
 # ---------------------------------------------------------------------------
-# The vectorized write_record (wfdb-x): byte for byte as putvec
+# The vectorized write_record (WFDB-x): byte for byte as putvec
 
 FAST_FMTS = [8, 16, 24, 32, 61, 80, 160, 212, 310, 311]
 MIN = {8: -(1 << 31), 16: -32768, 61: -32768, 160: -32768, 80: -128,
@@ -320,7 +320,7 @@ def test_fast_write_fallback(datadir, monkeypatch, fmt):
 
 
 # ---------------------------------------------------------------------------
-# write_record(..., dir=...) (wfdb-x)
+# write_record(..., dir=...) (WFDB-x)
 
 def test_write_record_dir(datadir):
     x = np.arange(20).reshape(10, 2)
@@ -359,7 +359,7 @@ def test_write_record_dir(datadir):
 
 
 def test_dir_checks_first(datadir):
-    # the dir checks come before any other validation (wfdb-x)
+    # the dir checks come before any other validation (WFDB-x)
     x = np.arange(4).reshape(2, 2)
     os.mkdir("out")
     with pytest.raises(ValueError) as e:
@@ -901,3 +901,198 @@ def test_write_record_frame_checks(datadir):
     assert w.read_record("good").signals.shape == (4, 1)
     w.write_record("good", x, 250, samps_per_frame=[1, 1], **kw)
     assert np.array_equal(w.read_record("good").signals, x)
+
+
+def _mf_record(name, rng, fmt, spf, n, gains=None, names=None, invalid=True):
+    """A random multi-frequency record (spf: samples per frame of each
+    signal; n frames), with invalid samples; returns its frames."""
+    hi = min(RANGES[fmt], 30000) if fmt == 8 else RANGES[fmt]
+    cols = sum(spf)
+    if fmt == 8:
+        x = np.cumsum(rng.integers(-60, 61, size=(n, cols)), axis=0)
+    else:
+        x = rng.integers(-hi + 1, hi + 1, size=(n, cols))
+        if invalid:
+            x[rng.random((n, cols)) < 0.01] = w.WFDB_INVALID_SAMPLE
+            x[:2, 0] = w.WFDB_INVALID_SAMPLE
+    w.write_record(name, x, 250, fmt=fmt, gains=gains or 200,
+                   adcres=RES[fmt], units="mV", samps_per_frame=spf,
+                   names=names)
+    return x
+
+
+_MF_MODES = ({}, {"pad": True}, {"highres": True},
+             {"highres": True, "pad": True}, {"physical": True},
+             {"sampfrom": 1234}, {"sampfrom": 7, "sampto": 15000},
+             {"highres": True, "sampfrom": 3, "sampto": 9001},
+             {"channels": [1, 0, 1]})
+
+
+@pytest.mark.parametrize("fmt", _BULK_FMTS)
+def test_bulk_read_multifrequency(datadir, monkeypatch, fmt):
+    # Records of several sampling frequencies are read in blocks: the same
+    # samples as frame by frame, in low- and high-resolution modes.
+    import wfdbx.highlevel as hl
+    rng = np.random.default_rng(fmt + 1)
+    monkeypatch.setattr(hl, "_CHUNK_SAMPLES", 4096 * 3 + 5)
+    for spf in ([4, 1, 1, 1], [2, 3], [1, 2], [8, 1], [3, 3, 1]):
+        n = int(rng.integers(16000, 24000))
+        _mf_record("m", rng, fmt, spf, n)
+        for kw in _MF_MODES:
+            a, b = _read_both(monkeypatch, "m", **kw)
+            _same(a, b)
+        # (all but the frames near the end are read in blocks)
+        rows, bulk = _bulk_rows(monkeypatch, "m", highres=True)
+        assert rows - bulk <= 4 * max(spf)
+
+
+def _bulk_rows(monkeypatch, *args, **kw):
+    """(rows read by read_record, rows of them read in blocks)"""
+    import wfdbx._signal as s
+    orig = s._bulk_frames
+    count = [0]
+
+    def counted(*a, **k):
+        r = orig(*a, **k)
+        count[0] += r or 0
+        return r
+
+    with monkeypatch.context() as m:
+        m.setattr(s, "_bulk_frames", counted)
+        r = w.read_record(*args, **kw)
+    return len(r.signals), count[0]
+
+
+def _write_segments(name, rng, fmt, spf, lens, **kw):
+    segs = []
+    for k, n in enumerate(lens):
+        seg = "%s_%d" % (name, k + 1)
+        _mf_record(seg, rng, fmt, spf, n, **kw)
+        segs.append((seg, n))
+    return segs
+
+
+def test_bulk_read_multisegment(datadir, monkeypatch):
+    # Multi-segment records, of fixed and of variable layout (with signals
+    # missing from some segments, other gains, and null segments), are read
+    # in blocks: the same samples as frame by frame.
+    import wfdbx.highlevel as hl
+    rng = np.random.default_rng(11)
+    monkeypatch.setattr(hl, "_CHUNK_SAMPLES", 4096 * 3 + 5)
+    names = ["ECG", "ABP", "RESP"]
+    # fixed layout
+    segs = _write_segments("fx", rng, 212, [4, 1, 1], [9000, 7001, 12000],
+                           names=names)
+    with open("fx.hea", "w") as f:
+        f.write("fx/3 3 250 %d\n" % sum(n for _, n in segs))
+        f.writelines("%s %d\n" % s for s in segs)
+    for kw in _MF_MODES + ({"sampfrom": 8999, "sampto": 16002},):
+        a, b = _read_both(monkeypatch, "fx", **kw)
+        _same(a, b)
+    a = w.read_record("fx")
+    assert a.signals.shape == (28001, 3)
+    rows, bulk = _bulk_rows(monkeypatch, "fx")
+    assert rows - bulk <= 2 * 3
+    # variable layout
+    with open("vl_0.hea", "w") as f:
+        f.write("vl_0 3 250 0\n"
+                "~ 0x4 400(10)/mV 12 0 0 0 0 ECG\n"
+                "~ 0 100/mV 16 0 0 0 0 ABP\n"
+                "~ 0 50/mV 16 0 0 0 0 RESP\n")
+    s1 = _write_segments("va", rng, 16, [4, 1, 1], [5000], names=names,
+                         gains=[400, 100, 50])
+    s2 = _write_segments("vb", rng, 16, [1, 4], [6003], names=["RESP", "ECG"],
+                         gains=[25, 200])
+    s3 = _write_segments("vc", rng, 212, [1], [4000], names=["ABP"],
+                         gains=[100])
+    segs = [("vl_0", 0)] + s1 + [("~", 2500)] + s2 + s3
+    with open("vl.hea", "w") as f:
+        f.write("vl/%d 3 250 %d\n" % (len(segs), sum(n for _, n in segs)))
+        f.writelines("%s %d\n" % s for s in segs)
+    w.wfdbquiet()
+    for kw in _MF_MODES + ({"sampfrom": 4990, "sampto": 9000},):
+        a, b = _read_both(monkeypatch, "vl", **kw)
+        _same(a, b)
+    rows, bulk = _bulk_rows(monkeypatch, "vl")
+    assert rows - bulk <= 2 * 6
+    w.wfdbverbose()
+    a = w.read_record("vl", physical=True)
+    assert a.signals.shape == (17503, 3)
+    assert np.isnan(a.signals[5000:7500]).all()     # (the null segment)
+
+
+def test_bulk_read_test_records(datadir, monkeypatch):
+    # Every test record of the repository: the same samples in blocks as
+    # frame by frame, in every reading mode.
+    import glob
+    w.wfdbquiet()
+    for h in sorted(glob.glob("*.hea")):
+        rec = h[:-4]
+        for kw in ({}, {"pad": True}, {"highres": True},
+                   {"highres": True, "pad": True}, {"sampfrom": 3}):
+            try:
+                a, b = _read_both(monkeypatch, rec, **kw)
+            except (IOError, ValueError) as e:
+                with pytest.raises(type(e)):
+                    _read_both(monkeypatch, rec, **kw)
+                continue
+            _same(a, b)
+    w.wfdbverbose()
+
+
+@pytest.mark.parametrize("hr", [False, True])
+def test_bulk_multifrequency_interleaved(datadir, monkeypatch, hr):
+    # getframes (bulk) mixed with getvec and isigsettime on a
+    # multi-frequency record, in high resolution also from the middle of a
+    # frame: the same vectors, statuses and library state as getvec alone.
+    import wfdbx._signal as s
+    rng = np.random.default_rng(5)
+    _mf_record("mf", rng, 212, [4, 1, 3], 20001)
+    mode = (w.WFDB_HIGHRES if hr else w.WFDB_LOWRES) | w.WFDB_GVPAD
+    steps = [("f", 999), ("v", 3), ("f", 4097), ("t", 17), ("v", 1),
+             ("f", 9001), ("v", 2), ("t", 30), ("f", 200000)]
+    out = []
+    for bulk in (True, False):
+        with monkeypatch.context() as m:
+            if not bulk:
+                m.setattr(s, "_bulk_eligible", lambda: False)
+            assert w.isigopen("mf", [], 3) == 3
+            w.setgvmode(mode)
+            got = []
+            for op, k in steps:
+                if op == "f":
+                    arr, stat = w.getframes(k)
+                    got.append((arr.tolist(), stat))
+                elif op == "v":
+                    v = [0] * 3
+                    got.append([(w.getvec(v), list(v)) for _ in range(k)])
+                else:
+                    got.append(w.isigsettime(k))
+                got.append((_state(3), s._s.gvc))
+            w.wfdbquit()
+        out.append(got)
+    assert out[0] == out[1]
+
+
+def test_names_without_spaces(datadir):
+    # Descriptions that end (or begin) with white space in the header are
+    # given without it by the high-level readers, and found by that name;
+    # the C-style functions keep it, as in C.
+    with open("sp.hea", "w") as f:
+        f.write("sp 3 250 4\n"
+                "fmt16.dat 16 200/mV 16 0 0 0 0 III \n"
+                "fmt16.dat 16 200/mV 16 0 0 0 0 ABP\t \n"
+                "fmt16.dat 16 200/mV 16 0 0 0 0 PLETH\n")
+    for legacy in (False, True):
+        r = w.read_record("sp", legacy=legacy)
+        assert r.names == ["III", "ABP", "PLETH"]
+        assert [s.desc for s in r.siginfo] == ["III", "ABP", "PLETH"]
+        h = w.read_header("sp", legacy=legacy)
+        assert [s.desc for s in h.siginfo] == ["III", "ABP", "PLETH"]
+        r2 = w.read_record("sp", channels=["ABP", "III ", 2])
+        assert r2.names == ["ABP", "III", "PLETH"]
+        assert np.array_equal(r2.signals, r.signals[:, [1, 0, 2]])
+    si = []
+    assert w.isigopen("sp", si, 3) == 3
+    assert [s.desc for s in si] == ["III ", "ABP\t ", "PLETH"]
+    w.wfdbquit()

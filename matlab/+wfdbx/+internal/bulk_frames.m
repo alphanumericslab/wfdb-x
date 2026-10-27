@@ -1,23 +1,33 @@
-function [out, ok] = bulk_frames(n)
+function [out, ok] = bulk_frames(n, minstat)
 %BULK_FRAMES Read many sample vectors at once with vector operations.
 %   [OUT, OK] = wfdbx.internal.bulk_frames(N) reads up to N sample vectors
-%   (as returned by getvec: one row per vector, one column per signal),
-%   exactly as N calls of getvec would, decoding whole frames with vector
-%   operations.  Multi-frequency records are handled in WFDB_LOWRES mode
-%   (frame averages, as meansamp) and WFDB_HIGHRES mode (ispfmax vectors
-%   per frame), and FLAC groups through wfdbx.internal.flac_getsamps.
-%   Fewer vectors (possibly none) are read when a frame would require
-%   special handling (end of file, a frame at which a checksum is
-%   verified, a partial bit-packed group, a partial frame in WFDB_HIGHRES
-%   mode, ...), so that the caller can use getvec for the next one.  OK is
+%   (as returned by getvec: one row per vector, one column per signal of
+%   getvec's vector, nvsig), exactly as N calls of getvec would, decoding
+%   whole frames with vector operations.  Multi-frequency records are
+%   handled in WFDB_LOWRES mode (frame averages, as meansamp) and
+%   WFDB_HIGHRES mode (ispfmax vectors per frame), FLAC groups through
+%   wfdbx.internal.flac_getsamps, null signals (format 0), and the
+%   segments of multi-segment records (mapped to the layout signals, as
+%   sigmap, when the layout varies).  Fewer vectors (possibly none) are
+%   read when a frame would require special handling (end of file, a
+%   frame at which a checksum is verified or after which a segment ends,
+%   a partial bit-packed group, a partial frame in WFDB_HIGHRES mode,
+%   ...), so that the caller can use getvec for the next one.  OK is
 %   false (and OUT empty) if the bulk path cannot be used at all (skew,
-%   variable-layout multi-segment records, resampling with setifreq,
-%   signals without files, a FLAC decoding error, a prolog not yet
+%   resampling with setifreq, a FLAC decoding error, a prolog not yet
 %   skipped, ...).
+%
+%   [OUT, OK] = wfdbx.internal.bulk_frames(N, MINSTAT) also declines (OK
+%   false) if getvec would return less than MINSTAT for these vectors (the
+%   number of signals of the current segment).
+%
+%   The property bulk_read of wfdbx.internal.sig_state() (true by default)
+%   turns this path off when false (for the tests); bulk_vectors counts
+%   the vectors read by it.
 %
 %   Part of the translation of lib/signal.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -37,12 +47,18 @@ function [out, ok] = bulk_frames(n)
 % Software Foundation, either version 3 of the License, or (at your option)
 % any later version. See LICENSE.
 
+if nargin < 2
+    minstat = 0;
+end
 S = wfdbx.internal.sig_state();
 out = [];
 ok = false;
 nisig = S.nisig;
-if n <= 0 || nisig == 0 || S.need_sigmap || S.has_dsbuf || ...
-        S.nvsig ~= nisig || ~(S.ifreq == 0 || S.ifreq == S.sfreq)
+need_sigmap = S.need_sigmap;
+if n <= 0 || nisig == 0 || ~S.bulk_read || S.has_dsbuf || ...
+        ~(S.ifreq == 0 || S.ifreq == S.sfreq) || ...
+        (S.nvsig ~= nisig && ~need_sigmap) || nisig > S.nvsig || ...
+        nisig < minstat
     return;
 end
 ispfmax = S.ispfmax;
@@ -55,11 +71,24 @@ isd = S.isd;
 info = [isd.info];
 fmts = [info.fmt];
 spfs = [info.spf];
-if ~all(ismember(fmts, [8 80 16 61 160 24 32 212 310 311 508 516 524]))
+grp = [info.group];
+nsamp = [info.nsamp];
+if ~all(ismember(fmts, [0 8 80 16 61 160 24 32 212 310 311 508 516 524]))
     return;
 end
-for g = 1:S.nigroup
-    ig = igd{g};
+% (null signals, format 0: no file; their length must be known)
+isnull = fmts == 0;
+if any(isnull & nsamp <= 0)
+    return;
+end
+% the groups with a file (one format per group), and those of null signals
+fgrp = reshape(unique(grp(~isnull)), 1, []);
+for g = fgrp
+    sl = grp == g;
+    if any(fmts(sl) ~= fmts(find(sl, 1)))
+        return;
+    end
+    ig = igd{g + 1};
     if isempty(ig.flac)
         if ig.seek ~= 1 || isempty(ig.fp) || ig.initial_skip || ig.count
             return;
@@ -68,9 +97,14 @@ for g = 1:S.nigroup
         return;
     end
 end
+for g = reshape(unique(grp(isnull)), 1, [])
+    if any(fgrp == g) || igd{g + 1}.stat <= 0
+        return;
+    end
+end
 % FLAC groups: decode them now (as the first flac_getsamp would)
-for g = 1:S.nigroup
-    ig = igd{g};
+for g = fgrp
+    ig = igd{g + 1};
     if ~isempty(ig.flac)
         fi = ig.flac;
         if ~fi.decoded
@@ -85,74 +119,66 @@ end
 ok = true;
 % the number of frames to read (n is a number of getvec vectors)
 if highres
-    n = floor(n / ispfmax);
+    per = ispfmax;      % vectors per frame
+else
+    per = 1;
 end
-grp = [info.group];
-ng = S.nigroup;
-% bytes (nb) per ns samples of each format; nn samples per frame
+n = floor(n / per);
+ng = numel(fgrp);
+% bytes (nb) per ns samples of each group's format; nn samples per frame;
+% the alignment period (in frames) that keeps each group on a whole
+% packed unit
 nbv = zeros(1, ng);
 nsv = zeros(1, ng);
 nnv = zeros(1, ng);
 period = 1;
-for g = 1:ng
-    sl = find(grp == g - 1);
-    nnv(g) = sum(spfs(sl));
+for k = 1:ng
+    sl = find(grp == fgrp(k));
+    nnv(k) = sum(spfs(sl));
     switch fmts(sl(1))
         case {8, 80}
-            nbv(g) = 1; nsv(g) = 1;
+            nbv(k) = 1; nsv(k) = 1;
         case {16, 61, 160}
-            nbv(g) = 2; nsv(g) = 1;
+            nbv(k) = 2; nsv(k) = 1;
         case 24
-            nbv(g) = 3; nsv(g) = 1;
+            nbv(k) = 3; nsv(k) = 1;
         case 32
-            nbv(g) = 4; nsv(g) = 1;
+            nbv(k) = 4; nsv(k) = 1;
         case 212
-            nbv(g) = 3; nsv(g) = 2;
+            nbv(k) = 3; nsv(k) = 2;
         case {310, 311}
-            nbv(g) = 4; nsv(g) = 3;
+            nbv(k) = 4; nsv(k) = 3;
         otherwise   % FLAC: samples, not bytes
-            nbv(g) = 1; nsv(g) = 1;
+            nbv(k) = 1; nsv(k) = 1;
     end
-    if nsv(g) == 2 && mod(nnv(g), 2)
-        period = lcm(period, 2);
-    elseif nsv(g) == 3 && mod(nnv(g), 3)
-        period = lcm(period, 3);
-    end
+    period = lcm(period, nsv(k) / gcd(nnv(k), nsv(k)));
 end
-% Do not include a frame at which a checksum would be verified.
-nsamp = [info.nsamp];
+% Do not include a frame at which a checksum would be verified, or after
+% which a null signal ends.
 k = nsamp > 0 & n >= nsamp;
 if any(k)
     n = min(nsamp(k)) - 1;
 end
 n = n - mod(n, period);
 if n <= 0
-    out = zeros(0, nisig);
+    out = zeros(0, S.nvsig);
     return;
 end
 bufs = cell(1, ng);
-for g = 1:ng
-    ig = igd{g};
+haves = zeros(1, ng);
+for k = 1:ng
+    ig = igd{fgrp(k) + 1};
     if ~isempty(ig.flac)
         fi = ig.flac;
-        avail = floor((numel(fi.samples) - fi.pos) / nnv(g));
+        avail = floor((numel(fi.samples) - fi.pos) / nnv(k));
         if avail < n
             n = avail;
         end
         continue;
     end
-    need = n * nnv(g) * nbv(g) / nsv(g);
-    bp = ig.bp;
-    be = ig.be;
-    have = be - bp;
-    if have >= need
-        data = ig.buf(bp + 1:be);
-    else
-        more = ig.fp.read(need - have);
-        data = [ig.buf(bp + 1:be), more];
-    end
-    bufs{g} = data;
-    unit = period * nnv(g) * nbv(g) / nsv(g);
+    [data, haves(k)] = bulk_read(S, ig, n * nnv(k) * nbv(k) / nsv(k));
+    bufs{k} = data;
+    unit = period * nnv(k) * nbv(k) / nsv(k);
     avail = floor(numel(data) / unit) * period;
     if avail < n
         n = avail;
@@ -165,27 +191,20 @@ if S.istime == 0
         isd(s).samp = isd(s).info.initval;
     end
 end
-for g = 1:ng
-    ig = igd{g};
-    data = bufs{g};
-    sl = find(grp == g - 1);
+for k = 1:ng
+    ig = igd{fgrp(k) + 1};
+    data = bufs{k};
+    sl = find(grp == fgrp(k));
     fmt = fmts(sl(1));
-    nn = nnv(g);
+    nn = nnv(k);
+    if isempty(ig.flac)
+        % (leave the unused bytes buffered, as the C library would)
+        bulk_consume(S, ig, data, haves(k), n * nn * nbv(k) / nsv(k));
+    end
     if n == 0
-        if isempty(ig.flac)
-            ig.buf = data;
-            ig.bp = 0;
-            ig.be = numel(data);
-            ig.stat = max(ig.stat, 1);
-        end
         continue;
     end
     if isempty(ig.flac)
-        used = n * nn * nbv(g) / nsv(g);
-        ig.buf = data;
-        ig.bp = used;
-        ig.be = numel(data);
-        ig.stat = max(ig.stat, 1);
         raw = reshape(decode(fmt, data, n * nn), nn, n);
     else
         raw = reshape(wfdbx.internal.flac_getsamps(ig, n * nn), nn, n);
@@ -201,11 +220,11 @@ for g = 1:ng
             v = cumsum(col) + isd(s).samp;
             v = v - 4294967296 * floor((v + 2147483648) / 4294967296);
             isd(s).samp = v(end);
-            cks = sum(v);
+            isd(s).info.cksum = cks_sub(isd(s).info.cksum, v);
         else
             inval = -2^(wfdbx.internal.fmt_bits(fmt) - 1);   % the invalid value
             inv = col == inval;
-            cks = sum(col);
+            isd(s).info.cksum = cks_sub(isd(s).info.cksum, col);
             if any(inv)
                 if pad
                     idx = (1:numel(col))';
@@ -228,41 +247,192 @@ for g = 1:ng
             end
         end
         frames{s} = reshape(v, spf, n).';
-        c = isd(s).info.cksum - cks;
-        isd(s).info.cksum = c - 4294967296 * floor((c + 2147483648) / 4294967296);
-        if isd(s).info.nsamp > 0
-            isd(s).info.nsamp = isd(s).info.nsamp - n;
-        elseif isd(s).info.nsamp == 0
-            isd(s).info.nsamp = -1;
+    end
+end
+if n == 0
+    S.isd = isd;
+    out = zeros(0, S.nvsig);
+    return;
+end
+for s = 1:nisig
+    if isnull(s)
+        % every sample: the previous one with WFDB_GVPAD, else invalid
+        if pad
+            v = isd(s).samp;
+        else
+            v = -32768;
         end
+        frames{s} = zeros(n, spfs(s)) + v;
+        isd(s).info.cksum = cks_null(isd(s).info.cksum, v, n * spfs(s));
+    end
+    if isd(s).info.nsamp > 0
+        isd(s).info.nsamp = isd(s).info.nsamp - n;
+    elseif isd(s).info.nsamp == 0
+        isd(s).info.nsamp = -1;
     end
 end
 S.isd = isd;
 S.istime = S.istime + n;
-if n == 0
-    out = zeros(0, nisig);
-elseif ispfmax == 1
-    out = [frames{:}];
-elseif highres
-    % ispfmax vectors per frame; signal s gives sample floor(c*spf/ispfmax)
-    % of the frame at step c (as rgetvec's gvindex/gvcount)
-    out = zeros(n * ispfmax, nisig);
-    c = (0:ispfmax - 1)';
-    for s = 1:nisig
-        idx = floor(c * spfs(s) / ispfmax) + 1;
-        f = frames{s};
-        out(:, s) = reshape(f(:, idx).', [], 1);
-    end
-    S.gvc = ispfmax;
-    S.rgetvec_stat = nisig;
-    S.tvector = cell2mat(cellfun(@(f) f(end, :), frames, 'UniformOutput', false));
+% The frames as getframe gives them: mapped to the layout of a
+% variable-layout record, or padded with invalid samples.
+F = [frames{:}];
+tspf = S.tspf;
+if need_sigmap
+    ov = S.ovec;
+    ov(1:size(F, 2)) = F(end, :);
+    S.ovec = ov;
+    F = sigmap_rows(S, F);
+elseif size(F, 2) < tspf
+    F = [F, zeros(n, tspf - size(F, 2)) - 32768];
+end
+% The sample vectors, as getvec gives them.
+nvsig = S.nvsig;
+if ispfmax < 2
+    out = F(:, 1:nvsig);
 else
-    % WFDB_LOWRES: the mean of the samples of each frame (meansamp)
-    out = zeros(n, nisig);
-    for s = 1:nisig
-        out(:, s) = meansamp(frames{s}, spfs(s));
+    vsd = S.vsd;
+    tv = S.tvector;
+    tv(1:tspf) = F(end, 1:tspf);
+    S.tvector = tv;
+    S.rgetvec_stat = nisig;
+    if highres
+        % per vectors per frame: signal s gives sample index of the frame
+        % at each step (as rgetvec's gvindex and gvcount)
+        out = zeros(n * per, nvsig);
+        tp = 0;
+        for s = 1:nvsig
+            sf = vsd(s).info.spf;
+            idx = zeros(1, per);
+            index = 0;
+            count = -per;
+            for k = 2:per
+                count = count + sf;
+                if count >= 0
+                    index = index + 1;
+                    count = count - per;
+                end
+                idx(k) = index;
+            end
+            f = F(:, tp + idx + 1);
+            out(:, s) = reshape(f.', [], 1);
+            vsd(s).gvindex = index;
+            vsd(s).gvcount = count;
+            tp = tp + sf;
+        end
+        S.vsd = vsd;
+        S.gvc = per;
+    else
+        % WFDB_LOWRES: the mean of the samples of each frame (meansamp)
+        out = zeros(n, nvsig);
+        tp = 0;
+        for s = 1:nvsig
+            sf = vsd(s).info.spf;
+            out(:, s) = meansamp(F(:, tp + 1:tp + sf), sf);
+            tp = tp + sf;
+        end
     end
 end
+S.bulk_vectors = S.bulk_vectors + size(out, 1);
+end
+
+function [data, have] = bulk_read(S, ig, need)
+% The next NEED bytes of input group IG (fewer at the end of the file): the
+% bytes left in its buffer, then those of the blocks read ahead, then bytes
+% read from its file, in whole blocks (as a refill reads them).  HAVE is
+% the number of bytes of DATA that come from the buffer (the blocks begin
+% there).  See bulk_consume.
+have = max(ig.be - ig.bp, 0);     % (bp > be after a refill at the end)
+if have >= need
+    data = ig.buf(ig.bp + 1:ig.be);
+    return;
+end
+bsize = ig.bsize;
+if bsize <= 0
+    bsize = S.ibsize;
+end
+ahead = numel(ig.ahead);
+if need > have + ahead
+    more = ig.fp.read(ceil((need - have - ahead) / bsize) * bsize);
+else
+    more = zeros(1, 0, 'uint8');
+end
+data = [ig.buf(ig.bp + 1:ig.bp + have), ig.ahead, more];
+end
+
+function bulk_consume(S, ig, data, have, used)
+% Leave input group IG as the refills and the r* routines would after
+% consuming the first USED bytes of DATA (from bulk_read: its buffered
+% bytes, then whole blocks): the buffer is the block holding the last
+% byte consumed (its stale bytes matter when a later refill finds the end
+% of the file), and the blocks after it are kept for the refills
+% (ig.ahead).
+if used <= have
+    % (still in the buffer; DATA begins at ig.bp)
+    ig.bp = ig.bp + used;
+    if numel(data) > have
+        ig.ahead = data(have + 1:end);
+    end
+    return;
+end
+bsize = ig.bsize;
+if bsize <= 0
+    bsize = S.ibsize;
+end
+start = have + floor((used - have - 1) / bsize) * bsize;
+block = data(start + 1:min(start + bsize, numel(data)));
+ig.buf = block;
+ig.bp = used - start;
+ig.be = numel(block);
+ig.stat = numel(block);
+ig.ahead = data(min(start + bsize, numel(data)) + 1:end);
+end
+
+function c = cks_sub(c, x)
+% The checksum C minus the sum of the samples X, wrapped to int (exact for
+% any number of samples of at most 32 bits).
+if numel(x) <= 4194304      % (the sum is below 2^53)
+    t = sum(x);
+else
+    lo = mod(x, 65536);
+    t = mod(sum((x - lo) / 65536), 65536) * 65536 + sum(lo);
+end
+c = c - t;
+c = c - 4294967296 * floor((c + 2147483648) / 4294967296);     % (int)
+end
+
+function c = cks_null(c, v, cnt)
+% The checksum C minus CNT times the sample V, wrapped to int.
+u = mod(v, 4294967296);
+t = mod(u * mod(cnt, 65536), 4294967296) + ...
+    mod(u * floor(cnt / 65536), 65536) * 65536;
+c = c - t;
+c = c - 4294967296 * floor((c + 2147483648) / 4294967296);     % (int)
+end
+
+function out = sigmap_rows(S, F)
+% wfdbx.internal.sigmap for each row of F.
+WFDB_SAMPLE_MIN = -2147483648;  % INT_MIN
+WFDB_SAMPLE_MAX = 2147483647;   % INT_MAX
+smi = S.smi;
+tspf = S.tspf;
+idx = [smi(1:tspf).index] + 1;
+scale = [smi(1:tspf).scale];
+offset = [smi(1:tspf).offset];
+so = [smi(1:tspf).sample_offset];
+X = F(:, idx);
+nr = size(X, 1);
+V = X .* repmat(scale, nr, 1) + repmat(offset, nr, 1);
+out = zeros(size(V)) + WFDB_SAMPLE_MIN;     % (NaN)
+k = V >= 0;
+out(k) = min(fix(V(k)), WFDB_SAMPLE_MAX);
+k = V < 0;
+out(k) = max(floor(V(k)), WFDB_SAMPLE_MIN);
+c = find(so ~= 0);
+if ~isempty(c)
+    r = fix(V(:, c)) + repmat(so(c), nr, 1);
+    out(:, c) = r - 4294967296 * floor((r + 2147483648) / 4294967296);   % (int)
+end
+out(X == -32768) = -32768;  % WFDB_INVALID_SAMPLE
 end
 
 function total = meansamp(sv, n)

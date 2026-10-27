@@ -6,9 +6,9 @@ function tf = pkg_has(name)
 %   functions in Octave.)  This lets the signal module call functions of
 %   modules that may be missing (annotations, FLAC) only if they exist.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

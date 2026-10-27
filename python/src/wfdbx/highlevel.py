@@ -28,7 +28,7 @@ https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md#legacy-
 These functions call ``wfdbquit()``, which closes anything opened with
 the WFDB library functions.
 
-Example, with the sample record 100s, included with wfdb-x (the first minute
+Example, with the sample record 100s, included with WFDB-x (the first minute
 of record 100 of the MIT-BIH Arrhythmia Database, in the directory
 ``wfdbx.sample_data_dir()``)::
 
@@ -46,7 +46,7 @@ input directory is its PhysioNet URL, and network access is on)::
         "100", input_dir="https://physionet.org/files/mitdb/1.0.0/",
         network=True)
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
 has no counterpart in the original package.
 
@@ -120,8 +120,10 @@ class Record:
                     units if you read with physical=True. Invalid samples are
                     WFDB_INVALID_SAMPLE, or NaN in physical units.
       siginfo       list of Siginfo objects, one per signal. A signal's
-                    ``adcres`` is 0 if the header does not give it.
-      names         description of each signal, such as "MLII"
+                    ``adcres`` is 0 if the header does not give it, and its
+                    ``desc`` has no white space at either end.
+      names         description of each signal, such as "MLII", without the
+                    white space that a header may put at either end of it
       units         physical units of each signal, or None if the header
                     gives none
       gains         gain of each signal, in ADC units per physical unit.
@@ -162,7 +164,8 @@ class Header:
                     give it
       nsig          number of signals
       siginfo       list of Siginfo objects, one per signal. A signal's
-                    ``adcres`` is 0 if the header does not give it.
+                    ``adcres`` is 0 if the header does not give it, and its
+                    ``desc`` has no white space at either end.
       base_time     start time and date as text, such as
                     "[08:45:00 01/01/2001]", or None if the header gives none
       base_time_ms  start time in milliseconds after midnight, or None if
@@ -224,7 +227,7 @@ def _time(t):
 
 
 def _legacy_option(func):
-    """Decorator for the legacy keyword argument (wfdb-x): with
+    """Decorator for the legacy keyword argument (WFDB-x): with
     legacy=True, the library's legacy mode is on for the duration of the
     call, and the previous setting is restored afterwards (also on
     errors).  With legacy=False (the default), the current setting (off
@@ -242,7 +245,7 @@ def _legacy_option(func):
 
 
 def _output_dir_option(func):
-    """Decorator for the dir keyword argument of the writers (wfdb-x): with
+    """Decorator for the dir keyword argument of the writers (WFDB-x): with
     a directory, the files are created in it (it must exist), and the
     record is named without the directory (so that it can be opened from
     that directory under its plain name); the library's output directory
@@ -269,7 +272,7 @@ def _output_dir_option(func):
 
 def _input_options(func):
     """Decorator for the input_dir and network keyword arguments of the
-    readers (wfdb-x): if given (not None), the library's input directory
+    readers (WFDB-x): if given (not None), the library's input directory
     (wfdbx_set_input_dir) and network permission (wfdbx_set_network) are set
     for the duration of the call, and the previous values are restored
     afterwards (also on errors)."""
@@ -304,6 +307,20 @@ def _warn_level():
 def _legacy():
     # True in legacy mode (the original behavior; see _legacy_option).
     return sig.wfdbx_get_legacy() != 0
+
+
+_SPACE = " \t\n\v\f\r"      # white space (C isspace)
+
+
+def _strip_desc(si):
+    """The Siginfo objects si with the white space at both ends of each
+    description removed.  wfdb-x: the high-level readers give the signal
+    names without the spaces that some headers end them with (C keeps
+    them, as the C-style functions do)."""
+    for s in si:
+        if s.desc:
+            s.desc = s.desc.strip(_SPACE)
+    return si
 
 
 def _check_time_freq(record, *times):
@@ -380,7 +397,7 @@ def read_header(record, *, input_dir=None, network=None, legacy=False):
         for s in hdr.siginfo:
             print(s.desc, s.fmt, s.gain, s.units)
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     init.wfdbquit()
     n = sig.isigopen(record, None, 0)
@@ -389,6 +406,7 @@ def read_header(record, *, input_dir=None, network=None, legacy=False):
         raise IOError("can't read header for record %s" % record)
     si = []
     sig.isigopen(record, si, -n)
+    _strip_desc(si)
     s_ = sig._s
     base_time, base_time_ms, base_date = _base_time_fields()
     hdr = Header(name=record, fs=sig.sampfreq(None),
@@ -411,8 +429,9 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
     Arguments:
       record     record name: a name in the input directory, or a full path,
                  ~ path or URL
-      channels   list of the signals to read, by number (int) or name (str),
-                 in the order you want them. Default: all signals.
+      channels   list of the signals to read, by number (int) or name (str,
+                 as in Record.names), in the order you want them. Default:
+                 all signals.
       sampfrom   first sample to read: a sample number or a time string.
                  Default: 0.
       sampto     the sample after the last one to read: a sample number or a
@@ -470,7 +489,7 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                                 physical=True)
         rec.signals.shape            # (3600, 1): 10 s of lead MLII, in mV
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
     init.wfdbquit()
@@ -490,12 +509,19 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
     _check_time_freq(record, sampfrom, sampto)
     frm = _time(sampfrom) or 0
     to = _time(sampto)
+    _strip_desc(si)
     if channels is None:
         cols = list(range(nsig))
     else:
         cols = []
+        names = [s.desc for s in si]
         for c in channels:
-            k = sig.findsig(str(c)) if not isinstance(c, int) else c
+            if isinstance(c, int):
+                k = c
+            elif str(c).strip(_SPACE) in names:
+                k = names.index(str(c).strip(_SPACE))
+            else:
+                k = sig.findsig(str(c))
             if k < 0 or k >= nsig:
                 init.wfdbquit()
                 raise ValueError("record %s has no signal %r" % (record, c))
@@ -517,6 +543,11 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
     # record turns out to be longer (or its length is not given); each
     # chunk is decoded straight into its rows.
     chunk = max(4096, _CHUNK_SAMPLES // max(nsig, 1))
+    # (whole frames, and a multiple of 6 of them, so that formats 212, 310
+    # and 311 end each chunk on a whole packed unit: the frames are then
+    # read in blocks)
+    unit = 6 * (max(sig._s.ispfmax, 1) if highres else 1)
+    chunk -= chunk % unit
     length = sig._record_length()
     expected = length - frm if length > frm else None
     if want is not None and (expected is None or want < expected):
@@ -639,7 +670,7 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
         qrs = [bool(wfdbx.isqrs(c)) for c in ann.codes]
         beats = ann.samples[qrs]     # times of the beats, in samples
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
     if fs is not None and not fs > 0:
@@ -771,7 +802,7 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                            gains=1000, adcres=16, units="mV",
                            names=["A", "B"])
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
     x = np.asarray(signals)
@@ -926,7 +957,7 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
                                 symbols=["N", "V", "N"],
                                 aux=[None, "(VT", None])
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
     n = len(samples)

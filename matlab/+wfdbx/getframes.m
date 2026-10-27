@@ -19,17 +19,17 @@ function [v, stat, last] = getframes(n, minstat)
 %   (1-by-NSIG) filled by the getvec call that stopped the reading ([] if
 %   all N vectors were read, or if no input signals are open).  For a
 %   checksum error (STAT -4) it is the last frame of the record, read
-%   completely (wfdb-x; wfdbx.read_record returns it).
+%   completely (WFDB-x; wfdbx.read_record returns it).
 %
 %   Whenever possible (signals in files of any format, including
-%   multi-frequency records in both getvec modes and FLAC files, without
-%   skew, variable-layout segments or setifreq resampling), many frames
-%   are decoded at once with vector operations, which is much faster than
-%   calling getvec for each sample; the results are always those of
-%   getvec.
+%   multi-frequency records in both getvec modes, FLAC files and the
+%   segments of multi-segment records, without skew or setifreq
+%   resampling), many frames are decoded at once with vector operations,
+%   which is much faster than calling getvec for each sample; the results
+%   are always those of getvec.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       [n, si] = wfdbx.isigopen('100s', 2);
@@ -37,9 +37,9 @@ function [v, stat, last] = getframes(n, minstat)
 %
 %   See also wfdbx.getvec, wfdbx.isigopen, wfdbx.isigsettime.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -47,7 +47,7 @@ function [v, stat, last] = getframes(n, minstat)
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: this function is a wfdb-x addition: it reads
+% Changes from the original: this function is a WFDB-x addition: it reads
 % many sample vectors at once, with the results of repeated getvec() calls.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -81,13 +81,19 @@ acc = zeros(0, nsig);
 nrows = 0;
 while got < n
     % (read in blocks of at most 2^20 frames, so that N may be Inf)
-    [blk, ok] = wfdbx.internal.bulk_frames(min(n - got, 2^20));
+    [blk, ok] = wfdbx.internal.bulk_frames(min(n - got, 2^20), minstat);
     if ok && ~isempty(blk)
         if nrows > 0
             parts{end + 1} = acc(1:nrows, :); %#ok<AGROW>
             nrows = 0;
         end
-        parts{end + 1} = blk; %#ok<AGROW>
+        % (getvec leaves the values after the nvsig signals unchanged)
+        nb = size(blk, 2);
+        vec(1:nb) = blk(end, :);
+        if nb < nsig
+            blk = [blk, repmat(vec(nb + 1:nsig), size(blk, 1), 1)]; %#ok<AGROW>
+        end
+        parts{end + 1} = blk(:, 1:nsig); %#ok<AGROW>
         got = got + size(blk, 1);
         continue;
     end

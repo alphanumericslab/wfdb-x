@@ -8,7 +8,7 @@ The implementation follows the C library closely, including its global
 (per-process) state: a WFDB application opens one input record and any
 number of output signals at a time, exactly as with the C library.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of lib/signal.c, lib/wfdb.h and lib/wfdblib.h from
@@ -25,7 +25,7 @@ read only from the header's directory (on disk or at its URL), never searched
 for, and a name that leaves that directory is refused; an output signal file is
 never one of the input files of the open record; a header written under a path
 names the record, its signal files and its segments relative to its own
-directory; FLAC signal files are read and written with wfdb-x's own codec
+directory; FLAC signal files are read and written with WFDB-x's own codec
 (_flac.py) instead of libFLAC; additions: wfdbx_set_legacy, wfdbx_get_legacy,
 wfdbx_legacy_args, wfdbx_time_needs_freq, getframes, and the readers and
 writers used by the high-level functions; legacy mode (wfdbx_set_legacy)
@@ -624,7 +624,7 @@ def wfdbx_set_legacy(on):
         ...
         wfdbx.wfdbx_set_legacy(0)
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     global _legacy_mode
     previous = _legacy_mode
@@ -637,7 +637,7 @@ def wfdbx_get_legacy():
 
     See wfdbx_set_legacy.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     return _legacy_mode
 
@@ -645,12 +645,12 @@ def wfdbx_get_legacy():
 def wfdbx_legacy_args(argv):
     """Recognize --legacy as the first argument of an application.
 
-    A wfdb-x addition: ``argv`` is the argument list, program name first.
+    A WFDB-x addition: ``argv`` is the argument list, program name first.
     If argv[1] is exactly "--legacy", it is removed (in place), legacy mode
     is turned on, and 1 is returned; otherwise nothing changes and 0 is
     returned.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     if len(argv) < 2 or argv[1] != "--legacy":
         return 0
@@ -2296,7 +2296,7 @@ def setifreq(f):
     unit of the times of input annotators opened afterwards, and the time
     resolution of new output annotators (see setafreq).  Returns 0 on
     success, or -1 if no record is open, if the sampling frequency of the
-    open record is not specified (wfdb-x), or if ``f`` is not positive.
+    open record is not specified (WFDB-x), or if ``f`` is not positive.
 
     Translation of the C function setifreq() (lib/signal.c, WFDB 10.7.0): same
     arguments and results. Differences: it fails if the sampling frequency of
@@ -2579,7 +2579,7 @@ def _encode(fmt, v):
 def _putframes(x):
     """Write the frames of the 2-D array x (one frame per row, as a vector
     of putvec) to the output signals, with the same result as putvec
-    called for each row (wfdb-x).
+    called for each row (WFDB-x).
 
     The frames are encoded together (with NumPy) if all output signals are
     in one signal file whose format is one of _FAST_FMTS, x is an integer
@@ -3393,12 +3393,12 @@ def _nofreq_timstr(fn, t):
 def wfdbx_time_needs_freq(string):
     """Return 1 if strtim() needs a sampling frequency to convert string.
 
-    A wfdb-x addition (see docs/DIVERGENCES.md): returns 0 if the string
+    A WFDB-x addition (see docs/DIVERGENCES.md): returns 0 if the string
     (after leading spaces, tabs, newlines and carriage returns) begins with
     "e", "i", "o" or "s", or with "c" while no counter frequency is
     defined; 1 otherwise.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     c = string.lstrip(" \t\n\r")[:1]
     if c in ("e", "i", "o", "s"):
@@ -3892,7 +3892,7 @@ def _wfdb_sigclose():
     s_.sfreq = s_.ifreq = s_.ffreq = 0.0
     s_.pdays = -1
     s_.segments = s_.in_msrec = s_.skewmax = 0
-    s_.hdr_dir = s_.msrec_dir = s_.msrec_name = None    # wfdb-x
+    s_.hdr_dir = s_.msrec_dir = s_.msrec_name = None    # WFDB-x
     if s_.dsbuf is not None:
         s_.dsbuf = None
         s_.dsbi = -1
@@ -4050,17 +4050,33 @@ def _decode_stream(fmt, data, nsamp):
 
 
 def _bulk_eligible():
+    """True if the next frames can be read by _bulk_frames: no deskewing
+    or resampling, every signal in a format _decode_stream handles (or a
+    null signal, format 0, of known length), and each group at the start
+    of a packed unit, read sequentially from a regular file; in
+    high-resolution mode, at the start of a frame."""
     s_ = _s
-    if s_.nisig == 0 or s_.need_sigmap or s_.dsbuf is not None or \
-            s_.nvsig != s_.nisig or s_.ispfmax != 1 or \
-            not (s_.ifreq == 0.0 or s_.ifreq == s_.sfreq):
+    if s_.nisig == 0 or s_.dsbuf is not None or \
+            not (s_.ifreq == 0.0 or s_.ifreq == s_.sfreq) or \
+            (s_.nvsig != s_.nisig and not s_.need_sigmap):
         return False
-    for ig in s_.igd:
+    if s_.ispfmax > 1 and (s_.gvmode & WFDB_HIGHRES) == WFDB_HIGHRES and \
+            s_.gvc < s_.ispfmax:
+        return False
+    files = set()
+    for is_ in s_.isd:
+        fmt = is_.info.fmt
+        if fmt == 0:
+            if is_.info.nsamp <= 0:
+                return False
+        elif fmt in _BULK_FMTS:
+            files.add(is_.info.group)
+        else:
+            return False
+    for g in files:
+        ig = s_.igd[g]
         if ig.seek != 1 or ig.fp is None or ig.initial_skip or ig.count or \
                 ig.flac is not None:
-            return False
-    for is_ in s_.isd:
-        if is_.info.fmt not in _BULK_FMTS or is_.info.spf != 1:
             return False
     return True
 
@@ -4110,116 +4126,247 @@ def _bulk_consume(ig, data, have, used):
     ig.ahead = data[start + bsize:]
 
 
+def _bulk_null(is_, nf):
+    """The samples of a null signal (format 0, no file) in nf frames, as
+    getskewedframe() gives them, as an int64 array (one row per frame)."""
+    import numpy as np
+    v = np.full((nf, is_.info.spf), is_.samp if _s.gvmode & WFDB_GVPAD
+                else WFDB_INVALID_SAMPLE, np.int64)
+    is_.info.cksum = int32(is_.info.cksum - int(v.sum()))
+    return v
+
+
+def _bulk_samples(is_, raw, pad):
+    """The samples of input signal is_ in raw (its raw values, one row per
+    frame and one column per sample of the frame), as getskewedframe()
+    gives them: invalid samples replaced by WFDB_INVALID_SAMPLE, or with
+    pad by the previous valid sample of the signal; format 8 differences
+    accumulated.  Updates is_.samp and the checksum, as getskewedframe()
+    does for each sample.  Returns an int64 array shaped as raw."""
+    import numpy as np
+    info = is_.info
+    fmt = info.fmt
+    shape = raw.shape
+    col = raw.reshape(-1)
+    if fmt == 8:
+        # (differences: cumulative sum in int64, wrapped to int32)
+        v = np.cumsum(col, dtype=np.int64) + is_.samp
+        v = ((v + 0x80000000) & 0xFFFFFFFF) - 0x80000000
+        is_.samp = int(v[-1])
+        info.cksum = int32(info.cksum - int(v.sum()))
+        return v.reshape(shape)
+    info.cksum = int32(info.cksum - int(col.sum(dtype=np.int64)))
+    res = col.astype(np.int64)
+    inv = col == _INVALID_BY_FMT[fmt]
+    if inv.any():
+        if pad:
+            idx = np.where(~inv, np.arange(len(col)), -1)
+            idx = np.maximum.accumulate(idx)
+            res = np.where(idx >= 0, res[np.maximum(idx, 0)], is_.samp)
+        else:
+            res[inv] = WFDB_INVALID_SAMPLE
+        valid = np.nonzero(~inv)[0]
+        if len(valid):
+            is_.samp = int(col[valid[-1]])
+    else:
+        is_.samp = int(col[-1])
+    return res.reshape(shape)
+
+
+def _bulk_sigmap(frames):
+    """sigmap() for each row of frames (the frames of the segment, as
+    getskewedframe() reads them): the frames of the layout of a
+    multi-segment record of variable layout, as an int64 array."""
+    import numpy as np
+    smi = _s.smi
+    out = np.empty((frames.shape[0], _s.tspf), np.int64)
+    with np.errstate(invalid="ignore", over="ignore"):
+        for i in range(_s.tspf):
+            m = smi[i]
+            x = frames[:, m.index]
+            inv = x == WFDB_INVALID_SAMPLE
+            v = x * m.scale + m.offset
+            if m.sample_offset:
+                r = np.trunc(np.where(np.isfinite(v), v, 0.0)) \
+                    .astype(np.int64) + m.sample_offset
+                r = ((r + 0x80000000) & 0xFFFFFFFF) - 0x80000000
+            else:
+                r = np.where(v >= 0,
+                             np.where(v <= WFDB_SAMPLE_MAX, v,
+                                      WFDB_SAMPLE_MAX),
+                             np.where(v >= WFDB_SAMPLE_MIN, np.floor(v),
+                                      WFDB_SAMPLE_MIN))
+                r = np.trunc(np.where(np.isnan(r), WFDB_SAMPLE_MIN, r)) \
+                    .astype(np.int64)
+            out[:, i] = np.where(inv, WFDB_INVALID_SAMPLE, r)
+    return out
+
+
+def _bulk_meansamp(x):
+    """meansamp() of each row of x (an int64 array: the samples of one
+    signal in each frame)."""
+    import numpy as np
+    n = x.shape[1]
+    if n == 1:
+        return x[:, 0]
+    inv = (x == WFDB_INVALID_SAMPLE).any(axis=1)
+    total = x.sum(axis=1) + n // 2
+
+    def cdiv(a, b):             # C division (truncation toward zero)
+        return np.where(a >= 0, a // b, -((-a) // b))
+
+    if n & (n - 1):
+        neg = (total < 0).astype(np.int64)
+        res = cdiv(total + neg, n) - neg
+    else:
+        res = total
+        n //= 2
+        while n:
+            res = cdiv(res - (res < 0), 2)
+            n //= 2
+    res[inv] = WFDB_INVALID_SAMPLE
+    return res
+
+
 def _bulk_frames(n, out, row=0, cols=None):
-    """Read up to n frames at once into the rows out[row:row + m] of the
-    NumPy array out (an integer array with one column per entry of cols:
-    out[:, j] receives signal cols[j]; cols None: all signals, in order).
-    Returns m, the number of frames read (possibly 0), or None if the bulk
-    path cannot be used at all.  The samples are computed in int32 (with
-    the wrap-around of the C library's int sums); the checksum sums in
-    Python integers, then wrapped to int32 as in getvec."""
+    """Read up to n sample vectors at once (as n calls of getvec()) into
+    the rows out[row:row + m] of the NumPy array out (an integer array with
+    one column per entry of cols: out[:, j] receives signal cols[j] of
+    getvec()'s vector; cols None: all signals, in order).  Returns m, the
+    number of vectors read (possibly 0), or None if the bulk path cannot be
+    used at all.  Whole frames are read (in high-resolution mode, each
+    gives one vector per sample of the fastest signal); the samples are
+    those of getvec(), as are the state of the input signals and of their
+    buffers afterwards.  Records of several frequencies, and the segments
+    of multi-segment records (mapped to the layout signals when the layout
+    varies), are read this way too; the frame at which a checksum would be
+    verified, and the change from one segment to the next, go through
+    getvec()."""
     import numpy as np
     s_ = _s
     if n <= 0 or not _bulk_eligible():
         return None
     isd = s_.isd
     nisig = s_.nisig
-    # Signals of each group, and the alignment period (in frames).
+    highres = s_.ispfmax > 1 and \
+        (s_.gvmode & WFDB_HIGHRES) == WFDB_HIGHRES
+    per = s_.ispfmax if highres else 1      # vectors per frame
+    nf = n // per
+    # Signals stored in each group (null signals have no file), the samples
+    # of a frame in each, and the alignment period (in frames) that keeps
+    # each group on a whole packed unit.
     groups = {}
     for s in range(nisig):
-        groups.setdefault(isd[s].info.group, []).append(s)
+        if isd[s].info.fmt != 0:
+            groups.setdefault(isd[s].info.group, []).append(s)
     period = 1
     for g, sl in groups.items():
-        fmt = isd[sl[0]].info.fmt
-        nb, ns = _BULK_FMTS[fmt]
-        nn = len(sl)
-        if ns == 2 and nn % 2:
-            period = period * 2 // math.gcd(period, 2)
-        elif ns == 3 and nn % 3:
-            period = period * 3 // math.gcd(period, 3)
-    # Do not include a frame at which a checksum would be verified.
+        nb, ns = _BULK_FMTS[isd[sl[0]].info.fmt]
+        if any(isd[s].info.fmt != isd[sl[0]].info.fmt for s in sl):
+            return None
+        gfl = sum(isd[s].info.spf for s in sl)
+        p = ns // math.gcd(gfl, ns)
+        period = period * p // math.gcd(period, p)
+    # Do not include a frame at which a checksum would be verified, or after
+    # which a null signal ends.
     for is_ in isd:
         ns_ = is_.info.nsamp
-        if ns_ > 0 and n >= ns_:
-            n = ns_ - 1
-    n -= n % period
-    if n <= 0:
+        if ns_ > 0 and nf >= ns_:
+            nf = ns_ - 1
+    nf -= nf % period
+    if nf <= 0:
         return 0
     # Read the bytes needed by each group.
     bufs = {}
     for g, sl in groups.items():
         ig = s_.igd[g]
-        fmt = isd[sl[0]].info.fmt
-        nb, ns = _BULK_FMTS[fmt]
-        bufs[g] = _bulk_read(ig, n * len(sl) * nb // ns)
+        nb, ns = _BULK_FMTS[isd[sl[0]].info.fmt]
+        gfl = sum(isd[s].info.spf for s in sl)
+        bufs[g] = _bulk_read(ig, nf * gfl * nb // ns)
         data = bufs[g][0]
-        unit = period * len(sl) * nb // ns
+        unit = period * gfl * nb // ns
         avail = (len(data) // unit) * period
-        if avail < n:
-            n = avail
-    # Output columns of each signal (a signal may be selected twice).
-    if cols is None:
-        dest = [[s] for s in range(nisig)]
-    else:
-        dest = [[] for s in range(nisig)]
-        for j, s in enumerate(cols):
-            dest[s].append(j)
-    rows = out[row:row + n]
+        if avail < nf:
+            nf = avail
     pad = s_.gvmode & WFDB_GVPAD
     if s_.istime == 0:
         for s in range(nisig):
             isd[s].samp = isd[s].info.initval
+    sigs = [None] * nisig
     for g, sl in groups.items():
         ig = s_.igd[g]
         data, have = bufs[g]
         fmt = isd[sl[0]].info.fmt
         nb, ns = _BULK_FMTS[fmt]
-        nn = len(sl)
-        used = n * nn * nb // ns
-        if n:
-            raw = _decode_stream(fmt, data, n * nn).reshape(n, nn)
+        gfl = sum(isd[s].info.spf for s in sl)
+        used = nf * gfl * nb // ns
+        if nf:
+            raw = _decode_stream(fmt, data, nf * gfl).reshape(nf, gfl)
         # Leave the unused bytes buffered, as the C library would.
         _bulk_consume(ig, data, have, used)
-        if n == 0:
+        if nf == 0:
             continue
-        for k, s in enumerate(sl):
-            is_ = isd[s]
-            col = raw[:, k]
-            if fmt == 8:
-                # (differences: cumulative sum in int64, wrapped to int32)
-                v = np.cumsum(col, dtype=np.int64) + is_.samp
-                v = ((v + 0x80000000) & 0xFFFFFFFF) - 0x80000000
-                res = v
-                is_.samp = int(v[-1])
-                cks = int(v.sum())
-            else:
-                inv = col == _INVALID_BY_FMT[fmt]
-                cks = int(col.sum(dtype=np.int64))
-                res = col
-                if inv.any():
-                    col = col.astype(np.int32)
-                    if pad:
-                        idx = np.where(~inv, np.arange(n), -1)
-                        idx = np.maximum.accumulate(idx)
-                        res = np.where(idx >= 0, col[np.maximum(idx, 0)],
-                                       np.int32(is_.samp))
-                    else:
-                        res = np.where(inv, np.int32(WFDB_INVALID_SAMPLE),
-                                       col)
-                    valid = np.nonzero(~inv)[0]
-                    if len(valid):
-                        is_.samp = int(col[valid[-1]])
-                else:
-                    is_.samp = int(col[-1])
-            for j in dest[s]:
-                rows[:, j] = res
-            is_.info.cksum = int32(is_.info.cksum - cks)
-            if is_.info.nsamp > 0:
-                is_.info.nsamp -= n
-            elif is_.info.nsamp == 0:
-                is_.info.nsamp = -1
-    s_.istime += n
-    return n
+        k = 0
+        for s in sl:
+            spf = isd[s].info.spf
+            sigs[s] = _bulk_samples(isd[s], raw[:, k:k + spf], pad)
+            k += spf
+    if nf == 0:
+        return 0
+    for s in range(nisig):
+        is_ = isd[s]
+        if is_.info.fmt == 0:
+            sigs[s] = _bulk_null(is_, nf)
+        if is_.info.nsamp > 0:
+            is_.info.nsamp -= nf
+        elif is_.info.nsamp == 0:
+            is_.info.nsamp = -1
+    # The frames as getframe() gives them: the samples of the signals in
+    # order, mapped to the layout of a variable-layout record, and padded
+    # with invalid samples to the size of the layout's frame.
+    frames = np.concatenate(sigs, axis=1) if nisig > 1 else sigs[0]
+    if s_.need_sigmap:
+        frames = _bulk_sigmap(frames)
+    elif s_.framelen != s_.tspf:
+        frames = np.concatenate(
+            [frames, np.full((nf, s_.tspf - s_.framelen),
+                             WFDB_INVALID_SAMPLE, np.int64)], axis=1)
+    s_.istime += nf
+    # The sample vectors, as getvec() gives them.
+    nvsig = s_.nvsig
+    if s_.ispfmax < 2:
+        vecs = frames[:, :nvsig]
+    elif not highres:
+        vecs = np.empty((nf, nvsig), np.int64)
+        tp = 0
+        for s in range(nvsig):
+            sf = s_.vsd[s].info.spf
+            vecs[:, s] = _bulk_meansamp(frames[:, tp:tp + sf])
+            tp += sf
+    else:
+        vecs = np.empty((nf, per, nvsig), np.int64)
+        tp = 0
+        for s in range(nvsig):
+            sf = s_.vsd[s].info.spf
+            index = 0
+            count = -per
+            for k in range(per):
+                if k:
+                    count += sf
+                    if count >= 0:
+                        index += 1
+                        count -= per
+                vecs[:, k, s] = frames[:, tp + index]
+            tp += sf
+        vecs = vecs.reshape(nf * per, nvsig)
+        s_.gvc = per
+        s_.rgetvec_stat = nisig
+    rows = out[row:row + nf * per]
+    if cols is None:
+        rows[:] = vecs
+    else:
+        rows[:] = vecs[:, cols]
+    return nf * per
 
 
 def _getframes_into(out, row, n, cols=None, keep_checksum_frame=False):
@@ -4229,7 +4376,7 @@ def _getframes_into(out, row, n, cols=None, keep_checksum_frame=False):
     signal, in order).  Returns (m, stat): the number of frames read and
     the getvec() status of the first frame that could not be read (or the
     number of signals if all n frames were read).  With
-    keep_checksum_frame (wfdb-x, for the high-level reader), the frame for
+    keep_checksum_frame (WFDB-x, for the high-level reader), the frame for
     which getvec() returns -4 (a checksum error: the frame was read
     completely, it is the last one of the record) is included, and stat is
     -4."""
@@ -4265,7 +4412,7 @@ def getframes(n):
     signals if all n frames were read).  This is equivalent to calling
     getvec() up to n times, stopping at the first negative return value.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
     s_ = _s

@@ -30,7 +30,7 @@ wfdbx_get_network()
     default.}
 }
 \details{
-  wfdb-x reads and writes files exactly where you name them.  A full path,
+  WFDB-x reads and writes files exactly where you name them.  A full path,
   a \code{~} path or a URL is used as given.  Any other name, such as
   \code{"100"}, \code{"mitdb/100"} or \code{"../data/100"}, is read from
   the input directory and written to the output directory.  A URL cannot
@@ -65,7 +65,7 @@ wfdbx_get_network()
   message, leaves the setting unchanged, and returns it.
 }
 \section{Origin}{
-  Part of wfdb-x; not in the original WFDB package.
+  Part of WFDB-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{read_record}}; \code{\link{setwfdb}} and

@@ -11,7 +11,7 @@
 //! signal file name, and reports the directory as unreadable (see
 //! `docs/KNOWN_C_BEHAVIORS.md`).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of convert/ad2m.c from the WFDB Software Package
@@ -61,7 +61,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b" -U UNITS   physical units (required unless the gain is 0; AHA: mV)",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by wfdb-x, left out of the
+/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] = &[
     b" -F FREQ    sampling frequency in Hz (required; AHA database: 250)",
@@ -200,7 +200,7 @@ fn main() {
                     if legacy {
                         start_time = wfdbx::strtim(&argv[i]); // as in the C program
                     } else {
-                        fstr = Some(&argv[i]); // converted once -F is known (wfdb-x)
+                        fstr = Some(&argv[i]); // converted once -F is known (WFDB-x)
                     }
                 }
                 b'h' => {
@@ -234,11 +234,11 @@ fn main() {
                     if legacy {
                         end_time = wfdbx::strtim(&argv[i]); // as in the C program
                     } else {
-                        tstr = Some(&argv[i]); // converted once -F is known (wfdb-x)
+                        tstr = Some(&argv[i]); // converted once -F is known (WFDB-x)
                     }
                 }
                 b'F' if !legacy => {
-                    // sampling frequency (wfdb-x)
+                    // sampling frequency (WFDB-x)
                     i += 1;
                     if i >= argc || csscanf!(&argv[i], b"%lf", &mut ffreq) != 1 || ffreq <= 0.0 {
                         ceprintf!(b"%s: sampling frequency (> 0) must follow -F\n", pname);
@@ -246,7 +246,7 @@ fn main() {
                     }
                 }
                 b'G' if !legacy => {
-                    // gain in adu per physical unit (wfdb-x)
+                    // gain in adu per physical unit (WFDB-x)
                     i += 1;
                     if i >= argc || csscanf!(&argv[i], b"%lf", &mut ggain) != 1 || ggain < 0.0 {
                         ceprintf!(b"%s: gain (>= 0) must follow -G\n", pname);
@@ -255,7 +255,7 @@ fn main() {
                     gset = true;
                 }
                 b'R' if !legacy => {
-                    // ADC resolution in bits (wfdb-x)
+                    // ADC resolution in bits (WFDB-x)
                     i += 1;
                     if i >= argc
                         || csscanf!(&argv[i], b"%d", &mut rres) != 1
@@ -266,7 +266,7 @@ fn main() {
                     }
                 }
                 b'U' if !legacy => {
-                    // physical units (wfdb-x)
+                    // physical units (WFDB-x)
                     i += 1;
                     if i >= argc {
                         ceprintf!(b"%s: units must follow -U\n", pname);
@@ -331,7 +331,7 @@ fn main() {
     }
 
     // Attach the input file to the standard input.
-    // (C reads a directory forever; wfdb-x reports it as unreadable)
+    // (C reads a directory forever; WFDB-x reports it as unreadable)
     if ifname != b"-" && (is_directory(ifname) || !wfdbx::freopen_stdin(ifname)) {
         ceprintf!(b"%s: can't read input file `%s'\n", pname, ifname);
         cstd::exit(2);

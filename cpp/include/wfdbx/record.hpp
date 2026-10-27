@@ -1,6 +1,6 @@
 // wfdbx/record.hpp: high-level functions for reading and writing records
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -40,7 +40,7 @@
 //     #include <wfdbx/record.hpp>
 //
 //     // The sample record 100s (the first minute of record 100 of the
-//     // MIT-BIH Arrhythmia Database), included with wfdb-x in the tests/data
+//     // MIT-BIH Arrhythmia Database), included with WFDB-x in the tests/data
 //     // directory of a copy of the repository:
 //     wfdbx::wfdbx_set_input_dir("tests/data");
 //     wfdbx::ReadOptions opt;
@@ -134,7 +134,8 @@ struct Record {
     /// Samples in ADC units, frame by frame: samples[i * nsig + s] is
     /// sample i of signal s.  Invalid samples are WFDB_INVALID_SAMPLE.
     std::vector<WFDB_Sample> samples;
-    std::vector<WFDB_Siginfo> siginfo;  ///< one per returned signal
+    /// One per returned signal; its desc has no white space at either end.
+    std::vector<WFDB_Siginfo> siginfo;
     /// Start time and date of the record as text, to the second, such as
     /// "[08:45:00 01/01/2001]"; nullopt if the header gives none.
     std::optional<std::string> base_time;
@@ -169,7 +170,8 @@ struct Record {
     double physical(size_t i, int s) const;
     /// All samples of signal s in physical units (see physical()).
     std::vector<double> physical_signal(int s) const;
-    /// The signal descriptions (siginfo[s].desc, "" if absent).
+    /// The signal descriptions (siginfo[s].desc, "" if absent), without the
+    /// white space that a header may put at either end of them.
     std::vector<std::string> names() const;
 };
 
@@ -177,7 +179,7 @@ struct Record {
 /// (input_dir, network) say where the files are found, for that call only.
 struct ReadOptions : InputOptions {
     /// Signals to return, in this order, by number ("0", "1", ...) or by
-    /// description ("V5"); empty: all signals.
+    /// name ("V5", as in Record::names()); empty: all signals.
     std::vector<std::string> channels;
     TimeSpec from;              ///< first sample (default: 0)
     TimeSpec to;                ///< end, exclusive (default: end of record)
@@ -212,7 +214,7 @@ struct ReadOptions : InputOptions {
 /// ReadOptions::checksum_warning).
 ///
 ///     // The sample record 100s (the first minute of record 100 of the
-///     // MIT-BIH Arrhythmia Database), included with wfdb-x in tests/data:
+///     // MIT-BIH Arrhythmia Database), included with WFDB-x in tests/data:
 ///     wfdbx::ReadOptions opt;
 ///     opt.input_dir = "tests/data";
 ///     opt.channels = {"MLII"};
@@ -221,7 +223,7 @@ struct ReadOptions : InputOptions {
 ///     wfdbx::Record rec = wfdbx::read_record("100s", opt);
 ///     std::vector<double> mlii = rec.physical_signal(0);
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 Record read_record(const std::string &record, const ReadOptions &opt = {});
 
 /// The header of a record, as read_header() returns it.
@@ -237,7 +239,7 @@ struct Header {
     WFDB_Time nsamples = 0;
     int nsig = 0;               ///< number of signals
     /// The signal specifications, one per signal (empty if the record has
-    /// none).
+    /// none); their desc has no white space at either end.
     std::vector<WFDB_Siginfo> siginfo;
     /// Base time, as Record::base_time.
     std::optional<std::string> base_time;
@@ -262,7 +264,7 @@ struct Header {
 ///     for (const wfdbx::WFDB_Siginfo &s : hdr.siginfo)
 ///         std::printf("%s %d %g\n", s.desc->c_str(), s.fmt, s.gain);
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 Header read_header(const std::string &record, bool legacy = false,
                    const InputOptions &input = {});
 
@@ -307,7 +309,7 @@ struct Annotations {
 ///     wfdbx::wfdbx_set_input_dir("tests/data");
 ///     wfdbx::Annotations ann = wfdbx::read_annotations("100s", "atr", "0:10", "0:30");
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 Annotations read_annotations(const std::string &record,
                              const std::string &annotator,
                              const TimeSpec &from = {},
@@ -373,7 +375,7 @@ struct WriteOptions {
 ///     // writes the new record "new" (new.hea, new.dat) from `samples`
 ///     wfdbx::write_record("new", samples, 2, 360, w);
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 void write_record(const std::string &record,
                   const std::vector<WFDB_Sample> &samples, int nsig,
                   WFDB_Frequency fs, const WriteOptions &opt = {});
@@ -382,7 +384,7 @@ void write_record(const std::string &record,
 /// stored as round(v * gain) + baseline, and NaN is stored as an invalid
 /// sample.  Throws Error ("signal N is uncalibrated") if a gain is 0.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 void write_record_physical(const std::string &record,
                            const std::vector<double> &samples, int nsig,
                            WFDB_Frequency fs, const WriteOptions &opt = {});
@@ -411,7 +413,7 @@ void write_record_physical(const std::string &record,
 ///     // writes the annotation file rec.qrs of a record "rec"
 ///     wfdbx::write_annotations("rec", "qrs", qrs);
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 void write_annotations(const std::string &record, const std::string &annotator,
                        const Annotations &ann, WFDB_Frequency fs = 0,
                        const std::string &dir = {},
@@ -470,7 +472,7 @@ struct CheckReport {
 /// It checks for problems similar to those found by Benjamin Moody's
 /// wfdbcheck (https://github.com/bemoody/wfdbcheck).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 CheckReport check_record(const std::string &record,
                          const std::vector<std::string> &annotators = {},
                          const InputOptions &input = {});

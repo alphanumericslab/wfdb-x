@@ -13,7 +13,7 @@ function [v, st] = ig_read(ig, fmt, n, reset)
 %
 %   Part of the translation of lib/signal.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -21,7 +21,9 @@ function [v, st] = ig_read(ig, fmt, n, reset)
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: none, apart from the language.
+% Changes from the original: a refill takes the blocks read ahead by the
+% bulk reader first. Each change is marked "wfdb-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
@@ -230,7 +232,12 @@ if n <= 0
     S = wfdbx.internal.sig_state();
     n = S.ibsize;
 end
-if isempty(ig.fp)
+if ~isempty(ig.ahead)
+    % wfdb-x: the next block read ahead by the bulk reader
+    m = min(n, numel(ig.ahead));
+    b = ig.ahead(1:m);
+    ig.ahead = ig.ahead(m + 1:end);
+elseif isempty(ig.fp)
     b = zeros(1, 0, 'uint8');
 else
     b = ig.fp.read(n);

@@ -1,14 +1,14 @@
 function test_alias()
-%TEST_ALIAS An output signal file is never one of the input files (wfdb-x).
+%TEST_ALIAS An output signal file is never one of the input files (WFDB-x).
 %   The library refuses to create an output signal file that is the same
 %   file as a signal file of the open input record (the files are
 %   compared, not their names); legacy mode does not check.  The Python
 %   counterpart is python/tests/test_api.py::test_output_file_is_input_file
 %   (t_alias of tests/reference/api_expect.c).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It tests wfdb-x; it has no counterpart in the original package.
+% It tests WFDB-x; it has no counterpart in the original package.
 %
 % Copyright (C) 2026 Reza Sameni.
 %

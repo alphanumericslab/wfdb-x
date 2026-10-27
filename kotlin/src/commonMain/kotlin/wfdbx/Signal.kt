@@ -15,7 +15,7 @@
 // frame of all signals). If the array is shorter than that, only its length
 // is filled (the other values are discarded).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of lib/signal.c from the WFDB Software Package
@@ -32,7 +32,7 @@
 // an output signal file is never one of the input files of the open record; a
 // header written under a path names the record, its signal files and its
 // segments relative to its own directory; FLAC signal files are read and
-// written with wfdb-x's own codec (Flac.kt) instead of libFLAC; additions:
+// written with WFDB-x's own codec (Flac.kt) instead of libFLAC; additions:
 // getvecs, getvecs_status, wfdbx_bulk_read and putframes; legacy mode
 // (wfdbx_set_legacy) restores the original behavior. Each change is marked
 // "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
@@ -577,6 +577,13 @@ internal class SigState {
     /** wfdb-x: true if getvecs must not use its bulk path (see wfdbx_bulk_read; for tests). */
     var bulkOff = false
 
+    /** wfdb-x: the number of vectors read by the bulk path (for tests). */
+    var bulkVectors = 0L
+
+    /** wfdb-x: storage of the bulk path: the frames as read and the frames as getframe gives them. */
+    var bulkIn = IntArray(0)
+    var bulkFr = IntArray(0)
+
     // Multi-segment records
     var segments = 0
     var inMsrec = 0
@@ -826,6 +833,14 @@ private fun bulkDecodeFlat(fmt: Int, b: ByteArray, from: Int, cnt: Int, dst: Int
 }
 
 private fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+
+/**
+ * A group of input signals read by the bulk path (see bulkFrames): its
+ * first signal and the signal after its last one, the format of its
+ * signals (0: null signals, without a file), the number of its samples in
+ * a frame, and the position of its first sample in a frame.
+ */
+private class BulkGroup(val s0: Int, val s1: Int, val fmt: Int, val gfl: Int, val pos: Int)
 
 /** (year, month, day) of a Julian date, as datstr gives them (the calendar code of C's datstr). */
 internal fun julianToYmd(date0: Long): IntArray {
@@ -2301,11 +2316,11 @@ private fun Wfdb.getskewedframe(vecstart: IntArray, voff: Int): Int {
     return stat
 }
 
-private fun Wfdb.sigmap(vector: IntArray, off: Int, ivec: IntArray) {
+private fun Wfdb.sigmap(vector: IntArray, off: Int, ivec: IntArray, ioff: Int = 0) {
     val st = sig
     for (i in 0 until maxOf(st.tspf, 0)) {
         val m = st.smi[i]
-        val x = ivec[m.index]
+        val x = ivec[ioff + m.index]
         if (x == WFDB_INVALID_SAMPLE) {
             vector[off + i] = WFDB_INVALID_SAMPLE
         } else {
@@ -2569,7 +2584,7 @@ internal fun Wfdb.wfdb_sigclose() {
     st.pdays = -1
     st.segments = 0
     st.inMsrec = 0
-    st.msrecDir = null // wfdb-x
+    st.msrecDir = null // WFDB-x
     st.msrecName = null
     st.hdrDir = null
     st.skewmax = 0
@@ -2920,7 +2935,7 @@ fun Wfdb.isigopen(record: String, siarray: Array<Siginfo>?, nsig: Int): Int = is
  *
  * Returns the number of output signals opened (> 0; it should be nsig),
  * or: -1 if the header cannot be read, -2 if it is incorrect, -3 if the
- * output signal files cannot be opened (or, wfdb-x, one of them is one of
+ * output signal files cannot be opened (or, WFDB-x, one of them is one of
  * the input files, as for [osigfopen]).
  *
  * Translation of the C function osigopen() (lib/signal.c, WFDB 10.7.0): same
@@ -2962,7 +2977,7 @@ fun Wfdb.osigopen(record: String, siarray: Array<Siginfo>?, nsig: Int): Int = os
  * Returns the number of output signals opened (> 0; it should be nsig), or:
  * -2 if a signal specification is incorrect (file name or description too
  * long, illegal format or block size, incorrect signal group), -3 if a
- * signal file cannot be opened, or (wfdb-x, except in legacy mode) is one of
+ * signal file cannot be opened, or (WFDB-x, except in legacy mode) is one of
  * the signal files of the open input record ("osigfopen: output file F is
  * also an input file"; the file is not touched). With nsig == 0 (or a null
  * or empty siarray): 0, or -4 on a write error while closing the previous
@@ -3088,7 +3103,7 @@ fun Wfdb.getgvmode(): Int = sig.gvmode
  * record must be open.
  *
  * Returns 0 on success, or -1 if no input record is open, its sampling
- * frequency is not specified (wfdb-x), or f is not positive (resampling is
+ * frequency is not specified (WFDB-x), or f is not positive (resampling is
  * then turned off).
  *
  * Translation of the C function setifreq() (lib/signal.c, WFDB 10.7.0): same
@@ -3285,130 +3300,240 @@ private fun Wfdb.getframeImpl(vector: IntArray, off: Int): Int {
 }
 
 /**
- * wfdb-x: decodes up to n frames (at most as many as fit in out from off)
- * at once, exactly as as many getskewedframe calls would (including
- * istime), and returns their number (0 if the bulk path cannot be used for
- * the next frame: the caller then reads it with getskewedframe). Only the
+ * wfdb-x: reads up to n sample vectors (at most as many as fit in out from
+ * off) at once, as whole frames, exactly as as many getvec calls would
+ * (getskewedframe calls and istime if ispfmax < 2), and returns their
+ * number (0 if the bulk path cannot be used for the next vector: the caller
+ * then reads it frame by frame). Records of several sampling frequencies
+ * (in high-resolution mode, from the start of a frame), the segments of
+ * multi-segment records (mapped by sigmap if the layout varies) and null
+ * signals of known length are read this way; the samples, checksums,
+ * counts, gvc and the last frames are left as getvec leaves them. Only the
  * complete frames already in the input buffers are decoded: a frame that
  * crosses the end of a buffer (whose reading refills the buffer, as C
- * does), the frame at which a checksum is verified, the end of a file and a
- * segment boundary go through getskewedframe. The buffers are therefore
- * filled, and the files read, exactly as by the per-frame path.
+ * does), the frame at which a checksum is verified or a null signal ends,
+ * the end of a file and a segment boundary go through getvec. The buffers
+ * are therefore filled, and the files read, exactly as by the per-frame
+ * path.
  */
 private fun Wfdb.bulkFrames(out: IntArray, off: Int, n: Long): Int {
     val st = sig
     val nisig = st.nisig
-    // Every signal read as is, one sample per frame, no deskewing, no
-    // resampling, no signal mapping.
-    if (st.bulkOff || n <= 0 || nisig == 0 || st.needSigmap != 0 || st.haveDsbuf || st.nvsig != nisig ||
-        st.tspf != nisig || st.framelen != nisig || st.ispfmax != 1 || !(st.ifreq == 0.0 || st.ifreq == st.sfreq) ||
-        st.isd.size < nisig
+    // No deskewing, no resampling; every signal of the layout read (or
+    // mapped to the layout signals).
+    if (st.bulkOff || n <= 0 || nisig == 0 || st.haveDsbuf || !(st.ifreq == 0.0 || st.ifreq == st.sfreq) ||
+        (st.nvsig != nisig && st.needSigmap == 0) || st.isd.size < nisig
     ) {
         return 0
     }
-    var m = minOf(n, ((out.size - off) / nisig).toLong())
+    val highres = st.ispfmax > 1 && (st.gvmode and WFDB_HIGHRES) == WFDB_HIGHRES
+    if (highres && st.gvc < st.ispfmax) return 0
+    // The groups: one format each (0: null signals, no file), at the start
+    // of a packed unit; the alignment period (in frames) keeps each on
+    // whole packed units.
+    val groups = ArrayList<BulkGroup>()
     var period = 1
+    var pos = 0
     var s = 0
     while (s < nisig) {
         val fmt = st.isd[s].info.fmt
         val g = st.isd[s].info.group
-        val unit = bulkUnit(fmt) ?: return 0
-        val ns = unit[1]
+        val ns = if (fmt == 0) 1 else (bulkUnit(fmt) ?: return 0)[1]
         var e = s
+        var gfl = 0
         while (e < nisig && st.isd[e].info.group == g) {
-            val isv = st.isd[e]
-            if (isv.info.fmt != fmt || isv.info.spf != 1) return 0
+            val info = st.isd[e].info
+            if (info.fmt != fmt || info.spf < 1 || (fmt == 0 && info.nsamp <= 0)) return 0
+            gfl += info.spf
             e++
         }
         if (g < 0 || g >= st.igd.size) return 0
         val ig = st.igd[g]
-        if (ig.seek != 1 || ig.fp == null || ig.initialSkip != 0 || ig.count != 0 || ig.flac != null) return 0
-        val nn = e - s
-        if (nn % ns != 0) {
-            val p = ns / gcd(nn % ns, ns)
+        if (ig.initialSkip != 0) return 0
+        if (fmt == 0) {
+            if (ig.stat <= 0) return 0
+        } else {
+            if (ig.seek != 1 || ig.fp == null || ig.count != 0 || ig.flac != null) return 0
+            val p = ns / gcd(gfl % ns, ns)
             period = period / gcd(period, p) * p
         }
+        groups.add(BulkGroup(s, e, fmt, gfl, pos))
+        pos += gfl
         s = e
     }
-    // Not the frame at which a checksum is verified (nor any after it).
+    val flen = pos
+    val tlen = maxOf(st.tspf, 0)
+    val needSigmap = st.needSigmap != 0
+    val frames = st.ispfmax < 2
+    val nv = maxOf(st.nvsig, 0)
+    // Vectors per frame, and values per vector.
+    val per = if (highres) st.ispfmax else 1
+    val vlen = if (frames) tlen else nv
+    if (vlen == 0 || flen != st.framelen || (!needSigmap && flen > tlen)) return 0
+    var nf = minOf(n / per, ((out.size - off) / (vlen * per)).toLong())
+    // Not the frame at which a checksum is verified or a null signal ends
+    // (nor any after it).
     for (k in 0 until nisig) {
         val ns = st.isd[k].info.nsamp
-        if (ns > 0 && m >= ns) m = ns - 1
+        if (ns > 0 && nf >= ns) nf = ns - 1
     }
     // Only the complete frames in every buffer.
-    s = 0
-    while (s < nisig) {
-        val g = st.isd[s].info.group
-        var e = s
-        while (e < nisig && st.isd[e].info.group == g) e++
-        val unit = bulkUnit(st.isd[s].info.fmt)!!
-        val u = period * (e - s) * unit[0] / unit[1]
-        val ig = st.igd[g]
-        val avail = (maxOf(ig.be - ig.bp, 0) / u * period).toLong()
-        m = minOf(m, avail)
-        s = e
+    for (gr in groups) {
+        if (gr.fmt == 0) continue
+        val unit = bulkUnit(gr.fmt)!!
+        val u = period * gr.gfl * unit[0] / unit[1]
+        val ig = st.igd[st.isd[gr.s0].info.group]
+        nf = minOf(nf, (maxOf(ig.be - ig.bp, 0) / u * period).toLong())
     }
-    m -= m % period
-    if (m <= 0) return 0
-    val mi = m.toInt()
+    nf -= nf % period
+    if (nf <= 0) return 0
+    val m = nf.toInt()
     if (st.istime == 0L) for (k in 0 until nisig) st.isd[k].samp = st.isd[k].info.initval
     val pad = (st.gvmode and WFDB_GVPAD) != 0
-    s = 0
-    while (s < nisig) {
-        val fmt = st.isd[s].info.fmt
-        val g = st.isd[s].info.group
-        var e = s
-        while (e < nisig && st.isd[e].info.group == g) e++
-        val nn = e - s
+    // The frames as getskewedframe reads them (flen samples each) go into
+    // bulkIn if the layout varies; otherwise straight into the frames as
+    // getframe gives them (tlen samples each): out if they are the vectors
+    // of getvec (ispfmax < 2), else bulkFr.
+    if (needSigmap && st.bulkIn.size < m * flen) st.bulkIn = IntArray(m * flen)
+    if (!frames && st.bulkFr.size < m * tlen) st.bulkFr = IntArray(m * tlen)
+    val inb = if (needSigmap) st.bulkIn else if (frames) out else st.bulkFr
+    val ioff = if (frames && !needSigmap) off else 0
+    val istride = if (needSigmap) flen else tlen
+    for (gr in groups) {
+        if (gr.fmt == 0) {
+            // null signals
+            var c = ioff + gr.pos
+            for (k in gr.s0 until gr.s1) {
+                val isv = st.isd[k]
+                val spf = isv.info.spf
+                val v = if (pad) isv.samp else WFDB_INVALID_SAMPLE
+                var b = c
+                for (f in 0 until m) {
+                    inb.fill(v, b, b + spf)
+                    b += istride
+                }
+                isv.info.cksum -= v * (m * spf)
+                c += spf
+            }
+            continue
+        }
+        val fmt = gr.fmt
         val unit = bulkUnit(fmt)!!
-        val used = mi * nn * unit[0] / unit[1]
-        val ig = st.igd[g]
-        if (nn == nisig) {
-            bulkDecodeFlat(fmt, ig.buf, ig.bp, mi * nn, out, off)
+        val used = m * gr.gfl * unit[0] / unit[1]
+        val ig = st.igd[st.isd[gr.s0].info.group]
+        if (gr.gfl == istride) {
+            bulkDecodeFlat(fmt, ig.buf, ig.bp, m * gr.gfl, inb, ioff)
         } else {
-            val tmp = IntArray(mi * nn)
-            bulkDecodeFlat(fmt, ig.buf, ig.bp, mi * nn, tmp, 0)
+            val tmp = IntArray(m * gr.gfl)
+            bulkDecodeFlat(fmt, ig.buf, ig.bp, m * gr.gfl, tmp, 0)
             var t = 0
-            for (f in 0 until mi) {
-                val base = off + f * nisig + s
-                for (k in 0 until nn) out[base + k] = tmp[t++]
+            var b = ioff + gr.pos
+            for (f in 0 until m) {
+                tmp.copyInto(inb, b, t, t + gr.gfl)
+                t += gr.gfl
+                b += istride
             }
         }
         ig.bp += used
         // As getskewedframe does with each sample.
         val inval = fmtMin(fmt)
-        for (k in s until e) {
+        var c = ioff + gr.pos
+        for (k in gr.s0 until gr.s1) {
             val isv = st.isd[k]
+            val spf = isv.info.spf
             var samp = isv.samp
             var cksum = isv.info.cksum
-            var p = off + k
-            if (fmt == 8) {
-                for (f in 0 until mi) {
-                    samp += out[p]
-                    out[p] = samp
-                    cksum -= samp
-                    p += nisig
+            var b = c
+            for (f in 0 until m) {
+                if (fmt == 8) {
+                    for (p in b until b + spf) {
+                        samp += inb[p]
+                        inb[p] = samp
+                        cksum -= samp
+                    }
+                } else {
+                    for (p in b until b + spf) {
+                        val v = inb[p]
+                        cksum -= v
+                        if (v == inval) inb[p] = if (pad) samp else WFDB_INVALID_SAMPLE else samp = v
+                    }
                 }
-            } else {
-                for (f in 0 until mi) {
-                    val v = out[p]
-                    cksum -= v
-                    if (v == inval) out[p] = if (pad) samp else WFDB_INVALID_SAMPLE else samp = v
-                    p += nisig
-                }
+                b += istride
             }
             isv.samp = samp
             isv.info.cksum = cksum
-            if (isv.info.nsamp > 0) {
-                isv.info.nsamp -= mi
-            } else if (isv.info.nsamp == 0L) {
-                isv.info.nsamp = -1
+            c += spf
+        }
+    }
+    if (!needSigmap && flen < tlen) {
+        for (f in 0 until m) inb.fill(WFDB_INVALID_SAMPLE, ioff + f * tlen + flen, ioff + (f + 1) * tlen)
+    }
+    for (k in 0 until nisig) {
+        val isv = st.isd[k]
+        if (isv.info.nsamp > 0) {
+            isv.info.nsamp -= m
+        } else if (isv.info.nsamp == 0L) {
+            isv.info.nsamp = -1
+        }
+    }
+    st.istime += m
+    st.bulkVectors += (m * per).toLong()
+    // The frames as getframe gives them, mapped to the layout signals.
+    if (needSigmap) {
+        val fr = if (frames) out else st.bulkFr
+        val foff = if (frames) off else 0
+        for (f in 0 until m) sigmap(fr, foff + f * tlen, st.bulkIn, f * flen)
+        // (the last frame read, as getskewedframe leaves it)
+        st.bulkIn.copyInto(st.ovec, 0, (m - 1) * flen, (m - 1) * flen + minOf(flen, st.ovec.size))
+    }
+    if (frames) return m
+
+    // The sample vectors of getvec, as rgetvec makes them.
+    val fbuf = st.bulkFr
+    if (!highres) {
+        var o = off
+        for (f in 0 until m) {
+            var tp = f * tlen
+            for (k in 0 until nv) {
+                val sf = st.vsd[k].info.spf
+                out[o++] = meansamp(fbuf, tp, sf)
+                tp += sf
             }
         }
-        s = e
+    } else {
+        // The column of the frame giving signal k in vector j of each frame:
+        // col[j * nv + k].
+        val ispfmax = st.ispfmax
+        val col = IntArray(per * nv)
+        var tp = 0
+        for (k in 0 until nv) {
+            val v = st.vsd[k]
+            val sf = v.info.spf
+            v.gvindex = 0
+            v.gvcount = -ispfmax
+            for (j in 0 until per) {
+                if (j > 0) {
+                    v.gvcount += sf
+                    if (v.gvcount >= 0) {
+                        v.gvindex++
+                        v.gvcount -= ispfmax
+                    }
+                }
+                col[j * nv + k] = tp + v.gvindex
+            }
+            tp += sf
+        }
+        var o = off
+        for (f in 0 until m) {
+            val base = f * tlen
+            for (c in col) out[o++] = fbuf[base + c]
+        }
+        st.gvc = per
     }
-    st.istime += mi
-    return mi
+    st.rgetvecStat = nisig
+    // (the last frame, as rgetvec leaves it)
+    fbuf.copyInto(st.tvector, 0, (m - 1) * tlen, (m - 1) * tlen + minOf(tlen, st.tvector.size))
+    return m * per
 }
 
 /**
@@ -3416,12 +3541,29 @@ private fun Wfdb.bulkFrames(out: IntArray, off: Int, n: Long): Int {
  * and returns the previous setting. The results are the same either way;
  * this is for testing the bulk path against the per-frame path.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_bulk_read(on: Boolean): Boolean {
     val previous = !sig.bulkOff
     sig.bulkOff = !on
     return previous
+}
+
+/** wfdb-x: the number of sample vectors read by the bulk path of [getvecs] so far (for tests). */
+internal fun Wfdb.wfdbxBulkVectors(): Long = sig.bulkVectors
+
+/**
+ * wfdb-x: the state of the input signals as text: istime, gvc, and each
+ * signal's last sample, checksum and remaining samples (for tests).
+ */
+internal fun Wfdb.wfdbxInputState(): String {
+    val st = sig
+    val sb = StringBuilder("${st.istime} ${st.gvc}")
+    for (k in 0 until minOf(st.nisig, st.isd.size)) {
+        val isv = st.isd[k]
+        sb.append("; ${isv.samp} ${isv.info.cksum} ${isv.info.nsamp}")
+    }
+    return sb.toString()
 }
 
 /** The result of [getvecs_status]: the number of vectors read and the status of the last getvec. */
@@ -3442,7 +3584,7 @@ data class GetvecsResult(
  * Returns the number of vectors read (>= 0; less than n at the end of the
  * record), or the negative status of getvec if the first read failed.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.getvecs(out: IntArray, n: Long): Long = getvecs_status(out, n).count
 
@@ -3453,11 +3595,11 @@ fun Wfdb.getvecs(out: IntArray, n: Long): Long = getvecs_status(out, n).count
  * file), or the number of values per vector if all n were read (0 if n <=
  * 0). Not part of the C library.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.getvecs_status(out: IntArray, n: Long): GetvecsResult = getvecsStatusAt(out, 0, n)
 
-/** [getvecs_status] writing into [out] from index [off] (wfdb-x, for readRecord). */
+/** [getvecs_status] writing into [out] from index [off] (WFDB-x, for readRecord). */
 internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResult {
     if (n <= 0) return GetvecsResult(0, 0)
     var stat = 0
@@ -3503,6 +3645,15 @@ internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResu
         if (st.ifreq != 0.0 && st.ifreq != st.sfreq && st.nisig > st.nvsig) stride = st.nisig
         var pos = off
         while (k < n) {
+            // wfdb-x: as many vectors as possible at once (see bulkFrames;
+            // none if the input is resampled or deskewed)
+            val m = bulkFrames(out, pos, n - k)
+            if (m > 0) {
+                stat = sig.nisig
+                pos += m * stride
+                k += m
+                continue
+            }
             if (pos + stride > out.size) break
             stat = getvecAt(out, pos)
             if (stat < 0) break
@@ -3611,7 +3762,7 @@ fun Wfdb.putvec(vector: IntArray): Int {
 }
 
 /**
- * wfdb-x (for writeRecord): writes [nframes] frames held one after the
+ * WFDB-x (for writeRecord): writes [nframes] frames held one after the
  * other in [x] (each a vector of [putvec]) to the output signals, with the
  * same result as putvec called for each frame. Returns the status of the
  * last putvec (0 if [nframes] is 0).
@@ -3702,7 +3853,7 @@ internal fun Wfdb.putframes(x: IntArray, nframes: Int): Int {
     return stat
 }
 
-/** wfdb-x (for the tests): whether [putframes] calls putvec for each frame. */
+/** WFDB-x (for the tests): whether [putframes] calls putvec for each frame. */
 internal var bulkPutOff = false
 
 // ---------------------------------------------------------------------------
@@ -4593,27 +4744,27 @@ fun Wfdb.sample_valid(): Int = sig.sampleVflag
 /** wfdb-x: the number of samples per signal given by the record line of the header read last (that of a multi-segment record for such a record; 0 if not given). */
 internal fun Wfdb.wfdbxHeaderNsamples(): Long = if (sig.inMsrec != 0) sig.msnsamples else sig.nsamples
 
-/** wfdb-x (for check_record): the number of samples of the record opened last: that of the master header for a multi-segment record ([multi], or while one is open), otherwise that of its header. */
+/** WFDB-x (for check_record): the number of samples of the record opened last: that of the master header for a multi-segment record ([multi], or while one is open), otherwise that of its header. */
 internal fun Wfdb.wfdbxRecordNsamples(multi: Boolean): Long = if (sig.inMsrec != 0 || multi) sig.msnsamples else sig.nsamples
 
-/** wfdb-x (for check_record): whether the open record is an EDF file. */
+/** WFDB-x (for check_record): whether the open record is an EDF file. */
 internal fun Wfdb.wfdbxIsEdf(): Boolean = sig.isedf != 0
 
-/** wfdb-x (for check_record): the checksum accumulator of each open input signal (the header's checksum less the samples read so far). */
+/** WFDB-x (for check_record): the checksum accumulator of each open input signal (the header's checksum less the samples read so far). */
 internal fun Wfdb.wfdbxCksumResiduals(): IntArray = IntArray(sig.nisig) { sig.isd[it].info.cksum }
 
-/** wfdb-x (for check_record): the size of the file of each open input signal group, if it is a local file (-1 otherwise). */
+/** WFDB-x (for check_record): the size of the file of each open input signal group, if it is a local file (-1 otherwise). */
 internal fun Wfdb.wfdbxGroupFileSizes(): LongArray = LongArray(sig.nigroup) { sig.igd[it].fp?.localSize() ?: -1L }
 
 /**
- * wfdb-x (for the high-level API): the base time, in milliseconds after
+ * WFDB-x (for the high-level API): the base time, in milliseconds after
  * midnight (C btime), and the base date, as (year, month, day) (null if the
  * header gives no date: C bdate 0).
  */
 internal fun Wfdb.wfdbxBaseTimeDate(): Pair<Long, IntArray?> =
     Pair(sig.btime, if (sig.bdate != 0L) julianToYmd(sig.bdate) else null)
 
-/** wfdb-x (for the high-level API): whether getvec's checksum message is recorded without being printed; returns the previous setting. */
+/** WFDB-x (for the high-level API): whether getvec's checksum message is recorded without being printed; returns the previous setting. */
 internal fun Wfdb.wfdbxSetCksumQuiet(on: Boolean): Boolean {
     val p = sig.cksumQuiet
     sig.cksumQuiet = on

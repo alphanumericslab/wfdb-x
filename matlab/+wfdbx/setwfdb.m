@@ -6,7 +6,7 @@ function setwfdb(p)
 %   must contain at most one non-empty component, which becomes the input
 %   directory (a directory, a ~ name or a URL, taken literally); none
 %   (e.g. '', ';' or []) restores the default.  With more than one, an
-%   error message is printed and nothing changes: wfdb-x reads from a
+%   error message is printed and nothing changes: WFDB-x reads from a
 %   single input directory.  wfdbx.resetwfdb restores the value set by the
 %   last setwfdb.
 %
@@ -22,7 +22,7 @@ function setwfdb(p)
 %   arguments and results. Differences: it sets a single input directory (the
 %   WFDB path in legacy mode); see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software

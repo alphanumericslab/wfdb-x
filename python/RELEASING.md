@@ -1,7 +1,7 @@
 # Releasing the Python package on PyPI
 
 The PyPI project `wfdb-x` is built from this directory (`python/`) of the
-wfdb-x repository. The distributions contain the `wfdbx` package, its sample
+WFDB-x repository. The distributions contain the `wfdbx` package, its sample
 data (`src/wfdbx/sample_data`) and example notebooks (`src/wfdbx/examples`);
 the source distribution also contains the unit tests, which skip the tests
 that need the repository's test records.

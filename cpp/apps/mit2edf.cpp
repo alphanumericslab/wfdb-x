@@ -1,7 +1,7 @@
 // mit2edf.cpp: convert MIT format header and signal files to EDF (European
 // Data Format) file.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of convert/mit2edf.c from the WFDB Software Package
@@ -491,7 +491,7 @@ int main(int argc, char **argv)
                 std::printf("\n");
         }
     }
-    cemul::fclose_output(ofile, pname, ofname);    // wfdb-x
+    cemul::fclose_output(ofile, pname, ofname);    // WFDB-x
     std::printf("\n");
 
     if (edfplusflag) {

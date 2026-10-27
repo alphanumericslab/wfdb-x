@@ -1,7 +1,7 @@
 // record.cpp: high-level interface for reading and writing records
 // (see <wfdbx/record.hpp>; the equivalent of python/src/wfdbx/highlevel.py)
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -229,6 +229,26 @@ private:
     int prev_;
 };
 
+// The white space (C isspace) that strip_desc() removes.
+const char *const SPACE = " \t\n\v\f\r";
+
+// `s` without the white space at both ends.
+std::string strip_space(const std::string &s)
+{
+    size_t a = s.find_first_not_of(SPACE);
+    if (a == std::string::npos) return std::string();
+    return s.substr(a, s.find_last_not_of(SPACE) - a + 1);
+}
+
+// wfdb-x: the high-level readers give the signal descriptions without the
+// white space that some headers end them with (C keeps it, as the C-style
+// functions do).
+void strip_desc(std::vector<WFDB_Siginfo> &si)
+{
+    for (WFDB_Siginfo &s : si)
+        if (s.desc) s.desc = strip_space(*s.desc);
+}
+
 } // namespace
 
 bool TimeSpec::needs_freq() const
@@ -288,6 +308,7 @@ Header read_header(const std::string &record, bool legacy,
     Header h;
     h.siginfo.resize(n);
     if (n > 0) isigopen(record.c_str(), h.siginfo.data(), -n);
+    strip_desc(h.siginfo);
     h.name = record;
     h.fs = sampfreq(nullptr);
     h.counter_freq = getcfreq();
@@ -327,12 +348,17 @@ Record read_record(const std::string &record, const ReadOptions &options)
     std::optional<WFDB_Time> to;
     if (!opt.to.empty()) to = opt.to.resolve();
 
+    strip_desc(si);
     std::vector<int> cols;
     if (opt.channels.empty()) {
         for (int k = 0; k < nsig; k++) cols.push_back(k);
     } else {
         for (const std::string &c : opt.channels) {
-            int k = findsig(c.c_str());
+            // (a name as in Record::names(), then as findsig() finds it)
+            const std::string name = strip_space(c);
+            int k = 0;
+            while (k < nsig && si[k].desc.value_or("") != name) k++;
+            if (k == nsig) k = findsig(c.c_str());
             if (k < 0 || k >= nsig)
                 fail("record " + record + " has no signal " + c);
             cols.push_back(k);
@@ -349,7 +375,11 @@ Record read_record(const std::string &record, const ReadOptions &options)
     // number of frames expected (to - from, or what the header gives) and
     // grows if there are more.
     std::vector<WFDB_Sample> all;
-    constexpr long long block = 65536;     // frames read per getvecs() call
+    // Vectors read per getvecs() call: whole frames, and a multiple of 6 of
+    // them, so that formats 212, 310 and 311 end each call on a whole
+    // packed unit (the frames are then read in blocks).
+    const long long unit = 6LL * std::max(getspf(), 1);
+    const long long block = 65536 - 65536 % unit;
     std::optional<long long> remaining;
     if (to) remaining = *to > from ? *to - from : 0;
     {

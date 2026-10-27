@@ -12,11 +12,11 @@ function [t, ok] = hl_time(t, fs)
 %   (see docs/DIVERGENCES.md); in legacy mode (wfdbx.wfdbx_get_legacy),
 %   strtim is always called, as before.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It has no counterpart in the original package. wfdb-x never assumes a
+% It has no counterpart in the original package. WFDB-x never assumes a
 % sampling frequency (see docs/DIVERGENCES.md).
 %
 % Copyright (C) 2026 Reza Sameni.

@@ -1,6 +1,6 @@
 // rdann.cpp: print an annotation file in ASCII form.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of app/rdann.c from the WFDB Software Package
@@ -93,7 +93,7 @@ static void help()
         std::fprintf(stderr, "%s\n", hs[i]);
 }
 
-// Exit after reporting an unrecognized option (wfdb-x: also the wfdb-x
+// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -178,7 +178,7 @@ int main(int argc, char **argv)
                 }
                 from = i;   // to be converted to sample intervals below
                 break;
-            case 'F':   // sampling frequency follows (wfdb-x)
+            case 'F':   // sampling frequency follows (WFDB-x)
                 if (wfdbx_get_legacy())   // wfdb-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ffreq) != 1 ||

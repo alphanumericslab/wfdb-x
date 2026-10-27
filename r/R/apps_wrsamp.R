@@ -1,7 +1,7 @@
 # apps_wrsamp.R: wrsamp -- read a text file of samples and write WFDB
 # signal (and header) files.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of app/wrsamp.c from the WFDB Software Package 10.7.0,

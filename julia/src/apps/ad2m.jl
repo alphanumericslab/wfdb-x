@@ -10,7 +10,7 @@
 # file name, and reports the directory as unreadable (see
 # docs/KNOWN_C_BEHAVIORS.md).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/ad2m.c from the WFDB Software Package
@@ -147,7 +147,7 @@ function ad2m_main(args::Vector{String})
                 if legacy               # wfdb-x: as in the C program
                     start_time = strtim(argv[i])
                 else
-                    fstr = argv[i]      # converted once -F is known (wfdb-x)
+                    fstr = argv[i]      # converted once -F is known (WFDB-x)
                 end
             elseif c == UInt8('h')      # help requested
                 _annapp_help(pname, legacy ? _AD2M_LEGACY_HELP : _AD2M_HELP)
@@ -175,28 +175,28 @@ function ad2m_main(args::Vector{String})
                 if legacy               # wfdb-x: as in the C program
                     end_time = strtim(argv[i])
                 else
-                    tstr = argv[i]      # converted once -F is known (wfdb-x)
+                    tstr = argv[i]      # converted once -F is known (WFDB-x)
                 end
-            elseif c == UInt8('F') && !legacy   # sampling frequency (wfdb-x)
+            elseif c == UInt8('F') && !legacy   # sampling frequency (WFDB-x)
                 i += 1
                 if i >= argc || csscanf(argv[i], "%lf", ffreq) != 1 || ffreq[] <= 0.0
                     ceprintf("%s: sampling frequency (> 0) must follow -F\n", pname)
                     cexit(1)
                 end
-            elseif c == UInt8('G') && !legacy   # gain in adu per physical unit (wfdb-x)
+            elseif c == UInt8('G') && !legacy   # gain in adu per physical unit (WFDB-x)
                 i += 1
                 if i >= argc || csscanf(argv[i], "%lf", ggain) != 1 || ggain[] < 0.0
                     ceprintf("%s: gain (>= 0) must follow -G\n", pname)
                     cexit(1)
                 end
                 gset = true
-            elseif c == UInt8('R') && !legacy   # ADC resolution in bits (wfdb-x)
+            elseif c == UInt8('R') && !legacy   # ADC resolution in bits (WFDB-x)
                 i += 1
                 if i >= argc || csscanf(argv[i], "%d", rres) != 1 || rres[] < 1 || rres[] > 32
                     ceprintf("%s: ADC resolution (1-32 bits) must follow -R\n", pname)
                     cexit(1)
                 end
-            elseif c == UInt8('U') && !legacy   # physical units (wfdb-x)
+            elseif c == UInt8('U') && !legacy   # physical units (WFDB-x)
                 i += 1
                 if i >= argc
                     ceprintf("%s: units must follow -U\n", pname)
@@ -250,7 +250,7 @@ function ad2m_main(args::Vector{String})
     end
 
     # Attach the input file to the standard input. (C reads a directory
-    # forever; wfdb-x reports it as unreadable.)
+    # forever; WFDB-x reports it as unreadable.)
     if ifname != b"-" && (_is_directory(ifname) || !freopen_stdin(ifname))
         ceprintf("%s: can't read input file `%s'\n", pname, ifname)
         cexit(2)

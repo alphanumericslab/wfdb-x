@@ -12,7 +12,7 @@
 # (https://github.com/bemoody/wfdbcheck); no code or text of wfdbcheck was
 # used.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -79,7 +79,7 @@ CheckReport(record::String, issues::Vector{Issue}) =
 The text form of a [`CheckReport`](@ref): one line per issue, or
 `["no problems found"]`.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 lines(r::CheckReport) = isempty(r.issues) ? ["no problems found"] : [string(i) for i in r.issues]
 
@@ -765,8 +765,8 @@ It checks for problems similar to those found by Benjamin Moody's
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository:
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository:
 ```julia-repl
 julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
 
@@ -778,7 +778,7 @@ julia> report.ok
 true
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function check_record(w::Wfdb, record::ByteStr; annotators=String[],
                       input_dir::OptByteStr=nothing, network::Union{Nothing,Bool}=nothing)

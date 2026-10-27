@@ -12,7 +12,7 @@
   dates and date strings, as the WFDB library does.  Conversions use the
   sampling frequency of the open record (or the one set by
   \code{\link{setsampfreq}}) and its base time and date (the time of its
-  first sample, if known).  \code{wfdbx_time_needs_freq} (a wfdb-x
+  first sample, if known).  \code{wfdbx_time_needs_freq} (a WFDB-x
   addition) tells whether \code{strtim} needs the sampling frequency to
   convert a time string.
 }
@@ -55,9 +55,9 @@ setbasetime(string)
   An absolute time \code{t} returned by \code{strtim} can be turned into
   a sample number with \code{-t}.
 
-  wfdb-x never assumes a sampling frequency (the C library uses 1 sample
+  WFDB-x never assumes a sampling frequency (the C library uses 1 sample
   per second when none is known; see \file{docs/DIVERGENCES.md} in the
-  wfdb-x sources).  When no frequency is known (no open record, a header
+  WFDB-x sources).  When no frequency is known (no open record, a header
   that does not give one, and none set with \code{\link{setsampfreq}}),
   \code{timstr} and \code{mstimstr} report the error \dQuote{sampling
   frequency is not specified} and return the time as a sample number
@@ -86,7 +86,7 @@ setbasetime(string)
   \code{setbasetime} returns 0, or -1 if the string is not valid.
 }
 \section{Origin}{
-  \code{wfdbx_time_needs_freq} is part of wfdb-x; not in the original
+  \code{wfdbx_time_needs_freq} is part of WFDB-x; not in the original
   WFDB package.
 
   Translation of the C functions timstr(), mstimstr(), strtim(),

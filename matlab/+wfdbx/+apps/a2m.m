@@ -29,7 +29,7 @@ function status = a2m(args)
 %   docs/DIVERGENCES.md.
 %
 %   Examples (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository, with an AHA-format copy of its annotations, 100s.aha,
 %   and 1201.ANO, a synthetic annotation file in the format of the AHA
 %   Database; the examples write the annotation files 100s.cpy and 1201.atr
@@ -45,7 +45,7 @@ function status = a2m(args)
 %   options and output. Differences: -F gives the sampling frequency when
 %   the record header gives none; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/a2m.c from the WFDB Software
@@ -137,7 +137,7 @@ while i < argc
                     return;
                 end
                 oann = argv{i+1};
-            case 'F'    % sampling frequency follows (wfdb-x)
+            case 'F'    % sampling frequency follows (WFDB-x)
                 [Ffreq, i, ok] = wfdbx.internal.opt_ffreq(argv, i, Ffreq);
                 if ~ok
                     status = 1;
@@ -274,7 +274,7 @@ if typ == 0
     end
 elseif typ == 1 || typ == 2
     % Times in milliseconds are converted at the sampling frequency of the
-    % record (wfdb-x; the C program assumed 4 ms per sample, i.e., 250 Hz,
+    % record (WFDB-x; the C program assumed 4 ms per sample, i.e., 250 Hz,
     % whatever the record's frequency).
     fs = wfdbx.sampfreq([]);
     while true

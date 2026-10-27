@@ -1,7 +1,7 @@
-%WFDBX_CLI Command-line driver of wfdb-x for GNU Octave.
+%WFDBX_CLI Command-line driver of WFDB-x for GNU Octave.
 %   octave-cli --no-gui --norc -q matlab/bin/wfdbx_cli.m TOOL [ARGS ...]
 %
-%   runs the wfdb-x tool TOOL (e.g. rdsamp) with the arguments ARGS, as the
+%   runs the WFDB-x tool TOOL (e.g. rdsamp) with the arguments ARGS, as the
 %   C program of the same name would be run, and exits with its status.
 %   The standard input is available to the tool; its output is written to
 %   the standard output and error.  `wfdbx_cli.m --list` lists the tools.
@@ -11,9 +11,9 @@
 %   wfdbx.internal.std_stream('cli'), so that a standard output that
 %   cannot be written is detected).
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

@@ -29,14 +29,14 @@ wfdbx_legacy_args(argv)
     \item for a tool, with \option{--legacy} as its first argument, as in
       \code{wfdbx_tool("rdsamp", c("--legacy", "-r", "100s"))}, which
       prints the sample record \code{100s} (the first minute of record
-      100 of the MIT-BIH Arrhythmia Database, included with wfdb-x in the
+      100 of the MIT-BIH Arrhythmia Database, included with WFDB-x in the
       \file{tests/data} directory of a copy of the repository) when that
       directory is in the WFDB path (in legacy mode, files are searched
       for in the WFDB path: see \code{\link{setwfdb}});
     \item for one call of a high-level function, with \code{legacy =
       TRUE} (see \code{\link{read_record}}).
   }
-  \file{docs/DIVERGENCES.md} in the wfdb-x sources
+  \file{docs/DIVERGENCES.md} in the WFDB-x sources
   (\url{https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md#legacy-mode})
   describes what changes in legacy mode.
 }
@@ -50,7 +50,7 @@ wfdbx_legacy_args(argv)
   that case it also turns legacy mode on.
 }
 \section{Origin}{
-  Part of wfdb-x; not in the original WFDB package.
+  Part of WFDB-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{read_record}}, \code{\link{wfdbx_tool}}.

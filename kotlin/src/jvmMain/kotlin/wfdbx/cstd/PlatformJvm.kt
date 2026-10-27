@@ -9,7 +9,7 @@
 // and Java strings with the platform's file name encoding
 // (sun.jnu.encoding), so that names round-trip as the JVM sees them.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //

@@ -1,6 +1,6 @@
 """wav2mit: create a header file for a .wav file, so it can be read as a record.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of convert/wav2mit.c from the WFDB Software Package
@@ -49,7 +49,7 @@ LEGACY_HELP = legacy_help(HELP, {
 
 
 def help(pname):
-    hs = LEGACY_HELP if legacy() else HELP     # wfdb-x
+    hs = LEGACY_HELP if legacy() else HELP     # WFDB-x
     eprintf(hs[0], pname)
     for s in hs[1:]:
         eprintf("%s\n", s)
@@ -84,7 +84,7 @@ def _main(argv):
         a = argv[i]
         if a.startswith("-"):
             c = a[1:2]
-            if c == "G" and not legacy():  # gain (wfdb-x)
+            if c == "G" and not legacy():  # gain (WFDB-x)
                 i += 1
                 n, v = sscanf(argv[i], "%lf") if i < argc else (0, [])
                 if n != 1 or v[0] < 0.0:
@@ -112,7 +112,7 @@ def _main(argv):
                     eprintf("%s: record name must follow -r\n", pname)
                     raise Exit(1)
                 record = argv[i]
-            elif c == "U" and not legacy():    # physical units (wfdb-x)
+            elif c == "U" and not legacy():    # physical units (WFDB-x)
                 i += 1
                 if i >= argc:
                     eprintf("%s: units must follow -U\n", pname)

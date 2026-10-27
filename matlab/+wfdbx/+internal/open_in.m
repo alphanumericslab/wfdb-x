@@ -1,6 +1,6 @@
 function f = open_in(d, s, name, record)
 %OPEN_IN Open a file named in the header of a record.
-%   F = wfdbx.internal.open_in(D, S, NAME, RECORD) (wfdb-x) opens, for
+%   F = wfdbx.internal.open_in(D, S, NAME, RECORD) (WFDB-x) opens, for
 %   reading, the file NAME (of type S: a signal file, S = [], or the
 %   header of a segment, S = 'hea') named in the header of RECORD, in the
 %   directory D of that header (as returned by wfdbx.internal.wfdb_dirname;
@@ -14,7 +14,7 @@ function f = open_in(d, s, name, record)
 %
 %   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software

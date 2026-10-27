@@ -1,7 +1,7 @@
 function [stat, oa] = ann_putword(oa, n, annot)
 %ANN_PUTWORD Encode an annotation into an output annotator structure.
 %   [STAT, OA] = wfdbx.internal.ann_putword(OA, N, ANNOT) is the body of
-%   putann (wfdb-x), after the annotation table, for the output annotator
+%   putann (WFDB-x), after the annotation table, for the output annotator
 %   structure OA (number N, in messages): it encodes ANNOT into the output
 %   buffer of OA (MIT or AHA format), flushes it when it is large (or
 %   when the file is the standard output), and notes whether ANNOT is out
@@ -9,7 +9,7 @@ function [stat, oa] = ann_putword(oa, n, annot)
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software

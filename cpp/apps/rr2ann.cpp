@@ -1,6 +1,6 @@
 // rr2ann.cpp: create an annotation file from an RR interval list.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of app/rr2ann.c from the WFDB Software Package

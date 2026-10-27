@@ -3,7 +3,7 @@ function wfdbquit()
 %   wfdbx.wfdbquit() closes all annotation and signal files (writing any
 %   buffered output and completing output files), and resets the library
 %   state.  The input and output directories are left as they are
-%   (wfdb-x; in legacy mode, the WFDB path is reset to its initial value,
+%   (WFDB-x; in legacy mode, the WFDB path is reset to its initial value,
 %   as by wfdbx.resetwfdb).  Programs that
 %   write files must call it (or wfdbx.wfdbflush) before they end.
 %
@@ -14,7 +14,7 @@ function wfdbquit()
 %   are kept (the WFDB path is restored only in legacy mode); see
 %   docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbinit.c from the WFDB Software

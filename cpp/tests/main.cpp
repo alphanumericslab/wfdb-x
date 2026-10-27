@@ -1,10 +1,10 @@
-// main.cpp: runs the unit tests of the wfdb-x C++ library (see tests.hpp)
+// main.cpp: runs the unit tests of the WFDB-x C++ library (see tests.hpp)
 //
 // Usage: wfdbx_tests [NAME ...]   (with no arguments, run every test)
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //

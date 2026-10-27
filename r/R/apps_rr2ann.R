@@ -1,7 +1,7 @@
 # apps_rr2ann.R: rr2ann -- convert a series of RR intervals to an
 # annotation file.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of app/rr2ann.c from the WFDB Software Package 10.7.0,

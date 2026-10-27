@@ -19,7 +19,7 @@
 //
 // plus the legacy-mode flag, used by all of them.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -80,7 +80,7 @@ internal expect fun threadDefaultWfdb(): Wfdb
  * The default instance of the calling thread: the [Wfdb] used by the
  * top-level functions (`isigopen(...)`, `getann(...)`, ...).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbDefault(): Wfdb = threadDefaultWfdb()
 
@@ -88,6 +88,6 @@ fun wfdbDefault(): Wfdb = threadDefaultWfdb()
  * Runs [f] with the default instance of the calling thread and returns its
  * result.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 inline fun <R> withDefault(f: (Wfdb) -> R): R = f(wfdbDefault())

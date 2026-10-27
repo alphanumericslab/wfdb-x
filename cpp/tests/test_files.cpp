@@ -1,4 +1,4 @@
-// test_files.cpp: unit tests of how the library finds files (wfdb-x): the
+// test_files.cpp: unit tests of how the library finds files (WFDB-x): the
 // input and output directories, the resolution of each kind of name, the
 // files named in headers (in the header's directory), network access (against
 // a local HTTP server on 127.0.0.1 only), the WFDB warning, the high-level
@@ -6,9 +6,9 @@
 // The expected values follow t_files in tests/reference/api_expect.c; the
 // Python counterpart is python/tests/test_files.py.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //

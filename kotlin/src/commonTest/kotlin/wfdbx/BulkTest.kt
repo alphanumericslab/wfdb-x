@@ -4,11 +4,14 @@
 // at which the checksums are verified, truncated files and seeks, getvecs
 // returns exactly what the per-frame path returns (the same samples,
 // statuses, messages and input position), and leaves the same state behind
-// (the frames read afterwards, frame by frame, are the same too).
+// (the frames read afterwards, frame by frame, are the same too); readRecord
+// gives the same with the bulk path on and off for multi-frequency records
+// (low and high resolution), multi-segment records of fixed and variable
+// layout, and every record of tests/data.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -226,6 +229,232 @@ class BulkTest {
         val h = readFile("$dir/nolen.hea")!!.latin1().replaceFirst("nolen 2 100 3000", "nolen 2 100")
         writeFile("$dir/nolen.hea", h)
         check(w, rng, "nolen", 3000)
+        removeTree(dir)
+    }
+
+    /**
+     * Writes the random multi-frequency record [name] ([spf]: samples per
+     * frame of each signal; [n] frames), with about 1% invalid samples (also
+     * at the start; format 8: a random walk).
+     */
+    private fun mfRecord(
+        w: Wfdb, name: String, rng: Rng, fmt: Int, spf: IntArray, n: Int,
+        gains: DoubleArray = doubleArrayOf(200.0), names: List<String>? = null,
+    ) {
+        val cols = spf.sum()
+        val x = IntArray(n * cols)
+        if (fmt == 8) {
+            for (c in 0 until cols) {
+                var v = 0L
+                for (i in 0 until n) {
+                    v += rng.range(-60, 60)
+                    x[i * cols + c] = v.toInt()
+                }
+            }
+        } else {
+            val (lo, hi) = range(fmt)
+            for (i in x.indices) x[i] = if (rng.below(1000) < 10) WFDB_INVALID_SAMPLE else rng.range(lo + 1, hi).toInt()
+            x[0] = WFDB_INVALID_SAMPLE
+            x[cols] = WFDB_INVALID_SAMPLE
+        }
+        w.writeRecord(
+            name, x, spf.size, 250.0, fmt = fmt, gains = gains, adcres = intArrayOf(16), units = listOf("mV"),
+            names = names, sampsPerFrame = spf,
+        )
+    }
+
+    /** A reading mode of the multi-frequency tests. */
+    private data class Mode(
+        val highres: Boolean = false, val pad: Boolean = false, val physical: Boolean = false,
+        val from: Long? = null, val to: Long? = null, val channels: List<String>? = null,
+    )
+
+    private val mfModes = listOf(
+        Mode(), Mode(pad = true), Mode(highres = true), Mode(highres = true, pad = true), Mode(physical = true),
+        Mode(from = 1234), Mode(from = 7, to = 15000), Mode(highres = true, from = 3, to = 9001),
+        Mode(channels = listOf("1", "0", "1")),
+    )
+
+    /** What readRecord returns (or the message of its exception), with the bulk path on or off. */
+    private fun readMode(w: Wfdb, rec: String, m: Mode, bulk: Boolean): Any {
+        val prev = w.wfdbx_bulk_read(bulk)
+        try {
+            return w.readRecord(
+                rec, channels = m.channels, from = m.from?.let { TimeSpec(it) }, to = m.to?.let { TimeSpec(it) },
+                physical = m.physical, highres = m.highres, pad = m.pad, checksumWarning = false,
+            )
+        } catch (e: WfdbException) {
+            return e.message!!
+        } finally {
+            w.wfdbx_bulk_read(prev)
+        }
+    }
+
+    /** readRecord gives the same with and without the bulk path. */
+    private fun sameRead(w: Wfdb, rec: String, m: Mode) {
+        assertEquals(readMode(w, rec, m, false), readMode(w, rec, m, true), "$rec: $m")
+    }
+
+    /**
+     * Checks that almost all the vectors of a read of [rec] are read in
+     * blocks (at least 99%, and all but a few frames of [per] vectors in
+     * short records): all but those of a few frames per input buffer (whose
+     * last frame is read frame by frame) and per segment, and near the end.
+     */
+    private fun mostlyBulk(w: Wfdb, rec: String, highres: Boolean, per: Long) {
+        val before = w.wfdbxBulkVectors()
+        val rows = w.readRecord(rec, highres = highres).nsamples.toLong()
+        val bulk = w.wfdbxBulkVectors() - before
+        assertTrue((rows - bulk) * 100 <= rows + 100 * 6 * per, "$rec highres $highres: $bulk of $rows vectors read in blocks")
+    }
+
+    /**
+     * Writes the segments name_1, name_2, ... (one per length) and returns
+     * the lines of the master header naming them, and their total length.
+     */
+    private fun writeSegments(
+        w: Wfdb, name: String, rng: Rng, fmt: Int, spf: IntArray, lens: IntArray, gains: DoubleArray,
+        names: List<String>,
+    ): Pair<String, Int> {
+        val lines = StringBuilder()
+        for ((k, len) in lens.withIndex()) {
+            val seg = "${name}_${k + 1}"
+            mfRecord(w, seg, rng, fmt, spf, len, gains, names)
+            lines.append("$seg $len\n")
+        }
+        return Pair(lines.toString(), lens.sum())
+    }
+
+    private val formats = intArrayOf(8, 80, 16, 61, 160, 24, 32, 212, 310, 311)
+
+    @Test
+    fun bulkReadMultifrequency() {
+        // Records of several sampling frequencies are read in blocks: the
+        // same samples as frame by frame, in low- and high-resolution modes.
+        val dir = makeTempDir("bulkmf")
+        val w = Wfdb()
+        w.wfdbx_set_input_dir(dir)
+        w.wfdbx_set_output_dir(dir)
+        w.wfdbquiet()
+        val spfs = listOf(intArrayOf(4, 1, 1, 1), intArrayOf(2, 3), intArrayOf(1, 2), intArrayOf(8, 1), intArrayOf(3, 3, 1))
+        for (fmt in formats) {
+            val rng = Rng(fmt + 1L)
+            for (spf in spfs) {
+                val n = rng.range(16000, 23999).toInt()
+                mfRecord(w, "m", rng, fmt, spf, n)
+                for (m in mfModes) sameRead(w, "m", m)
+                mostlyBulk(w, "m", true, spf.max().toLong())
+                mostlyBulk(w, "m", false, 1)
+            }
+        }
+        removeTree(dir)
+    }
+
+    @Test
+    fun bulkReadMultisegment() {
+        // Multi-segment records, of fixed and of variable layout (with
+        // signals missing from some segments, other gains, and a null
+        // segment), are read in blocks: the same samples as frame by frame.
+        val dir = makeTempDir("bulkms")
+        val w = Wfdb()
+        w.wfdbx_set_input_dir(dir)
+        w.wfdbx_set_output_dir(dir)
+        w.wfdbquiet()
+        val rng = Rng(11)
+        val names = listOf("ECG", "ABP", "RESP")
+        // fixed layout
+        val (segs, total) = writeSegments(
+            w, "fx", rng, 212, intArrayOf(4, 1, 1), intArrayOf(9000, 7001, 12000), doubleArrayOf(200.0), names,
+        )
+        writeFile("$dir/fx.hea", "fx/3 3 250 $total\n$segs")
+        val modes = mfModes + Mode(from = 8999, to = 16002)
+        for (m in modes) sameRead(w, "fx", m)
+        assertEquals(28001, w.readRecord("fx").nsamples)
+        mostlyBulk(w, "fx", false, 3)
+        mostlyBulk(w, "fx", true, 3 * 4)
+        // variable layout
+        writeFile(
+            "$dir/vl_0.hea",
+            "vl_0 3 250 0\n~ 0x4 400(10)/mV 12 0 0 0 0 ECG\n~ 0 100/mV 16 0 0 0 0 ABP\n~ 0 50/mV 16 0 0 0 0 RESP\n",
+        )
+        val (s1, t1) = writeSegments(
+            w, "va", rng, 16, intArrayOf(4, 1, 1), intArrayOf(5000), doubleArrayOf(400.0, 100.0, 50.0), names,
+        )
+        val (s2, t2) = writeSegments(
+            w, "vb", rng, 16, intArrayOf(1, 4), intArrayOf(6003), doubleArrayOf(25.0, 200.0), listOf("RESP", "ECG"),
+        )
+        val (s3, t3) = writeSegments(w, "vc", rng, 212, intArrayOf(1), intArrayOf(4000), doubleArrayOf(100.0), listOf("ABP"))
+        writeFile("$dir/vl.hea", "vl/5 3 250 ${2500 + t1 + t2 + t3}\nvl_0 0\n$s1~ 2500\n$s2$s3")
+        for (m in modes.dropLast(1) + Mode(from = 4990, to = 9000)) sameRead(w, "vl", m)
+        mostlyBulk(w, "vl", false, 6)
+        mostlyBulk(w, "vl", true, 6 * 4)
+        val r = w.readRecord("vl", physical = true)
+        assertEquals(17503, r.nsamples)
+        for (i in 5000 until 7500) for (s in 0 until 3) assertTrue(r.physical!![i * 3 + s].isNaN())
+        removeTree(dir)
+    }
+
+    @Test
+    fun bulkReadAllTestRecords() {
+        // Every record of tests/data (but those read from the standard input,
+        // 8 and 16): the same in blocks as frame by frame, in five reading
+        // modes (or the same error).
+        val data = testDataDir()
+        val recs = listFiles(data).filter { it.endsWith(".hea") }.map { it.removeSuffix(".hea") }
+            .filter { it != "8" && it != "16" }.sorted()
+        assertTrue(recs.size > 20)
+        val w = Wfdb()
+        w.wfdbx_set_input_dir(data)
+        w.wfdbquiet()
+        val modes = listOf(Mode(), Mode(pad = true), Mode(highres = true), Mode(highres = true, pad = true), Mode(from = 3))
+        for (rec in recs) for (m in modes) sameRead(w, rec, m)
+    }
+
+    @Test
+    fun bulkMultifrequencyInterleaved() {
+        // getvecs (bulk) mixed with getvec and isigsettime on a
+        // multi-frequency record, in high resolution also from the middle of
+        // a frame: the same vectors, statuses and library state as frame by
+        // frame.
+        val dir = makeTempDir("bulkil")
+        val w = Wfdb()
+        w.wfdbx_set_input_dir(dir)
+        w.wfdbx_set_output_dir(dir)
+        w.wfdbquiet()
+        mfRecord(w, "mf", Rng(5), 212, intArrayOf(4, 1, 3), 20001)
+        val steps = listOf(
+            Pair('f', 999L), Pair('v', 3L), Pair('f', 4097L), Pair('t', 17L), Pair('v', 1L), Pair('f', 9001L),
+            Pair('v', 2L), Pair('t', 30L), Pair('f', 200000L),
+        )
+        for (hr in listOf(false, true)) {
+            val out = ArrayList<String>()
+            for (bulk in listOf(true, false)) {
+                val t = StringBuilder()
+                w.wfdbx_bulk_read(bulk)
+                assertEquals(3, w.isigopen("mf", Array(3) { Siginfo() }, 3))
+                w.setgvmode((if (hr) WFDB_HIGHRES else WFDB_LOWRES) or WFDB_GVPAD)
+                for ((op, k) in steps) {
+                    when (op) {
+                        'f' -> {
+                            val buf = IntArray(k.toInt() * 3)
+                            val r = w.getvecs_status(buf, k)
+                            t.append("getvecs ${r.count} ${r.status}: ${buf.copyOf(maxOf(r.count, 0L).toInt() * 3).toList()}")
+                        }
+                        'v' -> for (j in 0 until k) {
+                            val v = IntArray(3)
+                            val r = w.getvec(v)
+                            t.append("getvec $r: ${v.toList()}\n")
+                        }
+                        else -> t.append("isigsettime ${w.isigsettime(k)}")
+                    }
+                    t.append("\n${w.wfdbxInputState()}\n")
+                }
+                w.wfdbquit()
+                out.add(t.toString())
+            }
+            w.wfdbx_bulk_read(true)
+            assertEquals(out[1], out[0], "highres $hr")
+        }
         removeTree(dir)
     }
 }

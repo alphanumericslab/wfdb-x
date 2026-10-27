@@ -1,13 +1,13 @@
 function f = open_at(p, s)
 %OPEN_AT Open a file for reading at one location.
-%   F = wfdbx.internal.open_at(P, S) (wfdb-x) opens, for reading, the file
+%   F = wfdbx.internal.open_at(P, S) (WFDB-x) opens, for reading, the file
 %   of type S at location P (a resolved name: P.S), or else its 8.3 form
 %   (the type truncated to 3 characters), there only.  The name tried last
 %   is io_state().wfdb_filename.  Returns a WFDBFile, or [].
 %
 %   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software

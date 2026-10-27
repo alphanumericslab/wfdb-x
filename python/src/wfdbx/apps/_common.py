@@ -1,6 +1,6 @@
-"""Helpers shared by the wfdb-x command-line applications.
+"""Helpers shared by the WFDB-x command-line applications.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
 has no counterpart in the original package.
 
@@ -205,7 +205,7 @@ def prog_name(s):
 
 
 def freq_option(argv, i, pname):
-    """Parse the argument of a -F option (wfdb-x) at argv[i].
+    """Parse the argument of a -F option (WFDB-x) at argv[i].
 
     Returns the sampling frequency, or raises Exit(1) after the C error
     message if the argument is missing, not a number, or not positive.

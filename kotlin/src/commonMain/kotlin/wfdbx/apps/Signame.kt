@@ -1,7 +1,7 @@
 // signame: print signal names for signal numbers given as arguments (port
 // of app/signame.c, through rust/src/bin/signame.rs).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of app/signame.c from the WFDB Software Package

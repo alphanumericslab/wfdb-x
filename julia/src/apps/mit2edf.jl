@@ -8,9 +8,9 @@
 # name; and it does not write header fields past the end of the header (if
 # they are longer than their space), divide by zero (when no frame fits in a
 # block, or in verbose mode when a block is longer than a minute), or name a
-# month outside 1-12 (DEC is used, as by the other wfdb-x implementations).
+# month outside 1-12 (DEC is used, as by the other WFDB-x implementations).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/mit2edf.c from the WFDB Software Package
@@ -460,7 +460,7 @@ function mit2edf_main(args::Vector{String})
             blocks_per_hour != 0 && n % blocks_per_hour == 0 && cprintf("\n")
         end
     end
-    wfdbx_fclose_output(ofile, pname, ofname)       # wfdb-x
+    wfdbx_fclose_output(ofile, pname, ofname)       # WFDB-x
     cprintf("\n")
 
     if edfplusflag

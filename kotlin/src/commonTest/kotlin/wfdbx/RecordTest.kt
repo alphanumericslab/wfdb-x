@@ -3,9 +3,9 @@
 // python/tests/test_signals.py and rust/tests/signals.rs. The tests use a
 // copy of tests/data (DataDir) as input and output directory.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -465,7 +465,7 @@ class RecordTest {
     }
 
     // -----------------------------------------------------------------------
-    // writeRecord(dir = ...) (wfdb-x)
+    // writeRecord(dir = ...) (WFDB-x)
 
     @Test
     fun writeRecordDir() = withData("wrdir") { d, w ->
@@ -736,6 +736,37 @@ class RecordTest {
         assertEquals(listOf("note"), h.comments)
         w.wfdbquiet()
         fails("can't read record ns") { w.readRecord("ns") }
+    }
+
+    @Test
+    fun namesWithoutSpaces() = withData("namesp") { d, w ->
+        // Descriptions that end (or begin) with white space in the header are
+        // given without it by the high-level readers, and found by that name;
+        // the C-style functions keep it, as in C.
+        writeFile(
+            d.path("sp.hea"),
+            "sp 3 250 4\nfmt16.dat 16 200/mV 16 0 0 0 0 III \nfmt16.dat 16 200/mV 16 0 0 0 0 ABP\t \n" +
+                "fmt16.dat 16 200/mV 16 0 0 0 0 PLETH\n",
+        )
+        legacyPath(w, d)
+        w.wfdbquiet()
+        val want = listOf("III", "ABP", "PLETH")
+        for (legacy in listOf(false, true)) {
+            val r = w.readRecord("sp", legacy = legacy, checksumWarning = false)
+            assertEquals(want, r.names)
+            assertEquals(want, r.siginfo.map { str(it.desc) })
+            assertEquals(want, w.readHeader("sp", legacy = legacy).siginfo.map { str(it.desc) })
+            val r2 = w.readRecord("sp", channels = listOf("ABP", "III ", "2"), legacy = legacy, checksumWarning = false)
+            assertEquals(listOf("ABP", "III", "PLETH"), r2.names)
+            assertEquals(r.nsamples, r2.nsamples)
+            for (i in 0 until r.nsamples) {
+                assertEquals(listOf(r.at(i, 1), r.at(i, 0), r.at(i, 2)), listOf(r2.at(i, 0), r2.at(i, 1), r2.at(i, 2)))
+            }
+        }
+        val si = Array(3) { Siginfo() }
+        assertEquals(3, w.isigopen("sp", si, 3))
+        assertEquals(listOf("III ", "ABP\t ", "PLETH"), si.map { str(it.desc) })
+        w.wfdbquit()
     }
 
     @Test

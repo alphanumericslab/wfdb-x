@@ -17,7 +17,7 @@
 // program (in legacy mode, by running sortann, run_sortann, as the C
 // library does).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of lib/annot.c from the WFDB Software Package
@@ -438,7 +438,7 @@ private fun annFileFormat(ia: IaData): Int {
     return WFDB_AHA_READ
 }
 
-/** The body of getann, for the input annotator [ia] (wfdb-x). Error messages are added to [msgs]. */
+/** The body of getann, for the input annotator [ia] (WFDB-x). Error messages are added to [msgs]. */
 private fun getannIa(ia: IaData, annot: Annotation, msgs: Msgs): Int {
     if (ia.pann.anntyp != 0) {
         // an annotation was pushed back
@@ -463,7 +463,7 @@ private fun getannIa(ia: IaData, annot: Annotation, msgs: Msgs): Int {
     return 0
 }
 
-/** The body of ungetann (after the checks), for the input annotator [ia], whose pushback buffer is empty (wfdb-x). */
+/** The body of ungetann (after the checks), for the input annotator [ia], whose pushback buffer is empty (WFDB-x). */
 private fun ungetannIa(ia: IaData, annot: Annotation) {
     ia.pann.set(annot)
     ia.pannTt = if (annot.time == ia.prevTime) ia.prevTt else annot.time.toDouble() / ia.tmul
@@ -472,7 +472,7 @@ private fun ungetannIa(ia: IaData, annot: Annotation) {
 private fun isBlank(c: Byte) = c == ' '.code.toByte() || c == '\t'.code.toByte()
 
 /**
- * The body of get_ann_table (wfdb-x), for the input annotator [ia] and the
+ * The body of get_ann_table (WFDB-x), for the input annotator [ia] and the
  * definition table [defs] (the library's, or that of sortAnnFile): reads
  * the modification labels at the beginning of the file (the time
  * resolution goes into ia.afreq, the definitions into defs). Error
@@ -566,7 +566,7 @@ private fun putAnnTable(oa: OaData, n: Int, freq: Double, defs: AnnDefs, msgs: M
     return 0
 }
 
-/** The body of putann (after the table; wfdb-x), for the output annotator [oa] (number [n], in messages). Error messages are added to [msgs]. */
+/** The body of putann (after the table; WFDB-x), for the output annotator [oa] (number [n], in messages). Error messages are added to [msgs]. */
 private fun putAnnWord(oa: OaData, n: Int, annot: Annotation, msgs: Msgs): Int {
     val t = annot.time
     val f = oa.file
@@ -1077,10 +1077,10 @@ fun Wfdb.setecgstr(code: Int, s0: ByteArray?): Int {
 /** [setecgstr] with a string. */
 fun Wfdb.setecgstr(code: Int, s: String): Int = setecgstr(code, s.latin1())
 
-/** wfdb-x (for checkRecord): the annotation mnemonics and descriptions, to be restored by [wfdbxRestoreAnnDefs]. */
+/** WFDB-x (for checkRecord): the annotation mnemonics and descriptions, to be restored by [wfdbxRestoreAnnDefs]. */
 internal fun Wfdb.wfdbxSaveAnnDefs(): AnnDefs = ann.defs.copy()
 
-/** wfdb-x (for checkRecord): restores the annotation mnemonics and descriptions saved by [wfdbxSaveAnnDefs]. */
+/** WFDB-x (for checkRecord): restores the annotation mnemonics and descriptions saved by [wfdbxSaveAnnDefs]. */
 internal fun Wfdb.wfdbxRestoreAnnDefs(defs: AnnDefs) {
     ann.defs = defs
 }
@@ -1300,7 +1300,7 @@ fun Wfdb.oannclose(n: Int) {
 }
 
 // ---------------------------------------------------------------------------
-// In-process sorting of output annotation files (wfdb-x)
+// In-process sorting of output annotation files (WFDB-x)
 
 /** `a` follows `b` in canonical order (sortann.c; orSame: or they have the same time, num and chan). */
 private fun after(a: Annotation, b: Annotation, orSame: Boolean): Boolean =

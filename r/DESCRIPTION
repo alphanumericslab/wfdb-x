@@ -15,8 +15,8 @@ Authors@R: c(
            comment = "bug fix and -x option of the original rdedfann"),
     person("Reza", "Sameni", role = c("aut", "cre", "cph"),
            email = "reza.sameni@gmail.com",
-           comment = "the R implementation (wfdb-x)"))
-Description: The R implementation of wfdb-x, an independent reimplementation in R
+           comment = "the R implementation (WFDB-x)"))
+Description: The R implementation of WFDB-x, an independent reimplementation in R
     of the WFDB Software Package 10.7.0 (the library and its command-line
     tools) for the physiologic signal, annotation and header files used by
     PhysioNet. It reads and writes the same files as the original C

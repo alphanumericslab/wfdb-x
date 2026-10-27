@@ -15,11 +15,11 @@
 // checkRecord is specified in the same way for the seven languages (the
 // messages, their order and the formatting of numbers are identical); the
 // Python implementation (python/src/wfdbx/check.py) is the reference. The
-// checks were designed for wfdb-x; no code or text of wfdbcheck was used. The
+// checks were designed for WFDB-x; no code or text of wfdbcheck was used. The
 // header file's text is read only for the checks of its lines and of the
 // record name.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -448,7 +448,7 @@ private fun beqb(a: ByteArray?, s: String): Boolean = a != null && a.contentEqua
 
 private fun bytesEq(a: ByteArray?, b: ByteArray?): Boolean = if (a == null || b == null) a == null && b == null else a.contentEquals(b)
 
-/** wfdb-x (for the tests): a simulated size of the signal files (null: their real sizes). */
+/** WFDB-x (for the tests): a simulated size of the signal files (null: their real sizes). */
 internal var checkSimulatedFileSize: Long? = null
 
 // ---------------------------------------------------------------------------
@@ -733,7 +733,7 @@ private fun Wfdb.checkAnnotator(record: ByteArray, an: String, length: Long?, re
  * call. It checks for problems similar to those found by Benjamin Moody's
  * wfdbcheck (https://github.com/bemoody/wfdbcheck).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  *
  * @param record record name: a name in the input directory, or a full
  *   path, `~` path or URL
@@ -750,7 +750,7 @@ private fun Wfdb.checkAnnotator(record: ByteArray, an: String, length: Long?, re
  *
  * ```
  * // 100s: the first minute of record 100 of the MIT-BIH Arrhythmia Database,
- * // included with wfdb-x in tests/data of a copy of the repository
+ * // included with WFDB-x in tests/data of a copy of the repository
  * val report = checkRecord("100s", listOf("atr"), inputDir = "tests/data")
  * println(report)
  * ```

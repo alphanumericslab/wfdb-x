@@ -1,7 +1,7 @@
 function cmd = tool_command(tool)
-%TOOL_COMMAND Shell command that runs a wfdb-x tool in a separate process.
+%TOOL_COMMAND Shell command that runs a WFDB-x tool in a separate process.
 %   CMD = wfdbx.internal.tool_command(TOOL) returns a shell command prefix
-%   (a char vector, with its parts quoted for /bin/sh) that runs the wfdb-x
+%   (a char vector, with its parts quoted for /bin/sh) that runs the WFDB-x
 %   tool TOOL in a new process of the same interpreter; append the tool's
 %   (quoted) arguments and run it with system().  This is how
 %   oannclose runs sortann in legacy mode, as the C library does.
@@ -12,9 +12,9 @@ function cmd = tool_command(tool)
 %
 %   See also wfdbx.internal.shell_quote.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

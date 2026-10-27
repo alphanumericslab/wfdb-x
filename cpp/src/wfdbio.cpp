@@ -1,6 +1,6 @@
 // wfdbio.cpp: low-level I/O functions of the WFDB library.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of lib/wfdbio.c from the WFDB Software Package
@@ -37,8 +37,8 @@
 // This file contains the WFDB path functions (getwfdb, setwfdb, ...), the
 // functions that find and open WFDB files (wfdb_open, wfdb_fopen), error
 // reporting (wfdb_error, wfdberror), the stdio wrappers of WFDB_FILE, the
-// wfdb-x settings that locate files (wfdbx_set_input_dir,
-// wfdbx_set_output_dir, wfdbx_set_network), and the wfdb-x count of write
+// WFDB-x settings that locate files (wfdbx_set_input_dir,
+// wfdbx_set_output_dir, wfdbx_set_network), and the WFDB-x count of write
 // errors (wfdbx_write_errors) and exit check of the tools.
 
 #include "wfdblib.hpp"
@@ -86,7 +86,7 @@ namespace detail {
 
 namespace {
 
-// The C library reports the date on which it was compiled; wfdb-x reports
+// The C library reports the date on which it was compiled; WFDB-x reports
 // the date of the WFDB release it reproduces.
 const char *const WFDB_BUILD_DATE = "Jun 10 2022";
 const char DSEP = '/';

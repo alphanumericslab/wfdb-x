@@ -1,7 +1,7 @@
 // ahaecg2mit.cpp: convert *.ecg or *.txt files from an AHA Database DVD to
 // WFDB-compatible format.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of convert/ahaecg2mit.c from the WFDB Software
@@ -29,7 +29,7 @@
 // any later version. See LICENSE.
 //
 // Behaviors of the C program that are undefined are resolved as in the other
-// wfdb-x implementations (see docs/KNOWN_C_BEHAVIORS.md): the 16-byte line
+// WFDB-x implementations (see docs/KNOWN_C_BEHAVIORS.md): the 16-byte line
 // buffer of readtxtdata() keeps the bytes of earlier lines of the same input
 // file and is not NUL-terminated (bytes beyond it are treated as NUL), and
 // the record name is made of the (up to 4) characters that precede the
@@ -234,7 +234,7 @@ int main(int argc, char **argv)
         case 's':
             sflag = 1; // produce short-format (35-minute) records
             break;
-        case 'F': // sampling frequency (wfdb-x)
+        case 'F': // sampling frequency (WFDB-x)
             if (++i >= argc || std::sscanf(argv[i], "%lf", &Ffreq) != 1 ||
                 Ffreq <= 0.) {
                 std::fprintf(stderr,
@@ -243,7 +243,7 @@ int main(int argc, char **argv)
                 std::exit(1);
             }
             break;
-        case 'G': // gain in adu per physical unit (wfdb-x)
+        case 'G': // gain in adu per physical unit (WFDB-x)
             if (++i >= argc || std::sscanf(argv[i], "%lf", &Ggain) != 1 ||
                 Ggain < 0.) {
                 std::fprintf(stderr, "%s: gain (>= 0) must follow -G\n",
@@ -252,7 +252,7 @@ int main(int argc, char **argv)
             }
             Gset = 1;
             break;
-        case 'R': // ADC resolution in bits (wfdb-x)
+        case 'R': // ADC resolution in bits (WFDB-x)
             if (++i >= argc || std::sscanf(argv[i], "%d", &Rres) != 1 ||
                 Rres < 1 || Rres > 32) {
                 std::fprintf(stderr,
@@ -261,7 +261,7 @@ int main(int argc, char **argv)
                 std::exit(1);
             }
             break;
-        case 'U': // physical units (wfdb-x)
+        case 'U': // physical units (WFDB-x)
             if (++i >= argc) {
                 std::fprintf(stderr, "%s: units must follow -U\n", pname);
                 std::exit(1);

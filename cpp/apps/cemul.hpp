@@ -6,7 +6,7 @@
 // give the same results on every platform.  fclose_output closes a file that
 // a tool writes itself, as the reference C package does.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //

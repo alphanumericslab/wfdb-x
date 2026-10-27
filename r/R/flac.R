@@ -2,17 +2,17 @@
 # external libraries: the FLAC support that the C WFDB library obtains from
 # libFLAC (the flac_* functions of lib/signal.c).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of the FLAC support of lib/signal.c (the code that
 # connects FLAC to the signal functions) from the WFDB Software Package 10.7.0,
 # by Benjamin Moody (2020). The translation follows the logic and behavior of
 # the original code, but it is new code, not the original C code. Its FLAC
-# codec is wfdb-x's own implementation of the FLAC format; it has no
+# codec is WFDB-x's own implementation of the FLAC format; it has no
 # counterpart in the original package, which uses libFLAC.
 #
-# Changes from the original: FLAC streams are decoded and encoded by wfdb-x's
+# Changes from the original: FLAC streams are decoded and encoded by WFDB-x's
 # own codec instead of libFLAC; the files written decode to the same samples,
 # but their bytes differ from libFLAC's. Each change is marked "wfdb-x:" in the
 # code; docs/DIVERGENCES.md gives the reasons.
@@ -33,7 +33,7 @@
 #   decoded with vector operations (pointer doubling over the positions of
 #   the one bits), as in the MATLAB/Octave port.
 # * A lossless FLAC encoder, used to write signals, whose output is
-#   byte-identical to that of the Python implementation of wfdb-x (fixed
+#   byte-identical to that of the Python implementation of WFDB-x (fixed
 #   predictors of order 0 to 4, Rice partitions; libFLAC reads it back
 #   with identical sample values).
 # * MD5 (RFC 1321) in R, with exact 32-bit arithmetic on 16-bit halves

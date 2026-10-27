@@ -1,4 +1,4 @@
-# wfdb-x for Rust
+# WFDB-x for Rust
 
 The `wfdbx` crate reads and writes physiological signal records in the WFDB
 format used by [PhysioNet](https://physionet.org). It is a complete Rust
@@ -20,7 +20,7 @@ You can use it in three ways:
 The crate needs Rust 1.70 or later. It has no dependencies beyond the Rust
 standard library, and runs on Linux, macOS and Windows.
 
-wfdb-x is part of a project that provides the same package in seven languages
+WFDB-x is part of a project that provides the same package in seven languages
 with identical behavior; see the
 [project README](https://github.com/alphanumericslab/wfdb-x#readme).
 
@@ -92,7 +92,7 @@ fn main() -> Result<(), wfdbx::record::Error> {
 
 The examples in this section read the sample record `100s` of the quick
 start (the first minute of record 100 of the MIT-BIH Arrhythmia Database,
-included with wfdb-x in the `tests/data` directory of a copy of the
+included with WFDB-x in the `tests/data` directory of a copy of the
 repository). Run them from the root of the repository: each one sets the
 input directory to `tests/data` in its first line.
 
@@ -123,7 +123,7 @@ let mlii = rec.physical_signal(0)?;   // Vec<f64>, in physical units
 | Argument or option | Meaning | Default |
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
-| `channels` | signals to read, by number (`"0"`) or name (`"MLII"`) | all signals |
+| `channels` | signals to read, by number (`"0"`) or name (`"MLII"`, as in `names()`) | all signals |
 | `from`, `to` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `pad` | replace invalid samples by the previous valid one | `false` |
@@ -145,7 +145,7 @@ The result is a `Record`:
 | `physical(i, s)`, `physical_signal(s)` | one sample, or all samples of signal `s`, in physical units (`f64`) |
 | `fs` | sampling frequency in Hz (0 if the header gives none) |
 | `siginfo` | the specifications of each signal (`Siginfo`): `desc`, `units`, `gain` (ADC units per physical unit; 0 means uncalibrated), `baseline`, `adcres`, `fmt`, ... |
-| `names()` | the description of each signal |
+| `names()` | the description of each signal, without the white space that a header may put at either end of it |
 | `signals` | the number, in the record, of each signal read |
 | `sampfrom` | the number of the first sample returned |
 | `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
@@ -354,7 +354,7 @@ error: annotator atr: 3 annotations are out of order; the first is at sample 50,
 ```
 
 `report.lines()` returns these lines as a vector. The lines are the same in
-the seven languages of wfdb-x. The checks run in normal mode, even if legacy mode is on, and the library
+the seven languages of WFDB-x. The checks run in normal mode, even if legacy mode is on, and the library
 prints no messages during the call.
 
 What is checked:
@@ -374,7 +374,7 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-wfdb-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where you name them, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
@@ -459,7 +459,7 @@ when it cannot connect, or receives nothing, for 30 seconds.
 
 ## Signal parameters
 
-wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
 that a record does not give. Where one is needed, you must give it: in
 `write_record`, as the `fs` argument of `read_annotations`, or as an option
 of the tools (see below). A record whose header gives no frequency has
@@ -472,7 +472,7 @@ for the reasons.
 Each tool is a separate program. After `cargo install --path rust`, run the
 tools by name. These commands, run in the `tests/data` directory of a copy
 of the repository, read the sample record `100s` (the first minute of record
-100 of the MIT-BIH Arrhythmia Database, included with wfdb-x):
+100 of the MIT-BIH Arrhythmia Database, included with WFDB-x):
 
 ```sh
 rdsamp -r 100s -t 10 -p      # print the first 10 seconds, in physical units
@@ -604,7 +604,7 @@ describes what changes in legacy mode.
 
 * **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
   written without any external library. The C library reads files written
-  by wfdb-x with identical sample values, although the compressed bytes
+  by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
 * **Speed.** Build your program in release mode (`cargo build --release`).
   `read_record` then reads 8 million samples in a few hundredths of a
@@ -633,7 +633,7 @@ python3 tests/conformance/harness.py check --legacy --impl rust   # legacy mode
 ```
 
 [DEVELOPING.md](DEVELOPING.md) describes how the crate is organized, for
-developers of wfdb-x.
+developers of WFDB-x.
 
 ## Authors and license
 
@@ -646,14 +646,14 @@ gives the details. The Rust implementation was developed by Reza Sameni
 (2026), through AI-assisted development, cross-language
 verification and unit testing.
 
-wfdb-x is an independent reimplementation. Its Rust code is a translation of
-the C code of the WFDB Software Package into Rust, written for wfdb-x; it is
+WFDB-x is an independent reimplementation. Its Rust code is a translation of
+the C code of the WFDB Software Package into Rust, written for WFDB-x; it is
 not code by the original WFDB developers. It follows the original's logic
 and behavior, with the changes described in
 [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md).
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-wfdb-x is distributed under the GNU General Public License, version 3 or
+WFDB-x is distributed under the GNU General Public License, version 3 or
 (at your option) any later version. See
 [LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).

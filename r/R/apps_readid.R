@@ -1,7 +1,7 @@
 # apps_readid.R: readid -- read an AHA-format ID block (from the standard
 # input) and print the record name and the lengths of its files.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/readid.c from the WFDB Software Package

@@ -20,7 +20,7 @@
    quotes with C escapes for non-printing characters; a NULL string is
    printed as (null).  Doubles are printed with %.17g.
 
-   Part of wfdb-x, Reza Sameni, Oct 2026.
+   Part of WFDB-x, Reza Sameni, Oct 2026.
    GNU General Public License, version 3 or later (see LICENSE). */
 
 #include <stdio.h>
@@ -890,7 +890,7 @@ static void t_flacseek(void)
     wfdbquit();
 }
 
-/* wfdb-x divergences (docs/DIVERGENCES.md): the library has no default
+/* WFDB-x divergences (docs/DIVERGENCES.md): the library has no default
    sampling frequency or gain. */
 static void pphys(const char *label, double x)
 {
@@ -976,7 +976,7 @@ static void t_nodefaults(void)
     wfdbverbose();
 }
 
-/* wfdb-x legacy mode (wfdbx_set_legacy, docs/DIVERGENCES.md): the library
+/* WFDB-x legacy mode (wfdbx_set_legacy, docs/DIVERGENCES.md): the library
    behaves as the original WFDB library, with its built-in defaults.  These
    checks repeat earlier ones (t_signals, t_extra, t_nodefaults) whose results
    differ in legacy mode; the values printed are those of the original
@@ -1181,7 +1181,7 @@ static void t_outdir(void)
     while ((st = getann(0, &a)) == 0)
 	pann("orec getann", st, &a);
     wfdbquit();
-    setwfdb(".");	/* (in wfdb-x, the setting of the last setwfdb remains) */
+    setwfdb(".");	/* (in WFDB-x, the setting of the last setwfdb remains) */
 
     /* absolute paths */
     if (getcwd(cwd, sizeof(cwd)) == NULL) return;

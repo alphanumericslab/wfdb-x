@@ -6,7 +6,7 @@ function oannclose(an)
 %   canonical order (unless the environment variable WFDBANNSORT is 0;
 %   the 'sort' option of wfdbx.write_annotations decides instead for the
 %   file that function writes),
-%   with a result identical to that of the sortann tool: wfdb-x does this
+%   with a result identical to that of the sortann tool: WFDB-x does this
 %   in the same process (wfdbx.internal.ann_sortfile), while the C library
 %   (as legacy mode, wfdbx.wfdbx_set_legacy) runs sortann in a separate
 %   process (in legacy mode, the sortann tool with --legacy, in the output
@@ -19,7 +19,7 @@ function oannclose(an)
 %   process, without losing annotations, instead of by running sortann; see
 %   docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software

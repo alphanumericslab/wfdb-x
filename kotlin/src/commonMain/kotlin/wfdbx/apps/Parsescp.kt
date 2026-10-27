@@ -16,7 +16,7 @@
 //
 // The input is held in one byte buffer and the C program's pointers into it
 // are represented by offsets. Behaviors of the C program that are undefined
-// (on defective inputs) are resolved as in the other wfdb-x implementations
+// (on defective inputs) are resolved as in the other WFDB-x implementations
 // (see docs/KNOWN_C_BEHAVIORS.md): bytes beyond the end of the input are
 // read as 0; signal arrays have at least 5000 samples and samples beyond
 // the end of a lead are 0; missing subtraction zones are ignored and
@@ -25,7 +25,7 @@
 // empty, and an invalid month is printed as ???. Samples are written in
 // little-endian byte order, as the C program does on x86.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of convert/parsescp.c from the WFDB Software
@@ -588,13 +588,13 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
 
         val m = precgmeas()
         dfile.write(m.bytes, 0, m.size)
-        wf.wfdbx_fclose_output(dfile, pname, dname) // wfdb-x
+        wf.wfdbx_fclose_output(dfile, pname, dname) // WFDB-x
 
         kfile.printf("%s key\n", SCP_VERSION_STRING)
         kfile.printf("Record: %s (%s %s)\n", rn, recdate, rectime)
         kfile.printf("Name: %s\n", patientName)
         kfile.printf("MRN: %s\n", patientId)
-        wf.wfdbx_fclose_output(kfile, pname, kname) // wfdb-x
+        wf.wfdbx_fclose_output(kfile, pname, kname) // WFDB-x
 
         if (zflag != 0) {
             for (s in 0 until maxOf(nleads, 0).toLong()) {
@@ -637,7 +637,7 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
                 tfile.write(line.bytes, 0, line.size)
                 i++
             }
-            wf.wfdbx_fclose_output(tfile, pname, tname) // wfdb-x
+            wf.wfdbx_fclose_output(tfile, pname, tname) // WFDB-x
         }
 
         val prolog = ByteVec(512)
@@ -664,7 +664,7 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
             for ((k, l) in row.withIndex()) writeSamples(efile, sigr(l.toLong()), 1250 * k, 1250)
         }
         writeSamples(efile, sigr(leadII.toLong()), 0, 5000)
-        wf.wfdbx_fclose_output(efile, pname, ename) // wfdb-x
+        wf.wfdbx_fclose_output(efile, pname, ename) // WFDB-x
         return 1
     }
 

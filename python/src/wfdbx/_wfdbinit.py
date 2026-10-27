@@ -1,6 +1,6 @@
 """wfdbinit, wfdbquit, wfdbflush (port of lib/wfdbinit.c).
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of lib/wfdbinit.c from the WFDB Software Package
@@ -49,7 +49,7 @@ def wfdbquit():
 
     Output annotation files and signal files are completed (headers are
     not written: use newheader() first).  The input and output directories
-    are left as they are (wfdb-x; in legacy mode, the WFDB path is reset to
+    are left as they are (WFDB-x; in legacy mode, the WFDB path is reset to
     its initial value, as by resetwfdb()).
 
     Translation of the C function wfdbquit() (lib/wfdbinit.c, WFDB 10.7.0):

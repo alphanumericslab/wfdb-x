@@ -6,7 +6,7 @@
 // longer than 9 characters), this port treats the remainder of the line as
 // empty, and uses the full mnemonic (see docs/KNOWN_C_BEHAVIORS.md).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of app/wrann.c from the WFDB Software Package

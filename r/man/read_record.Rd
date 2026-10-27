@@ -29,7 +29,8 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     \code{\link{wfdbx_set_input_dir}}).  A name with another extension,
     such as \code{"rec.edf"}, is read as an EDF file.}
   \item{channels}{the signals to read: signal numbers, starting at 0, or
-    signal names.  The default, \code{NULL}, reads all signals.}
+    signal names (by name, as in \code{names}).  The default,
+    \code{NULL}, reads all signals.}
   \item{sampfrom, sampto}{the first sample to read, and the sample after
     the last one.  Each is a sample number or a time string, such as
     \code{"0:10"} (10 seconds), \code{"s1000"} (sample 1000) or \code{"e"}
@@ -114,13 +115,15 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     \code{\link{WFDB_INVALID_SAMPLE}} (-32768) in ADC units, and
     \code{NA} in physical units.}
   \item{fs}{the sampling frequency in Hz, 0 if the header gives none.}
-  \item{names}{the description of each signal.}
+  \item{names}{the description of each signal, without the white space
+    that a header may put at either end of it.}
   \item{units}{the physical units of each signal, as a list.  An element
     is \code{NULL} when the header gives no units.}
   \item{gains, baselines}{the gain and baseline of each signal.  A gain of
     0 means uncalibrated.}
   \item{siginfo}{the full signal specifications: one
-    \code{\link{siginfo}} list per signal.}
+    \code{\link{siginfo}} list per signal (its \code{desc} without the
+    white space at either end).}
   \item{name}{the record name.}
   \item{sampfrom}{the number of the first sample returned.}
   \item{base_time}{the start time and date as text, to the second, such
@@ -171,7 +174,7 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   }
 }
 \section{Origin}{
-  Part of wfdb-x; not in the original WFDB package.
+  Part of WFDB-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{read_annotations}} for annotation files;

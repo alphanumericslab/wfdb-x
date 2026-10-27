@@ -1,4 +1,4 @@
-# wfdb-x for MATLAB and GNU Octave: implementation notes
+# WFDB-x for MATLAB and GNU Octave: implementation notes
 
 These notes describe how the MATLAB/Octave implementation is organized. They
 complement [`docs/porting-guide.md`](../docs/porting-guide.md) (the C
@@ -103,16 +103,16 @@ upper-case argument names, inputs, outputs and return codes, an example
 where useful, a "See also" line), and as the last paragraph of the help one
 line on its origin: "Translation of the C function isigopen() (lib/signal.c,
 WFDB 10.7.0): same arguments and results." (with "Differences: ...; see
-docs/DIVERGENCES.md." where wfdb-x behaves differently; for a tool, "the C
+docs/DIVERGENCES.md." where WFDB-x behaves differently; for a tool, "the C
 program rdsamp (app/rdsamp.c, ...): same options and output"; for an
 internal function, "Translation of the C function edfparse() (...)." or
 "Part of the translation of lib/signal.c (WFDB 10.7.0)."), or "Part of
-wfdb-x; not in the original WFDB package." Then, after a blank line, as a
+WFDB-x; not in the original WFDB package." Then, after a blank line, as a
 separate comment block that `help` does not show, comes the file header,
 with the exact authors and years of [`docs/AUTHORS.md`](../docs/AUTHORS.md):
 
 ```matlab
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software
@@ -139,9 +139,9 @@ with the exact authors and years of [`docs/AUTHORS.md`](../docs/AUTHORS.md):
   the language.";
 * tools (`+wfdbx/+apps/`) say "original program" and "Original C program:
   app/<tool>.c", and "This program is free software";
-* wfdb-x's own code (C library emulation, high-level API, drivers, FLAC
+* WFDB-x's own code (C library emulation, high-level API, drivers, FLAC
   codec, tests) says, after the first sentence, "It has no counterpart in
-  the original package." (tests: "It tests wfdb-x; it has no counterpart
+  the original package." (tests: "It tests WFDB-x; it has no counterpart
   in the original package."), then "Copyright (C) 2026 Reza Sameni." and
   the license paragraph.
 
@@ -331,7 +331,7 @@ help text):
 | `st = io_state()` | the I/O state (`IOState`) |
 | `wfdb_error(fmt, ...)` | `wfdb_error`: saves the message; prints it unless `wfdbquiet` |
 | `f = wfdb_open(s, record, mode)` | `wfdb_open`: the one location a name designates (`resolve_name`, `open_at`); in legacy mode, the WFDB path search; returns a `WFDBFile` or `[]` |
-| `p = resolve_name(name, output)`, `f = open_at(p, s)`, `expand_home(n)`, `is_url(n)`, `is_absolute_path(n)` | wfdb-x name resolution: a relative name under the input (or output) directory, an absolute, `~` or URL name as given; the file at that location (both spellings) |
+| `p = resolve_name(name, output)`, `f = open_at(p, s)`, `expand_home(n)`, `is_url(n)`, `is_absolute_path(n)` | WFDB-x name resolution: a relative name under the input (or output) directory, an absolute, `~` or URL name as given; the file at that location (both spellings) |
 | `f = open_in(dir, s, name, record)`, `wfdb_dirname(p)` | a file named in a header, in the header's directory, with the containment check |
 | `in_header_dir(name)`, `expand_record(r)`, `output_file(name)` | the containment rule; the trailing-'/' expansion of `wfdb_open`; the local file that an output name designates |
 | `is_input_file(fname)` | (signal module) true if an output signal file is a signal file of the open input record, segments included (Octave: `stat` device and inode; MATLAB: `java.nio.file.Files.isSameFile`); `openosig` refuses such a file in normal mode |
@@ -357,10 +357,10 @@ with vector operations.
 Public I/O functions in `+wfdbx/`: `getwfdb`, `setwfdb`, `resetwfdb`,
 `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdbfile`, `wfdbmemerr`,
 `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
-`wfdbdefwfdbcal`, and the wfdb-x additions `wfdbx_write_errors` and
+`wfdbdefwfdbcal`, and the WFDB-x additions `wfdbx_write_errors` and
 `wfdbx_note_write_error`.
 
-**Finding files** (wfdb-x): nothing is searched in normal mode. The
+**Finding files** (WFDB-x): nothing is searched in normal mode. The
 settings (input directory, output directory, network access) are
 properties of `IOState` (`input_dir`, `output_dir`, `network`, ...), each
 read from its environment variable when first needed
@@ -387,8 +387,9 @@ arrays: `hsd` (header data: `info`, `start`, `skew`; see
 `wfdbx.siginfo` structures; `info.group` is 0-based as in C. Signal
 groups (one per signal file) are handle objects in cell rows: `igd{g+1}`
 (`IGData`: `fp`, `buf`/`bp`/`be`, `count`, `data`, `datb`, `stat`,
-`start`, `bsize`, `seek`, `initial_skip`, `flac`) and `ogd{g+1}`
-(`OGData`). Flags replace C pointer tests that cannot be written in
+`start`, `bsize`, `seek`, `initial_skip`, `flac`, and `ahead`, the
+blocks read ahead by the bulk reader, which a refill takes first) and
+`ogd{g+1}` (`OGData`). Flags replace C pointer tests that cannot be written in
 Octave (`==` is not defined for handle objects): `has_dsbuf`,
 `has_pinfo`, `outinfo_hdr` (`outinfo` is `oheader`). `plan` caches
 per-signal constants for `getskewedframe` (reset by `isigopen` and
@@ -412,16 +413,31 @@ about 10 microseconds).
 **Bulk reading.** `[v, stat] = wfdbx.getframes(n)` (the array first, as
 in Python) is exactly `n` calls of `getvec` (stopping at the first
 negative status). It calls `wfdbx.internal.bulk_frames`, which decodes
-whole frames from the bytes of each group with vector operations
-(including multi-frequency records in `WFDB_LOWRES` mode, averaged as
-`meansamp`, and `WFDB_HIGHRES` mode, `ispfmax` vectors per frame; FLAC
-groups through `flac_getsamps`; `WFDB_GVPAD`) and stops before any frame
-that needs special handling: the frame at which a checksum is verified,
-the end of a file, a partial bit-packed group, a partial frame in
-`WFDB_HIGHRES` mode. `getframes` then calls `getvec` for one vector and
-tries the bulk path again. Skewed records (`dsbuf`), variable-layout
-multi-segment records (`sigmap`), signals without files (format 0),
-`setifreq` resampling and unskipped prologs use `getvec` throughout.
+whole frames from the bytes of each group with vector operations: records
+of several sampling frequencies (in `WFDB_LOWRES` mode, averaged as
+`meansamp`, and in `WFDB_HIGHRES` mode, `ispfmax` vectors per frame, from
+a frame boundary), FLAC groups (through `flac_getsamps`), null signals
+(format 0, of known length), `WFDB_GVPAD`, and the segments of
+multi-segment records, of fixed or variable layout (the frames are then
+mapped to the layout signals as `sigmap` does). Each group is read in
+whole blocks of its file (the buffer is left as the refills would leave
+it: the block holding the last byte used, the later blocks in `ahead`)
+and in whole packed units (an alignment period of frames, the least common
+multiple over the groups of `ns / gcd(gfl, ns)`, with `gfl` the samples of
+a frame of the group and `ns` those of a packed unit). It stops before any
+frame that needs special handling: the frame at which a checksum is
+verified (the last frame of each segment), the end of a file, a partial
+bit-packed group, the middle of a frame in `WFDB_HIGHRES` mode.
+`getframes` then calls `getvec` for one vector and tries the bulk path
+again. The samples, statuses and library state (`istime`, each signal's
+`samp`, `cksum`, `nsamp`, `gvc`, `tvector`, ...) are those of `getvec`.
+Skewed records (`dsbuf`), `setifreq` resampling and unskipped prologs use
+`getvec` throughout. `read_record` reads chunks of a multiple of 6 frames
+(`6 * ispfmax` vectors in high resolution), so that formats 212, 310 and
+311 end each chunk on a whole packed unit. The `SigState` properties
+`bulk_read` (set it to false to turn the bulk path off: the tests compare
+both paths) and `bulk_vectors` (the number of vectors read in blocks) are
+not reset by `wfdbquit`.
 
 **Writing.** `putvec` encodes a frame into the bytes of each group and
 appends them with `wfdbx.internal.og_put(og, bytes)` (which writes the
@@ -448,7 +464,7 @@ Constants: `wfdbx.WFDB_INVALID_SAMPLE()`, `WFDB_LOWRES`, `WFDB_HIGHRES`,
 `WFDB_GVPAD`, `WFDB_DEFFREQ`, `WFDB_DEFGAIN`, `WFDB_DEFRES`,
 `WFDB_MAXRNL`, `WFDB_MAXUSL`, `WFDB_MAXDSL`.
 `WFDB_DEFFREQ`, `WFDB_DEFGAIN` and `WFDB_DEFRES` are used only in legacy
-mode (below): wfdb-x never assumes a sampling frequency, a gain, an ADC resolution or units
+mode (below): WFDB-x never assumes a sampling frequency, a gain, an ADC resolution or units
 ([`docs/DIVERGENCES.md`](../docs/DIVERGENCES.md), defined by
 `tests/reference/divergences.patch`); code that needs one and does not
 have it reports an error, with the comment "wfdb-x: no default sampling
@@ -465,7 +481,7 @@ original" paragraph of their file header.
 `wfdbx.wfdbx_legacy_args` before a tool's `main` and restores the previous
 setting when the tool returns. Every divergence branches on it, with the
 original code in the legacy branch (comment "wfdb-x: legacy mode"); in the
-tools, options added by wfdb-x are made unrecognized by clearing the
+tools, options added by WFDB-x are made unrecognized by clearing the
 option character before the `switch`, and `help` prints the original text
 in legacy mode. The high-level functions take a `'legacy'` option
 (`wfdbx.internal.hl_legacy` turns the library's legacy mode on for the
@@ -629,7 +645,7 @@ function status = rdann(args)
 %   Translation of the C program rdann (app/rdann.c, WFDB 10.7.0): same
 %   options and output. Differences: ...; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of app/rdann.c from the WFDB Software

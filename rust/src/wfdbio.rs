@@ -1,6 +1,6 @@
 //! Low-level I/O of the WFDB library (port of `lib/wfdbio.c`): finding and
 //! opening WFDB files (`wfdb_open`, `wfdb_fopen`, `wfdbfile`), the input
-//! and output directories and network access (wfdb-x), the WFDB path of
+//! and output directories and network access (WFDB-x), the WFDB path of
 //! legacy mode (`getwfdb`, `setwfdb`, ...), error reporting (`wfdb_error`,
 //! `wfdberror`, `wfdbquiet`), and [`WfdbFile`], the buffered file type used
 //! by the library and the tools (C's `WFDB_FILE` / `FILE *`).
@@ -15,7 +15,7 @@
 //! is then read in full by the `curl` program. Legacy mode searches the
 //! WFDB path as the C library does, without network access.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of lib/wfdbio.c from the WFDB Software Package
@@ -182,7 +182,7 @@ impl WfdbFile {
     /// [`wfdb_fopen`] for the library's version). `mode` is a C mode
     /// string (`"rb"`, `"wb"`, `"ab"`, `"r+b"`, ...; `b` is ignored).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn fopen(path: &[u8], mode: &[u8]) -> Option<WfdbFile> {
         let m: Vec<u8> = mode
             .iter()
@@ -234,7 +234,7 @@ impl WfdbFile {
     /// A file on the standard input (C's `stdin`; the file attached by
     /// [`freopen_stdin`], if any).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn stdin() -> WfdbFile {
         let replaced = STDIN_REPLACEMENT
             .lock()
@@ -278,7 +278,7 @@ impl WfdbFile {
     /// A file on the standard output (C's `stdout`; writes go to the
     /// shared buffer of [`cstd::out`]).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn stdout() -> WfdbFile {
         let mut f = WfdbFile::with_kind(Kind::Stdout, false, true);
         f.fpos = None;
@@ -287,7 +287,7 @@ impl WfdbFile {
 
     /// A file on the standard error (C's `stderr`, unbuffered).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn stderr() -> WfdbFile {
         let mut f = WfdbFile::with_kind(Kind::Stderr, false, true);
         f.fpos = None;
@@ -296,7 +296,7 @@ impl WfdbFile {
 
     /// An input file reading from memory (seekable).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn from_bytes(data: Vec<u8>) -> WfdbFile {
         let mut f = WfdbFile::with_kind(Kind::Mem, true, false);
         f.rlen = data.len();
@@ -307,14 +307,14 @@ impl WfdbFile {
 
     /// Is this the standard input, output, or error?
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn is_std(&self) -> bool {
         matches!(self.kind, Kind::Stdin(_) | Kind::Stdout | Kind::Stderr)
     }
 
     /// wfdb-x: is this a remote file (a URL, fetched in full)?
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn is_remote(&self) -> bool {
         self.remote
     }
@@ -353,7 +353,7 @@ impl WfdbFile {
     /// The type of the file: [`WFDB_NET`] for a remote file (wfdb-x: a
     /// URL, fetched in full), otherwise [`WFDB_LOCAL`].
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn file_type(&self) -> i32 {
         if self.remote {
             WFDB_NET
@@ -364,7 +364,7 @@ impl WfdbFile {
 
     /// Set the buffer size (C `setvbuf`, before any I/O).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn set_bufsize(&mut self, n: usize) {
         self.bufsize = n.max(1);
     }
@@ -473,7 +473,7 @@ impl WfdbFile {
     /// C `ungetc(c, fp)`: push a byte back (returns `c`, or `EOF` if `c`
     /// is `EOF`).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn ungetc(&mut self, c: i32) -> i32 {
         if c == EOF {
             return EOF;
@@ -494,7 +494,7 @@ impl WfdbFile {
     /// As in glibc, a request for less than a buffer refills the buffer,
     /// and larger ones read whole blocks directly into `buf`.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn read(&mut self, buf: &mut [u8]) -> usize {
         let mut done = 0;
         while done < buf.len() {
@@ -640,7 +640,7 @@ impl WfdbFile {
 
     /// Read everything up to the end of the file.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn read_to_end(&mut self) -> Vec<u8> {
         let mut v = Vec::new();
         loop {
@@ -1091,13 +1091,13 @@ pub struct IoState {
     /// wfdb-x: the value of `WFDBX_OUTPUT_DIR` (read on first use).
     env_output_dir: Option<Vec<u8>>,
     output_dir_init: bool,
-    /// wfdb-x (normal mode): the directory under which relative names are
+    /// WFDB-x (normal mode): the directory under which relative names are
     /// read (`None`: the current directory; see `wfdbx_set_input_dir`).
     input_dir: Option<Vec<u8>>,
     /// wfdb-x: the value of `WFDBX_INPUT_DIR` (read on first use).
     env_input_dir: Option<Vec<u8>>,
     input_dir_init: bool,
-    /// wfdb-x (normal mode): the input directory set by the last
+    /// WFDB-x (normal mode): the input directory set by the last
     /// `setwfdb`, for `resetwfdb`, and whether `setwfdb` was called.
     setwfdb_input_dir: Option<Vec<u8>>,
     setwfdb_called: bool,
@@ -1419,7 +1419,7 @@ static STDIN_REPLACEMENT: std::sync::Mutex<Option<File>> = std::sync::Mutex::new
 /// Returns false (and leaves the standard input unchanged) if the file
 /// cannot be opened.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn freopen_stdin(name: &[u8]) -> bool {
     match File::open(cstd::bytes_to_path(name)) {
         Ok(f) => {
@@ -1522,7 +1522,7 @@ static WRITE_ERRORS: AtomicI32 = AtomicI32::new(0);
 /// assert!(wfdbx::wfdbx_write_errors() > before);
 /// ```
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_write_errors() -> i32 {
     WRITE_ERRORS.load(Ordering::Relaxed)
 }
@@ -1530,7 +1530,7 @@ pub fn wfdbx_write_errors() -> i32 {
 /// Count a write error (see [`wfdbx_write_errors`]): for an application
 /// that writes a file itself.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_note_write_error() {
     WRITE_ERRORS.fetch_add(1, Ordering::Relaxed);
 }
@@ -1538,7 +1538,7 @@ pub fn wfdbx_note_write_error() {
 /// `wfdbx_fclose_output(fp, pname, name)` on the default instance (see
 /// [`Wfdb::wfdbx_fclose_output`]).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_fclose_output(fp: WfdbFile, pname: &[u8], name: &[u8]) -> i32 {
     with_default(|w| w.wfdbx_fclose_output(fp, pname, name))
 }
@@ -1565,7 +1565,7 @@ pub fn wfdb_striphea(record: &[u8]) -> Vec<u8> {
 /// standard output and error are flushed first. Returns the exit status
 /// (-1 if it could not be run).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn run_sortann(record: &[u8], annotator: &[u8], dir: Option<&[u8]>) -> i32 {
     let mut prog = std::path::PathBuf::from("sortann");
     if let Ok(exe) = std::env::current_exe() {
@@ -1917,7 +1917,7 @@ impl Wfdb {
     /// assert_eq!(w.wfdbx_get_input_dir().as_deref(), Some(&b"/data/mitdb"[..]));
     /// ```
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_set_input_dir(&mut self, dir: impl OptBytes) -> Option<Vec<u8>> {
         self.init_input_dir();
         let previous = self.io.input_dir.take();
@@ -1928,7 +1928,7 @@ impl Wfdb {
     /// Returns the input directory (see [`Wfdb::wfdbx_set_input_dir`]), or
     /// `None` if none is set.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_get_input_dir(&mut self) -> Option<Vec<u8>> {
         self.init_input_dir();
         self.io.input_dir.clone()
@@ -1974,7 +1974,7 @@ impl Wfdb {
     /// assert_eq!(w.wfdbx_get_output_dir().as_deref(), Some(&b"out"[..]));
     /// ```
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_set_output_dir(&mut self, dir: impl OptBytes) -> Option<Vec<u8>> {
         self.init_output_dir();
         let dir = dir.opt_bytes().map(cstd::cstr);
@@ -1992,7 +1992,7 @@ impl Wfdb {
     /// Returns the output directory (see [`Wfdb::wfdbx_set_output_dir`]), or
     /// `None` if none is set.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_get_output_dir(&mut self) -> Option<Vec<u8>> {
         self.init_output_dir();
         self.io.output_dir.clone()
@@ -2016,7 +2016,7 @@ impl Wfdb {
     /// assert_eq!(w.wfdbx_get_network(), 1);
     /// ```
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_set_network(&mut self, on: i32) -> i32 {
         let previous = self.wfdbx_get_network();
         self.io.network = Some(if on < 0 { self.io.env_network } else { on != 0 });
@@ -2026,7 +2026,7 @@ impl Wfdb {
     /// Returns 1 if network access is on, 0 otherwise (see
     /// [`Wfdb::wfdbx_set_network`]).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_get_network(&mut self) -> i32 {
         if self.io.network.is_none() {
             self.io.env_network =
@@ -2042,7 +2042,7 @@ impl Wfdb {
     /// write error on NAME` and count a write error (see
     /// [`wfdbx_write_errors`]); legacy mode prints and counts nothing.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_fclose_output(&mut self, fp: WfdbFile, pname: &[u8], name: &[u8]) -> i32 {
         let status = fp.close();
         if status != 0 && self.wfdbx_get_legacy() == 0 {
@@ -2103,7 +2103,7 @@ impl Wfdb {
     /// The name of the file most recently opened by
     /// [`wfdb_open`](Wfdb::wfdb_open) (C's `wfdb_filename`).
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdb_filename(&self) -> &[u8] {
         &self.io.filename
     }
@@ -2113,7 +2113,7 @@ impl Wfdb {
     /// the standard input or output; a record name ending in `/` names the
     /// record of that directory, `"a/b/"` meaning `"a/b/b"`).
     ///
-    /// wfdb-x, normal mode: the file is opened at the one location its
+    /// WFDB-x, normal mode: the file is opened at the one location its
     /// name designates; nothing is searched. An absolute name, or a URL
     /// (`http://`, `https://`; read only, and only with network access,
     /// see [`Wfdb::wfdbx_set_network`]), is used as given; a name beginning
@@ -2287,7 +2287,7 @@ impl Wfdb {
     /// header's directory` is reported); the signal file name `-` (the
     /// standard input) is also accepted.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_open_in(
         &mut self,
         dir: Option<&[u8]>,
@@ -2323,7 +2323,7 @@ impl Wfdb {
     /// created (`"wb"` or `"ab"`), the missing directories in its path are
     /// created and the file is opened again.
     ///
-    /// wfdb-x, normal mode: an `http://` or `https://` URL is fetched (read
+    /// WFDB-x, normal mode: an `http://` or `https://` URL is fetched (read
     /// only; see [`Wfdb::wfdbx_set_network`]), and names containing `..`
     /// are accepted. Legacy mode, as in C (built without network support):
     /// names containing `..` or `://` are rejected.
@@ -2666,7 +2666,7 @@ pub fn wfdbfile(s: impl OptBytes, record: impl OptBytes) -> Option<Vec<u8>> {
 /// Sets the output directory of the default `Wfdb` value of the thread
 /// (see [`Wfdb::wfdbx_set_output_dir`]). Returns the previous setting.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_set_output_dir(dir: impl OptBytes) -> Option<Vec<u8>> {
     with_default(|w| w.wfdbx_set_output_dir(dir))
 }
@@ -2674,7 +2674,7 @@ pub fn wfdbx_set_output_dir(dir: impl OptBytes) -> Option<Vec<u8>> {
 /// Returns the output directory of the default `Wfdb` value of the thread
 /// (see [`Wfdb::wfdbx_get_output_dir`]).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_get_output_dir() -> Option<Vec<u8>> {
     with_default(|w| w.wfdbx_get_output_dir())
 }
@@ -2682,7 +2682,7 @@ pub fn wfdbx_get_output_dir() -> Option<Vec<u8>> {
 /// Sets the input directory of the default `Wfdb` value of the thread (see
 /// [`Wfdb::wfdbx_set_input_dir`]). Returns the previous setting.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_set_input_dir(dir: impl OptBytes) -> Option<Vec<u8>> {
     with_default(|w| w.wfdbx_set_input_dir(dir))
 }
@@ -2690,7 +2690,7 @@ pub fn wfdbx_set_input_dir(dir: impl OptBytes) -> Option<Vec<u8>> {
 /// Returns the input directory of the default `Wfdb` value of the thread
 /// (see [`Wfdb::wfdbx_get_input_dir`]).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_get_input_dir() -> Option<Vec<u8>> {
     with_default(|w| w.wfdbx_get_input_dir())
 }
@@ -2698,7 +2698,7 @@ pub fn wfdbx_get_input_dir() -> Option<Vec<u8>> {
 /// Turns network access on or off for the default `Wfdb` value of the
 /// thread (see [`Wfdb::wfdbx_set_network`]). Returns the previous setting.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_set_network(on: i32) -> i32 {
     with_default(|w| w.wfdbx_set_network(on))
 }
@@ -2706,7 +2706,7 @@ pub fn wfdbx_set_network(on: i32) -> i32 {
 /// Returns 1 if network access is on for the default `Wfdb` value of the
 /// thread, 0 otherwise (see [`Wfdb::wfdbx_get_network`]).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_get_network() -> i32 {
     with_default(|w| w.wfdbx_get_network())
 }

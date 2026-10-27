@@ -1,6 +1,6 @@
 """m2a: convert an MIT-format annotation file to AHA format.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of convert/m2a.c from the WFDB Software Package
@@ -47,7 +47,7 @@ LEGACY_HELP = legacy_help(HELP, {
 
 
 def help(pname):
-    hs = LEGACY_HELP if legacy() else HELP     # wfdb-x
+    hs = LEGACY_HELP if legacy() else HELP     # WFDB-x
     eprintf(hs[0], pname)
     for s in hs[1:]:
         eprintf("%s\n", s)
@@ -72,7 +72,7 @@ def _main(argv):
                 ianame = argv[i]
                 i += 1
                 oaname = argv[i]
-            elif c == "F" and not legacy():    # sampling frequency (wfdb-x)
+            elif c == "F" and not legacy():    # sampling frequency (WFDB-x)
                 i += 1
                 ffreq = freq_option(argv, i, pname)
             elif c == "h":

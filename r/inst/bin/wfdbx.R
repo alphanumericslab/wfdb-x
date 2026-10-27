@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# wfdbx.R: command-line driver of the wfdb-x tools for R.
+# wfdbx.R: command-line driver of the WFDB-x tools for R.
 #
 #   Rscript wfdbx.R TOOL [ARGUMENTS ...]     (e.g. Rscript wfdbx.R rdsamp -r 100s)
 #   Rscript wfdbx.R --list
@@ -12,7 +12,7 @@
 # disables the cache), keyed by the R version and the names, sizes and
 # modification times of the source files.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #

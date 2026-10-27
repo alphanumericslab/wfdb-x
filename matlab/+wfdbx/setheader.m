@@ -18,7 +18,7 @@ function [stat, si] = setheader(record, si, nsig)
 %   record and its signal files relative to its own directory, and only the
 %   record's own name (the last component) is checked; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software

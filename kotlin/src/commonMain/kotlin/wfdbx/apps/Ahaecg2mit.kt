@@ -3,7 +3,7 @@
 // rust/src/bin/ahaecg2mit.rs).
 //
 // Behaviors of the C program that are undefined are resolved as in the
-// other wfdb-x implementations (see docs/KNOWN_C_BEHAVIORS.md): the 16-byte
+// other WFDB-x implementations (see docs/KNOWN_C_BEHAVIORS.md): the 16-byte
 // line buffer of readtxtdata keeps the bytes of earlier lines of the same
 // input file and is not NUL-terminated (bytes beyond it are treated as
 // NUL), and the record name is made of the (up to 4) characters that
@@ -11,7 +11,7 @@
 // are reset for each input file; with -s, a record name of fewer than 2
 // characters is left unchanged.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of convert/ahaecg2mit.c from the WFDB Software

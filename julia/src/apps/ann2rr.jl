@@ -1,6 +1,6 @@
 # ann2rr: extract a list of intervals from an annotation file.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of app/ann2rr.c from the WFDB Software Package
@@ -165,7 +165,7 @@ function ann2rr_main(args::Vector{String})
                     cexit(1)
                 end
                 from_i = i              # to be converted to sample intervals below
-            elseif c == UInt8('F') && !legacy   # sampling frequency follows (wfdb-x)
+            elseif c == UInt8('F') && !legacy   # sampling frequency follows (WFDB-x)
                 i += 1
                 ffreq = _annapp_ffreq(pname, argv, i, argc)
             elseif c == UInt8('h')      # print usage summary and quit

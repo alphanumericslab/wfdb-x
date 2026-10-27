@@ -1,6 +1,6 @@
 function r = expand_home(name)
 %EXPAND_HOME Expand a leading ~ in a file name.
-%   R = wfdbx.internal.expand_home(NAME) (wfdb-x) returns NAME with a
+%   R = wfdbx.internal.expand_home(NAME) (WFDB-x) returns NAME with a
 %   leading '~' (followed by a directory separator or nothing) replaced by
 %   the home directory ($HOME, or that of the current user if HOME is unset
 %   or empty; on MS-Windows, %USERPROFILE%), and, on POSIX systems, '~USER'
@@ -9,9 +9,9 @@ function r = expand_home(name)
 %   of the home directory are dropped ('~' with home '/h/' is '/h'; an
 %   empty result is '/').  Other names are returned unchanged.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

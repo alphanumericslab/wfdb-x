@@ -15,7 +15,7 @@
 # they are closed (`_sort_ann_file`; in legacy mode, by running the sortann
 # program, `run_sortann`).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of lib/annot.c from the WFDB Software Package
@@ -188,7 +188,7 @@ AnnState() = AnnState(_IaData[], _OaData[], 0.0, 0, fill(false, _NCODES),
                                                    for s in _DEFAULT_DESCRIPTIONS],
                       nothing)
 
-# A table of annotation type definitions (wfdb-x): mnemonics, descriptions,
+# A table of annotation type definitions (WFDB-x): mnemonics, descriptions,
 # and flags marking the modified types. `_lib_defs(w)` is that of the library
 # (it shares its vectors); `_sort_ann_file` uses one of its own.
 struct _AnnDefs
@@ -529,8 +529,8 @@ on errors).
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository:
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository:
 ```julia-repl
 julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
 
@@ -640,7 +640,7 @@ function getann(w::Wfdb, n::Integer, annot::Annotation)
     _getann_ia(w, w.ann.iad[k+1], annot)
 end
 
-# The body of getann (wfdb-x), for the input annotator ia.
+# The body of getann (WFDB-x), for the input annotator ia.
 function _getann_ia(w::Wfdb, ia::_IaData, annot::Annotation)
     if ia.pann.anntyp != 0                      # an annotation was pushed back
         _setann!(annot, ia.pann)
@@ -691,7 +691,7 @@ function ungetann(w::Wfdb, n::Integer, annot::Annotation)
     _ungetann_ia(ia, annot)
 end
 
-# The body of ungetann (wfdb-x), after its checks, for the input annotator
+# The body of ungetann (WFDB-x), after its checks, for the input annotator
 # ia (whose pushback buffer is empty).
 function _ungetann_ia(ia::_IaData, annot::Annotation)
     ia.pann = copy(annot)
@@ -725,7 +725,7 @@ function putann(w::Wfdb, n::Integer, annot::Annotation)
     _put_ann_word(w, oa, k, annot)
 end
 
-# The body of putann (wfdb-x), after the table, for the output annotator oa
+# The body of putann (WFDB-x), after the table, for the output annotator oa
 # (number n, for messages).
 function _put_ann_word(w::Wfdb, oa::_OaData, n::Int, annot::Annotation)
     t = annot.time
@@ -963,7 +963,7 @@ function setannstr(w::Wfdb, code::Integer, s::OptByteStr)
     Int32(-1)
 end
 
-# The body of setannstr and setanndesc (wfdb-x), for a string table (of
+# The body of setannstr and setanndesc (WFDB-x), for a string table (of
 # mnemonics or descriptions) and the modification flags mod of a definition
 # table. Returns 0, or -1 if the code is illegal.
 function _set_def_string(table::Vector, mod::Vector{Bool}, code::Integer, s::OptByteStr)
@@ -1210,7 +1210,7 @@ function _sortann_insert!(l::_SortList, pa::Annotation)
 end
 
 # Rearrange the annotations of the (closed) annotation file fname of
-# annotator aname in the canonical order (wfdb-x). The result is identical,
+# annotator aname in the canonical order (WFDB-x). The result is identical,
 # byte for byte, to that of the sortann program as the C library ran it
 # ("sortann -r. RECORD -a ANNOTATOR", see oannclose), but the header of the
 # record is not looked up. As sortann does, the file is read (with any time

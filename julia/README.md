@@ -1,4 +1,4 @@
-# wfdb-x for Julia
+# WFDB-x for Julia
 
 `WFDBX` reads and writes physiological signal records in the WFDB format
 used by [PhysioNet](https://physionet.org). It is a complete Julia
@@ -21,7 +21,7 @@ The package is pure Julia and uses only Julia's standard libraries. It needs
 Julia 1.9 or later, and runs on Linux and macOS. Windows support is
 untested.
 
-wfdb-x is part of a project that provides the same package in seven languages
+WFDB-x is part of a project that provides the same package in seven languages
 with identical behavior; see the
 [project README](https://github.com/alphanumericslab/wfdb-x#readme).
 
@@ -81,7 +81,7 @@ object instead of the default ones (see
 
 The examples in this section read the sample record `100s` (the first
 minute of record 100 of the MIT-BIH Arrhythmia Database, included with
-wfdb-x in `tests/data`; see [Quick start](#quick-start)), with the input
+WFDB-x in `tests/data`; see [Quick start](#quick-start)), with the input
 directory set as there, and write their records and annotation files in the
 current directory.
 
@@ -96,7 +96,7 @@ x = physical(rec)
 | Argument | Meaning | Default |
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
-| `channels` | signals to read, by number (`0` is the first signal) or name | all signals |
+| `channels` | signals to read, by number (`0` is the first signal) or name (as in `signal_names`) | all signals |
 | `from`, `to` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `pad` | replace invalid samples by the previous valid one | `false` |
@@ -133,7 +133,8 @@ Two functions help with a `Record`:
 
 * `physical(rec)` returns the samples in physical units, as a
   `Matrix{Float64}`. Invalid samples become `NaN`.
-* `signal_names(rec)` returns the description of each signal, as bytes. Use
+* `signal_names(rec)` returns the description of each signal, as bytes,
+  without the white space that a header may put at either end of it. Use
   `String.(signal_names(rec))` to get strings.
 
 ### Reading a header: `read_header`
@@ -298,7 +299,7 @@ error: annotator atr: 3 annotations are out of order; the first is at sample 50,
 ```
 
 `lines(report)` returns these lines as a vector of strings. The lines are
-the same in the seven languages of wfdb-x. The checks run in normal mode, even if legacy mode is on, and the library
+the same in the seven languages of WFDB-x. The checks run in normal mode, even if legacy mode is on, and the library
 prints no messages during the call.
 
 What is checked:
@@ -318,7 +319,7 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-wfdb-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where you name them, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
@@ -389,7 +390,7 @@ gives up when it cannot connect, or receives nothing, for 30 seconds.
 
 ## Signal parameters
 
-wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
 that a record does not give. Where one is needed, you must give it: in
 `write_record`, as the `fs` option of `read_annotations`, or as an option
 of the tools (see below). A record whose header gives no frequency has
@@ -402,7 +403,7 @@ for the reasons.
 The tools are run through the driver script `bin/wfdbx.jl`. Its first
 argument names the tool, and the other arguments go to the tool. The
 examples in this section read the sample record `100s` (the first minute of
-record 100 of the MIT-BIH Arrhythmia Database, included with wfdb-x in
+record 100 of the MIT-BIH Arrhythmia Database, included with WFDB-x in
 `tests/data`), from that directory as the input directory:
 
 ```sh
@@ -416,7 +417,7 @@ this shorter:
 
 ```sh
 #!/bin/sh
-# wfdbx: run a wfdb-x tool, as in `wfdbx rdsamp -r 100s -t 10`
+# wfdbx: run a WFDB-x tool, as in `wfdbx rdsamp -r 100s -t 10`
 exec julia --startup-file=no --project=/path/to/wfdb-x/julia \
     /path/to/wfdb-x/julia/bin/wfdbx.jl "$@"
 ```
@@ -480,7 +481,7 @@ same arguments and return values, so programs and documentation written for
 the C library carry over directly. Where a C function fills an array, the
 Julia function fills a vector that you pass. The example reads the sample
 record `100s` (the first minute of record 100 of the MIT-BIH Arrhythmia
-Database, included with wfdb-x in `tests/data`):
+Database, included with WFDB-x in `tests/data`):
 
 ```julia
 using WFDBX
@@ -566,7 +567,7 @@ describes what changes in legacy mode.
   or `String.(v)` to convert them.
 * **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
   written without any external library. The C library reads files written
-  by wfdb-x with identical sample values, although the compressed bytes
+  by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
 * **Speed.** After precompilation, a tool starts in about a quarter of a
   second, most of which is Julia's own startup, and then runs as fast as
@@ -596,14 +597,14 @@ gives the details. The Julia implementation was developed by Reza Sameni
 (2026), through AI-assisted development, cross-language
 verification and unit testing.
 
-wfdb-x is an independent reimplementation. Its Julia code is a
+WFDB-x is an independent reimplementation. Its Julia code is a
 translation of the C code of the WFDB Software Package into Julia,
-written for wfdb-x; it is not code by the original WFDB developers. It
+written for WFDB-x; it is not code by the original WFDB developers. It
 follows the original's logic and behavior, with the changes described
 in [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md).
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-wfdb-x is distributed under the GNU General Public License, version 3 or
+WFDB-x is distributed under the GNU General Public License, version 3 or
 (at your option) any later version. See
 [LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).

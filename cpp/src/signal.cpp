@@ -1,6 +1,6 @@
 // signal.cpp: signal I/O functions of the WFDB library.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of lib/signal.c from the WFDB Software Package
@@ -17,7 +17,7 @@
 // an output signal file is never one of the input files of the open record; a
 // header written under a path names the record, its signal files and its
 // segments relative to its own directory; FLAC signal files are read and
-// written with wfdb-x's own codec (flac.cpp) instead of libFLAC; additions:
+// written with WFDB-x's own codec (flac.cpp) instead of libFLAC; additions:
 // wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
 // wfdbx_time_needs_freq, getvecs, and the functions used by the high-level
 // functions and check_record; legacy mode (wfdbx_set_legacy) restores the
@@ -42,7 +42,7 @@
 // global state of the C library (the open record and signals) is kept, so
 // that the behavior of the C library is reproduced exactly.
 //
-// FLAC signal files are decoded and encoded by flac.cpp, wfdb-x's own codec
+// FLAC signal files are decoded and encoded by flac.cpp, WFDB-x's own codec
 // (the C library uses libFLAC); the functions that connect it to the signal
 // functions (flac_isopen, flac_getsamp, ...) port the FLAC support of
 // signal.c.
@@ -2592,7 +2592,7 @@ void wfdb_sigclose()
     pdays = -1;
     segments = in_msrec = 0;
     skewmax = 0;
-    msrec_dir.reset();  // wfdb-x
+    msrec_dir.reset();  // WFDB-x
     msrec_name.reset();
     hdr_dir.reset();
     if (have_dsbuf) {
@@ -3133,26 +3133,32 @@ int getframe(WFDB_Sample *vector)
 // wfdb-x: bulk reading for getvecs (the equivalent of _bulk_frames in
 // python/src/wfdbx/_signal.py).
 //
-// bulk_frames() decodes up to n complete frames at once, group by group,
-// from the input buffer and from the signal file.  It is exactly equivalent
-// to n consecutive calls of getskewedframe() (plus istime++) in the
-// situations where it is used, and it declines (returning fewer frames,
-// possibly none) whenever a frame needs special handling: the end of a
-// signal file (and any frame for which the data are not all in the file), a
-// frame at which a checksum is verified, a partially consumed bit-packed
-// unit, deskewing, resampling, oversampled signals, variable layouts,
-// formats it does not decode (0 and FLAC), and files that are not regular
-// files.  Those frames are read by getskewedframe(), so that statuses,
-// messages, checksums, the last samples, istime, the remaining sample counts
-// and the input buffers are the same as with frame-by-frame reading.  The
-// input buffer is kept as frame-by-frame reading leaves it: the file is read
-// in the same blocks (of ig->bsize bytes, into the start of the buffer), and
-// the buffer holds the last block read, as r8_fill() leaves it.
+// bulk_frames() decodes up to n sample vectors at once (whole frames), group
+// by group, from the input buffer and from the signal file.  It is exactly
+// equivalent to n consecutive calls of getvec() in the situations where it
+// is used: records of one or several sampling frequencies (in low- and
+// high-resolution modes, in the latter from the start of a frame), the
+// segments of multi-segment records (mapped to the layout signals by
+// sigmap() when the layout varies), and null signals of known length.  It
+// declines (returning fewer vectors, possibly none) whenever a frame needs
+// special handling: the end of a signal file (and any frame for which the
+// data are not all in the file), a frame at which a checksum is verified or
+// a null signal ends, a partially consumed bit-packed unit, deskewing,
+// resampling, groups of several formats, formats it does not decode (FLAC),
+// and files that are not regular files.  Those frames are read by getvec(),
+// so that statuses, messages, checksums, the last samples, istime, the
+// remaining sample counts, the getvec state and the input buffers are the
+// same as with frame-by-frame reading; the change from one segment to the
+// next is made by getskewedframe().  The input buffer is kept as
+// frame-by-frame reading leaves it: the file is read in the same blocks (of
+// ig->bsize bytes, into the start of the buffer), and the buffer holds the
+// last block read, as r8_fill() leaves it.
 
 namespace detail {
 namespace {
 
 bool bulk_read = true;      // see wfdbx_set_bulk_read
+long long bulk_vectors = 0; // see wfdbx_bulk_vectors
 
 // Bytes and samples per packed unit of the formats read in bulk (false for
 // the others).
@@ -3271,83 +3277,101 @@ void bulk_last_unit(IGData *ig, int fmt, const unsigned char *b)
 
 struct BulkGroup {
     IGData *ig;
-    std::vector<unsigned> sigs;     // its signals, in order
+    std::vector<unsigned> sigs;     // its signals stored in a file, in order
+    bool null;              // the group has null signals (format 0)
     int fmt, nb, ns;
+    long long gfl;          // samples of a frame in the group's file
     std::vector<unsigned char> stage;   // bytes read for this call
     long long got;          // number of bytes read (-1: none)
 };
 
-// Read up to n frames into out (nisig samples per frame).  Returns the
-// number of frames read (0 if the next frame must be read by
-// getskewedframe()), or -1 if bulk reading cannot be used for this record.
+// Read up to n sample vectors into out, as n calls of getvec() would (tspf
+// samples per vector if ispfmax < 2, nvsig otherwise).  Returns the number
+// of vectors read (0 if the next one must be read by getvec()), or -1 if
+// bulk reading cannot be used for the current record or segment.
 long long bulk_frames(WFDB_Sample *out, long long n)
 {
-    if (!bulk_read || n <= 0 || nisig == 0 || need_sigmap || have_dsbuf ||
-        nvsig != static_cast<int>(nisig) || ispfmax != 1 ||
+    if (!bulk_read || n <= 0 || nisig == 0 || have_dsbuf ||
         !(ifreq == 0.0 || ifreq == sfreq) ||
-        static_cast<int>(framelen) != tspf ||
-        tspf != static_cast<int>(nisig))
+        (nvsig != static_cast<int>(nisig) && !need_sigmap))
         return -1;
+    const bool highres = ispfmax > 1 &&
+                         (gvmode & WFDB_HIGHRES) == WFDB_HIGHRES;
+    if (highres && gvc < static_cast<int>(ispfmax)) return 0;
     static std::vector<BulkGroup> groups;
     if (groups.size() < nigroup) groups.resize(nigroup);
     for (unsigned g = 0; g < nigroup; g++) {
         groups[g].ig = igd[g].get();
         groups[g].sigs.clear();
+        groups[g].null = false;
         groups[g].fmt = -1;
+        groups[g].gfl = 0;
     }
     for (unsigned s = 0; s < nisig; s++) {
         const WFDB_Siginfo &info = isd[s]->info;
-        if (info.spf != 1 || static_cast<unsigned>(info.group) >= nigroup)
+        if (info.spf < 1 || static_cast<unsigned>(info.group) >= nigroup)
             return -1;
         BulkGroup &bg = groups[info.group];
+        if (info.fmt == 0) {
+            if (info.nsamp <= 0) return -1;
+            bg.null = true;
+            continue;
+        }
         if (bg.fmt < 0) {
             if (!bulk_fmt(info.fmt, bg.nb, bg.ns)) return -1;
             bg.fmt = info.fmt;
         } else if (bg.fmt != info.fmt)
             return -1;
         bg.sigs.push_back(s);
+        bg.gfl += info.spf;
     }
     // The alignment period (in frames): a whole number of packed units.
     long long period = 1;
     for (unsigned g = 0; g < nigroup; g++) {
         BulkGroup &bg = groups[g];
         IGData *ig = bg.ig;
-        if (bg.sigs.empty()) continue;
+        if (bg.sigs.empty()) {
+            // (These are resolved by reading a frame with getskewedframe().)
+            if (bg.null && (ig->initial_skip || ig->stat <= 0)) return 0;
+            continue;
+        }
         if (ig->seek != 1 || !ig->fp || ig->flac) return -1;
-        // (These are resolved by reading a frame with getskewedframe().)
         if (ig->initial_skip || ig->count || ig->stat <= 0 || ig->bp > ig->be)
             return 0;
-        long long nn = static_cast<long long>(bg.sigs.size());
-        if (bg.ns > 1 && nn % bg.ns) {
-            long long p = bg.ns;
-            long long a = period, b = p;
-            while (b) { long long t = a % b; a = b; b = t; }
-            period = period / a * p;
-        }
+        long long a = bg.gfl, b = bg.ns;
+        while (b) { long long t = a % b; a = b; b = t; }
+        long long p = bg.ns / a;
+        a = period;
+        b = p;
+        while (b) { long long t = a % b; a = b; b = t; }
+        period = period / a * p;
     }
-    // Do not include a frame at which a checksum would be verified.
+    // Whole frames (in high-resolution mode, each gives ispfmax vectors).
+    const long long per = highres ? ispfmax : 1;
+    long long nf = n / per;
+    // Do not include a frame at which a checksum would be verified, or after
+    // which a null signal ends.
     for (unsigned s = 0; s < nisig; s++) {
         long ns = isd[s]->info.nsamp;
-        if (ns > 0 && n >= ns) n = ns - 1;
+        if (ns > 0 && nf >= ns) nf = ns - 1;
     }
-    n -= n % period;
-    if (n <= 0) return 0;
-    // Limit n to the frames whose data are all in the files.
+    nf -= nf % period;
+    if (nf <= 0) return 0;
+    // Limit nf to the frames whose data are all in the files.
     for (unsigned g = 0; g < nigroup; g++) {
         BulkGroup &bg = groups[g];
         if (bg.sigs.empty()) continue;
         IGData *ig = bg.ig;
-        long long nn = static_cast<long long>(bg.sigs.size());
-        long long need = n * nn * bg.nb / bg.ns;
+        long long need = nf * bg.gfl * bg.nb / bg.ns;
         long long have = ig->be - ig->bp;
         if (have >= need) continue;
         long long left = ig->fp->bytes_left();
         if (left < 0) return -1;
-        long long unit = period * nn * bg.nb / bg.ns;
+        long long unit = period * bg.gfl * bg.nb / bg.ns;
         long long avail = (have + left) / unit * period;
-        if (avail < n) n = avail;
+        if (avail < nf) nf = avail;
     }
-    if (n <= 0) return 0;
+    if (nf <= 0) return 0;
 
     // Read the blocks of the signal files that r8_fill() would read (in
     // one call per file).
@@ -3356,8 +3380,7 @@ long long bulk_frames(WFDB_Sample *out, long long n)
         bg.got = -1;
         if (bg.sigs.empty()) continue;
         IGData *ig = bg.ig;
-        long long nn = static_cast<long long>(bg.sigs.size());
-        long long need = n * nn * bg.nb / bg.ns;
+        long long need = nf * bg.gfl * bg.nb / bg.ns;
         long long have = ig->be - ig->bp;
         if (have >= need) continue;
         long long bs = (ig->bsize > 0) ? ig->bsize : ibsize;
@@ -3368,21 +3391,48 @@ long long bulk_frames(WFDB_Sample *out, long long n)
             bg.stage.data() + have, 1, static_cast<size_t>(k * bs)));
         // (Fewer bytes than bytes_left() said only if the file has just
         // been truncated.)
-        long long unit = period * nn * bg.nb / bg.ns;
+        long long unit = period * bg.gfl * bg.nb / bg.ns;
         long long avail = (have + bg.got) / unit * period;
-        if (avail < n) n = avail;
+        if (avail < nf) nf = avail;
     }
 
     if (istime == 0L)
         for (unsigned s = 0; s < nisig; s++) isd[s]->samp = isd[s]->info.initval;
     const bool pad = (gvmode & WFDB_GVPAD) != 0;
+    // The frames as getskewedframe() reads them (framelen samples each) go
+    // into `in`: straight into the frames as getframe() gives them (tspf
+    // samples each), `fr`, unless the layout varies.  If ispfmax < 2, the
+    // frames are the vectors of getvec().
     static std::vector<int> raw;
+    static std::vector<WFDB_Sample> ibuf, fbuf;
+    const size_t flen = framelen, tlen = static_cast<size_t>(tspf);
+    WFDB_Sample *fr = out;
+    if (ispfmax >= 2) {
+        if (fbuf.size() < static_cast<size_t>(nf) * tlen)
+            fbuf.resize(static_cast<size_t>(nf) * tlen);
+        fr = fbuf.data();
+    }
+    WFDB_Sample *in = fr;
+    size_t istride = tlen;
+    if (need_sigmap) {
+        if (ibuf.size() < static_cast<size_t>(nf) * flen)
+            ibuf.resize(static_cast<size_t>(nf) * flen);
+        in = ibuf.data();
+        istride = flen;
+    }
+    // Position of the first sample of each signal in a frame.
+    static std::vector<size_t> pos;
+    pos.resize(nisig);
+    for (size_t s = 0, p = 0; s < nisig; s++) {
+        pos[s] = p;
+        p += static_cast<size_t>(isd[s]->info.spf);
+    }
     for (unsigned g = 0; g < nigroup; g++) {
         BulkGroup &bg = groups[g];
         if (bg.sigs.empty()) continue;
         IGData *ig = bg.ig;
-        size_t nn = bg.sigs.size();
-        long long need = n * static_cast<long long>(nn) * bg.nb / bg.ns;
+        const size_t gfl = static_cast<size_t>(bg.gfl);
+        long long need = nf * bg.gfl * bg.nb / bg.ns;
         const unsigned char *src;
         if (bg.got < 0) {
             src = reinterpret_cast<const unsigned char *>(ig->bp);
@@ -3407,41 +3457,128 @@ long long bulk_frames(WFDB_Sample *out, long long n)
             if (bg.got > 0 && len > 0) ig->stat = static_cast<int>(len);
             src = bg.stage.data();
         }
-        if (n == 0) continue;
-        size_t m = static_cast<size_t>(n) * nn;
+        if (nf == 0) continue;
+        size_t m = static_cast<size_t>(nf) * gfl;
         if (raw.size() < m) raw.resize(m);
         bulk_decode(bg.fmt, src, m, raw.data());
         if (bg.ns > 1) bulk_last_unit(ig, bg.fmt, src + need - bg.nb);
         const int inval = bulk_invalid(bg.fmt);
-        for (size_t c = 0; c < nn; c++) {
-            unsigned s = bg.sigs[c];
+        size_t c = 0;   // first sample of the signal in the group's frame
+        for (unsigned s : bg.sigs) {
             ISData *is = isd[s].get();
+            const int spf = is->info.spf;
             int samp = is->samp, cksum = is->info.cksum;
             const int *r = raw.data() + c;
-            WFDB_Sample *o = out + s;
+            WFDB_Sample *o = in + pos[s];
             if (bg.fmt == 8) {
-                for (long long i = 0; i < n; i++, r += nn, o += nisig) {
-                    *o = samp = iadd(samp, *r);
-                    cksum = isub(cksum, samp);
-                }
+                for (long long i = 0; i < nf; i++, r += gfl, o += istride)
+                    for (int j = 0; j < spf; j++) {
+                        o[j] = samp = iadd(samp, r[j]);
+                        cksum = isub(cksum, samp);
+                    }
             } else {
-                for (long long i = 0; i < n; i++, r += nn, o += nisig) {
-                    int v = *r;
-                    if (v == inval)
-                        *o = pad ? samp : WFDB_INVALID_SAMPLE;
-                    else
-                        *o = samp = v;
-                    cksum = isub(cksum, v);
-                }
+                for (long long i = 0; i < nf; i++, r += gfl, o += istride)
+                    for (int j = 0; j < spf; j++) {
+                        int v = r[j];
+                        if (v == inval)
+                            o[j] = pad ? samp : WFDB_INVALID_SAMPLE;
+                        else
+                            o[j] = samp = v;
+                        cksum = isub(cksum, v);
+                    }
             }
             is->samp = samp;
             is->info.cksum = cksum;
-            if (is->info.nsamp > 0) is->info.nsamp -= static_cast<long>(n);
-            else if (is->info.nsamp == 0) is->info.nsamp = -1;
+            c += static_cast<size_t>(spf);
         }
     }
-    istime += n;
-    return n;
+    if (nf == 0) return 0;
+    for (unsigned s = 0; s < nisig; s++) {
+        ISData *is = isd[s].get();
+        if (is->info.fmt == 0) {    // null signal
+            const int spf = is->info.spf;
+            const WFDB_Sample v = pad ? is->samp : WFDB_INVALID_SAMPLE;
+            int cksum = is->info.cksum;
+            WFDB_Sample *o = in + pos[s];
+            for (long long i = 0; i < nf; i++, o += istride)
+                for (int j = 0; j < spf; j++) {
+                    o[j] = v;
+                    cksum = isub(cksum, v);
+                }
+            is->info.cksum = cksum;
+        }
+        if (is->info.nsamp > 0) is->info.nsamp -= static_cast<long>(nf);
+        else if (is->info.nsamp == 0) is->info.nsamp = -1;
+    }
+    // The frames as getframe() gives them: mapped to the layout signals, or
+    // padded with invalid samples to tspf samples.
+    if (need_sigmap) {
+        for (long long i = 0; i < nf; i++)
+            sigmap(fr + static_cast<size_t>(i) * tlen,
+                   in + static_cast<size_t>(i) * flen);
+        // (the last frame read, as getskewedframe() leaves it)
+        std::copy(in + static_cast<size_t>(nf - 1) * flen,
+                  in + static_cast<size_t>(nf) * flen, ovec.begin());
+    } else if (flen != tlen) {
+        WFDB_Sample *o = fr;
+        for (long long i = 0; i < nf; i++, o += tlen)
+            std::fill(o + flen, o + tlen, WFDB_INVALID_SAMPLE);
+    }
+    istime += nf;
+    if (ispfmax < 2) {
+        bulk_vectors += nf;
+        return nf;
+    }
+
+    // The sample vectors of getvec(), as rgetvec() makes them.
+    const WFDB_Sample *f = fr;
+    if (!highres) {
+        WFDB_Sample *o = out;
+        for (long long i = 0; i < nf; i++, f += tlen) {
+            const WFDB_Sample *tp = f;
+            for (int s = 0; s < nvsig; s++) {
+                int sf = vsd[s]->info.spf;
+                *o++ = meansamp(tp, sf);
+                tp += sf;
+            }
+        }
+    } else {
+        // Column of the frame giving signal s in vector k of the frame:
+        // col[k * nvsig + s].
+        static std::vector<size_t> col;
+        const size_t nv = static_cast<size_t>(nvsig);
+        col.resize(static_cast<size_t>(per) * nv);
+        size_t tp = 0;
+        for (size_t s = 0; s < nv; s++) {
+            ISData *v = vsd[s].get();
+            int sf = v->info.spf;
+            v->gvindex = 0;
+            v->gvcount = -static_cast<int>(ispfmax);
+            for (long long k = 0; k < per; k++) {
+                if (k) {
+                    v->gvcount += sf;
+                    if (v->gvcount >= 0) {
+                        v->gvindex++;
+                        v->gvcount -= ispfmax;
+                    }
+                }
+                col[static_cast<size_t>(k) * nv + s] =
+                    tp + static_cast<size_t>(v->gvindex);
+            }
+            tp += static_cast<size_t>(sf);
+        }
+        const size_t *cend = col.data() + col.size();
+        WFDB_Sample *o = out;
+        for (long long i = 0; i < nf; i++, f += tlen)
+            for (const size_t *cp = col.data(); cp < cend; cp++) *o++ = f[*cp];
+        gvc = static_cast<int>(per);
+    }
+    rgetvec_stat = static_cast<int>(nisig);
+    // (the last frame, as rgetvec() leaves it)
+    std::copy(fr + static_cast<size_t>(nf - 1) * tlen,
+              fr + static_cast<size_t>(nf) * tlen, tvector.begin());
+    bulk_vectors += nf * per;
+    return nf * per;
 }
 
 } // namespace
@@ -3453,6 +3590,21 @@ bool wfdbx_set_bulk_read(bool on)
     return previous;
 }
 
+long long wfdbx_bulk_vectors()
+{
+    return bulk_vectors;
+}
+
+std::string wfdbx_input_state()
+{
+    std::string s = std::to_string(istime) + " " + std::to_string(gvc);
+    for (unsigned i = 0; i < nisig; i++)
+        s += "; " + std::to_string(isd[i]->samp) + " " +
+             std::to_string(isd[i]->info.cksum) + " " +
+             std::to_string(isd[i]->info.nsamp);
+    return s;
+}
+
 } // namespace detail
 
 long long getvecs(WFDB_Sample *out, long long n, int *status)
@@ -3462,16 +3614,25 @@ long long getvecs(WFDB_Sample *out, long long n, int *status)
 
     if (status) *status = 0;
     if (n <= 0) return 0;
-    // Fast path: getvec is getframe, which is getskewedframe.
-    if (!have_dsbuf && ispfmax < 2 && (ifreq == 0.0 || ifreq == sfreq)) {
-        size_t stride = static_cast<size_t>(tspf);
-        // wfdb-x: frames are read in bulk where possible (bulk_frames), and
-        // one at a time otherwise.
+    if (!have_dsbuf && (ifreq == 0.0 || ifreq == sfreq)) {
+        // getvec returns a frame (tspf samples) if ispfmax < 2, and nvsig
+        // samples otherwise.
+        const bool frames = ispfmax < 2;
+        size_t stride = static_cast<size_t>(frames ? tspf : nvsig);
+        // wfdb-x: vectors are read in bulk where possible (bulk_frames), and
+        // one at a time otherwise (if ispfmax < 2, getvec is getframe, which
+        // is getskewedframe).  Bulk reading is tried again when a
+        // multi-segment record moves to another segment.
         bool bulk = true;
+        int bulk_seg = segp;
         for (k = 0; k < n;) {
+            if (!bulk && in_msrec && segp != bulk_seg) bulk = true;
             if (bulk) {
                 long long m = bulk_frames(out, n - k);
-                if (m < 0) bulk = false;
+                if (m < 0) {
+                    bulk = false;
+                    bulk_seg = segp;
+                }
                 if (m > 0) {
                     k += m;
                     out += static_cast<size_t>(m) * stride;
@@ -3479,8 +3640,11 @@ long long getvecs(WFDB_Sample *out, long long n, int *status)
                     continue;
                 }
             }
-            stat = getskewedframe(out);
-            istime++;
+            if (frames) {
+                stat = getskewedframe(out);
+                istime++;
+            } else
+                stat = getvec(out);
             if (stat < 0) break;
             k++;
             out += stride;
@@ -4327,7 +4491,7 @@ std::string nofreq_timstr(const char *fn, WFDB_Time t)
 
 } // namespace
 
-// wfdbx_set_legacy (a wfdb-x addition) turns legacy mode on (if on is
+// wfdbx_set_legacy (a WFDB-x addition) turns legacy mode on (if on is
 // nonzero) or off, and returns the previous setting (1: on, 0: off).
 int wfdbx_set_legacy(int on)
 {
@@ -4337,14 +4501,14 @@ int wfdbx_set_legacy(int on)
     return previous;
 }
 
-// wfdbx_get_legacy (a wfdb-x addition) returns 1 if legacy mode is on, 0
+// wfdbx_get_legacy (a WFDB-x addition) returns 1 if legacy mode is on, 0
 // otherwise.
 int wfdbx_get_legacy()
 {
     return legacy_mode;
 }
 
-// wfdbx_legacy_args (a wfdb-x addition) is called by the tools at the
+// wfdbx_legacy_args (a WFDB-x addition) is called by the tools at the
 // beginning of main, as wfdbx_legacy_args(argc, argv).  If the first argument
 // (argv[1]) is "--legacy", it removes it from the argument list (the
 // following arguments move up by one, argv[0] is unchanged, and argc is
@@ -4363,7 +4527,7 @@ int wfdbx_legacy_args(int &argc, char **&argv)
     return 1;
 }
 
-// wfdbx_time_needs_freq (a wfdb-x addition) returns 1 if strtim needs a
+// wfdbx_time_needs_freq (a WFDB-x addition) returns 1 if strtim needs a
 // sampling frequency to convert the string, 0 otherwise.
 int wfdbx_time_needs_freq(const char *string)
 {

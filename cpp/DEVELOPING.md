@@ -1,4 +1,4 @@
-# Developing wfdb-x for C++
+# Developing WFDB-x for C++
 
 Notes for developers of the C++ implementation. Users should read
 [README.md](README.md).
@@ -18,15 +18,23 @@ Notes for developers of the C++ implementation. Users should read
 
 ## Bulk reading in `getvecs`
 
-`getvecs(buffer, n)` reads `n` frames with the semantics of `n` calls of
-`getvec`; `getvecs(buffer, n, &status)` also gives the status of the last
-`getvec` call. It decodes frames in bulk where it can: formats 8, 16, 24,
-32, 61, 80, 160, 212, 310 and 311, with one sample per signal per frame, in
-regular files, without deskewing or resampling, and with one format per
-signal group. It reads everything else frame by frame, as well as the frame
-at which checksums are verified and the frames near the end of a file. The
-bulk path reads the file in the same `bsize` blocks as the per-frame path,
-so the buffer state, statuses and messages are identical.
+`getvecs(buffer, n)` reads `n` sample vectors with the semantics of `n`
+calls of `getvec`; `getvecs(buffer, n, &status)` also gives the status of
+the last `getvec` call. It decodes whole frames in bulk where it can:
+formats 8, 16, 24, 32, 61, 80, 160, 212, 310 and 311 (one format per signal
+group), and null signals (format 0) of known length, in regular files,
+without deskewing or resampling. This covers records of several sampling
+frequencies, in low-resolution mode (averaging the oversampled signals with
+`meansamp`) and in high-resolution mode (from the start of a frame), and the
+segments of multi-segment records, of fixed or variable layout (mapped with
+`sigmap`), null segments included. It reads everything else with `getvec`,
+as well as the frame at which checksums are verified or a null signal ends,
+the change from one segment to the next, and the frames near the end of a
+file. The bulk path reads the file in the same `bsize` blocks as the
+per-frame path, and leaves the same state (samples, checksums, counts,
+`gvc`), so the buffer state, statuses and messages are identical.
+`read_record` reads multiples of 6 frames per call, so that formats 212, 310
+and 311 end each call on a whole packed unit.
 `wfdbx_set_bulk_read(false)` turns it off; the tests in `tests/test_bulk.cpp`
 use it to compare both paths.
 

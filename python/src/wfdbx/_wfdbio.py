@@ -5,7 +5,7 @@ directories, and the WFDB path in legacy mode), access to remote files,
 error reporting (``wfdb_error``/``wfdberror``), and the small binary helpers
 used by the signal and annotation modules.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of lib/wfdbio.c, lib/wfdb.h and lib/wfdblib.h from
@@ -71,7 +71,7 @@ WFDB_MAJOR = 10
 WFDB_MINOR = 7
 WFDB_RELEASE = 0
 WFDB_VERSION = "10.7.0"
-# The C library reports the date on which it was compiled; wfdb-x reports
+# The C library reports the date on which it was compiled; WFDB-x reports
 # the date of the WFDB release it reproduces.
 WFDB_BUILD_DATE = "Jun 10 2022"
 
@@ -86,7 +86,7 @@ WFDB_AHA_WRITE = 3      # AHA-format output annotation file
 WFDB_APPEND = 4         # for output info files
 
 # The default WFDB path (wfdbdefwfdb; used in legacy mode only, which opens
-# no URLs: there is no default URL anywhere in wfdb-x)
+# no URLs: there is no default URL anywhere in WFDB-x)
 DEFWFDB = ". /usr/local/database http://physionet.org/physiobank/database"
 DEFWFDBCAL = "wfdbcal"
 WFDB_MAXRNL = 50        # maximum length of a record name
@@ -371,7 +371,7 @@ def setwfdb(p):
     semicolons, and colons other than in URLs); it must contain at most one
     non-empty component, which becomes the input directory (a directory, a
     ~ name or a URL; none, e.g. "" or ";", or None: the default).  With more
-    than one, an error is reported and nothing changes: wfdb-x reads from a
+    than one, an error is reported and nothing changes: WFDB-x reads from a
     single input directory.  resetwfdb() restores the value set by the last
     setwfdb().
 
@@ -605,7 +605,7 @@ def wfdb_me_fatal():
 
 
 def wfdbversion():
-    """Return the version of the WFDB library reproduced by wfdb-x.
+    """Return the version of the WFDB library reproduced by WFDB-x.
 
     Translation of the C function wfdbversion() (lib/wfdbio.c, WFDB 10.7.0):
     same arguments and results.
@@ -614,7 +614,7 @@ def wfdbversion():
 
 
 def wfdbldflags():
-    """Return the linker flags of the C library (always empty in wfdb-x).
+    """Return the linker flags of the C library (always empty in WFDB-x).
 
     Translation of the C function wfdbldflags() (lib/wfdbio.c, WFDB 10.7.0):
     same arguments and results. Differences: the result is always empty; see
@@ -624,7 +624,7 @@ def wfdbldflags():
 
 
 def wfdbcflags():
-    """Return the compiler flags of the C library (always empty in wfdb-x).
+    """Return the compiler flags of the C library (always empty in WFDB-x).
 
     Translation of the C function wfdbcflags() (lib/wfdbio.c, WFDB 10.7.0):
     same arguments and results. Differences: the result is always empty; see
@@ -682,7 +682,7 @@ def _set_filename(name):
 def get_filename():
     """Return the name of the file most recently opened by wfdb_open.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     return _io.wfdb_filename
 
@@ -746,7 +746,7 @@ def wfdbx_set_input_dir(d):
         rec = wfdbx.read_record("100s")
         wfdbx.wfdbx_set_input_dir(None)      # back to the default
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     _init_input_dir()
     previous = _io.input_dir
@@ -759,7 +759,7 @@ def wfdbx_get_input_dir():
 
     See wfdbx_set_input_dir.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     _init_input_dir()
     return _io.input_dir
@@ -806,7 +806,7 @@ def wfdbx_set_output_dir(d):
         wfdbx.write_annotations("100s", "qrs", [100, 460], symbols=["N", "N"])
         # writes out/100s.qrs
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     _init_output_dir()
     if d and _is_url(d):
@@ -822,7 +822,7 @@ def wfdbx_get_output_dir():
 
     See wfdbx_set_output_dir.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     _init_output_dir()
     return _io.output_dir
@@ -857,7 +857,7 @@ def wfdbx_set_network(on):
         wfdbx.wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/")
         rec = wfdbx.read_record("100", sampto="0:10")
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     previous = wfdbx_get_network()
     if on is None or (not isinstance(on, bool) and on < 0):
@@ -872,7 +872,7 @@ def wfdbx_get_network():
 
     See wfdbx_set_network.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     if _io.network is None:
         v = os.environ.get("WFDBX_NETWORK")
@@ -1269,7 +1269,7 @@ def wfdbx_write_errors():
     an error when they meet one, and the command-line tools then exit with
     status 1.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     return _io.write_errors
 
@@ -1278,7 +1278,7 @@ def wfdbx_note_write_error():
     """Count a write error (see wfdbx_write_errors()): for an application
     that writes a file itself.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     _io.write_errors += 1
 

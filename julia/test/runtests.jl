@@ -1,10 +1,10 @@
-# Unit tests of wfdb-x for Julia. Expected values were produced by glibc on
+# Unit tests of WFDB-x for Julia. Expected values were produced by glibc on
 # x86-64 Linux (most are ported from rust/tests/cstd.rs and
 # rust/tests/wfdbio.rs, themselves ported from the Python and MATLAB tests).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-# It tests wfdb-x; it has no counterpart in the original package.
+# It tests WFDB-x; it has no counterpart in the original package.
 #
 # Copyright (C) 2026 Reza Sameni.
 #

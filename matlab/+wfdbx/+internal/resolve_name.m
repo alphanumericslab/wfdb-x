@@ -1,6 +1,6 @@
 function p = resolve_name(name, output)
 %RESOLVE_NAME The location of a file named by a name (normal mode).
-%   P = wfdbx.internal.resolve_name(NAME, OUTPUT) (wfdb-x) returns where
+%   P = wfdbx.internal.resolve_name(NAME, OUTPUT) (WFDB-x) returns where
 %   the file NAME is read (OUTPUT false) or written (OUTPUT true): a name
 %   beginning with '~' with the home directory expanded
 %   (wfdbx.internal.expand_home), an absolute name or a URL as given, and
@@ -9,9 +9,9 @@ function p = resolve_name(name, output)
 %   one separator ('/' after a URL); '~' in the directory is expanded.
 %   Nothing is searched.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

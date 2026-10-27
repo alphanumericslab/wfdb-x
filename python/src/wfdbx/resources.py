@@ -1,4 +1,4 @@
-"""Files shipped with the wfdb-x package: a sample record and the example
+"""Files shipped with the WFDB-x package: a sample record and the example
 notebooks.
 
 ``sample_data_dir()`` is the directory of the sample record ``100s`` (the
@@ -13,7 +13,7 @@ annotations), so that examples run without a network connection::
 they can be opened and run (``wfdbx --examples DIR`` does the same from the
 command line).
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
 has no counterpart in the original package.
 
@@ -36,7 +36,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 def sample_data_dir():
     """Return the directory that holds the sample record ``100s``.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     return os.path.join(_HERE, "sample_data")
 
@@ -44,7 +44,7 @@ def sample_data_dir():
 def examples_dir():
     """Return the directory that holds the example notebooks (``*.ipynb``).
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     return os.path.join(_HERE, "examples")
 
@@ -55,7 +55,7 @@ def copy_examples(dest):
     Existing files of the same names are replaced.  Returns the list of the
     paths of the copied notebooks, in order.
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     os.makedirs(dest, exist_ok=True)
     copied = []

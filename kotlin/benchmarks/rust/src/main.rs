@@ -9,7 +9,7 @@
 //! Each prints the best time of REPS runs (after one untimed run) and a
 //! digest of the data (FNV-1a of the samples).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //

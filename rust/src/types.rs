@@ -4,7 +4,7 @@
 //! Strings are byte strings; a field that C may set to `NULL` is an
 //! `Option<Vec<u8>>`.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of lib/wfdb.h from the WFDB Software Package

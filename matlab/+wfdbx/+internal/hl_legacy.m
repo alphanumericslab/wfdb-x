@@ -9,9 +9,9 @@ function c = hl_legacy(on, fname)
 %   library's setting is left as it is (C = []); if that setting is on,
 %   the high-level functions behave as with ON true.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

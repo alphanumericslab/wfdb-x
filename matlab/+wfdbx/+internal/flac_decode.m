@@ -25,15 +25,15 @@ function [chans, bps, md5, nsig_si, block_ends] = flac_decode(data, nsig, datb)
 %   of channels given by STREAMINFO and the end of each frame (FLAC
 %   block), in samples per channel.
 %
-%   This is a port of the decoder of the Python implementation of wfdb-x
+%   This is a port of the decoder of the Python implementation of WFDB-x
 %   (python/src/wfdbx/_flac.py), with Rice codes decoded by vector
 %   operations.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
-% has no counterpart in the original package: it is wfdb-x's own implementation
+% has no counterpart in the original package: it is WFDB-x's own implementation
 % of the FLAC format, which the original package reads and writes with libFLAC.
 %
 % Copyright (C) 2026 Reza Sameni.

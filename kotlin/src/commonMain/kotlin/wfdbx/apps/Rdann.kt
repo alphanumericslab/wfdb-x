@@ -4,7 +4,7 @@
 // Caution: if the output format of rdann is modified, wrann will require
 // modification as well!
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of app/rdann.c from the WFDB Software Package
@@ -51,7 +51,7 @@ private val RDANN_HELP = arrayOf(
     "* Only one of -e and -x can be used.",
 )
 
-/** wfdb-x: the help lines added by wfdb-x (left out in legacy mode). */
+/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val RDANN_WFDBX_HELP = setOf(
     " -F FREQ             sampling frequency, if the record header does not",
     "                      specify one",
@@ -75,7 +75,7 @@ fun Wfdb.rdannMain(argv0: Array<ByteArray>): Int {
     fun c0(k: Int) = argv[k].at(0)
     fun c1(k: Int) = argv[k].at(1)
 
-    val ffreq = CDouble(0.0) // -F (wfdb-x)
+    val ffreq = CDouble(0.0) // -F (WFDB-x)
     var record: ByteArray? = null
     var ainame: ByteArray? = null
     var cflag = false
@@ -162,7 +162,7 @@ fun Wfdb.rdannMain(argv0: Array<ByteArray>): Int {
                         eprintf("%s: unrecognized option %s\n", pname, argv[i])
                         exit(1)
                     }
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i++
                     if (i >= argc || sscanf(argv[i], "%lf", ffreq) != 1 || ffreq.v <= 0.0) {
                         eprintf("%s: sampling frequency (> 0) must follow -F\n", pname)

@@ -17,7 +17,7 @@ function stat = osigfopen(si, nsig)
 %   neither created nor truncated: the message "osigfopen: output file NAME is
 %   also an input file" is printed and -3 is returned, the input staying
 %   open.  Legacy mode does not check (the original truncated the input).
-%   This behavior is identical in all seven implementations of wfdb-x.
+%   This behavior is identical in all seven implementations of WFDB-x.
 %
 %   Example:
 %       si = wfdbx.siginfo(2);
@@ -33,7 +33,7 @@ function stat = osigfopen(si, nsig)
 %   arguments and results. Differences: an output signal file that is one of
 %   the input files of the open record is refused; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software

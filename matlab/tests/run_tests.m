@@ -1,5 +1,5 @@
 function nfail = run_tests(pattern)
-%RUN_TESTS Run the wfdb-x unit tests (MATLAB and GNU Octave).
+%RUN_TESTS Run the WFDB-x unit tests (MATLAB and GNU Octave).
 %   run_tests runs every test function test_*.m in this directory.  A test
 %   function takes no arguments and throws an error on failure; each test
 %   file may call local check functions.  A line "ok   NAME" or
@@ -15,9 +15,9 @@ function nfail = run_tests(pattern)
 %       octave-cli --no-gui --norc -q --eval "cd matlab/tests; run_tests"
 %       matlab -batch "cd matlab/tests; run_tests"
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It tests wfdb-x; it has no counterpart in the original package.
+% It tests WFDB-x; it has no counterpart in the original package.
 %
 % Copyright (C) 2026 Reza Sameni.
 %

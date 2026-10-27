@@ -11,7 +11,7 @@
 # divides by zero), the input file name without `.wav` is used as the record
 # name, and 0 as the number of samples (see docs/KNOWN_C_BEHAVIORS.md).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/wav2mit.c from the WFDB Software Package
@@ -108,7 +108,7 @@ function wav2mit_main(args::Vector{String})
         a = argv[i]
         if !isempty(a) && a[1] == UInt8('-')
             c = length(a) >= 2 ? a[2] : 0x00
-            if c == UInt8('G') && !legacy   # gain in adu per physical unit (wfdb-x)
+            if c == UInt8('G') && !legacy   # gain in adu per physical unit (WFDB-x)
                 i += 1
                 if i >= argc || csscanf(argv[i], "%lf", ggain) != 1 || ggain[] < 0.0
                     ceprintf("%s: gain (>= 0) must follow -G\n", pname)
@@ -136,7 +136,7 @@ function wav2mit_main(args::Vector{String})
                     cexit(1)
                 end
                 record = cstr(argv[i])
-            elseif c == UInt8('U') && !legacy   # physical units (wfdb-x)
+            elseif c == UInt8('U') && !legacy   # physical units (WFDB-x)
                 i += 1
                 if i >= argc
                     ceprintf("%s: units must follow -U\n", pname)

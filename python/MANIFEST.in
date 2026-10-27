@@ -1,4 +1,4 @@
-# Files of the source distribution besides the package (wfdb-x)
+# Files of the source distribution besides the package (WFDB-x)
 include LICENSE README.md
 recursive-include tests *.py
 recursive-include src/wfdbx/sample_data *

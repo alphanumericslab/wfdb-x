@@ -120,7 +120,7 @@ ecgcodes()
 }
 \value{\code{ecgcodes()} returns a named list of all these constants.}
 \section{Origin}{
-  \code{ecgcodes()} is part of wfdb-x; not in the original WFDB package.
+  \code{ecgcodes()} is part of WFDB-x; not in the original WFDB package.
 
   Translation of the constants of lib/ecgcodes.h and of the annotation
   position codes of lib/ecgmap.h (WFDB 10.7.0): same names and values.

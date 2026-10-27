@@ -1,4 +1,4 @@
-# wfdb-x for Julia: implementation notes
+# WFDB-x for Julia: implementation notes
 
 These notes describe how the Julia implementation is organized. They
 complement [`docs/porting-guide.md`](../docs/porting-guide.md) (the C
@@ -42,7 +42,7 @@ suite checks this).
 | `test/runtests.jl` | unit tests (`Test` standard library) |
 
 Each file starts with a comment saying what it is, then that it is part
-of wfdb-x, an independent reimplementation of the WFDB Software Package in
+of WFDB-x, an independent reimplementation of the WFDB Software Package in
 Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. A file that
 translates a C file says so ("It is a Julia translation of lib/<file>.c
 from the WFDB Software Package 10.7.0, by ..."), lists its "Changes from
@@ -54,8 +54,8 @@ Every header ends with the license: GNU GPL 3 or later (`LICENSE`).
 
 The docstring of a WFDB library function ends with "Translation of the C
 function NAME() (lib/FILE.c, WFDB 10.7.0): same arguments and results."
-(plus "Differences: ...; see docs/DIVERGENCES.md." where wfdb-x differs);
-that of a wfdb-x addition ends with "Part of wfdb-x; not in the original
+(plus "Differences: ...; see docs/DIVERGENCES.md." where WFDB-x differs);
+that of a WFDB-x addition ends with "Part of WFDB-x; not in the original
 WFDB package."
 
 ## Data representation
@@ -335,8 +335,19 @@ in about 0.10 s in raw units and 0.13 s in physical units (`-p`); the C
 `rdsamp` takes about 0.13 s and 0.39 s on the same machine. `write_record`
 (which calls `putvec` for each frame) writes 216,000 two-signal frames in
 0.01-0.02 s in every format, about as fast as `read_record` reads them
-back. `getvecs(v, n)` (a wfdb-x addition) reads `n` sample vectors at
-once, with a fast path; `read_record` uses it.
+back. `getvecs(v, n)` (a WFDB-x addition) reads `n` sample vectors at
+once; `read_record` uses it. Its bulk path (`_bulk_frames!` in
+`signal.jl`) decodes whole frames straight from the input buffers, one loop
+per signal, for every record without deskewing or resampling whose signals
+are in the formats 8, 16, 24, 32, 61, 80, 160, 212, 310 or 311 (or null
+signals): records of several sampling frequencies (in low- and
+high-resolution modes) and the segments of multi-segment records (mapped to
+the layout signals when the layout varies) included. The frames it cannot
+take (at a buffer boundary, at the checksum frame, at a segment boundary,
+in the middle of a frame in high-resolution mode) go through `getvec`; the
+results and the library state are identical. The tests turn it off with
+`WFDBX._BULK_ENABLED[] = false` and count the vectors it read with
+`WFDBX._BULK_VECTORS[]`.
 
 Changing any source file invalidates the package image: the next process
 precompiles again (with the workloads; parallel processes wait for it).

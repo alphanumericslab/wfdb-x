@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-language conformance harness for wfdb-x.
+"""Cross-language conformance harness for WFDB-x.
 
 Every test case runs one WFDB command-line tool in a fresh copy of
 tests/data, and records its standard output, standard error, exit status,
@@ -12,7 +12,7 @@ standard output there, to test write errors (/dev/full fails every write;
 such cases are skipped where it does not exist).
 Golden results are produced by the original C implementation (WFDB 10.7.0,
 built from third_party/) and stored in tests/conformance/golden/.  Each
-wfdb-x implementation must reproduce them byte for byte.
+WFDB-x implementation must reproduce them byte for byte.
 
 Usage:
   harness.py golden --cbin DIR [CASE ...]     regenerate golden results
@@ -27,7 +27,7 @@ Set WFDBX_<IMPL>_CMD to override the command template of an implementation,
 or (for cpp and rust) WFDBX_<IMPL>_BIN to use another directory of tools,
 or (for kotlin) WFDBX_KOTLIN_JAR to use another jar of the tools.
 
-Part of wfdb-x, Reza Sameni, Oct 2026.
+Part of WFDB-x, Reza Sameni, Oct 2026.
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
 Foundation; either version 3 of the License, or (at your option) any later
@@ -60,7 +60,7 @@ LEGACY = os.path.join(HERE, "legacy")
 
 
 # The default value of the WFDB environment variable in a case: none in the
-# modern suite (wfdb-x reads relative names from the current directory, the
+# modern suite (WFDB-x reads relative names from the current directory, the
 # work directory), "." in the legacy suite (the WFDB path).
 DEFAULT_WFDB = None
 

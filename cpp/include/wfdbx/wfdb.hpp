@@ -1,6 +1,6 @@
 // wfdbx/wfdb.hpp: the WFDB library API (C++ version of <wfdb/wfdb.h>).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of lib/wfdb.h from the WFDB Software Package 10.7.0,
@@ -60,7 +60,7 @@
 //     using namespace wfdbx;
 //
 //     // The sample record 100s (the first minute of record 100 of the
-//     // MIT-BIH Arrhythmia Database), included with wfdb-x in the tests/data
+//     // MIT-BIH Arrhythmia Database), included with WFDB-x in the tests/data
 //     // directory of a copy of the repository:
 //     wfdbx_set_input_dir("tests/data");
 //     WFDB_Siginfo si[2];
@@ -138,7 +138,7 @@ constexpr int WFDB_FMT_LIST[] = {0, 8, 16, 61, 80, 160, 212, 310, 311, 24, 32,
 constexpr int WFDB_NFMTS = 14;
 
 /// C's default sampling frequency (Hz), gain (adu/physical unit) and ADC
-/// resolution (bits), kept for compatibility.  wfdb-x never assumes them:
+/// resolution (bits), kept for compatibility.  WFDB-x never assumes them:
 /// the library does not use them (see docs/DIVERGENCES.md).
 constexpr double WFDB_DEFFREQ = 250.0;
 constexpr double WFDB_DEFGAIN = 200.0;
@@ -362,7 +362,7 @@ void setgvmode(int mode);
 int getgvmode();
 /// Resample the input signals to `freq` (Hz) in getvec() (by linear
 /// interpolation), after isigopen().  Returns 0, or -1 if no record is open,
-/// its sampling frequency is not specified (wfdb-x), or freq <= 0.
+/// its sampling frequency is not specified (WFDB-x), or freq <= 0.
 ///
 /// Translation of the C function setifreq() (lib/signal.c, WFDB 10.7.0): same
 /// arguments and results. Differences: it fails if the sampling frequency of
@@ -594,7 +594,7 @@ WFDB_Time strtim(const char *time_string);
 /// tabs, newlines and CRs) with 'e', 'i', 'o' or 's', or with 'c' if the
 /// counter frequency is <= 0.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 int wfdbx_time_needs_freq(const char *time_string);
 /// Turn legacy mode on (`on` nonzero) or off (`on` 0) for the whole
 /// library.  Returns the previous setting (1: on, 0: off).  In legacy mode,
@@ -605,11 +605,11 @@ int wfdbx_time_needs_freq(const char *time_string);
 ///
 ///     wfdbx_set_legacy(1);
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 int wfdbx_set_legacy(int on);
 /// 1 if legacy mode is on, 0 otherwise.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 int wfdbx_get_legacy();
 /// If the first argument of a tool (argv[1]) is exactly "--legacy", remove
 /// it (argv[0] is kept, argc is decremented), turn legacy mode on and return
@@ -622,7 +622,7 @@ int wfdbx_get_legacy();
 /// standard output or another output file could not be written (see
 /// wfdbx_write_errors()).  Legacy mode keeps the exit status.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 int wfdbx_legacy_args(int &argc, char **&argv);
 /// The number of write errors since the program started: the output files
 /// (signal files, headers, annotation files, info and calibration files, and
@@ -631,12 +631,12 @@ int wfdbx_legacy_args(int &argc, char **&argv);
 /// errors reported with wfdbx_note_write_error().  The high-level writers
 /// throw an error when they meet one, and the tools then exit with status 1.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 int wfdbx_write_errors();
 /// Count a write error (see wfdbx_write_errors()): for an application that
 /// writes a file itself.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 void wfdbx_note_write_error();
 /// Set the output directory: a file named by a relative name, such as
 /// "100.qrs" or "out/100.qrs", is created in `dir`.  Full paths and "~"
@@ -652,11 +652,11 @@ void wfdbx_note_write_error();
 ///
 ///     wfdbx_set_output_dir("out");
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 std::optional<std::string> wfdbx_set_output_dir(const char *dir);
 /// The output directory (std::nullopt if none is set).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 std::optional<std::string> wfdbx_get_output_dir();
 /// Set the input directory: a file named by a relative name, such as "100"
 /// or "mitdb/100", is read from `dir`.  Full paths, "~" paths and URLs are
@@ -671,11 +671,11 @@ std::optional<std::string> wfdbx_get_output_dir();
 ///     wfdbx_set_input_dir("/data/mitdb");  // a local copy of the MIT-BIH
 ///                                          // Arrhythmia Database
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 std::optional<std::string> wfdbx_set_input_dir(const char *dir);
 /// The input directory (std::nullopt if none is set).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 std::optional<std::string> wfdbx_get_input_dir();
 /// Allow (`on` > 0) or forbid (`on` 0) network access, that is, reading
 /// http:// and https:// URLs.  A negative value restores the default:
@@ -690,11 +690,11 @@ std::optional<std::string> wfdbx_get_input_dir();
 ///
 ///     wfdbx_set_network(1);
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 int wfdbx_set_network(int on);
 /// 1 if network access is allowed, 0 otherwise.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 int wfdbx_get_network();
 /// Julian date `d` as " dd/mm/yyyy" (with a leading space).
 ///
@@ -895,7 +895,7 @@ int wfdbputprolog(const char *prolog, long bytes, WFDB_Signal s);
 
 /// Sampling frequency (Hz) of `record`, read from its header, or of the open
 /// record if `record` is nullptr.  Returns a negative value if the header
-/// cannot be read, and 0 if it does not specify the frequency (wfdb-x; C
+/// cannot be read, and 0 if it does not specify the frequency (WFDB-x; C
 /// assumed WFDB_DEFFREQ).
 ///
 /// Translation of the C function sampfreq() (lib/signal.c, WFDB 10.7.0): same
@@ -977,7 +977,7 @@ void wfdbmemerr(int exit_on_error);
 /// wfdbx_set_input_dir()): `database_path`, split into components as the
 /// WFDB path is (at spaces, ';', and ':' outside URLs), must have at most one
 /// non-empty component, which becomes the input directory (none, as in ""
-/// or ";": the default); with more, an error is reported ("setwfdb: wfdb-x
+/// or ";": the default); with more, an error is reported ("setwfdb: WFDB-x
 /// reads from a single input directory; ...") and nothing changes.
 /// Legacy mode: as in C, set the WFDB path, the list of directories where
 /// input files are searched for ("@file" reads the path from a file);
@@ -1053,7 +1053,7 @@ std::string wfdbdefwfdbcal();
 /// (-1 at the end of the data, < -1 on an error, e.g. -3 for an unexpected
 /// end of file), or the number of values per frame if all n were read.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 long long getvecs(WFDB_Sample *out, long long n, int *status = nullptr);
 /// @}
 

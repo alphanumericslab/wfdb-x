@@ -1,6 +1,6 @@
 """wrsamp: read a text file of samples and write WFDB signal (and header) files.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of app/wrsamp.c from the WFDB Software Package
@@ -104,7 +104,7 @@ LEGACY_HELP = legacy_help(HELP, {
 
 
 def help(pname):
-    hs = LEGACY_HELP if legacy() else HELP     # wfdb-x
+    hs = LEGACY_HELP if legacy() else HELP     # WFDB-x
     eprintf(hs[0], pname)
     for i in range(1, len(hs)):
         eprintf("%s\n", hs[i])

@@ -19,7 +19,7 @@ function status = wfdbdesc(args)
 %   12 bits); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.apps.wfdbdesc({'100s'})
@@ -30,7 +30,7 @@ function status = wfdbdesc(args)
 %   same options and output. Differences: unspecified values are printed as
 %   such, not assumed; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of app/wfdbdesc.c from the WFDB Software

@@ -1,5 +1,5 @@
 function v = wfdbversion()
-%WFDBVERSION The version of the WFDB library reproduced by wfdb-x.
+%WFDBVERSION The version of the WFDB library reproduced by WFDB-x.
 %   V = wfdbx.wfdbversion() returns '10.7.0'.
 %
 %   See also wfdbx.wfdberror.
@@ -7,7 +7,7 @@ function v = wfdbversion()
 %   Translation of the C function wfdbversion() (lib/wfdbio.c, WFDB 10.7.0):
 %   same arguments and results.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software

@@ -12,7 +12,7 @@
 // directory. If the input annotations are already in the correct order, no
 // output is written unless the -o option is used.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of app/sortann.c from the WFDB Software Package
@@ -54,7 +54,7 @@ private val SORTANN_HELP = arrayOf(
     "the current directory, and the input is not already sorted.",
 )
 
-/** wfdb-x: the help lines added by wfdb-x (left out in legacy mode). */
+/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val SORTANN_WFDBX_HELP = setOf(
     " -F FREQ    sampling frequency, if the record header does not specify one",
 )
@@ -79,7 +79,7 @@ fun Wfdb.sortannMain(argv0: Array<ByteArray>): Int {
     var record: ByteArray? = null
     var from = 0L
     var to = 0L
-    val ffreq = CDouble(0.0) // -F (wfdb-x)
+    val ffreq = CDouble(0.0) // -F (WFDB-x)
     val annot = Annotation()
 
     // Interpret command-line options.
@@ -109,7 +109,7 @@ fun Wfdb.sortannMain(argv0: Array<ByteArray>): Int {
                         eprintf("%s: unrecognized option %s\n", pname, a)
                         exit(1)
                     }
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i++
                     if (i >= argc || sscanf(argv[i], "%lf", ffreq) != 1 || ffreq.v <= 0.0) {
                         eprintf("%s: sampling frequency (> 0) must follow -F\n", pname)

@@ -1,13 +1,13 @@
 function init_output_dir(st)
 %INIT_OUTPUT_DIR Read the output directory from the environment, once.
-%   wfdbx.internal.init_output_dir(ST) (wfdb-x), for the I/O state ST: on
+%   wfdbx.internal.init_output_dir(ST) (WFDB-x), for the I/O state ST: on
 %   the first call, the output directory is taken from the environment
 %   variable WFDBX_OUTPUT_DIR (if set and not empty; a URL is refused with
 %   an error message and ignored).
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

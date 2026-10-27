@@ -15,6 +15,10 @@ classdef IGData < handle
 %                   end of file, -2 for a decoding error
 %     flac          the state of the FLAC decoder (formats 508, 516, 524),
 %                   [] otherwise
+%     ahead         wfdb-x: blocks read from fp by the bulk reader
+%                   (wfdbx.internal.bulk_frames) but not yet reached
+%                   (uint8 row); the next refill of buf takes its block
+%                   from them first
 %
 %   The FLAC functions (wfdbx.internal.flac_isopen, flac_getsamp,
 %   flac_isseek, flac_isclose) may use fp, start, stat, count, bsize and
@@ -22,7 +26,7 @@ classdef IGData < handle
 %
 %   Part of the translation of lib/signal.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -30,7 +34,9 @@ classdef IGData < handle
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: none, apart from the language.
+% Changes from the original: the blocks read ahead by the bulk reader are
+% kept (ahead). Each change is marked "wfdb-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
@@ -56,5 +62,6 @@ classdef IGData < handle
         initial_skip = 0
         stat = 0
         flac = []
+        ahead = zeros(1, 0, 'uint8')    % WFDB-x (see above)
     end
 end

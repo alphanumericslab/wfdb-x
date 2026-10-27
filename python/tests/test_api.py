@@ -7,9 +7,9 @@ that program; run it to see the values).  The C++ and MATLAB/Octave
 counterparts of these tests are cpp/tests/test_api_c.cpp and
 matlab/tests/test_api_c.m.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
-tests wfdb-x; it has no counterpart in the original package.
+tests WFDB-x; it has no counterpart in the original package.
 
 Copyright (C) 2026 Reza Sameni.
 
@@ -68,7 +68,7 @@ def readfile(name):
 
 def test_version_and_errors(datadir):
     # wfdbversion, wfdbdefwfdb, wfdbldflags and wfdbcflags depend on how the
-    # C library was built (with configure); wfdb-x gives the values of a
+    # C library was built (with configure); WFDB-x gives the values of a
     # release build installed in /usr/local, and empty flags strings.
     assert w.wfdbversion() == "10.7.0"
     assert w.wfdbdefwfdb() == \
@@ -91,7 +91,7 @@ def test_version_and_errors(datadir):
 
 
 def test_wfdberror_before_any_error():
-    # (C prints its build date; wfdb-x gives the date of the 10.7.0 sources)
+    # (C prints its build date; WFDB-x gives the date of the 10.7.0 sources)
     code = ("import wfdbx; import sys; "
             "sys.stdout.write(wfdbx.wfdberror())")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True,
@@ -104,7 +104,7 @@ def test_wfdberror_before_any_error():
 # t_path
 
 def test_resetwfdb_fresh_process(datadir):
-    # wfdb-x (normal mode): setwfdb sets the single input directory ("a b"
+    # WFDB-x (normal mode): setwfdb sets the single input directory ("a b"
     # names two: an error, nothing changes); wfdbquit leaves it as it is.
     # In legacy mode, resetwfdb restores the path returned by the first
     # getwfdb (here, from the environment); wfdbquit calls resetwfdb.
@@ -1075,7 +1075,7 @@ def test_legacy_args():
 
 # ---------------------------------------------------------------------------
 # t_outdir: the output directory (wfdbx_set_output_dir), the in-process
-# sorting of an annotation file written there, and absolute paths (wfdb-x)
+# sorting of an annotation file written there, and absolute paths (WFDB-x)
 
 OREC_OAT = bytes.fromhex(
     "00581efc232320616e6e6f746174696f6e207479706520646566696e6974696f"

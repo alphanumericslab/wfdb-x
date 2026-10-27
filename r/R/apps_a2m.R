@@ -1,6 +1,6 @@
 # apps_a2m.R: a2m -- convert an AHA-format annotation file to MIT format.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/a2m.c from the WFDB Software Package
@@ -97,7 +97,7 @@ app_a2m <- function(args = character(0)) {
           cexit(1)
         }
         oann <- argv[i]
-      } else if (c == "F" && !wfdbx_get_legacy()) {  # frequency follows (wfdb-x)
+      } else if (c == "F" && !wfdbx_get_legacy()) {  # frequency follows (WFDB-x)
         i <- i + 1L
         Ffreq <- .app_Fopt(pname, if (i <= argc) argv[i] else NULL)
       } else if (c == "h") {
@@ -171,7 +171,7 @@ app_a2m <- function(args = character(0)) {
     }
   }
   # Times in milliseconds (types 1-3) are converted at the sampling frequency
-  # of the record (wfdb-x; the C program assumed 4 ms per sample, i.e., 250
+  # of the record (WFDB-x; the C program assumed 4 ms per sample, i.e., 250
   # Hz, whatever the record's frequency, as legacy mode does).
   ms2samp <- if (legacy) function(t) floor(t / 4) else function(t) trunc(t * sampfreq(NULL) / 1000)
   d <- .a2m_aha_digit(record)

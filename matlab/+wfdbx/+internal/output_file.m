@@ -1,13 +1,13 @@
 function p = output_file(name)
 %OUTPUT_FILE The local file that an output file name designates.
-%   P = wfdbx.internal.output_file(NAME) (wfdb-x) returns the name of the
+%   P = wfdbx.internal.output_file(NAME) (WFDB-x) returns the name of the
 %   local file that wfdb_open(NAME, [], WFDB_WRITE) creates in normal mode
 %   (under the output directory, for a relative name), or [] if it creates
 %   none (NAME empty, '-' for the standard output, or a URL).
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software
@@ -15,7 +15,7 @@ function p = output_file(name)
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: this function is a wfdb-x addition: the local
+% Changes from the original: this function is a WFDB-x addition: the local
 % file that an output name designates, under the output directory.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.

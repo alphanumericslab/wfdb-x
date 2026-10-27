@@ -1,5 +1,5 @@
 function s = wfdbcflags()
-%WFDBCFLAGS Compiler flags for the C library (empty in wfdb-x).
+%WFDBCFLAGS Compiler flags for the C library (empty in WFDB-x).
 %   S = wfdbx.wfdbcflags() returns ''.
 %
 %   See also wfdbx.wfdbldflags, wfdbx.wfdbversion.
@@ -8,7 +8,7 @@ function s = wfdbcflags()
 %   same arguments and results. Differences: the result is always empty; see
 %   docs/KNOWN_C_BEHAVIORS.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software

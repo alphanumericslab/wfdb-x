@@ -28,7 +28,7 @@ function status = wav2mit(args)
 %   same options and output. Differences: -G and -U are new and required;
 %   see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/wav2mit.c from the WFDB Software
@@ -121,7 +121,7 @@ while i < argc
             c = char(0);                % the original (unrecognized)
         end
         switch c
-            case {'G', 'U'}     % gain, units (wfdb-x)
+            case {'G', 'U'}     % gain, units (WFDB-x)
                 [P, i, ok] = wfdbx.internal.opt_sigparam(argv, i, P);
                 if ~ok
                     status = 1;
@@ -173,7 +173,7 @@ end
 % 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, with no units
 % (millivolts).  (The sampling frequency and the resolution are those given
 % in the file.)
-checks = 'GU';      % (wfdb-x; legacy mode: no checks, as in the C program)
+checks = 'GU';      % (WFDB-x; legacy mode: no checks, as in the C program)
 if legacy
     checks = '';
 end

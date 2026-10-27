@@ -1,13 +1,13 @@
-# Tests of finding files (wfdb-x): the input directory, the output
+# Tests of finding files (WFDB-x): the input directory, the output
 # directory, network access, files named in headers, and legacy mode (ported
 # from python/tests/test_files.py).
 #
 # Remote files are served by a local HTTP server (127.0.0.1, written below
 # with the Sockets standard library): no test contacts another host.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-# It tests wfdb-x; it has no counterpart in the original package.
+# It tests WFDB-x; it has no counterpart in the original package.
 #
 # Copyright (C) 2026 Reza Sameni.
 #

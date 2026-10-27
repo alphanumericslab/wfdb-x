@@ -3,7 +3,7 @@
 # legacy mode), access to remote files, error reporting (wfdb_error,
 # wfdberror), version and configuration strings.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of lib/wfdbio.c from the WFDB Software Package 10.7.0,
@@ -40,7 +40,7 @@ WFDB_MAJOR <- 10
 WFDB_MINOR <- 7
 WFDB_RELEASE <- 0
 WFDB_VERSION <- "10.7.0"
-# The C library reports the date on which it was compiled; wfdb-x reports
+# The C library reports the date on which it was compiled; WFDB-x reports
 # the date of the WFDB release it reproduces.
 WFDB_BUILD_DATE <- "Jun 10 2022"
 
@@ -54,7 +54,7 @@ WFDB_AHA_WRITE <- 3
 WFDB_APPEND <- 4
 
 # The default WFDB path (wfdbdefwfdb; used in legacy mode only, which opens
-# no URLs: there is no default URL anywhere in wfdb-x)
+# no URLs: there is no default URL anywhere in WFDB-x)
 DEFWFDB <- ". /usr/local/database http://physionet.org/physiobank/database"
 DEFWFDBCAL <- "wfdbcal"
 WFDB_MAXRNL <- 50
@@ -421,7 +421,7 @@ wfdbfile <- function(s, record) {
   invisible()
 }
 
-#' Set the input directory (a wfdb-x addition); returns the previous one
+#' Set the input directory (a WFDB-x addition); returns the previous one
 #' (NULL if none).  A file named by a relative name (a record name, an
 #' annotation file, ...) is read as dir/name; dir may be a local directory
 #' (relative to the current directory, or a ~ name) or the URL of a
@@ -458,7 +458,7 @@ wfdbx_get_input_dir <- function() {
   invisible()
 }
 
-#' Set the output directory (a wfdb-x addition); returns the previous one
+#' Set the output directory (a WFDB-x addition); returns the previous one
 #' (NULL if none).  Output files (WFDB_WRITE or WFDB_APPEND mode) named by a
 #' relative name (the record name and the file type) are created as
 #' dir/name (in legacy mode, any name); dir may be relative to the current
@@ -486,7 +486,7 @@ wfdbx_get_output_dir <- function() {
 }
 
 #' Allow (on TRUE or > 0) or forbid (FALSE or 0) network access, i.e.
-#' opening URLs (a wfdb-x addition); returns the previous setting (1 or 0).
+#' opening URLs (a WFDB-x addition); returns the previous setting (1 or 0).
 #' NULL or a negative number restores the default: allowed if the
 #' environment variable WFDBX_NETWORK is set to a non-zero number,
 #' otherwise forbidden.  Remote files are read in full (by the system
@@ -814,7 +814,7 @@ wfdb_open <- function(s, record, mode) {
 }
 
 # wfdb-x: read a remote file in full (once per process; failures are
-# remembered too): its contents (raw), or NULL.  As in wfdb-x's other
+# remembered too): its contents (raw), or NULL.  As in WFDB-x's other
 # implementations, the system program curl reads it, following redirects,
 # failing for an HTTP status >= 400, and giving up if connecting takes
 # WFDBX_NET_TIMEOUT seconds or no data arrives for WFDBX_NET_TIMEOUT seconds,
@@ -884,7 +884,7 @@ wfdb_open <- function(s, record, mode) {
 
 #' Open a file by name ("rb", "wb" or "ab"); returns a WFDB_FILE or NULL.
 #' An http:// or https:// URL can only be read, if network access is
-#' allowed (wfdb-x; see wfdbx_set_network).  For output, missing
+#' allowed (WFDB-x; see wfdbx_set_network).  For output, missing
 #' directories are created (as C does).  In legacy mode, names containing
 #' ".." or "://" are refused (as by the reference C library, built without
 #' network support).
@@ -981,7 +981,7 @@ wfdb_striphea <- function(p) {
 #' Quote a string for a POSIX shell.
 shell_quote <- function(s) paste0("'", gsub("'", "'\\''", s, fixed = TRUE), "'")
 
-#' The shell command that runs the wfdb-x tool `tool` (followed by its
+#' The shell command that runs the WFDB-x tool `tool` (followed by its
 #' arguments, to be appended by the caller) in a new process; used (in
 #' legacy mode) to run sortann when an annotation file is closed, as the C
 #' library does.

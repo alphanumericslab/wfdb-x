@@ -8,7 +8,7 @@
 // type) and rounded. [fixedFast] is an exact fast path for "%W.Pf" with
 // P <= 9, used by the tools that print many samples.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //

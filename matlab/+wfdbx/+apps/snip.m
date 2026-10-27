@@ -21,7 +21,7 @@ function status = snip(args)
 %   program assumed 250 Hz); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; the example writes the record excerpt in the current
 %   folder):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
@@ -34,7 +34,7 @@ function status = snip(args)
 %   options and output. Differences: no sampling frequency is assumed; see
 %   docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of app/snip.c from the WFDB Software
@@ -463,7 +463,7 @@ if nsig < 0
 end
 % wfdb-x: the output header needs the sampling frequency (the C program
 % assumed 250 Hz if the input header did not specify one).
-if ~wfdbx.wfdbx_get_legacy() && wfdbx.sampfreq([]) <= 0  % (wfdb-x)
+if ~wfdbx.wfdbx_get_legacy() && wfdbx.sampfreq([]) <= 0  % (WFDB-x)
     wfdbx.internal.ceprintf( ...
         '%s: sampling frequency of record %s is not specified\n', pname, irec);
     wfdbx.wfdbquit();

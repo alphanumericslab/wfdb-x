@@ -19,7 +19,7 @@ function status = mit2edf(args)
 %   docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; the example writes 100s.edf in the current folder):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.apps.mit2edf({'-r', '100s', '-o', '100s.edf'})
@@ -30,7 +30,7 @@ function status = mit2edf(args)
 %   same options and output. Differences: no sampling frequency, gain or ADC
 %   resolution is assumed; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/mit2edf.c from the WFDB Software
@@ -85,7 +85,7 @@ v = zeros(1, tspf);
 bulk = tspf == nsig;    % then getvec (and its bulk path) is getframe
 while got < nf
     if bulk
-        [blk, ok] = wfdbx.internal.bulk_frames(nf - got);
+        [blk, ok] = wfdbx.internal.bulk_frames(nf - got, nsig);
         if ok && ~isempty(blk)
             m = size(blk, 1);
             V(got + 1:got + m, :) = blk(:, 1:tspf);

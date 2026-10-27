@@ -1,4 +1,4 @@
-//! # wfdb-x for Rust
+//! # WFDB-x for Rust
 //!
 //! The `wfdbx` crate reads and writes physiological signal records in the
 //! WFDB format used by [PhysioNet](https://physionet.org). It is a complete
@@ -23,7 +23,7 @@
 //! ## Quick start
 //!
 //! This program reads the sample record `100s`, the first minute of record
-//! 100 of the MIT-BIH Arrhythmia Database, which is included with wfdb-x in
+//! 100 of the MIT-BIH Arrhythmia Database, which is included with WFDB-x in
 //! the `tests/data` directory of a copy of the repository. Run it from the
 //! root of the repository, or change the input directory in its first line.
 //!
@@ -119,7 +119,7 @@
 //! The public items of these modules are also available at the crate root,
 //! except [`record::Error`].
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //

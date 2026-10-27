@@ -1,6 +1,6 @@
 # Known behaviors of the original C implementation
 
-wfdb-x reproduces the WFDB Software Package 10.7.0 (C) **exactly**,
+WFDB-x reproduces the WFDB Software Package 10.7.0 (C) **exactly**,
 including behaviors that may look surprising. This document lists the
 notable ones, so that users (and implementers of new language ports) know
 they are intentional, and says for each one whether the official
@@ -9,7 +9,7 @@ documentation describes it.
 Sources checked: the *WFDB Applications Guide* (`third_party/wag.pdf`, built
 from the man pages in `doc/wag-src/` of the C sources), the *WFDB
 Programmer's Guide* (`doc/wpg-src/wpg0.tex`, cited as WPG), and comments in
-the C sources. Where the documentation and the C code disagree, wfdb-x
+the C sources. Where the documentation and the C code disagree, WFDB-x
 follows the code.
 
 The deliberate exceptions (no built-in signal parameters, files found only
@@ -17,8 +17,8 @@ where they are named, and in-process annotation sorting that loses nothing)
 are described in [`DIVERGENCES.md`](DIVERGENCES.md).
 
 A few C behaviors are *undefined* (crashes, infinite loops, reads of
-uninitialized memory). wfdb-x cannot reproduce those; for each one, the
-behavior chosen by wfdb-x is stated below. The conformance tests never
+uninitialized memory). WFDB-x cannot reproduce those; for each one, the
+behavior chosen by WFDB-x is stated below. The conformance tests never
 exercise them.
 
 The reference platform is x86-64 Linux with glibc: `char` is signed,
@@ -28,23 +28,23 @@ The reference platform is x86-64 Linux with glibc: `char` is signed,
 ### Behaviors that depend on the platform
 
 The stored reference results were produced on that platform. These C
-behaviors can differ elsewhere, and wfdb-x reproduces the reference
+behaviors can differ elsewhere, and WFDB-x reproduces the reference
 platform's:
 
 - **Floating-point contraction.** A compiler may evaluate `a*b + c` as one
   fused multiply-add (Clang does by default, e.g. Apple Clang on ARM),
   which rounds once instead of twice and can change results, such as the
-  baselines `edf2mit` computes. wfdb-x's C++ build, and the build of the C
+  baselines `edf2mit` computes. WFDB-x's C++ build, and the build of the C
   reference, turn contraction off (`-ffp-contract=off`); the other
   implementations never contract.
 - **The sign of `0/0`.** x86-64 produces a NaN with its sign bit set (which
-  `printf` shows as `-nan`), ARM one without. wfdb-x's tests construct the
+  `printf` shows as `-nan`), ARM one without. WFDB-x's tests construct the
   NaNs they format from explicit bit patterns.
 - **Reading a file while writing it.** When an output file of a tool is
   also one of its input files (for example `xform -i vlay -o fmt16`, where
   record `vlay` reads `fmt16.dat`, which `-o fmt16` rewrites), what is read
   depends on how much of the file the C library had read ahead before it
-  was truncated: glibc reads 4096-byte blocks. wfdb-x refuses such a
+  was truncated: glibc reads 4096-byte blocks. WFDB-x refuses such a
   command (see [`DIVERGENCES.md`](DIVERGENCES.md)); in legacy mode it
   reproduces glibc's result, but an implementation whose own runtime reads
   ahead further (R's file connections on macOS, for example) reads more of
@@ -76,7 +76,7 @@ These look surprising but are described in the documentation.
   error in signal N` and returns -4 *for that frame*. WPG (`getvec`): "-4
   Failure: checksum error (detected only at end of file)". Applications that
   loop while `getvec(...) >= 0`, such as `rdsamp`, therefore stop before
-  printing the last frame (this consequence is not documented). wfdb-x's
+  printing the last frame (this consequence is not documented). WFDB-x's
   C-style functions and tools do the same. Its high-level readers (an
   addition) return every frame, the last one included, since all of them
   were read, and give a warning, `checksum error in record REC: the signal
@@ -110,7 +110,7 @@ These look surprising but are described in the documentation.
   `WFDBANNSORT=0`; `Rearranging annotations for output annotator ...
   done!` is printed on the standard error output. WPG ("Annotation
   Order", `wfdbquit`, `oannclose`) documents the mechanism and `WFDBANNSORT`;
-  the message text is not documented. wfdb-x sorts in-process instead,
+  the message text is not documented. WFDB-x sorts in-process instead,
   writing the file `sortann` writes; the separate process remains in legacy
   mode, and the high-level `write_annotations` has a per-call `sort` option
   (see [`DIVERGENCES.md`](DIVERGENCES.md)).
@@ -189,7 +189,7 @@ marked *bug* are almost certainly unintended by the C authors.
   `osigclose: write error ...` or `oannclose: write error ...`), when the
   standard output cannot be written (nothing is printed), and when a file
   that `snip`, `mit2edf` or `parsescp` writes itself fails (nothing is
-  printed). wfdb-x reproduces this in legacy mode; otherwise the status is
+  printed). WFDB-x reproduces this in legacy mode; otherwise the status is
   1 ([`DIVERGENCES.md`](DIVERGENCES.md)).
 - **`ann2rr -i s|m|h`** prints intervals rounded to the requested number
   of digits and then *adjusts the end time* of each interval to match the
@@ -213,7 +213,7 @@ marked *bug* are almost certainly unintended by the C authors.
   inserted between it and the rest of the list are lost with it.
   sortann(1) says only that the last of several annotations at
   the same location is kept. The library's automatic sorting, which runs
-  `sortann`, loses them in the same way. *Bug.* Fixed in wfdb-x, except in
+  `sortann`, loses them in the same way. *Bug.* Fixed in WFDB-x, except in
   legacy mode (see [`DIVERGENCES.md`](DIVERGENCES.md)).
 - **`rr2ann`** reads each line with `sscanf("%lf")`. For an empty or
   all-blank line, `sscanf` returns `EOF` rather than 0, so the *previous*
@@ -257,9 +257,9 @@ marked *bug* are almost certainly unintended by the C authors.
 
 ## Documentation and code disagree
 
-In each case wfdb-x follows the C code.
+In each case WFDB-x follows the C code.
 
-| Topic | Documentation | C code (and wfdb-x) |
+| Topic | Documentation | C code (and WFDB-x) |
 |---|---|---|
 | `wfdbquit` | WPG: resets "the factors used for converting between samples, seconds, and counter values ... and the base counter value (reset to 0)" | the counter frequency (`setcfreq`/`getcfreq`) and the base counter value are not reset |
 | Annotations at one location | WPG ("Annotation Order"): "only the last annotation written to any given location is retained" | true only when the file is sorted; repeated annotations at time 0 do not trigger sorting, so all copies are kept |
@@ -279,9 +279,9 @@ In each case wfdb-x follows the C code.
 ## Undefined behaviors (not reproduced)
 
 Where the documentation states what should happen, the last column says
-whether the wfdb-x choice matches it.
+whether the WFDB-x choice matches it.
 
-| Program / function | C behavior | wfdb-x behavior |
+| Program / function | C behavior | WFDB-x behavior |
 |---|---|---|
 | time strings whose value is out of the range of `WFDB_Time` (e.g. `1e300` seconds), or frame numbers (`f`*N*) when no record is open (frame frequency 0) | `strtim` converts an out-of-range double (infinite or NaN for `f`*N*) to `WFDB_Time` | `LONG_MIN`, as the x86-64 conversion gives (`[...]` times: the subtraction of the base time wraps around, as `WFDB_Time` arithmetic does on x86-64; the MATLAB/Octave and R ports hold times in doubles, exact up to 2^53) |
 | `isgsettime(g, t)` with a group number `g` that is not that of a signal group, when the input pointer is already at `t` | `isgsetframe` reads `igd[g]` past the end of its array before checking `g` (crash, or a return value of 0) | the group number is reported as incorrect (`isgsettime: incorrect signal group number`, -2), as for other times |
@@ -322,7 +322,7 @@ whether the wfdb-x choice matches it.
 `wfdbversion`, `wfdbldflags`, `wfdbcflags` and `wfdbdefwfdb` return strings
 fixed when the C library is configured and built (installation prefix,
 compiler flags), and `wfdberror` (before any error) includes the build date.
-All ports of wfdb-x return the values of a release build of 10.7.0
+All ports of WFDB-x return the values of a release build of 10.7.0
 installed in `/usr/local`: `"10.7.0"`, `""`, `""`, `". /usr/local/database
 http://physionet.org/physiobank/database"`, and `"WFDB library version
 10.7.0 (Jun 10 2022).\n"`. `wfdbdefwfdbcal` is `"wfdbcal"`, as in C.

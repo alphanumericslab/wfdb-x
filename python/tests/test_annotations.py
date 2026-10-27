@@ -1,8 +1,8 @@
 """Annotation I/O tests.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
-tests wfdb-x; it has no counterpart in the original package.
+tests WFDB-x; it has no counterpart in the original package.
 
 Copyright (C) 2026 Reza Sameni.
 
@@ -155,7 +155,7 @@ def test_sort_in_process(datadir, monkeypatch, capfd):
                          "leg ...done!\n") == 1
         assert err.count("Rearranging annotations for output annotator "
                          "mod ...done!\n") == 1
-        # the in-process sort and the sortann tool (wfdb-x) give the same
+        # the in-process sort and the sortann tool (WFDB-x) give the same
         # bytes
         monkeypatch.setenv("WFDBANNSORT", "0")
         _write_tricky("uns")

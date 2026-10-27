@@ -22,7 +22,7 @@
 //! use wfdbx::record::{read_annotations, read_record, ReadOptions};
 //!
 //! // The sample record 100s, the first minute of record 100 of the MIT-BIH
-//! // Arrhythmia Database, included with wfdb-x in tests/data:
+//! // Arrhythmia Database, included with WFDB-x in tests/data:
 //! # wfdbx::wfdbx_set_input_dir("../tests/data");
 //! # /*
 //! wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
@@ -64,7 +64,7 @@
 //! Use legacy mode only to reproduce old results. See
 //! [`Wfdb::wfdbx_set_legacy`].
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -220,7 +220,8 @@ pub struct Record {
     /// sample `i` of signal `s`. Invalid samples are
     /// [`WFDB_INVALID_SAMPLE`].
     pub samples: Vec<i32>,
-    /// Signal information, one per returned signal.
+    /// Signal information, one per returned signal; its `desc` has no white
+    /// space at either end.
     pub siginfo: Vec<Siginfo>,
     /// Start time and date as text, to the second, such as
     /// `"[14:00:03 21/06/2024]"`. `None` if the header gives no start time.
@@ -310,7 +311,8 @@ impl Record {
     }
 
     /// Returns the signal descriptions (`desc`), one per returned signal
-    /// (empty for a signal without a description).
+    /// (empty for a signal without a description), without the white space
+    /// that a header may put at either end of them.
     pub fn names(&self) -> Vec<Vec<u8>> {
         self.siginfo
             .iter()
@@ -337,7 +339,8 @@ pub struct Header {
     /// Number of signals.
     pub nsig: usize,
     /// Signal specifications, one per signal (file name, format, gain,
-    /// units, description, ...).
+    /// units, description, ...); their `desc` has no white space at either
+    /// end.
     pub siginfo: Vec<Siginfo>,
     /// Start time and date as text, as in [`Record::base_time`].
     pub base_time: Option<String>,
@@ -371,8 +374,8 @@ pub struct AnnWriteOptions {
 /// record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReadOptions {
-    /// Signals to read, by number (`"0"`, `"1"`, ...) or name (`"MLII"`).
-    /// Empty: all signals.
+    /// Signals to read, by number (`"0"`, `"1"`, ...) or name (`"MLII"`, as
+    /// in [`Record::names`]). Empty: all signals.
     pub channels: Vec<String>,
     /// First sample: a sample number or a time string (see [`TimeSpec`]).
     /// Default: the start of the record.
@@ -514,7 +517,7 @@ impl Default for WriteOptions {
     fn default() -> Self {
         WriteOptions {
             fmt: 16,
-            gains: Vec::new(), // required: no default gain (wfdb-x)
+            gains: Vec::new(), // required: no default gain (WFDB-x)
             baselines: Vec::new(),
             adczeros: vec![0],
             adcres: Vec::new(),
@@ -525,6 +528,25 @@ impl Default for WriteOptions {
             comments: Vec::new(),
             legacy: false,
             dir: None,
+        }
+    }
+}
+
+/// `s` without the white space (C `isspace`) at both ends.
+fn strip_space(s: &[u8]) -> &[u8] {
+    let sp = |c: &u8| b" \t\n\x0b\x0c\r".contains(c);
+    let a = s.iter().position(|c| !sp(c)).unwrap_or(s.len());
+    let b = s.iter().rposition(|c| !sp(c)).map_or(a, |b| b + 1);
+    &s[a..b]
+}
+
+/// wfdb-x: the high-level readers give the signal descriptions without the
+/// white space that some headers end them with (C keeps it, as the C-style
+/// functions do).
+fn strip_desc(si: &mut [Siginfo]) {
+    for s in si {
+        if let Some(d) = &mut s.desc {
+            *d = strip_space(cstd::cstr(d)).to_vec();
         }
     }
 }
@@ -764,7 +786,7 @@ impl Wfdb {
     ///
     /// If the header cannot be read.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn read_header(&mut self, record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Error> {
         let opt = ReadOptions {
             legacy,
@@ -781,7 +803,7 @@ impl Wfdb {
     ///
     /// If the header cannot be read.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn read_header_with(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -803,6 +825,7 @@ impl Wfdb {
         if n > 0 {
             self.isigopen(record, &mut si, -n);
         }
+        strip_desc(&mut si);
         let fs = self.sampfreq(NULL);
         let (base_time, base_time_ms, base_date) = self.base_time_fields(fs);
         let h = Header {
@@ -829,7 +852,7 @@ impl Wfdb {
     ///
     /// As [`read_record`].
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn read_record(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -880,12 +903,21 @@ impl Wfdb {
         };
         let to = opt.to.as_ref().map(|t| t.resolve(self));
 
+        strip_desc(&mut si);
         let mut cols: Vec<usize> = Vec::new();
         if opt.channels.is_empty() {
             cols.extend(0..nsig);
         } else {
             for c in &opt.channels {
-                let k = self.findsig(c);
+                // (a name as in Record::names, then as findsig finds it)
+                let name = strip_space(c.as_bytes());
+                let k = match si
+                    .iter()
+                    .position(|s| cstd::cstr(s.desc.as_deref().unwrap_or(b"")) == name)
+                {
+                    Some(k) => k as i32,
+                    None => self.findsig(c),
+                };
                 if k < 0 || k as usize >= nsig {
                     return self.hl_fail(format!("record {rname} has no signal {c}"));
                 }
@@ -908,18 +940,26 @@ impl Wfdb {
         };
         let mut all: Vec<i32> = Vec::new();
         all.reserve_exact((expected as usize).saturating_mul(nsig).min(1 << 26));
-        const BLOCK: i64 = 1 << 20; // frames read per getvecs call at most
+        // Vectors read per getvecs call at most: whole frames, and a
+        // multiple of 6 of them, so that formats 212, 310 and 311 end each
+        // call on a whole packed unit (the frames are then read in blocks).
+        let unit = 6 * if opt.highres {
+            (self.sig.ispfmax as i64).max(1)
+        } else {
+            1
+        };
+        let block = (1 << 20) - (1 << 20) % unit;
         let mut remaining = to.map(|t| if t > from { t - from } else { 0 });
         let mut checksum_error = false;
         // (getvec's own checksum message is replaced by the warning below)
         self.sig.cksum_quiet = true;
         while remaining.map_or(true, |r| r > 0) {
             let n = match remaining {
-                Some(r) => r.min(BLOCK),
+                Some(r) => r.min(block),
                 None if expected > all.len() as i64 / nsig as i64 => {
-                    (expected - all.len() as i64 / nsig as i64).min(BLOCK)
+                    (expected - all.len() as i64 / nsig as i64).min(block)
                 }
-                None => 65536,
+                None => 65536 - 65536 % unit,
             };
             let len = all.len();
             all.resize(len + n as usize * nsig, 0);
@@ -993,7 +1033,7 @@ impl Wfdb {
     ///
     /// As [`read_annotations`].
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn read_annotations(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1019,7 +1059,7 @@ impl Wfdb {
     ///
     /// As [`read_annotations`].
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn read_annotations_with(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1211,7 +1251,7 @@ impl Wfdb {
     ///
     /// As [`write_record`].
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn write_record(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1234,7 +1274,7 @@ impl Wfdb {
     ///
     /// As [`write_record_physical`].
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn write_record_physical(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1317,7 +1357,7 @@ impl Wfdb {
     ///
     /// As [`write_annotations`].
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn write_annotations(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1340,7 +1380,7 @@ impl Wfdb {
     ///
     /// As [`write_annotations`].
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn write_annotations_with(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1453,7 +1493,7 @@ impl Wfdb {
 /// use wfdbx::{read_record, ReadOptions};
 ///
 /// // The sample record 100s, the first minute of record 100 of the MIT-BIH
-/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// // Arrhythmia Database, included with WFDB-x in tests/data:
 /// # wfdbx::wfdbx_set_input_dir("../tests/data");
 /// # /*
 /// wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
@@ -1484,7 +1524,7 @@ impl Wfdb {
 /// returned, [`Record::checksum_ok`] is `false`, and a warning is printed
 /// unless [`ReadOptions::checksum_warning`] is `false`.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record, Error> {
     with_default(|w| w.read_record(record, opt))
 }
@@ -1507,7 +1547,7 @@ pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record
 ///
 /// ```
 /// // The sample record 100s, the first minute of record 100 of the MIT-BIH
-/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// // Arrhythmia Database, included with WFDB-x in tests/data:
 /// # wfdbx::wfdbx_set_input_dir("../tests/data");
 /// # /*
 /// wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
@@ -1525,7 +1565,7 @@ pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record
 ///
 /// If the header cannot be read: "can't read header for record REC".
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn read_header(record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Error> {
     with_default(|w| w.read_header(record, legacy))
 }
@@ -1538,7 +1578,7 @@ pub fn read_header(record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Err
 ///
 /// If the header cannot be read: "can't read header for record REC".
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Header, Error> {
     with_default(|w| w.read_header_with(record, opt))
 }
@@ -1570,7 +1610,7 @@ pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<H
 /// use wfdbx::{read_annotations, PVC};
 ///
 /// // The sample record 100s, the first minute of record 100 of the MIT-BIH
-/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// // Arrhythmia Database, included with WFDB-x in tests/data:
 /// # wfdbx::wfdbx_set_input_dir("../tests/data");
 /// # /*
 /// wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
@@ -1594,7 +1634,7 @@ pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<H
 /// * A time string needs the sampling frequency, and none is known:
 ///   "sampling frequency of record REC is not specified".
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn read_annotations(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,
@@ -1631,7 +1671,7 @@ pub fn read_annotations(
 ///
 /// As [`read_annotations`].
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn read_annotations_with(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,
@@ -1698,7 +1738,7 @@ pub fn read_annotations_with(
 ///   example, when the disk is full): "write error on record RECORD" (also
 ///   in legacy mode).
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn write_record(
     record: impl AsRef<[u8]>,
     samples: &[i32],
@@ -1739,7 +1779,7 @@ pub fn write_record(
 ///
 /// As [`write_record`]. Also if a gain is 0: "signal N is uncalibrated".
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn write_record_physical(
     record: impl AsRef<[u8]>,
     samples: &[f64],
@@ -1798,7 +1838,7 @@ pub fn write_record_physical(
 ///   exist"), or `record` contains a directory ("record name must not
 ///   contain a directory when dir is given").
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn write_annotations(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,
@@ -1839,7 +1879,7 @@ pub fn write_annotations(
 ///
 /// As [`write_annotations`].
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn write_annotations_with(
     record: impl AsRef<[u8]>,
     annotator: impl AsRef<[u8]>,

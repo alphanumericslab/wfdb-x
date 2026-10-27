@@ -1,6 +1,6 @@
 function tf = is_input_file(fname)
 %IS_INPUT_FILE True if an output signal file is one of the input files.
-%   TF = wfdbx.internal.is_input_file(FNAME) (wfdb-x) is true if the output
+%   TF = wfdbx.internal.is_input_file(FNAME) (WFDB-x) is true if the output
 %   signal file FNAME (as named in an output signal specification, created
 %   by wfdb_open(FNAME, [], WFDB_WRITE)) exists and is a signal file of the
 %   open input record: a signal file open for input, or a signal file of
@@ -13,9 +13,9 @@ function tf = is_input_file(fname)
 %   links).  A file at a URL, or the standard input or output, is never
 %   one.  No message is printed.  openosig calls it in normal mode only.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -23,7 +23,7 @@ function tf = is_input_file(fname)
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: this function is a wfdb-x addition: it tells
+% Changes from the original: this function is a WFDB-x addition: it tells
 % whether an output signal file is one of the files of the open input
 % record, so that openosig can refuse it. docs/DIVERGENCES.md gives the
 % reasons.

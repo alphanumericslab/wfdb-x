@@ -7,7 +7,7 @@
 # them take a `Wfdb` (or use the default instance). isann, ammap and mamap
 # use constant tables.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of lib/ecgcodes.h, lib/ecgmap.h and the annotation

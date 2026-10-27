@@ -16,7 +16,7 @@ You can use it in three ways:
 * Command-line tools such as ``rdsamp``, ``rdann`` and ``wrsamp``, run
   through the ``wfdbx`` command, as in ``wfdbx rdsamp -r 100s -t 10``
   (which prints the first 10 seconds of the sample record 100s, included
-  with wfdb-x, when the environment variable WFDBX_INPUT_DIR is set to its
+  with WFDB-x, when the environment variable WFDBX_INPUT_DIR is set to its
   directory, ``wfdbx.sample_data_dir()``).
 * The WFDB library functions under their C names (``isigopen``,
   ``getvec``, ``getann``, ...). Where a C function fills an array, the
@@ -27,7 +27,7 @@ directory. Both are the current directory unless you set them with
 ``wfdbx_set_input_dir`` and ``wfdbx_set_output_dir``. Network access is
 off unless you turn it on with ``wfdbx_set_network``.
 
-Example, with the sample record 100s, included with wfdb-x (the first minute
+Example, with the sample record 100s, included with WFDB-x (the first minute
 of record 100 of the MIT-BIH Arrhythmia Database, in the directory
 ``wfdbx.sample_data_dir()``)::
 
@@ -38,7 +38,7 @@ of record 100 of the MIT-BIH Arrhythmia Database, in the directory
 
 Documentation: https://github.com/alphanumericslab/wfdb-x/tree/main/python
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
 has no counterpart in the original package.
 

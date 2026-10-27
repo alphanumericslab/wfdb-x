@@ -1,6 +1,6 @@
 # wfdbinit.jl: wfdbinit, wfdbquit, wfdbflush.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of lib/wfdbinit.c from the WFDB Software Package
@@ -48,7 +48,7 @@ wfdbinit(record::OptByteStr, aiarray, nann::Integer,
 
 C `wfdbquit`: close all annotators, signals and the info file, and release
 the library's buffers. The input and output directories are left as they
-are (wfdb-x; in legacy mode, the WFDB path is restored, as by
+are (WFDB-x; in legacy mode, the WFDB path is restored, as by
 [`resetwfdb`](@ref)).
 
 Translation of the C function wfdbquit() (lib/wfdbinit.c, WFDB 10.7.0): same

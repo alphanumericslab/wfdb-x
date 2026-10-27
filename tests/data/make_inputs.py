@@ -3,7 +3,7 @@
 
 These files are inputs only; all expected outputs are produced by the original
 C programs. Run from tests/data.
-Part of wfdb-x, Reza Sameni, Oct 2026.
+Part of WFDB-x, Reza Sameni, Oct 2026.
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
 Foundation; either version 3 of the License, or (at your option) any later

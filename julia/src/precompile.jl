@@ -24,7 +24,7 @@
 # not exercised is compiled when it is first used, which costs startup time
 # in every process.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -78,7 +78,7 @@ end
 """
     NODEFAULTS_FILES
 
-Extra workload files (for [`with_workload_data`](@ref)) for the wfdb-x
+Extra workload files (for [`with_workload_data`](@ref)) for the WFDB-x
 paths without a default sampling frequency, gain, ADC resolution or units
 (see `docs/DIVERGENCES.md`): `nf`, a header without a sampling frequency,
 `uc`, a record whose signals are uncalibrated (gain 0), and `nr`, a header

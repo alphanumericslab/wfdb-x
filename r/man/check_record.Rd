@@ -45,7 +45,7 @@ check_record(record, annotators = character(0), input_dir = NULL,
   (without \samp{WHERE: } for the record itself), such as
   \preformatted{error: signal 1: the checksum does not match: the header gives 12, the samples sum to 13}
   or the single line \samp{no problems found}.  The lines are the same in
-  every implementation of wfdb-x.
+  every implementation of WFDB-x.
 
   The checks run in normal mode, even if legacy mode is on (see
   \code{\link{wfdbx_set_legacy}}), and the library prints no messages
@@ -76,7 +76,7 @@ check_record(record, annotators = character(0), input_dir = NULL,
   vector.
 }
 \section{Origin}{
-  Part of wfdb-x; not in the original WFDB package.
+  Part of WFDB-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{read_record}}, \code{\link{read_annotations}}.

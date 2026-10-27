@@ -1,12 +1,12 @@
-# Tests of legacy mode (wfdb-x): the original package's behavior, on request
+# Tests of legacy mode (WFDB-x): the original package's behavior, on request
 # (docs/DIVERGENCES.md, "Legacy mode"): the library functions (t_legacy() of
 # tests/reference/api_expect.c, whose expected values were produced by the C
 # library with tests/reference/divergences.patch applied), the recognition
 # of --legacy by the tools, and the legacy argument of the high-level API.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-# It tests wfdb-x; it has no counterpart in the original package.
+# It tests WFDB-x; it has no counterpart in the original package.
 #
 # Copyright (C) 2026 Reza Sameni.
 #

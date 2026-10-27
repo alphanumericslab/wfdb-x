@@ -30,7 +30,7 @@
 // but a warning; the data are returned, and Record.checksumOk is false. See
 // docs/DIVERGENCES.md.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -121,9 +121,16 @@ data class Record(
      * invalid sample); otherwise null.
      */
     val physical: DoubleArray?,
-    /** Signal specifications, one per returned signal. A signal's `adcres` is 0 if the header does not give it. */
+    /**
+     * Signal specifications, one per returned signal. A signal's `adcres` is
+     * 0 if the header does not give it, and its `desc` has no white space at
+     * either end.
+     */
     val siginfo: List<Siginfo>,
-    /** Description of each signal, such as "MLII" ("" if none). */
+    /**
+     * Description of each signal, such as "MLII" ("" if none), without the
+     * white space that a header may put at either end of it.
+     */
     val names: List<String>,
     /** Physical units of each signal, or null if the header gives none. */
     val units: List<String?>,
@@ -227,7 +234,11 @@ data class Header(
     val nsamples: Long,
     /** Number of signals. */
     val nsig: Int,
-    /** Signal specifications, one per signal. A signal's `adcres` is 0 if the header does not give it. */
+    /**
+     * Signal specifications, one per signal. A signal's `adcres` is 0 if the
+     * header does not give it, and its `desc` has no white space at either
+     * end.
+     */
     val siginfo: List<Siginfo>,
     /** Start time and date as text, as in [Record.baseTime]. */
     val baseTime: String?,
@@ -292,14 +303,14 @@ private fun fnameStr(b: ByteArray?): String? = b?.let { Platform.nameString(it) 
  * which names that are not full paths are read (null: the default, the
  * current directory or `WFDBX_INPUT_DIR`). Returns the previous setting.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbxSetInputDir(dir: String?): String? = fnameStr(wfdbx_set_input_dir(dir?.let { fname(it) }))
 
 /**
  * The input directory (see [wfdbxSetInputDir]), or null for the default.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbxGetInputDir(): String? = fnameStr(wfdbx_get_input_dir())
 
@@ -308,14 +319,14 @@ fun Wfdb.wfdbxGetInputDir(): String? = fnameStr(wfdbx_get_input_dir())
  * created (null: the default, the current directory or
  * `WFDBX_OUTPUT_DIR`). Returns the previous setting.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbxSetOutputDir(dir: String?): String? = fnameStr(wfdbx_set_output_dir(dir?.let { fname(it) }))
 
 /**
  * The output directory (see [wfdbxSetOutputDir]), or null for the default.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbxGetOutputDir(): String? = fnameStr(wfdbx_get_output_dir())
 
@@ -323,14 +334,14 @@ fun Wfdb.wfdbxGetOutputDir(): String? = fnameStr(wfdbx_get_output_dir())
  * Turns network access (reading URLs) on or off; returns the previous setting.
  * It is off unless `WFDBX_NETWORK=1`.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbxSetNetwork(on: Boolean): Boolean = wfdbx_set_network(if (on) 1 else 0) != 0
 
 /**
  * Whether network access is on.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbxGetNetwork(): Boolean = wfdbx_get_network() != 0
 
@@ -339,14 +350,14 @@ fun Wfdb.wfdbxGetNetwork(): Boolean = wfdbx_get_network() != 0
  * its assumed signal parameters and its search of the WFDB path) on or
  * off; returns the previous setting.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbxSetLegacy(on: Boolean): Boolean = wfdbx_set_legacy(if (on) 1 else 0) != 0
 
 /**
  * Whether legacy mode is on.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbxGetLegacy(): Boolean = wfdbx_get_legacy() != 0
 
@@ -452,6 +463,21 @@ private fun Wfdb.infoStrings(record: ByteArray): List<String> {
 
 private fun strOrNull(b: ByteArray?): String? = b?.let { cstr(it).latin1() }
 
+/** White space (C isspace). */
+private const val SPACE = " \t\n\u000b\u000c\r"
+
+/**
+ * wfdb-x: the high-level readers give the signal descriptions without the
+ * white space that some headers end them with (C keeps it, as the C-style
+ * functions do).
+ */
+private fun stripDesc(si: Array<Siginfo>) {
+    for (s in si) {
+        val d = s.desc ?: continue
+        s.desc = strOrNull(d)!!.trim { it in SPACE }.latin1()
+    }
+}
+
 /** The value of a per-signal argument for signal [k]: its only value, its k-th one, or null. */
 private fun <T> perSignal(v: List<T>?, k: Int): T? = when {
     v == null || v.isEmpty() -> null
@@ -480,7 +506,7 @@ private fun legacyAdcres(fmt: Int): Int = when (fmt) {
 /**
  * Reads the header of a record, without opening its signal files.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  *
  * @param record record name: a name in the input directory, or a full
  *   path, `~` path or URL
@@ -495,7 +521,7 @@ private fun legacyAdcres(fmt: Int): Int = when (fmt) {
  *
  * ```
  * // 100s: the first minute of record 100 of the MIT-BIH Arrhythmia Database,
- * // included with wfdb-x in tests/data of a copy of the repository
+ * // included with WFDB-x in tests/data of a copy of the repository
  * val h = readHeader("100s", inputDir = "tests/data")
  * println("${h.nsig} signals at ${h.fs} Hz, ${h.nsamples} samples")
  * ```
@@ -509,6 +535,7 @@ fun Wfdb.readHeader(record: String, inputDir: String? = null, network: Boolean? 
             if (n < 0) fail("can't read header for record $record")
             val si = Array(n) { Siginfo() }
             if (n > 0) isigopen(rec, si, -n)
+            stripDesc(si)
             val fs = sampfreq(null as ByteArray?)
             val b = baseTimeFields()
             val h = Header(
@@ -521,18 +548,19 @@ fun Wfdb.readHeader(record: String, inputDir: String? = null, network: Boolean? 
         }
     }
 
-/** Samples (frames x signals) read at a time by readRecord at most. */
+/** Vectors read at a time by readRecord at most. */
 private const val CHUNK_FRAMES = 1L shl 20
 
 /**
  * Reads the signals of a record, or part of it.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  *
  * @param record record name: a name in the input directory, or a full
  *   path, `~` path or URL
  * @param channels the signals to read, by number (`"0"`) or name
- *   (`"MLII"`), in the order wanted (null: all signals)
+ *   (`"MLII"`, as in [Record.names]), in the order wanted (null: all
+ *   signals)
  * @param from the first sample: a sample number or a time string (null:
  *   the start of the record)
  * @param to the sample after the last one (null: the end of the record)
@@ -570,7 +598,7 @@ private const val CHUNK_FRAMES = 1L shl 20
  *
  * ```
  * // 100s: the first minute of record 100 of the MIT-BIH Arrhythmia Database,
- * // included with wfdb-x in tests/data of a copy of the repository
+ * // included with WFDB-x in tests/data of a copy of the repository
  * val rec = readRecord("100s", inputDir = "tests/data", channels = listOf("MLII"),
  *                      from = TimeSpec("0:10"), to = TimeSpec("0:20"), physical = true)
  * rec.nsamples           // 3600: 10 s of lead MLII
@@ -613,12 +641,16 @@ private fun Wfdb.readRecordImpl(
     checkTimeFreq(record, from, to)
     val t0 = resolve(from) ?: 0L
     val t1 = resolve(to)
+    stripDesc(si)
     val cols: IntArray = if (channels == null) {
         IntArray(nsig) { it }
     } else {
+        val names = si.map { strOrNull(it.desc) ?: "" }
         IntArray(channels.size) {
             val c = channels[it]
-            val k = findsig(c.latin1())
+            // (a name as in Record.names, then as findsig finds it)
+            val j = names.indexOf(c.trim { ch -> ch in SPACE })
+            val k = if (j >= 0) j else findsig(c.latin1())
             if (k < 0 || k >= nsig) fail("record $record has no signal $c")
             k
         }
@@ -639,6 +671,11 @@ private fun Wfdb.readRecordImpl(
     var remaining: Long? = if (t1 == null) null else maxOf(t1 - t0, 0L)
     val expected = remaining ?: maxOf(length - t0, 0L)
     var all = IntArray(minOf(expected * nsig, 1L shl 26).toInt().coerceAtLeast(nsig))
+    // Vectors read per getvecs call at most: whole frames, and a multiple of
+    // 6 of them, so that formats 212, 310 and 311 end each call on a whole
+    // packed unit (the frames are then read in blocks).
+    val unit = 6L * (if (highres) maxOf(sig.ispfmax, 1) else 1)
+    val chunk = CHUNK_FRAMES - CHUNK_FRAMES % unit
     var used = 0 // values read
     var checksumError = false
     val quiet = wfdbxSetCksumQuiet(true) // (getvec's own message is replaced by the warning below)
@@ -646,9 +683,9 @@ private fun Wfdb.readRecordImpl(
         while (remaining == null || remaining > 0) {
             val have = (used / nsig).toLong()
             val n = when {
-                remaining != null -> minOf(remaining, CHUNK_FRAMES)
-                expected > have -> minOf(expected - have, CHUNK_FRAMES)
-                else -> 65536L
+                remaining != null -> minOf(remaining, chunk)
+                expected > have -> minOf(expected - have, chunk)
+                else -> 65536L - 65536L % unit
             }
             val need = used.toLong() + n * nsig
             if (need > Int.MAX_VALUE - 8) fail("record $record is too long to be read at once")
@@ -724,7 +761,7 @@ private fun Wfdb.readRecordImpl(
 /**
  * Reads an annotation file.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  *
  * @param record record name. Its header, if there is one, gives the
  *   sampling frequency.
@@ -749,7 +786,7 @@ private fun Wfdb.readRecordImpl(
  *
  * ```
  * // 100s: the first minute of record 100 of the MIT-BIH Arrhythmia Database,
- * // included with wfdb-x in tests/data of a copy of the repository
+ * // included with WFDB-x in tests/data of a copy of the repository
  * val ann = readAnnotations("100s", "atr", to = TimeSpec("0:30"), inputDir = "tests/data")
  * val beats = (0 until ann.size).filter { isqrs(ann.codes[it]) != 0 }.map { ann.samples[it] }
  * ```
@@ -864,7 +901,7 @@ private class IntList {
  * [adcres], [units], [names], [sampsPerFrame]) takes one value for all
  * signals, or one value per signal.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  *
  * @param record record name (a name in the output directory, or a full or
  *   `~` path; see the record name rules in the README)
@@ -939,7 +976,7 @@ fun Wfdb.writeRecord(
  * + baseline`, with halves rounded away from zero; NaN becomes an invalid
  * sample. Every signal must have a gain other than 0.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  *
  * @throws WfdbException as [writeRecord], and "writeRecord: signal N is
  *   uncalibrated" if a gain is 0
@@ -1091,7 +1128,7 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  * [sort], the WFDBANNSORT environment variable decides: sorting is on
  * unless it is 0.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  *
  * @param record record name
  * @param annotator annotator name: the suffix of the file (an existing file
@@ -1199,7 +1236,7 @@ fun Wfdb.writeAnnotations(
  * and aux; its record, annotator and fs are not used) as [writeAnnotations]
  * does.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.writeAnnotations(
     record: String,

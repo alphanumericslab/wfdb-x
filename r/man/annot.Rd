@@ -137,7 +137,7 @@ aux_string(aux)
   \code{\link{wfdbquiet}}).
 }
 \section{Origin}{
-  \code{aux_string} is part of wfdb-x; not in the original WFDB package.
+  \code{aux_string} is part of WFDB-x; not in the original WFDB package.
 
   Translation of the C functions annopen(), getann(), ungetann(),
   putann(), iannsettime(), iannclose(), oannclose(), setafreq(),

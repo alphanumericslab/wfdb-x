@@ -1,7 +1,7 @@
-# cli.R: the command-line dispatcher of the wfdb-x tools (used by
+# cli.R: the command-line dispatcher of the WFDB-x tools (used by
 # inst/bin/wfdbx.R) and wfdbx_tool(), which runs a tool from R.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -22,7 +22,7 @@ wfdbx_tools <- function() {
   sort(setdiff(t, "run"), method = "radix")      # (app_run is the runner)
 }
 
-#' Run the wfdb-x tool `tool` with the arguments `args` (character vector,
+#' Run the WFDB-x tool `tool` with the arguments `args` (character vector,
 #' without the program name) as the command line would; its output is
 #' written to the standard output and error.  Returns the exit status.
 wfdbx_tool <- function(tool, args = character(0)) {
@@ -79,7 +79,7 @@ cli_main <- function(args) {
 }
 
 # ---------------------------------------------------------------------------
-# Helpers shared by the tools for the wfdb-x divergence "no built-in sampling
+# Helpers shared by the tools for the WFDB-x divergence "no built-in sampling
 # frequency, gain, ADC resolution or units" (see docs/DIVERGENCES.md).
 
 # The argument of the -F option (sampling frequency) of rdann, ann2rr,
@@ -172,7 +172,7 @@ cli_main <- function(args) {
 }
 
 # wfdb-x: legacy mode (original behavior): the help text h of a tool without
-# its lines `added` (those added by wfdb-x), as the original tool prints it.
+# its lines `added` (those added by WFDB-x), as the original tool prints it.
 .app_help_text <- function(h, added) if (wfdbx_get_legacy()) h[!(h %in% added)] else h
 
 # ---------------------------------------------------------------------------

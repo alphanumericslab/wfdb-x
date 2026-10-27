@@ -22,7 +22,7 @@ function status = ahaecg2mit(args)
 %   the AHA DVD files; see docs/DIVERGENCES.md.
 %
 %   Example (1001.ecg, a synthetic file in the format of the AHA DVD, is in
-%   the folder tests/data of a copy of the wfdb-x repository; the example
+%   the folder tests/data of a copy of the WFDB-x repository; the example
 %   writes the record 1001 in the current folder):
 %       wfdbx.apps.ahaecg2mit({'-F', '250', '-G', '400', '-R', '12', ...
 %           '-U', 'mV', '/path/to/wfdb-x/tests/data/1001.ecg'})
@@ -33,7 +33,7 @@ function status = ahaecg2mit(args)
 %   10.7.0): same options and output. Differences: -F, -G, -R and -U are new
 %   and required; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/ahaecg2mit.c from the WFDB

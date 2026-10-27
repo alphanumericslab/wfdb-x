@@ -3,7 +3,7 @@
 # tables (annstr, strann, anndesc, ecgstr, ...), annotation time
 # resolution (setafreq, setiafreq, ...), and bulk readers and writers.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of lib/annot.c from the WFDB Software Package 10.7.0,
@@ -552,7 +552,7 @@ getann <- function(an) {
   .ann_getann_ia(ia)
 }
 
-# The body of getann (wfdb-x), for the input annotator ia.
+# The body of getann (WFDB-x), for the input annotator ia.
 .ann_getann_ia <- function(ia) {
   P <- ia$P
   j <- ia$k + 1L
@@ -740,7 +740,7 @@ ungetann <- function(an, annot) {
   .ann_ungetann_ia(ia, annot)
 }
 
-# The body of ungetann (wfdb-x), after its checks, for the input annotator
+# The body of ungetann (WFDB-x), after its checks, for the input annotator
 # ia (whose pushback buffer is empty).
 .ann_ungetann_ia <- function(ia, annot) {
   a <- annotation()
@@ -802,7 +802,7 @@ iannsettime <- function(t) {
   0
 }
 
-# The body of .ann_gettable (wfdb-x), for the input annotator ia and the
+# The body of .ann_gettable (WFDB-x), for the input annotator ia and the
 # definition table defs (an environment with the fields astring, tstring
 # and modified: .ann, the library's, or that of .ann_sort_file).
 .ann_read_table <- function(ia, defs) {
@@ -1156,7 +1156,7 @@ oannclose <- function(n) {
     in_order <- FALSE
     ap <- last
     while (ap != 0L) {
-      if (ap == head && !legacy) {        # wfdb-x (see above)
+      if (ap == head && !legacy) {        # WFDB-x (see above)
         ap <- 0L
         break
       }
@@ -1200,8 +1200,8 @@ oannclose <- function(n) {
 }
 
 # Rearrange the annotations of the (closed) annotation file fname of
-# annotator aname in the canonical order (wfdb-x).  The result is
-# identical, byte for byte, to that of the sortann program (the wfdb-x one;
+# annotator aname in the canonical order (WFDB-x).  The result is
+# identical, byte for byte, to that of the sortann program (the WFDB-x one;
 # the original lost an out-of-order annotation at time 0, see
 # .ann_sort_order) as the C library ran it ("sortann -r. RECORD -a ANNOTATOR", see oannclose), but the header
 # of the record is not looked up.  As sortann does, the file is read (with
@@ -1273,7 +1273,7 @@ putann <- function(an, annot) {
   .ann_putann_oa(oa, an, annot)
 }
 
-# The body of putann (wfdb-x), for the output annotator oa (number an, in
+# The body of putann (WFDB-x), for the output annotator oa (number an, in
 # messages).
 .ann_putann_oa <- function(oa, an, annot) {
   if (!oa$table_written) {
@@ -1283,7 +1283,7 @@ putann <- function(an, annot) {
   .ann_put_word(oa, an, annot)
 }
 
-# The body of putann after the table (wfdb-x): write annot to the output
+# The body of putann after the table (WFDB-x): write annot to the output
 # annotator oa (number an, in messages).
 .ann_put_word <- function(oa, an, annot) {
   t <- annot$time
@@ -1566,7 +1566,7 @@ setannstr <- function(code, s) {
   -1
 }
 
-# The body of setannstr and setanndesc (wfdb-x), for the string table
+# The body of setannstr and setanndesc (WFDB-x), for the string table
 # defs[[field]] ("astring": mnemonics, "tstring": descriptions) and the
 # modification flags of a definition table defs (see .ann_read_table).
 # Returns 0, or -1 if code is illegal.

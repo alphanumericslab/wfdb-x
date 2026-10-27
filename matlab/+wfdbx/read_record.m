@@ -8,7 +8,8 @@ function rec = read_record(record, varargin)
 %   REC = wfdbx.read_record(RECORD, NAME, VALUE, ...) takes these options:
 %
 %     'channels'  signals to read: signal numbers (starting at 0), or a cell
-%                 array of numbers and names (default: all signals)
+%                 array of numbers and names (by name, as in names; default:
+%                 all signals)
 %     'sampfrom'  first sample: a sample number, or a time string such as
 %                 '0:10' (10 seconds) or 's3600' (sample 3600); default 0
 %     'sampto'    the sample after the last one: a sample number or a time
@@ -35,13 +36,16 @@ function rec = read_record(record, varargin)
 %                 'physical'.  Invalid samples are wfdbx.WFDB_INVALID_SAMPLE()
 %                 (-32768), or NaN in physical units.
 %     fs          sampling frequency in Hz (0 if the header gives none)
-%     names       cell array of the signal descriptions
+%     names       cell array of the signal descriptions, such as 'MLII',
+%                 without the white space that a header may put at either
+%                 end of it
 %     units       cell array of the physical units ([] if the header gives
 %                 none)
 %     gains       ADC units per physical unit of each signal (0 means
 %                 uncalibrated)
 %     baselines   baseline of each signal, in ADC units
-%     siginfo     the full signal specifications (wfdbx.siginfo structures)
+%     siginfo     the full signal specifications (wfdbx.siginfo structures;
+%                 desc without white space at either end)
 %     name        the record name
 %     sampfrom    the number of the first sample returned
 %     base_time   start time and date as text, to the second, such as
@@ -65,7 +69,7 @@ function rec = read_record(record, varargin)
 %   WFDB library functions.
 %
 %   Examples (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       rec = wfdbx.read_record('100s', 'sampto', 1000, 'physical', true);
@@ -78,11 +82,11 @@ function rec = read_record(record, varargin)
 %
 %   See also wfdbx.read_header, wfdbx.write_record, wfdbx.read_annotations.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It has no counterpart in the original package. Like the rest of wfdb-x, it
+% It has no counterpart in the original package. Like the rest of WFDB-x, it
 % never assumes a sampling frequency or gain, finds files only where they
 % are named, and opens URLs only if network access is allowed; a checksum
 % error is a warning, not an error (see docs/DIVERGENCES.md).
@@ -135,6 +139,8 @@ end
 if isempty(from)
     from = 0;
 end
+% wfdb-x: the signal names without the white space at their ends
+si = wfdbx.internal.strip_desc(si);
 if isempty(opt.channels)
     cols = 0:nsig - 1;
 else
@@ -145,10 +151,15 @@ else
         ch = num2cell(ch);
     end
     cols = zeros(1, numel(ch));
+    names = {si.desc};
     for k = 1:numel(ch)
         c = ch{k};
         if ischar(c)
-            j = wfdbx.findsig(c);
+            % (among the names without white space first)
+            j = find(strcmp(wfdbx.internal.strip_desc(c), names), 1) - 1;
+            if isempty(j)
+                j = wfdbx.findsig(c);
+            end
         else
             j = c;
         end
@@ -184,8 +195,17 @@ end
 % The output is allocated once, for the number of frames requested or (to
 % the end) those the header gives (strtim('e')), up to 2^25 samples (a
 % header may claim more than its files hold); it grows (doubling) only if
-% more are read.  Frames are read in chunks of about 2^22 samples.
+% more are read.  Frames are read in chunks of about 2^22 samples (whole
+% frames, a multiple of 6 of them, so that formats 212, 310 and 311 end
+% each chunk on a whole packed unit: the frames are then read in blocks).
 CHUNK = max(65536, floor(4194304 / nsig));
+S = wfdbx.internal.sig_state();
+if opt.highres
+    unit = 6 * max(S.ispfmax, 1);
+else
+    unit = 6;
+end
+CHUNK = CHUNK - mod(CHUNK, unit);
 if isfinite(remaining)
     cap = remaining;
 else
@@ -194,7 +214,6 @@ end
 data = zeros(min(cap, max(65536, floor(33554432 / nsig))), nsig);
 nrows = 0;
 cksum_error = false;
-S = wfdbx.internal.sig_state();
 S.cksum_quiet = true;       % (getvec's checksum message: see below)
 quiet = onCleanup(@() set_cksum_quiet(S, false)); %#ok<NASGU>
 while remaining > 0

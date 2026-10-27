@@ -10,7 +10,7 @@
 //!
 //! ```
 //! // The sample record 100s, the first minute of record 100 of the MIT-BIH
-//! // Arrhythmia Database, included with wfdb-x in tests/data:
+//! // Arrhythmia Database, included with WFDB-x in tests/data:
 //! # wfdbx::wfdbx_set_input_dir("../tests/data");
 //! # /*
 //! wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
@@ -27,11 +27,11 @@
 // check_record is specified in the same way for the seven languages (the
 // messages, their order and the formatting of numbers are identical); the
 // Python implementation (python/src/wfdbx/check.py) is the reference. The
-// checks were designed for wfdb-x; no code or text of wfdbcheck was used. The
+// checks were designed for WFDB-x; no code or text of wfdbcheck was used. The
 // header file's text is read only for the checks of its lines and of the
 // record name.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //
@@ -992,7 +992,7 @@ impl Wfdb {
     ///
     /// If `record` is empty.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn check_record(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1009,7 +1009,7 @@ impl Wfdb {
     ///
     /// If `record` is empty.
     ///
-    /// Part of wfdb-x; not in the original WFDB package.
+    /// Part of WFDB-x; not in the original WFDB package.
     pub fn check_record_with(
         &mut self,
         record: impl AsRef<[u8]>,
@@ -1290,7 +1290,7 @@ fn check_layout(ssi: &[Siginfo], si: &[Siginfo], prefix: &str, rep: &mut Report)
 ///
 /// ```
 /// // The sample record 100s, the first minute of record 100 of the MIT-BIH
-/// // Arrhythmia Database, included with wfdb-x in tests/data:
+/// // Arrhythmia Database, included with WFDB-x in tests/data:
 /// # wfdbx::wfdbx_set_input_dir("../tests/data");
 /// # /*
 /// wfdbx::wfdbx_set_input_dir("tests/data"); // from the repository root
@@ -1310,7 +1310,7 @@ fn check_layout(ssi: &[Siginfo], si: &[Siginfo], prefix: &str, rep: &mut Report)
 ///
 /// If `record` is empty.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn check_record(record: impl AsRef<[u8]>, annotators: &[&str]) -> Result<CheckReport, Error> {
     with_default(|w| w.check_record(record, annotators))
 }
@@ -1324,7 +1324,7 @@ pub fn check_record(record: impl AsRef<[u8]>, annotators: &[&str]) -> Result<Che
 ///
 /// If `record` is empty.
 ///
-/// Part of wfdb-x; not in the original WFDB package.
+/// Part of WFDB-x; not in the original WFDB package.
 pub fn check_record_with(
     record: impl AsRef<[u8]>,
     annotators: &[&str],

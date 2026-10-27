@@ -1,7 +1,7 @@
 # apps_ahaecg2mit.R: ahaecg2mit -- convert AHA DB files (from the AHA DVD)
 # to WFDB format.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/ahaecg2mit.c from the WFDB Software Package

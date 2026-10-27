@@ -1,6 +1,6 @@
 function f = fetch_open(url)
 %FETCH_OPEN Open a remote file for reading (normal mode).
-%   F = wfdbx.internal.fetch_open(URL) (wfdb-x) returns a read-only
+%   F = wfdbx.internal.fetch_open(URL) (WFDB-x) returns a read-only
 %   WFDBFile (type WFDB_NET) of the contents of URL, or [].  If network
 %   access is not allowed (wfdbx.wfdbx_get_network), the first such
 %   attempt in the process prints a message, and [] is returned.  The file
@@ -14,7 +14,7 @@ function f = fetch_open(url)
 %
 %   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software
@@ -76,7 +76,7 @@ f.temp = tmp;
 end
 
 function data = fetch(url)
-% The contents of URL (uint8 row), or [] on failure.  As in wfdb-x's other
+% The contents of URL (uint8 row), or [] on failure.  As in WFDB-x's other
 % implementations, the system program curl reads it (MATLAB and Octave can
 % run programs only through a shell, so its arguments are quoted).  Without
 % curl, webread (Octave) or websave (MATLAB) reads it; their timeout limits

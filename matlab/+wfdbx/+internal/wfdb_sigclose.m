@@ -8,7 +8,7 @@ function wfdb_sigclose()
 %   Translation of the C function wfdb_sigclose() (lib/signal.c, WFDB
 %   10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -43,7 +43,7 @@ S.ffreq = 0;
 S.pdays = -1;
 S.segments = 0;
 S.in_msrec = 0;
-S.hdr_dir = [];         % wfdb-x
+S.hdr_dir = [];         % WFDB-x
 S.msrec_dir = [];
 S.msrec_name = [];
 S.skewmax = 0;

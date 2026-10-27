@@ -1,18 +1,18 @@
 # Authors
 
-wfdb-x ports the C code of the WFDB Software Package, version 10.7.0
+WFDB-x ports the C code of the WFDB Software Package, version 10.7.0
 (`third_party/wfdb-main.zip`), to Python, C++, MATLAB/Octave, Rust, Julia,
-R and Kotlin. **wfdb-x was developed by Reza Sameni (2026), through AI-assisted
+R and Kotlin. **WFDB-x was developed by Reza Sameni (2026), through AI-assisted
 development, cross-language verification and unit testing; the C code it ports was written by George B. Moody,
 Benjamin Moody and the other authors credited below.** This file says who wrote the C code
-that each part of wfdb-x is a port of.
+that each part of WFDB-x is a port of.
 
 ## File headers
 
-The header comment of every wfdb-x source file that translates a C file
+The header comment of every WFDB-x source file that translates a C file
 gives the same credit in short form, in the same order in every language:
 
-1. that the file is part of wfdb-x, an independent reimplementation of the
+1. that the file is part of WFDB-x, an independent reimplementation of the
    WFDB Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and
    Kotlin;
 2. the C file or files it translates and their authors (for example, "It is
@@ -29,7 +29,7 @@ gives the same credit in short form, in the same order in every language:
 
 Tests and other code with no C original (see
 [below](#code-that-wfdb-x-doesnt-port-from-a-wfdb-c-file)) say instead that
-they have no counterpart in the original package, and carry only the wfdb-x
+they have no counterpart in the original package, and carry only the WFDB-x
 copyright and the license.
 
 ## Where these credits come from
@@ -70,7 +70,7 @@ the rest of `convert/`.
 
 | C file | Author (first written) | Last revised | Copyright | Revisions and contributions |
 |---|---|---|---|---|
-| `lib/wfdbio.c` | G. Moody (18 Nov 1988) | 11 Apr 2022 | (C) 1988-2013 George B. Moody | Revised 2010-2022 by Benjamin Moody (e.g. `resetwfdb` work, 2010; `wfdb_getline`, 2022). The HTTP/FTP "NETFILES" code was first written by Michael Dakin (1999, libwww) and rewritten by Benjamin Moody (2005, libcurl); wfdb-x doesn't port it: its network access (off by default, URLs only; see [`DIVERGENCES.md`](DIVERGENCES.md)) is its own. Fred Geheb supplied a patch for indirect (`@FILE`) WFDB paths (2004). The idea of inserting path components at the head in `wfdb_addtopath` came from David Brooks. |
+| `lib/wfdbio.c` | G. Moody (18 Nov 1988) | 11 Apr 2022 | (C) 1988-2013 George B. Moody | Revised 2010-2022 by Benjamin Moody (e.g. `resetwfdb` work, 2010; `wfdb_getline`, 2022). The HTTP/FTP "NETFILES" code was first written by Michael Dakin (1999, libwww) and rewritten by Benjamin Moody (2005, libcurl); WFDB-x doesn't port it: its network access (off by default, URLs only; see [`DIVERGENCES.md`](DIVERGENCES.md)) is its own. Fred Geheb supplied a patch for indirect (`@FILE`) WFDB paths (2004). The idea of inserting path components at the head in `wfdb_addtopath` came from David Brooks. |
 | `lib/signal.c` | G. Moody (13 Apr 1989) | 18 May 2022 | (C) 1989-2013 George B. Moody | Revised 2011-2022 by Benjamin Moody. His work includes `fstrtim`, `ftimstr` and `fmstimstr` and the base-time precision fixes (10.5.8, 2011), the `putinfo` fix (2012), the `strtim` bracket fix (2013), variable-layout records (per the WFDB Programmer's Guide) and **FLAC signal formats 508/516/524 (2020)**. Other contributions: `edfparse` overflow fix from Joonas Paalasmaa, `make_vsd` leak fix from Yinqi Zhang (2008), `getspf` rounding reported by Guido Muesch (credited in a comment), `isigopen` search optimization suggested by David Brooks (2011). `datstr`/`strdat` are "based on similar functions in chapter 1 of *Numerical Recipes* (Press, Flannery, Teukolsky and Vetterling)" (comment in the source). |
 | `lib/annot.c` | G. Moody (13 Apr 1989) | 4 Nov 2020 | (C) 1989-2013 George B. Moody | Revised 2015-2020 by Benjamin Moody. Virginia Faro-Maza fixed a bug in `iannsettime` (2012). |
 | `lib/calib.c` | G. Moody (4 Jul 1991) | 11 Apr 2022 | (C) 1991-2013 George B. Moody | Revised 2019-2022 by Benjamin Moody (wildcard `*` entries, no line-length limit). |
@@ -123,9 +123,9 @@ the rest of `convert/`.
 | `convert/revise.c` | G. Moody (8 Feb 1991) | 18 May 2018 | (C) 1999 George B. Moody | Revised 2018 by Benjamin Moody. |
 | `convert/parsescp.c` | **G. Moody and E. Moody** (10 Jan 2000) | 4 Nov 2020 | (C) 2000-2014 **George B. Moody and Edna S. Moody** | Revised 2016-2020 by Benjamin Moody. |
 
-## Code that wfdb-x doesn't port from a WFDB C file
+## Code that WFDB-x doesn't port from a WFDB C file
 
-Some files are wfdb-x's own code and credit no C author. These include the C
+Some files are WFDB-x's own code and credit no C author. These include the C
 standard-library emulation (`_cstd.py`, `rust/src/cstd*`,
 `matlab/+wfdbx/+internal/c*.m`, `kotlin/src/commonMain/kotlin/wfdbx/cstd/`, ...), the high-level APIs, the command-line drivers and the tests.
 
@@ -133,7 +133,7 @@ The FLAC codec (`cpp/src/flac.cpp`, `rust/src/flac.rs`, `julia/src/flac.jl`,
 `kotlin/src/commonMain/kotlin/wfdbx/Flac.kt`, the codec parts of
 `python/src/wfdbx/_flac.py` and `r/R/flac.R`, and the MATLAB `flac_crc`,
 `flac_decode`, `flac_encode_frame`, `flac_streaminfo` and `flac_block_end`
-functions) is also wfdb-x's own: an independent implementation of the FLAC
+functions) is also WFDB-x's own: an independent implementation of the FLAC
 format. The C library uses libFLAC instead. The code that connects FLAC to
 the WFDB signal functions is different: it translates the FLAC support of
 `lib/signal.c`, written by Benjamin Moody (2020), and is credited to him.
@@ -155,11 +155,11 @@ people:
   Muesch, Joonas Paalasmaa, Tony Ricke, Dave Schaffer, Dan Scott, Allavatam
   Venugopal, Mauro Villarroel, Andrew Walsh, Piotr Wlodarek and Yinqi Zhang.
 
-The guide also credits several pieces of work that wfdb-x doesn't port:
+The guide also credits several pieces of work that WFDB-x doesn't port:
 
 * Mike Dakin wrote the first NETFILES (HTTP client) implementation, which
   Benjamin Moody later reimplemented with libcurl.
-* Benjamin Moody also implemented variable-layout records, which wfdb-x
+* Benjamin Moody also implemented variable-layout records, which WFDB-x
   does port, in `signal.c`.
 * Pat Hamilton and Bob Farrell made the classic Mac OS and MS Windows
   ports.
@@ -169,11 +169,11 @@ The guide also credits several pieces of work that wfdb-x doesn't port:
   Toolbox for Matlab.
 * Isaac Henry wrote the SWIG wrappers.
 
-## wfdb-x
+## WFDB-x
 
 The Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin reimplementations were
 developed by Reza Sameni (2026), through AI-assisted development,
-cross-language verification and unit testing (see "How wfdb-x was
+cross-language verification and unit testing (see "How WFDB-x was
 developed" in the project README). They are distributed under the GNU
 General Public License, version 3 or later (`LICENSE`), which the "or later"
 terms of the C code's licenses allow.

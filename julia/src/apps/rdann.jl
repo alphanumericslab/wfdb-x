@@ -3,7 +3,7 @@
 # Caution: if the output format of rdann is modified, wrann will require
 # modification as well!
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of app/rdann.c from the WFDB Software Package
@@ -182,7 +182,7 @@ function rdann_main(args::Vector{String})
                     cexit(1)
                 end
                 from = i                # to be converted to sample intervals below
-            elseif c == UInt8('F') && !legacy   # sampling frequency follows (wfdb-x)
+            elseif c == UInt8('F') && !legacy   # sampling frequency follows (WFDB-x)
                 i += 1
                 ffreq = _annapp_ffreq(pname, argv, i, argc)
             elseif c == UInt8('h')      # print usage summary and quit

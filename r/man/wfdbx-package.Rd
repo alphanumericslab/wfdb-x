@@ -11,7 +11,7 @@
   original C library, and its tools print the same output.  It is written
   in base R only.
 
-  wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+  WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
   that a record does not give.  Where one is needed, you must give it.
   Legacy mode (\code{\link{wfdbx_set_legacy}}) reproduces the original
   package exactly.  See
@@ -31,7 +31,7 @@
   \command{mit2edf}, ...) are run from R with \code{\link{wfdbx_tool}}, or
   from a shell with the driver script installed with the package.  This
   command describes the sample record \code{100s} (the first minute of
-  record 100 of the MIT-BIH Arrhythmia Database, included with wfdb-x in
+  record 100 of the MIT-BIH Arrhythmia Database, included with WFDB-x in
   the \file{tests/data} directory of a copy of the repository), read from
   that directory:
   \preformatted{WFDBX_INPUT_DIR=wfdb-x/tests/data \\
@@ -72,7 +72,7 @@
   when network access is on.  See \code{\link{wfdbx_set_input_dir}}.
 }
 \section{License}{
-  wfdb-x is distributed under the GNU General Public License, version 3
+  WFDB-x is distributed under the GNU General Public License, version 3
   or later (file \file{COPYING} in the installed package, \file{LICENSE}
   in the sources).
 }
@@ -81,12 +81,12 @@
   revisions by Benjamin Moody (2010-2022, including FLAC support);
   \command{parsescp} by George B. Moody and Edna S. Moody, and
   \file{ecgcodes.h} and \command{rdann} by T. Baker and G. Moody (see
-  \file{docs/AUTHORS.md} in the wfdb-x sources).  The R implementation was
+  \file{docs/AUTHORS.md} in the WFDB-x sources).  The R implementation was
   developed by Reza Sameni (2026), through AI-assisted development,
   cross-language verification and unit testing.
 
-  wfdb-x is an independent reimplementation.  Its R code is a translation
-  of the C code of the WFDB Software Package into R, written for wfdb-x;
+  WFDB-x is an independent reimplementation.  Its R code is a translation
+  of the C code of the WFDB Software Package into R, written for WFDB-x;
   it is not code by the original WFDB developers.  It follows the
   original's logic and behavior, with the changes described in
   \url{https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md}.

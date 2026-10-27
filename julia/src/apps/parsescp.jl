@@ -14,12 +14,12 @@
 # instead.
 #
 # The translation was made by way of the Rust and C++ implementations of
-# wfdb-x. The input is held in one byte buffer, and the C program's pointers
+# WFDB-x. The input is held in one byte buffer, and the C program's pointers
 # into it are represented by 0-based offsets (_scp_b(s, off) is the byte at
 # `off`). Integer arithmetic uses the C types (wrapping), and floating-point
 # expressions are evaluated in the order of the C expressions, so that the
 # output is identical to C's. Behaviors of the C program that are undefined
-# (on defective inputs) are resolved as in the other wfdb-x implementations
+# (on defective inputs) are resolved as in the other WFDB-x implementations
 # (see docs/KNOWN_C_BEHAVIORS.md): bytes beyond the end of the input are
 # read as 0; signal arrays have at least 5000 samples and samples beyond the
 # end of a lead are 0; leads whose indices are outside the signal array read
@@ -29,7 +29,7 @@
 # is printed as `???`. Samples are written in little-endian byte order, as
 # the C program does on x86.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/parsescp.c from the WFDB Software
@@ -653,7 +653,7 @@ function _scp_write_output(s::_Scp)
     cfprintf(dfile, "QRS axis: %d\n", s.qrsaxis)
     cfprintf(dfile, "T axis: %d\n", s.taxis)
     fwrite(dfile, _scp_precgmeas(s))
-    wfdbx_fclose_output(dfile, s.pname, dname)      # wfdb-x
+    wfdbx_fclose_output(dfile, s.pname, dname)      # WFDB-x
 
     # Generate the key file. The patient's name and ID number should appear
     # only in this file (and in the debugging output, if enabled using -v).
@@ -661,7 +661,7 @@ function _scp_write_output(s::_Scp)
     cfprintf(kfile, "Record: %s (%s %s)\n", recname, s.recdate, s.rectime)
     cfprintf(kfile, "Name: %s\n", s.patient_name)
     cfprintf(kfile, "MRN: %s\n", s.patient_id)
-    wfdbx_fclose_output(kfile, s.pname, kname)      # wfdb-x
+    wfdbx_fclose_output(kfile, s.pname, kname)      # WFDB-x
 
     # If the -z option was selected, then for each signal:
     #  1. Calculate the median amplitude of the first 5000 samples in the
@@ -718,7 +718,7 @@ function _scp_write_output(s::_Scp)
             fwrite(tfile, line)
             i += 1
         end
-        wfdbx_fclose_output(tfile, s.pname, tname)  # wfdb-x
+        wfdbx_fclose_output(tfile, s.pname, tname)  # WFDB-x
     end
 
     # Finally, output the ECG in vector (binary) form.
@@ -749,7 +749,7 @@ function _scp_write_output(s::_Scp)
         end
     end
     _scp_write_samples(efile, _scp_sigr(s, s.lead_ii), 0, Int(_SCP_MINSIGLEN))
-    wfdbx_fclose_output(efile, s.pname, ename)      # wfdb-x
+    wfdbx_fclose_output(efile, s.pname, ename)      # WFDB-x
     1
 end
 

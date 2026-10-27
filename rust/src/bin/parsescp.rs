@@ -16,7 +16,7 @@
 //!
 //! The input is held in one byte buffer and the C program's pointers into
 //! it are represented by offsets. Behaviors of the C program that are
-//! undefined (on defective inputs) are resolved as in the other wfdb-x
+//! undefined (on defective inputs) are resolved as in the other WFDB-x
 //! implementations (see `docs/KNOWN_C_BEHAVIORS.md`): bytes beyond the end
 //! of the input are read as 0; signal arrays have at least 5000 samples and
 //! samples beyond the end of a lead are 0; missing subtraction zones are
@@ -25,7 +25,7 @@
 //! is left empty, and an invalid month is printed as `???`. Samples are
 //! written in little-endian byte order, as the C program does on x86.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of convert/parsescp.c from the WFDB Software
@@ -947,7 +947,7 @@ impl Scp {
 
         let m = self.precgmeas();
         dfile.write(&m);
-        wfdbx::wfdbx_fclose_output(dfile, &self.pname, &dname); // wfdb-x
+        wfdbx::wfdbx_fclose_output(dfile, &self.pname, &dname); // WFDB-x
 
         // Generate the key file. The patient's name and ID number should
         // appear only in this file (and in the debugging output, if enabled
@@ -962,7 +962,7 @@ impl Scp {
         );
         cfprintf!(kfile, b"Name: %s\n", self.patient_name);
         cfprintf!(kfile, b"MRN: %s\n", self.patient_id);
-        wfdbx::wfdbx_fclose_output(kfile, &self.pname, &kname); // wfdb-x
+        wfdbx::wfdbx_fclose_output(kfile, &self.pname, &kname); // WFDB-x
 
         // If the -z option was selected, then for each signal:
         //  1. Calculate the median amplitude of the first 5000 samples in
@@ -1037,7 +1037,7 @@ impl Scp {
                 line.push(b'\n');
                 tfile.write(&line);
             }
-            wfdbx::wfdbx_fclose_output(tfile, &self.pname, &tname); // wfdb-x
+            wfdbx::wfdbx_fclose_output(tfile, &self.pname, &tname); // WFDB-x
         }
 
         // Finally, output the ECG in vector (binary) form.
@@ -1069,7 +1069,7 @@ impl Scp {
             }
         }
         write_samples(&mut efile, &self.sigr(self.lead_ii as i64), 0, 5000);
-        wfdbx::wfdbx_fclose_output(efile, &self.pname, &ename); // wfdb-x
+        wfdbx::wfdbx_fclose_output(efile, &self.pname, &ename); // WFDB-x
 
         1
     }

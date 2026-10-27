@@ -1,6 +1,6 @@
 // wrsamp.cpp: select fields or columns from a file and generate a WFDB record.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of app/wrsamp.c from the WFDB Software Package

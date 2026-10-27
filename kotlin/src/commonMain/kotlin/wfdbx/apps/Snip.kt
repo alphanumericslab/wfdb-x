@@ -1,7 +1,7 @@
 // snip: copy an excerpt of a database record (port of app/snip.c, through
 // rust/src/bin/snip.rs).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of app/snip.c from the WFDB Software Package
@@ -233,7 +233,7 @@ private fun Wfdb.copySig(sn: Snip, nrec: ByteArray, irec: ByteArray, from: Long,
             ohfile.printf("%s %lld\r\n", orsegs, len)
         }
         sn.openFiles.remove(ohfile)
-        wfdbx_fclose_output(ohfile, sn.pname, ohfname) // wfdb-x
+        wfdbx_fclose_output(ohfile, sn.pname, ohfname) // WFDB-x
         return
     }
 

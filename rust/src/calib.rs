@@ -4,7 +4,7 @@
 //! calibration file) and `flushcal` (empties the list). Calibration files
 //! are written with `\r\n` line separators.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of lib/calib.c from the WFDB Software Package

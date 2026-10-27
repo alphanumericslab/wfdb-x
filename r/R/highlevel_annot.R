@@ -3,7 +3,7 @@
 # (annopen, getann, putann), so that they read and write exactly what the
 # WFDB library and the rdann and wrann tools do.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -59,7 +59,7 @@
 #' with the message "can't read annotation file ANN of record REC (getann
 #' status S)" (also in legacy mode); getann's own message is printed too.
 #' A read limited by sampto stops at the first annotation at or after
-#' sampto and reads no further.  wfdb-x.
+#' sampto and reads no further.  WFDB-x.
 #'
 #' fs: the sampling frequency of the record, used (like the -F option of
 #' rdann) only if the record has no header or its header does not specify
@@ -70,7 +70,7 @@
 #' error.
 #'
 #' input_dir, network: the input directory and the network permission for
-#' this call (see read_record; wfdb-x).
+#' this call (see read_record; WFDB-x).
 #'
 #' legacy: if TRUE, behave as the original package (250 Hz for a record
 #' without a header, or whose header does not specify the frequency, unless
@@ -150,7 +150,7 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' C library, as legacy mode, runs sortann), unless the WFDBANNSORT
 #' environment variable is 0.  dir: if given, the directory (which must
 #' exist) in which the file is created (record must not contain a
-#' directory; wfdb-x).  Returns invisibly the status of the last putann
+#' directory; WFDB-x).  Returns invisibly the status of the last putann
 #' (0).  legacy: if TRUE, the library's legacy mode is on for the duration
 #' of the call (see read_annotations).
 #'
@@ -158,7 +158,7 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' WFDBANNSORT environment variable is 0; TRUE: it is sorted, FALSE: it is
 #' left in the order given, for this call only, whatever WFDBANNSORT says
 #' (in legacy mode too: TRUE runs the sortann tool; the environment is not
-#' changed).  wfdb-x.
+#' changed).  WFDB-x.
 #'
 #' Errors: stop() if the annotator cannot be created ("can't create
 #' annotator A for record R"), or if the file cannot be written completely,

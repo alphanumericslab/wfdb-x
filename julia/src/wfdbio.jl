@@ -5,7 +5,7 @@
 # reporting (wfdb_error, wfdberror, wfdbquiet), and `WfdbFile`, the buffered
 # file type used by the library and the tools (C's WFDB_FILE / FILE *).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of lib/wfdbio.c from the WFDB Software Package
@@ -1316,7 +1316,7 @@ julia> wfdbx_set_input_dir("/data/mitdb");   # a local copy of the MIT-BIH Arrhy
 julia> rec = read_record("100");      # reads /data/mitdb/100.hea and 100.dat
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function wfdbx_set_input_dir(w::Wfdb, dir::OptByteStr)
     _init_input_dir!(w)
@@ -1331,7 +1331,7 @@ end
 Return the input directory as bytes (see [`wfdbx_set_input_dir`](@ref)),
 or `nothing` if none is set.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function wfdbx_get_input_dir(w::Wfdb)
     _init_input_dir!(w)
@@ -1372,7 +1372,7 @@ setting belongs to the library state `w`, and `wfdbquit` keeps it.
 
 # Examples
 The example writes the annotation file `out/100s.qrs`, for the record `100s`
-(the sample record of wfdb-x, the first minute of record 100 of the MIT-BIH
+(the sample record of WFDB-x, the first minute of record 100 of the MIT-BIH
 Arrhythmia Database):
 ```julia-repl
 julia> wfdbx_set_output_dir("out");
@@ -1380,7 +1380,7 @@ julia> wfdbx_set_output_dir("out");
 julia> write_annotations("100s", "qrs", Annotations(samples=[100], symbols=[b"N"]))  # writes out/100s.qrs
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function wfdbx_set_output_dir(w::Wfdb, dir::OptByteStr)
     _init_output_dir!(w)
@@ -1400,7 +1400,7 @@ end
 Return the output directory as bytes (see [`wfdbx_set_output_dir`](@ref)),
 or `nothing` if none is set.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function wfdbx_get_output_dir(w::Wfdb)
     _init_output_dir!(w)
@@ -1431,7 +1431,7 @@ julia> wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/");
 julia> rec = read_record("100"; to="0:10");   # record 100 of the MIT-BIH Arrhythmia Database
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function wfdbx_set_network(w::Wfdb, on::Union{Nothing,Bool,Integer})
     previous = wfdbx_get_network(w)
@@ -1446,7 +1446,7 @@ end
 Return 1 if network access is on (see [`wfdbx_set_network`](@ref)), and 0
 otherwise.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function wfdbx_get_network(w::Wfdb)
     io = w.io
@@ -1471,7 +1471,7 @@ tool run, under `run_tool`), not to a `Wfdb` state. The high-level writers
 throw an error when they meet one, and the command-line tools then exit
 with status 1.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 wfdbx_write_errors() = Int32(cproc().write_errors)
 
@@ -1481,7 +1481,7 @@ wfdbx_write_errors() = Int32(cproc().write_errors)
 Count a write error (see [`wfdbx_write_errors`](@ref)): for an application
 that writes a file itself.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 wfdbx_note_write_error() = (cproc().write_errors += 1; nothing)
 
@@ -1493,7 +1493,7 @@ Close `f`, a file named `name` that a tool has written itself (opened with
 the file could not be written or closed, print "PNAME: write error on NAME"
 and count a write error (see [`wfdbx_write_errors`](@ref)).
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function wfdbx_fclose_output(w::Wfdb, f::WfdbFile, pname::ByteStr, name::ByteStr)
     err = ferror(f)
@@ -1762,7 +1762,7 @@ function wfdbx_output_file(w::Wfdb, name::OptByteStr)
 end
 
 # Open the file at location p for reading, trying both forms of its name
-# (_spr1 and _spr2) there (wfdb-x).
+# (_spr1 and _spr2) there (WFDB-x).
 function _open_at(w::Wfdb, p::Vector{UInt8}, s::Vector{UInt8})
     io = w.io
     io.filename = _spr1(p, s)
@@ -1779,7 +1779,7 @@ end
 # given by wfdbx_dirname; nothing if unknown, for a header read from the
 # standard input: name is then resolved as any relative name). The name must
 # be in that directory or below it; the signal file name "-" (the standard
-# input) is also accepted (wfdb-x).
+# input) is also accepted (WFDB-x).
 function wfdbx_open_in(w::Wfdb, d::Union{Nothing,Vector{UInt8}}, s::OptByteStr,
                        name::Vector{UInt8}, record::Vector{UInt8})
     name == b"-" && return wfdb_open(w, s, name, WFDB_READ)
@@ -1800,7 +1800,7 @@ const _DOWNLOADER = Ref{Any}(nothing)
 
 # The downloader used for remote files: it gives up if connecting takes
 # NET_TIMEOUT seconds or no data arrives for NET_TIMEOUT seconds, with no
-# limit on the total time (record files can be large), as wfdb-x's other
+# limit on the total time (record files can be large), as WFDB-x's other
 # implementations do.
 function _downloader(downloads)
     _DOWNLOADER[] === nothing || return _DOWNLOADER[]

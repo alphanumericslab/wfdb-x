@@ -21,7 +21,7 @@ function status = revise(args)
 %   same options and output. Differences: a missing ADC resolution stays
 %   unspecified; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/revise.c from the WFDB Software

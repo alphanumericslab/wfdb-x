@@ -6,9 +6,9 @@
 # the tools' parsers and formatters) against direct reference
 # implementations.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-# It tests wfdb-x; it has no counterpart in the original package.
+# It tests WFDB-x; it has no counterpart in the original package.
 #
 # Copyright (C) 2026 Reza Sameni.
 #
@@ -616,7 +616,7 @@ expect_equal(.ann$annclose_error, -6, "sort (in process): annclose_error -6, as 
 # (the library's settings and tables are unchanged)
 check(getafreq() == 1000 && annstr(42) == "Z" && identical(which(.ann$modified), 43L),
       "sort (in process): library state unchanged")
-# the in-process sort and the sortann tool (wfdb-x) give the same bytes
+# the in-process sort and the sortann tool (WFDB-x) give the same bytes
 Sys.setenv(WFDBANNSORT = "0")
 wfdbquiet()
 write_tricky("uns")
@@ -714,7 +714,7 @@ check(identical(o1$sample, c(10, 20, 30)) && all(o1$symbol == "N"), "sort: o1 so
 expect_equal(o2$sample, c(10, 20, 30, 40), "sort: o2 sorted")
 
 # write_annotations(..., sort = ): for this call only, whatever
-# WFDBANNSORT says (wfdb-x)
+# WFDBANNSORT says (WFDB-x)
 ooo_t <- c(30, 10, 20)
 ooo_s <- c("N", "V", "A")
 wfdbquiet()
@@ -788,7 +788,7 @@ expect_equal(stderr_of({
 }), advice("u2"), "C-style API, WFDBANNSORT=0: advice")
 if (is.na(oldsort)) Sys.unsetenv("WFDBANNSORT") else Sys.setenv(WFDBANNSORT = oldsort)
 
-# write_annotations(..., dir = ) (wfdb-x)
+# write_annotations(..., dir = ) (WFDB-x)
 dir.create("out")
 wfdbquiet()
 write_annotations("rec", "atr", c(30, 10, 20), symbol = c("N", "V", "N"), dir = "out")
@@ -802,7 +802,7 @@ expect_error(write_annotations("rec", "atr", 1, symbol = "N", dir = "nosuch"),
 expect_error(write_annotations("x/rec", "atr", 1, symbol = "N", dir = "out"),
              "write_annotations dir: record with a directory")
 expect_equal(wfdbx_get_output_dir(), NULL, "write_annotations dir: restored after errors")
-# the dir checks come first (wfdb-x)
+# the dir checks come first (WFDB-x)
 errmsg <- function(expr) tryCatch({
   expr
   ""

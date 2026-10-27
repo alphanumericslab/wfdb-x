@@ -18,10 +18,10 @@ classdef OutputFile < handle
 %
 %   See also wfdbx.wfdbx_write_errors, wfdbx.internal.WFDBFile.
 %
-%   Translation of the C function wfdbx_fclose_output() (wfdb-x's
+%   Translation of the C function wfdbx_fclose_output() (WFDB-x's
 %   lib/wfdbio.c).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

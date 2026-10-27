@@ -7,7 +7,7 @@
 // distribution of the AHA database on floppy disk; a2m can perform the
 // reverse conversion, however.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of convert/m2a.c from the WFDB Software Package
@@ -45,7 +45,7 @@ private val M2A_HELP = arrayOf(
     "            and convert them to milliseconds",
 )
 
-/** wfdb-x: the help lines added by wfdb-x (left out in legacy mode). */
+/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val M2A_WFDBX_HELP = setOf(
     " -F FREQ   sampling frequency, if the record header does not specify one",
 )
@@ -69,7 +69,7 @@ fun Wfdb.m2aMain(argv0: Array<ByteArray>): Int {
     var oaname: ByteArray? = null
     var record: ByteArray? = null
     var shift: ByteArray? = null
-    val ffreq = CDouble(0.0) // -F (wfdb-x)
+    val ffreq = CDouble(0.0) // -F (WFDB-x)
     val annot = Annotation()
 
     var i = 1
@@ -92,7 +92,7 @@ fun Wfdb.m2aMain(argv0: Array<ByteArray>): Int {
                         eprintf("%s: unrecognized option %s\n", pname, a)
                         exit(1)
                     }
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i++
                     if (i >= argc || sscanf(argv[i], "%lf", ffreq) != 1 || ffreq.v <= 0.0) {
                         eprintf("%s: sampling frequency (> 0) must follow -F\n", pname)

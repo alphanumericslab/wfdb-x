@@ -14,16 +14,16 @@ function [P, i, ok] = opt_sigparam(argv, i, P)
 %       -U UNITS  units ("units must follow -U")
 %   I is advanced past the argument.  If it is missing or invalid, the
 %   message "PNAME: ..." is printed and OK is false (the tool then exits
-%   with status 1).  These options are wfdb-x additions: there are no
+%   with status 1).  These options are WFDB-x additions: there are no
 %   built-in signal parameters (see docs/DIVERGENCES.md).
 %
 %   See also wfdbx.internal.sigparams, wfdbx.internal.opt_ffreq.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It has no counterpart in the original package. wfdb-x never assumes a
+% It has no counterpart in the original package. WFDB-x never assumes a
 % sampling frequency, gain, ADC resolution or units (see
 % docs/DIVERGENCES.md).
 %

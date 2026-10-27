@@ -1,4 +1,4 @@
-# wfdb-x for R: implementation notes
+# WFDB-x for R: implementation notes
 
 These notes describe how the R implementation is organized. They complement
 [`docs/porting-guide.md`](../docs/porting-guide.md) (the C semantics every
@@ -69,7 +69,7 @@ is the runner, not a tool.
 
 The header comment of each file follows the same pattern in all seven
 languages. A file that translates C code gives its purpose; the line
-"This file is part of wfdb-x, an independent reimplementation of the WFDB
+"This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and
 Kotlin."; the C file(s) it translates and their authors; "Changes from the
 original:", a short list of how this file differs from the C code (each
@@ -79,13 +79,13 @@ original C code (from `docs/AUTHORS.md`) and "R translation and changes:
 Copyright (C) 2026 Reza Sameni."; and the GPL-3 notice. A file with no C
 original (the high-level API, `check.R`, `cli.R`, `cstd.R`, the driver,
 the tests) says "It has no counterpart in the original package." (tests:
-"It tests wfdb-x; ...") and gives only Reza Sameni's copyright. Keep the
+"It tests WFDB-x; ...") and gives only Reza Sameni's copyright. Keep the
 in-code `wfdb-x:` comments where each change happens.
 
 Each Rd page ends (before See Also) with a section "Origin": "Translation
 of the C function(s) ... (lib/FILE.c, WFDB 10.7.0): same arguments and
 results.", followed, when the behavior differs, by "Differences: ...; see
-docs/DIVERGENCES.md."; for wfdb-x additions, "Part of wfdb-x; not in the
+docs/DIVERGENCES.md."; for WFDB-x additions, "Part of WFDB-x; not in the
 original WFDB package." An example that names a record says what the
 record is and where it is read from (the sample `100s` in `tests/data`, a
 PhysioNet database with its URL and network access, a local copy of a
@@ -291,7 +291,7 @@ the standard output (`"-"` for writing) go to `cout`.
 
 `wfdbio.R` — state `.wfdb_io` (`wfdbpath`, `path_prefix`, `path_type`,
 `error_print`, `error_flag`, `error_message` (raw), `wfdb_filename`,
-`irec`, `stdin_file`, `stdout_file`, `driver`, and (wfdb-x) the settings
+`irec`, `stdin_file`, `stdout_file`, `driver`, and (WFDB-x) the settings
 `input_dir`, `output_dir`, `network` with their environment values and
 flags, `fetched` (the cache of remote files, by URL); `wfdbio_reset()`):
 `wfdb_error(fmt, ...)`, `wfdb_open(s, record, mode)`,
@@ -361,11 +361,17 @@ Public API conventions (beyond the C names):
 * `getframes(n)` returns `list(v, stat)` (matrix, one row per getvec
   vector); exactly equivalent to `n` getvec calls. `.bulk_frames(n)`
   decodes whole blocks with `readBin`/vector arithmetic (all formats,
-  multi-frequency records in both modes, `WFDB_GVPAD`, FLAC through
-  `flac_navail` and `flac_getsamps`); it declines (NULL, or fewer vectors) where a frame needs
-  special handling (end of file, checksum frame, partial bit-packed group,
-  skew, variable layout, `setifreq`, prolog not skipped, non-seekable
-  input), and `getframes` falls back to `getvec` for the next vector.
+  null signals of known length, multi-frequency records in both modes,
+  `WFDB_GVPAD`, FLAC through `flac_navail` and `flac_getsamps`, the
+  segments of multi-segment records of fixed or variable layout: the
+  frames of a variable layout are mapped with `.bulk_sigmap`, the
+  vectorized `sigmap`); it declines (NULL, or fewer vectors) where a frame
+  needs special handling (end of file or of a segment, checksum frame,
+  partial bit-packed group, partial frame in high resolution, skew with
+  several samples per frame or a signal map, `setifreq`, prolog not
+  skipped, non-seekable input), and `getframes` falls back to `getvec` for
+  the next vector.  `getframes` asks for blocks of a multiple of 6 frames
+  (formats 212, 310 and 311 then end each block on a whole packed unit).
   It reads the signal files in whole blocks of the input buffer size and
   leaves each group's buffer as the C library's buffer fills would
   (`.bulk_setbuf`): at the end of a file, the readers return bytes of the
@@ -442,7 +448,7 @@ annotation), `ann`, `ann_tt`, `pann` (pushback), `buf`, `index`,
 * The mnemonic and description tables, the flags of modified codes and
   the output time resolution (`setafreq`) survive `wfdbquit`, as in C;
   `annot_reset(tables = TRUE)` restores them (tests).
-* Out-of-order output files are sorted when closed (wfdb-x) in the same
+* Out-of-order output files are sorted when closed (WFDB-x) in the same
   process by `.ann_sort_file(fname, aname)`: it reads the very file just
   written (`oa$fname`, the name `wfdb_open` created, including any output
   directory) into a private input annotator (`.ann_new_ia`; the
@@ -507,7 +513,7 @@ The README leaves out these details, which matter when changing the code.
   ends with a status below -1 other than -4 (for example -3, a signal
   file shorter than its header says, or a decoding or I/O error).
   Reaching the end of the record (-1) before `sampto` is not an error.
-  This applies in legacy mode too, since the high-level API is a wfdb-x
+  This applies in legacy mode too, since the high-level API is a WFDB-x
   addition; `getvec`, `getframes` and the tools are unchanged.
 * **Checksum errors.** Status -4 (the samples are complete, but their sum
   does not match the header's checksums) is a warning, not an error:
@@ -537,7 +543,10 @@ The README leaves out these details, which matter when changing the code.
   fixed cost of about 0.05 ms (`sigamp -w 0.01` makes 6,000 measurements
   of a 1-minute record in about 1.7 s). `write_record` writes 216,000
   frames of 2 signals in about 0.03-0.08 s, and `read_record` reads them
-  back in about 0.02-0.06 s.
+  back in about 0.02-0.06 s.  Three segments of MIMIC record 039 (225,000
+  frames of 4 format 212 signals, one at 4 samples per frame) are read in
+  about 0.15 s (high resolution: 0.17 s), also with a variable layout
+  (0.19 s; frame by frame: 31 s).
 
 ## Testing
 
@@ -576,5 +585,8 @@ parser.  `test_flac.R` decodes the FLAC records of `tests/data`
 (digests of the samples from the Python decoder), checks that the
 encoder's output is identical to the Python encoder's (sizes and MD5 of
 the streams for several signals, formats and frame sizes), MD5 (RFC 1321
-test suite) and the signal-group functions.  The data-dependent tests are
+test suite) and the signal-group functions.  `test_bulk.R` compares `read_record`
+and `getframes` with the block path on and off (`.bulk_frames` replaced
+by a function returning NULL) on multi-frequency and multi-segment
+records and every record of `tests/data`.  The data-dependent tests are
 skipped when `tests/data` is not available (installed package).

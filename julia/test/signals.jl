@@ -2,9 +2,9 @@
 # (highlevel.jl): ported from rust/tests/signals.rs (expected values
 # produced by the C library).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-# It tests wfdb-x; it has no counterpart in the original package.
+# It tests WFDB-x; it has no counterpart in the original package.
 #
 # Copyright (C) 2026 Reza Sameni.
 #
@@ -790,7 +790,7 @@ NF_HEA = "nf 2\n100s.dat 212 200 11 1024 995 21537 0 MLII\n" *
     end
 end
 
-# wfdb-x legacy mode (t_legacy of tests/reference/api_expect.c; see
+# WFDB-x legacy mode (t_legacy of tests/reference/api_expect.c; see
 # docs/DIVERGENCES.md, "Legacy mode"): the original library's defaults.
 @testset "legacy mode" begin
     with_data() do w
@@ -960,7 +960,7 @@ end
 end
 
 # wfdb-x: the legacy option of the high-level functions (the behavior of
-# the port before wfdb-x removed the built-in defaults).
+# the port before WFDB-x removed the built-in defaults).
 @testset "high-level API legacy option" begin
     with_data() do w
         W.wfdbquiet(w)
@@ -1678,6 +1678,240 @@ rnd(r::XorShift, lo::Integer, hi::Integer, n::Integer) = [Int32(rnd(r, lo, hi)) 
         @test W.read_record(w, "100s").samples ==
               (W._BULK_ENABLED[] = false; r = W.read_record(w, "100s").samples;
                W._BULK_ENABLED[] = true; r)
+    end
+end
+
+# wfdb-x: records of several sampling frequencies, and multi-segment
+# records, are read in bulk too: the same samples as frame by frame.
+MF_RANGES = Dict(8 => 30000, 80 => 127, 16 => 32767, 61 => 32767, 160 => 32767,
+                       24 => 8388607, 32 => 2147483647, 212 => 2047, 310 => 511, 311 => 511)
+MF_RES = Dict(8 => 12, 80 => 8, 16 => 16, 61 => 16, 160 => 16, 24 => 24, 32 => 32,
+                    212 => 12, 310 => 10, 311 => 10)
+
+# A random multi-frequency record (spf: samples per frame of each signal; n
+# frames), with about 1% invalid samples (and invalid at the start).
+function mf_record(w, name, rng, fmt, spf, n; gains=200.0, names=nothing)
+    x = zeros(Int32, n, sum(spf))
+    lim = MF_RANGES[fmt]
+    c = 0
+    for sf in spf
+        if fmt == 8
+            # (a random walk of the signal's samples, in time order)
+            v = cumsum(rnd(rng, -60, 60, n * sf))
+            x[:, c+1:c+sf] = permutedims(reshape(v, sf, n))
+        else
+            x[:, c+1:c+sf] = reshape(rnd(rng, -lim + 1, lim, n * sf), n, sf)
+        end
+        c += sf
+    end
+    if fmt != 8
+        for i in eachindex(x)
+            rnd(rng, 1, 100) == 1 && (x[i] = WFDB_INVALID_SAMPLE)
+        end
+        x[1:2, 1] .= WFDB_INVALID_SAMPLE
+    end
+    W.write_record(w, name, x, 250.0; fmt, gains, adcres=MF_RES[fmt], units="mV",
+                   samps_per_frame=spf, names)
+    x
+end
+
+MF_MODES = ((;), (; pad=true), (; highres=true), (; highres=true, pad=true),
+                  (; physical=true), (; from=1234), (; from=7, to=15000),
+                  (; highres=true, from=3, to=9001), (; channels=[1, 0, 1]))
+
+# read_record with the bulk path and with the per-frame path only: the
+# samples (physical units with physical=true), checksum_ok, and the number
+# of vectors read and read in bulk; or the exception.
+function mf_read(w, rec, bulk; physical=false, kw...)
+    W._BULK_ENABLED[] = bulk
+    W._BULK_VECTORS[] = 0
+    try
+        r = W.read_record(w, rec; kw...)
+        x = physical ? W.physical(r) : r.samples
+        return (x, r.checksum_ok, size(r.samples, 1), W._BULK_VECTORS[])
+    catch e
+        e isa W.WfdbError || rethrow()
+        return e
+    finally
+        W._BULK_ENABLED[] = true
+    end
+end
+function mf_same(w, rec, kw::NamedTuple)
+    a = mf_read(w, rec, true; kw...)
+    b = mf_read(w, rec, false; kw...)
+    a isa Exception && return b isa Exception && typeof(a) == typeof(b)
+    b isa Exception && return false
+    @test b[4] == 0
+    isequal(a[1], b[1]) && a[2] == b[2] && a[3] == b[3]
+end
+
+# The most vectors that the bulk path may leave to getvec: the bulk path
+# reads only the data in the input buffers, so a few frames at each buffer
+# boundary (and near the end) go through getvec (per: vectors per frame).
+function nonbulk_max(files, per)
+    nbuf = sum(f -> filesize(f) ÷ W.WFDB_BUFSIZ + 1, files)
+    3 * per * (nbuf + 4)
+end
+
+@testset "bulk reading of multi-frequency records" begin
+    with_data() do w
+        rng = XorShift(0x2545f4914f6cdd1d)
+        for fmt in (8, 80, 16, 61, 160, 24, 32, 212, 310, 311)
+            for spf in ([4, 1, 1, 1], [2, 3], [1, 2], [8, 1], [3, 3, 1])
+                n = rnd(rng, 16000, 24000)
+                mf_record(w, "m", rng, fmt, spf, n)
+                for kw in MF_MODES
+                    @test mf_same(w, "m", kw)
+                end
+                # (all but the frames near the end are read in bulk)
+                _, ok, rows, nbulk = mf_read(w, "m", true; highres=true)
+                @test ok && rows == n * maximum(spf)
+                @test rows - nbulk <= nonbulk_max(["m.dat"], maximum(spf))
+                _, ok, rows, nbulk = mf_read(w, "m", true)
+                @test ok && rows == n && rows - nbulk <= nonbulk_max(["m.dat"], 1)
+            end
+        end
+    end
+end
+
+# (writes the segments name_1, ... of the given lengths)
+function mf_segments(w, name, rng, fmt, spf, lens; kw...)
+    segs = Tuple{String,Int}[]
+    for (k, n) in enumerate(lens)
+        seg = "$(name)_$k"
+        mf_record(w, seg, rng, fmt, spf, n; kw...)
+        push!(segs, (seg, n))
+    end
+    segs
+end
+
+@testset "bulk reading of multi-segment records" begin
+    with_data() do w
+        rng = XorShift(0x9e3779b97f4a7c15 ⊻ 11)
+        names = ["ECG", "ABP", "RESP"]
+        # fixed layout
+        segs = mf_segments(w, "fx", rng, 212, [4, 1, 1], [9000, 7001, 12000]; names)
+        write("fx.hea", "fx/3 3 250 $(sum(last, segs))\n" *
+                        join(("$s $n\n" for (s, n) in segs)))
+        for kw in (MF_MODES..., (; from=8999, to=16002))
+            @test mf_same(w, "fx", kw)
+        end
+        _, ok, rows, nbulk = mf_read(w, "fx", true)
+        @test rows == 28001 && rows - nbulk <= nonbulk_max(["fx_$k.dat" for k in 1:3], 1)
+        # variable layout: segments with all the signals, a subset in another
+        # order with other gains, one signal of another format, and a null
+        # segment
+        write("vl_0.hea", "vl_0 3 250 0\n" *
+                          "~ 0x4 400(10)/mV 12 0 0 0 0 ECG\n" *
+                          "~ 0 100/mV 16 0 0 0 0 ABP\n" *
+                          "~ 0 50/mV 16 0 0 0 0 RESP\n")
+        s1 = mf_segments(w, "va", rng, 16, [4, 1, 1], [5000]; names, gains=[400.0, 100.0, 50.0])
+        s2 = mf_segments(w, "vb", rng, 16, [1, 4], [6003]; names=["RESP", "ECG"],
+                         gains=[25.0, 200.0])
+        s3 = mf_segments(w, "vc", rng, 212, [1], [4000]; names=["ABP"], gains=[100.0])
+        segs = [("vl_0", 0); s1; [("~", 2500)]; s2; s3]
+        write("vl.hea", "vl/$(length(segs)) 3 250 $(sum(last, segs))\n" *
+                        join(("$s $n\n" for (s, n) in segs)))
+        W.wfdbquiet(w)
+        for kw in (MF_MODES..., (; from=4990, to=9000))
+            @test mf_same(w, "vl", kw)
+        end
+        _, ok, rows, nbulk = mf_read(w, "vl", true)
+        @test rows == 17503 && rows - nbulk <= nonbulk_max(["va_1.dat", "vb_1.dat", "vc_1.dat"], 1)
+        W.wfdbverbose(w)
+        x = W.physical(W.read_record(w, "vl"))
+        @test size(x) == (17503, 3)
+        @test all(isnan, x[5001:7500, :])       # (the null segment)
+    end
+end
+
+@testset "bulk reading of the test records" begin
+    with_data() do w
+        W.wfdbquiet(w)
+        for h in sort(filter(f -> endswith(f, ".hea"), readdir(".")))
+            rec = h[1:end-4]
+            rec in ("8", "16") && continue      # (signals on the standard input)
+            for kw in ((;), (; pad=true), (; highres=true), (; highres=true, pad=true),
+                       (; from=3))
+                @test mf_same(w, rec, kw)
+            end
+        end
+        W.wfdbverbose(w)
+    end
+end
+
+# The multi-frame reader (getvecs_status) mixed with getvec and isigsettime
+# on a multi-frequency record (in high resolution also from the middle of a
+# frame): the same vectors, statuses and library state as getvec alone.
+function mf_state(w)
+    st = w.sig
+    (st.istime, st.gvc, [(i.samp, i.info.cksum, i.info.nsamp) for i in st.isd[1:st.nisig]],
+     [(g.bp, g.be, g.count, g.data, g.datb, g.stat) for g in st.igd[1:st.nigroup]])
+end
+@testset "bulk reading interleaved with getvec (multi-frequency)" begin
+    with_data() do w
+        rng = XorShift(0x0123456789abcdef)
+        mf_record(w, "mf", rng, 212, [4, 1, 3], 20001)
+        for hr in (false, true)
+            mode = (hr ? WFDB_HIGHRES : WFDB_LOWRES) | WFDB_GVPAD
+            steps = (('f', 999), ('v', 3), ('f', 4097), ('t', 17), ('v', 1), ('f', 9001),
+                     ('v', 2), ('t', 30), ('f', 200000))
+            out = Any[]
+            for bulk in (true, false)
+                W._BULK_ENABLED[] = bulk
+                got = Any[]
+                try
+                    @test W.isigopen(w, "mf", nothing, 3) == 3
+                    W.setgvmode(w, mode)
+                    for (op, k) in steps
+                        if op == 'f'
+                            buf = zeros(Int32, 3 * k)
+                            n, stat = W.getvecs_status(w, buf, k)
+                            push!(got, (n, stat, buf[1:3*max(n, 0)]))
+                        elseif op == 'v'
+                            for _ in 1:k
+                                v = zeros(Int32, 3)
+                                push!(got, (W.getvec(w, v), v))
+                            end
+                        else
+                            push!(got, W.isigsettime(w, k))
+                        end
+                        push!(got, mf_state(w))
+                    end
+                    W.wfdbquit(w)
+                finally
+                    W._BULK_ENABLED[] = true
+                end
+                push!(out, got)
+            end
+            @test out[1] == out[2]
+        end
+    end
+end
+
+# Descriptions that end (or begin) with white space in the header are given
+# without it by the high-level readers, and found by that name; the C-style
+# functions keep it, as in C.
+@testset "signal names without white space" begin
+    with_data() do w
+        write("sp.hea", "sp 3 250 4\n" *
+                        "fmt16.dat 16 200/mV 16 0 0 0 0 III \n" *
+                        "fmt16.dat 16 200/mV 16 0 0 0 0 ABP\t \n" *
+                        "fmt16.dat 16 200/mV 16 0 0 0 0 PLETH\n")
+        for legacy in (false, true)
+            r = W.read_record(w, "sp"; legacy)
+            @test String.(W.signal_names(r)) == ["III", "ABP", "PLETH"]
+            @test [s.desc for s in r.siginfo] == [b"III", b"ABP", b"PLETH"]
+            h = W.read_header(w, "sp"; legacy)
+            @test [s.desc for s in h.siginfo] == [b"III", b"ABP", b"PLETH"]
+            r2 = W.read_record(w, "sp"; channels=["ABP", "III ", 2], legacy)
+            @test String.(W.signal_names(r2)) == ["ABP", "III", "PLETH"]
+            @test r2.samples == r.samples[:, [2, 1, 3]]
+        end
+        si = [Siginfo() for _ in 1:3]
+        @test W.isigopen(w, "sp", si, 3) == 3
+        @test [s.desc for s in si] == [b"III ", b"ABP\t ", b"PLETH"]
+        W.wfdbquit(w)
     end
 end
 

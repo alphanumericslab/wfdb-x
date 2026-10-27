@@ -9,7 +9,7 @@
 # resolution, for which it shifts by a negative amount), samples are shifted
 # to the right and the gain multiplier is 0.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/mit2wav.c from the WFDB Software Package

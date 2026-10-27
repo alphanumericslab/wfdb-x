@@ -9,7 +9,7 @@ function [r, argv] = wfdbx_legacy_args(argv)
 %   exactly as the original one.  Otherwise ARGV is returned unchanged and
 %   R = 0.  Only the first argument is recognized.  Every tool calls this
 %   function (through wfdbx.internal.app_run) before anything else.  This
-%   function is a wfdb-x addition.
+%   function is a WFDB-x addition.
 %
 %   Example (only the arguments are examined; no record is read):
 %       [r, argv] = wfdbx.wfdbx_legacy_args({'rdsamp', '--legacy', '-r', '100s'})
@@ -17,9 +17,9 @@ function [r, argv] = wfdbx_legacy_args(argv)
 %
 %   See also wfdbx.wfdbx_set_legacy, wfdbx.wfdbx_get_legacy.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

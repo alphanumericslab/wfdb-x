@@ -1,6 +1,6 @@
 """ann2rr: extract a list of intervals from an annotation file.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of app/ann2rr.c from the WFDB Software Package
@@ -75,7 +75,7 @@ LEGACY_HELP = legacy_help(HELP, {
 
 
 def help(pname):
-    hs = LEGACY_HELP if legacy() else HELP     # wfdb-x
+    hs = LEGACY_HELP if legacy() else HELP     # WFDB-x
     eprintf(hs[0], pname)
     for i in range(1, len(hs)):
         eprintf("%s\n", hs[i])
@@ -138,7 +138,7 @@ def _main(argv, out):
                     eprintf("%s: starting time must follow -f\n", pname)
                     raise Exit(1)
                 frm = i
-            elif c == "F" and not legacy():    # sampling frequency (wfdb-x)
+            elif c == "F" and not legacy():    # sampling frequency (WFDB-x)
                 i += 1
                 ffreq = freq_option(argv, i, pname)
             elif c == "h":

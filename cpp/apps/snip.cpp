@@ -1,6 +1,6 @@
 // snip.cpp: copy an excerpt of a database record.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of app/snip.c from the WFDB Software Package 10.7.0,
@@ -394,7 +394,7 @@ static void copy_sig(const char *nrec, const char *irec, WFDB_Time from,
             }
             std::fprintf(ohfile, "%s %lld\r\n", orsegs.c_str(), len);
         }
-        cemul::fclose_output(ohfile, pname, ohfname.c_str());   // wfdb-x
+        cemul::fclose_output(ohfile, pname, ohfname.c_str());   // WFDB-x
         return;
     }
 

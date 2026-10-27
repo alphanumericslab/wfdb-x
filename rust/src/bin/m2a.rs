@@ -7,7 +7,7 @@
 //! for distribution of the AHA database on floppy disk; `a2m` can perform
 //! the reverse conversion, however.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of convert/m2a.c from the WFDB Software Package
@@ -43,7 +43,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b"            and convert them to milliseconds",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by wfdb-x, left out of the
+/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] =
     &[b" -F FREQ   sampling frequency, if the record header does not specify one"];
@@ -67,7 +67,7 @@ fn main() {
     let mut oaname: Option<&[u8]> = None;
     let mut record: Option<&[u8]> = None;
     let mut shift: Option<&[u8]> = None;
-    let mut ffreq = 0.0f64; // -F (wfdb-x)
+    let mut ffreq = 0.0f64; // -F (WFDB-x)
     let mut annot = Annotation::default();
 
     let mut i = 1;
@@ -90,7 +90,7 @@ fn main() {
                     oaname = Some(&argv[i]);
                 }
                 b'F' if !legacy => {
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i += 1;
                     if i >= argc || csscanf!(&argv[i], b"%lf", &mut ffreq) != 1 || ffreq <= 0.0 {
                         ceprintf!(b"%s: sampling frequency (> 0) must follow -F\n", pname);

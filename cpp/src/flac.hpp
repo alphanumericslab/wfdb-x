@@ -1,8 +1,8 @@
 // flac.hpp: FLAC codec used for signal formats 508, 516, and 524
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It has no counterpart in the original package: it is wfdb-x's own
+// It has no counterpart in the original package: it is WFDB-x's own
 // implementation of the FLAC format, which the original package reads and
 // writes with libFLAC.
 //
@@ -13,7 +13,7 @@
 // Software Foundation, either version 3 of the License, or (at your option)
 // any later version. See LICENSE.
 //
-// The C library uses libFLAC; wfdb-x has its own decoder (complete) and a
+// The C library uses libFLAC; WFDB-x has its own decoder (complete) and a
 // lossless encoder (fixed predictors and Rice coding).  Files written by
 // the encoder are standard FLAC streams; their compressed bytes differ from
 // those written by libFLAC (whose output depends on its version), but the
@@ -92,7 +92,7 @@ class Encoder {
 public:
     Encoder(int nsig, int bps, int spf);
     // The stream header: "fLaC", a STREAMINFO block with an unknown total
-    // number of samples, and a VORBIS_COMMENT block (vendor "wfdb-x
+    // number of samples, and a VORBIS_COMMENT block (vendor "WFDB-x
     // <version>").  The final STREAMINFO is written later at offset 8.
     std::string header();
     // Append one sample (in WFDB frame order: spf samples of signal 0, then

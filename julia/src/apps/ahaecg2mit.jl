@@ -2,7 +2,7 @@
 # WFDB-compatible format.
 #
 # Behaviors of the C program that are undefined are resolved as in the other
-# wfdb-x implementations (see docs/KNOWN_C_BEHAVIORS.md): the 16-byte line
+# WFDB-x implementations (see docs/KNOWN_C_BEHAVIORS.md): the 16-byte line
 # buffer of readtxtdata keeps the bytes of earlier lines of the same input
 # file and is not NUL-terminated (bytes beyond it are treated as NUL), and
 # the record name is made of the (up to 4) characters that precede the
@@ -10,7 +10,7 @@
 # each input file; with -s, a record name of fewer than 2 characters is left
 # unchanged.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/ahaecg2mit.c from the WFDB Software
@@ -178,26 +178,26 @@ function _ahaecg_options(pname::String, argv::Vector{Vector{UInt8}}, argc::Int)
         c = argv[i][2]
         if c == UInt8('s')
             sflag = true            # produce short-format (35-minute) records
-        elseif c == UInt8('F')      # sampling frequency (wfdb-x)
+        elseif c == UInt8('F')      # sampling frequency (WFDB-x)
             i += 1
             if i >= argc || csscanf(argv[i], "%lf", ffreq) != 1 || ffreq[] <= 0.0
                 ceprintf("%s: sampling frequency (> 0) must follow -F\n", pname)
                 cexit(1)
             end
-        elseif c == UInt8('G')      # gain in adu per physical unit (wfdb-x)
+        elseif c == UInt8('G')      # gain in adu per physical unit (WFDB-x)
             i += 1
             if i >= argc || csscanf(argv[i], "%lf", ggain) != 1 || ggain[] < 0.0
                 ceprintf("%s: gain (>= 0) must follow -G\n", pname)
                 cexit(1)
             end
             gset = true
-        elseif c == UInt8('R')      # ADC resolution in bits (wfdb-x)
+        elseif c == UInt8('R')      # ADC resolution in bits (WFDB-x)
             i += 1
             if i >= argc || csscanf(argv[i], "%d", rres) != 1 || rres[] < 1 || rres[] > 32
                 ceprintf("%s: ADC resolution (1-32 bits) must follow -R\n", pname)
                 cexit(1)
             end
-        else                        # physical units (wfdb-x)
+        else                        # physical units (WFDB-x)
             i += 1
             if i >= argc
                 ceprintf("%s: units must follow -U\n", pname)

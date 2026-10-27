@@ -18,7 +18,8 @@ function hdr = read_header(record, varargin)
 %     nsig          number of signals
 %     siginfo       the signal specifications, a wfdbx.siginfo structure
 %                   array (fname, desc, units, gain, fmt, spf, adcres,
-%                   adczero, baseline, nsamp, ...)
+%                   adczero, baseline, nsamp, ...; desc without the white
+%                   space that a header may put at either end of it)
 %     base_time, base_time_ms, base_date, comments
 %                   as in wfdbx.read_record
 %
@@ -29,7 +30,7 @@ function hdr = read_header(record, varargin)
 %   WFDB library functions.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       hdr = wfdbx.read_header('100s');
@@ -39,9 +40,9 @@ function hdr = read_header(record, varargin)
 %
 %   See also wfdbx.read_record, wfdbx.isigopen.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %
@@ -77,7 +78,8 @@ else
     hdr.nsamples = double(S.nsamples);
 end
 hdr.nsig = n;
-hdr.siginfo = si;
+% wfdb-x: the signal names without the white space at their ends
+hdr.siginfo = wfdbx.internal.strip_desc(si);
 [hdr.base_time, hdr.base_time_ms, hdr.base_date] = ...
     wfdbx.internal.hl_basetime(hdr.fs);
 comments = cell(0, 1);

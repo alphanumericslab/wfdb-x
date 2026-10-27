@@ -1,13 +1,13 @@
 // test_flac.cpp: unit tests of the FLAC codec (cpp/src/flac.cpp)
 //
-// The expected values were computed with the Python implementation of wfdb-x
+// The expected values were computed with the Python implementation of WFDB-x
 // (python/src/wfdbx/_flac.py): the samples decoded from the FLAC records of
 // tests/data, and the exact bytes written by the encoder for a set of test
 // signals (whose MD5 digests are stored here).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //

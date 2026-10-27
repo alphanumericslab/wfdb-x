@@ -6,9 +6,9 @@
 //! messages and input position), and leaves the same state behind (the
 //! frames read afterwards, frame by frame, are the same too).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -299,4 +299,461 @@ fn read_record_bulk() {
             assert_eq!(a, b, "{rec}");
         }
     }
+}
+
+/// A fresh, empty directory for test `tag` (the tests read and write in it
+/// through absolute paths, without changing the current directory).
+fn test_dir(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("wfdbx-rs-bulk-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Writes the random multi-frequency record `name` in `dir` (`spf`: samples
+/// per frame of each signal; `n` frames), with about 1% invalid samples
+/// (also at the start; format 8: a random walk).
+#[allow(clippy::too_many_arguments)]
+fn mf_record(
+    w: &mut Wfdb,
+    dir: &std::path::Path,
+    name: &str,
+    rng: &mut Rng,
+    fmt: i32,
+    spf: &[i32],
+    n: usize,
+    gains: &[f64],
+    names: &[&str],
+) {
+    let cols: usize = spf.iter().map(|&k| k as usize).sum();
+    let mut x = vec![0i32; n * cols];
+    if fmt == 8 {
+        for c in 0..cols {
+            let mut v = 0i64;
+            for i in 0..n {
+                v += rng.range(-60, 60);
+                x[i * cols + c] = v as i32;
+            }
+        }
+    } else {
+        let (lo, hi) = range(fmt);
+        for v in x.iter_mut() {
+            *v = if rng.below(1000) < 10 {
+                WFDB_INVALID_SAMPLE
+            } else {
+                rng.range(lo + 1, hi) as i32
+            };
+        }
+        x[0] = WFDB_INVALID_SAMPLE;
+        x[cols] = WFDB_INVALID_SAMPLE;
+    }
+    let opt = WriteOptions {
+        fmt,
+        gains: gains.to_vec(),
+        adcres: vec![16],
+        units: vec![Some(b"mV".to_vec())],
+        samps_per_frame: spf.to_vec(),
+        names: names.iter().map(|s| s.as_bytes().to_vec()).collect(),
+        dir: Some(dir.to_path_buf()),
+        ..Default::default()
+    };
+    w.write_record(name, &x, spf.len(), 250.0, &opt).unwrap();
+}
+
+/// A reading mode of the multi-frequency tests (`physical`: compare the
+/// samples in physical units too).
+#[derive(Clone, Default)]
+struct Mode {
+    opt: ReadOptions,
+    physical: bool,
+}
+
+fn mf_modes() -> Vec<Mode> {
+    let mut v = vec![Mode::default(); 9];
+    v[1].opt.pad = true;
+    v[2].opt.highres = true;
+    v[3].opt.highres = true;
+    v[3].opt.pad = true;
+    v[4].physical = true;
+    v[5].opt.from = Some(1234.into());
+    v[6].opt.from = Some(7.into());
+    v[6].opt.to = Some(15000.into());
+    v[7].opt.highres = true;
+    v[7].opt.from = Some(3.into());
+    v[7].opt.to = Some(9001.into());
+    v[8].opt.channels = vec!["1".into(), "0".into(), "1".into()];
+    v
+}
+
+/// What read_record returns (also in physical units if `m.physical`; NaN
+/// compared by its bits), with the bulk path on or off.
+fn read_mode(
+    w: &mut Wfdb,
+    rec: &str,
+    m: &Mode,
+    bulk: bool,
+) -> (Result<Record, wfdbx::record::Error>, Vec<u64>) {
+    w.wfdbx_bulk_read(bulk);
+    let r = w.read_record(rec, &m.opt);
+    w.wfdbx_bulk_read(true);
+    let mut phys = Vec::new();
+    if let (Ok(r), true) = (&r, m.physical) {
+        for s in 0..r.nsig {
+            phys.extend(r.physical_signal(s).unwrap().iter().map(|v| v.to_bits()));
+        }
+    }
+    (r, phys)
+}
+
+/// read_record gives the same with and without the bulk path.
+fn same_read(w: &mut Wfdb, rec: &str, m: &Mode) {
+    let a = read_mode(w, rec, m, true);
+    let b = read_mode(w, rec, m, false);
+    assert!(
+        a == b,
+        "{rec}: highres {} pad {} from {:?} to {:?} channels {:?}",
+        m.opt.highres,
+        m.opt.pad,
+        m.opt.from,
+        m.opt.to,
+        m.opt.channels
+    );
+}
+
+/// (vectors read by read_record, vectors of them read in blocks)
+fn bulk_rows(w: &mut Wfdb, rec: &str, opt: &ReadOptions) -> (i64, i64) {
+    let before = w.wfdbx_bulk_vectors();
+    let r = w.read_record(rec, opt).unwrap();
+    (r.nsamples() as i64, w.wfdbx_bulk_vectors() - before)
+}
+
+/// Checks that almost all the vectors of a read of `rec` are read in
+/// blocks (at least 99%, and all but a few frames of `per` vectors in short
+/// records): all but those of a few frames per input buffer (whose last
+/// frame is read frame by frame) and per segment, and near the end.
+fn mostly_bulk(w: &mut Wfdb, rec: &str, highres: bool, per: i64) {
+    let opt = ReadOptions {
+        highres,
+        ..Default::default()
+    };
+    let (rows, bulk) = bulk_rows(w, rec, &opt);
+    assert!(
+        (rows - bulk) * 100 <= rows + 100 * 6 * per,
+        "{rec} highres {highres}: {bulk} of {rows} vectors read in blocks"
+    );
+}
+
+/// Writes the segments name_1, name_2, ... (one per length) and returns
+/// the lines of the master header naming them, and their total length.
+#[allow(clippy::too_many_arguments)]
+fn write_segments(
+    w: &mut Wfdb,
+    dir: &std::path::Path,
+    name: &str,
+    rng: &mut Rng,
+    fmt: i32,
+    spf: &[i32],
+    lens: &[usize],
+    gains: &[f64],
+    names: &[&str],
+) -> (String, usize) {
+    let mut lines = String::new();
+    for (k, &len) in lens.iter().enumerate() {
+        let seg = format!("{name}_{}", k + 1);
+        mf_record(w, dir, &seg, rng, fmt, spf, len, gains, names);
+        lines += &format!("{seg} {len}\n");
+    }
+    (lines, lens.iter().sum())
+}
+
+const FORMATS: [i32; 10] = [8, 80, 16, 61, 160, 24, 32, 212, 310, 311];
+
+/// Records of several sampling frequencies are read in blocks: the same
+/// samples as frame by frame, in low- and high-resolution modes.
+#[test]
+fn bulk_read_multifrequency() {
+    let dir = test_dir("mf");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.setwfdb(dir.to_str().unwrap());
+    let spfs: [&[i32]; 5] = [&[4, 1, 1, 1], &[2, 3], &[1, 2], &[8, 1], &[3, 3, 1]];
+    for fmt in FORMATS {
+        let mut rng = Rng(fmt as u64 + 1);
+        for spf in spfs {
+            let n = rng.range(16000, 23999) as usize;
+            mf_record(&mut w, &dir, "m", &mut rng, fmt, spf, n, &[200.0], &[]);
+            for m in &mf_modes() {
+                same_read(&mut w, "m", m);
+            }
+            let mx = *spf.iter().max().unwrap() as i64;
+            mostly_bulk(&mut w, "m", true, mx);
+            mostly_bulk(&mut w, "m", false, 1);
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Multi-segment records, of fixed and of variable layout (with signals
+/// missing from some segments, other gains, and a null segment), are read
+/// in blocks: the same samples as frame by frame.
+#[test]
+fn bulk_read_multisegment() {
+    let dir = test_dir("ms");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.setwfdb(dir.to_str().unwrap());
+    let mut rng = Rng(11);
+    let names = ["ECG", "ABP", "RESP"];
+    // fixed layout
+    let (segs, total) = write_segments(
+        &mut w,
+        &dir,
+        "fx",
+        &mut rng,
+        212,
+        &[4, 1, 1],
+        &[9000, 7001, 12000],
+        &[200.0],
+        &names,
+    );
+    std::fs::write(dir.join("fx.hea"), format!("fx/3 3 250 {total}\n{segs}")).unwrap();
+    let mut modes = mf_modes();
+    let mut m = Mode::default();
+    m.opt.from = Some(8999.into());
+    m.opt.to = Some(16002.into());
+    modes.push(m);
+    for m in &modes {
+        same_read(&mut w, "fx", m);
+    }
+    let opt = ReadOptions::default();
+    assert_eq!(w.read_record("fx", &opt).unwrap().nsamples(), 28001);
+    mostly_bulk(&mut w, "fx", false, 3);
+    mostly_bulk(&mut w, "fx", true, 3 * 4);
+    // variable layout
+    std::fs::write(
+        dir.join("vl_0.hea"),
+        "vl_0 3 250 0\n\
+         ~ 0x4 400(10)/mV 12 0 0 0 0 ECG\n\
+         ~ 0 100/mV 16 0 0 0 0 ABP\n\
+         ~ 0 50/mV 16 0 0 0 0 RESP\n",
+    )
+    .unwrap();
+    let (s1, t1) = write_segments(
+        &mut w,
+        &dir,
+        "va",
+        &mut rng,
+        16,
+        &[4, 1, 1],
+        &[5000],
+        &[400.0, 100.0, 50.0],
+        &names,
+    );
+    let (s2, t2) = write_segments(
+        &mut w,
+        &dir,
+        "vb",
+        &mut rng,
+        16,
+        &[1, 4],
+        &[6003],
+        &[25.0, 200.0],
+        &["RESP", "ECG"],
+    );
+    let (s3, t3) = write_segments(
+        &mut w,
+        &dir,
+        "vc",
+        &mut rng,
+        212,
+        &[1],
+        &[4000],
+        &[100.0],
+        &["ABP"],
+    );
+    let total = 2500 + t1 + t2 + t3;
+    std::fs::write(
+        dir.join("vl.hea"),
+        format!("vl/5 3 250 {total}\nvl_0 0\n{s1}~ 2500\n{s2}{s3}"),
+    )
+    .unwrap();
+    let last = modes.len() - 1;
+    modes[last].opt.from = Some(4990.into());
+    modes[last].opt.to = Some(9000.into());
+    for m in &modes {
+        same_read(&mut w, "vl", m);
+    }
+    mostly_bulk(&mut w, "vl", false, 6);
+    mostly_bulk(&mut w, "vl", true, 6 * 4);
+    let r = w.read_record("vl", &opt).unwrap();
+    assert_eq!(r.nsamples(), 17503);
+    for i in 5000..7500 {
+        for s in 0..3 {
+            assert!(r.physical(i, s).unwrap().is_nan());
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Every record of tests/data (but those read from the standard input, 8
+/// and 16): the same in blocks as frame by frame, in five reading modes (or
+/// the same error).
+#[test]
+fn bulk_read_all_test_records() {
+    let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/data");
+    let mut recs: Vec<String> = std::fs::read_dir(&data)
+        .unwrap()
+        .filter_map(|e| {
+            let p = e.unwrap().path();
+            let stem = p.file_stem()?.to_str()?.to_string();
+            (p.extension()? == "hea" && stem != "8" && stem != "16").then_some(stem)
+        })
+        .collect();
+    recs.sort();
+    let mut modes = vec![Mode::default(); 5];
+    modes[1].opt.pad = true;
+    modes[2].opt.highres = true;
+    modes[3].opt.highres = true;
+    modes[3].opt.pad = true;
+    modes[4].opt.from = Some(3.into());
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.setwfdb(data.to_str().unwrap());
+    for rec in &recs {
+        for m in &modes {
+            same_read(&mut w, rec, m);
+        }
+    }
+}
+
+/// getvecs (bulk) mixed with getvec and isigsettime on a multi-frequency
+/// record, in high resolution also from the middle of a frame: the same
+/// vectors, statuses and library state as frame by frame.
+#[test]
+fn bulk_multifrequency_interleaved() {
+    let dir = test_dir("il");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.setwfdb(dir.to_str().unwrap());
+    let mut rng = Rng(5);
+    mf_record(
+        &mut w,
+        &dir,
+        "mf",
+        &mut rng,
+        212,
+        &[4, 1, 3],
+        20001,
+        &[200.0],
+        &[],
+    );
+    let steps = [
+        ('f', 999),
+        ('v', 3),
+        ('f', 4097),
+        ('t', 17),
+        ('v', 1),
+        ('f', 9001),
+        ('v', 2),
+        ('t', 30),
+        ('f', 200000),
+    ];
+    for hr in [false, true] {
+        let mut out = [String::new(), String::new()];
+        for (run, t) in out.iter_mut().enumerate() {
+            w.wfdbx_bulk_read(run == 0);
+            let mut si = vec![Siginfo::default(); 3];
+            assert_eq!(w.isigopen("mf", &mut si, 3), 3);
+            w.setgvmode(if hr { WFDB_HIGHRES } else { WFDB_LOWRES } | WFDB_GVPAD);
+            for (op, k) in steps {
+                match op {
+                    'f' => {
+                        let mut buf = vec![0i32; k as usize * 3];
+                        let (m, stat) = w.getvecs_status(&mut buf, k);
+                        *t += &format!("getvecs {m} {stat}: {:?}", &buf[..m.max(0) as usize * 3]);
+                    }
+                    'v' => {
+                        for _ in 0..k {
+                            let mut v = [0i32; 3];
+                            let r = w.getvec(&mut v);
+                            *t += &format!("getvec {r}: {v:?}\n");
+                        }
+                    }
+                    _ => *t += &format!("isigsettime {}", w.isigsettime(k)),
+                }
+                *t += &format!("\n{}\n", w.wfdbx_input_state());
+            }
+            w.wfdbquit();
+        }
+        w.wfdbx_bulk_read(true);
+        assert!(out[0] == out[1], "highres {hr}");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Descriptions that end (or begin) with white space in the header are
+/// given without it by the high-level readers, and found by that name; the
+/// C-style functions keep it, as in C.
+#[test]
+fn names_without_spaces() {
+    let dir = test_dir("sp");
+    let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/data");
+    std::fs::copy(data.join("fmt16.dat"), dir.join("fmt16.dat")).unwrap();
+    std::fs::write(
+        dir.join("sp.hea"),
+        "sp 3 250 4\n\
+         fmt16.dat 16 200/mV 16 0 0 0 0 III \n\
+         fmt16.dat 16 200/mV 16 0 0 0 0 ABP\t \n\
+         fmt16.dat 16 200/mV 16 0 0 0 0 PLETH\n",
+    )
+    .unwrap();
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    // (the input directory, and the WFDB path of legacy mode)
+    w.setwfdb(dir.to_str().unwrap());
+    w.wfdbx_set_legacy(1);
+    w.setwfdb(dir.to_str().unwrap());
+    w.wfdbx_set_legacy(0);
+    let sp = "sp";
+    let want: Vec<Vec<u8>> = vec![b"III".to_vec(), b"ABP".to_vec(), b"PLETH".to_vec()];
+    let descs = |si: &[Siginfo]| -> Vec<Vec<u8>> {
+        si.iter()
+            .map(|s| s.desc.clone().unwrap_or_default())
+            .collect()
+    };
+    for legacy in [false, true] {
+        let opt = ReadOptions {
+            legacy,
+            checksum_warning: false,
+            ..Default::default()
+        };
+        let r = w.read_record(sp, &opt).unwrap();
+        assert_eq!(r.names(), want);
+        assert_eq!(descs(&r.siginfo), want);
+        let h = w.read_header_with(sp, &opt).unwrap();
+        assert_eq!(descs(&h.siginfo), want);
+        let opt2 = ReadOptions {
+            channels: vec!["ABP".into(), "III ".into(), "2".into()],
+            ..opt.clone()
+        };
+        let r2 = w.read_record(sp, &opt2).unwrap();
+        assert_eq!(
+            r2.names(),
+            vec![b"ABP".to_vec(), b"III".to_vec(), b"PLETH".to_vec()]
+        );
+        assert_eq!(r2.nsamples(), r.nsamples());
+        for i in 0..r.nsamples() {
+            assert_eq!(r2.at(i, 0), r.at(i, 1));
+            assert_eq!(r2.at(i, 1), r.at(i, 0));
+            assert_eq!(r2.at(i, 2), r.at(i, 2));
+        }
+    }
+    let mut si = vec![Siginfo::default(); 3];
+    assert_eq!(w.isigopen(sp, &mut si, 3), 3);
+    assert_eq!(
+        descs(&si),
+        vec![b"III ".to_vec(), b"ABP\t ".to_vec(), b"PLETH".to_vec()]
+    );
+    w.wfdbquit();
+    let _ = std::fs::remove_dir_all(dir);
 }

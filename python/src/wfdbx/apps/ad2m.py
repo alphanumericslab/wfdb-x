@@ -1,6 +1,6 @@
 """ad2m: convert an AHA-format signal file to MIT format.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of convert/ad2m.c from the WFDB Software Package
@@ -64,7 +64,7 @@ LEGACY_HELP = legacy_help(HELP, {
 
 
 def help(pname):
-    hs = LEGACY_HELP if legacy() else HELP     # wfdb-x
+    hs = LEGACY_HELP if legacy() else HELP     # WFDB-x
     eprintf(hs[0], pname)
     for s in hs[1:]:
         eprintf("%s\n", s)
@@ -179,7 +179,7 @@ def _main(argv):
                     end_time = w.strtim(argv[i])
                 else:
                     tstr = argv[i]  # converted once -F is known
-            elif c == "F" and not legacy():    # sampling frequency (wfdb-x)
+            elif c == "F" and not legacy():    # sampling frequency (WFDB-x)
                 i += 1
                 n, v = sscanf(argv[i], "%lf") if i < argc else (0, [])
                 if n != 1 or v[0] <= 0.0:
@@ -187,7 +187,7 @@ def _main(argv):
                             pname)
                     raise Exit(1)
                 ffreq = v[0]
-            elif c == "G" and not legacy():    # gain (wfdb-x)
+            elif c == "G" and not legacy():    # gain (WFDB-x)
                 i += 1
                 n, v = sscanf(argv[i], "%lf") if i < argc else (0, [])
                 if n != 1 or v[0] < 0.0:
@@ -195,7 +195,7 @@ def _main(argv):
                     raise Exit(1)
                 ggain = v[0]
                 gset = 1
-            elif c == "R" and not legacy():    # ADC resolution (wfdb-x)
+            elif c == "R" and not legacy():    # ADC resolution (WFDB-x)
                 i += 1
                 n, v = sscanf(argv[i], "%d") if i < argc else (0, [])
                 if n != 1 or not 1 <= int32(v[0]) <= 32:
@@ -203,7 +203,7 @@ def _main(argv):
                             pname)
                     raise Exit(1)
                 rres = int32(v[0])
-            elif c == "U" and not legacy():    # physical units (wfdb-x)
+            elif c == "U" and not legacy():    # physical units (WFDB-x)
                 i += 1
                 if i >= argc:
                     eprintf("%s: units must follow -U\n", pname)

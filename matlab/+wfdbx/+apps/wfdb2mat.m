@@ -23,7 +23,7 @@ function status = wfdb2mat(args)
 %   written as "nd" (the C program wrote "mV"); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; the example writes 100s.mat and 100sm.hea in the current
 %   folder):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
@@ -35,7 +35,7 @@ function status = wfdb2mat(args)
 %   same options and output. Differences: no sampling frequency or gain is
 %   assumed; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/wfdb2mat.c from the WFDB

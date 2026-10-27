@@ -1,7 +1,7 @@
 function resetwfdb()
 %RESETWFDB Restore the input directory set by setwfdb.
 %   wfdbx.resetwfdb() restores the input directory set by the last call of
-%   wfdbx.setwfdb, if any (wfdb-x; wfdbx.wfdbquit does not call it).
+%   wfdbx.setwfdb, if any (WFDB-x; wfdbx.wfdbquit does not call it).
 %
 %   In legacy mode, it restores the WFDB path returned by the first call
 %   of wfdbx.getwfdb (it undoes wfdbx.setwfdb), and is called by
@@ -13,7 +13,7 @@ function resetwfdb()
 %   arguments and results. Differences: it restores the input directory set by
 %   the last setwfdb() (the WFDB path in legacy mode); see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdbio.c from the WFDB Software
@@ -34,7 +34,7 @@ function resetwfdb()
 % any later version. See LICENSE.
 
 st = wfdbx.internal.io_state();
-if ~wfdbx.wfdbx_get_legacy()    % wfdb-x
+if ~wfdbx.wfdbx_get_legacy()    % WFDB-x
     if st.setwfdb_called
         wfdbx.internal.put_input_dir(st, st.setwfdb_input_dir);
     end

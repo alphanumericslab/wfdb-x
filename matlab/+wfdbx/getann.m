@@ -18,7 +18,7 @@ function [stat, annot] = getann(an, annot)
 %   is much faster than calling getann in a loop.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
 %       wfdbx.annopen('100s', wfdbx.anninfo('atr', wfdbx.WFDB_READ()));
@@ -35,7 +35,7 @@ function [stat, annot] = getann(an, annot)
 %   Translation of the C function getann() (lib/annot.c, WFDB 10.7.0): same
 %   arguments and results.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software

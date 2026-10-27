@@ -12,7 +12,7 @@
 // Boolean (0 or 1), ByteArray, ByteVec or String (for %s; String characters
 // are ISO-8859-1 bytes), and null (C's NULL: "(null)" for %s, 0 otherwise).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //

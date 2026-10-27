@@ -66,11 +66,11 @@ function write_record(record, signals, fs, varargin)
 %
 %   See also wfdbx.read_record, wfdbx.write_annotations.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It has no counterpart in the original package. Like the rest of wfdb-x, it
+% It has no counterpart in the original package. Like the rest of WFDB-x, it
 % never assumes a sampling frequency, gain, ADC resolution or units (see
 % docs/DIVERGENCES.md).
 %

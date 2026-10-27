@@ -1,11 +1,11 @@
 function tf = is_url(name)
 %IS_URL True if a name is an http:// or https:// URL.
-%   TF = wfdbx.internal.is_url(NAME) (wfdb-x; case-sensitive, as in the C
+%   TF = wfdbx.internal.is_url(NAME) (WFDB-x; case-sensitive, as in the C
 %   reference).
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

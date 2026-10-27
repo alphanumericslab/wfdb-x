@@ -227,9 +227,9 @@ wfdbflush()
   \subsection{Constants}{
     \code{WFDB_INVALID_SAMPLE} (-32768) is the value of invalid (missing)
     samples.  \code{WFDB_DEFFREQ} (250) and \code{WFDB_DEFGAIN} (200) are
-    the default sampling frequency and gain of the C library; wfdb-x
+    the default sampling frequency and gain of the C library; WFDB-x
     defines them for compatibility but never uses them (see
-    \file{docs/DIVERGENCES.md} in the wfdb-x sources).
+    \file{docs/DIVERGENCES.md} in the WFDB-x sources).
     \code{WFDB_DEFRES} (12) is the default ADC resolution in bits of the C
     library; it is likewise defined but unused (a header that does not
     give a resolution leaves it unspecified: \code{adcres} 0).  \code{WFDB_FMT_LIST} lists the supported signal
@@ -313,7 +313,7 @@ wfdbflush()
   }
 }
 \section{Origin}{
-  \code{getframes} and \code{putframes} are part of wfdb-x; not in the
+  \code{getframes} and \code{putframes} are part of WFDB-x; not in the
   original WFDB package.
 
   Translation of the C functions isigopen(), osigopen(), osigfopen(),

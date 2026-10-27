@@ -11,7 +11,7 @@
 // name, and reports the directory as unreadable (see
 // docs/KNOWN_C_BEHAVIORS.md).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of convert/ad2m.c from the WFDB Software Package
@@ -62,7 +62,7 @@ private val AD2M_HELP = arrayOf(
     " -U UNITS   physical units (required unless the gain is 0; AHA: mV)",
 )
 
-/** wfdb-x: the help lines added by wfdb-x (left out in legacy mode). */
+/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val AD2M_WFDBX_HELP = setOf(
     " -F FREQ    sampling frequency in Hz (required; AHA database: 250)",
     " -G GAIN    gain in adu per physical unit (required; AHA database: 400)",
@@ -183,7 +183,7 @@ fun Wfdb.ad2mMain(argv0: Array<ByteArray>): Int {
                     if (legacy) {
                         startTime = strtim(argv[i]) // as in the C program
                     } else {
-                        fstr = argv[i] // converted once -F is known (wfdb-x)
+                        fstr = argv[i] // converted once -F is known (WFDB-x)
                     }
                 }
                 'h' -> { // help requested
@@ -215,17 +215,17 @@ fun Wfdb.ad2mMain(argv0: Array<ByteArray>): Int {
                     if (legacy) {
                         endTime = strtim(argv[i]) // as in the C program
                     } else {
-                        tstr = argv[i] // converted once -F is known (wfdb-x)
+                        tstr = argv[i] // converted once -F is known (WFDB-x)
                     }
                 }
-                'F' -> { // sampling frequency (wfdb-x)
+                'F' -> { // sampling frequency (WFDB-x)
                     i++
                     if (i >= argc || sscanf(argv[i], "%lf", ffreq) != 1 || ffreq.v <= 0.0) {
                         eprintf("%s: sampling frequency (> 0) must follow -F\n", pname)
                         exit(1)
                     }
                 }
-                'G' -> { // gain in adu per physical unit (wfdb-x)
+                'G' -> { // gain in adu per physical unit (WFDB-x)
                     i++
                     if (i >= argc || sscanf(argv[i], "%lf", ggain) != 1 || ggain.v < 0.0) {
                         eprintf("%s: gain (>= 0) must follow -G\n", pname)
@@ -233,14 +233,14 @@ fun Wfdb.ad2mMain(argv0: Array<ByteArray>): Int {
                     }
                     gset = true
                 }
-                'R' -> { // ADC resolution in bits (wfdb-x)
+                'R' -> { // ADC resolution in bits (WFDB-x)
                     i++
                     if (i >= argc || sscanf(argv[i], "%d", rres) != 1 || rres.v !in 1..32) {
                         eprintf("%s: ADC resolution (1-32 bits) must follow -R\n", pname)
                         exit(1)
                     }
                 }
-                'U' -> { // physical units (wfdb-x)
+                'U' -> { // physical units (WFDB-x)
                     i++
                     if (i >= argc) {
                         eprintf("%s: units must follow -U\n", pname)
@@ -293,7 +293,7 @@ fun Wfdb.ad2mMain(argv0: Array<ByteArray>): Int {
     if (!cflag && ifname.size > 4 && (ifname.endsWith(".CMP") || ifname.endsWith(".cmp"))) cflag = true
 
     // Attach the input file to the standard input.
-    // (C reads a directory forever; wfdb-x reports it as unreadable)
+    // (C reads a directory forever; WFDB-x reports it as unreadable)
     if (!beq(ifname, "-") && (Platform.isDirectory(ifname) || !freopen_stdin(ifname))) {
         eprintf("%s: can't read input file `%s'\n", pname, ifname)
         exit(2)

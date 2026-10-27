@@ -5,9 +5,9 @@
 # expected values were produced by the C library
 # (tests/reference/api_expect.c).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-# It tests wfdb-x; it has no counterpart in the original package.
+# It tests WFDB-x; it has no counterpart in the original package.
 #
 # Copyright (C) 2026 Reza Sameni.
 #
@@ -673,7 +673,7 @@ if (.mode == "source") {
         "t_sortfix: legacy sort in the output directory == modern (as api_expect.c)")
   annot_reset(tables = TRUE)
 
-  # ---- write_record(..., dir = ) (wfdb-x)
+  # ---- write_record(..., dir = ) (WFDB-x)
   errmsg <- function(expr) tryCatch({
     expr
     ""
@@ -704,7 +704,7 @@ if (.mode == "source") {
   expect_equal(wfdbx_get_output_dir(), NULL, "write_record dir: restored after an error")
   check(!file.exists("nosuch"), "write_record dir: missing dir not created")
   write_record("leg", x, 360, dir = "out", legacy = TRUE)
-  # the dir checks come before any other validation (wfdb-x)
+  # the dir checks come before any other validation (WFDB-x)
   x2 <- matrix(0:3, 2, 2)
   expect_equal(errmsg(write_record("sub/rec", x2, 0, dir = "out")),
                "record name must not contain a directory when dir is given",
@@ -715,7 +715,7 @@ if (.mode == "source") {
                "write_record dir checks first: then the rest")
   check(startsWith(readLines("out/leg.hea")[1L], "leg 2 360 10"), "write_record dir: legacy")
 
-  # ---- absolute paths (wfdb-x; python test_api.py::test_absolute_paths)
+  # ---- absolute paths (WFDB-x; python test_api.py::test_absolute_paths)
   rec <- file.path(normalizePath("."), "100s")
   wfdbquiet()
   expect_equal(isig(rec), 2, "absolute path: isigopen")
@@ -1031,7 +1031,7 @@ if (.mode == "source") {
   writeBin(fmt16, "fmt16.dat")
   wfdbverbose()
 
-  # ---- record names (wfdb-x): outside legacy mode, only the last component
+  # ---- record names (WFDB-x): outside legacy mode, only the last component
   # of a record name is checked when a header is written, and the names in a
   # header are relative to its directory
   x <- cbind(c(1, 2, 3, -4), c(5, 6, -7, 8))

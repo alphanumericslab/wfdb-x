@@ -6,7 +6,7 @@
 # prints the trimmed means of the measurements (the largest and smallest 5%
 # are discarded), and optionally the individual measurements.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of app/sigamp.c from the WFDB Software Package

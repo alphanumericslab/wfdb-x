@@ -2,7 +2,7 @@ function c = hl_input(d, net, fname)
 %HL_INPUT Set the input directory and network access for one call.
 %   C = wfdbx.internal.hl_input(D, NET, FNAME), where D and NET are the
 %   'input_dir' and 'network' options of the high-level reader FNAME
-%   (wfdb-x): if D is a char vector (a directory, a ~ name or a URL; ''
+%   (WFDB-x): if D is a char vector (a directory, a ~ name or a URL; ''
 %   means the default), the library's input directory
 %   (wfdbx.wfdbx_set_input_dir) is set to it; if NET is not [] (true or
 %   false), network access (wfdbx.wfdbx_set_network) is allowed or
@@ -11,9 +11,9 @@ function c = hl_input(d, net, fname)
 %   an error (C = [] if nothing was set).  An error is thrown for an
 %   invalid option.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

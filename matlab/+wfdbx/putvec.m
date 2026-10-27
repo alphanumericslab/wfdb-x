@@ -12,7 +12,7 @@ function stat = putvec(vector)
 %   Translation of the C function putvec() (lib/signal.c, WFDB 10.7.0): same
 %   arguments and results.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software

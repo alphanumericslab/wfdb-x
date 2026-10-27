@@ -17,7 +17,7 @@
 //! `sortann` program (in legacy mode, by running `sortann`,
 //! [`crate::wfdbio::run_sortann`], as the C library does).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of lib/annot.c from the WFDB Software Package
@@ -525,7 +525,7 @@ fn ann_file_format(ia: &mut IaData) -> i32 {
     WFDB_AHA_READ
 }
 
-/// The body of getann, for the input annotator `ia` (wfdb-x). Error
+/// The body of getann, for the input annotator `ia` (WFDB-x). Error
 /// messages are added to `msgs`.
 fn getann_ia(ia: &mut IaData, annot: &mut Annotation, msgs: &mut Msgs) -> i32 {
     if ia.pann.anntyp != 0 {
@@ -567,7 +567,7 @@ fn getann_ia(ia: &mut IaData, annot: &mut Annotation, msgs: &mut Msgs) -> i32 {
 }
 
 /// The body of ungetann (after the checks), for the input annotator `ia`,
-/// whose pushback buffer is empty (wfdb-x).
+/// whose pushback buffer is empty (WFDB-x).
 fn ungetann_ia(ia: &mut IaData, annot: &Annotation) {
     ia.pann = annot.clone();
     if annot.time == ia.prev_time {
@@ -577,7 +577,7 @@ fn ungetann_ia(ia: &mut IaData, annot: &Annotation) {
     }
 }
 
-/// The body of get_ann_table (wfdb-x), for the input annotator `ia` and the
+/// The body of get_ann_table (WFDB-x), for the input annotator `ia` and the
 /// definition table `defs` (the library's, or that of `sort_ann_file`):
 /// reads the modification labels at the beginning of the file (the time
 /// resolution goes into `ia.afreq`, the definitions into `defs`). Error
@@ -699,7 +699,7 @@ fn put_ann_table(oa: &mut OaData, n: u32, freq: f64, defs: &AnnDefs, msgs: &mut 
     0
 }
 
-/// The body of putann (after the table; wfdb-x), for the output annotator
+/// The body of putann (after the table; WFDB-x), for the output annotator
 /// `oa` (number `n`, in messages). Error messages are added to `msgs`.
 fn put_ann_word(oa: &mut OaData, n: u32, annot: &Annotation, msgs: &mut Msgs) -> i32 {
     let t = annot.time;
@@ -883,7 +883,7 @@ impl Wfdb {
     ///
     /// let mut w = Wfdb::new();
     /// // The sample record 100s, the first minute of record 100 of the MIT-BIH
-    /// // Arrhythmia Database, included with wfdb-x in tests/data:
+    /// // Arrhythmia Database, included with WFDB-x in tests/data:
     /// # w.wfdbx_set_input_dir("../tests/data");
     /// # /*
     /// w.wfdbx_set_input_dir("tests/data"); // from the repository root
@@ -1213,13 +1213,13 @@ impl Wfdb {
         -1
     }
 
-    /// wfdb-x (for `check_record`): the annotation mnemonics and
+    /// WFDB-x (for `check_record`): the annotation mnemonics and
     /// descriptions, to be restored by [`Wfdb::wfdbx_restore_ann_defs`].
     pub(crate) fn wfdbx_save_ann_defs(&self) -> AnnDefs {
         self.ann.defs.clone()
     }
 
-    /// wfdb-x (for `check_record`): restores the annotation mnemonics and
+    /// WFDB-x (for `check_record`): restores the annotation mnemonics and
     /// descriptions saved by [`Wfdb::wfdbx_save_ann_defs`].
     pub(crate) fn wfdbx_restore_ann_defs(&mut self, defs: AnnDefs) {
         self.ann.defs = defs;
@@ -1485,7 +1485,7 @@ impl Wfdb {
 }
 
 // ---------------------------------------------------------------------------
-// In-process sorting of output annotation files (wfdb-x)
+// In-process sorting of output annotation files (WFDB-x)
 
 /// The annotation list of the `sortann` program (`insert_ann` in
 /// `app/sortann.c`), used by the `sortann` tool and by `oannclose`.
@@ -1542,7 +1542,7 @@ impl Default for AnnList {
 }
 
 impl AnnList {
-    /// An empty list (with the wfdb-x insertion).
+    /// An empty list (with the WFDB-x insertion).
     pub fn new() -> AnnList {
         AnnList::with_legacy(false)
     }

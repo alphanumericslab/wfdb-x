@@ -1,17 +1,17 @@
 function v = WFDB_DEFRES()
 %WFDB_DEFRES Default ADC resolution (bits).
 %   V = wfdbx.WFDB_DEFRES() returns 12, the value of WFDB_DEFRES in
-%   lib/wfdb.h.  wfdb-x keeps it for compatibility but never assumes a
+%   lib/wfdb.h.  WFDB-x keeps it for compatibility but never assumes a
 %   default ADC resolution: a header that does not give one leaves it
 %   unspecified (0) (see docs/DIVERGENCES.md).
 %
 %   See also wfdbx.siginfo.
 %
 %   Translation of the C constant WFDB_DEFRES (lib/wfdb.h, WFDB 10.7.0):
-%   same value. Differences: wfdb-x does not use it as a default; see
+%   same value. Differences: WFDB-x does not use it as a default; see
 %   docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdb.h from the WFDB Software
@@ -19,7 +19,7 @@ function v = WFDB_DEFRES()
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: none, apart from the language; wfdb-x keeps the
+% Changes from the original: none, apart from the language; WFDB-x keeps the
 % value but does not use it as a default (see docs/DIVERGENCES.md).
 %
 % Original C code: lib/wfdb.h, WFDB Software Package 10.7.0.

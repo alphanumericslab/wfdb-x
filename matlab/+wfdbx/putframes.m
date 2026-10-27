@@ -22,9 +22,9 @@ function stat = putframes(m)
 %
 %   See also wfdbx.putvec, wfdbx.osigfopen, wfdbx.getframes.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -32,7 +32,7 @@ function stat = putframes(m)
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: this function is a wfdb-x addition: it writes
+% Changes from the original: this function is a WFDB-x addition: it writes
 % many sample vectors at once, with the results of repeated putvec() calls.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.

@@ -17,7 +17,7 @@
 #
 # Strings are byte strings (`Vector{UInt8}`): WFDB files are not UTF-8.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -1751,7 +1751,7 @@ const STDOUT_BUFSIZE = 1 << 16
 State of the emulated C process (one per process; replaced while a tool runs
 in-process, see `run_tool`): the buffered standard output, capture buffers,
 the standard input, the open files flushed by `cexit`, the `rand` generator,
-and (wfdb-x) the count of write errors (see `wfdbx_write_errors`).
+and (WFDB-x) the count of write errors (see `wfdbx_write_errors`).
 """
 mutable struct CProc
     outbuf::Vector{UInt8}

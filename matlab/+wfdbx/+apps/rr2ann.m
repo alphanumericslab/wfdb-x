@@ -19,7 +19,7 @@ function status = rr2ann(args)
 %   docs/DIVERGENCES.md.
 %
 %   Example (from the shell; 100s, the first minute of record 100 of the
-%   MIT-BIH Arrhythmia Database, is included with wfdb-x in the folder
+%   MIT-BIH Arrhythmia Database, is included with WFDB-x in the folder
 %   tests/data of a copy of the repository; the example writes the
 %   annotation file 100s.rr in the current folder):
 %       export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
@@ -31,7 +31,7 @@ function status = rr2ann(args)
 %   options and output. Differences: -F is required when the record header
 %   gives no sampling frequency; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of app/rr2ann.c from the WFDB Software

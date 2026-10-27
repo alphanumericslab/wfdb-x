@@ -1,4 +1,4 @@
-# wfdbx.jl: command-line driver of wfdb-x for Julia.
+# wfdbx.jl: command-line driver of WFDB-x for Julia.
 #
 #     julia --startup-file=no --project=/path/to/wfdb-x/julia \
 #         /path/to/wfdb-x/julia/bin/wfdbx.jl TOOL [ARGUMENTS ...]
@@ -6,7 +6,7 @@
 # runs the WFDB tool TOOL (e.g. rdsamp) with the given arguments and exits
 # with its status.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #

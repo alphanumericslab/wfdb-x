@@ -13,7 +13,7 @@ function status = md2a(args)
 %                  may be read as record NEWREC
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; the example writes out.aha and the record outaha in the
 %   current folder):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
@@ -24,7 +24,7 @@ function status = md2a(args)
 %   Translation of the C program md2a (convert/md2a.c, WFDB 10.7.0): same
 %   options and output.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/md2a.c from the WFDB Software

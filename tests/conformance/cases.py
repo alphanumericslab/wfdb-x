@@ -1,4 +1,4 @@
-"""Conformance test cases for the wfdb-x command-line tools.
+"""Conformance test cases for the WFDB-x command-line tools.
 
 Each case is a dict with keys:
   id      unique identifier (used as the golden directory name)
@@ -20,7 +20,7 @@ Each case is a dict with keys:
           set; "." in the legacy suite)
 The placeholders are also replaced in stdin, env, files and www_files.
 
-Part of wfdb-x, Reza Sameni, Oct 2026.
+Part of WFDB-x, Reza Sameni, Oct 2026.
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
 Foundation; either version 3 of the License, or (at your option) any later
@@ -245,7 +245,7 @@ _FMT_BITS = {"8": 8, "80": 8, "508": 8, "310": 10, "311": 10, "212": 12,
 def _wr(args, units=True, **kw):
     """A wrsamp case; when a record is written (-o), the sampling frequency,
     gains, ADC resolutions and (if units is true) units are given explicitly
-    unless the case sets them, with the values the C program assumed (wfdb-x
+    unless the case sets them, with the values the C program assumed (WFDB-x
     requires them: see docs/DIVERGENCES.md)."""
     if isinstance(args, str):
         args = args.split()
@@ -810,7 +810,7 @@ case("xform", ["-i", "fmt16", "-S", "xsa.txt", "-t", "s5000"],
      files={"xsa.txt": "xf\n\n\n\n508\n\n" + "\n" * 12})
 
 # ---------------------------------------------------------------------------
-# Absolute record names ({cwd} is the absolute work directory).  wfdb-x opens
+# Absolute record names ({cwd} is the absolute work directory).  WFDB-x opens
 # an input file named by an absolute path directly (and finds the signal and
 # annotation files next to its header); the C library searched the WFDB path
 # for it ("./" + the name), as legacy mode does, unless the WFDB path has an
@@ -832,7 +832,7 @@ case("rdsamp", "-r {cwd}/sub/sr -t s5", cid="abspath-rdsamp-wfdb-empty",
      files=_SR, wfdb=";")
 
 # ---------------------------------------------------------------------------
-# Finding files (wfdb-x): a relative name is read under the input directory
+# Finding files (WFDB-x): a relative name is read under the input directory
 # (WFDBX_INPUT_DIR: a directory, ~ name or URL; by default the current
 # directory) and written under the output directory (WFDBX_OUTPUT_DIR); an
 # absolute name, a ~ name ({home} is HOME) or a URL is used as given; nothing
@@ -1013,7 +1013,7 @@ case("wrann", "-r 100s -a srt", cid="annsort-long", stdin=_SORT_LONG)
 # ---------------------------------------------------------------------------
 # An out-of-order annotation at time 0 (num 0, chan 0), after later ones:
 # sortann lost it, and those inserted after it (5, 0, 3 -> 5), as legacy mode
-# does; wfdb-x keeps them (5, 0, 3 -> 0, 3, 5).  With aux strings, and with
+# does; WFDB-x keeps them (5, 0, 3 -> 0, 3, 5).  With aux strings, and with
 # several channels (a later time-0, chan 0 annotation replaces the first).
 # sortann on such a file (written with WFDBANNSORT=0): with -o, and in place.
 _T0 = _ann_lines([(5, "N", 0, 0, 0, ""), (0, "V", 0, 0, 0, ""),

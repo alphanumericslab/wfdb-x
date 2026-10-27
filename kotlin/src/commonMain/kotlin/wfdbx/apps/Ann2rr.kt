@@ -1,7 +1,7 @@
 // ann2rr: extract a list of intervals from an annotation file (port of
 // app/ann2rr.c, through rust/src/bin/ann2rr.rs).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of app/ann2rr.c from the WFDB Software Package
@@ -67,7 +67,7 @@ private const val ANN2RR_MAXDIGITS = 15
 // Lines of the usage summary shown before each "--More--" prompt.
 private const val ANN2RR_PAGELINES = 23
 
-/** wfdb-x: the help lines added by wfdb-x (left out in legacy mode). */
+/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val ANN2RR_WFDBX_HELP = setOf(
     " -F FREQ sampling frequency, if the record header does not specify one",
 )
@@ -124,7 +124,7 @@ fun Wfdb.ann2rrMain(argv0: Array<ByteArray>): Int {
     val annot = Annotation()
     var from = 0L
     var to = 0L
-    val ffreq = CDouble(0.0) // -F (wfdb-x)
+    val ffreq = CDouble(0.0) // -F (WFDB-x)
 
     // Interpret command-line options.
     a0f[0] = true
@@ -157,7 +157,7 @@ fun Wfdb.ann2rrMain(argv0: Array<ByteArray>): Int {
                         eprintf("%s: unrecognized option %s\n", pname, a)
                         exit(1)
                     }
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i++
                     if (i >= argc || sscanf(argv[i], "%lf", ffreq) != 1 || ffreq.v <= 0.0) {
                         eprintf("%s: sampling frequency (> 0) must follow -F\n", pname)

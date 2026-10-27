@@ -1,6 +1,6 @@
 # apps_ad2m.R: ad2m -- convert an AHA-format signal file to MIT format.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/ad2m.c from the WFDB Software Package
@@ -125,16 +125,16 @@ app_ad2m <- function(args = character(0)) {
         }
         if (legacy) end_time <- strtim(argv[i])     # wfdb-x: as in the C program
         else tstr <- argv[i]
-      } else if (c == "F" && !legacy) {     # sampling frequency (wfdb-x)
+      } else if (c == "F" && !legacy) {     # sampling frequency (WFDB-x)
         i <- i + 1L
         Ffreq <- .app_Fopt(pname, opt())
-      } else if (c == "G" && !legacy) {                # gain in adu per physical unit (wfdb-x)
+      } else if (c == "G" && !legacy) {                # gain in adu per physical unit (WFDB-x)
         i <- i + 1L
         Ggain <- .app_Gopt(pname, opt())
-      } else if (c == "R" && !legacy) {                # ADC resolution in bits (wfdb-x)
+      } else if (c == "R" && !legacy) {                # ADC resolution in bits (WFDB-x)
         i <- i + 1L
         Rres <- .app_Ropt(pname, opt())
-      } else if (c == "U" && !legacy) {                # physical units (wfdb-x)
+      } else if (c == "U" && !legacy) {                # physical units (WFDB-x)
         i <- i + 1L
         Uunits <- .app_Uopt(pname, opt())
       } else {

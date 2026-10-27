@@ -1,4 +1,4 @@
-# wfdb-x for Kotlin
+# WFDB-x for Kotlin
 
 `wfdbx` reads and writes physiological signal records in the WFDB format used
 by [PhysioNet](https://physionet.org). It is a complete Kotlin implementation
@@ -10,7 +10,7 @@ The Kotlin implementation exists for mobile application developers and JVM
 developers. With Kotlin Multiplatform, the same code runs on Android, on iOS
 and on every JVM, so an app that records or displays physiological signals
 can read and write WFDB records on the device with the WFDB engine that the
-other implementations of wfdb-x use, with identical behavior, natively in
+other implementations of WFDB-x use, with identical behavior, natively in
 its own language: no native libraries to build for each platform, no JNI,
 and no other runtime (such as Python) to embed. Server and desktop programs
 in Kotlin or Java get the same library from Maven coordinates.
@@ -32,7 +32,7 @@ Java 11, so it runs on every current JVM and on Android (API level 26 or
 later); the iOS targets (`iosArm64`, `iosSimulatorArm64`, `iosX64`) are
 declared in the same project (see [Notes](#notes)).
 
-wfdb-x is part of a project that provides the same package in seven
+WFDB-x is part of a project that provides the same package in seven
 languages with identical behavior; see the
 [project README](https://github.com/alphanumericslab/wfdb-x#readme).
 
@@ -136,7 +136,7 @@ rec.physical!![0]     // its first sample, in mV
 | Argument | Meaning | Default |
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
-| `channels` | signals to read, by number (`"0"`) or name (`"MLII"`) | all signals |
+| `channels` | signals to read, by number (`"0"`) or name (`"MLII"`, as in `names`) | all signals |
 | `from`, `to` | first sample, and the sample after the last one: a `TimeSpec` (see below) | the whole record |
 | `physical` | also return the samples in physical units (`Record.physical`) | `false` |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
@@ -163,7 +163,7 @@ without a copy per signal. `rec.signal(s)` returns the samples of one signal
 | `physical` | with `physical = true`, a `DoubleArray` of the same samples in physical units, `(adc - baseline) / gain`; otherwise `null` |
 | `nsig`, `nsamples` | the number of signals and of samples per signal |
 | `fs` | sampling frequency in Hz (0 if the header gives none) |
-| `names`, `units`, `gains`, `baselines` | description, physical units, gain (ADC units per physical unit; 0 means uncalibrated) and baseline of each signal |
+| `names`, `units`, `gains`, `baselines` | description (without the white space that a header may put at either end of it), physical units, gain (ADC units per physical unit; 0 means uncalibrated) and baseline of each signal |
 | `siginfo` | the full signal specifications (`Siginfo` objects) |
 | `signalNumbers` | the number, in the record, of each signal returned |
 | `sampfrom` | the number of the first sample returned |
@@ -331,7 +331,7 @@ error: annotator atr: 3 annotations are out of order; the first is at sample 50,
 ```
 
 `report.lines()` returns these lines as a list. The lines are the same in
-the seven languages of wfdb-x. The checks run in normal mode, even if legacy mode is on, and the library
+the seven languages of WFDB-x. The checks run in normal mode, even if legacy mode is on, and the library
 prints no messages during the call.
 
 What is checked:
@@ -352,7 +352,7 @@ The sample record `100s` gives two warnings: its header gives no units.
 ### The names in the other languages
 
 The high-level functions have the same behavior in every language of
-wfdb-x, under the naming conventions of each:
+WFDB-x, under the naming conventions of each:
 
 | Kotlin | Python, C++, Rust, Julia, R, MATLAB/Octave |
 |---|---|
@@ -377,7 +377,7 @@ every language, Kotlin included.
 
 ## Where files are read and written
 
-wfdb-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where you name them, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
@@ -456,7 +456,7 @@ Android app needs the `INTERNET` permission); on iOS, with `NSURLSession`.
 
 ## Signal parameters
 
-wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
 that a record does not give. Where one is needed, you must give it: in
 `writeRecord`, as the `fs` argument of `readAnnotations`, or as an option
 of the tools (see below). A record whose header gives no frequency has
@@ -619,7 +619,7 @@ describes what changes in legacy mode.
   uses `java.nio.file`; give it paths in the app's storage.
 * **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
   written without any external library. The C library reads files written
-  by wfdb-x with identical sample values, although the compressed bytes
+  by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
 * **Threads.** The top-level functions use one `Wfdb` per thread. Use
   separate `Wfdb` objects to work on several records in parallel.
@@ -652,7 +652,7 @@ python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy   # legacy
 ```
 
 [DEVELOPING.md](DEVELOPING.md) describes how the implementation is
-organized, for developers of wfdb-x.
+organized, for developers of WFDB-x.
 
 ## Authors and license
 
@@ -665,14 +665,14 @@ gives the details. The Kotlin implementation was developed by Reza Sameni
 (2026), through AI-assisted development, cross-language
 verification and unit testing.
 
-wfdb-x is an independent reimplementation. Its Kotlin code is a
+WFDB-x is an independent reimplementation. Its Kotlin code is a
 translation of the C code of the WFDB Software Package into Kotlin,
-written for wfdb-x; it is not code by the original WFDB developers. It
+written for WFDB-x; it is not code by the original WFDB developers. It
 follows the original's logic and behavior, with the changes described
 in [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md).
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-wfdb-x is distributed under the GNU General Public License, version 3 or
+WFDB-x is distributed under the GNU General Public License, version 3 or
 (at your option) any later version. See
 [LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).

@@ -1,16 +1,16 @@
-"""The ``wfdbx`` command: run any wfdb-x command-line tool.
+"""The ``wfdbx`` command: run any WFDB-x command-line tool.
 
 Usage: wfdbx TOOL [ARGUMENTS ...]     (for example: wfdbx rdsamp -r 100s)
        wfdbx --list                   (list the available tools)
        wfdbx --examples [DIR]         (copy the example notebooks to DIR,
                                       by default ./wfdbx-examples)
 
-In the example, 100s is the sample record included with wfdb-x (the first
+In the example, 100s is the sample record included with WFDB-x (the first
 minute of record 100 of the MIT-BIH Arrhythmia Database); it is read when the
 environment variable WFDBX_INPUT_DIR is set to its directory,
 ``wfdbx.sample_data_dir()``.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
 has no counterpart in the original package.
 

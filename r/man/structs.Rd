@@ -25,7 +25,7 @@ seginfo(recname = "", nsamp = 0, samp0 = 0)
 \arguments{
   \item{fname}{\code{siginfo}: the name of the signal file.}
   \item{desc}{\code{siginfo}: the description (name) of the signal.}
-  \item{units}{the physical units (\code{NULL}: unspecified; wfdb-x never
+  \item{units}{the physical units (\code{NULL}: unspecified; WFDB-x never
     takes unspecified units to be millivolts).}
   \item{gain}{\code{siginfo}: ADC units per physical unit (0:
     uncalibrated).}
@@ -81,7 +81,7 @@ seginfo(recname = "", nsamp = 0, samp0 = 0)
   The structures are those of lib/wfdb.h (WFDB 10.7.0), with the same
   fields; these functions, which create them, are new.
 
-  Part of wfdb-x; not in the original WFDB package.
+  Part of WFDB-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{isigopen}}, \code{\link{osigfopen}} and

@@ -1,6 +1,6 @@
 # apps_m2a.R: m2a -- convert an MIT-format annotation file to AHA format.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/m2a.c from the WFDB Software Package
@@ -62,7 +62,7 @@ app_m2a <- function(args = character(0)) {
         ianame <- argv[i]
         i <- i + 1L
         oaname <- argv[i]
-      } else if (c == "F" && !wfdbx_get_legacy()) {  # frequency follows (wfdb-x)
+      } else if (c == "F" && !wfdbx_get_legacy()) {  # frequency follows (WFDB-x)
         i <- i + 1L
         Ffreq <- .app_Fopt(pname, if (i <= argc) argv[i] else NULL)
       } else if (c == "h") {

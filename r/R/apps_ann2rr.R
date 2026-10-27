@@ -1,7 +1,7 @@
 # apps_ann2rr.R: ann2rr -- extract a list of intervals from an annotation
 # file.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of app/ann2rr.c from the WFDB Software Package 10.7.0,
@@ -124,7 +124,7 @@ app_ann2rr <- function(args = character(0)) {
           cexit(1)
         }
         from <- i
-      } else if (c == "F" && !wfdbx_get_legacy()) {  # frequency follows (wfdb-x)
+      } else if (c == "F" && !wfdbx_get_legacy()) {  # frequency follows (WFDB-x)
         i <- i + 1L
         Ffreq <- .app_Fopt(pname, if (i <= argc) argv[i] else NULL)
       } else if (c == "h") {

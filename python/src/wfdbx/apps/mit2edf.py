@@ -1,6 +1,6 @@
 """mit2edf: convert MIT format to EDF.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of convert/mit2edf.c from the WFDB Software Package

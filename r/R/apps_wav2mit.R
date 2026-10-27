@@ -1,7 +1,7 @@
 # apps_wav2mit.R: wav2mit -- create a header file for a .wav file, so that
 # it can be read as a WFDB record.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of convert/wav2mit.c from the WFDB Software Package
@@ -58,10 +58,10 @@ app_wav2mit <- function(args = character(0)) {
     a <- arg(i)
     if (startsWith(a, "-")) {
       c <- substr(a, 2L, 2L)
-      if (c == "G" && !legacy) {            # gain in adu per physical unit (wfdb-x)
+      if (c == "G" && !legacy) {            # gain in adu per physical unit (WFDB-x)
         i <- i + 1
         Ggain <- .app_Gopt(pname, if (i < argc) arg(i) else NULL)
-      } else if (c == "U" && !legacy) {     # physical units (wfdb-x)
+      } else if (c == "U" && !legacy) {     # physical units (WFDB-x)
         i <- i + 1
         Uunits <- .app_Uopt(pname, if (i < argc) arg(i) else NULL)
       } else if (c == "h") {

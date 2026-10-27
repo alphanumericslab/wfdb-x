@@ -4,7 +4,7 @@ function r = wfdbx_time_needs_freq(string)
 %   leading spaces, tabs, newlines and carriage returns) begins with 'e',
 %   'i', 'o' or 's' (times that wfdbx.strtim converts without a sampling
 %   frequency), or with 'c' while the counter frequency is not specified;
-%   it returns 1 otherwise.  This function is a wfdb-x addition (wfdb-x
+%   it returns 1 otherwise.  This function is a WFDB-x addition (WFDB-x
 %   never assumes a sampling frequency; see docs/DIVERGENCES.md).
 %
 %   Example:
@@ -13,11 +13,11 @@ function r = wfdbx_time_needs_freq(string)
 %
 %   See also wfdbx.strtim, wfdbx.sampfreq, wfdbx.getcfreq.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It has no counterpart in the original package. wfdb-x never assumes a
+% It has no counterpart in the original package. WFDB-x never assumes a
 % sampling frequency (see docs/DIVERGENCES.md).
 %
 % Copyright (C) 2026 Reza Sameni.

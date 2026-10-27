@@ -1,7 +1,7 @@
 // A growable byte array (Rust's Vec<u8>, C's char buffers), and conversions
 // between Kotlin strings and C byte strings.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 // It has no counterpart in the original package.
 //

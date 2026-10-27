@@ -1,5 +1,6 @@
 // test_bulk.cpp: unit tests of the bulk reader of getvecs (bulk_frames in
-// src/signal.cpp): for random records in every format it decodes, with
+// src/signal.cpp): for random records in every format it decodes (also of
+// several sampling frequencies, and multi-segment records), with
 // invalid samples, in both getvec modes (and WFDB_GVPAD), with several
 // signal groups, several input buffer sizes, records that end in the middle
 // of a buffer, the frame at which the checksums are verified, headers that
@@ -9,9 +10,9 @@
 // included) is the same with the bulk reader as with frame-by-frame reading
 // (wfdbx_set_bulk_read(false)).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -28,6 +29,7 @@
 #include "../src/wfdblib.hpp"   // (detail::wfdbx_set_bulk_read)
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -281,8 +283,8 @@ WFDBX_TEST(bulk_read_groups_and_ends)
     CHECK(same("ck", 31));
 }
 
-// The records of tests/data (including those the bulk reader does not
-// read: skew, multi-frequency, variable layout, FLAC, multi-segment).
+// The records of tests/data (including skew, multi-frequency, variable
+// layout, FLAC and multi-segment records).
 WFDBX_TEST(bulk_read_test_records)
 {
     DataDir d;
@@ -334,4 +336,356 @@ WFDBX_TEST(bulk_read_record)
     CHECK(r1.samples == r2.samples && !r1.checksum_ok && !r2.checksum_ok);
     detail::wfdbx_set_bulk_read(true);
     wfdbverbose();
+}
+
+namespace {
+
+// Write the random multi-frequency record `name` (spf: samples per frame of
+// each signal; n frames), with invalid samples (also at the start).
+void mf_record(const std::string &name, std::mt19937 &rng, int fmt,
+               const std::vector<int> &spf, long n,
+               std::vector<WFDB_Gain> gains = {200},
+               std::vector<std::string> names = {})
+{
+    size_t cols = 0;
+    for (int k : spf) cols += static_cast<size_t>(k);
+    std::vector<WFDB_Sample> x(static_cast<size_t>(n) * cols);
+    if (fmt == 8) {
+        std::uniform_int_distribution<int> d(-60, 60);
+        for (size_t c = 0; c < cols; c++)
+            for (long i = 0, v = 0; i < n; i++)
+                x[static_cast<size_t>(i) * cols + c] =
+                    static_cast<WFDB_Sample>(v += d(rng));
+    } else {
+        long long m = max_of(fmt);
+        std::uniform_int_distribution<long long> val(-m + 1, m);
+        std::uniform_int_distribution<int> pct(0, 999);
+        for (WFDB_Sample &v : x)
+            v = pct(rng) < 10 ? WFDB_INVALID_SAMPLE
+                              : static_cast<WFDB_Sample>(val(rng));
+        x[0] = x[cols] = WFDB_INVALID_SAMPLE;
+    }
+    WriteOptions w;
+    w.fmt = fmt;
+    w.gains = std::move(gains);
+    w.adcres = {16};
+    w.units = {std::string("mV")};
+    w.samps_per_frame = spf;
+    w.names = std::move(names);
+    write_record(name, x, static_cast<int>(spf.size()), 250, w);
+}
+
+// A reading mode of the multi-frequency tests (physical: compare the
+// samples in physical units too).
+struct Mode {
+    ReadOptions o;
+    bool physical = false;
+};
+
+std::vector<Mode> mf_modes()
+{
+    std::vector<Mode> v(9);
+    v[1].o.pad = true;
+    v[2].o.highres = true;
+    v[3].o.highres = v[3].o.pad = true;
+    v[4].physical = true;
+    v[5].o.from = 1234;
+    v[6].o.from = 7;
+    v[6].o.to = 15000;
+    v[7].o.highres = true;
+    v[7].o.from = 3;
+    v[7].o.to = 9001;
+    v[8].o.channels = {"1", "0", "1"};
+    return v;
+}
+
+// What read_record returns (or the error it throws), as text.
+std::string read_text(const std::string &rec, const Mode &m, bool bulk)
+{
+    detail::wfdbx_set_bulk_read(bulk);
+    std::ostringstream t;
+    try {
+        Record r = read_record(rec, m.o);
+        t << r.nsig << " " << r.nsamples() << " " << r.checksum_ok << " "
+          << r.fs << ":";
+        for (const std::string &n : r.names()) t << " " << n;
+        t << "\n";
+        for (WFDB_Sample v : r.samples) t << v << " ";
+        if (m.physical)
+            for (int s = 0; s < r.nsig; s++)
+                for (double v : r.physical_signal(s)) t << v << " ";
+    } catch (const std::exception &e) {
+        t << "error: " << e.what();
+    }
+    detail::wfdbx_set_bulk_read(true);
+    return t.str();
+}
+
+// read_record gives the same with and without the bulk reader.
+bool same_read(const std::string &rec, const Mode &m)
+{
+    std::string a = read_text(rec, m, true), b = read_text(rec, m, false);
+    if (a != b) {
+        std::printf("    (record %s, highres %d, pad %d, from %lld)\n",
+                    rec.c_str(), m.o.highres, m.o.pad,
+                    static_cast<long long>(m.o.from.resolve()));
+        CHECK(a == b);
+        return false;
+    }
+    return true;
+}
+
+// (vectors read by read_record, vectors of them read in blocks)
+std::pair<long long, long long> bulk_rows(const std::string &rec,
+                                          const ReadOptions &o)
+{
+    long long before = detail::wfdbx_bulk_vectors();
+    Record r = read_record(rec, o);
+    return {static_cast<long long>(r.nsamples()),
+            detail::wfdbx_bulk_vectors() - before};
+}
+
+// Write the segments name_1, name_2, ... (one per length) and return the
+// lines of the master header naming them.
+std::string write_segments(const std::string &name, std::mt19937 &rng,
+                           int fmt, const std::vector<int> &spf,
+                           const std::vector<long> &lens,
+                           std::vector<WFDB_Gain> gains,
+                           std::vector<std::string> names, long &total)
+{
+    std::string lines;
+    for (size_t k = 0; k < lens.size(); k++) {
+        std::string seg = name + "_" + std::to_string(k + 1);
+        mf_record(seg, rng, fmt, spf, lens[k], gains, names);
+        lines += seg + " " + std::to_string(lens[k]) + "\n";
+        total += lens[k];
+    }
+    return lines;
+}
+
+} // namespace
+
+// Records of several sampling frequencies are read in blocks: the same
+// samples as frame by frame, in low- and high-resolution modes.
+WFDBX_TEST(bulk_read_multifrequency)
+{
+    DataDir d;
+    for (int fmt : FORMATS) {
+        std::mt19937 rng(static_cast<unsigned>(fmt) + 1);
+        for (const std::vector<int> &spf :
+             std::vector<std::vector<int>>{{4, 1, 1, 1}, {2, 3}, {1, 2},
+                                           {8, 1}, {3, 3, 1}}) {
+            long n = 16000 + static_cast<long>(rng() % 8000);
+            wfdbquiet();
+            mf_record("m", rng, fmt, spf, n);
+            wfdbverbose();
+            for (const Mode &m : mf_modes())
+                if (!same_read("m", m)) {
+                    std::printf("    (format %d, spf[0] %d)\n", fmt, spf[0]);
+                    return;
+                }
+            // (all but the frames near the end are read in blocks)
+            ReadOptions o;
+            o.highres = true;
+            auto [rows, bulk] = bulk_rows("m", o);
+            int mx = *std::max_element(spf.begin(), spf.end());
+            CHECK(rows - bulk <= 6 * mx);
+            o.highres = false;
+            auto [rows2, bulk2] = bulk_rows("m", o);
+            CHECK(rows2 - bulk2 <= 6);
+        }
+    }
+}
+
+// Multi-segment records, of fixed and of variable layout (with signals
+// missing from some segments, other gains, and null segments), are read in
+// blocks: the same samples as frame by frame.
+WFDBX_TEST(bulk_read_multisegment)
+{
+    DataDir d;
+    std::mt19937 rng(11);
+    std::vector<std::string> names = {"ECG", "ABP", "RESP"};
+    wfdbquiet();
+    // fixed layout
+    long total = 0;
+    std::string segs = write_segments("fx", rng, 212, {4, 1, 1},
+                                      {9000, 7001, 12000}, {200}, names,
+                                      total);
+    {
+        std::ofstream f("fx.hea");
+        f << "fx/3 3 250 " << total << "\n" << segs;
+    }
+    std::vector<Mode> modes = mf_modes();
+    modes.emplace_back();
+    modes.back().o.from = 8999;
+    modes.back().o.to = 16002;
+    for (const Mode &m : modes)
+        if (!same_read("fx", m)) return;
+    CHECK_EQ(read_record("fx").nsamples(), size_t(28001));
+    {
+        auto [rows, bulk] = bulk_rows("fx", ReadOptions());
+        CHECK(rows - bulk <= 2 * 3);
+        ReadOptions o;
+        o.highres = true;
+        auto [rows2, bulk2] = bulk_rows("fx", o);
+        CHECK(rows2 - bulk2 <= 2 * 3 * 4);
+    }
+    // variable layout
+    {
+        std::ofstream f("vl_0.hea");
+        f << "vl_0 3 250 0\n"
+             "~ 0x4 400(10)/mV 12 0 0 0 0 ECG\n"
+             "~ 0 100/mV 16 0 0 0 0 ABP\n"
+             "~ 0 50/mV 16 0 0 0 0 RESP\n";
+    }
+    total = 2500;
+    std::string s1 = write_segments("va", rng, 16, {4, 1, 1}, {5000},
+                                    {400, 100, 50}, names, total);
+    std::string s2 = write_segments("vb", rng, 16, {1, 4}, {6003},
+                                    {25, 200}, {"RESP", "ECG"}, total);
+    std::string s3 = write_segments("vc", rng, 212, {1}, {4000}, {100},
+                                    {"ABP"}, total);
+    {
+        std::ofstream f("vl.hea");
+        f << "vl/5 3 250 " << total << "\nvl_0 0\n" << s1 << "~ 2500\n"
+          << s2 << s3;
+    }
+    modes.back().o.from = 4990;
+    modes.back().o.to = 9000;
+    for (const Mode &m : modes)
+        if (!same_read("vl", m)) return;
+    {
+        auto [rows, bulk] = bulk_rows("vl", ReadOptions());
+        CHECK(rows - bulk <= 2 * 6);
+        ReadOptions o;
+        o.highres = true;
+        auto [rows2, bulk2] = bulk_rows("vl", o);
+        CHECK(rows2 - bulk2 <= 2 * 6 * 4);
+    }
+    Record r = read_record("vl");
+    wfdbverbose();
+    CHECK_EQ(r.nsamples(), size_t(17503));
+    bool nan = true;
+    for (size_t i = 5000; i < 7500; i++)
+        for (int s = 0; s < 3; s++) nan = nan && std::isnan(r.physical(i, s));
+    CHECK(nan);
+}
+
+// Every record of tests/data (but those read from the standard input, 8
+// and 16): the same in blocks as frame by frame, in every reading mode (or
+// the same error).
+WFDBX_TEST(bulk_read_all_test_records)
+{
+    DataDir d;
+    std::vector<std::string> recs;
+    for (const auto &e : fs::directory_iterator("."))
+        if (e.path().extension() == ".hea" && e.path().stem() != "8" &&
+            e.path().stem() != "16")
+            recs.push_back(e.path().stem().string());
+    std::sort(recs.begin(), recs.end());
+    std::vector<Mode> modes(5);
+    modes[1].o.pad = true;
+    modes[2].o.highres = true;
+    modes[3].o.highres = modes[3].o.pad = true;
+    modes[4].o.from = 3;
+    wfdbquiet();
+    for (const std::string &rec : recs)
+        for (const Mode &m : modes)
+            if (!same_read(rec, m)) {
+                wfdbverbose();
+                return;
+            }
+    wfdbverbose();
+}
+
+// getvecs (bulk) mixed with getvec and isigsettime on a multi-frequency
+// record, in high resolution also from the middle of a frame: the same
+// vectors, statuses and library state as frame by frame.
+WFDBX_TEST(bulk_multifrequency_interleaved)
+{
+    DataDir d;
+    std::mt19937 rng(5);
+    wfdbquiet();
+    mf_record("mf", rng, 212, {4, 1, 3}, 20001);
+    wfdbverbose();
+    const std::pair<char, long long> steps[] = {
+        {'f', 999}, {'v', 3}, {'f', 4097}, {'t', 17}, {'v', 1},
+        {'f', 9001}, {'v', 2}, {'t', 30}, {'f', 200000}};
+    for (bool hr : {false, true}) {
+        std::string out[2];
+        for (int run = 0; run < 2; run++) {
+            detail::wfdbx_set_bulk_read(run == 0);
+            std::ostringstream t;
+            std::vector<WFDB_Siginfo> si(3);
+            CHECK_EQ(isigopen("mf", si.data(), 3), 3);
+            setgvmode((hr ? WFDB_HIGHRES : WFDB_LOWRES) | WFDB_GVPAD);
+            for (auto [op, k] : steps) {
+                if (op == 'f') {
+                    std::vector<WFDB_Sample> buf(static_cast<size_t>(k) * 3);
+                    int stat = 0;
+                    long long m = getvecs(buf.data(), k, &stat);
+                    t << "getvecs " << m << " " << stat << ":";
+                    for (long long i = 0; i < std::max(m, 0LL) * 3; i++)
+                        t << ' ' << buf[static_cast<size_t>(i)];
+                } else if (op == 'v') {
+                    for (long long i = 0; i < k; i++) {
+                        WFDB_Sample v[3];
+                        t << "getvec " << getvec(v) << ": " << v[0] << ' '
+                          << v[1] << ' ' << v[2] << "\n";
+                    }
+                } else
+                    t << "isigsettime " << isigsettime(k);
+                t << "\n" << detail::wfdbx_input_state() << "\n";
+            }
+            wfdbquit();
+            out[run] = t.str();
+        }
+        detail::wfdbx_set_bulk_read(true);
+        CHECK(out[0] == out[1]);
+    }
+}
+
+// Descriptions that end (or begin) with white space in the header are
+// given without it by the high-level readers, and found by that name; the
+// C-style functions keep it, as in C.
+WFDBX_TEST(names_without_spaces)
+{
+    DataDir d;
+    {
+        std::ofstream f("sp.hea");
+        f << "sp 3 250 4\n"
+             "fmt16.dat 16 200/mV 16 0 0 0 0 III \n"
+             "fmt16.dat 16 200/mV 16 0 0 0 0 ABP\t \n"
+             "fmt16.dat 16 200/mV 16 0 0 0 0 PLETH\n";
+    }
+    const std::vector<std::string> want = {"III", "ABP", "PLETH"};
+    for (bool legacy : {false, true}) {
+        ReadOptions o;
+        o.legacy = legacy;
+        o.checksum_warning = false;
+        Record r = read_record("sp", o);
+        CHECK(r.names() == want);
+        std::vector<std::string> descs;
+        for (const WFDB_Siginfo &s : r.siginfo) descs.push_back(*s.desc);
+        CHECK(descs == want);
+        Header h = read_header("sp", legacy);
+        descs.clear();
+        for (const WFDB_Siginfo &s : h.siginfo) descs.push_back(*s.desc);
+        CHECK(descs == want);
+        ReadOptions o2;
+        o2.checksum_warning = false;
+        o2.channels = {"ABP", "III ", "2"};
+        Record r2 = read_record("sp", o2);
+        CHECK(r2.names() == (std::vector<std::string>{"ABP", "III", "PLETH"}));
+        bool same = r2.nsamples() == r.nsamples();
+        for (size_t i = 0; same && i < r.nsamples(); i++)
+            same = r2.at(i, 0) == r.at(i, 1) && r2.at(i, 1) == r.at(i, 0) &&
+                   r2.at(i, 2) == r.at(i, 2);
+        CHECK(same);
+    }
+    std::vector<WFDB_Siginfo> si(3);
+    CHECK_EQ(isigopen("sp", si.data(), 3), 3);
+    CHECK(*si[0].desc == "III " && *si[1].desc == "ABP\t " &&
+          *si[2].desc == "PLETH");
+    wfdbquit();
 }

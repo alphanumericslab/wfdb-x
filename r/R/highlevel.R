@@ -4,7 +4,7 @@
 # what the WFDB library and tools do.  (read_annotations and
 # write_annotations are in highlevel_annot.R.)
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -15,7 +15,7 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. See LICENSE.
 #
-# Legacy mode (wfdb-x): with legacy = TRUE, each function behaves as in the
+# Legacy mode (WFDB-x): with legacy = TRUE, each function behaves as in the
 # original package (the default gain of 200 adu/mV and ADC resolution based
 # on the format in write_record, 250 Hz for a header without a frequency, a
 # gain of 200 for uncalibrated signals in physical units, ...), with the
@@ -58,7 +58,7 @@
   expr
 }
 
-# The dir argument of the writers (wfdb-x): with a directory (not NULL or
+# The dir argument of the writers (WFDB-x): with a directory (not NULL or
 # ""), check record and dir, and set the library's output directory
 # (wfdbx_set_output_dir) for the duration of the call that evaluates expr
 # (the previous one is restored afterwards, also on errors).  The record is
@@ -80,7 +80,7 @@
   invisible()
 }
 
-# The input_dir and network arguments of the readers (wfdb-x): if given (not
+# The input_dir and network arguments of the readers (WFDB-x): if given (not
 # NULL), the library's input directory (wfdbx_set_input_dir) and network
 # permission (wfdbx_set_network) are set for the duration of the call that
 # evaluates expr, and the previous values are restored afterwards (also on
@@ -97,7 +97,7 @@
   expr
 }
 
-# The base time and date of the open record (wfdb-x), as read_record and
+# The base time and date of the open record (WFDB-x), as read_record and
 # read_header give them: base_time, the text timstr(0) gives (NULL if the
 # header gives no base time, or, without legacy mode, no sampling
 # frequency: timstr is then not called); base_time_ms, the base time in
@@ -114,6 +114,27 @@
   list(base_time = base_time,
        base_time_ms = if (!is.null(base_time)) as.numeric(st$btime),
        base_date = if (st$bdate != 0) as.integer(.julian_ymd(st$bdate)))
+}
+
+# The siginfo lists si with the white space (C isspace) at both ends of
+# each description removed.  wfdb-x: the high-level readers give the
+# signal names without the spaces that some headers end them with (the
+# C-style functions keep them, as C does).
+.HL_SPACE <- as.raw(c(32, 9, 10, 11, 12, 13))
+
+.hl_strip <- function(s) {
+  b <- charToRaw(s)
+  k <- which(!(b %in% .HL_SPACE))
+  if (!length(k)) return("")
+  if (k[1L] == 1L && k[length(k)] == length(b)) return(s)
+  rawToChar(b[k[1L]:k[length(k)]])
+}
+
+.hl_strip_desc <- function(si) {
+  lapply(si, function(s) {
+    if (!is.null(s$desc)) s$desc <- .hl_strip(s$desc)
+    s
+  })
 }
 
 # The info strings of the header of record (getinfo).
@@ -135,8 +156,9 @@
 #' getcfreq() gives it), base_counter (as getbasecount() gives it),
 #' nsamples (the number of samples per signal given on the record line of
 #' the header; 0 if it gives none), nsig (the number of signals), siginfo
-#' (one siginfo list per signal), base_time, base_time_ms, base_date (as
-#' in read_record) and comments (the info strings).
+#' (one siginfo list per signal; desc without the white space at either
+#' end), base_time, base_time_ms, base_date (as in read_record) and
+#' comments (the info strings).
 #' input_dir, network, legacy: see read_record.
 read_header <- function(record, input_dir = NULL, network = NULL,
                         legacy = FALSE) .hl_legacy(legacy, .hl_input(input_dir, network, {
@@ -147,7 +169,7 @@ read_header <- function(record, input_dir = NULL, network = NULL,
     wfdbquit()
     stop("can't read header for record ", record)
   }
-  si <- isigopen(record, -n)$si
+  si <- .hl_strip_desc(isigopen(record, -n)$si)
   st <- .sig
   fs <- sampfreq(NULL)
   # (a multi-segment record: the length on the record line of its master
@@ -168,8 +190,10 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' if the header does not specify it),
 #' signals (matrix, one row per sample and one column per signal: ADC units,
 #' invalid samples WFDB_INVALID_SAMPLE; or physical units with physical =
-#' TRUE, invalid samples NA), siginfo (list of siginfo lists), names,
-#' units (NULL elements: unspecified), gains, baselines, base_time (e.g.
+#' TRUE, invalid samples NA), siginfo (list of siginfo lists; desc
+#' without the white space at either end), names (the description of each
+#' signal, without the white space that a header may put at either end of
+#' it), units (NULL elements: unspecified), gains, baselines, base_time (e.g.
 #' "[08:45:00 01/01/2001]", or NULL: the header gives no base time, or no
 #' sampling frequency), base_time_ms (the base time in milliseconds after
 #' midnight, a double, e.g. 50403500 for 14:00:03.500; NULL exactly when
@@ -180,7 +204,8 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' TRUE otherwise.  The checksums are verified only when the read reaches
 #' the end of the record).
 #'
-#' channels: signal numbers (0-based, as in WFDB) or names (default: all);
+#' channels: signal numbers (0-based, as in WFDB) or names (as in names;
+#' default: all);
 #' sampfrom, sampto: sample numbers or time strings (sampto exclusive;
 #' default: the end of the record); highres: WFDB_HIGHRES mode for
 #' multi-frequency records; pad: WFDB_GVPAD mode (invalid samples replaced
@@ -205,11 +230,11 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' in record REC: the signal data do not match the checksums in its header")
 #' when the samples read to the end of the record do not match the
 #' checksums in its header (getvec status -4); the data, every frame
-#' included, are returned either way (FALSE: no warning).  wfdb-x; the same
+#' included, are returned either way (FALSE: no warning).  WFDB-x; the same
 #' in all seven implementations.
 #'
 #' record: relative to the input directory, or a full path, ~ path or URL
-#' (wfdb-x).  input_dir: the input directory for this call (a local
+#' (WFDB-x).  input_dir: the input directory for this call (a local
 #' directory, a ~ name or a URL; see wfdbx_set_input_dir); default: the
 #' current setting.  network: TRUE to allow reading URLs for this call
 #' (FALSE to forbid it; see wfdbx_set_network); default: the current
@@ -233,7 +258,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
   }
   r <- isigopen(record, nsig)
   nsig <- r$nsig
-  si <- r$si
+  si <- .hl_strip_desc(r$si)
   if (nsig <= 0) {
     wfdbquit()
     stop("can't open signals of record ", record)
@@ -255,8 +280,13 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
   if (is.null(channels)) {
     cols <- seq_len(nsig) - 1
   } else {
+    snames <- vapply(si, function(s) s$desc %||% "", "")
     cols <- vapply(as.list(channels), function(c) {
-      k <- if (is.character(c)) findsig(c) else as.numeric(c)
+      # (a name: among the names without white space, then as findsig)
+      k <- if (!is.character(c)) as.numeric(c) else {
+        j <- match(.hl_strip(c), snames)
+        if (is.na(j)) findsig(c) else j - 1
+      }
       if (k < 0 || k >= nsig) {
         wfdbquit()
         stop("record ", record, " has no signal ", c)
@@ -349,7 +379,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' dir: if given, the directory (which must exist) in which the files are
 #' created; the header then names the record and its signal file without
 #' the directory, so that the record opens from that directory under its
-#' plain name (record must not contain a directory).  (wfdb-x)
+#' plain name (record must not contain a directory).  (WFDB-x)
 #'
 #' legacy: if TRUE, behave as the original package (default gains of 200
 #' adu/mV, ADC resolutions based on the format, no units required), with the

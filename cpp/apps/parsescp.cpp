@@ -1,6 +1,6 @@
 // parsescp.cpp: parse an SCP-ECG file (read from the standard input).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a C++ translation of convert/parsescp.c from the WFDB Software Package
@@ -40,7 +40,7 @@
 //
 // The input is held in one byte buffer and the C program's pointers into it
 // are represented by offsets.  Behaviors of the C program that are undefined
-// (on defective inputs) are resolved as in the other wfdb-x implementations
+// (on defective inputs) are resolved as in the other WFDB-x implementations
 // (see docs/KNOWN_C_BEHAVIORS.md): bytes beyond the end of the input are read
 // as 0; signal arrays have at least 5000 samples and samples beyond the end
 // of a lead are 0; missing subtraction zones are ignored and samples outside
@@ -701,7 +701,7 @@ static int write_output()
     std::fprintf(dfile, "T axis: %d\n", Taxis);
 
     precgmeas(dfile);
-    cemul::fclose_output(dfile, pname, dname.c_str());     // wfdb-x
+    cemul::fclose_output(dfile, pname, dname.c_str());     // WFDB-x
 
     // Generate the key file.  The patient's name and ID number should appear
     // only in this file (and in the debugging output, if enabled using -v).
@@ -710,7 +710,7 @@ static int write_output()
                  recdate.c_str(), rectime.c_str());
     std::fprintf(kfile, "Name: %s\n", patient_name.c_str());
     std::fprintf(kfile, "MRN: %s\n", patient_id.c_str());
-    cemul::fclose_output(kfile, pname, kname.c_str());     // wfdb-x
+    cemul::fclose_output(kfile, pname, kname.c_str());     // WFDB-x
 
     // If the -z option was selected, then for each signal:
     //  1. Calculate the median amplitude of the first 5000 samples in the
@@ -765,7 +765,7 @@ static int write_output()
                 std::fprintf(tfile, "%7d", sample_at(order[k], i));
             std::fprintf(tfile, "\n");
         }
-        cemul::fclose_output(tfile, pname, tname.c_str()); // wfdb-x
+        cemul::fclose_output(tfile, pname, tname.c_str()); // WFDB-x
     }
 
     // Finally, output the ECG in vector (binary) form.
@@ -789,7 +789,7 @@ static int write_output()
         for (int k = 0; k < 4; k++)
             write_samples(efile, sigr(row[k]), SEGLEN * k, SEGLEN);
     write_samples(efile, sigr(leadII), 0, LEADIILEN);
-    cemul::fclose_output(efile, pname, ename.c_str());     // wfdb-x
+    cemul::fclose_output(efile, pname, ename.c_str());     // WFDB-x
 
     return 1;
 }

@@ -1,16 +1,16 @@
 function b = flac_streaminfo(fo, total, md5)
 %FLAC_STREAMINFO The STREAMINFO block of a FLAC stream being written.
 %   B = wfdbx.internal.flac_streaminfo(FO, TOTAL, MD5) returns the 34 bytes
-%   of STREAMINFO (as the Python implementation of wfdb-x writes it) for
+%   of STREAMINFO (as the Python implementation of WFDB-x writes it) for
 %   the encoder state FO (see wfdbx.internal.flac_osinit), with TOTAL
 %   samples per channel and the 16-byte signature MD5: block sizes 4096,
 %   frame sizes FO.minfs (0 if none) and FO.maxfs, sample rate 96000.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
-% has no counterpart in the original package: it is wfdb-x's own implementation
+% has no counterpart in the original package: it is WFDB-x's own implementation
 % of the FLAC format, which the original package reads and writes with libFLAC.
 %
 % Copyright (C) 2026 Reza Sameni.

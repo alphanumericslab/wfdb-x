@@ -21,7 +21,7 @@ function status = sortann(args)
 %   required to convert the -f and -t times.  See docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
-%   Database, is included with wfdb-x in the folder tests/data of a copy of
+%   Database, is included with WFDB-x in the folder tests/data of a copy of
 %   the repository; the example writes the annotation file 100s.srt in the
 %   current folder):
 %       wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
@@ -33,7 +33,7 @@ function status = sortann(args)
 %   options and output. Differences: -F gives the sampling frequency when
 %   the record header gives none; see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of app/sortann.c from the WFDB Software
@@ -85,7 +85,7 @@ end
 
 function status = main(argv)
 pname = argv{1};
-Ffreq = 0;      % -F (wfdb-x)
+Ffreq = 0;      % -F (WFDB-x)
 legacy = wfdbx.wfdbx_get_legacy();
 argc = numel(argv);
 ep = @wfdbx.internal.ceprintf;
@@ -123,7 +123,7 @@ while i < argc
                     return;
                 end
                 from = i;
-            case 'F'    % sampling frequency follows (wfdb-x)
+            case 'F'    % sampling frequency follows (WFDB-x)
                 [Ffreq, i, ok] = wfdbx.internal.opt_ffreq(argv, i, Ffreq);
                 if ~ok
                     status = 1;

@@ -1,4 +1,4 @@
-# wfdb-x for Kotlin: implementation notes
+# WFDB-x for Kotlin: implementation notes
 
 These notes describe how the Kotlin Multiplatform implementation is
 organized, and the decisions that later work must follow. They complement
@@ -254,7 +254,7 @@ fields and of `posix_spawn` arguments; phase 2 added only
 ## Signals (`Signal.kt`, `SignalTime.kt`, `Flac.kt`)
 
 Close ports of `rust/src/signal.rs` and `rust/src/flac.rs`, with every
-wfdb-x divergence and addition (no assumed frequency, gain, resolution or
+WFDB-x divergence and addition (no assumed frequency, gain, resolution or
 units; files named in a header in its directory; segments of a
 multi-segment record next to its header; the output-is-input guard of
 `osigfopen`/`osigopen`; `hea_name`: names written in a header relative to
@@ -274,13 +274,26 @@ The C-style signatures, where C's types do not map directly:
 | `timstr`, `mstimstr`, `datstr`, `getinfo` | return a new `ByteArray` (a copy of C's static buffer); `getinfo` returns `null` at the end |
 | `sample(s, t)`, `tnextvec(s, t)`, `isgsettime(g, t)` | `Int` signal or group, `Long` time |
 
-wfdb-x additions, not in C: `getvecs(out, n): Long` and
+WFDB-x additions, not in C: `getvecs(out, n): Long` and
 `getvecs_status(out, n): GetvecsResult(count, status)` (n vectors at
 once, as n `getvec` calls; the bulk path decodes the complete frames
 already in the input buffers in one pass: about 10 times faster than a
 `getvec` loop on the JVM, with identical results, which
 `BulkTest` verifies against the per-frame path); `wfdbx_bulk_read(on)`
-(turns the bulk path off, for tests); `wfdbx_time_needs_freq`. Internal
+(turns the bulk path off, for tests); `wfdbx_time_needs_freq`. The bulk
+path (`bulkFrames`) handles formats 8, 16, 24, 32, 61, 80, 160, 212, 310
+and 311 (one format per signal group), and null signals (format 0) of
+known length, without deskewing or resampling: records of several
+sampling frequencies, in low-resolution mode (averaging the oversampled
+signals with `meansamp`) and in high-resolution mode (from the start of a
+frame), and the segments of multi-segment records, of fixed or variable
+layout (mapped with `sigmap`), null segments included. A frame that
+crosses the end of an input buffer, the frame at which checksums are
+verified or a null signal ends, the change from one segment to the next
+and everything else go through `getvec`, so the files are read in the
+same blocks, and the statuses, messages and state (samples, checksums,
+counts, `gvc`, `tvector`, `ovec`) are those of frame-by-frame reading
+(`wfdbxBulkVectors` and `wfdbxInputState` are for the tests). Internal
 accessors for the high-level API and `check_record` (phase 4):
 `wfdbxHeaderNsamples`, `wfdbxRecordNsamples`, `wfdbxIsEdf`,
 `wfdbxCksumResiduals`, `wfdbxGroupFileSizes`, `wfdbxBaseTimeDate`,
@@ -361,7 +374,11 @@ PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl kot
   `Record::samples`); `physical = true` adds `Record.physical`, a
   `DoubleArray` in the same layout. `readRecord` reads with
   `getvecsStatusAt` (getvecs into an offset of one growing array: no copy
-  per block).
+  per block), in blocks of whole frames, a multiple of 6 of them, so that
+  formats 212, 310 and 311 end each block on a whole packed unit. The
+  signal descriptions it returns (and those of `readHeader`) have no white
+  space at either end, and a channel given by name is looked up among them
+  first, then with `findsig`.
 * Record, annotator and directory names are file names: `Platform.nameBytes`
   and `nameString` convert them with the platform's file name encoding (the
   tools' arguments are converted the same way). Text in the files is
@@ -401,7 +418,7 @@ against `rust/target/release/sortann`, which matches the C program.
 | `WfdbioTest.kt`, `FilesTest.kt` | files, directories, WFDB path, files named in headers, multi-segment records |
 | `AnnotTest.kt` | annotations, code tables, calibration, sorting, `wfdbinit`/`wfdbquit` |
 | `SignalTest.kt` | the signal functions (port of the C-style parts of `rust/tests/signals.rs`: values of `api_expect.c`, no-defaults and legacy behavior, EDF, FLAC seeks, round trips in every format, output-is-input guard, checksum errors, record names with directories) |
-| `BulkTest.kt` | `getvecs`: bulk path against the per-frame path (port of `rust/tests/bulk.rs`) |
+| `BulkTest.kt` | `getvecs` and `readRecord`: bulk path against the per-frame path, for single- and multi-frequency, multi-segment and all `tests/data` records (port of `rust/tests/bulk.rs`) |
 | `FlacTest.kt` | FLAC decoder and encoder (port of the unit tests of `rust/src/flac.rs`) |
 | `jvmTest/NetworkTest.kt` | URLs and remote records, against a local HTTP server |
 | `jvmTest/SignalJvmTest.kt` | an output file that is a hard link to an input file |

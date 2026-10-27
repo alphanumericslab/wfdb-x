@@ -19,7 +19,7 @@ function t = strtim(string)
 %   frequency and none is specified, it reports an error and returns 0 (the
 %   original assumed 1 sample per second); see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software

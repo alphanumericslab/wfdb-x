@@ -1,4 +1,4 @@
-# wfdb-x for MATLAB and GNU Octave
+# WFDB-x for MATLAB and GNU Octave
 
 `wfdbx` reads and writes physiological signal records in the WFDB format used
 by [PhysioNet](https://physionet.org). It is a complete MATLAB and Octave
@@ -22,7 +22,7 @@ You can use it in three ways:
 The package is plain MATLAB code. It needs GNU Octave 6 or later, or MATLAB
 R2019b or later, and no toolboxes.
 
-wfdb-x is part of a project that provides the same package in seven languages
+WFDB-x is part of a project that provides the same package in seven languages
 with identical behavior; see the
 [project README](https://github.com/alphanumericslab/wfdb-x#readme).
 
@@ -94,7 +94,7 @@ rec = wfdbx.read_record('100s', 'channels', {'MLII'}, 'sampfrom', '0:10', ...
 | Argument | Meaning | Default |
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
-| `'channels'` | signals to read: signal numbers, or a cell array of numbers and names | all signals |
+| `'channels'` | signals to read: signal numbers, or a cell array of numbers and names (by name, as in `names`) | all signals |
 | `'sampfrom'`, `'sampto'` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
 | `'physical'` | return physical units instead of ADC units | `false` |
 | `'highres'` | read a multi-frequency record at its highest sampling frequency | `false` |
@@ -112,9 +112,9 @@ The result is a structure:
 |---|---|
 | `signals` | matrix of doubles, one row per sample and one column per signal, in ADC units, or in physical units with `'physical', true` |
 | `fs` | sampling frequency in Hz (0 if the header gives none) |
-| `names`, `units` | cell arrays: the description and the physical units of each signal (`[]` when the header gives no units) |
+| `names`, `units` | cell arrays: the description of each signal, such as `'MLII'`, without the white space that a header may put at either end of it, and the physical units of each signal (`[]` when the header gives no units) |
 | `gains`, `baselines` | row vectors: the gain (ADC units per physical unit; 0 means uncalibrated) and the baseline of each signal |
-| `siginfo` | the full signal specifications, a `wfdbx.siginfo` structure array |
+| `siginfo` | the full signal specifications, a `wfdbx.siginfo` structure array (`desc` without white space at either end, as in `names`) |
 | `name` | the record name |
 | `sampfrom` | the number of the first sample returned |
 | `base_time` | start time and date as text, to the second, such as `'[14:00:03 21/06/2024]'` |
@@ -288,7 +288,7 @@ error: signal 1: the checksum does not match: the header gives 12, the samples s
 error: annotator atr: 3 annotations are out of order; the first is at sample 50, after sample 100
 ```
 
-The lines are the same in the seven languages of wfdb-x. The checks run in normal mode, even if legacy mode is on, and the library
+The lines are the same in the seven languages of WFDB-x. The checks run in normal mode, even if legacy mode is on, and the library
 prints no messages during the call.
 
 What is checked:
@@ -308,7 +308,7 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-wfdb-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where you name them, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
@@ -377,7 +377,7 @@ gives up when it cannot connect, or receives nothing, for 30 seconds.
 
 ## Signal parameters
 
-wfdb-x never assumes a sampling frequency, gain, ADC resolution or units
+WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
 that a record does not give. Where one is needed, you must give it: in
 `write_record`, as the `'fs'` option of `read_annotations`, or as an option
 of the tools (see below). A record whose header gives no frequency has
@@ -495,7 +495,7 @@ Differences from C that come from the language:
 * Errors are reported by return values, as in C, not by MATLAB errors.
   `wfdbx.wfdberror()` returns the last message, and `wfdbx.wfdbquiet()`
   stops the messages from being printed.
-* `wfdbx.wfdbx_write_errors()` (a wfdb-x addition) returns the number of
+* `wfdbx.wfdbx_write_errors()` (a WFDB-x addition) returns the number of
   output files that the library could not write, flush or close, plus those
   counted by `wfdbx.wfdbx_note_write_error()` (also an addition), which a
   program that writes a file itself calls. The tools exit with status 1 when
@@ -538,15 +538,16 @@ describes what changes in legacy mode.
   standard input before it starts MATLAB. When you run it from a script
   whose standard input stays open, add `< /dev/null`.
 * **Network access.** Remote files are downloaded with the `curl` program
-  when it is installed. Otherwise wfdb-x uses `webread` in Octave and
+  when it is installed. Otherwise WFDB-x uses `webread` in Octave and
   `websave` in MATLAB.
 * **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
   written without any external library. The C library reads files written
-  by wfdb-x with identical sample values, although the compressed bytes
+  by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
 * **Speed.** The high-level functions and `wfdbx.getframes` work on whole
-  blocks of samples: in Octave, `read_record` reads 200,000 frames of a
-  two-signal record in under a tenth of a second. Calling `wfdbx.getvec`
+  blocks of samples, including multi-frequency and multi-segment records:
+  in Octave, `read_record` reads 200,000 frames of a two-signal record in
+  under a tenth of a second. Calling `wfdbx.getvec`
   sample by sample is much slower.
 
 ## Testing
@@ -578,14 +579,14 @@ gives the details. The MATLAB/Octave implementation was developed by Reza
 Sameni (2026), through AI-assisted development, cross-language
 verification and unit testing.
 
-wfdb-x is an independent reimplementation. Its MATLAB/Octave code is a
+WFDB-x is an independent reimplementation. Its MATLAB/Octave code is a
 translation of the C code of the WFDB Software Package into MATLAB/Octave,
-written for wfdb-x; it is not code by the original WFDB developers. It
+written for WFDB-x; it is not code by the original WFDB developers. It
 follows the original's logic and behavior, with the changes described
 in [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md).
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-wfdb-x is distributed under the GNU General Public License, version 3 or
+WFDB-x is distributed under the GNU General Public License, version 3 or
 (at your option) any later version. See
 [LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).

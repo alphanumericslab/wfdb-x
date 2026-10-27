@@ -13,7 +13,7 @@ function ai = anninfo(name, stat)
 %   Translation of the C structure WFDB_Anninfo (lib/wfdb.h, WFDB 10.7.0):
 %   same fields.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/wfdb.h from the WFDB Software

@@ -1,7 +1,7 @@
 // Low-level I/O of the WFDB library (port of lib/wfdbio.c, from
 // rust/src/wfdbio.rs and cpp/src/wfdbio.cpp): finding and opening WFDB
 // files (wfdb_open, wfdb_fopen, wfdbfile), the input and output directories
-// and network access (wfdb-x), the WFDB path of legacy mode (getwfdb,
+// and network access (WFDB-x), the WFDB path of legacy mode (getwfdb,
 // setwfdb, ...), error reporting (wfdb_error, wfdberror, wfdbquiet), and the
 // legacy-mode switch (wfdbx_set_legacy, wfdbx_legacy_args). WfdbFile, the
 // buffered file type, is in WfdbFile.kt.
@@ -16,7 +16,7 @@
 // with HttpURLConnection, on Linux by the curl program). Legacy mode
 // searches the WFDB path as the C library does, without network access.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of lib/wfdbio.c from the WFDB Software Package
@@ -104,14 +104,14 @@ internal class IoState {
     var envOutputDir: ByteArray? = null
     var outputDirInit = false
 
-    /** wfdb-x (normal mode): the directory under which relative names are read (null: the current directory). */
+    /** WFDB-x (normal mode): the directory under which relative names are read (null: the current directory). */
     var inputDir: ByteArray? = null
 
     /** wfdb-x: the value of WFDBX_INPUT_DIR (read on first use). */
     var envInputDir: ByteArray? = null
     var inputDirInit = false
 
-    /** wfdb-x (normal mode): the input directory set by the last setwfdb (for resetwfdb), and whether setwfdb was called. */
+    /** WFDB-x (normal mode): the input directory set by the last setwfdb (for resetwfdb), and whether setwfdb was called. */
     var setwfdbInputDir: ByteArray? = null
     var setwfdbCalled = false
 
@@ -185,7 +185,7 @@ internal fun inHeaderDir(name: ByteArray): Boolean {
  * The directory part of the file name or URL [s], including its final separator
  * (empty if it has none).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_dirname(s: ByteArray): ByteArray {
     var n = s.size
@@ -301,7 +301,7 @@ private fun pathComponent(s: ByteArray, q0: Int): IntArray {
  * Returns false (and leaves the standard input unchanged) if the file
  * cannot be opened.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun freopen_stdin(name: ByteArray): Boolean {
     if (!Platform.freopenStdin(name)) return false
@@ -353,7 +353,7 @@ private var writeErrors = 0
  * The high-level writers throw a [WfdbException] when they meet one, and
  * the command-line tools then exit with status 1.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_write_errors(): Int = withGlobalLock { writeErrors }
 
@@ -361,7 +361,7 @@ fun wfdbx_write_errors(): Int = withGlobalLock { writeErrors }
  * Counts a write error (see [wfdbx_write_errors]): for an application that
  * writes a file itself.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_note_write_error() {
     withGlobalLock { writeErrors++ }
@@ -371,7 +371,7 @@ fun wfdbx_note_write_error() {
  * `wfdbx_fclose_output(fp, pname, name)` on the default instance (see
  * [Wfdb.wfdbx_fclose_output]).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_fclose_output(fp: WfdbFile, pname: ByteArray, name: ByteArray): Int =
     wfdbDefault().wfdbx_fclose_output(fp, pname, name)
@@ -393,7 +393,7 @@ fun wfdb_striphea(record: ByteArray): ByteArray {
  * in the output directory [dir], if one is set). Returns the exit status
  * (-1 if it could not be run).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun run_sortann(record: ByteArray, annotator: ByteArray, dir: ByteArray?): Int =
     Platform.runSortann(record, annotator, dir)
@@ -695,7 +695,7 @@ private fun Wfdb.setwfdbNormal(p0: ByteArray?): Int {
  * Returns the previous setting (null if none was set). Legacy mode does not
  * use this setting.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_set_input_dir(dir: ByteArray?): ByteArray? {
     initInputDir()
@@ -712,7 +712,7 @@ fun Wfdb.wfdbx_set_input_dir(dir: String): ByteArray? = wfdbx_set_input_dir(dir.
  * Returns the input directory (see [wfdbx_set_input_dir]), or null if none is
  * set.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_get_input_dir(): ByteArray? {
     initInputDir()
@@ -749,7 +749,7 @@ private fun Wfdb.initOutputDir() {
  * directory must be a local directory"; the setting is then unchanged, and
  * the current value is returned.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_set_output_dir(dir0: ByteArray?): ByteArray? {
     initOutputDir()
@@ -771,7 +771,7 @@ fun Wfdb.wfdbx_set_output_dir(dir: String): ByteArray? = wfdbx_set_output_dir(di
  * Returns the output directory (see [wfdbx_set_output_dir]), or null if none is
  * set.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_get_output_dir(): ByteArray? {
     initOutputDir()
@@ -785,7 +785,7 @@ fun Wfdb.wfdbx_get_output_dir(): ByteArray? {
  * nonzero number, otherwise off. Returns the previous setting (1: on, 0:
  * off). Legacy mode has no network access.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_set_network(on: Int): Int {
     val previous = wfdbx_get_network()
@@ -796,7 +796,7 @@ fun Wfdb.wfdbx_set_network(on: Int): Int {
 /**
  * Returns 1 if network access is on, 0 otherwise (see [wfdbx_set_network]).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_get_network(): Int {
     if (io.network == null) {
@@ -816,7 +816,7 @@ fun Wfdb.wfdbx_get_network(): Int {
  * files. Legacy mode is off by default. Use it only to reproduce old
  * results. See docs/DIVERGENCES.md for what changes.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_set_legacy(on: Int): Int {
     val previous = if (legacy) 1 else 0
@@ -827,19 +827,19 @@ fun Wfdb.wfdbx_set_legacy(on: Int): Int {
 /**
  * Returns 1 if legacy mode is on, 0 otherwise (see [wfdbx_set_legacy]).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_get_legacy(): Int = if (legacy) 1 else 0
 
 /**
- * wfdb-x addition (C `wfdbx_legacy_args(&argc, &argv)`), called by the
+ * WFDB-x addition (C `wfdbx_legacy_args(&argc, &argv)`), called by the
  * tools before anything else: if the first argument after the program name
  * (argv[1]) is exactly "--legacy", removes it from [argv], turns legacy
  * mode on and returns 1; otherwise changes nothing and returns 0. Only the
  * first argument is recognized. It also enables the check of write errors
  * at [wfdbx.cstd.exit] (the exit status of the tools).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_legacy_args(argv: MutableList<ByteArray>): Int {
     if (argv.isNotEmpty()) exitCheckInit(argv[0], this) // wfdb-x: see wfdbx.cstd.exit
@@ -856,7 +856,7 @@ fun Wfdb.wfdbx_legacy_args(argv: MutableList<ByteArray>): Int {
  * counts a write error (see [wfdbx_write_errors]); legacy mode prints and
  * counts nothing.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_fclose_output(fp: WfdbFile, pname: ByteArray, name: ByteArray): Int {
     val status = fp.close()
@@ -901,7 +901,7 @@ private fun Wfdb.resolve(name: ByteArray, output: Boolean): ByteArray {
 /**
  * The name of the file most recently opened by [wfdb_open] (C's wfdb_filename).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdb_filename(): ByteArray = io.filename
 
@@ -911,7 +911,7 @@ fun Wfdb.wfdb_filename(): ByteArray = io.filename
  * a record name ending in "/" names the record of that directory, "a/b/"
  * meaning "a/b/b").
  *
- * wfdb-x, normal mode: the file is opened at the one location its name
+ * WFDB-x, normal mode: the file is opened at the one location its name
  * designates; nothing is searched. An absolute name, or a URL (read only,
  * and only with network access, see [wfdbx_set_network]), is used as given;
  * a name beginning with ~ is expanded (the home directory); any other
@@ -1056,7 +1056,7 @@ private fun Wfdb.openAt(p: ByteArray, s: ByteArray): WfdbFile? {
  * record RECORD is not in the header's directory" is reported); the signal
  * file name "-" (the standard input) is also accepted.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_open_in(dir: ByteArray?, s: ByteArray?, name0: ByteArray, record: ByteArray): WfdbFile? {
     val name = cstr(name0)
@@ -1075,7 +1075,7 @@ fun Wfdb.wfdbx_open_in(dir: ByteArray?, s: ByteArray?, name0: ByteArray, record:
  * ("wb" or "ab"), the missing directories in its path are created and the
  * file is opened again.
  *
- * wfdb-x, normal mode: an http:// or https:// URL is fetched (read only;
+ * WFDB-x, normal mode: an http:// or https:// URL is fetched (read only;
  * see [wfdbx_set_network]), and names containing ".." are accepted. Legacy
  * mode, as in C (built without network support): names containing ".." or
  * "://" are rejected.
@@ -1309,21 +1309,21 @@ fun wfdbfile(s: String?, record: String?): ByteArray? = wfdbDefault().wfdbfile(s
  * Sets the output directory of the default instance (see
  * [Wfdb.wfdbx_set_output_dir]).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_set_output_dir(dir: ByteArray?): ByteArray? = wfdbDefault().wfdbx_set_output_dir(dir)
 
 /**
  * Sets the output directory of the default instance.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_set_output_dir(dir: String): ByteArray? = wfdbDefault().wfdbx_set_output_dir(dir)
 
 /**
  * The output directory of the default instance.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_get_output_dir(): ByteArray? = wfdbDefault().wfdbx_get_output_dir()
 
@@ -1331,21 +1331,21 @@ fun wfdbx_get_output_dir(): ByteArray? = wfdbDefault().wfdbx_get_output_dir()
  * Sets the input directory of the default instance (see
  * [Wfdb.wfdbx_set_input_dir]).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_set_input_dir(dir: ByteArray?): ByteArray? = wfdbDefault().wfdbx_set_input_dir(dir)
 
 /**
  * Sets the input directory of the default instance.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_set_input_dir(dir: String): ByteArray? = wfdbDefault().wfdbx_set_input_dir(dir)
 
 /**
  * The input directory of the default instance.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_get_input_dir(): ByteArray? = wfdbDefault().wfdbx_get_input_dir()
 
@@ -1353,14 +1353,14 @@ fun wfdbx_get_input_dir(): ByteArray? = wfdbDefault().wfdbx_get_input_dir()
  * Turns network access on or off for the default instance (see
  * [Wfdb.wfdbx_set_network]).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_set_network(on: Int): Int = wfdbDefault().wfdbx_set_network(on)
 
 /**
  * Whether network access is on for the default instance.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_get_network(): Int = wfdbDefault().wfdbx_get_network()
 
@@ -1368,14 +1368,14 @@ fun wfdbx_get_network(): Int = wfdbDefault().wfdbx_get_network()
  * Turns legacy mode on or off for the default instance (see
  * [Wfdb.wfdbx_set_legacy]).
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_set_legacy(on: Int): Int = wfdbDefault().wfdbx_set_legacy(on)
 
 /**
  * Whether legacy mode is on for the default instance.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun wfdbx_get_legacy(): Int = wfdbDefault().wfdbx_get_legacy()
 

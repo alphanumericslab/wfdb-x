@@ -1,6 +1,6 @@
 """ahaecg2mit: convert AHA DB files (from the AHA DVD) to WFDB format.
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 
 It is a Python translation of convert/ahaecg2mit.c from the WFDB Software
@@ -186,7 +186,7 @@ def _main(argv):
         c = argv[i][1]
         if c == "s":
             sflag = 1   # produce short-format (35-minute) records
-        elif c == "F":  # sampling frequency (wfdb-x)
+        elif c == "F":  # sampling frequency (WFDB-x)
             i += 1
             n, v = sscanf(argv[i], "%lf") if i < argc else (0, [])
             if n != 1 or v[0] <= 0.0:
@@ -194,7 +194,7 @@ def _main(argv):
                         pname)
                 raise Exit(1)
             ffreq = v[0]
-        elif c == "G":  # gain in adu per physical unit (wfdb-x)
+        elif c == "G":  # gain in adu per physical unit (WFDB-x)
             i += 1
             n, v = sscanf(argv[i], "%lf") if i < argc else (0, [])
             if n != 1 or v[0] < 0.0:
@@ -202,7 +202,7 @@ def _main(argv):
                 raise Exit(1)
             ggain = v[0]
             gset = 1
-        elif c == "R":  # ADC resolution in bits (wfdb-x)
+        elif c == "R":  # ADC resolution in bits (WFDB-x)
             i += 1
             n, v = sscanf(argv[i], "%d") if i < argc else (0, [])
             if n != 1 or not 1 <= int32(v[0]) <= 32:
@@ -210,7 +210,7 @@ def _main(argv):
                         pname)
                 raise Exit(1)
             rres = int32(v[0])
-        elif c == "U":  # physical units (wfdb-x)
+        elif c == "U":  # physical units (WFDB-x)
             i += 1
             if i >= argc:
                 eprintf("%s: units must follow -U\n", pname)

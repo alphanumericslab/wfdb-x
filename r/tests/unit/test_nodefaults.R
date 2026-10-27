@@ -1,13 +1,13 @@
-# Tests of the wfdb-x divergence "no built-in sampling frequency, gain, ADC
+# Tests of the WFDB-x divergence "no built-in sampling frequency, gain, ADC
 # resolution or units"
 # (docs/DIVERGENCES.md): the library functions (t_nodefaults() of
 # tests/reference/api_expect.c, whose expected values were produced by the
 # C library with tests/reference/divergences.patch applied), and the rules
 # of the high-level API (read_record, write_record, read_annotations).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-# It tests wfdb-x; it has no counterpart in the original package.
+# It tests WFDB-x; it has no counterpart in the original package.
 #
 # Copyright (C) 2026 Reza Sameni.
 #

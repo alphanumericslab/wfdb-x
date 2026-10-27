@@ -1,6 +1,6 @@
 # The conformance suite
 
-The conformance suite checks that an implementation of wfdb-x behaves
+The conformance suite checks that an implementation of WFDB-x behaves
 **exactly** like the original C WFDB Software Package. It is independent of
 the language of the implementation: it runs command-line tools and compares
 their results with *golden* results produced by the C programs.
@@ -11,7 +11,7 @@ their results with *golden* results produced by the C programs.
 |---|---|
 | `tests/data/` | test records and input files (most written by the C library) |
 | `tests/reference/gen_records.c` | program (linked with the C library) that wrote the test records |
-| `tests/reference/build_reference.sh` | builds the C reference from `third_party/wfdb-main.zip`, with FLAC support and the deliberate divergences of wfdb-x (`divergences.patch`; set `WFDBX_ORIGINAL=1` for the unmodified package) |
+| `tests/reference/build_reference.sh` | builds the C reference from `third_party/wfdb-main.zip`, with FLAC support and the deliberate divergences of WFDB-x (`divergences.patch`; set `WFDBX_ORIGINAL=1` for the unmodified package) |
 | `tests/reference/divergences.patch` | the deliberate divergences from the C package ([`docs/DIVERGENCES.md`](DIVERGENCES.md)) |
 | `tests/data/make_inputs.py` | creates the synthetic WAV, EDF+, AHA and old-header inputs for converter tests |
 | `tests/conformance/cases.py` | the test cases |

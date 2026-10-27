@@ -1,10 +1,10 @@
-# WFDBX.jl: wfdb-x for Julia, a reimplementation of the WFDB Software
+# WFDBX.jl: WFDB-x for Julia, a reimplementation of the WFDB Software
 # Package (version 10.7.0) that reads and writes exactly the same files as
 # the original C library, and whose command-line tools produce
-# byte-identical output (verified by the conformance suite of wfdb-x). This
+# byte-identical output (verified by the conformance suite of WFDB-x). This
 # file defines the module and includes the other files.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package. The authors of the C code
 # that the other files translate are credited in each file and in
@@ -52,8 +52,8 @@ Text read from WFDB files is returned as bytes (`Vector{UInt8}`).
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository:
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository:
 ```julia-repl
 julia> using WFDBX
 

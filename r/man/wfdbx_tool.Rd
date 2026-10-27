@@ -52,7 +52,7 @@ Rscript <library>/wfdbx/bin/wfdbx.R --list}
   Package 10.7.0; the source file of each tool names its C original and
   its changes.
 
-  Part of wfdb-x; not in the original WFDB package.
+  Part of WFDB-x; not in the original WFDB package.
 }
 \seealso{
   \code{\link{read_record}} and \code{\link{read_annotations}} to read
@@ -71,7 +71,7 @@ status
 setwd(old)
 
 ## Run a tool in a separate R process, and capture its output.  100s is
-## the sample record included with wfdb-x (the first minute of record 100
+## the sample record included with WFDB-x (the first minute of record 100
 ## of the MIT-BIH Arrhythmia Database), in the tests/data directory of a
 ## copy of the repository; replace the path with that directory.
 \dontrun{

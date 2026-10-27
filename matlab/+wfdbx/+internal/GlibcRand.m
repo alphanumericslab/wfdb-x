@@ -14,9 +14,9 @@ classdef GlibcRand < handle
 %       r = wfdbx.internal.GlibcRand(0);
 %       r.rand(3)       % [1804289383 846930886 1681692777]
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

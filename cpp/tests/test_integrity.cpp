@@ -1,4 +1,4 @@
-// test_integrity.cpp: unit tests of two wfdb-x protections of the data: a
+// test_integrity.cpp: unit tests of two WFDB-x protections of the data: a
 // checksum error is a warning of read_record (the data are returned), and an
 // output signal file is never one of the input files (osigfopen/osigopen
 // refuse to create it).  The expected values of the second follow t_alias in
@@ -6,9 +6,9 @@
 // python/tests/test_signals.py::test_read_record_checksum_warning and
 // python/tests/test_api.py::test_output_file_is_input_file.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //

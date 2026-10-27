@@ -3,7 +3,7 @@
 # through flac.R), multi-segment and multi-frequency records, time and date
 # conversion, unit conversion, info strings.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is an R translation of lib/signal.c from the WFDB Software Package 10.7.0,
@@ -20,7 +20,7 @@
 # output signal file is never one of the input files of the open record; a
 # header written under a path names the record, its signal files and its
 # segments relative to its own directory; FLAC signal files are read and
-# written with wfdb-x's own codec (flac.R) instead of libFLAC; additions:
+# written with WFDB-x's own codec (flac.R) instead of libFLAC; additions:
 # wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq,
 # getframes and putframes; legacy mode (wfdbx_set_legacy) restores the original
 # behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
@@ -64,7 +64,7 @@ WFDB_MAXUSL <- 50
 WFDB_MAXDSL <- 100
 WFDB_FMT_LIST <- c(0, 8, 16, 61, 80, 160, 212, 310, 311, 24, 32, 508, 516, 524)
 # wfdb-x: WFDB_DEFFREQ, WFDB_DEFGAIN and WFDB_DEFRES remain defined for
-# compatibility, but are not used: wfdb-x never assumes a sampling frequency,
+# compatibility, but are not used: WFDB-x never assumes a sampling frequency,
 # a gain or an ADC resolution (see docs/DIVERGENCES.md).
 WFDB_DEFFREQ <- 250
 WFDB_DEFGAIN <- 200
@@ -2962,7 +2962,7 @@ setbasetime <- function(string) {
 }
 
 #' Whether strtim needs a sampling frequency to convert a time string (a
-#' wfdb-x addition): 0 for sample numbers ("s..."), "e", "i", "o", and
+#' WFDB-x addition): 0 for sample numbers ("s..."), "e", "i", "o", and
 #' counter values ("c...") when no counter frequency is defined; 1 otherwise.
 wfdbx_time_needs_freq <- function(string) {
   b <- cbytes(string)
@@ -3322,7 +3322,7 @@ sample_valid <- function() .sig$sample_vflag
   st$sfreq <- st$ifreq <- st$ffreq <- 0
   st$pdays <- -1
   st$segments <- st$in_msrec <- st$skewmax <- 0
-  st$hdr_dir <- st$msrec_dir <- st$msrec_name <- NULL    # wfdb-x
+  st$hdr_dir <- st$msrec_dir <- st$msrec_name <- NULL    # WFDB-x
   if (!is.null(st$dsbuf)) {
     st$dsbuf <- NULL
     st$dsbi <- -1
@@ -3405,17 +3405,19 @@ wfdb_freeinfo <- function() {
 #
 # .bulk_frames(n) decodes up to n getvec vectors at once with vector
 # operations, exactly as n calls of getvec would.  It handles signal files
-# of all formats (FLAC through flac_navail() and flac_getsamps()),
-# multi-frequency records in WFDB_LOWRES and WFDB_HIGHRES modes, and
-# WFDB_GVPAD.  It reads fewer vectors (possibly none) whenever a frame needs
-# special handling (end of file, a frame at which a checksum is verified, a
-# partial bit-packed group, a partial frame in WFDB_HIGHRES mode, ...), and
-# returns NULL when the bulk path cannot be used at all (skew,
-# variable-layout multi-segment records, setifreq resampling, signals
-# without files, an unskipped prolog, non-seekable input); getframes() then
-# uses getvec for the next vector.  With full = TRUE, it decodes up to n
-# complete frames instead, as n calls of getframe would (one row per frame,
-# tspf columns; used by .getframes_full).
+# of all formats (FLAC through flac_navail() and flac_getsamps()), null
+# signals (format 0, of known length), multi-frequency records in
+# WFDB_LOWRES and WFDB_HIGHRES modes, WFDB_GVPAD, and the segments of
+# multi-segment records (mapped to the layout signals with the signal map
+# when the layout varies).  It reads fewer vectors (possibly none) whenever
+# a frame needs special handling (end of file or of a segment, a frame at
+# which a checksum is verified, a partial bit-packed group, a partial frame
+# in WFDB_HIGHRES mode, ...), and returns NULL when the bulk path cannot be
+# used at all (skew with several samples per frame or a signal map,
+# setifreq resampling, an unskipped prolog, non-seekable input); getframes()
+# then uses getvec for the next vector.  With full = TRUE, it decodes up to
+# n complete frames instead, as n calls of getframe would (one row per
+# frame, tspf columns; used by .getframes_full).
 
 .BULK_FMTS <- c(8, 80, 16, 61, 160, 24, 32, 212, 310, 311, 508, 516, 524)
 .BULK_MAXFRAMES <- 1048576     # largest block of vectors decoded at once
@@ -3424,9 +3426,11 @@ wfdb_freeinfo <- function() {
 # group g (1-based), its signals sl[[g]], format fmt[g], samples per frame
 # nn[g], and the size of its packing unit: nbytes[g] bytes for nsamp[g]
 # samples.  `period`: the number of frames after which every bit-packed
-# group is at a unit boundary.  Computed once per set of open signals
-# (cached in .sig$bulk_layout, which is cleared whenever .sig$isd or
-# .sig$igd change); NULL if the bulk path cannot be used.
+# group is at a unit boundary.  The groups of null signals (format 0: no
+# file) are in nullg, those with files in fileg (FLAC: flacg).  Computed
+# once per set of open signals (cached in .sig$bulk_layout, which is
+# cleared whenever .sig$isd or .sig$igd change); NULL if the bulk path
+# cannot be used.
 .bulk_layout <- function(st) {
   lay <- st$bulk_layout
   if (!is.null(lay)) return(lay$value)
@@ -3442,7 +3446,7 @@ wfdb_freeinfo <- function() {
     grp[s] <- info$group
   }
   value <- NULL
-  if (all(fmts %in% .BULK_FMTS)) {
+  if (all(fmts %in% .BULK_FMTS | fmts == 0)) {
     sl <- vector("list", ng)
     fmt <- nn <- nbytes <- nsamp <- numeric(ng)
     period <- 1
@@ -3466,6 +3470,7 @@ wfdb_freeinfo <- function() {
     }
     if (!is.null(sl)) {
       isflac <- fmt %in% c(508, 516, 524)
+      isnull <- fmt == 0
       # mask[[s]]: the samples of signal s among the nn samples of a frame
       # of its group (a logical index, recycled over the frames)
       mask <- vector("list", nisig)
@@ -3478,8 +3483,9 @@ wfdb_freeinfo <- function() {
       }
       value <- list(isd = isd, igd = igd, spfs = spfs, sl = sl, mask = mask, fmt = fmt,
                     inval = vapply(fmt, .invalid_of, 0), nn = nn, nbytes = nbytes,
-                    nsamp = nsamp, isflac = isflac, flacg = which(isflac),
-                    fileg = which(!isflac), fbytes = nn * nbytes / nsamp, period = period)
+                    nsamp = nsamp, isflac = isflac, isnull = isnull, flacg = which(isflac),
+                    nullg = which(isnull), fileg = which(!isflac & !isnull),
+                    nullsig = which(fmts == 0), period = period)
     }
   }
   st$bulk_layout <- list(value = value)
@@ -3588,47 +3594,106 @@ wfdb_freeinfo <- function() {
   invisible()
 }
 
+# sigmap() for each row of raw (the frames of a segment, as getskewedframe
+# reads them): the frames of the layout of a variable-layout record (one
+# row per frame, tspf columns).
+.bulk_sigmap <- function(raw) {
+  smi <- .sig$smi
+  n <- nrow(raw)
+  tspf <- length(smi$index)
+  out <- matrix(0, n, tspf)
+  for (i in seq_len(tspf)) {
+    x <- raw[, smi$index[i] + 1]
+    v <- x * smi$scale[i] + smi$offset[i]
+    so <- smi$sample_offset[i]
+    if (so != 0) {
+      r <- trunc(v) + so
+      if (anyNA(r) || any(r < WFDB_SAMPLE_MIN | r > WFDB_SAMPLE_MAX)) r <- cint32(r)
+    } else {
+      r <- rep(WFDB_SAMPLE_MIN, n)
+      pos <- !is.na(v) & v >= 0
+      r[pos] <- pmin(trunc(v[pos]), WFDB_SAMPLE_MAX)
+      neg <- !is.na(v) & v < 0 & v >= WFDB_SAMPLE_MIN
+      r[neg] <- floor(v[neg])
+    }
+    r[x == WFDB_INVALID_SAMPLE] <- WFDB_INVALID_SAMPLE
+    out[, i] <- r
+  }
+  out
+}
+
+# The samples of a frame (0-based) that rgetvec gives in WFDB_HIGHRES mode
+# for a signal of sf samples per frame, at each of the per steps of a frame
+# (its gvindex, as gvcount advances).
+.gvindex_steps <- function(sf, per) {
+  idx <- numeric(per)
+  index <- 0
+  count <- -per
+  for (k in seq_len(per - 1)) {
+    count <- count + sf
+    if (count >= 0) {
+      index <- index + 1
+      count <- count - per
+    }
+    idx[k + 1] <- index
+  }
+  idx
+}
+
 .bulk_frames <- function(n, full = FALSE) {
   st <- .sig
   nisig <- st$nisig
-  if (n <= 0 || nisig == 0 || st$need_sigmap ||
-      st$nvsig != nisig || !(st$ifreq == 0 || st$ifreq == st$sfreq)) return(NULL)
+  nvsig <- st$nvsig
+  need_sigmap <- st$need_sigmap
+  if (n <= 0 || nisig == 0 || (if (need_sigmap) nisig > nvsig else nvsig != nisig) ||
+      !(st$ifreq == 0 || st$ifreq == st$sfreq)) return(NULL)
   lay <- .bulk_layout(st)
   if (is.null(lay)) return(NULL)
   ispfmax <- st$ispfmax
-  # (deskewing: only with one sample per frame, once the buffer is primed)
+  # (deskewing: only with one sample per frame and no signal map, once the
+  # buffer is primed)
   deskew <- !is.null(st$dsbuf)
-  if (deskew && (ispfmax != 1 || st$dsbi < 0 || st$tspf != nisig)) return(NULL)
+  if (deskew && (need_sigmap || ispfmax != 1 || st$dsbi < 0 || st$tspf != nisig))
+    return(NULL)
   highres <- !full && ispfmax > 1 && bitwAnd(st$gvmode, WFDB_HIGHRES) == WFDB_HIGHRES
   if (highres && st$gvc < ispfmax) return(NULL)
   isd <- lay$isd
   igd <- lay$igd
   isflac <- lay$isflac
+  isnull <- lay$isnull
   for (g in seq_along(igd)) {
+    if (isnull[g]) next
     ig <- igd[[g]]
     if (ig$initial_skip || ig$count || (!isflac[g] && (ig$seek != 1 || is.null(ig$fp))))
       return(NULL)
   }
+  # (null signals: only of known length)
+  for (s in lay$nullsig) {
+    if (isd[[s]]$info$nsamp <= 0) return(NULL)
+  }
+  ncols <- if (full) st$tspf else nvsig
   if (highres) n <- floor(n / ispfmax)
-  # (no frame at which a checksum would be verified)
+  # (no frame at which a checksum would be verified, or after which a null
+  # signal ends)
   for (is in isd) {
     ns <- is$info$nsamp
     if (ns > 0 && n >= ns) n <- ns - 1
   }
   period <- lay$period
   n <- n - n %% period
-  if (n <= 0) return(matrix(0, 0, nisig))
+  if (n <= 0) return(matrix(0, 0, ncols))
   nn <- lay$nn
   # The frames available in each group.  Signal files are read in whole
   # blocks, as the C library's buffer fills do, so that the buffer can be
   # left as C leaves it; FLAC samples are taken only once n is known, so
   # that none is lost when another group has fewer frames.
-  bytes_per_frame <- lay$fbytes
+  # (the bytes of n frames of group g: exact, n being a multiple of period)
+  nbytes <- function(g, n) (n * nn[g] * lay$nbytes[g]) %/% lay$nsamp[g]
   bufs <- vector("list", length(igd))
   haves <- bsizes <- numeric(length(igd))
   for (g in lay$fileg) {
     ig <- igd[[g]]
-    need <- n * bytes_per_frame[g]
+    need <- nbytes(g, n)
     have <- ig$be - ig$bp
     bs <- if (ig$bsize > 0) ig$bsize else st$ibsize
     haves[g] <- have
@@ -3640,7 +3705,7 @@ wfdb_freeinfo <- function() {
       if (have > 0) data <- c(ig$buf[(ig$bp + 1):ig$be], data)
     }
     bufs[[g]] <- data
-    avail <- (length(data) %/% (period * bytes_per_frame[g])) * period
+    avail <- (length(data) %/% nbytes(g, period)) * period
     if (avail < n) n <- avail
   }
   for (g in lay$flacg) {
@@ -3652,47 +3717,56 @@ wfdb_freeinfo <- function() {
   if (st$istime == 0) {
     for (is in isd) is$samp <- is$info$initval
   }
+  pad <- bitwAnd(st$gvmode, WFDB_GVPAD) != 0
   spfs <- lay$spfs
   frames <- vector("list", nisig)
   for (g in seq_along(igd)) {
     ig <- igd[[g]]
-    if (!isflac[g]) .bulk_setbuf(ig, bufs[[g]], haves[g], n * bytes_per_frame[g], bsizes[g])
+    if (!isflac[g] && !isnull[g])
+      .bulk_setbuf(ig, bufs[[g]], haves[g], nbytes(g, n), bsizes[g])
     if (n == 0) next
     fmt <- lay$fmt[g]
     ng <- nn[g]
-    raws <- if (isflac[g]) flac_getsamps(ig, n * ng)$v else .decode_stream(fmt, bufs[[g]], n * ng)
+    if (!isnull[g])
+      raws <- if (isflac[g]) flac_getsamps(ig, n * ng)$v else .decode_stream(fmt, bufs[[g]], n * ng)
     inval <- lay$inval[g]
     for (s in lay$sl[[g]]) {
       is <- isd[[s]]
-      col <- if (ng == 1) raws else raws[lay$mask[[s]]]
-      if (fmt == 8) {
-        v <- cint32(cumsum(col) + is$samp)  # first differences
-        is$samp <- v[length(v)]
+      if (isnull[g]) {
+        # (a null signal: its last sample with WFDB_GVPAD, else invalid)
+        v <- rep(if (pad) is$samp else WFDB_INVALID_SAMPLE, n * spfs[s])
         cks <- sum(v)
       } else {
-        inv <- col == inval
-        cks <- sum(col)
-        if (any(inv)) {
-          if (bitwAnd(st$gvmode, WFDB_GVPAD) != 0) {
-            # an invalid sample repeats the last valid one
-            idx <- seq_along(col)
-            idx[inv] <- 0L
-            idx <- cummax(idx)
-            v <- rep(is$samp, length(col))
-            m <- idx > 0
-            v[m] <- col[idx[m]]
+        col <- if (ng == 1) raws else raws[lay$mask[[s]]]
+        if (fmt == 8) {
+          v <- cint32(cumsum(col) + is$samp)  # first differences
+          is$samp <- v[length(v)]
+          cks <- sum(v)
+        } else {
+          inv <- col == inval
+          cks <- sum(col)
+          if (any(inv)) {
+            if (pad) {
+              # an invalid sample repeats the last valid one
+              idx <- seq_along(col)
+              idx[inv] <- 0L
+              idx <- cummax(idx)
+              v <- rep(is$samp, length(col))
+              m <- idx > 0
+              v[m] <- col[idx[m]]
+            } else {
+              v <- col
+              v[inv] <- WFDB_INVALID_SAMPLE
+            }
+            valid <- which(!inv)
+            if (length(valid)) is$samp <- col[valid[length(valid)]]
           } else {
             v <- col
-            v[inv] <- WFDB_INVALID_SAMPLE
+            is$samp <- col[length(col)]
           }
-          valid <- which(!inv)
-          if (length(valid)) is$samp <- col[valid[length(valid)]]
-        } else {
-          v <- col
-          is$samp <- col[length(col)]
         }
       }
-      frames[[s]] <- if (ispfmax == 1) v else matrix(v, n, spfs[s], byrow = TRUE)
+      frames[[s]] <- if (ispfmax == 1 && spfs[s] == 1) v else matrix(v, n, spfs[s], byrow = TRUE)
       info <- is$info
       info$cksum <- cint32(info$cksum - cks)
       if (info$nsamp > 0) {
@@ -3704,8 +3778,25 @@ wfdb_freeinfo <- function() {
     }
   }
   st$istime <- st$istime + n
-  if (n == 0) return(matrix(0, 0, nisig))
-  if (full && ispfmax > 1) return(do.call(cbind, frames))
+  if (n == 0) return(matrix(0, 0, ncols))
+  if (need_sigmap) {
+    # the frames of the layout (getframe), split into its signals
+    raw <- do.call(cbind, frames)
+    st$ovec <- raw[n, ]
+    fr <- .bulk_sigmap(raw)
+    if (full || ispfmax == 1) return(fr[, seq_len(ncols), drop = FALSE])
+    spfs <- vapply(st$vsd[seq_len(nvsig)], function(vs) vs$info$spf, 0)
+    tp <- cumsum(c(0, spfs))
+    frames <- lapply(seq_len(nvsig), function(s) fr[, tp[s] + seq_len(spfs[s]), drop = FALSE])
+    st$tvector <- fr[n, ]
+  } else if (full && (ispfmax > 1 || st$framelen < st$tspf)) {
+    fr <- do.call(cbind, frames)
+    if (st$framelen < st$tspf)
+      fr <- cbind(fr, matrix(WFDB_INVALID_SAMPLE, n, st$tspf - st$framelen))
+    return(fr)
+  } else if (ispfmax > 1) {
+    st$tvector <- unlist(lapply(frames, function(f) f[n, ]), use.names = FALSE)
+  }
   if (ispfmax == 1) {
     out <- unlist(frames, use.names = FALSE)     # (dim<-: no copy)
     dim(out) <- c(n, nisig)
@@ -3726,22 +3817,19 @@ wfdb_freeinfo <- function() {
       out <- res
     }
   } else if (highres) {
-    # ispfmax vectors per frame; signal s gives sample floor(c*spf/ispfmax)
-    # of the frame at step c (as rgetvec's gvindex/gvcount)
-    out <- matrix(0, n * ispfmax, nisig)
-    cc <- 0:(ispfmax - 1)
-    for (s in seq_len(nisig)) {
-      idx <- floor(cc * spfs[s] / ispfmax) + 1
+    # ispfmax vectors per frame; at step c of a frame, signal s gives the
+    # sample of the frame that rgetvec's gvindex/gvcount select
+    out <- matrix(0, n * ispfmax, nvsig)
+    for (s in seq_len(nvsig)) {
+      idx <- .gvindex_steps(spfs[s], ispfmax) + 1
       out[, s] <- as.vector(t(frames[[s]][, idx, drop = FALSE]))
     }
     st$gvc <- ispfmax
     st$rgetvec_stat <- nisig
-    st$tvector <- unlist(lapply(frames, function(f) f[n, ]), use.names = FALSE)
   } else {
-    out <- matrix(0, n, nisig)
-    for (s in seq_len(nisig)) out[, s] <- .meansamp_rows(frames[[s]], spfs[s])
+    out <- matrix(0, n, nvsig)
+    for (s in seq_len(nvsig)) out[, s] <- .meansamp_rows(frames[[s]], spfs[s])
     st$rgetvec_stat <- nisig
-    st$tvector <- unlist(lapply(frames, function(f) f[n, ]), use.names = FALSE)
   }
   out
 }
@@ -3757,7 +3845,7 @@ wfdb_freeinfo <- function() {
 #' smaller than the number of signals in a segment that lacks some of them.)
 getframes <- function(n, minstat = 0) .getframes(n, minstat)
 
-# getframes; with keep_checksum_frame (wfdb-x, for the high-level reader),
+# getframes; with keep_checksum_frame (WFDB-x, for the high-level reader),
 # a vector for which getvec returns -4 (a checksum error: the samples are
 # valid, their sum does not match the header) is included in the matrix and
 # reading continues (in high-resolution mode, getvec returns -4 for each
@@ -3772,7 +3860,11 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
     return(list(v = matrix(0, 0, nsig), stat = r$stat))
   }
   if (n <= 0) return(list(v = matrix(0, 0, nsig), stat = nsig))
-  blk <- .bulk_frames(min(n, .BULK_MAXFRAMES))
+  # (blocks of a multiple of 6 frames, so that formats 212, 310 and 311 end
+  # each block on a whole packed unit)
+  per <- if (st$ispfmax > 1 && bitwAnd(st$gvmode, WFDB_HIGHRES) == WFDB_HIGHRES) st$ispfmax else 1
+  maxv <- .BULK_MAXFRAMES - .BULK_MAXFRAMES %% (6 * per)
+  blk <- .bulk_frames(min(n, maxv))
   if (!is.null(blk) && nrow(blk) >= n) return(list(v = blk, stat = nsig))
   # Otherwise: blocks decoded by .bulk_frames, and vectors read by getvec
   # (collected in acc) where it declines.
@@ -3811,7 +3903,7 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
       got <- got + 1
     }
     if (got >= n) break
-    blk <- .bulk_frames(min(n - got, .BULK_MAXFRAMES))
+    blk <- .bulk_frames(min(n - got, maxv))
   }
   if (nrows > 0) parts[[length(parts) + 1L]] <- acc[seq_len(nrows), , drop = FALSE]
   v <- if (length(parts) == 1L) parts[[1L]] else if (length(parts)) {

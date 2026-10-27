@@ -2,7 +2,7 @@
 //! WFDB-compatible format (port of `convert/ahaecg2mit.c`).
 //!
 //! Behaviors of the C program that are undefined are resolved as in the
-//! other wfdb-x implementations (see `docs/KNOWN_C_BEHAVIORS.md`): the
+//! other WFDB-x implementations (see `docs/KNOWN_C_BEHAVIORS.md`): the
 //! 16-byte line buffer of `readtxtdata` keeps the bytes of earlier lines of
 //! the same input file and is not NUL-terminated (bytes beyond it are
 //! treated as NUL), and the record name is made of the (up to 4) characters
@@ -10,7 +10,7 @@
 //! annotation are reset for each input file; with `-s`, a record name of
 //! fewer than 2 characters is left unchanged.
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of convert/ahaecg2mit.c from the WFDB Software
@@ -261,7 +261,7 @@ fn main() {
         match a[1] {
             b's' => sflag = true, // produce short-format (35-minute) records
             b'F' => {
-                // sampling frequency (wfdb-x)
+                // sampling frequency (WFDB-x)
                 i += 1;
                 if i >= argc || csscanf!(&argv[i], b"%lf", &mut par.freq) != 1 || par.freq <= 0.0 {
                     ceprintf!(b"%s: sampling frequency (> 0) must follow -F\n", pname);
@@ -269,7 +269,7 @@ fn main() {
                 }
             }
             b'G' => {
-                // gain in adu per physical unit (wfdb-x)
+                // gain in adu per physical unit (WFDB-x)
                 i += 1;
                 if i >= argc || csscanf!(&argv[i], b"%lf", &mut par.gain) != 1 || par.gain < 0.0 {
                     ceprintf!(b"%s: gain (>= 0) must follow -G\n", pname);
@@ -278,7 +278,7 @@ fn main() {
                 gset = true;
             }
             b'R' => {
-                // ADC resolution in bits (wfdb-x)
+                // ADC resolution in bits (WFDB-x)
                 i += 1;
                 if i >= argc
                     || csscanf!(&argv[i], b"%d", &mut par.adcres) != 1
@@ -289,7 +289,7 @@ fn main() {
                 }
             }
             _ => {
-                // physical units (wfdb-x)
+                // physical units (WFDB-x)
                 i += 1;
                 if i >= argc {
                     ceprintf!(b"%s: units must follow -U\n", pname);

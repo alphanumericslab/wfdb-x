@@ -7,7 +7,7 @@
 # distribution of the AHA database on floppy disk; a2m can perform the
 # reverse conversion, however.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 #
 # It is a Julia translation of convert/m2a.c from the WFDB Software Package
@@ -68,7 +68,7 @@ function m2a_main(args::Vector{String})
                 ianame = argv[i]
                 i += 1
                 oaname = argv[i]
-            elseif c == UInt8('F') && !legacy   # sampling frequency follows (wfdb-x)
+            elseif c == UInt8('F') && !legacy   # sampling frequency follows (WFDB-x)
                 i += 1
                 ffreq = _annapp_ffreq(pname, argv, i, argc)
             elseif c == UInt8('h')      # help requested

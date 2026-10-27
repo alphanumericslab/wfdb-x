@@ -13,16 +13,16 @@ function [P, ok] = sigparams(pname, P, which)
 %       PNAME: the ADC resolution must be specified (-R)
 %       PNAME: the units must be specified (-U)
 %   and returns OK = false (the tool then exits with status 1).  The units
-%   are required only if the gain is not 0.  wfdb-x has no built-in signal
+%   are required only if the gain is not 0.  WFDB-x has no built-in signal
 %   parameters (see docs/DIVERGENCES.md).
 %
 %   See also wfdbx.internal.opt_sigparam.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It has no counterpart in the original package. wfdb-x never assumes a
+% It has no counterpart in the original package. WFDB-x never assumes a
 % sampling frequency, gain, ADC resolution or units (see
 % docs/DIVERGENCES.md).
 %

@@ -6,9 +6,9 @@
 # command-line tools do. Each takes an optional `Wfdb` first argument (the
 # default instance otherwise), whose state it uses and resets with
 # `wfdbquit`. Errors are thrown as `WfdbError`. In the examples below,
-# "100s" is the sample record included with wfdb-x (the first minute of
+# "100s" is the sample record included with WFDB-x (the first minute of
 # record 100 of the MIT-BIH Arrhythmia Database), read from tests/data in a
-# copy of the wfdb-x repository, and "new" is a record written by the
+# copy of the WFDB-x repository, and "new" is a record written by the
 # example:
 #
 #     wfdbx_set_input_dir("/path/to/wfdb-x/tests/data")
@@ -38,13 +38,15 @@
 # behaves as the original package did (see `_with_legacy`). A checksum error
 # (getvec status -4: the samples are complete, their sum does not match the
 # header's checksums) is not an error of read_record but a warning
-# (checksum_warning=false: none); the data are returned.
+# (checksum_warning=false: none); the data are returned. The signal
+# descriptions that read_record and read_header give have no white space at
+# either end, in both modes (the C-style functions keep it).
 #
 # Strings read from files (signal descriptions, comments, annotation
 # mnemonics and aux strings) are byte strings (`Vector{UInt8}`), as
 # everywhere in the library; string arguments may be `String`s.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #
@@ -88,7 +90,7 @@ The signals of a record, or of part of one, as returned by
 - `siginfo::Vector{Siginfo}`: the specifications of each signal: `desc`,
   `units`, `gain`, `baseline`, `adcres`, `fmt`, ... (see
   [`Siginfo`](@ref)). `units` is `nothing` and `adcres` is 0 when the
-  header does not give them.
+  header does not give them. `desc` has no white space at either end.
 - `base_time::Union{Nothing,String}`: the start time and date as text, to
   the second, such as `"[14:00:03 21/06/2024]"`.
 - `base_time_ms::Union{Nothing,Int64}`: the start time in milliseconds
@@ -141,7 +143,7 @@ The header of a record, as returned by [`read_header`](@ref).
 - `nsig::Int`: the number of signals.
 - `siginfo::Vector{Siginfo}`: the specifications of each signal: signal
   file name, format, gain, baseline, units, description, ... (see
-  [`Siginfo`](@ref)).
+  [`Siginfo`](@ref)). The description has no white space at either end.
 - `base_time`, `base_time_ms`, `base_date`, `comments`: as in
   [`Record`](@ref).
 """
@@ -187,9 +189,10 @@ end
     signal_names(rec::Record) -> Vector{Vector{UInt8}}
 
 Return the description of each signal of `rec`, such as `"MLII"`, as
-bytes. Use `String.(signal_names(rec))` to get `String`s.
+bytes, without the white space that a header may put at either end of it.
+Use `String.(signal_names(rec))` to get `String`s.
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 signal_names(rec::Record) = Vector{UInt8}[copy(_ostr(si.desc)) for si in rec.siginfo]
 
@@ -206,8 +209,8 @@ the gain of a signal is 0. `legacy=true` behaves as the original package
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository:
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository:
 ```julia-repl
 julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
 
@@ -219,7 +222,7 @@ julia> physical(rec)
  -0.145  -0.065
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function physical(rec::Record; legacy::Bool=false)
     legacy = _legacy(lib(), legacy)     # the default library's mode
@@ -272,7 +275,7 @@ than `samples`. The missing elements are taken as 0, or no auxiliary text.
 # Examples
 The example writes the annotation file `100s.test` in the current directory
 (the output directory), for the record `100s` (the sample record of
-wfdb-x, the first minute of record 100 of the MIT-BIH Arrhythmia Database):
+WFDB-x, the first minute of record 100 of the MIT-BIH Arrhythmia Database):
 ```julia-repl
 julia> ann = Annotations(samples=[100, 460], symbols=[b"N", b"V"]);
 
@@ -399,8 +402,8 @@ Throws a [`WfdbError`](@ref) if the header cannot be read.
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository:
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository:
 ```julia-repl
 julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
 
@@ -418,7 +421,7 @@ julia> si = h.siginfo; si[1].fmt, si[1].gain, si[1].adcres, si[1].nsamp
 (212, 200.0, 11, 21600)
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function read_header(w::Wfdb, record::ByteStr; input_dir::OptByteStr=nothing,
                      network::Union{Nothing,Bool}=nothing, legacy::Bool=false)
@@ -432,6 +435,7 @@ function _read_header(w::Wfdb, record::ByteStr)
     n < 0 && _hl_fail(w, "can't read header for record $(_lossy(record))")
     si = [Siginfo() for _ in 1:n]
     n > 0 && isigopen(w, record, si, -n)
+    _strip_desc!(si)
     st = w.sig
     fs = sampfreq(w, nothing)
     nsamples = st.in_msrec != 0 ? st.msnsamples : st.nsamples
@@ -447,6 +451,27 @@ read_header(record::ByteStr; kw...) = read_header(lib(), record; kw...)
 "Number of frames read per call of `getvecs` by `read_record`."
 const READ_BLOCK = 65536
 
+# White space (C isspace).
+_c_space(c::UInt8) = c == 0x20 || 0x09 <= c <= 0x0d
+
+# The description d without the white space at both ends.
+function _strip_space(d::AbstractVector{UInt8})
+    a = findfirst(!_c_space, d)
+    a === nothing && return UInt8[]
+    Vector{UInt8}(d[a:findlast(!_c_space, d)])
+end
+
+# The Siginfo objects si with the white space at both ends of each
+# description removed. wfdb-x: the high-level readers give the signal names
+# without the spaces that some headers end them with (C keeps them, as the
+# C-style functions do).
+function _strip_desc!(si::Vector{Siginfo})
+    for s in si
+        s.desc === nothing || (s.desc = _strip_space(cstr(s.desc)))
+    end
+    si
+end
+
 """
     read_record([w::Wfdb], record; channels=nothing, from=0, to=nothing,
                 highres=false, pad=false, checksum_warning=true,
@@ -459,8 +484,8 @@ from the input directory, or a full path, `~` path or URL.
 
 # Keyword arguments
 - `channels`: the signals to read, in the order given, by number (`0` is
-  the first signal) or by name, such as `"V5"`. `nothing`, the default,
-  reads all signals.
+  the first signal) or by name, such as `"V5"` (as in
+  [`signal_names`](@ref)). `nothing`, the default, reads all signals.
 - `from`, `to`: the first sample, and the sample after the last one. An
   integer is a sample number. A string is a WFDB time string: `"0:10"`
   (10 seconds), `"1:02:03.5"`, `"s3600"` (sample 3600) or `"e"` (the end
@@ -493,8 +518,8 @@ Throws a [`WfdbError`](@ref) if:
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository:
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository:
 ```julia-repl
 julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
 
@@ -518,7 +543,7 @@ julia> rec = read_record("100"; input_dir="https://physionet.org/files/mitdb/1.0
                          network=true);     # record 100 of the MIT-BIH Arrhythmia Database, from PhysioNet
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function read_record(w::Wfdb, record::ByteStr; channels=nothing, from=0, to=nothing,
                      highres::Bool=false, pad::Bool=false, input_dir::OptByteStr=nothing,
@@ -545,12 +570,24 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     t0 = _resolve_time(w, from, rname)
     t1 = to === nothing ? nothing : _resolve_time(w, to, rname)
 
+    _strip_desc!(si)
     cols = Int[]
     if channels === nothing
         append!(cols, 1:nsig)
     else
         for c in channels
-            k = findsig(w, c isa Integer ? string(c) : c)
+            # (a name: among the names without white space first)
+            k = Int32(-1)
+            if !(c isa Integer)
+                name = _strip_space(cstr(bytes(c)))
+                for j in 1:nsig
+                    if si[j].desc == name
+                        k = Int32(j - 1)
+                        break
+                    end
+                end
+            end
+            k < 0 && (k = findsig(w, c isa Integer ? string(c) : c))
             (k < 0 || k >= nsig) && _hl_fail(w, "record $rname has no signal $c")
             push!(cols, k + 1)
         end
@@ -571,12 +608,17 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     # (not more than about 1 GiB at first: a header may overstate the length)
     expect = clamp(expect, Int64(1), max(Int64(1), (Int64(1) << 28) ÷ nsig))
     all = Vector{Int32}(undef, expect * nsig)
+    # (a multiple of 6 frames per call, so that formats 212, 310 and 311
+    # end each call on a whole packed unit: the frames are then read in
+    # bulk)
+    unit = 6 * (highres ? max(Int64(st.ispfmax), 1) : Int64(1))
+    block = Int64(READ_BLOCK) - Int64(READ_BLOCK) % unit
     nframes = Int64(0)
     cksum_error = false
     st.cksum_quiet = true
     try
         while remaining === nothing || remaining > 0
-            n = remaining === nothing ? Int64(READ_BLOCK) : min(remaining, Int64(READ_BLOCK))
+            n = remaining === nothing ? block : min(remaining, block)
             nframes + n > length(all) ÷ nsig &&
                 resize!(all, max(2 * length(all), (nframes + n) * nsig))
             got, stat = _getvecs_into(w, all, Int(nframes * nsig), n, true)
@@ -656,8 +698,8 @@ such as a truncated file (`"can't read annotation file ANN of record REC
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository:
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository:
 ```julia-repl
 julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
 
@@ -673,7 +715,7 @@ julia> length(read_annotations("100s", "atr"; from="0:10", to="0:20"))
 12
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr; from=nothing,
                           to=nothing, fs::Union{Nothing,Real}=nothing,
@@ -759,7 +801,7 @@ function _gain(gains, k::Int, legacy::Bool)
 end
 
 # The ADC resolution that write_record used by default for signal format
-# fmt before wfdb-x (legacy mode): 8 for formats 80 and 508, 10 for 310 and
+# fmt before WFDB-x (legacy mode): 8 for formats 80 and 508, 10 for 310 and
 # 311, 12 for 212, 24 for 24 and 524, 32 for 32, and 16 otherwise.
 _legacy_write_adcres(fmt::Integer) =
     (fmt == 80 || fmt == 508) ? Int32(8) : fmt == 212 ? Int32(12) :
@@ -914,8 +956,8 @@ Throws a [`WfdbError`](@ref) if:
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository; the record `new` is written by the example, in
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository; the record `new` is written by the example, in
 the current directory (the output directory):
 ```julia-repl
 julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
@@ -931,7 +973,7 @@ new.dat 212 200/mV 11 0 995 -17352 0 MLII
 new.dat 212 200/mV 11 0 1011 1171 0 V5
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::Real;
                       fmt::Integer=16, gains=nothing, baselines=nothing, adczeros=0,
@@ -974,7 +1016,7 @@ julia> write_record_physical("rand", x, 360; gains=1000, adcres=16, units="mV",
                              names=["A", "B"])
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real;
                                fmt::Integer=16, gains=nothing, baselines=nothing,
@@ -1051,8 +1093,8 @@ does not exist, or if `record` contains a directory and `dir` is given.
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
-Arrhythmia Database, which is included with wfdb-x in `tests/data` of a copy
-of the wfdb-x repository; the annotation files `100s.cpy` and `100s.qrs`
+Arrhythmia Database, which is included with WFDB-x in `tests/data` of a copy
+of the WFDB-x repository; the annotation files `100s.cpy` and `100s.qrs`
 are written by the example, in the current directory (the output directory):
 ```julia-repl
 julia> wfdbx_set_input_dir("/path/to/wfdb-x/tests/data");
@@ -1067,7 +1109,7 @@ true
 julia> write_annotations("100s", "qrs", Annotations(samples=[100, 460], symbols=[b"N", b"V"]))
 ```
 
-Part of wfdb-x; not in the original WFDB package.
+Part of WFDB-x; not in the original WFDB package.
 """
 function write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations;
                            fs::Real=0.0, sort::Union{Nothing,Bool}=nothing, dir=nothing,
@@ -1143,6 +1185,9 @@ register_workload("highlevel") do
         rec = read_record(w, "100s"; to="0:1")
         physical(rec); signal_names(rec)
         read_record(w, "100s"; channels=[1], from=10, to=20, highres=true, pad=true)
+        # (the bulk path: multi-frequency and multi-segment records)
+        read_record(w, "mfreq"; channels=["fast"]); read_record(w, "mfreq"; highres=true)
+        read_record(w, "multi"); read_record(w, "vlay"; pad=true)
         write_record(w, "hlw", rec.samples, rec.fs; gains=[200.0], adcres=[11], units="mV",
                      names=["a", "b"], comments=["c"], base_time="12:00:00 01/01/2020")
         write_record_physical(w, "hlp", physical(rec), rec.fs; fmt=212, units="mV",

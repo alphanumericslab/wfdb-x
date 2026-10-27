@@ -4,17 +4,17 @@ function frame = flac_encode_frame(block, bps, frame_no)
 %   the bytes (uint8 row) of FLAC frame number FRAME_NO (0-based) holding
 %   the samples BLOCK (one row per channel, integers that fit in BPS bits;
 %   BPS is 8, 16 or 24), exactly as the encoder of the Python
-%   implementation of wfdb-x writes it: independent channels, each coded as
+%   implementation of WFDB-x writes it: independent channels, each coded as
 %   a constant, fixed-predictor (order 0 to 4, the cheapest) or verbatim
 %   subframe, with Rice partitions (partition order 0 to 6) whose
 %   parameters are chosen near the mean of the folded residuals; a 96 kHz
 %   sample rate is recorded.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
-% has no counterpart in the original package: it is wfdb-x's own implementation
+% has no counterpart in the original package: it is WFDB-x's own implementation
 % of the FLAC format, which the original package reads and writes with libFLAC.
 %
 % Copyright (C) 2026 Reza Sameni.

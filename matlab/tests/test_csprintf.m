@@ -2,9 +2,9 @@ function test_csprintf()
 %TEST_CSPRINTF Tests of wfdbx.internal.csprintf against glibc printf.
 %   The expected strings were produced by glibc printf() on x86-64 Linux.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-% It tests wfdb-x; it has no counterpart in the original package.
+% It tests WFDB-x; it has no counterpart in the original package.
 %
 % Copyright (C) 2026 Reza Sameni.
 %

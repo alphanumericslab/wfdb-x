@@ -12,7 +12,7 @@
 //     AHA code is ignored.
 //  1  Standard AHA annotation files from short-format AHA DB distribution
 //     tapes. Time is measured in milliseconds from the beginning of the test
-//     period (five minutes after the first sample); wfdb-x converts
+//     period (five minutes after the first sample); WFDB-x converts
 //     milliseconds at the sampling frequency of the record (or -F), where
 //     the C program assumed 4 ms per sample interval (250 Hz).
 //  2  Standard AHA annotation files from long-format AHA DB distribution
@@ -28,7 +28,7 @@
 // record name, and reports the directory as unreadable (see
 // docs/KNOWN_C_BEHAVIORS.md).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of convert/a2m.c from the WFDB Software Package
@@ -81,7 +81,7 @@ private val A2M_HELP = arrayOf(
     "                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)",
 )
 
-/** wfdb-x: the help lines added by wfdb-x (left out in legacy mode). */
+/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val A2M_WFDBX_HELP = setOf(
     " -F FREQ       sampling frequency, if the record header does not specify",
     "                one (AHA database: 250)",
@@ -138,7 +138,7 @@ private fun getcann(input: WfdbFile, ap: Annotation): Int {
 
 /**
  * A time in milliseconds, in sample intervals at the record's sampling
- * frequency (wfdb-x; C, and legacy mode, assumed 4 ms per sample interval).
+ * frequency (WFDB-x; C, and legacy mode, assumed 4 ms per sample interval).
  */
 private fun Wfdb.msToSamples(t: Long, legacy: Boolean): Long {
     if (legacy) return t shr 2 // wfdb-x: legacy mode: 4 msec/sample
@@ -179,7 +179,7 @@ fun Wfdb.a2mMain(argv0: Array<ByteArray>): Int {
                         eprintf("%s: unrecognized option %s\n", pname, a)
                         exit(1)
                     }
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i++
                     if (i >= argc || sscanf(argv[i], "%lf", ffreq) != 1 || ffreq.v <= 0.0) {
                         eprintf("%s: sampling frequency (> 0) must follow -F\n", pname)
@@ -247,7 +247,7 @@ fun Wfdb.a2mMain(argv0: Array<ByteArray>): Int {
     }
 
     // Attach the input file to the standard input.
-    // (C reads a directory forever; wfdb-x reports it as unreadable)
+    // (C reads a directory forever; WFDB-x reports it as unreadable)
     if (!beq(ifname, "-") && (Platform.isDirectory(ifname) || !freopen_stdin(ifname))) {
         eprintf("%s: can't read input file `%s'\n", pname, ifname)
         exit(2)
@@ -324,7 +324,7 @@ fun Wfdb.a2mMain(argv0: Array<ByteArray>): Int {
             }
         }
         // Times in milliseconds are converted at the sampling frequency of
-        // the record (wfdb-x; the C program assumed 4 ms per sample, i.e.,
+        // the record (WFDB-x; the C program assumed 4 ms per sample, i.e.,
         // 250 Hz, whatever the record's frequency, as legacy mode does).
         FT_SHORT, FT_LONG -> {
             while (getann(0, annot) >= 0) {

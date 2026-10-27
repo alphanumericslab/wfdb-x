@@ -3,7 +3,7 @@
 // adumuv, muvadu, aduphys, physadu), part of the port of signal.c (see
 // Signal.kt; through rust/src/signal.rs).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of lib/signal.c from the WFDB Software Package
@@ -355,13 +355,13 @@ private fun Wfdb.nofreqTimstr(func: String, t: Long): ByteArray {
 }
 
 /**
- * wfdb-x addition (C `wfdbx_time_needs_freq(string)`): whether [strtim]
+ * WFDB-x addition (C `wfdbx_time_needs_freq(string)`): whether [strtim]
  * needs a sampling frequency to convert [string]. Returns 0 if string
  * (after leading spaces, tabs, newlines and carriage returns) begins with
  * e, i, o or s, or with c while the counter frequency is not positive; 1
  * otherwise.
  *
- * Part of wfdb-x; not in the original WFDB package.
+ * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_time_needs_freq(string: ByteArray): Int {
     var first = 0
@@ -677,10 +677,10 @@ fun strtim(string: ByteArray): Long = wfdbDefault().strtim(string)
 /** C `strtim` on the default instance (see [Wfdb.strtim]). */
 fun strtim(string: String): Long = wfdbDefault().strtim(string)
 
-/** wfdb-x addition: `wfdbx_time_needs_freq` on the default instance (see [Wfdb.wfdbx_time_needs_freq]). */
+/** WFDB-x addition: `wfdbx_time_needs_freq` on the default instance (see [Wfdb.wfdbx_time_needs_freq]). */
 fun wfdbx_time_needs_freq(string: ByteArray): Int = wfdbDefault().wfdbx_time_needs_freq(string)
 
-/** wfdb-x addition: `wfdbx_time_needs_freq` on the default instance (see [Wfdb.wfdbx_time_needs_freq]). */
+/** WFDB-x addition: `wfdbx_time_needs_freq` on the default instance (see [Wfdb.wfdbx_time_needs_freq]). */
 fun wfdbx_time_needs_freq(string: String): Int = wfdbDefault().wfdbx_time_needs_freq(string)
 
 /** C `datstr` on the default instance (see [Wfdb.datstr]). */

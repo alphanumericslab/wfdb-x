@@ -1,6 +1,6 @@
 # Deliberate divergences from the C implementation
 
-wfdb-x reproduces the WFDB Software Package 10.7.0 exactly, with the
+WFDB-x reproduces the WFDB Software Package 10.7.0 exactly, with the
 exceptions described here: **it has no built-in signal parameters**, it
 **finds files only where they are named** (no search path, and no network
 access unless the user asks for it), it **sorts out-of-order annotation
@@ -45,7 +45,7 @@ ECG at all.
 A silent default is worse than an error. Every time, duration, interval,
 resampled signal and physical value computed from a wrong default is wrong,
 the error propagates to every file and result derived from it, and nothing
-in the output says that a value was assumed. wfdb-x therefore never assumes
+in the output says that a value was assumed. WFDB-x therefore never assumes
 any of these four parameters: it uses the values given in the record, or
 values given explicitly by the user, and reports an error when an operation
 needs a value that is not available. Where an output must still show a
@@ -192,14 +192,14 @@ that are easy to miss:
 * **Outdated defaults.** The default URL is no longer where PhysioNet serves
   its files (`https://physionet.org/files/<database>/<version>/`).
 
-### What wfdb-x does instead
+### What WFDB-x does instead
 
 A name says exactly where the file is, and nothing else is tried:
 
 | The name is | Read from | Written to |
 |---|---|---|
 | an absolute path: `/data/100`, `C:\data\100`, `\\server\share\100` | that path | that path |
-| a home path: `~/data/100`, `~user/data/100` | the home directory (expanded by wfdb-x) | the same |
+| a home path: `~/data/100`, `~user/data/100` | the home directory (expanded by WFDB-x) | the same |
 | a URL: `https://.../100` | that URL, if network access is on | (not possible) |
 | anything else: `100`, `mitdb/100`, `../other/100` | the **input directory** + the name | the **output directory** + the name |
 
@@ -312,7 +312,7 @@ any, is found on the `PATH`, starts a separate process from inside a
 library, and passes the record and annotator names through a shell
 unquoted, so a name with a space or a shell character breaks it.
 
-wfdb-x sorts the file itself, in the same process. The file it writes is
+WFDB-x sorts the file itself, in the same process. The file it writes is
 byte-for-byte the one `sortann` writes (except where the original loses
 annotations; see the next section): the same order (by time, then
 annotation number, then channel; a later annotation with the same time,
@@ -355,7 +355,7 @@ insertion point mistakes the list's empty head entry for an annotation at
 that location. The same happens when the library sorts a file it wrote,
 since it runs `sortann`.
 
-wfdb-x never compares the head entry with an annotation, so such an
+WFDB-x never compares the head entry with an annotation, so such an
 annotation is put at the beginning of the list, where it belongs (5, 0, 3
 give 0, 3, 5). Nothing else about the sorting changes: the order, the
 replacement of an annotation by a later one at the same time, number and
@@ -378,7 +378,7 @@ truncates it, while still reading it: the input is destroyed, and what is
 read depends on how much of it the C library had read ahead (on glibc,
 4096-byte blocks), so the result differs between platforms.
 
-wfdb-x refuses to create an output signal file that is the same file as a
+WFDB-x refuses to create an output signal file that is the same file as a
 signal file of the record open for reading (the same file, not the same
 name: links and different spellings of a path are recognized; files are
 compared by device and inode number, by file ID on Windows, through
@@ -404,7 +404,7 @@ nothing at all when the standard output cannot be written, or when a file
 that a tool writes itself (the EDF file of `mit2edf`, for example) fails. A
 script that checks the exit status cannot tell that its output is missing.
 
-wfdb-x's tools follow the convention of the standard Unix tools: **when an
+WFDB-x's tools follow the convention of the standard Unix tools: **when an
 output file or the standard output cannot be written, the exit status is
 1**. The library's messages are unchanged. A standard output that cannot be
 written is reported as `PROGRAM: write error on standard output`, and a file
@@ -428,7 +428,7 @@ have no legacy counterpart:
   `write_annotations` take an output directory (`dir`). The files are
   created there, and the header names the record and its signal file
   without the directory, so the record opens from that directory under its
-  plain name. With the C library (and wfdb-x's C-style API and tools,
+  plain name. With the C library (and WFDB-x's C-style API and tools,
   which follow it), writing to another directory means giving a record
   name such as `out/rec`, which the header then records as `out/rec`, so
   the record cannot be opened from inside `out/`; the alternative,
@@ -451,18 +451,27 @@ have no legacy counterpart:
   message, is identical in all seven implementations. It looks for problems
   similar to those found by Benjamin Moody's
   [wfdbcheck](https://github.com/bemoody/wfdbcheck), a separate C program;
-  wfdb-x's checker was written independently.
+  WFDB-x's checker was written independently.
 * **Fast reading and writing.** The high-level functions read and write
   whole blocks of samples, and `write_annotations` encodes a whole MIT
   annotation file at once, instead of going sample by sample or
   annotation by annotation through the C-style functions. The multi-frame
   readers added to the C-style API (`getframes` in Python, R and
   MATLAB/Octave, `getvecs` in C++, Rust, Julia and Kotlin) decode whole
-  blocks as well. The
-  samples and files are exactly those of the frame-by-frame path; only the
-  frame at which a checksum is verified, and anything not stored in plain
-  blocks (skewed, multi-segment or multi-frequency records, for example),
+  blocks as well, including records of several sampling frequencies (in
+  low and high resolution) and multi-segment records (of fixed or variable
+  layout, null segments included). The samples and files are exactly those
+  of the frame-by-frame path; only the frame at which a checksum is
+  verified, the change from one segment to the next, and records that need
+  more than reading in order (skewed or resampled signals, FLAC files),
   go through it.
+* **Signal names without surrounding spaces.** Some headers end a signal's
+  description with spaces (`ABP `, in the MIMIC Database, for example).
+  The C library keeps them, so `findsig("ABP")` does not find that signal.
+  The high-level readers (`read_record`, `read_header`) give the names
+  without white space at either end, and `read_record` finds a channel by
+  that name. The C-style functions and the tools keep the descriptions as
+  the C library does.
 * **The record header and the start time as numbers.** `read_header`
   returns the header of a record without opening its signal files: the
   sampling and counter frequencies, the base counter value, the number of
@@ -509,10 +518,10 @@ described above.
 
 * **Tools.** `--legacy` as the *first* argument of any of the tools
   (`rdsamp --legacy -r 100s -t 10`, `rdann --legacy -r 100s -a atr`, ...,
-  where `100s` is the sample record included with wfdb-x, the first minute of
+  where `100s` is the sample record included with WFDB-x, the first minute of
   record 100 of the MIT-BIH Arrhythmia Database) is
   removed before the options are parsed, and the tool then behaves exactly
-  as the original one: same options (the options added by wfdb-x, such as
+  as the original one: same options (the options added by WFDB-x, such as
   `-F` in `rdann` or `-R` in `wrsamp`, are unrecognized), outputs, messages,
   help texts and exit statuses. `--legacy` anywhere else is not recognized.
 * **Library.** `wfdbx_set_legacy(1)` turns legacy mode on and
@@ -532,7 +541,7 @@ described above.
   written, and headers name records and files as given. The input directory and `WFDBX_NETWORK` are not used in
   legacy mode, which reads no remote files; the output directory is used
   (see [Additions](#additions)).
-* **High-level API** (an addition of wfdb-x, not part of the C package).
+* **High-level API** (an addition of WFDB-x, not part of the C package).
   `read_record`, `read_header`, `read_annotations`, `write_record` and the
   related functions of each language take a legacy option. When the option
   is set, or the library is in legacy mode (`wfdbx_set_legacy(1)`), they

@@ -1,11 +1,11 @@
 # Tests of the FLAC codec (flac.jl), ported from the tests of
 # rust/src/flac.rs. The expected digests of the encoder output were computed
-# by the Python implementation of wfdb-x (the C++ and Rust encoders write
+# by the Python implementation of WFDB-x (the C++ and Rust encoders write
 # the same bytes).
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-# It tests wfdb-x; it has no counterpart in the original package.
+# It tests WFDB-x; it has no counterpart in the original package.
 #
 # Copyright (C) 2026 Reza Sameni.
 #

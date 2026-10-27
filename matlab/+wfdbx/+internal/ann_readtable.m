@@ -1,7 +1,7 @@
 function [stat, ia, defs] = ann_readtable(ia, defs)
 %ANN_READTABLE Read the annotation table of an input annotator structure.
 %   [STAT, IA, DEFS] = wfdbx.internal.ann_readtable(IA, DEFS) is the body of
-%   get_ann_table (wfdb-x), for the input annotator structure IA (just
+%   get_ann_table (WFDB-x), for the input annotator structure IA (just
 %   opened) and the definition table DEFS (see wfdbx.internal.ann_defs:
 %   the library's, or one of wfdbx.internal.ann_sortfile): it reads the
 %   NOTE annotations at time 0 at the start of the file, sets IA.afreq from
@@ -13,7 +13,7 @@ function [stat, ia, defs] = ann_readtable(ia, defs)
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software

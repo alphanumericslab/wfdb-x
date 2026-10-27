@@ -30,7 +30,7 @@ function status = ad2m(args)
 %   docs/DIVERGENCES.md.
 %
 %   Example (1201.CMP, a synthetic signal file in the format of the AHA
-%   Database, is in the folder tests/data of a copy of the wfdb-x
+%   Database, is in the folder tests/data of a copy of the WFDB-x
 %   repository; the example writes the record adm in the current folder):
 %       wfdbx.apps.ad2m({'-i', '/path/to/wfdb-x/tests/data/1201.CMP', ...
 %           '-r', 'adm', '-F', '250', ...
@@ -42,7 +42,7 @@ function status = ad2m(args)
 %   options and output. Differences: -F, -G, -R and -U are new and required;
 %   see docs/DIVERGENCES.md.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of convert/ad2m.c from the WFDB Software
@@ -151,7 +151,7 @@ while i < argc
                 if legacy   % wfdb-x: as in the C program
                     start_time = wfdbx.strtim(argv{i+1});
                 else
-                    fstr = argv{i+1};   % converted once -F is known (wfdb-x)
+                    fstr = argv{i+1};   % converted once -F is known (WFDB-x)
                 end
             case 'h'
                 help(pname);
@@ -183,9 +183,9 @@ while i < argc
                 if legacy   % wfdb-x: as in the C program
                     end_time = wfdbx.strtim(argv{i+1});
                 else
-                    tstr = argv{i+1};   % converted once -F is known (wfdb-x)
+                    tstr = argv{i+1};   % converted once -F is known (WFDB-x)
                 end
-            case {'F', 'G', 'R', 'U'}   % signal parameters (wfdb-x)
+            case {'F', 'G', 'R', 'U'}   % signal parameters (WFDB-x)
                 [P, i, ok] = wfdbx.internal.opt_sigparam(argv, i, P);
                 if ~ok
                     status = 1;

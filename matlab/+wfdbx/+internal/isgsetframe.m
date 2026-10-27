@@ -7,7 +7,7 @@ function stat = isgsetframe(g, t)
 %
 %   Translation of the C function isgsetframe() (lib/signal.c, WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/signal.c from the WFDB Software
@@ -15,7 +15,9 @@ function stat = isgsetframe(g, t)
 % behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: none, apart from the language.
+% Changes from the original: a seek drops the blocks read ahead by the bulk
+% reader. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+% gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
@@ -229,6 +231,7 @@ if ig.seek
         i = S.ibsize;
     end
     tt = fix(nb / i);
+    ig.ahead = zeros(1, 0, 'uint8');    % (wfdb-x: the bulk reader's blocks)
     if isempty(ig.fp) || ig.fp.seek(tt * i, 0)
         wfdbx.internal.wfdb_error('isigsettime: improper seek on signal group %d\n', g);
         stat = -1;

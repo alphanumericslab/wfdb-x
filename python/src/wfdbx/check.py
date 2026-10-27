@@ -9,7 +9,7 @@ every problem that it finds, each with a severity:
            and may give wrong results
   info     a fact worth knowing, such as invalid (missing) samples
 
-Example, with the sample record 100s, included with wfdb-x (the first minute
+Example, with the sample record 100s, included with WFDB-x (the first minute
 of record 100 of the MIT-BIH Arrhythmia Database, in the directory
 ``wfdbx.sample_data_dir()``)::
 
@@ -22,7 +22,7 @@ of record 100 of the MIT-BIH Arrhythmia Database, in the directory
 It checks for problems similar to those found by Benjamin Moody's
 wfdbcheck (https://github.com/bemoody/wfdbcheck).
 
-This file is part of wfdb-x, an independent reimplementation of the WFDB
+This file is part of WFDB-x, an independent reimplementation of the WFDB
 Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin. It
 has no counterpart in the original package.
 
@@ -34,10 +34,10 @@ Foundation, either version 3 of the License, or (at your option) any later
 version. See LICENSE.
 """
 
-# Developer notes.  check_record is a wfdb-x addition, specified in the same
+# Developer notes.  check_record is a WFDB-x addition, specified in the same
 # way for the seven languages (the messages, their order and the formatting of
 # numbers are identical); the Python implementation is the reference.  The
-# checks were designed for wfdb-x; no code or text of wfdbcheck was used.
+# checks were designed for WFDB-x; no code or text of wfdbcheck was used.
 # The record is read with the library's functions (isigopen, getvec in bulk,
 # getseginfo, annopen, getann, annstr); the header file's text is read only
 # for the checks of its lines and of the record name.
@@ -831,7 +831,7 @@ def check_record(record, annotators=(), *, input_dir=None, network=None):
     It checks for problems similar to those found by Benjamin Moody's
     wfdbcheck (https://github.com/bemoody/wfdbcheck).
 
-    Part of wfdb-x; not in the original WFDB package.
+    Part of WFDB-x; not in the original WFDB package.
     """
     if not isinstance(record, str):
         raise TypeError("record must be a string")

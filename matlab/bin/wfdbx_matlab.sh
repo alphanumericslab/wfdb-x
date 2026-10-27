@@ -1,9 +1,9 @@
 #!/bin/sh
-# wfdbx_matlab.sh: command-line driver of wfdb-x for MATLAB.
+# wfdbx_matlab.sh: command-line driver of WFDB-x for MATLAB.
 #
 # Usage: wfdbx_matlab.sh TOOL [ARGUMENTS ...]
 #
-# Runs the wfdb-x tool TOOL (e.g. rdsamp) in MATLAB (`matlab -batch`), as the
+# Runs the WFDB-x tool TOOL (e.g. rdsamp) in MATLAB (`matlab -batch`), as the
 # C program of the same name would be run, and exits with its status.
 #
 # * MATLAB cannot read its standard input, so the standard input is first
@@ -24,7 +24,7 @@
 #   printed and the exit status is kept.
 # * The MATLAB command is `matlab` (in the PATH), or $WFDBX_MATLAB.
 #
-# This file is part of wfdb-x, an independent reimplementation of the WFDB
+# This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 # It has no counterpart in the original package.
 #

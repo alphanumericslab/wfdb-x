@@ -13,7 +13,7 @@
 //! `.wav` as the record name, and 0 as the number of samples (see
 //! `docs/KNOWN_C_BEHAVIORS.md`).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of convert/wav2mit.c from the WFDB Software Package
@@ -87,7 +87,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b" -U UNITS   physical units (required unless the gain is 0)",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by wfdb-x, left out of the
+/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] = &[
     b" -G GAIN    gain in adu per physical unit (required; 0: uncalibrated)",
@@ -127,7 +127,7 @@ fn main() {
         if argv[i].first() == Some(&b'-') {
             match argv[i].get(1).copied().unwrap_or(0) {
                 b'G' if !legacy => {
-                    // gain in adu per physical unit (wfdb-x)
+                    // gain in adu per physical unit (WFDB-x)
                     i += 1;
                     if i >= argc || csscanf!(&argv[i], b"%lf", &mut ggain) != 1 || ggain < 0.0 {
                         ceprintf!(b"%s: gain (>= 0) must follow -G\n", pname);
@@ -161,7 +161,7 @@ fn main() {
                     record = Some(cstd::cstr(&argv[i]).to_vec());
                 }
                 b'U' if !legacy => {
-                    // physical units (wfdb-x)
+                    // physical units (WFDB-x)
                     i += 1;
                     if i >= argc {
                         ceprintf!(b"%s: units must follow -U\n", pname);

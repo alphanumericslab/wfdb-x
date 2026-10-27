@@ -12,7 +12,7 @@
 // as the record name, and 0 as the number of samples (see
 // docs/KNOWN_C_BEHAVIORS.md).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of convert/wav2mit.c from the WFDB Software
@@ -76,7 +76,7 @@ private val WAV2MIT_HELP = arrayOf(
     " -U UNITS   physical units (required unless the gain is 0)",
 )
 
-/** wfdb-x: the help lines added by wfdb-x (left out in legacy mode). */
+/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val WAV2MIT_WFDBX_LINES = setOf(WAV2MIT_HELP[3], WAV2MIT_HELP[6])
 
 private fun Wfdb.wav2mitHelp(pname: ByteArray) {

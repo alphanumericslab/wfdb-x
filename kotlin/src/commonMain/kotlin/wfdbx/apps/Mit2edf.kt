@@ -9,7 +9,7 @@
 // does not write header fields past the end of the header, divide by zero,
 // or name a month outside 1-12 (DEC is used).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Kotlin translation of convert/mit2edf.c from the WFDB Software
@@ -402,7 +402,7 @@ fun Wfdb.mit2edfMain(argv0: Array<ByteArray>): Int {
         }
         n++
     }
-    wfdbx_fclose_output(ofile, pname, ofname) // wfdb-x
+    wfdbx_fclose_output(ofile, pname, ofname) // WFDB-x
     printf("\n")
 
     if (edfplusflag) {

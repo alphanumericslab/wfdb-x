@@ -7,7 +7,7 @@
 //! | Type | Description |
 //! |---|---|
 //! | 0 | AHA-format annotation files produced by WFDB library-based programs that use `AHA_WRITE` mode and `putann` (`m2a` is an example). Time is measured in sample intervals from the beginning of the record, and MIT annotation codes are included and read into the `chan` field of the annotation by `getann`; if such codes are present (`chan` non-zero), the AHA code is ignored. |
-//! | 1 | Standard AHA annotation files from short-format AHA DB distribution tapes. Time is measured in milliseconds from the beginning of the test period (five minutes after the first sample); wfdb-x converts milliseconds at the sampling frequency of the record (or `-F`), where the C program assumed 4 ms per sample interval (250 Hz). |
+//! | 1 | Standard AHA annotation files from short-format AHA DB distribution tapes. Time is measured in milliseconds from the beginning of the test period (five minutes after the first sample); WFDB-x converts milliseconds at the sampling frequency of the record (or `-F`), where the C program assumed 4 ms per sample interval (250 Hz). |
 //! | 2 | Standard AHA annotation files from long-format AHA DB distribution tapes. Time is measured as for type 1, except that the test period begins 2.5 hours after the first sample. |
 //! | 3 | "Compressed" (`*.ANO`) annotation files from AHA DB CD-ROMs or floppy diskettes. Time is measured as for files of type 1 or 2, depending on the record name (x2xx or x3xx: short format, x0xx or x1xx: long format). |
 //!
@@ -16,7 +16,7 @@
 //! empty record name, and reports the directory as unreadable (see
 //! `docs/KNOWN_C_BEHAVIORS.md`).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of convert/a2m.c from the WFDB Software Package
@@ -66,7 +66,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b"                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by wfdb-x, left out of the
+/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] = &[
     b" -F FREQ       sampling frequency, if the record header does not specify",
@@ -137,7 +137,7 @@ fn getcann(input: &mut WfdbFile, ap: &mut Annotation) -> i32 {
 }
 
 /// A time in milliseconds, in sample intervals at the record's sampling
-/// frequency (wfdb-x; C, and legacy mode, assumed 4 ms per sample
+/// frequency (WFDB-x; C, and legacy mode, assumed 4 ms per sample
 /// interval).
 fn ms_to_samples(t: i64, legacy: bool) -> i64 {
     if legacy {
@@ -176,7 +176,7 @@ fn main() {
                     oann = &argv[i];
                 }
                 b'F' if !legacy => {
-                    // sampling frequency follows (wfdb-x)
+                    // sampling frequency follows (WFDB-x)
                     i += 1;
                     if i >= argc || csscanf!(&argv[i], b"%lf", &mut ffreq) != 1 || ffreq <= 0.0 {
                         ceprintf!(b"%s: sampling frequency (> 0) must follow -F\n", pname);
@@ -254,7 +254,7 @@ fn main() {
     };
 
     // Attach the input file to the standard input.
-    // (C reads a directory forever; wfdb-x reports it as unreadable)
+    // (C reads a directory forever; WFDB-x reports it as unreadable)
     if ifname != b"-" && (is_directory(ifname) || !wfdbx::freopen_stdin(ifname)) {
         ceprintf!(b"%s: can't read input file `%s'\n", pname, ifname);
         cstd::exit(2);
@@ -347,7 +347,7 @@ fn main() {
             }
         }
         // Times in milliseconds are converted at the sampling frequency of
-        // the record (wfdb-x; the C program assumed 4 ms per sample, i.e.,
+        // the record (WFDB-x; the C program assumed 4 ms per sample, i.e.,
         // 250 Hz, whatever the record's frequency, as legacy mode does).
         FT_SHORT | FT_LONG => {
             while wfdbx::getann(0, &mut annot) >= 0 {

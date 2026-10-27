@@ -2,9 +2,9 @@
 // (the C++ counterparts of python/tests/test_signals.py, test_time.py, and
 // test_annotations.py)
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It tests wfdb-x; it has no counterpart in the original package.
+// It tests WFDB-x; it has no counterpart in the original package.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -354,7 +354,7 @@ WFDBX_TEST(errors_throw)
 }
 
 // ---------------------------------------------------------------------------
-// No default sampling frequency or gain (wfdb-x divergence; see
+// No default sampling frequency or gain (WFDB-x divergence; see
 // docs/DIVERGENCES.md)
 
 namespace {
@@ -416,7 +416,7 @@ WFDBX_TEST(write_record_requires_gains)
     }
 }
 
-// No built-in ADC resolution or units (wfdb-x divergence, round 2).
+// No built-in ADC resolution or units (WFDB-x divergence, round 2).
 WFDBX_TEST(write_record_requires_adcres_and_units)
 {
     DataDir d;
@@ -939,7 +939,7 @@ WFDBX_TEST(record_names_last_component)
     CHECK(slurp("out/rec.hea").rfind("out/rec 2 360 3\r\nout/rec.dat 16 ", 0) == 0);
 }
 
-// The dir checks come before any other validation (wfdb-x), with exactly
+// The dir checks come before any other validation (WFDB-x), with exactly
 // these messages.
 WFDBX_TEST(dir_checks_first)
 {

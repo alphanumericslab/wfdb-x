@@ -22,9 +22,9 @@ function [fid, check] = std_stream(k)
 %   could not be written (Octave does not report a failed write to file
 %   identifier 1).  Pipes keep file identifier 1.
 %
-%   Part of wfdb-x; not in the original WFDB package.
+%   Part of WFDB-x; not in the original WFDB package.
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 % It has no counterpart in the original package.
 %

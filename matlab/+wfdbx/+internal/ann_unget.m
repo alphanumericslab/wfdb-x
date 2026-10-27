@@ -1,13 +1,13 @@
 function ia = ann_unget(ia, annot)
 %ANN_UNGET Push an annotation back into an input annotator structure.
 %   IA = wfdbx.internal.ann_unget(IA, ANNOT) is the body of ungetann
-%   (wfdb-x), after its checks, for the input annotator structure IA
+%   (WFDB-x), after its checks, for the input annotator structure IA
 %   (whose pushback buffer is empty): ANNOT becomes the annotation that
 %   the next getann returns.
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
 
-% This file is part of wfdb-x, an independent reimplementation of the WFDB
+% This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 %
 % It is a MATLAB/Octave translation of lib/annot.c from the WFDB Software

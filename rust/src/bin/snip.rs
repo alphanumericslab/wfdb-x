@@ -1,6 +1,6 @@
 //! snip: copy an excerpt of a database record (port of `app/snip.c`).
 //
-// This file is part of wfdb-x, an independent reimplementation of the WFDB
+// This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
 //
 // It is a Rust translation of app/snip.c from the WFDB Software Package
@@ -281,7 +281,7 @@ impl Snip {
                 cfprintf!(self.open_files[oh], b"%s %lld\r\n", orsegs, len);
             }
             let ohfile = self.open_files.remove(oh);
-            wfdbx::wfdbx_fclose_output(ohfile, &self.pname, &ohfname); // wfdb-x
+            wfdbx::wfdbx_fclose_output(ohfile, &self.pname, &ohfname); // WFDB-x
             return;
         }
 
