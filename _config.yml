@@ -1,0 +1,39 @@
+title: wfdb-x
+description: >-
+  The WFDB Software Package in Python, C++, MATLAB/Octave, Rust, Julia,
+  R and Kotlin, tested to behave identically
+theme: jekyll-theme-minimal        # or jekyll-theme-cayman, jekyll-theme-slate
+
+plugins:                          # enabled by GitHub Pages by default; listed for clarity
+  - jekyll-readme-index           # README.md becomes the home page
+  - jekyll-relative-links         # links such as docs/DIVERGENCES.md keep working
+  - jekyll-optional-front-matter  # Markdown files need no front matter
+  - jekyll-titles-from-headings   # page titles come from the first heading
+
+# Publish only the documentation, not the sources and test data.
+exclude:
+  - third_party
+  - tests
+  - python/src
+  - python/tests
+  - cpp/src
+  - cpp/include
+  - cpp/apps
+  - cpp/tests
+  - rust/src
+  - rust/tests
+  - rust/examples
+  - julia/src
+  - julia/test
+  - julia/bin
+  - r/R
+  - r/man
+  - r/tests
+  - r/inst
+  - matlab/+wfdbx
+  - matlab/tests
+  - matlab/bin
+  - kotlin/src
+  - kotlin/gradle
+  - kotlin/benchmarks
+  - kotlin/bin
