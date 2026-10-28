@@ -1,0 +1,19 @@
+---
+---
+
+@import "{{ site.theme }}";
+
+/* Wider layout: the text column grows with the window, up to 1160px total */
+@media screen and (min-width: 961px) {
+  .wrapper { width: auto; max-width: 1160px; }
+  section  { width: calc(100% - 330px); }
+}
+
+/* Wide tables scroll inside their own box instead of widening the page */
+table { display: block; overflow-x: auto; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 28px; border-bottom: 1px solid #e5e5e5; }
+.tabs a { padding: 8px 14px; margin-bottom: -1px; border: 1px solid transparent; border-radius: 5px 5px 0 0;
+          color: #555; font-weight: 700; font-size: 14px; text-decoration: none; }
+.tabs a:hover { color: #267CB9; background: #f7f7f7; }
+.tabs a.active { color: #222; background: #fff; border-color: #e5e5e5 #e5e5e5 #fff; }

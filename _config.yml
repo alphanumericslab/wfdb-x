@@ -10,30 +10,42 @@ plugins:                          # enabled by GitHub Pages by default; listed f
   - jekyll-optional-front-matter  # Markdown files need no front matter
   - jekyll-titles-from-headings   # page titles come from the first heading
 
+# Tabs shown above every page (rendered by _layouts/default.html).
+# Each url is a folder whose README.md is its page.
+tabs:
+  - { title: Overview,      url: / }
+  - { title: Python,        url: /python/ }
+  - { title: C++,           url: /cpp/ }
+  - { title: MATLAB/Octave, url: /matlab/ }
+  - { title: Rust,          url: /rust/ }
+  - { title: Julia,         url: /julia/ }
+  - { title: R,             url: /r/ }
+  - { title: Kotlin,        url: /kotlin/ }
+  - { title: Docs,          url: /docs/ }
+
 # Publish only the documentation, not the sources and test data.
 exclude:
-  - third_party
-  - tests
-  - python/src
-  - python/tests
-  - cpp/src
-  - cpp/include
-  - cpp/apps
-  - cpp/tests
-  - rust/src
-  - rust/tests
-  - rust/examples
-  - julia/src
-  - julia/test
-  - julia/bin
-  - r/R
-  - r/man
-  - r/tests
-  - r/inst
-  - matlab/+wfdbx
-  - matlab/tests
-  - matlab/bin
-  - kotlin/src
-  - kotlin/gradle
-  - kotlin/benchmarks
-  - kotlin/bin
+  - third_party/
+  - python/src/
+  - python/tests/
+  - cpp/src/
+  - cpp/include/
+  - cpp/apps/
+  - cpp/tests/
+  - rust/src/
+  - rust/tests/
+  - rust/examples/
+  - julia/src/
+  - julia/test/
+  - julia/bin/
+  - r/R/
+  - r/man/
+  - r/tests/
+  - r/inst/
+  - matlab/+wfdbx/
+  - matlab/tests/
+  - matlab/bin/
+  - kotlin/src/
+  - kotlin/gradle/
+  - kotlin/benchmarks/
+  - kotlin/bin/
