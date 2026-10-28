@@ -47,6 +47,12 @@ inline int isub(int a, int b)
     return static_cast<int>(static_cast<unsigned>(a) - static_cast<unsigned>(b));
 }
 
+// int left shift, as on x86 for negative values too.
+inline int ishl(int a, int n)
+{
+    return static_cast<int>(static_cast<unsigned>(a) << n);
+}
+
 // glibc's rand() (the TYPE_3 additive feedback generator, x[i] = x[i-31] +
 // x[i-3]), seeded as by srand(): the state is filled by the "minimal
 // standard" generator (16807 * x mod 2^31 - 1, by Schrage's method), and the

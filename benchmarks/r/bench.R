@@ -73,6 +73,36 @@ json_num <- function(x) {
   else format(x, digits = 15, scientific = FALSE)
 }
 
+# Samples, frame by frame (row-major), little-endian: int32, or float64 for
+# the physical values (NA as NaN).
+dump_samples <- function(path, x, physical = FALSE) {
+  x <- t(x)
+  if (physical) {
+    x[is.na(x)] <- NaN
+    writeBin(as.double(x), path, size = 8L, endian = "little")
+  } else {
+    writeBin(as.integer(x), path, size = 4L, endian = "little")
+  }
+}
+
+# Each annotation: time (int64), code, subtype, chan, num, the length of the
+# aux text (int32; -1 if none) and the aux text, little-endian.
+dump_annotations <- function(path, a) {
+  con <- file(path, "wb")
+  on.exit(close(con))
+  # (the time as two int32: the low and the high word)
+  lo <- a$sample %% 2^32
+  hi <- (a$sample - lo) / 2^32
+  lo <- ifelse(lo >= 2^31, lo - 2^32, lo)
+  for (k in seq_len(nrow(a))) {
+    b <- if (is.na(a$aux[k])) NULL else charToRaw(a$aux[k])
+    writeBin(as.integer(c(lo[k], hi[k], a$code[k], a$subtype[k], a$chan[k], a$num[k],
+                          if (is.null(b)) -1L else length(b))),
+             con, size = 4L, endian = "little")
+    if (length(b)) writeBin(b, con)
+  }
+}
+
 main <- function(args) {
   if (length(args) != 3L) {
     cat("usage: Rscript bench.R OP DATADIR REPS\n", file = stderr())
@@ -96,26 +126,40 @@ main <- function(args) {
   on.exit(unlink(out, recursive = TRUE))
   if (op == "write_long") src <- w$read_record("long")
   if (op == "write_ann") ann <- w$read_annotations("long", "atr")
+  # run() is the timed call; check() and save() see its result.
+  rec <- sub("^read_", "", op)
   run <- switch(op,
-    read_long = function() sum(w$read_record("long")$signals),
-    read_long_phys = function()
-      round(sum(w$read_record("long", physical = TRUE)$signals, na.rm = TRUE), 3),
-    read_mimic = function() sum(w$read_record("mimic")$signals),
-    read_wide = function() sum(w$read_record("wide")$signals),
-    write_long = function() {
+    read_long = , read_mimic = , read_wide = function() w$read_record(rec)$signals,
+    read_long_phys = function() w$read_record("long", physical = TRUE)$signals,
+    write_long = function()
       w$write_record("out", src$signals, src$fs, fmt = 16, gains = src$gains,
-                     adcres = 16, units = src$units, dir = out)
-      file.size(file.path(out, "out.dat"))
-    },
-    read_ann = function() nrow(w$read_annotations("long", "atr")),
-    write_ann = function() {
+                     adcres = 16, units = src$units, dir = out),
+    read_ann = function() w$read_annotations("long", "atr"),
+    write_ann = function()
       w$write_annotations("out", "atr", ann$sample, code = ann$code, aux = ann$aux,
-                          dir = out)
-      file.size(file.path(out, "out.atr"))
-    })
+                          dir = out))
+  check <- switch(op,
+    read_long = , read_mimic = , read_wide = function(x) sum(x),
+    read_long_phys = function(x) round(sum(x, na.rm = TRUE), 3),
+    write_long = function(x) file.size(file.path(out, "out.dat")),
+    read_ann = function(x) nrow(x),
+    write_ann = function(x) file.size(file.path(out, "out.atr")))
+  save <- switch(op,
+    read_long = , read_mimic = , read_wide = function(x, p) dump_samples(paste0(p, ".bin"), x),
+    read_long_phys = function(x, p) dump_samples(paste0(p, ".bin"), x, physical = TRUE),
+    write_long = function(x, p) {
+      file.copy(file.path(out, "out.hea"), paste0(p, ".hea"), overwrite = TRUE)
+      file.copy(file.path(out, "out.dat"), paste0(p, ".dat"), overwrite = TRUE)
+    },
+    read_ann = function(x, p) dump_annotations(paste0(p, ".ann"), x),
+    write_ann = function(x, p) file.copy(file.path(out, "out.atr"), paste0(p, ".atr"),
+                                         overwrite = TRUE))
+  dump <- Sys.getenv("WFDBX_BENCH_DUMP")
   t <- now()
-  check <- run()
+  result <- run()
   first <- now() - t
+  value <- check(result)
+  if (nzchar(dump)) save(result, file.path(dump, op))
   times <- numeric(reps)
   for (i in seq_len(reps)) {
     t <- now()
@@ -124,7 +168,7 @@ main <- function(args) {
   }
   cat(sprintf('{"op": "%s", "first": %s, "best": %s, "times": [%s], "check": %s}\n',
               op, json_num(first), json_num(min(times)),
-              paste(vapply(times, json_num, ""), collapse = ", "), json_num(check)))
+              paste(vapply(times, json_num, ""), collapse = ", "), json_num(value)))
   0L
 }
 

@@ -1,11 +1,14 @@
 // flac.cpp: FLAC decoder and encoder for signal formats 508, 516, and 524
-// (C++ port of python/src/wfdbx/_flac.py)
 //
 // This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It has no counterpart in the original package: it is WFDB-x's own
-// implementation of the FLAC format, which the original package reads and
-// writes with libFLAC.
+// Its FLAC decoder is a C++ translation of the stream decoder of libFLAC
+// 1.4.3 (src/libFLAC/stream_decoder.c and bitreader.c, and the restore
+// functions of fixed.c and lpc.c), made so that damaged files are decoded,
+// resynchronized and reported exactly as by the C library, which uses
+// libFLAC.  Its FLAC encoder is WFDB-x's own implementation of the FLAC
+// format; it has no counterpart in the original package.  WFDB-x needs no
+// external library at run time.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -14,12 +17,47 @@
 // Software Foundation, either version 3 of the License, or (at your option)
 // any later version. See LICENSE.
 //
+// libFLAC is distributed under the following license, which applies to the
+// parts of this file translated from it (the stream decoder):
+//
+// Copyright (C) 2000-2009  Josh Coalson
+// Copyright (C) 2011-2023  Xiph.Org Foundation
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//
+// - Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//
+// - Redistributions in binary form must reproduce the above copyright
+// notice, this list of conditions and the following disclaimer in the
+// documentation and/or other materials provided with the distribution.
+//
+// - Neither the name of the Xiph.org Foundation nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR
+// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
 // The C library uses libFLAC for these formats; WFDB-x implements, without
-// external libraries, a complete FLAC decoder (all subframe types, fixed and
-// LPC predictors, Rice and Rice2 partitions with escape codes, wasted bits,
-// stereo decorrelation, variable block sizes, CRC verification) and a
-// lossless encoder (fixed predictors and Rice coding).  The encoder writes
-// exactly the bytes written by the Python implementation of WFDB-x.
+// external libraries, a complete FLAC decoder and a lossless encoder (fixed
+// predictors and Rice coding).  The decoder is a port of the parts of
+// libFLAC 1.4.3 that the C library uses (stream_decoder.c and bitreader.c,
+// and the restore functions of fixed.c and lpc.c, under the license above),
+// so that damaged files are decoded, resynchronized and reported as libFLAC
+// does.  The encoder (a port of python/src/wfdbx/_flac.py) writes exactly
+// the bytes written by the Python implementation of WFDB-x.
 
 #include "flac.hpp"
 
@@ -135,398 +173,1824 @@ int bit_length(uint64_t x)
     return x ? 64 - clz64(x) : 0;
 }
 
-// 8 bytes, big-endian
-inline uint64_t load8(const unsigned char *p)
-{
-    uint64_t w;
-    std::memcpy(&w, p, 8);
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-    return w;
-#elif defined(__GNUC__) || defined(__clang__)
-    return __builtin_bswap64(w);
-#else
-    return (uint64_t(p[0]) << 56) | (uint64_t(p[1]) << 48) |
-           (uint64_t(p[2]) << 40) | (uint64_t(p[3]) << 32) |
-           (uint64_t(p[4]) << 24) | (uint64_t(p[5]) << 16) |
-           (uint64_t(p[6]) << 8) | uint64_t(p[7]);
-#endif
-}
+} // namespace
 
 // ---------------------------------------------------------------------------
-// Decoder
+// Stream decoder (a port of libFLAC 1.4.3, stream_decoder.c and bitreader.c;
+// functions keep the names of their libFLAC counterparts)
 
-struct FlacError {
-    Status status;
-};
+namespace {
 
-[[noreturn]] void fail(Status s) { throw FlacError{s}; }
+// The bit reader keeps the bytes it has read in big-endian words of 64 bits
+// (libFLAC's default on 64-bit hosts), in a buffer of 8192 bytes.  Which
+// data are still in the buffer matters: a damaged frame is re-read from
+// the buffer or from the file, and the fast Rice decoder only checks the
+// size of a value that is in complete words.
+typedef uint64_t brword;
+constexpr unsigned BR_WORD_BITS = 64;
+constexpr unsigned BR_WORD_BYTES = 8;
+constexpr uint32_t BR_CAPACITY = 65536u / BR_WORD_BITS;    // in words
+constexpr brword BR_ALL_ONES = ~brword(0);
+constexpr uint32_t BR_NO_FRAMESYNC = UINT32_MAX;
 
-// MSB-first bit reader over a byte array.
-class Bits {
-public:
-    Bits(const unsigned char *data, size_t n, size_t bytepos)
-        : d_(data), n_(n), pos_(static_cast<uint64_t>(bytepos) * 8),
-          end_(static_cast<uint64_t>(n) * 8) {}
+// Metadata and frame fields (lengths in bits)
+constexpr unsigned META_IS_LAST_LEN = 1, META_TYPE_LEN = 7, META_LENGTH_LEN = 24;
+constexpr unsigned META_APPLICATION = 2, META_SEEKTABLE = 3;
+constexpr unsigned APPLICATION_ID_BYTES = 4;
+constexpr uint32_t SEEKPOINT_BYTES = 18;
+constexpr uint64_t SEEKPOINT_PLACEHOLDER = ~uint64_t(0);
+constexpr unsigned ENTROPY_TYPE_LEN = 2, RICE_ORDER_LEN = 4, RICE_RAW_LEN = 5;
+constexpr unsigned QLP_PRECISION_LEN = 4, QLP_SHIFT_LEN = 5;
+constexpr unsigned FOOTER_CRC_LEN = 16;
+constexpr int CA_INDEPENDENT = 0, CA_LEFT_SIDE = 1, CA_RIGHT_SIDE = 2,
+              CA_MID_SIDE = 3;
+const unsigned char ID3V2_TAG[3] = {'I', 'D', '3'};
 
-    // Read n bits (0 <= n <= 57) as an unsigned value.
-    uint64_t read(int n) {
-        if (n <= 0) {
-            if (n < 0) fail(Status::unparseable);
+inline unsigned clz2(brword w)  // COUNT_ZERO_MSBS2: 64 if w == 0
+{
+    return w ? static_cast<unsigned>(clz64(w)) : BR_WORD_BITS;
+}
+
+inline uint32_t crc16_byte(uint32_t data, uint32_t crc)    // FLAC__CRC16_UPDATE
+{
+    return ((crc << 8) & 0xFFFF) ^ crc_tables().crc16[(crc >> 8) ^ data];
+}
+
+uint32_t silog2(int64_t v)      // FLAC__bitmath_silog2
+{
+    if (v == 0) return 0;
+    if (v == -1) return 2;
+    uint64_t u = static_cast<uint64_t>(v < 0 ? -(v + 1) : v);
+    return static_cast<uint32_t>(bit_length(u) - 1) + 2;
+}
+
+} // namespace
+
+struct StreamDecoder::Impl {
+    explicit Impl(StreamClient &c) : client(c), buffer(BR_CAPACITY, 0) {}
+
+    StreamClient &client;
+    State state = State::search_for_metadata;
+
+    // Bit reader (FLAC__BitReader)
+    std::vector<brword> buffer;
+    uint32_t words = 0;             // complete words in buffer
+    uint32_t bytes = 0;             // bytes of the incomplete word at buffer[words]
+    uint32_t consumed_words = 0, consumed_bits = 0;
+    uint32_t read_crc16 = 0, crc16_offset = 0, crc16_align = 0;
+    uint32_t br_framesync = BR_NO_FRAMESYNC;   // in bytes from the front
+    unsigned char staging[BR_CAPACITY * BR_WORD_BYTES];
+
+    // Decoder (FLAC__StreamDecoderPrivate and Protected)
+    bool md5_checking = false, do_md5_checking = false;
+    bool has_stream_info = false, has_seek_table = false;
+    bool is_seeking = false, cached = false, last_frame_is_set = false;
+    bool side_subframe_in_use = false;
+    struct {
+        uint32_t min_blocksize = 0, max_blocksize = 0;
+        uint32_t min_framesize = 0, max_framesize = 0;
+        uint32_t sample_rate = 0, channels = 0, bits_per_sample = 0;
+        uint64_t total_samples = 0;
+        unsigned char md5sum[16] = {};
+    } stream_info;
+    struct SeekPoint {
+        uint64_t sample_number, stream_offset;
+        uint32_t frame_samples;
+    };
+    std::vector<SeekPoint> seek_table;
+    uint64_t first_frame_offset = 0, samples_decoded = 0;
+    uint64_t last_seen_framesync = 0, target_sample = 0;
+    uint32_t fixed_block_size = 0, next_fixed_block_size = 0;
+    uint32_t unparseable_frame_count = 0;
+    unsigned char lookahead = 0, header_warmup[2] = {};
+    FrameHeader frame, last_frame;
+    uint32_t wasted_bits[MAX_CHANNELS] = {};
+    std::vector<int32_t> output[MAX_CHANNELS];
+    std::vector<int32_t> residual;
+    std::vector<int64_t> side_subframe;
+    uint32_t channels = 0, bits_per_sample = 0;    // of the last frame
+    MD5 md5;
+
+    // -- bit reader --------------------------------------------------------
+
+    void br_clear()
+    {
+        words = bytes = 0;
+        consumed_words = consumed_bits = 0;
+        br_framesync = BR_NO_FRAMESYNC;
+    }
+
+    void crc16_update_word(brword word)
+    {
+        uint32_t crc = read_crc16;
+        for (; crc16_align < BR_WORD_BITS; crc16_align += 8) {
+            unsigned shift = BR_WORD_BITS - 8 - crc16_align;
+            crc = crc16_byte(static_cast<uint32_t>((word >> shift) & 0xFF), crc);
+        }
+        read_crc16 = crc;
+        crc16_align = 0;
+    }
+
+    void crc16_update_block()
+    {
+        if (consumed_words > crc16_offset && crc16_align)
+            crc16_update_word(buffer[crc16_offset++]);
+        for (uint32_t i = crc16_offset; i < consumed_words; i++) {
+            brword w = buffer[i];
+            for (int k = 56; k >= 0; k -= 8)
+                read_crc16 = crc16_byte(static_cast<uint32_t>((w >> k) & 0xFF),
+                                        read_crc16);
+        }
+        crc16_offset = 0;
+    }
+
+    bool br_read_from_client()
+    {
+        if (consumed_words > 0) {
+            br_framesync = BR_NO_FRAMESYNC;
+            crc16_update_block();
+            uint32_t start = consumed_words, end = words + (bytes ? 1 : 0);
+            std::memmove(buffer.data(), buffer.data() + start,
+                         BR_WORD_BYTES * (end - start));
+            words -= start;
+            consumed_words = 0;
+        }
+        size_t n = (BR_CAPACITY - words) * BR_WORD_BYTES - bytes;
+        if (n == 0) return false;
+        if (!read_callback(staging, &n)) return false;
+        uint32_t pos = words * BR_WORD_BYTES + bytes;
+        for (size_t i = 0; i < n; i++, pos++) {
+            brword &w = buffer[pos / BR_WORD_BYTES];
+            unsigned shift = 56 - 8 * (pos % BR_WORD_BYTES);
+            w = (w & ~(brword(0xFF) << shift)) | (brword(staging[i]) << shift);
+        }
+        words = pos / BR_WORD_BYTES;
+        bytes = pos % BR_WORD_BYTES;
+        return true;
+    }
+
+    uint32_t bits_unconsumed() const
+    {
+        return (words - consumed_words) * BR_WORD_BITS + bytes * 8 -
+               consumed_bits;
+    }
+
+    bool byte_aligned() const { return (consumed_bits & 7) == 0; }
+
+    unsigned bits_left_for_byte_alignment() const
+    {
+        return 8 - (consumed_bits & 7);
+    }
+
+    void set_framesync_location()
+    {
+        br_framesync = consumed_words * BR_WORD_BYTES + consumed_bits / 8;
+    }
+
+    bool rewind_to_after_last_seen_framesync()
+    {
+        if (br_framesync == BR_NO_FRAMESYNC) {
+            consumed_words = consumed_bits = 0;
+            return false;
+        }
+        consumed_words = (br_framesync + 1) / BR_WORD_BYTES;
+        consumed_bits = ((br_framesync + 1) % BR_WORD_BYTES) * 8;
+        return true;
+    }
+
+    void reset_read_crc16(uint32_t seed)
+    {
+        read_crc16 = seed;
+        crc16_offset = consumed_words;
+        crc16_align = consumed_bits;
+    }
+
+    uint32_t get_read_crc16()
+    {
+        crc16_update_block();
+        if (consumed_bits) {
+            const brword tail = buffer[consumed_words];
+            for (; crc16_align < consumed_bits; crc16_align += 8)
+                read_crc16 = crc16_byte(static_cast<uint32_t>(
+                    (tail >> (BR_WORD_BITS - 8 - crc16_align)) & 0xFF),
+                    read_crc16);
+        }
+        return read_crc16;
+    }
+
+    bool read_raw_uint32(uint32_t &val, unsigned nbits)
+    {
+        if (nbits == 0) {
+            val = 0;
+            return true;
+        }
+        while (bits_unconsumed() < nbits)
+            if (!br_read_from_client()) return false;
+        if (consumed_words < words) {
+            const brword word = buffer[consumed_words];
+            const unsigned n = BR_WORD_BITS - consumed_bits;
+            const brword mask = consumed_bits < BR_WORD_BITS
+                                    ? BR_ALL_ONES >> consumed_bits : 0;
+            if (nbits < n) {
+                val = static_cast<uint32_t>((word & mask) >> (n - nbits));
+                consumed_bits += nbits;
+                return true;
+            }
+            val = static_cast<uint32_t>(word & mask);
+            nbits -= n;
+            consumed_words++;
+            consumed_bits = 0;
+            if (nbits) {
+                val = nbits < 32 ? val << nbits : 0;
+                val |= static_cast<uint32_t>(buffer[consumed_words] >>
+                                             (BR_WORD_BITS - nbits));
+                consumed_bits = nbits;
+            }
+            return true;
+        }
+        // a partial tail word holds at least nbits bits
+        val = static_cast<uint32_t>(
+            (buffer[consumed_words] & (BR_ALL_ONES >> consumed_bits)) >>
+            (BR_WORD_BITS - consumed_bits - nbits));
+        consumed_bits += nbits;
+        return true;
+    }
+
+    bool read_raw_int32(int32_t &val, unsigned nbits)
+    {
+        uint32_t u;
+        if (nbits < 1 || !read_raw_uint32(u, nbits)) return false;
+        uint32_t mask = nbits >= 33 ? 0 : uint32_t(1) << (nbits - 1);
+        val = static_cast<int32_t>((u ^ mask) - mask);
+        return true;
+    }
+
+    bool read_raw_uint64(uint64_t &val, unsigned nbits)
+    {
+        uint32_t hi, lo;
+        if (nbits > 32) {
+            if (!read_raw_uint32(hi, nbits - 32)) return false;
+            if (!read_raw_uint32(lo, 32)) return false;
+            val = (uint64_t(hi) << 32) | lo;
+        } else {
+            if (!read_raw_uint32(lo, nbits)) return false;
+            val = lo;
+        }
+        return true;
+    }
+
+    bool read_raw_int64(int64_t &val, unsigned nbits)
+    {
+        uint64_t u;
+        if (nbits < 1 || !read_raw_uint64(u, nbits)) return false;
+        uint64_t mask = nbits >= 65 ? 0 : uint64_t(1) << (nbits - 1);
+        val = static_cast<int64_t>((u ^ mask) - mask);
+        return true;
+    }
+
+    // FLAC__bitreader_read_byte_block_aligned_no_crc (val may be null:
+    // FLAC__bitreader_skip_byte_block_aligned_no_crc)
+    bool read_byte_block(unsigned char *val, uint32_t nvals)
+    {
+        uint32_t x;
+        while (nvals && consumed_bits) {
+            if (!read_raw_uint32(x, 8)) return false;
+            if (val) *val++ = static_cast<unsigned char>(x);
+            nvals--;
+        }
+        if (nvals == 0) return true;
+        while (nvals >= BR_WORD_BYTES) {
+            if (consumed_words < words) {
+                const brword word = buffer[consumed_words++];
+                if (val)
+                    for (unsigned k = 0; k < BR_WORD_BYTES; k++)
+                        *val++ = static_cast<unsigned char>(
+                            word >> (8 * (BR_WORD_BYTES - k - 1)));
+                nvals -= BR_WORD_BYTES;
+            } else if (!br_read_from_client())
+                return false;
+        }
+        while (nvals) {
+            if (!read_raw_uint32(x, 8)) return false;
+            if (val) *val++ = static_cast<unsigned char>(x);
+            nvals--;
+        }
+        return true;
+    }
+
+    bool read_unary_unsigned(uint32_t &val)
+    {
+        val = 0;
+        for (;;) {
+            while (consumed_words < words) {
+                brword b = consumed_bits < BR_WORD_BITS
+                               ? buffer[consumed_words] << consumed_bits : 0;
+                if (b) {
+                    unsigned i = static_cast<unsigned>(clz64(b));
+                    val += i;
+                    consumed_bits += i + 1;
+                    if (consumed_bits >= BR_WORD_BITS) {
+                        consumed_words++;
+                        consumed_bits = 0;
+                    }
+                    return true;
+                }
+                val += BR_WORD_BITS - consumed_bits;
+                consumed_words++;
+                consumed_bits = 0;
+            }
+            if (bytes * 8 > consumed_bits) {
+                const unsigned end = bytes * 8;
+                brword b = (buffer[consumed_words] &
+                            (BR_ALL_ONES << (BR_WORD_BITS - end))) << consumed_bits;
+                if (b) {
+                    unsigned i = static_cast<unsigned>(clz64(b));
+                    val += i;
+                    consumed_bits += i + 1;
+                    return true;
+                }
+                val += end - consumed_bits;
+                consumed_bits = end;
+            }
+            if (!br_read_from_client()) return false;
+        }
+    }
+
+    // FLAC__bitreader_read_rice_signed_block (returns false without a
+    // change of state for a value that does not fit in 32 bits).  The
+    // labels of the original are flags here.
+    bool read_rice_signed_block(int32_t *vals, uint32_t nvals,
+                                unsigned parameter)
+    {
+        uint32_t cwords, nwords, lsbs, msbs = 0, x, y, limit, ucbits = 0;
+        brword b = 0;
+        uint32_t k = 0;     // values read
+        const auto put = [&](uint32_t u) {
+            // (when entered at its end, the original stores one value
+            // more, which the caller overwrites)
+            if (k < nvals)
+                vals[k] = static_cast<int32_t>(u >> 1) ^ -static_cast<int32_t>(u & 1);
+            k++;
+        };
+
+        limit = UINT32_MAX >> parameter;
+        if (parameter == 0) {
+            while (k < nvals) {
+                if (!read_unary_unsigned(msbs)) return false;
+                put(msbs);
+            }
+            return true;
+        }
+        cwords = consumed_words;
+        nwords = words;
+        bool process_tail = false, incomplete_lsbs = false;
+        if (cwords >= nwords) {
+            x = 0;
+            process_tail = true;
+        } else {
+            ucbits = BR_WORD_BITS - consumed_bits;
+            b = buffer[cwords] << consumed_bits;
+        }
+        while (process_tail || k < nvals) {
+            if (!process_tail) {
+                x = y = clz2(b);
+                if (x == BR_WORD_BITS) {
+                    x = ucbits;
+                    do {
+                        cwords++;
+                        if (cwords >= nwords) {     // incomplete_msbs
+                            consumed_bits = 0;
+                            consumed_words = cwords;
+                            process_tail = true;
+                            break;
+                        }
+                        b = buffer[cwords];
+                        y = clz2(b);
+                        x += y;
+                    } while (y == BR_WORD_BITS);
+                }
+                if (!process_tail) {
+                    b <<= y;
+                    b <<= 1;
+                    ucbits = (ucbits - x - 1) % BR_WORD_BITS;
+                    msbs = x;
+                    if (x > limit) return false;
+                    x = static_cast<uint32_t>(b >> (BR_WORD_BITS - parameter));
+                    if (parameter <= ucbits) {
+                        ucbits -= parameter;
+                        b <<= parameter;
+                    } else {
+                        cwords++;
+                        if (cwords >= nwords) {     // incomplete_lsbs
+                            consumed_bits = 0;
+                            consumed_words = cwords;
+                            process_tail = incomplete_lsbs = true;
+                        } else {
+                            b = buffer[cwords];
+                            ucbits += BR_WORD_BITS - parameter;
+                            x |= static_cast<uint32_t>(b >> ucbits);
+                            b <<= BR_WORD_BITS - ucbits;
+                        }
+                    }
+                    if (!process_tail) {
+                        lsbs = x;
+                        put((msbs << parameter) | lsbs);
+                        continue;
+                    }
+                }
+            }
+            // process_tail: the whole words have been consumed
+            process_tail = false;
+            do {
+                if (!incomplete_lsbs) {
+                    if (!read_unary_unsigned(msbs)) return false;
+                    msbs += x;
+                    x = ucbits = 0;
+                }
+                incomplete_lsbs = false;
+                if (!read_raw_uint32(lsbs, parameter - ucbits)) return false;
+                lsbs = x | lsbs;
+                put((msbs << parameter) | lsbs);
+                x = 0;
+                cwords = consumed_words;
+                nwords = words;
+                ucbits = BR_WORD_BITS - consumed_bits;
+                b = cwords < BR_CAPACITY ? buffer[cwords] << consumed_bits : 0;
+            } while (cwords >= nwords && k < nvals);
+        }
+        if (ucbits == 0 && cwords < nwords) {
+            cwords++;
+            ucbits = BR_WORD_BITS;
+        }
+        consumed_bits = BR_WORD_BITS - ucbits;
+        consumed_words = cwords;
+        return true;
+    }
+
+    // FLAC__bitreader_read_utf8_uint32 and _uint64 (wide): val is all ones
+    // if the sequence is invalid
+    bool read_utf8(uint64_t &val, bool wide, unsigned char *raw,
+                   uint32_t &rawlen)
+    {
+        uint64_t v = 0;
+        uint32_t x;
+        unsigned i;
+        const uint64_t invalid = wide ? ~uint64_t(0) : 0xFFFFFFFFu;
+        if (!read_raw_uint32(x, 8)) return false;
+        raw[rawlen++] = static_cast<unsigned char>(x);
+        if (!(x & 0x80)) {
+            v = x;
+            i = 0;
+        } else if (x & 0xC0 && !(x & 0x20)) {
+            v = x & 0x1F;
+            i = 1;
+        } else if (x & 0xE0 && !(x & 0x10)) {
+            v = x & 0x0F;
+            i = 2;
+        } else if (x & 0xF0 && !(x & 0x08)) {
+            v = x & 0x07;
+            i = 3;
+        } else if (x & 0xF8 && !(x & 0x04)) {
+            v = x & 0x03;
+            i = 4;
+        } else if (x & 0xFC && !(x & 0x02)) {
+            v = x & 0x01;
+            i = 5;
+        } else if (wide && x & 0xFE && !(x & 0x01)) {
+            v = 0;
+            i = 6;
+        } else {
+            val = invalid;
+            return true;
+        }
+        for (; i; i--) {
+            if (!read_raw_uint32(x, 8)) return false;
+            raw[rawlen++] = static_cast<unsigned char>(x);
+            if (!(x & 0x80) || (x & 0x40)) {
+                val = invalid;
+                return true;
+            }
+            v = (v << 6) | (x & 0x3F);
+        }
+        val = wide ? v : (v & 0xFFFFFFFFu);
+        return true;
+    }
+
+    // -- decoder -----------------------------------------------------------
+
+    uint64_t total_samples() const
+    {
+        return has_stream_info ? stream_info.total_samples : 0;
+    }
+
+    void send_error(ErrorStatus status)
+    {
+        if (!is_seeking)
+            client.error(status);
+        else if (status == ErrorStatus::unparseable_stream)
+            unparseable_frame_count++;
+    }
+
+    bool read_callback(unsigned char *buf, size_t *n)
+    {
+        if (client.eof()) {
+            *n = 0;
+            state = State::end_of_stream;
+            return false;
+        }
+        if (*n > 0) {
+            if (is_seeking && unparseable_frame_count > 20) {
+                state = State::aborted;
+                return false;
+            }
+            ReadStatus status = client.read(buf, n);
+            if (status == ReadStatus::abort) {
+                state = State::aborted;
+                return false;
+            }
+            if (*n == 0) {
+                if (status == ReadStatus::end_of_stream || client.eof()) {
+                    state = State::end_of_stream;
+                    return false;
+                }
+            }
+            return true;
+        }
+        state = State::aborted;
+        return false;
+    }
+
+    bool get_decode_position(uint64_t &position)
+    {
+        if (client.tell(&position) != CallbackStatus::ok) return false;
+        if (!byte_aligned()) return false;
+        position -= bits_unconsumed() / 8;
+        return true;
+    }
+
+    bool reset()    // FLAC__stream_decoder_reset, as called by init
+    {
+        if (!flush()) return false;
+        state = State::search_for_metadata;
+        has_stream_info = false;
+        seek_table.clear();
+        has_seek_table = false;
+        do_md5_checking = md5_checking;
+        fixed_block_size = next_fixed_block_size = 0;
+        md5 = MD5();
+        first_frame_offset = 0;
+        unparseable_frame_count = 0;
+        last_seen_framesync = 0;
+        last_frame_is_set = false;
+        return true;
+    }
+
+    bool flush()
+    {
+        samples_decoded = 0;
+        do_md5_checking = false;
+        last_seen_framesync = 0;
+        last_frame_is_set = false;
+        br_clear();
+        state = State::search_for_frame_sync;
+        return true;
+    }
+
+    bool find_metadata()
+    {
+        static const unsigned char SYNC_STRING[4] = {'f', 'L', 'a', 'C'};
+        uint32_t x;
+        unsigned i, id;
+        bool first = true;
+
+        for (i = id = 0; i < 4;) {
+            if (cached) {
+                x = lookahead;
+                cached = false;
+            } else if (!read_raw_uint32(x, 8))
+                return false;
+            if (x == SYNC_STRING[i]) {
+                first = true;
+                i++;
+                id = 0;
+                continue;
+            }
+            if (id >= 3) return false;
+            if (x == ID3V2_TAG[id]) {
+                id++;
+                i = 0;
+                if (id == 3 && !skip_id3v2_tag()) return false;
+                continue;
+            }
+            id = 0;
+            if (x == 0xFF) {
+                header_warmup[0] = static_cast<unsigned char>(x);
+                if (!read_raw_uint32(x, 8)) return false;
+                if (x == 0xFF) {
+                    lookahead = static_cast<unsigned char>(x);
+                    cached = true;
+                } else if (x >> 1 == 0x7C) {
+                    header_warmup[1] = static_cast<unsigned char>(x);
+                    state = State::read_frame;
+                    return true;
+                }
+            }
+            i = 0;
+            if (first) {
+                send_error(ErrorStatus::lost_sync);
+                first = false;
+            }
+        }
+        state = State::read_metadata;
+        return true;
+    }
+
+    bool read_metadata()
+    {
+        uint32_t x, type, length;
+        if (!read_raw_uint32(x, META_IS_LAST_LEN)) return false;
+        const bool is_last = x != 0;
+        if (!read_raw_uint32(type, META_TYPE_LEN)) return false;
+        if (!read_raw_uint32(length, META_LENGTH_LEN)) return false;
+
+        if (type == META_STREAMINFO) {
+            if (!read_metadata_streaminfo(length)) return false;
+            has_stream_info = true;
+            static const unsigned char zeros[16] = {};
+            if (std::memcmp(stream_info.md5sum, zeros, 16) == 0)
+                do_md5_checking = false;
+        } else if (type == META_SEEKTABLE) {
+            has_seek_table = false;
+            if (length > 0) {
+                if (!read_metadata_seektable(length)) return false;
+                has_seek_table = true;
+            }
+        } else {
+            // Other blocks are skipped (the C library does not ask for
+            // them).
+            uint32_t real_length = length;
+            if (type == META_APPLICATION) {
+                unsigned char id[APPLICATION_ID_BYTES];
+                if (!read_byte_block(id, APPLICATION_ID_BYTES)) return false;
+                if (real_length < APPLICATION_ID_BYTES) {
+                    state = State::memory_allocation_error;
+                    return false;
+                }
+                real_length -= APPLICATION_ID_BYTES;
+            }
+            if (!read_byte_block(nullptr, real_length)) return false;
+        }
+        if (is_last) {
+            if (!get_decode_position(first_frame_offset))
+                first_frame_offset = 0;
+            state = State::search_for_frame_sync;
+        }
+        return true;
+    }
+
+    bool read_metadata_streaminfo(uint32_t length)
+    {
+        uint32_t x;
+        if (!read_raw_uint32(x, 16)) return false;
+        stream_info.min_blocksize = x;
+        if (!read_raw_uint32(x, 16)) return false;
+        stream_info.max_blocksize = x;
+        if (!read_raw_uint32(x, 24)) return false;
+        stream_info.min_framesize = x;
+        if (!read_raw_uint32(x, 24)) return false;
+        stream_info.max_framesize = x;
+        if (!read_raw_uint32(x, 20)) return false;
+        stream_info.sample_rate = x;
+        if (!read_raw_uint32(x, 3)) return false;
+        stream_info.channels = x + 1;
+        if (!read_raw_uint32(x, 5)) return false;
+        stream_info.bits_per_sample = x + 1;
+        if (!read_raw_uint64(stream_info.total_samples, 36)) return false;
+        if (!read_byte_block(stream_info.md5sum, 16)) return false;
+        const uint32_t used = static_cast<uint32_t>(STREAMINFO_LEN);
+        if (length < used) return false;
+        return read_byte_block(nullptr, length - used);
+    }
+
+    bool read_metadata_seektable(uint32_t length)
+    {
+        if (length % SEEKPOINT_BYTES) return false;
+        const uint32_t n = length / SEEKPOINT_BYTES;
+        seek_table.assign(n, SeekPoint{0, 0, 0});
+        for (uint32_t i = 0; i < n; i++) {
+            uint64_t xx;
+            uint32_t x;
+            if (!read_raw_uint64(xx, 64)) return false;
+            seek_table[i].sample_number = xx;
+            if (!read_raw_uint64(xx, 64)) return false;
+            seek_table[i].stream_offset = xx;
+            if (!read_raw_uint32(x, 16)) return false;
+            seek_table[i].frame_samples = x;
+        }
+        return true;
+    }
+
+    bool skip_id3v2_tag()
+    {
+        uint32_t x, skip = 0;
+        if (!read_raw_uint32(x, 24)) return false;  // version and flags
+        for (int i = 0; i < 4; i++) {
+            if (!read_raw_uint32(x, 8)) return false;
+            skip = (skip << 7) | (x & 0x7F);
+        }
+        return read_byte_block(nullptr, skip);
+    }
+
+    bool frame_sync()
+    {
+        uint32_t x;
+        bool first = true;
+        if (!byte_aligned() &&
+            !read_raw_uint32(x, bits_left_for_byte_alignment()))
+            return false;
+        for (;;) {
+            if (cached) {
+                x = lookahead;
+                cached = false;
+            } else if (!read_raw_uint32(x, 8))
+                return false;
+            if (x == 0xFF) {
+                header_warmup[0] = static_cast<unsigned char>(x);
+                if (!read_raw_uint32(x, 8)) return false;
+                if (x == 0xFF) {
+                    lookahead = static_cast<unsigned char>(x);
+                    cached = true;
+                } else if (x >> 1 == 0x7C) {
+                    header_warmup[1] = static_cast<unsigned char>(x);
+                    state = State::read_frame;
+                    set_framesync_location();
+                    if (!get_decode_position(last_seen_framesync))
+                        last_seen_framesync = 0;
+                    return true;
+                }
+            }
+            if (first) {
+                send_error(ErrorStatus::lost_sync);
+                first = false;
+            }
+        }
+    }
+
+    // A header error: resynchronize (the last byte read may start a sync
+    // code if `cache`).
+    bool header_error(ErrorStatus status, const unsigned char *raw,
+                      uint32_t rawlen, bool cache)
+    {
+        if (cache) {
+            lookahead = raw[rawlen - 1];
+            cached = true;
+        }
+        send_error(status);
+        state = State::search_for_frame_sync;
+        return true;
+    }
+
+    bool read_frame_header()
+    {
+        uint32_t x;
+        uint64_t xx;
+        uint32_t blocksize_hint = 0, sample_rate_hint = 0;
+        unsigned char raw[16];
+        uint32_t rawlen = 2;
+        bool is_unparseable = false;
+
+        raw[0] = header_warmup[0];
+        raw[1] = header_warmup[1];
+        if (raw[1] & 0x02) is_unparseable = true;
+        for (int i = 0; i < 2; i++) {
+            if (!read_raw_uint32(x, 8)) return false;
+            if (x == 0xFF) {
+                lookahead = static_cast<unsigned char>(x);
+                cached = true;
+                send_error(ErrorStatus::bad_header);
+                state = State::search_for_frame_sync;
+                return true;
+            }
+            raw[rawlen++] = static_cast<unsigned char>(x);
+        }
+
+        switch (x = raw[2] >> 4) {
+        case 0: is_unparseable = true; break;
+        case 1: frame.blocksize = 192; break;
+        case 2: case 3: case 4: case 5: frame.blocksize = 576u << (x - 2); break;
+        case 6: case 7: blocksize_hint = x; break;
+        default: frame.blocksize = 256u << (x - 8); break;
+        }
+
+        switch (x = raw[2] & 0x0F) {
+        case 0:
+            if (has_stream_info)
+                frame.sample_rate = stream_info.sample_rate;
+            else
+                is_unparseable = true;
+            break;
+        case 1: frame.sample_rate = 88200; break;
+        case 2: frame.sample_rate = 176400; break;
+        case 3: frame.sample_rate = 192000; break;
+        case 4: frame.sample_rate = 8000; break;
+        case 5: frame.sample_rate = 16000; break;
+        case 6: frame.sample_rate = 22050; break;
+        case 7: frame.sample_rate = 24000; break;
+        case 8: frame.sample_rate = 32000; break;
+        case 9: frame.sample_rate = 44100; break;
+        case 10: frame.sample_rate = 48000; break;
+        case 11: frame.sample_rate = 96000; break;
+        case 12: case 13: case 14: sample_rate_hint = x; break;
+        default:
+            send_error(ErrorStatus::bad_header);
+            state = State::search_for_frame_sync;
+            return true;
+        }
+
+        x = static_cast<uint32_t>(raw[3] >> 4);
+        if (x & 8) {
+            frame.channels = 2;
+            switch (x & 7) {
+            case 0: frame.channel_assignment = CA_LEFT_SIDE; break;
+            case 1: frame.channel_assignment = CA_RIGHT_SIDE; break;
+            case 2: frame.channel_assignment = CA_MID_SIDE; break;
+            default: is_unparseable = true; break;
+            }
+        } else {
+            frame.channels = x + 1;
+            frame.channel_assignment = CA_INDEPENDENT;
+        }
+
+        switch (x = static_cast<uint32_t>(raw[3] & 0x0E) >> 1) {
+        case 0:
+            if (has_stream_info)
+                frame.bits_per_sample = stream_info.bits_per_sample;
+            else
+                is_unparseable = true;
+            break;
+        case 1: frame.bits_per_sample = 8; break;
+        case 2: frame.bits_per_sample = 12; break;
+        case 3: is_unparseable = true; break;
+        case 4: frame.bits_per_sample = 16; break;
+        case 5: frame.bits_per_sample = 20; break;
+        case 6: frame.bits_per_sample = 24; break;
+        default: frame.bits_per_sample = 32; break;
+        }
+        if (raw[3] & 0x01) is_unparseable = true;
+
+        bool frame_number;
+        uint32_t frame_no = 0;
+        if (raw[1] & 0x01 ||
+            (has_stream_info &&
+             stream_info.min_blocksize != stream_info.max_blocksize)) {
+            if (!read_utf8(xx, true, raw, rawlen)) return false;
+            if (xx == ~uint64_t(0))
+                return header_error(ErrorStatus::bad_header, raw, rawlen, true);
+            frame_number = false;
+            frame.sample_number = xx;
+        } else {
+            if (!read_utf8(xx, false, raw, rawlen)) return false;
+            if (xx == 0xFFFFFFFFu)
+                return header_error(ErrorStatus::bad_header, raw, rawlen, true);
+            frame_number = true;
+            frame_no = static_cast<uint32_t>(xx);
+        }
+
+        if (blocksize_hint) {
+            if (!read_raw_uint32(x, 8)) return false;
+            raw[rawlen++] = static_cast<unsigned char>(x);
+            if (blocksize_hint == 7) {
+                uint32_t x2;
+                if (!read_raw_uint32(x2, 8)) return false;
+                raw[rawlen++] = static_cast<unsigned char>(x2);
+                x = (x << 8) | x2;
+            }
+            frame.blocksize = x + 1;
+            if (frame.blocksize > 65535)
+                return header_error(ErrorStatus::bad_header, raw, rawlen, true);
+        }
+
+        if (sample_rate_hint) {
+            if (!read_raw_uint32(x, 8)) return false;
+            raw[rawlen++] = static_cast<unsigned char>(x);
+            if (sample_rate_hint != 12) {
+                uint32_t x2;
+                if (!read_raw_uint32(x2, 8)) return false;
+                raw[rawlen++] = static_cast<unsigned char>(x2);
+                x = (x << 8) | x2;
+            }
+            if (sample_rate_hint == 12)
+                frame.sample_rate = x * 1000;
+            else if (sample_rate_hint == 13)
+                frame.sample_rate = x;
+            else
+                frame.sample_rate = x * 10;
+        }
+
+        if (!read_raw_uint32(x, 8)) return false;
+        if (crc8(raw, rawlen) != x)
+            return header_error(ErrorStatus::bad_header, raw, rawlen, false);
+
+        next_fixed_block_size = 0;
+        if (frame_number) {
+            x = frame_no;
+            if (fixed_block_size)
+                frame.sample_number = uint64_t(fixed_block_size) * x;
+            else if (has_stream_info) {
+                if (stream_info.min_blocksize == stream_info.max_blocksize) {
+                    frame.sample_number = uint64_t(stream_info.min_blocksize) * x;
+                    next_fixed_block_size = stream_info.max_blocksize;
+                } else
+                    is_unparseable = true;
+            } else if (x == 0) {
+                frame.sample_number = 0;
+                next_fixed_block_size = frame.blocksize;
+            } else
+                frame.sample_number = uint64_t(frame.blocksize) * x;
+        }
+
+        if (is_unparseable) {
+            send_error(ErrorStatus::unparseable_stream);
+            state = State::search_for_frame_sync;
+        }
+        return true;
+    }
+
+    bool sync_error(ErrorStatus status)     // resynchronize after an error
+    {
+        send_error(status);
+        state = State::search_for_frame_sync;
+        return true;
+    }
+
+    // Partition order and entropy coding method of a FIXED or LPC subframe;
+    // returns 0 (error: resynchronize), 1 (Rice), 2 (Rice2), or -1 (false).
+    int read_entropy_coding(uint32_t order, uint32_t &partition_order)
+    {
+        uint32_t u32;
+        if (!read_raw_uint32(u32, ENTROPY_TYPE_LEN)) return -1;
+        if (u32 > 1) {
+            sync_error(ErrorStatus::unparseable_stream);
             return 0;
         }
-        if (pos_ + static_cast<uint64_t>(n) > end_) fail(Status::eof);
-        size_t b = static_cast<size_t>(pos_ >> 3);
-        unsigned off = static_cast<unsigned>(pos_ & 7);
-        uint64_t w = load(b) << off;
-        pos_ += static_cast<uint64_t>(n);
-        return w >> (64 - n);
-    }
-
-    // Read n bits (0 <= n <= 64) as an unsigned value.
-    uint64_t read_long(int n) {
-        if (n <= 32) return read(n);
-        uint64_t hi = read(n - 32);
-        return (hi << 32) | read(32);
-    }
-
-    int64_t read_signed(int n) {
-        if (n > 57) {
-            uint64_t v = read_long(n);
-            if (n < 64 && (v >> (n - 1)) & 1) v -= uint64_t(1) << n;
-            return static_cast<int64_t>(v);
+        const int method = static_cast<int>(u32) + 1;
+        if (!read_raw_uint32(u32, RICE_ORDER_LEN)) return -1;
+        if ((frame.blocksize >> u32 < order) ||
+            (frame.blocksize % (1u << u32) > 0)) {
+            sync_error(ErrorStatus::lost_sync);
+            return 0;
         }
-        uint64_t v = read(n);
-        if (n > 0 && ((v >> (n - 1)) & 1))
-            return static_cast<int64_t>(v) - (int64_t(1) << n);
-        return static_cast<int64_t>(v);
+        partition_order = u32;
+        return method;
     }
 
-    // Count zero bits up to (and consume) the next one bit.
-    uint64_t unary() {
-        size_t b = static_cast<size_t>(pos_ >> 3);
-        unsigned off = static_cast<unsigned>(pos_ & 7);
-        uint64_t count = 0;
-        for (;;) {
-            if (b >= n_) fail(Status::eof);
-            uint64_t w = load(b) << off;
-            if (w) {
-                int z = clz64(w);
-                pos_ = (static_cast<uint64_t>(b) << 3) + off + z + 1;
-                return count + static_cast<uint64_t>(z);
-            }
-            count += 64 - off;
-            b += 8;
-            off = 0;
-        }
-    }
-
-    // A Rice-coded value with parameter k (0 <= k <= 30): unary quotient,
-    // then k bits.
-    uint64_t rice(int k) {
-        size_t b = static_cast<size_t>(pos_ >> 3);
-        if (b + 8 <= n_) {
-            unsigned off = static_cast<unsigned>(pos_ & 7);
-            uint64_t w = load8(d_ + b) << off;
-            if (w) {
-                int z = clz64(w);
-                if (static_cast<unsigned>(z + 1 + k) <= 64 - off) {
-                    pos_ += static_cast<uint64_t>(z + 1 + k);
-                    if (k == 0) return static_cast<uint64_t>(z);
-                    return (static_cast<uint64_t>(z) << k) |
-                           ((w << (z + 1)) >> (64 - k));
+    bool read_residual_partitioned_rice(uint32_t predictor_order,
+                                        uint32_t partition_order,
+                                        bool is_extended)
+    {
+        const uint32_t partitions = 1u << partition_order;
+        const uint32_t partition_samples = frame.blocksize >> partition_order;
+        const unsigned plen = is_extended ? 5 : 4;
+        const uint32_t pesc = is_extended ? 31 : 15;
+        int32_t *res = residual.data();
+        uint32_t sample = 0;
+        for (uint32_t partition = 0; partition < partitions; partition++) {
+            uint32_t rice_parameter;
+            if (!read_raw_uint32(rice_parameter, plen)) return false;
+            if (rice_parameter < pesc) {
+                uint32_t u = partition == 0 ? partition_samples - predictor_order
+                                            : partition_samples;
+                if (!read_rice_signed_block(res + sample, u, rice_parameter)) {
+                    if (state == State::read_frame)     // invalid Rice symbol
+                        return sync_error(ErrorStatus::lost_sync);
+                    return false;
+                }
+                sample += u;
+            } else {
+                if (!read_raw_uint32(rice_parameter, RICE_RAW_LEN)) return false;
+                uint32_t u = partition == 0 ? predictor_order : 0;
+                if (rice_parameter == 0) {
+                    for (; u < partition_samples; u++, sample++) res[sample] = 0;
+                } else {
+                    for (; u < partition_samples; u++, sample++) {
+                        int32_t i;
+                        if (!read_raw_int32(i, rice_parameter)) return false;
+                        res[sample] = i;
+                    }
                 }
             }
         }
-        uint64_t q = unary();
-        return (q << k) | read(k);
+        return true;
     }
 
-    void align() { pos_ = (pos_ + 7) & ~uint64_t(7); }
-    size_t byte_pos() const { return static_cast<size_t>(pos_ >> 3); }
-
-private:
-    // 8 bytes starting at b, big-endian, zero-padded beyond the end
-    uint64_t load(size_t b) const {
-        if (b + 8 <= n_) return load8(d_ + b);
-        uint64_t w = 0;
-        for (size_t i = 0; i < 8; i++)
-            w = (w << 8) | (b + i < n_ ? d_[b + i] : 0);
-        return w;
+    bool read_subframe_constant(uint32_t channel, uint32_t bps)
+    {
+        int64_t x;
+        if (!read_raw_int64(x, bps)) return false;
+        if (bps <= 32) {
+            int32_t v = static_cast<int32_t>(static_cast<uint32_t>(x));
+            std::fill(output[channel].begin(),
+                      output[channel].begin() + frame.blocksize, v);
+        } else {
+            side_subframe_in_use = true;
+            std::fill(side_subframe.begin(),
+                      side_subframe.begin() + frame.blocksize, x);
+        }
+        return true;
     }
 
-    const unsigned char *d_;
-    size_t n_;
-    uint64_t pos_, end_;
+    bool read_subframe_verbatim(uint32_t channel, uint32_t bps)
+    {
+        if (bps < 33) {
+            for (uint32_t i = 0; i < frame.blocksize; i++) {
+                int32_t x;
+                if (!read_raw_int32(x, bps)) return false;
+                residual[i] = x;
+            }
+            std::copy(residual.begin(), residual.begin() + frame.blocksize,
+                      output[channel].begin());
+        } else {
+            side_subframe_in_use = true;
+            for (uint32_t i = 0; i < frame.blocksize; i++) {
+                int64_t x;
+                if (!read_raw_int64(x, bps)) return false;
+                side_subframe[i] = x;
+            }
+        }
+        return true;
+    }
+
+    bool read_subframe_fixed(uint32_t channel, uint32_t bps, uint32_t order)
+    {
+        int64_t warmup[4];
+        for (uint32_t u = 0; u < order; u++)
+            if (!read_raw_int64(warmup[u], bps)) return false;
+        uint32_t porder;
+        int method = read_entropy_coding(order, porder);
+        if (method <= 0) return method == 0;
+        if (!read_residual_partitioned_rice(order, porder, method == 2))
+            return false;
+        if (state != State::read_frame) return true;
+        const uint32_t n = frame.blocksize - order;
+        const int32_t *r = residual.data();
+        if (bps < 33) {
+            // FLAC__fixed_restore_signal and _wide: the result is that of
+            // 32-bit arithmetic (wrapping on damaged data)
+            uint32_t *d = reinterpret_cast<uint32_t *>(output[channel].data());
+            for (uint32_t i = 0; i < order; i++)
+                d[i] = static_cast<uint32_t>(warmup[i]);
+            d += order;
+            for (uint32_t i = 0; i < n; i++) {
+                const uint32_t ri = static_cast<uint32_t>(r[i]);
+                const uint32_t *h = d + i;
+                switch (order) {
+                case 0: d[i] = ri; break;
+                case 1: d[i] = ri + h[-1]; break;
+                case 2: d[i] = ri + 2 * h[-1] - h[-2]; break;
+                case 3: d[i] = ri + 3 * h[-1] - 3 * h[-2] + h[-3]; break;
+                default:
+                    d[i] = ri + 4 * h[-1] - 6 * h[-2] + 4 * h[-3] - h[-4];
+                    break;
+                }
+            }
+        } else {
+            side_subframe_in_use = true;
+            uint64_t *d = reinterpret_cast<uint64_t *>(side_subframe.data());
+            for (uint32_t i = 0; i < order; i++)
+                d[i] = static_cast<uint64_t>(warmup[i]);
+            d += order;
+            for (uint32_t i = 0; i < n; i++) {
+                const uint64_t ri = static_cast<uint64_t>(int64_t(r[i]));
+                const uint64_t *h = d + i;
+                switch (order) {
+                case 0: d[i] = ri; break;
+                case 1: d[i] = ri + h[-1]; break;
+                case 2: d[i] = ri + 2 * h[-1] - h[-2]; break;
+                case 3: d[i] = ri + 3 * h[-1] - 3 * h[-2] + h[-3]; break;
+                default:
+                    d[i] = ri + 4 * h[-1] - 6 * h[-2] + 4 * h[-3] - h[-4];
+                    break;
+                }
+            }
+        }
+        return true;
+    }
+
+    bool read_subframe_lpc(uint32_t channel, uint32_t bps, uint32_t order)
+    {
+        int64_t warmup[32];
+        int32_t qlp_coeff[32];
+        uint32_t u32;
+        int32_t i32;
+        for (uint32_t u = 0; u < order; u++)
+            if (!read_raw_int64(warmup[u], bps)) return false;
+        if (!read_raw_uint32(u32, QLP_PRECISION_LEN)) return false;
+        if (u32 == (1u << QLP_PRECISION_LEN) - 1)
+            return sync_error(ErrorStatus::lost_sync);
+        const unsigned precision = u32 + 1;
+        if (!read_raw_int32(i32, QLP_SHIFT_LEN)) return false;
+        if (i32 < 0) return sync_error(ErrorStatus::lost_sync);
+        const int shift = i32;
+        for (uint32_t u = 0; u < order; u++)
+            if (!read_raw_int32(qlp_coeff[u], precision)) return false;
+        uint32_t porder;
+        int method = read_entropy_coding(order, porder);
+        if (method <= 0) return method == 0;
+        if (!read_residual_partitioned_rice(order, porder, method == 2))
+            return false;
+        if (state != State::read_frame) return true;
+        const uint32_t n = frame.blocksize - order;
+        const int32_t *r = residual.data();
+        if (bps <= 32) {
+            int32_t *d = output[channel].data();
+            for (uint32_t i = 0; i < order; i++)
+                d[i] = static_cast<int32_t>(static_cast<uint32_t>(warmup[i]));
+            d += order;
+            int32_t abs_sum = 0;
+            for (uint32_t j = 0; j < order; j++)
+                abs_sum += qlp_coeff[j] < 0 ? -qlp_coeff[j] : qlp_coeff[j];
+            if (abs_sum == 0) abs_sum = 1;
+            const int32_t before_shift = static_cast<int32_t>(bps + silog2(abs_sum));
+            const int32_t sum_bps = before_shift - shift;
+            const int32_t max_residual_bps =
+                static_cast<int32_t>(bps) > sum_bps ? static_cast<int32_t>(bps) + 1
+                                                    : sum_bps + 1;
+            if (max_residual_bps <= 32 && before_shift <= 32) {
+                // FLAC__lpc_restore_signal: 32-bit sums (which cannot
+                // overflow unless the warm-up samples are damaged; they
+                // wrap then)
+                for (uint32_t i = 0; i < n; i++) {
+                    uint32_t sum = 0;
+                    for (uint32_t j = 0; j < order; j++)
+                        sum += static_cast<uint32_t>(qlp_coeff[j]) *
+                               static_cast<uint32_t>(d[int64_t(i) - 1 - j]);
+                    d[i] = static_cast<int32_t>(
+                        static_cast<uint32_t>(r[i]) +
+                        static_cast<uint32_t>(static_cast<int32_t>(sum) >> shift));
+                }
+            } else {
+                // FLAC__lpc_restore_signal_wide: 64-bit sums (exact), the
+                // result truncated to 32 bits
+                for (uint32_t i = 0; i < n; i++) {
+                    int64_t sum = 0;
+                    for (uint32_t j = 0; j < order; j++)
+                        sum += int64_t(qlp_coeff[j]) * d[int64_t(i) - 1 - j];
+                    d[i] = static_cast<int32_t>(
+                        static_cast<uint32_t>(r[i]) +
+                        static_cast<uint32_t>(sum >> shift));
+                }
+            }
+        } else {
+            // FLAC__lpc_restore_signal_wide_33bit (the sums wrap on damaged
+            // data)
+            side_subframe_in_use = true;
+            int64_t *d = side_subframe.data();
+            for (uint32_t i = 0; i < order; i++) d[i] = warmup[i];
+            d += order;
+            for (uint32_t i = 0; i < n; i++) {
+                uint64_t sum = 0;
+                for (uint32_t j = 0; j < order; j++)
+                    sum += static_cast<uint64_t>(int64_t(qlp_coeff[j])) *
+                           static_cast<uint64_t>(d[int64_t(i) - 1 - j]);
+                d[i] = static_cast<int64_t>(
+                    static_cast<uint64_t>(int64_t(r[i])) +
+                    static_cast<uint64_t>(static_cast<int64_t>(sum) >> shift));
+            }
+        }
+        return true;
+    }
+
+    bool read_subframe(uint32_t channel, uint32_t bps)
+    {
+        uint32_t x;
+        if (!read_raw_uint32(x, 8)) return false;
+        const bool wasted = x & 1;
+        x &= 0xFE;
+        if (wasted) {
+            uint32_t u;
+            if (!read_unary_unsigned(u)) return false;
+            wasted_bits[channel] = u + 1;
+            if (wasted_bits[channel] >= bps)
+                return sync_error(ErrorStatus::lost_sync);
+            bps -= wasted_bits[channel];
+        } else
+            wasted_bits[channel] = 0;
+
+        if (x & 0x80)
+            return sync_error(ErrorStatus::lost_sync);
+        else if (x == 0) {
+            if (!read_subframe_constant(channel, bps)) return false;
+        } else if (x == 2) {
+            if (!read_subframe_verbatim(channel, bps)) return false;
+        } else if (x < 16)
+            return sync_error(ErrorStatus::unparseable_stream);
+        else if (x <= 24) {
+            uint32_t order = (x >> 1) & 7;
+            if (frame.blocksize <= order)
+                return sync_error(ErrorStatus::lost_sync);
+            if (!read_subframe_fixed(channel, bps, order)) return false;
+            if (state == State::search_for_frame_sync) return true;
+        } else if (x < 64)
+            return sync_error(ErrorStatus::unparseable_stream);
+        else {
+            uint32_t order = ((x >> 1) & 31) + 1;
+            if (frame.blocksize <= order)
+                return sync_error(ErrorStatus::lost_sync);
+            if (!read_subframe_lpc(channel, bps, order)) return false;
+            if (state == State::search_for_frame_sync) return true;
+        }
+
+        if (wasted) {
+            x = wasted_bits[channel];
+            if (bps + x < 33) {
+                uint32_t *d = reinterpret_cast<uint32_t *>(output[channel].data());
+                for (uint32_t i = 0; i < frame.blocksize; i++) d[i] <<= x;
+            } else {
+                side_subframe_in_use = true;
+                for (uint32_t i = 0; i < frame.blocksize; i++)
+                    side_subframe[i] = static_cast<int64_t>(
+                        static_cast<uint64_t>(int64_t(output[channel][i])) << x);
+            }
+        }
+        return true;
+    }
+
+    bool read_zero_padding()
+    {
+        if (!byte_aligned()) {
+            uint32_t zero = 0;
+            if (!read_raw_uint32(zero, bits_left_for_byte_alignment()))
+                return false;
+            if (zero != 0) sync_error(ErrorStatus::lost_sync);
+        }
+        return true;
+    }
+
+    void undo_channel_coding()
+    {
+        uint32_t *o0 = reinterpret_cast<uint32_t *>(output[0].data());
+        uint32_t *o1 = reinterpret_cast<uint32_t *>(output[1].data());
+        const uint32_t n = frame.blocksize;
+        switch (frame.channel_assignment) {
+        case CA_LEFT_SIDE:
+            for (uint32_t i = 0; i < n; i++)
+                o1[i] = side_subframe_in_use
+                            ? o0[i] - static_cast<uint32_t>(side_subframe[i])
+                            : o0[i] - o1[i];
+            break;
+        case CA_RIGHT_SIDE:
+            for (uint32_t i = 0; i < n; i++)
+                o0[i] = side_subframe_in_use
+                            ? o1[i] + static_cast<uint32_t>(side_subframe[i])
+                            : o0[i] + o1[i];
+            break;
+        case CA_MID_SIDE:
+            for (uint32_t i = 0; i < n; i++) {
+                if (!side_subframe_in_use) {
+                    int32_t side = static_cast<int32_t>(o1[i]);
+                    int32_t mid = static_cast<int32_t>((o0[i] << 1) |
+                                                       (o1[i] & 1));
+                    o0[i] = static_cast<uint32_t>(static_cast<int32_t>(
+                                static_cast<uint32_t>(mid) +
+                                static_cast<uint32_t>(side)) >> 1);
+                    o1[i] = static_cast<uint32_t>(static_cast<int32_t>(
+                                static_cast<uint32_t>(mid) -
+                                static_cast<uint32_t>(side)) >> 1);
+                } else {
+                    uint64_t s = static_cast<uint64_t>(side_subframe[i]);
+                    int64_t mid = static_cast<int64_t>(
+                        (static_cast<uint64_t>(int64_t(static_cast<int32_t>(o0[i]))) << 1) |
+                        (s & 1));
+                    o0[i] = static_cast<uint32_t>(
+                        static_cast<int64_t>(static_cast<uint64_t>(mid) + s) >> 1);
+                    o1[i] = static_cast<uint32_t>(
+                        static_cast<int64_t>(static_cast<uint64_t>(mid) - s) >> 1);
+                }
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    void md5_accumulate(const FrameHeader &h, const int32_t *const buf[])
+    {
+        const uint32_t nb = (h.bits_per_sample + 7) / 8;
+        std::vector<unsigned char> tmp;
+        tmp.reserve(static_cast<size_t>(h.blocksize) * h.channels * nb);
+        for (uint32_t i = 0; i < h.blocksize; i++)
+            for (uint32_t c = 0; c < h.channels; c++) {
+                uint32_t v = static_cast<uint32_t>(buf[c][i]);
+                for (uint32_t k = 0; k < nb; k++)
+                    tmp.push_back(static_cast<unsigned char>(v >> (8 * k)));
+            }
+        md5.update(tmp.data(), tmp.size());
+    }
+
+    WriteStatus write_audio_frame(const FrameHeader &h,
+                                  const int32_t *const buf[])
+    {
+        last_frame = h;
+        last_frame_is_set = true;
+        if (is_seeking) {
+            const uint64_t this_frame_sample = h.sample_number;
+            const uint64_t next_frame_sample = this_frame_sample + h.blocksize;
+            if (this_frame_sample <= target_sample &&
+                target_sample < next_frame_sample) {
+                const uint32_t delta =
+                    static_cast<uint32_t>(target_sample - this_frame_sample);
+                is_seeking = false;
+                if (delta > 0) {
+                    const int32_t *newbuf[MAX_CHANNELS];
+                    for (uint32_t c = 0; c < h.channels; c++)
+                        newbuf[c] = buf[c] + delta;
+                    last_frame.blocksize -= delta;
+                    last_frame.sample_number += delta;
+                    return client.write(last_frame, newbuf);
+                }
+                return client.write(h, buf);
+            }
+            return WriteStatus::cont;
+        }
+        if (!has_stream_info) do_md5_checking = false;
+        if (do_md5_checking) md5_accumulate(h, buf);
+        return client.write(h, buf);
+    }
+
+    bool read_frame(bool &got_a_frame)
+    {
+        uint32_t x = 0;
+        got_a_frame = false;
+        side_subframe_in_use = false;
+
+        uint32_t frame_crc = 0;
+        frame_crc = crc16_byte(header_warmup[0], frame_crc);
+        frame_crc = crc16_byte(header_warmup[1], frame_crc);
+        reset_read_crc16(frame_crc);
+
+        if (!read_frame_header()) return false;
+        if (state == State::search_for_frame_sync) return true;
+        // allocate_output_
+        for (uint32_t c = 0; c < frame.channels; c++)
+            if (output[c].size() < frame.blocksize)
+                output[c].resize(frame.blocksize);
+        if (residual.size() < frame.blocksize) residual.resize(frame.blocksize);
+        if (frame.bits_per_sample == 32 && side_subframe.size() < frame.blocksize)
+            side_subframe.resize(frame.blocksize);
+
+        for (uint32_t channel = 0; channel < frame.channels; channel++) {
+            uint32_t bps = frame.bits_per_sample;
+            switch (frame.channel_assignment) {
+            case CA_LEFT_SIDE: if (channel == 1) bps++; break;
+            case CA_RIGHT_SIDE: if (channel == 0) bps++; break;
+            case CA_MID_SIDE: if (channel == 1) bps++; break;
+            default: break;
+            }
+            if (bps == 33 && side_subframe.size() < frame.blocksize)
+                side_subframe.resize(frame.blocksize);
+            if (!read_subframe(channel, bps)) {
+                if (state == State::end_of_stream)
+                    break;
+                return false;
+            }
+            if (state != State::read_frame) break;
+        }
+
+        if (state != State::end_of_stream && !read_zero_padding()) return false;
+
+        if (state == State::read_frame) {
+            frame_crc = get_read_crc16();
+            if (!read_raw_uint32(x, FOOTER_CRC_LEN)) {
+                if (state != State::end_of_stream) return false;
+            }
+        }
+        if (state == State::read_frame && frame_crc == x) {
+            undo_channel_coding();
+            // Check whether the decoded data fit in bits_per_sample.
+            const unsigned shift_bits = 32 - frame.bits_per_sample;
+            const int32_t lo = INT32_MIN >> shift_bits, hi = INT32_MAX >> shift_bits;
+            for (uint32_t c = 0; c < frame.channels; c++)
+                for (uint32_t i = 0; i < frame.blocksize; i++)
+                    if (output[c][i] < lo || output[c][i] > hi) {
+                        sync_error(ErrorStatus::frame_crc_mismatch);
+                        break;
+                    }
+        } else if (state == State::read_frame)
+            sync_error(ErrorStatus::frame_crc_mismatch);
+
+        // Missing frames (a gap in the sample numbers) are replaced by
+        // silence.
+        if (last_frame_is_set && state == State::read_frame && !is_seeking &&
+            last_frame.sample_number + last_frame.blocksize < frame.sample_number) {
+            uint32_t padding = static_cast<uint32_t>(
+                frame.sample_number -
+                (last_frame.sample_number + last_frame.blocksize));
+            if (last_frame.sample_rate == frame.sample_rate &&
+                last_frame.channels == frame.channels &&
+                last_frame.bits_per_sample == frame.bits_per_sample &&
+                last_frame.blocksize >= 16) {
+                FrameHeader empty = last_frame;
+                std::vector<int32_t> zeros(empty.blocksize, 0);
+                const int32_t *zbuf[MAX_CHANNELS];
+                for (uint32_t c = 0; c < empty.channels; c++)
+                    zbuf[c] = zeros.data();
+                if (padding > 5 * empty.sample_rate)
+                    padding = 5 * empty.sample_rate;
+                if (padding > 50 * empty.blocksize)
+                    padding = 50 * empty.blocksize;
+                while (padding) {
+                    empty.sample_number += empty.blocksize;
+                    if (padding < empty.blocksize) empty.blocksize = padding;
+                    padding -= empty.blocksize;
+                    samples_decoded = empty.sample_number + empty.blocksize;
+                    if (write_audio_frame(empty, zbuf) != WriteStatus::cont) {
+                        state = State::aborted;
+                        return false;
+                    }
+                }
+            }
+        }
+
+        if (state == State::search_for_frame_sync ||
+            state == State::end_of_stream) {
+            // Damaged data: go back to just after the last frame sync code.
+            if (!rewind_to_after_last_seen_framesync() && last_seen_framesync) {
+                if (client.seek(last_seen_framesync) == CallbackStatus::error) {
+                    state = State::seek_error;
+                    return false;
+                }
+                br_clear();
+            }
+        } else {
+            got_a_frame = true;
+            if (next_fixed_block_size) fixed_block_size = next_fixed_block_size;
+            channels = frame.channels;
+            bits_per_sample = frame.bits_per_sample;
+            samples_decoded = frame.sample_number + frame.blocksize;
+            const int32_t *buf[MAX_CHANNELS];
+            for (uint32_t c = 0; c < frame.channels; c++)
+                buf[c] = output[c].data();
+            if (write_audio_frame(frame, buf) != WriteStatus::cont) {
+                state = State::aborted;
+                return false;
+            }
+        }
+        state = State::search_for_frame_sync;
+        return true;
+    }
+
+    bool process_single()
+    {
+        bool got_a_frame;
+        for (;;) {
+            switch (state) {
+            case State::search_for_metadata:
+                if (!find_metadata()) return false;
+                break;
+            case State::read_metadata:
+                return read_metadata();
+            case State::search_for_frame_sync:
+                if (!frame_sync()) return true;
+                break;
+            case State::read_frame:
+                if (!read_frame(got_a_frame)) return false;
+                if (got_a_frame) return true;
+                break;
+            case State::end_of_stream:
+            case State::aborted:
+                return true;
+            default:
+                return false;
+            }
+        }
+    }
+
+    bool process_until_end_of_metadata()
+    {
+        for (;;) {
+            switch (state) {
+            case State::search_for_metadata:
+                if (!find_metadata()) return false;
+                break;
+            case State::read_metadata:
+                if (!read_metadata()) return false;
+                break;
+            case State::search_for_frame_sync:
+            case State::read_frame:
+            case State::end_of_stream:
+            case State::aborted:
+                return true;
+            default:
+                return false;
+            }
+        }
+    }
+
+    bool seek_absolute(uint64_t sample)
+    {
+        uint64_t length;
+        if (state != State::search_for_metadata &&
+            state != State::read_metadata &&
+            state != State::search_for_frame_sync &&
+            state != State::read_frame && state != State::end_of_stream)
+            return false;
+        if (total_samples() > 0 && sample >= total_samples()) return false;
+        is_seeking = true;
+        do_md5_checking = false;
+        if (client.length(&length) != CallbackStatus::ok) {
+            is_seeking = false;
+            return false;
+        }
+        if (state == State::search_for_metadata ||
+            state == State::read_metadata) {
+            if (!process_until_end_of_metadata()) {
+                is_seeking = false;
+                return false;
+            }
+            if (total_samples() > 0 && sample >= total_samples()) {
+                is_seeking = false;
+                return false;
+            }
+        }
+        const bool ok = seek_to_absolute_sample(length, sample);
+        is_seeking = false;
+        return ok;
+    }
+
+    bool seek_to_absolute_sample(uint64_t stream_length, uint64_t target)
+    {
+        uint64_t lower_bound, upper_bound, lower_bound_sample,
+            upper_bound_sample, this_frame_sample;
+        int64_t pos = -1;
+        uint32_t approx_bytes_per_frame;
+        bool first_seek = true, seek_from_lower_bound = false;
+        const uint64_t total = total_samples();
+        const uint32_t min_blocksize = stream_info.min_blocksize;
+        const uint32_t max_blocksize = stream_info.max_blocksize;
+        const uint32_t max_framesize = stream_info.max_framesize;
+        const uint32_t min_framesize = stream_info.min_framesize;
+        uint32_t nch = channels, bps = bits_per_sample;
+        if (nch == 0) nch = stream_info.channels;
+        if (bps == 0) bps = stream_info.bits_per_sample;
+
+        if (max_framesize > 0)
+            approx_bytes_per_frame = (max_framesize + min_framesize) / 2 + 1;
+        else if (min_blocksize == max_blocksize && min_blocksize > 0)
+            approx_bytes_per_frame = min_blocksize * nch * bps / 8 + 64;
+        else
+            approx_bytes_per_frame = 4096 * nch * bps / 8 + 64;
+
+        lower_bound = first_frame_offset;
+        lower_bound_sample = 0;
+        upper_bound = stream_length;
+        upper_bound_sample = total > 0 ? total : target;
+
+        if (state == State::search_for_frame_sync && samples_decoded != 0) {
+            if (target < samples_decoded) {
+                if (get_decode_position(upper_bound))
+                    upper_bound_sample = samples_decoded;
+            } else {
+                if (get_decode_position(lower_bound))
+                    lower_bound_sample = samples_decoded;
+            }
+        }
+
+        if (has_seek_table) {
+            uint64_t new_lower_bound = lower_bound, new_upper_bound = upper_bound;
+            uint64_t new_lower_bound_sample = lower_bound_sample;
+            uint64_t new_upper_bound_sample = upper_bound_sample;
+            const int npoints = static_cast<int>(seek_table.size());
+            int i;
+            for (i = npoints - 1; i >= 0; i--) {
+                const SeekPoint &p = seek_table[static_cast<size_t>(i)];
+                if (p.sample_number != SEEKPOINT_PLACEHOLDER &&
+                    p.frame_samples > 0 &&
+                    (total <= 0 || p.sample_number < total) &&
+                    p.sample_number <= target)
+                    break;
+            }
+            if (i >= 0) {
+                new_lower_bound = first_frame_offset +
+                                  seek_table[static_cast<size_t>(i)].stream_offset;
+                new_lower_bound_sample = seek_table[static_cast<size_t>(i)].sample_number;
+            }
+            for (i = 0; i < npoints; i++) {
+                const SeekPoint &p = seek_table[static_cast<size_t>(i)];
+                if (p.sample_number != SEEKPOINT_PLACEHOLDER &&
+                    p.frame_samples > 0 &&
+                    (total <= 0 || p.sample_number < total) &&
+                    p.sample_number > target)
+                    break;
+            }
+            if (i < npoints) {
+                new_upper_bound = first_frame_offset +
+                                  seek_table[static_cast<size_t>(i)].stream_offset;
+                new_upper_bound_sample = seek_table[static_cast<size_t>(i)].sample_number;
+            }
+            if (new_upper_bound >= new_lower_bound) {
+                lower_bound = new_lower_bound;
+                upper_bound = new_upper_bound;
+                lower_bound_sample = new_lower_bound_sample;
+                upper_bound_sample = new_upper_bound_sample;
+            }
+        }
+
+        if (upper_bound_sample == lower_bound_sample) upper_bound_sample++;
+
+        target_sample = target;
+        for (;;) {
+            if (state == State::memory_allocation_error ||
+                state == State::aborted)
+                return false;
+            if (lower_bound_sample >= upper_bound_sample ||
+                lower_bound > upper_bound ||
+                upper_bound >= static_cast<uint64_t>(INT64_MAX)) {
+                state = State::seek_error;
+                return false;
+            }
+            if (seek_from_lower_bound)
+                pos = static_cast<int64_t>(lower_bound);
+            else
+                pos = static_cast<int64_t>(lower_bound) +
+                      static_cast<int64_t>(
+                          static_cast<double>(target - lower_bound_sample) /
+                          static_cast<double>(upper_bound_sample - lower_bound_sample) *
+                          static_cast<double>(upper_bound - lower_bound)) -
+                      approx_bytes_per_frame;
+            if (pos >= static_cast<int64_t>(upper_bound))
+                pos = static_cast<int64_t>(upper_bound) - 1;
+            if (pos < static_cast<int64_t>(lower_bound))
+                pos = static_cast<int64_t>(lower_bound);
+            if (client.seek(static_cast<uint64_t>(pos)) != CallbackStatus::ok) {
+                state = State::seek_error;
+                return false;
+            }
+            flush();
+            unparseable_frame_count = 0;
+            if (!process_single() || state == State::aborted ||
+                samples_decoded == 0) {
+                if (state != State::aborted && client.eof() &&
+                    !seek_from_lower_bound) {
+                    seek_from_lower_bound = true;
+                    continue;
+                }
+                state = State::seek_error;
+                return false;
+            }
+            seek_from_lower_bound = false;
+            if (!is_seeking) break;
+
+            this_frame_sample = last_frame.sample_number;
+            if (this_frame_sample + last_frame.blocksize >= upper_bound_sample &&
+                !first_seek) {
+                if (pos == static_cast<int64_t>(lower_bound)) {
+                    state = State::seek_error;
+                    return false;
+                }
+                approx_bytes_per_frame =
+                    approx_bytes_per_frame ? approx_bytes_per_frame * 2 : 16;
+                continue;
+            }
+            first_seek = false;
+            if (this_frame_sample < lower_bound_sample) {
+                state = State::seek_error;
+                return false;
+            }
+            if (target < this_frame_sample) {
+                upper_bound_sample = this_frame_sample + last_frame.blocksize;
+                if (!get_decode_position(upper_bound)) {
+                    state = State::seek_error;
+                    return false;
+                }
+                approx_bytes_per_frame = static_cast<uint32_t>(
+                    2 * (upper_bound - static_cast<uint64_t>(pos)) / 3 + 16);
+            } else {
+                lower_bound_sample = this_frame_sample + last_frame.blocksize;
+                if (!get_decode_position(lower_bound)) {
+                    state = State::seek_error;
+                    return false;
+                }
+                approx_bytes_per_frame = static_cast<uint32_t>(
+                    2 * (lower_bound - static_cast<uint64_t>(pos)) / 3 + 16);
+            }
+        }
+        return true;
+    }
 };
 
-uint64_t read_utf8(Bits &bits)
+StreamDecoder::StreamDecoder(StreamClient &client, bool md5_checking)
+    : d_(new Impl(client))
 {
-    uint64_t x = bits.read(8);
-    if (x < 0x80) return x;
-    uint64_t v;
-    int n;
-    if ((x & 0xE0) == 0xC0) {
-        v = x & 0x1F;
-        n = 1;
-    } else if ((x & 0xF0) == 0xE0) {
-        v = x & 0x0F;
-        n = 2;
-    } else if ((x & 0xF8) == 0xF0) {
-        v = x & 0x07;
-        n = 3;
-    } else if ((x & 0xFC) == 0xF8) {
-        v = x & 0x03;
-        n = 4;
-    } else if ((x & 0xFE) == 0xFC) {
-        v = x & 0x01;
-        n = 5;
-    } else if (x == 0xFE) {
-        v = 0;
-        n = 6;
-    } else
-        fail(Status::header);
-    for (int i = 0; i < n; i++) {
-        uint64_t y = bits.read(8);
-        if ((y & 0xC0) != 0x80) fail(Status::header);
-        v = (v << 6) | (y & 0x3F);
+    d_->md5_checking = md5_checking;
+    d_->cached = false;
+    d_->reset();
+}
+
+StreamDecoder::~StreamDecoder() = default;
+
+bool StreamDecoder::process_single() { return d_->process_single(); }
+
+bool StreamDecoder::seek_absolute(uint64_t sample)
+{
+    return d_->seek_absolute(sample);
+}
+
+bool StreamDecoder::flush() { return d_->flush(); }
+
+State StreamDecoder::state() const { return d_->state; }
+
+bool StreamDecoder::finish()
+{
+    unsigned char computed[16];
+    d_->md5.digest(computed);
+    bool md5_failed = d_->do_md5_checking &&
+                      std::memcmp(d_->stream_info.md5sum, computed, 16) != 0;
+    d_->is_seeking = false;
+    return !md5_failed;
+}
+
+// ---------------------------------------------------------------------------
+// Decoding of a complete stream held in memory
+
+namespace {
+
+class MemoryClient : public StreamClient {
+public:
+    MemoryClient(const unsigned char *data, size_t n, int expect_nsig,
+                 int expect_bps, Decoded &result)
+        : data_(data), n_(n), expect_nsig_(expect_nsig),
+          expect_bps_(expect_bps), result_(result) {}
+
+    ReadStatus read(unsigned char *buffer, size_t *nbytes) override
+    {
+        size_t avail = n_ - pos_;
+        size_t k = *nbytes < avail ? *nbytes : avail;
+        if (*nbytes > avail) eof_ = true;   // (as fread() sets the flag)
+        std::memcpy(buffer, data_ + pos_, k);
+        pos_ += k;
+        *nbytes = k;
+        return k ? ReadStatus::cont : ReadStatus::end_of_stream;
     }
-    return v;
-}
-
-inline int64_t unfold(uint64_t u)
-{
-    return (u & 1) ? -static_cast<int64_t>(u >> 1) - 1
-                   : static_cast<int64_t>(u >> 1);
-}
-
-void read_residual(Bits &bits, long blocksize, int order,
-                   std::vector<int64_t> &out)
-{
-    int method = static_cast<int>(bits.read(2));
-    if (method > 1) fail(Status::unparseable);
-    int pbits = method == 0 ? RICE_PARAM_BITS : RICE2_PARAM_BITS;
-    unsigned esc = method == 0 ? RICE_ESCAPE : RICE2_ESCAPE;
-    int porder = static_cast<int>(bits.read(4));
-    long nparts = 1L << porder;
-    if (blocksize % nparts) fail(Status::unparseable);
-    long psize = blocksize >> porder;
-    if (porder > 0 && psize < order) fail(Status::unparseable);
-    for (long part = 0; part < nparts; part++) {
-        long n = part == 0 ? psize - order : psize;
-        unsigned k = static_cast<unsigned>(bits.read(pbits));
-        if (k == esc) {         // escaped partition: unencoded samples
-            int nb = static_cast<int>(bits.read(5));
-            for (long i = 0; i < n; i++) out.push_back(bits.read_signed(nb));
-        } else {
-            int kk = static_cast<int>(k);
-            for (long i = 0; i < n; i++) out.push_back(unfold(bits.rice(kk)));
+    CallbackStatus seek(uint64_t pos) override
+    {
+        if (pos > n_) return CallbackStatus::error;
+        pos_ = static_cast<size_t>(pos);
+        eof_ = false;
+        return CallbackStatus::ok;
+    }
+    CallbackStatus tell(uint64_t *pos) override
+    {
+        *pos = pos_;
+        return CallbackStatus::ok;
+    }
+    CallbackStatus length(uint64_t *len) override
+    {
+        *len = n_;
+        return CallbackStatus::ok;
+    }
+    bool eof() override { return eof_; }
+    WriteStatus write(const FrameHeader &h,
+                      const int32_t *const buffer[]) override
+    {
+        if (expect_nsig_ > 0 && h.channels != static_cast<uint32_t>(expect_nsig_)) {
+            wfdb_error("getvec: wrong number of signals in FLAC signal file\n");
+            fail(Status::wfdb);
+        }
+        if (expect_nsig_ > 0 && h.bits_per_sample > static_cast<uint32_t>(expect_bps_)) {
+            wfdb_error("getvec: wrong sample resolution in FLAC signal file\n");
+            fail(Status::wfdb);
+        }
+        if (result_.status != Status::ok) return WriteStatus::abort;
+        if (result_.chans.empty()) result_.chans.resize(h.channels);
+        size_t m = h.channels < result_.chans.size() ? h.channels
+                                                    : result_.chans.size();
+        for (size_t c = 0; c < m; c++)
+            result_.chans[c].insert(result_.chans[c].end(), buffer[c],
+                                    buffer[c] + h.blocksize);
+        return WriteStatus::cont;
+    }
+    void error(ErrorStatus status) override
+    {
+        switch (status) {
+        case ErrorStatus::lost_sync: fail(Status::sync); break;
+        case ErrorStatus::bad_header: fail(Status::header); break;
+        case ErrorStatus::frame_crc_mismatch: fail(Status::crc); break;
+        case ErrorStatus::unparseable_stream: fail(Status::unparseable); break;
+        case ErrorStatus::bad_metadata: fail(Status::meta); break;
         }
     }
-}
-
-inline int64_t shl(int64_t x, int n)
-{
-    return static_cast<int64_t>(static_cast<uint64_t>(x) << n);
-}
-
-std::vector<int64_t> decode_subframe(Bits &bits, long blocksize, int bps)
-{
-    if (bits.read(1)) fail(Status::unparseable);
-    int t = static_cast<int>(bits.read(6));
-    int wasted = 0;
-    if (bits.read(1)) {
-        wasted = static_cast<int>(bits.unary()) + 1;
-        bps -= wasted;
+    void fail(Status s)
+    {
+        if (result_.status == Status::ok) result_.status = s;
     }
-    std::vector<int64_t> s;
-    if (t == SUB_CONSTANT) {
-        int64_t v = bits.read_signed(bps);
-        s.assign(static_cast<size_t>(blocksize), v);
-    } else if (t == SUB_VERBATIM) {
-        s.reserve(static_cast<size_t>(blocksize));
-        for (long i = 0; i < blocksize; i++) s.push_back(bits.read_signed(bps));
-    } else if (t >= SUB_FIXED && t <= SUB_FIXED + MAX_FIXED_ORDER) {
-        int order = t - SUB_FIXED;
-        s.reserve(static_cast<size_t>(blocksize > order ? blocksize : order));
-        for (int i = 0; i < order; i++) s.push_back(bits.read_signed(bps));
-        std::vector<int64_t> res;
-        res.reserve(static_cast<size_t>(blocksize));
-        read_residual(bits, blocksize, order, res);
-        switch (order) {
-        case 0:
-            s.insert(s.end(), res.begin(), res.end());
-            break;
-        case 1: {
-            int64_t x = s[s.size() - 1];
-            for (int64_t r : res) {
-                x += r;
-                s.push_back(x);
-            }
-            break;
-        }
-        case 2: {
-            int64_t a = s[s.size() - 2], b = s[s.size() - 1];
-            for (int64_t r : res) {
-                int64_t nb = 2 * b - a + r;
-                a = b;
-                b = nb;
-                s.push_back(b);
-            }
-            break;
-        }
-        case 3: {
-            int64_t a = s[s.size() - 3], b = s[s.size() - 2],
-                    c = s[s.size() - 1];
-            for (int64_t r : res) {
-                int64_t nc = 3 * c - 3 * b + a + r;
-                a = b;
-                b = c;
-                c = nc;
-                s.push_back(c);
-            }
-            break;
-        }
-        default: {
-            int64_t a = s[s.size() - 4], b = s[s.size() - 3],
-                    c = s[s.size() - 2], d = s[s.size() - 1];
-            for (int64_t r : res) {
-                int64_t nd = 4 * d - 6 * c + 4 * b - a + r;
-                a = b;
-                b = c;
-                c = d;
-                d = nd;
-                s.push_back(d);
-            }
-            break;
-        }
-        }
-    } else if (t >= SUB_LPC) {
-        int order = t - (SUB_LPC - 1);
-        s.reserve(static_cast<size_t>(blocksize > order ? blocksize : order));
-        for (int i = 0; i < order; i++) s.push_back(bits.read_signed(bps));
-        int prec = static_cast<int>(bits.read(4)) + 1;
-        if (prec == LPC_PREC_INVALID) fail(Status::unparseable);
-        int shift = static_cast<int>(bits.read_signed(5));
-        int64_t coefs[MAX_LPC_ORDER];
-        for (int i = 0; i < order; i++) coefs[i] = bits.read_signed(prec);
-        std::vector<int64_t> res;
-        res.reserve(static_cast<size_t>(blocksize));
-        read_residual(bits, blocksize, order, res);
-        if (shift < 0) fail(Status::unparseable);
-        for (int64_t r : res) {
-            const int64_t *hist = s.data() + s.size() - order;
-            int64_t acc = 0;
-            // coefs[0] applies to the most recent sample
-            for (int j = 0; j < order; j++)
-                acc += coefs[j] * hist[order - 1 - j];
-            s.push_back(r + (acc >> shift));
-        }
-    } else
-        fail(Status::unparseable);
-    if (wasted)
-        for (int64_t &x : s) x = shl(x, wasted);
-    return s;
-}
 
-const int BPS_TABLE[8] = {0, 8, 12, 0, 16, 20, 24, 32};
-
-long block_size_code(int bsc)
-{
-    switch (bsc) {
-    case 1: return 192;
-    case 2: return 576;
-    case 3: return 1152;
-    case 4: return 2304;
-    case 5: return 4608;
-    default: return 256L << (bsc - 8);    // 8 .. 15
-    }
-}
-
-// Decode one frame at byte offset pos; returns the channels, sets bps and
-// the offset of the next frame.
-std::vector<std::vector<int64_t>> decode_frame(const unsigned char *data,
-                                               size_t n, size_t pos,
-                                               int si_bps, int &bps,
-                                               size_t &newpos)
-{
-    if (pos + 2 > n ||
-        ((unsigned(data[pos]) << 8 | data[pos + 1]) & SYNC_MASK) != FRAME_SYNC)
-        fail(Status::sync);
-    Bits bits(data, n, pos);
-    bits.read(16);      // sync code and blocking strategy
-    int bsc = static_cast<int>(bits.read(4));
-    int src = static_cast<int>(bits.read(4));
-    int chc = static_cast<int>(bits.read(4));
-    int ssc = static_cast<int>(bits.read(3));
-    if (bits.read(1)) fail(Status::header);
-    read_utf8(bits);
-    long blocksize;
-    if (bsc == 0)
-        fail(Status::header);
-    else if (bsc == BS_8BIT)
-        blocksize = static_cast<long>(bits.read(8)) + 1;
-    else if (bsc == BS_16BIT)
-        blocksize = static_cast<long>(bits.read(16)) + 1;
-    else
-        blocksize = block_size_code(bsc);
-    if (src == SR_8BIT)
-        bits.read(8);
-    else if (src == SR_16BIT_HZ || src == SR_16BIT_DAHZ)
-        bits.read(16);
-    else if (src == SR_INVALID)
-        fail(Status::header);
-    if (ssc == 0)
-        bps = si_bps;
-    else if (BPS_TABLE[ssc])
-        bps = BPS_TABLE[ssc];
-    else
-        fail(Status::header);
-    size_t hend = bits.byte_pos();
-    unsigned crc = static_cast<unsigned>(bits.read(8));
-    if (crc8(data + pos, hend - pos) != crc) fail(Status::header);
-    std::vector<std::vector<int64_t>> chans;
-    if (chc < CH_LEFT_SIDE) {
-        for (int c = 0; c <= chc; c++)
-            chans.push_back(decode_subframe(bits, blocksize, bps));
-    } else if (chc <= CH_MID_SIDE) {
-        if (chc == CH_LEFT_SIDE) {
-            std::vector<int64_t> a = decode_subframe(bits, blocksize, bps);
-            std::vector<int64_t> sd = decode_subframe(bits, blocksize, bps + 1);
-            size_t m = a.size() < sd.size() ? a.size() : sd.size();
-            std::vector<int64_t> b(m);
-            for (size_t i = 0; i < m; i++) b[i] = a[i] - sd[i];
-            chans.push_back(std::move(a));
-            chans.push_back(std::move(b));
-        } else if (chc == CH_SIDE_RIGHT) {
-            std::vector<int64_t> sd = decode_subframe(bits, blocksize, bps + 1);
-            std::vector<int64_t> b = decode_subframe(bits, blocksize, bps);
-            size_t m = b.size() < sd.size() ? b.size() : sd.size();
-            std::vector<int64_t> a(m);
-            for (size_t i = 0; i < m; i++) a[i] = sd[i] + b[i];
-            chans.push_back(std::move(a));
-            chans.push_back(std::move(b));
-        } else {                // mid/side
-            std::vector<int64_t> mid = decode_subframe(bits, blocksize, bps);
-            std::vector<int64_t> sd = decode_subframe(bits, blocksize, bps + 1);
-            size_t m = mid.size() < sd.size() ? mid.size() : sd.size();
-            std::vector<int64_t> le(m), ri(m);
-            for (size_t i = 0; i < m; i++) {
-                int64_t x = shl(mid[i], 1) | (sd[i] & 1), y = sd[i];
-                le[i] = (x + y) >> 1;
-                ri[i] = (x - y) >> 1;
-            }
-            chans.push_back(std::move(le));
-            chans.push_back(std::move(ri));
-        }
-    } else
-        fail(Status::header);
-    bits.align();
-    size_t fend = bits.byte_pos();
-    unsigned c16 = static_cast<unsigned>(bits.read(16));
-    if (crc16(data + pos, fend - pos) != c16) fail(Status::crc);
-    newpos = bits.byte_pos();
-    return chans;
-}
+private:
+    const unsigned char *data_;
+    size_t n_, pos_ = 0;
+    bool eof_ = false;
+    int expect_nsig_, expect_bps_;
+    Decoded &result_;
+};
 
 } // namespace
 
@@ -534,93 +1998,29 @@ Decoded decode(const unsigned char *data, size_t n, int expect_nsig,
                int expect_bps)
 {
     Decoded result;
-    try {
-        // Errors in the stream header and metadata are reported by libFLAC
-        // without invoking its error callback ('meta' status).
-        if (n < MARKER_LEN || std::memcmp(data, STREAM_MARKER, MARKER_LEN) != 0)
-            fail(Status::meta);
-        size_t pos = MARKER_LEN;
-        int si_bps = 0, si_ch = 0;
-        for (;;) {
-            if (pos + META_HEADER_LEN > n) fail(Status::meta);
-            unsigned hb = data[pos];
-            size_t ln = (static_cast<size_t>(data[pos + 1]) << 16) |
-                        (static_cast<size_t>(data[pos + 2]) << 8) |
-                        data[pos + 3];
-            if (pos + META_HEADER_LEN + ln > n) fail(Status::meta);
-            if ((hb & META_TYPE) == META_STREAMINFO) {
-                if (ln < STREAMINFO_LEN) fail(Status::meta);
-                Bits b(data, n, pos + META_HEADER_LEN);
-                b.read(16);
-                b.read(16);
-                b.read(24);
-                b.read(24);
-                b.read(20);
-                si_ch = static_cast<int>(b.read(3)) + 1;
-                si_bps = static_cast<int>(b.read(5)) + 1;
-                b.read(36);
-                result.has_md5 = true;
-                std::memcpy(result.md5,
-                            data + pos + META_HEADER_LEN + STREAMINFO_MD5,
-                            MD5_LEN);
-            }
-            pos += META_HEADER_LEN + ln;
-            if (hb & META_LAST) break;
+    MemoryClient client(data, n, expect_nsig, expect_bps, result);
+    StreamDecoder dec(client, false);
+    while (result.status == Status::ok) {
+        if (!dec.process_single()) {
+            client.fail(Status::meta);
+            break;
         }
-        result.channels = si_ch;
-        result.bps = si_bps;
-        result.chans.assign(si_ch > 1 ? si_ch : 1, std::vector<int32_t>());
-        while (pos < n) {
-            int bps = 0;
-            size_t newpos = pos;
-            std::vector<std::vector<int64_t>> fr;
-            try {
-                fr = decode_frame(data, n, pos, si_bps, bps, newpos);
-            } catch (const FlacError &e) {
-                if (e.status == Status::sync) {
-                    bool zeros = true;
-                    for (size_t i = pos; i < n; i++)
-                        if (data[i]) {
-                            zeros = false;
-                            break;
-                        }
-                    if (zeros) break;
-                }
-                throw;
-            }
-            pos = newpos;
-            if (expect_nsig > 0 &&
-                fr.size() != static_cast<size_t>(expect_nsig)) {
-                wfdb_error(
-                    "getvec: wrong number of signals in FLAC signal file\n");
-                fail(Status::wfdb);
-            }
-            if (expect_nsig > 0 && bps > expect_bps) {
-                wfdb_error(
-                    "getvec: wrong sample resolution in FLAC signal file\n");
-                fail(Status::wfdb);
-            }
-            size_t m = fr.size() < result.chans.size() ? fr.size()
-                                                       : result.chans.size();
-            for (size_t c = 0; c < m; c++) {
-                std::vector<int32_t> &dst = result.chans[c];
-                size_t base = dst.size(), m2 = fr[c].size();
-                dst.resize(base + m2);
-                const int64_t *src = fr[c].data();
-                int32_t *out = dst.data() + base;
-                for (size_t i = 0; i < m2; i++)
-                    out[i] = static_cast<int32_t>(src[i]);
-            }
-            if (m > 0)
-                result.block_ends.push_back(
-                    static_cast<long long>(result.chans[0].size()));
-        }
-    } catch (const FlacError &e) {
-        result.status = e.status;
-        result.chans.clear();
+        State st = dec.state();
+        if (st == State::end_of_stream || st == State::aborted) break;
+    }
+    // STREAMINFO (read again: the decoder does not report it)
+    if (n >= MARKER_LEN + META_HEADER_LEN + STREAMINFO_LEN &&
+        std::memcmp(data, STREAM_MARKER, MARKER_LEN) == 0 &&
+        (data[MARKER_LEN] & META_TYPE) == META_STREAMINFO) {
+        const unsigned char *p = data + MARKER_LEN + META_HEADER_LEN;
+        result.channels = ((p[12] >> 1) & 0x07) + 1;
+        result.bps = (((p[12] & 1) << 4) | (p[13] >> 4)) + 1;
+        result.has_md5 = true;
+        std::memcpy(result.md5, p + STREAMINFO_MD5, MD5_LEN);
     }
     return result;
 }
+
 
 // ---------------------------------------------------------------------------
 // MD5 (RFC 1321)

@@ -26,7 +26,8 @@ function write_record(record, signals, fs, varargin)
 %     'comments'    cell array of info strings
 %     'physical'    true if SIGNALS are in physical units; they are converted
 %                   with the gains and baselines, and NaN becomes an invalid
-%                   sample (default false)
+%                   sample; infinite values, and values beyond the range of
+%                   32-bit ADC units, are errors (default false)
 %     'samps_per_frame'  samples per frame of each signal, for a
 %                   multi-frequency record.  Each row of SIGNALS then holds
 %                   one frame: the samples of signal 0, then those of
@@ -42,15 +43,20 @@ function write_record(record, signals, fs, varargin)
 %   sum ("signals has N columns, but samps_per_frame adds up to M"; these
 %   are checked first, before any file is created), if FS is not greater
 %   than 0, if the gains, ADC resolutions or required units are not given,
-%   if 'physical' is true and a gain is 0, if 'dir' does not exist, if the
-%   files cannot be created, or if they cannot be written completely, for
-%   example when the disk is full ("write error on record RECORD", after
-%   the library's messages; in legacy mode too).  A record is never written
-%   over one of the files being read ("osigfopen: output file NAME is also
-%   an input file").
+%   if a per-signal option does not have one value or one value per
+%   signal, if samples in ADC units are not integers or lie outside the
+%   range of a 32-bit integer, if samples in physical units are infinite or
+%   their ADC values lie outside that range, if 'physical' is true and a
+%   gain is 0, if 'dir' does not exist, if the files cannot be created, or
+%   if they cannot be written completely, for example when the disk is full
+%   ("write error on record RECORD", after the library's messages; in
+%   legacy mode too).  The arguments are checked before any file is
+%   created.  A record is never written over one of the files being read
+%   ("osigfopen: output file NAME is also an input file").
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
-%   WFDB library functions.
+%   WFDB library functions; it also closes the output signals when it
+%   fails.
 %
 %   Examples:
 %       x = round(1000 * sin(2 * pi * (0:999)' / 100));
@@ -92,6 +98,8 @@ opt = wfdbx.internal.hl_options(opt, varargin, 'write_record');
 % call), checked before the other arguments
 restore_dir = wfdbx.internal.hl_outdir(opt.dir, record, 'write_record'); %#ok<NASGU>
 restore = wfdbx.internal.hl_legacy(opt.legacy, 'write_record'); %#ok<NASGU>
+INT32_MIN = -2147483648;
+INT32_MAX = 2147483647;
 % Each frame holds spf(k) >= 1 samples of signal k, and each row of
 % signals is one frame.
 x = double(signals);
@@ -144,6 +152,9 @@ else
 end
 units = per_str(opt.units, nsig, 'units');
 names = per_str(opt.names, nsig, 'names');
+if ~all(cellfun(@(u) is_text(u) || isempty(u), [units, names]))
+    error('wfdbx:write_record', 'units and names must be strings');
+end
 % WFDB-x: the units of calibrated signals are required (C assumed mV)
 for k = 1:nsig
     if ~legacy && gains(k) ~= 0 && (~ischar(units{k}) || isempty(units{k}))
@@ -167,10 +178,36 @@ if opt.physical
             r = fix(v + 0.5);
             r(v < 0) = fix(v(v < 0) - 0.5);
             r = r + bases(k);
-            r(isnan(v)) = -32768;   % WFDB_INVALID_SAMPLE
+            % WFDB-x: NaN is an invalid sample; an infinite value, or one
+            % beyond the range of a 32-bit sample, is an error
+            nan = isnan(r);
+            if any(~nan & ~(r >= INT32_MIN & r <= INT32_MAX))
+                error('wfdbx:write_record', ['signal %d has a sample that ' ...
+                    'is infinite or beyond the range of 32-bit ADC units'], k - 1);
+            end
+            r(nan) = -32768;        % WFDB_INVALID_SAMPLE
             x(:, c) = r;
         end
     end
+else
+    % WFDB-x: samples in ADC units must be integers within the range of a
+    % 32-bit sample (anything else is an error, not rounded or wrapped)
+    if ~all(isfinite(x(:)) & x(:) == fix(x(:)))
+        error('wfdbx:write_record', 'samples in ADC units must be integers');
+    end
+    if ~all(x(:) >= INT32_MIN & x(:) <= INT32_MAX)
+        error('wfdbx:write_record', ['samples in ADC units must be within ' ...
+            'the range of a 32-bit integer']);
+    end
+end
+comments = opt.comments;
+if ischar(comments) || isa(comments, 'string')
+    comments = cellstr(comments);
+elseif isempty(comments)
+    comments = {};
+end
+if ~iscell(comments) || ~all(cellfun(@is_text, comments(:)))
+    error('wfdbx:write_record', 'comments must be a cell array of strings');
 end
 si = wfdbx.siginfo(nsig);
 for k = 1:nsig
@@ -197,34 +234,39 @@ if nsig > 1 && any(fmts ~= fmts(1))
 end
 wfdbx.wfdbquit();
 errors = wfdbx.wfdbx_write_errors();
-if wfdbx.osigfopen(si, nsig) ~= nsig
+% (the output signals are closed however this ends)
+try
+    if wfdbx.osigfopen(si, nsig) ~= nsig
+        error('wfdbx:write_record', 'can''t create signal file for record %s', ...
+            record);
+    end
+    wfdbx.setsampfreq(fs);
+    % The counter frequency and base count survive wfdbquit() (as in the C
+    % library); a new record written here has neither.
+    wfdbx.setcfreq(0);
+    wfdbx.setbasecount(0);
+    if ischar(opt.base_time)
+        wfdbx.setbasetime(opt.base_time);
+    end
+    wfdbx.putframes(x);
+    if wfdbx.newheader(record) < 0
+        error('wfdbx:write_record', 'can''t create header for record %s', record);
+    end
+    for k = 1:numel(comments)
+        wfdbx.putinfo(comments{k});
+    end
+catch err
     wfdbx.wfdbquit();
-    error('wfdbx:write_record', 'can''t create signal file for record %s', record);
-end
-wfdbx.setsampfreq(fs);
-% The counter frequency and base count survive wfdbquit() (as in the C
-% library); a new record written here has neither.
-wfdbx.setcfreq(0);
-wfdbx.setbasecount(0);
-if ischar(opt.base_time)
-    wfdbx.setbasetime(opt.base_time);
-end
-wfdbx.putframes(x);
-if wfdbx.newheader(record) < 0
-    wfdbx.wfdbquit();
-    error('wfdbx:write_record', 'can''t create header for record %s', record);
-end
-comments = opt.comments;
-if ischar(comments)
-    comments = {comments};
-end
-for k = 1:numel(comments)
-    wfdbx.putinfo(comments{k});
+    rethrow(err);
 end
 wfdbx.wfdbquit();
 if wfdbx.wfdbx_write_errors() > errors
     error('wfdbx:write_record', 'write error on record %s', record);
 end
+end
+
+function tf = is_text(s)
+tf = ischar(s) || isa(s, 'string');
 end
 
 function v = per(v, n, what)

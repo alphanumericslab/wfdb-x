@@ -1,10 +1,12 @@
-function fi = flac_pack(fi, base)
-%FLAC_PACK Arrange decoded FLAC samples in WFDB frame order.
-%   FI = wfdbx.internal.flac_pack(FI, BASE) sets FI.samples to the samples
-%   from sample number BASE (0-based, per signal) onward in frame order
-%   (for each frame: FI.spf samples of each signal in turn), as the C
-%   library reads them after a seek to that sample; FI.leftover is the
-%   number of samples at the end that do not fill a frame, and FI.pos 0.
+function D = flac_dec_open(ig)
+%FLAC_DEC_OPEN The FLAC decoder of an input group.
+%   D = wfdbx.internal.flac_dec_open(IG) creates the decoder
+%   (wfdbx.internal.flac_decoder) of the FLAC input group IG, on the
+%   first read: it reads the whole signal file (IG.fp), which can be
+%   positioned unless the header gives a negative block size (IG.seek);
+%   the decoded samples go to IG (wfdbx.internal.flac_samples).  The MD5
+%   signature of the samples is computed if the environment variable
+%   WFDB_FLAC_CHECK_MD5 is set.
 %
 %   Part of the translation of the FLAC support of lib/signal.c (WFDB
 %   10.7.0).
@@ -18,7 +20,9 @@ function fi = flac_pack(fi, base)
 % and behavior of the original code, but it is new code, not the original C
 % code.
 %
-% Changes from the original: none, apart from the language.
+% Changes from the original: the stream is decoded by WFDB-x's translation of
+% libFLAC's stream decoder (wfdbx.internal.flac_decoder) instead of by libFLAC. Each change is marked "WFDB-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c (FLAC support), WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by
@@ -30,14 +34,9 @@ function fi = flac_pack(fi, base)
 % Software Foundation, either version 3 of the License, or (at your option)
 % any later version. See LICENSE.
 
-spf = fi.spf;
-nch = size(fi.arr, 1);
-nfr = floor((fi.total - base) / spf);
-fi.leftover = (fi.total - base) - nfr * spf;
-X = fi.arr(:, base+1:base+nfr*spf);
-Y = reshape(X', spf, nfr, nch);
-Z = permute(Y, [1 3 2]);
-fi.samples = reshape(Z, 1, []);
-fi.pos = 0;
-fi.base = base;
+% WFDB-x: WFDB-x's decoder (a port of libFLAC's stream decoder)
+opt.seekable = ig.seek ~= 0;
+opt.md5 = ~isempty(wfdbx.internal.cgetenv('WFDB_FLAC_CHECK_MD5'));
+opt.ig = ig;
+D = wfdbx.internal.flac_decoder('new', ig.fp.readall(), opt);
 end

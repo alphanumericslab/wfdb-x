@@ -1,10 +1,10 @@
 # WFDB-x for MATLAB and GNU Octave
 
-> **WFDB-x** is the WFDB Software Package (the library and its 33
-> command-line tools) reimplemented in seven languages: Python, C++,
-> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
-> the original C package and to each other. This is the MATLAB/Octave
-> implementation.
+> **WFDB-x** is a reimplementation of the WFDB Software Package (the library
+> and its command-line tools) in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
+> identical results to the original C package and to each other. This is the
+> MATLAB/Octave implementation.
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
@@ -119,7 +119,7 @@ rec = wfdbx.read_record('100s', 'channels', {'MLII'}, 'sampfrom', '0:10', ...
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
 | `'channels'` | signals to read: signal numbers, or a cell array of numbers and names (by name, as in `names`) | all signals |
-| `'sampfrom'`, `'sampto'` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
+| `'sampfrom'`, `'sampto'` | first sample, and the sample after the last one: a sample number (`'sampfrom'` not negative) or a time string (see below) | the whole record |
 | `'physical'` | return physical units instead of ADC units | `false` |
 | `'highres'` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `'pad'` | replace invalid samples by the previous valid one | `false` |
@@ -229,7 +229,12 @@ This writes the annotation file `rand.qrs`, for the record `rand` written
 above, in the current folder.
 
 Give the annotation types as `'symbols'` or as `'codes'`. `'subtypes'`,
-`'chans'`, `'nums'`, `'aux'`, `'fs'` and `'dir'` are optional. If the
+`'chans'`, `'nums'`, `'aux'`, `'fs'` and `'dir'` are optional. Each
+per-annotation option is one value for all annotations, or a list with
+exactly one value per annotation; a list of any other length is an error,
+thrown before the file is created. As in C, subtypes and annotator numbers
+are stored as signed bytes and channels as unsigned bytes (other values
+wrap around). If the
 annotations are not in time order, the file is sorted when it is written.
 `'sort', false` keeps the given order (without the library's advice to run
 `sortann`) and `'sort', true` always sorts, for that call only. Without
@@ -254,7 +259,15 @@ unless it is `0`).
   or more ("samps_per_frame must hold integers >= 1"), and `signals` must
   have `sum(samps_per_frame)` columns ("signals has N columns, but
   samps_per_frame adds up to M"). These are checked first, and nothing is
-  written.
+  written. Samples in ADC units must be integers within the range of a
+  32-bit integer, and samples in physical units must not be infinite or
+  have ADC values outside that range (NaN is an invalid sample); all the
+  arguments are checked before any file is created. Whatever the outcome,
+  `write_record` and `write_annotations` close their output files and the
+  library's output signals and annotators before they return.
+* A negative `'sampfrom'` in `read_record` is an error. `read_record` sets
+  the getvec mode (`'highres'`, `'pad'`) for its own reading only: the mode
+  in force before the call is restored afterwards.
 * An annotation file that ends unexpectedly, or cannot be read, before
   `'sampto'` throws an error: "can't read annotation file ANN of record REC
   (getann status -3)".
@@ -518,8 +531,9 @@ Differences from C that come from the language:
 * `wfdbx.getframes(n)` reads up to `n` frames at once, as a matrix with one
   row per frame. `wfdbx.putframes(M)` writes the rows of `M`.
 * Errors are reported by return values, as in C, not by MATLAB errors.
-  `wfdbx.wfdberror()` returns the last message, and `wfdbx.wfdbquiet()`
-  stops the messages from being printed.
+  `wfdbx.wfdberror()` returns the last message, `wfdbx.wfdb_error(fmt,
+  ...)` reports a message of your own as the library does, and
+  `wfdbx.wfdbquiet()` stops the messages from being printed.
 * `wfdbx.wfdbx_write_errors()` (a WFDB-x addition) returns the number of
   output files that the library could not write, flush or close, plus those
   counted by `wfdbx.wfdbx_note_write_error()` (also an addition), which a

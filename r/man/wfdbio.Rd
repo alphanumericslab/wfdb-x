@@ -5,6 +5,7 @@
 \alias{wfdbquiet}
 \alias{wfdbverbose}
 \alias{wfdberror}
+\alias{wfdb_error}
 \alias{wfdbfile}
 \alias{wfdbmemerr}
 \alias{wfdb_me_fatal}
@@ -39,6 +40,7 @@ resetwfdb()
 wfdbquiet()
 wfdbverbose()
 wfdberror()
+wfdb_error(fmt, ...)
 wfdbfile(s, record)
 wfdbmemerr(behavior)
 wfdb_me_fatal()
@@ -66,6 +68,8 @@ wfdbx_note_write_error()
   \item{behavior}{the behaviour on memory allocation errors.  It is only
     stored, to be returned by \code{wfdb_me_fatal}, since such errors are
     handled by R.}
+  \item{fmt, ...}{\code{wfdb_error}: a C \code{printf} format and its
+    arguments.}
 }
 \details{
   A name is resolved to exactly one location.  \code{"-"} is the standard input or output;
@@ -115,7 +119,10 @@ wfdbx_note_write_error()
   The library reports errors with a negative return value and a message
   on the standard error output.  \code{wfdbquiet} suppresses these
   messages and \code{wfdbverbose} enables them again; \code{wfdberror}
-  returns the last one.
+  returns the last one.  \code{wfdb_error} reports a message as the
+  library does: it is formatted as by C \code{printf}, saved for
+  \code{wfdberror}, and printed on the standard error output unless
+  \code{wfdbquiet} is in effect.
 
   \code{wfdbx_write_errors} counts the write errors since the program
   started: the output files (signal files, headers, annotation files,
@@ -162,9 +169,10 @@ wfdbx_note_write_error()
 }
 \section{Origin}{
   Translation of the C functions getwfdb(), setwfdb(), resetwfdb(),
-  wfdbquiet(), wfdbverbose(), wfdberror(), wfdbfile(), wfdbmemerr(),
-  wfdb_me_fatal(), wfdbversion(), wfdbldflags(), wfdbcflags(),
-  wfdbdefwfdb() and wfdbdefwfdbcal() (lib/wfdbio.c, WFDB 10.7.0), and of
+  wfdbquiet(), wfdbverbose(), wfdberror(), wfdb_error(), wfdbfile(),
+  wfdbmemerr(), wfdb_me_fatal(), wfdbversion(), wfdbldflags(),
+  wfdbcflags(), wfdbdefwfdb() and wfdbdefwfdbcal() (lib/wfdbio.c, WFDB
+  10.7.0), and of
   the file mode constants of lib/wfdb.h: same arguments and results.
   Differences: files are found by explicit names, under the input and
   output directories, not by a search of the WFDB path, URLs are opened

@@ -265,12 +265,16 @@ the number of annotations.
   ...), as bytes. When writing, a non-empty mnemonic is used instead of the
   code, and an empty one means "use `codes`".
 - `subtypes`, `chans`, `nums` (`Vector{Int32}`): the subtype, channel and
-  annotator number of each annotation.
+  annotator number of each annotation. As in C, they are written in one
+  byte each, and other values wrap around (subtypes and numbers to -128 to
+  127, channels to 0 to 255).
 - `aux::Vector{Union{Nothing,Vector{UInt8}}}`: the auxiliary text of each
   annotation as bytes, or `nothing`.
 
-When writing, `codes`, `subtypes`, `chans`, `nums` and `aux` may be shorter
-than `samples`. The missing elements are taken as 0, or no auxiliary text.
+When writing, each of `symbols`, `codes`, `subtypes`, `chans`, `nums` and
+`aux` is either empty or has one element per annotation (as `samples`); any
+other length is an error. Empty `subtypes`, `chans`, `nums` and `aux` are
+taken as 0, or no auxiliary text.
 
 # Examples
 The example writes the annotation file `100s.test` in the current directory
@@ -316,6 +320,17 @@ function _with_legacy(f::Function, w::Wfdb, legacy::Bool)
         f()
     finally
         wfdbx_set_legacy(w, previous)
+    end
+end
+
+# WFDB-x: run f(), restoring the getvec mode (setgvmode) afterwards, also
+# on errors: read_record sets it, and opening an EDF record changes it.
+function _with_gvmode(f::Function, w::Wfdb)
+    previous = getgvmode(w)
+    try
+        f()
+    finally
+        setgvmode(w, previous)
     end
 end
 
@@ -425,8 +440,10 @@ Part of WFDB-x; not in the original WFDB package.
 """
 function read_header(w::Wfdb, record::ByteStr; input_dir::OptByteStr=nothing,
                      network::Union{Nothing,Bool}=nothing, legacy::Bool=false)
-    _with_legacy(w, legacy) do
-        _with_input_options(() -> _read_header(w, record), w, input_dir, network)
+    _with_gvmode(w) do
+        _with_legacy(w, legacy) do
+            _with_input_options(() -> _read_header(w, record), w, input_dir, network)
+        end
     end
 end
 function _read_header(w::Wfdb, record::ByteStr)
@@ -487,10 +504,10 @@ from the input directory, or a full path, `~` path or URL.
   the first signal) or by name, such as `"V5"` (as in
   [`signal_names`](@ref)). `nothing`, the default, reads all signals.
 - `from`, `to`: the first sample, and the sample after the last one. An
-  integer is a sample number. A string is a WFDB time string: `"0:10"`
-  (10 seconds), `"1:02:03.5"`, `"s3600"` (sample 3600) or `"e"` (the end
-  of the record). `to=nothing`, the default, reads to the end of the
-  record.
+  integer is a sample number (`from` must not be negative). A string is a
+  WFDB time string: `"0:10"` (10 seconds), `"1:02:03.5"`, `"s3600"`
+  (sample 3600) or `"e"` (the end of the record). `to=nothing`, the
+  default, reads to the end of the record.
 - `highres`: `true` reads a multi-frequency record at its highest sampling
   frequency. `fs` is then that frequency.
 - `pad`: `true` replaces each invalid sample by the previous valid sample
@@ -506,7 +523,11 @@ error in record REC: the signal data do not match the checksums in its
 header"`. Checksums are only checked when a read reaches the end of the
 record.
 
+The getvec mode in force before the call ([`setgvmode`](@ref)) is restored
+afterwards: `highres` and `pad` apply to this call only.
+
 Throws a [`WfdbError`](@ref) if:
+- `from` is negative (`"read_record: from must not be negative"`);
 - the record cannot be read, or has no signals;
 - a signal in `channels` does not exist;
 - `from` is beyond the end of the record;
@@ -549,9 +570,13 @@ function read_record(w::Wfdb, record::ByteStr; channels=nothing, from=0, to=noth
                      highres::Bool=false, pad::Bool=false, input_dir::OptByteStr=nothing,
                      network::Union{Nothing,Bool}=nothing, legacy::Bool=false,
                      checksum_warning::Bool=true)
-    _with_legacy(w, legacy) do
-        _with_input_options(w, input_dir, network) do
-            _read_record(w, record, channels, from, to, highres, pad, checksum_warning)
+    # WFDB-x: isigsettime would take a negative time as an absolute one
+    (from isa Integer && from < 0) && throw(WfdbError("read_record: from must not be negative"))
+    _with_gvmode(w) do
+        _with_legacy(w, legacy) do
+            _with_input_options(w, input_dir, network) do
+                _read_record(w, record, channels, from, to, highres, pad, checksum_warning)
+            end
         end
     end
 end
@@ -568,6 +593,7 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     setgvmode(w, (highres ? WFDB_HIGHRES : WFDB_LOWRES) | (pad ? WFDB_GVPAD : Int32(0)))
     fs = sampfreq(w, nothing)
     t0 = _resolve_time(w, from, rname)
+    t0 < 0 && _hl_fail(w, "read_record: from must not be negative")
     t1 = to === nothing ? nothing : _resolve_time(w, to, rname)
 
     _strip_desc!(si)
@@ -601,7 +627,8 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     # frames to read if it is known (to, or the length of the record), and
     # grown only if more are read.
     st = w.sig
-    remaining = t1 === nothing ? nothing : max(t1 - t0, Int64(0))
+    # (t0 >= 0: t1 - t0 cannot overflow)
+    remaining = t1 === nothing ? nothing : t1 <= t0 ? Int64(0) : t1 - t0
     rlen = (st.in_msrec != 0 ? st.msnsamples : st.nsamples) *
            ((st.gvmode & WFDB_HIGHRES) == WFDB_HIGHRES ? Int64(st.spfmax) : Int64(1))
     expect = remaining !== nothing ? remaining : rlen > t0 ? rlen - t0 : Int64(READ_BLOCK)
@@ -860,6 +887,37 @@ function _check_samps_per_frame(samples::AbstractMatrix, samps_per_frame)
     nothing
 end
 
+# WFDB-x: a vector of per-signal values holds one value for all signals or
+# one value per signal (checked before anything is written). A required
+# option (gains, adcres, units) with fewer values is reported as missing
+# values instead, except in legacy mode.
+function _check_per_signal(nsig::Integer, legacy::Bool; gains, baselines, adczeros, adcres,
+                           units, names)
+    for (name, v, required) in (("gains", gains, true), ("baselines", baselines, false),
+                                ("adczeros", adczeros, false), ("adcres", adcres, true),
+                                ("units", units, true), ("names", names, false))
+        (v isa AbstractVector && !(v isa AbstractVector{UInt8})) || continue
+        n = length(v)
+        if n > 1 && n != nsig && !(required && !legacy && n < nsig)
+            throw(WfdbError("write_record: $name must have one value per signal"))
+        end
+    end
+    nothing
+end
+
+# WFDB-x: samples in ADC units must lie within the range of a 32-bit sample
+# (they are not wrapped).
+function _check_int32(samples::AbstractMatrix{<:Integer})
+    T = eltype(samples)
+    (T <: Union{Bool,Int8,Int16,Int32,UInt8,UInt16}) && return nothing
+    for x in samples
+        typemin(Int32) <= x <= typemax(Int32) ||
+            throw(WfdbError("write_record: samples in ADC units must be within the range " *
+                            "of a 32-bit integer"))
+    end
+    nothing
+end
+
 function _check_fs(fs::Real)
     fs > 0.0 || throw(WfdbError("write_record: the sampling frequency must be > 0"))
     nothing
@@ -869,8 +927,10 @@ function _write_adc(w::Wfdb, record::ByteStr, frames::AbstractMatrix{<:Integer},
                     nsig::Integer, fmt::Integer, gains, baselines, adczeros, adcres, units,
                     names, samps_per_frame, base_time, comments, legacy::Bool)
     nsig == 0 && throw(WfdbError("write_record: no signals"))
+    _check_per_signal(nsig, legacy; gains, baselines, adczeros, adcres, units, names)
     legacy || _check_fs(fs)
     rec = copy(cstr(bytes(record)))
+    infos = Vector{UInt8}[copy(bytes(c)) for c in comments]
     fname = vcat(rec, b".dat")
     si = [Siginfo() for _ in 1:nsig]
     framesize = 0
@@ -891,32 +951,37 @@ function _write_adc(w::Wfdb, record::ByteStr, frames::AbstractMatrix{<:Integer},
         throw(WfdbError("write_record: the number of columns is not the frame size ($framesize)"))
     wfdbquit(w)
     errors = wfdbx_write_errors()
-    osigfopen(w, si, nsig) != nsig && _hl_fail(w, "can't create signal file for record $(_lossy(rec))")
-    setsampfreq(w, fs)
-    # The counter frequency and base count survive wfdbquit() (as in the C
-    # library); a new record written here has neither.
-    setcfreq(w, 0.0)
-    setbasecount(w, 0.0)
-    base_time === nothing || setbasetime(w, base_time)
-    v = zeros(Int32, framesize)
-    nf = size(frames, 1)
-    i = 0
-    while i < nf
-        # (in bulk where possible, else one frame with putvec)
-        k = _putframes!(w, frames, i, nf)
-        i += k
-        k > 0 && continue
-        for j in 1:framesize
-            v[j] = frames[i+1, j] % Int32
+    # (the output signals are closed however this ends)
+    try
+        osigfopen(w, si, nsig) != nsig &&
+            throw(WfdbError("can't create signal file for record $(_lossy(rec))"))
+        setsampfreq(w, fs)
+        # The counter frequency and base count survive wfdbquit() (as in the
+        # C library); a new record written here has neither.
+        setcfreq(w, 0.0)
+        setbasecount(w, 0.0)
+        base_time === nothing || setbasetime(w, base_time)
+        v = zeros(Int32, framesize)
+        nf = size(frames, 1)
+        i = 0
+        while i < nf
+            # (in bulk where possible, else one frame with putvec)
+            k = _putframes!(w, frames, i, nf)
+            i += k
+            k > 0 && continue
+            for j in 1:framesize
+                v[j] = frames[i+1, j] % Int32
+            end
+            putvec(w, v)
+            i += 1
         end
-        putvec(w, v)
-        i += 1
+        newheader(w, rec) < 0 && throw(WfdbError("can't create header for record $(_lossy(rec))"))
+        for c in infos
+            putinfo(w, c)
+        end
+    finally
+        wfdbquit(w)
     end
-    newheader(w, rec) < 0 && _hl_fail(w, "can't create header for record $(_lossy(rec))")
-    for c in comments
-        putinfo(w, c)
-    end
-    wfdbquit(w)
     wfdbx_write_errors() > errors && throw(WfdbError("write error on record $(_lossy(rec))"))
     nothing
 end
@@ -937,7 +1002,8 @@ in physical units, use [`write_record_physical`](@ref).
 
 You must give the gain and ADC resolution of each signal, and the units of
 each calibrated signal; there are no defaults. Per-signal options take one
-value for all signals, or a vector with one value per signal.
+value for all signals, or a vector with one value per signal. The samples
+must lie within the range of `Int32`.
 
 # Keyword arguments
 - `gains` (required): ADC units per physical unit. A gain of 0 marks a
@@ -970,9 +1036,18 @@ Throws a [`WfdbError`](@ref) if:
   written;
 - `fs` is not positive;
 - the number of columns of `samples` does not match the signals;
+- a vector of per-signal values has neither one value nor one value per
+  signal (`"write_record: OPTION must have one value per signal"`; a
+  vector of `gains`, `adcres` or `units` that is too short is reported as
+  missing values);
+- a sample lies outside the range of `Int32` (`"write_record: samples in
+  ADC units must be within the range of a 32-bit integer"`);
 - a file cannot be created, or cannot be written completely (for example,
   when the disk is full: `"write error on record R"`);
 - `dir` does not exist, or `record` contains a directory and `dir` is given.
+
+The arguments are checked before any file is created. Whatever happens, the
+output signals are closed ([`wfdbquit`](@ref)) before the function returns.
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
@@ -1000,6 +1075,7 @@ function write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Intege
                       adcres=nothing, units=nothing, names=nothing, samps_per_frame=nothing,
                       base_time=nothing, comments=(), dir=nothing, legacy::Bool=false)
     _check_samps_per_frame(samples, samps_per_frame)
+    _check_int32(samples)
     legacy = _legacy(w, legacy)
     nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
     _with_legacy(w, legacy) do
@@ -1022,9 +1098,12 @@ halfway cases rounded away from zero. `NaN` is stored as an invalid
 sample. The keyword arguments are those of `write_record`. Returns
 `nothing`.
 
-Throws a [`WfdbError`](@ref) in the cases listed for `write_record`, and if
-a gain is 0 (`"write_record: signal N is uncalibrated"`, where `N` counts
-from 0).
+Throws a [`WfdbError`](@ref) in the cases listed for `write_record`, if a
+gain is 0 (`"write_record: signal N is uncalibrated"`, where `N` counts
+from 0), and if a value is infinite or its ADC value lies outside the range
+of `Int32` (`"write_record: signal N has a sample that is infinite or
+beyond the range of 32-bit ADC units"`; `N` counts the columns from 0).
+Nothing is written then.
 
 # Examples
 The example writes the record `rand` (random samples), in the current
@@ -1048,6 +1127,7 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
     # WFDB-x: the dir checks come first (after those of samps_per_frame)
     _with_output_dir(w, record, dir) do
         nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
+        _check_per_signal(nsig, legacy; gains, baselines, adczeros, adcres, units, names)
         # Gain and baseline of each column of a frame
         g = Float64[]
         b = Int32[]
@@ -1071,8 +1151,17 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
         adc = Matrix{Int32}(undef, size(samples))
         for c in 1:size(samples, 2), i in 1:size(samples, 1)
             v = samples[i, c] * g[c]
-            adc[i, c] = isnan(v) ? WFDB_INVALID_SAMPLE :
-                        d2i((v >= 0.0 ? trunc(v + 0.5) : trunc(v - 0.5)) + b[c])
+            if isnan(v)
+                adc[i, c] = WFDB_INVALID_SAMPLE
+                continue
+            end
+            r = (v >= 0.0 ? trunc(v + 0.5) : trunc(v - 0.5)) + b[c]
+            # WFDB-x: an infinite value, or one beyond the range of 32-bit
+            # ADC units, cannot be written
+            typemin(Int32) <= r <= typemax(Int32) ||
+                throw(WfdbError("write_record: signal $(c - 1) has a sample that is infinite " *
+                                "or beyond the range of 32-bit ADC units"))
+            adc[i, c] = d2i(r)
         end
         _with_legacy(w, legacy) do
             _write_adc(w, record, adc, fs; nsig, fmt, gains, baselines, adczeros, adcres,
@@ -1107,9 +1196,14 @@ empty, and its code in `ann.codes` otherwise. Auxiliary text longer than
 $_DIR_DOC
 $_LEGACY_DOC
 
-Throws a [`WfdbError`](@ref) if the file cannot be created, or cannot be
+Throws a [`WfdbError`](@ref) if a field of `ann` is neither empty nor has
+one element per annotation (`"write_annotations: FIELD must have one entry
+per annotation (N), or none"`), if the file cannot be created, or cannot be
 written completely (`"write error on annotator A for record R"`), if `dir`
 does not exist, or if `record` contains a directory and `dir` is given.
+
+The arguments are checked before the file is created. Whatever happens, the
+annotator is closed ([`wfdbquit`](@ref)) before the function returns.
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
@@ -1134,6 +1228,14 @@ Part of WFDB-x; not in the original WFDB package.
 function write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations;
                            fs::Real=0.0, sort::Union{Nothing,Bool}=nothing, dir=nothing,
                            legacy::Bool=false)
+    # WFDB-x: each per-annotation field is empty or has one entry per
+    # annotation (checked before anything is written)
+    n = length(ann.samples)
+    for (name, v) in (("symbols", ann.symbols), ("codes", ann.codes), ("subtypes", ann.subtypes),
+                      ("chans", ann.chans), ("nums", ann.nums), ("aux", ann.aux))
+        (isempty(v) || length(v) == n) ||
+            throw(WfdbError("write_annotations: $name must have one entry per annotation ($n), or none"))
+    end
     _with_legacy(w, legacy) do
         _with_output_dir(w, record, dir) do
             # WFDB-x: the sort option, read by oannclose (see AnnState)
@@ -1150,14 +1252,8 @@ end
 function _write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations,
                             fs::Real)
     n = length(ann.samples)
-    wfdbquit(w)
-    errors = wfdbx_write_errors()
-    fs > 0.0 && setafreq(w, fs)
-    ai = [Anninfo(annotator, WFDB_WRITE)]
-    if annopen(w, record, ai, 1) < 0
-        fs > 0.0 && setafreq(w, 0.0)
-        _hl_fail(w, "can't create annotator $(_lossy(annotator)) for record $(_lossy(record))")
-    end
+    # (the annotations are made before the file is created)
+    anns = Vector{Annotation}(undef, n)
     for k in 1:n
         a = Annotation(time=ann.samples[k])
         if k <= length(ann.symbols) && !isempty(ann.symbols[k])
@@ -1165,6 +1261,7 @@ function _write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::A
         elseif k <= length(ann.codes)
             a.anntyp = ann.codes[k] % Int8
         end
+        # (signed and unsigned chars in C: other values wrap around)
         k <= length(ann.subtypes) && (a.subtyp = ann.subtypes[k] % Int8)
         k <= length(ann.chans) && (a.chan = ann.chans[k] % UInt8)
         k <= length(ann.nums) && (a.num = ann.nums[k] % Int8)
@@ -1173,10 +1270,23 @@ function _write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::A
             data = x[1:min(length(x), AUX_MAX)]
             a.aux = vcat(UInt8(length(data)), data)
         end
-        putann(w, 0, a)
+        anns[k] = a
     end
     wfdbquit(w)
-    fs > 0.0 && setafreq(w, 0.0)
+    errors = wfdbx_write_errors()
+    # (the annotator is closed however this ends)
+    try
+        fs > 0.0 && setafreq(w, fs)
+        ai = [Anninfo(annotator, WFDB_WRITE)]
+        annopen(w, record, ai, 1) < 0 &&
+            throw(WfdbError("can't create annotator $(_lossy(annotator)) for record $(_lossy(record))"))
+        for a in anns
+            putann(w, 0, a)
+        end
+    finally
+        wfdbquit(w)
+        fs > 0.0 && setafreq(w, 0.0)
+    end
     wfdbx_write_errors() > errors &&
         throw(WfdbError("write error on annotator $(_lossy(annotator)) for record $(_lossy(record))"))
     nothing

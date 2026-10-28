@@ -5,7 +5,7 @@ title: WFDB-x
 description: >-
   A fast, lightweight implementation of the WFDB library and command-line
   tools, with identical behavior across seven programming languages
-theme: jekyll-theme-minimal # jekyll-theme-slate
+theme: jekyll-theme-minimal
 
 plugins:
   - jekyll-seo-tag                # {% seo %} in _layouts/default.html

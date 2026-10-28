@@ -1185,4 +1185,134 @@ if (.mode == "source") {
   write_record("good", x, 250, gains = 200, adcres = 16, units = "mV", samps_per_frame = c(1, 1))
   expect_equal(unname(read_record("good")$signals), unname(x + 0), "spf 1,1: read back")
   wfdbquit()
+
+  # ---- skewed segments (review B1, B2): the samples of a segment opened
+  # while reading are deskewed, by getvec and getframes alike (C's values)
+  wb <- function(name, v) writeBin(as.integer(v), name, size = 2L, endian = "little")
+  wb("sa.dat", 0:19)
+  wb("sb.dat", 100:119)
+  writeLines(c("sa 2 100 10", "sa.dat 16 200/mV 12 0 0 0 0 x", "sa.dat 16 200/mV 12 0 1 0 0 y"),
+             "sa.hea")
+  writeLines(c("sb 2 100 10", "sb.dat 16 200/mV 12 0 100 0 0 x",
+               "sb.dat 16:2 200/mV 12 0 101 0 0 y"), "sb.hea")
+  writeLines(c("sm/2 2 100 20", "sa 10", "sb 10"), "sm.hea")
+  for (f in c("getvec", "getframes")) {
+    isig("sm")
+    v <- if (f == "getvec") {
+      m <- NULL
+      while ((g <- getvec())$stat > 0) m <- rbind(m, g$v[1:2])
+      m
+    } else getframes(Inf)$v
+    expect_equal(dim(v), c(18L, 2L), paste("skewed segment:", f, "frames"))
+    expect_equal(v[18, ], c(114, 115), paste("skewed segment:", f, "last frame"))
+    wfdbquit()
+  }
+  wb("sb.dat", 100:104)
+  writeLines(c("sl 2 100 0", "~ 0 200/mV 12 0 0 0 0 x", "~ 0 200/mV 12 0 0 0 0 y"), "sl.hea")
+  writeLines(c("sa 2 100 10", "sa.dat 16 200/mV 12 0 0 0 0 x",
+               "sa.dat 16:2 200/mV 12 0 1 0 0 y"), "sa.hea")
+  writeLines(c("sb 1 100 5", "sb.dat 16 200/mV 12 0 100 0 0 y"), "sb.hea")
+  writeLines(c("sv/3 2 100 15", "sl 0", "sa 10", "sb 5"), "sv.hea")
+  isig("sv")
+  m <- NULL
+  while ((g <- getvec())$stat > 0) m <- rbind(m, g$v[1:2])
+  wfdbquit()
+  expect_equal(m[8:13, ], matrix(c(14, 16, 18, -32768, -32768, -32768, 15, 17, 19, 100, 101, 102),
+                                 6L), "skewed segment, then another (B2)")
+
+  # ---- read_record restores the getvec mode (review B6), also after an
+  # error
+  for (mode in c(WFDB_LOWRES, bitwOr(WFDB_HIGHRES, WFDB_GVPAD))) {
+    setgvmode(mode)
+    r <- read_record("mfreq", highres = mode == 0, pad = mode == 0)
+    expect_equal(r$fs, if (mode == 0) 400 else 100, paste("gvmode", mode, ": fs"))
+    expect_equal(getgvmode(), mode, paste("gvmode", mode, ": restored"))
+    wfdbquiet()
+    expect_error(read_record("nosuchrecord", highres = TRUE, pad = TRUE),
+                 paste("gvmode", mode, ": error"))
+    wfdbverbose()
+    expect_equal(getgvmode(), mode, paste("gvmode", mode, ": restored after an error"))
+  }
+  setgvmode(WFDB_LOWRES)
+  read_record("mfreq", highres = TRUE)
+  isig("mfreq")
+  expect_equal(sampfreq(NULL), 100, "gvmode: base frequency after read_record")
+  wfdbquit()
+
+  # ---- a negative sampfrom is an error (review L1)
+  for (frm in c(-5, -1)) {
+    msg <- tryCatch(read_record("fmt16", sampfrom = frm, sampto = 3), error = function(e) conditionMessage(e))
+    expect_equal(msg, "sampfrom must not be negative", paste("sampfrom", frm))
+  }
+  expect_equal(nrow(read_record("fmt16", sampfrom = 0, sampto = 3)$signals), 3L, "sampfrom 0")
+  expect_equal(nrow(read_record("fmt16", sampfrom = 5, sampto = 2^63)$signals),
+               nrow(read_record("fmt16")$signals) - 5L, "sampto beyond the end")
+
+  # ---- write_record: invalid samples are errors before any file is created,
+  # and leave no output signal open (review P14, P15, L2)
+  bad <- list(list(c(1.7, -1.7), 16, FALSE, "samples in ADC units must be integers"),
+              list(c(2^33 + 5, 2^31), 32, FALSE,
+                   "samples in ADC units must be within the range of a 32-bit integer"),
+              list(c(-2^31 - 1, 0), 32, FALSE,
+                   "samples in ADC units must be within the range of a 32-bit integer"),
+              list(c(Inf, 1), 16, FALSE,
+                   "samples in ADC units must be within the range of a 32-bit integer"),
+              list(c(Inf, 1), 16, TRUE,
+                   "signal 0 has a sample that is infinite or beyond the range of 32-bit ADC units"),
+              list(c(1, -Inf), 16, TRUE,
+                   "signal 0 has a sample that is infinite or beyond the range of 32-bit ADC units"),
+              list(c(2e7, 1), 32, TRUE,
+                   "signal 0 has a sample that is infinite or beyond the range of 32-bit ADC units"))
+  unlink(c("x.dat", "x.hea"))
+  for (b in bad) {
+    lab <- sprintf("invalid samples %s (fmt %d, physical %s)", paste(b[[1L]], collapse = ","),
+                   b[[2L]], b[[3L]])
+    msg <- tryCatch(write_record("x", b[[1L]], 100, fmt = b[[2L]], physical = b[[3L]], gains = 200,
+                                 adcres = 16, units = "mV"), error = function(e) conditionMessage(e))
+    expect_equal(msg, b[[4L]], lab)
+    check(!file.exists("x.dat") && !file.exists("x.hea") && .sig$nosig == 0, paste(lab, ": nothing left"))
+  }
+  write_record("x", c(1, -2, 3), 100, gains = 200, adcres = 16, units = "mV")
+  expect_equal(read_record("x")$signals[, 1], c(1, -2, 3), "whole-valued samples")
+  write_record("x", c(NA, 1), 100, physical = TRUE, gains = 200, adcres = 16, units = "mV")
+  expect_equal(read_record("x")$signals[, 1], c(WFDB_INVALID_SAMPLE, 200), "NA: an invalid sample")
+  write_record("x", c(2^31 - 1, -2^31 + 1), 100, fmt = 32, gains = 200, adcres = 32, units = "mV")
+  expect_equal(read_record("x")$signals[, 1], c(2^31 - 1, -2^31 + 1), "32-bit extremes")
+  # (a list of per-signal values must have one value per signal)
+  x2 <- matrix(0, 4, 2)
+  for (a in list(list("gains", c(200, 200, 200)), list("adcres", c(16, 16, 16)),
+                 list("units", rep("mV", 3)), list("names", c("a", "b", "c")),
+                 list("names", c("a", NA, "b")), list("baselines", c(0, 0, 0)),
+                 list("adczeros", c(0, 0, 0)), list("fmt", c(16, 16, 16)))) {
+    args <- list("x2", x2, 100, gains = 200, adcres = 16, units = "mV")
+    args[[a[[1L]]]] <- a[[2L]]
+    msg <- tryCatch(do.call(write_record, args), error = function(e) conditionMessage(e))
+    expect_equal(msg, paste(a[[1L]], "must have one value per signal"), paste("per-signal", a[[1L]]))
+    check(!file.exists("x2.dat") && !file.exists("x2.hea"), paste("per-signal", a[[1L]], ": no files"))
+  }
+  # (an output signal file that cannot be created: nothing is left open,
+  # and a later call works)
+  dir.create("bad2.dat")
+  wfdbquiet()
+  msg <- tryCatch(write_record("bad2", 1:3, 100, gains = 200, adcres = 16, units = "mV"),
+                  error = function(e) conditionMessage(e))
+  wfdbverbose()
+  expect_equal(msg, "can't create signal file for record bad2", "write_record: creation error")
+  expect_equal(.sig$nosig, 0, "write_record: no signal left open")
+  write_record("x", 1:3, 100, gains = 200, adcres = 16, units = "mV")
+  expect_equal(read_record("x")$signals[, 1], c(1, 2, 3), "write_record after an error")
+
+  # ---- FLAC: samples before a damaged frame are read (review B4)
+  b <- rf("flac16.dat")
+  writeBin(c(b, as.raw(255)), "flac16.dat")
+  expect_equal(dim(read_record("flac16")$signals), c(9000L, 3L), "FLAC: a trailing byte")
+  writeBin(b[seq_len(length(b) - 1L)], "flac16.dat")
+  isig("flac16")
+  wfdbquiet()
+  g <- getframes(Inf)
+  wfdbverbose()
+  wfdbquit()
+  expect_equal(c(nrow(g$v), g$stat), c(8192, -3), "FLAC: a truncated file")
+  expect_equal(wfdberror(), "getvec: unable to decode FLAC (lost sync)\n", "FLAC: truncated: message")
+  writeBin(b, "flac16.dat")
 }

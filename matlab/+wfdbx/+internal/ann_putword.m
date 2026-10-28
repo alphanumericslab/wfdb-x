@@ -55,6 +55,7 @@ achan = mod(annot.chan, 256);                   % unsigned char
 pchan = mod(prev.chan, 256);
 anum = mod(annot.num + 128, 256) - 128;         % signed char
 pnum = mod(prev.num + 128, 256) - 128;
+asub = mod(annot.subtyp + 128, 256) - 128;      % signed char
 pt = prev.time;
 if ~(achan > pchan || anum > pnum || t > pt || (t == 0 && pt == 0))
     oa.out_of_order = 1;
@@ -69,11 +70,11 @@ if oa.stat == WFDB_AHA_WRITE
     oa.seqno = oa.seqno + 1;
     sq = mod(oa.seqno, TWO16);
     b = zeros(1, 16);
-    b(2) = wfdbx.mamap(annot.anntyp, annot.subtyp);
+    b(2) = wfdbx.mamap(annot.anntyp, asub);
     b(3:4) = [mod(hi, 256), floor(hi / 256)];
     b(5:6) = [mod(lo, 256), floor(lo / 256)];
     b(7:8) = [mod(sq, 256), floor(sq / 256)];
-    b(9) = mod(annot.subtyp, 256);
+    b(9) = mod(asub, 256);
     b(10) = mod(annot.anntyp, 256);
     if ~isempty(aux)
         ln = min(double(aux(1)), MAX_AHA_AUX);
@@ -113,8 +114,8 @@ else
         d = 0;
     end
     w(end+1) = mod(d + typ * CODE1, TWO16);
-    if annot.subtyp ~= 0
-        w(end+1) = SUB + mod(annot.subtyp, DATA + 1);
+    if asub ~= 0
+        w(end+1) = SUB + mod(asub, DATA + 1);
     end
     if achan ~= pchan
         w(end+1) = CHN + achan;

@@ -81,7 +81,7 @@ if argc == 3 && (strcmp(argv{2}, '-a') || strcmp(argv{2}, '-H'))
     nsig = wfdbx.isigopen(argv{3}, 0);
     si = [];
     if nsig > 0
-        [nsig, si] = wfdbx.isigopen(argv{3}, nsig); %#ok<ASGLU>
+        [~, si] = wfdbx.isigopen(argv{3}, nsig);
     end
     if argv{2}(2) == 'H'
         wfdbx.setgvmode(1);     % WFDB_HIGHRES
@@ -91,7 +91,12 @@ if argc == 3 && (strcmp(argv{2}, '-a') || strcmp(argv{2}, '-H'))
     wfdbx.setgvmode(0);         % WFDB_LOWRES
     freq = wfdbx.sampfreq([]);
     for i = 1:max(nsig, 0)
-        wfdbx.internal.cprintf('%s\t%g\n', si(i).desc, si(i).spf * freq);
+        if i <= numel(si)
+            wfdbx.internal.cprintf('%s\t%g\n', si(i).desc, si(i).spf * freq);
+        else    % (a signal that could not be opened: C prints the zeroed
+            % entry of its array)
+            wfdbx.internal.cout(sprintf('(null)\t0\n'));
+        end
     end
 end
 end

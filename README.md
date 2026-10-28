@@ -28,7 +28,9 @@ Each implementation:
   `getvec`, `getann`, `putann`, `strtim`, ...), and a high-level API in the
   idiom of its language;
 * is **lightweight**: no dependencies beyond the language's standard library
-  (except NumPy for Python). FLAC is supported without libFLAC.
+  (except NumPy for Python). FLAC is supported without libFLAC. Reading
+  records from URLs uses the system `curl` program in C++ and Rust (and in
+  R and MATLAB/Octave when it is installed).
 
 The original C sources are kept, unmodified, in
 [`third_party/wfdb-main.zip`](third_party/), and serve as the reference
@@ -87,7 +89,7 @@ everything else:
 
 * **Annotation files are sorted without losing annotations**, inside the
   library rather than by running a separate program.
-* **A tool never writes over a file it is reading.**
+* **A tool never writes a signal file over a signal file it is reading.**
 * **A write error gives exit status 1.** When an output file or the
   standard output cannot be written, a tool says so and exits with status
   1, as the standard Unix tools do; the original exited with status 0.
@@ -106,16 +108,19 @@ values as their C counterparts. (The exceptions are the deliberate
 divergences above; the reference results are produced by the C code with
 these changes applied, so they are tested in the same way.)
 
-This is verified by tests whose expected results were all produced by the
+This is verified by tests whose expected results were produced by the
 original C code, not written by hand:
 
 * **Conformance suite** ([`tests/conformance/`](tests/conformance/),
-  described in [`docs/conformance.md`](docs/conformance.md)): 1023
+  described in [`docs/conformance.md`](docs/conformance.md)): 1081
   command-line test cases, run by a language-independent harness. Their
   expected results were produced by the C programs, built from
   `third_party/` with FLAC support and with
   [`tests/reference/divergences.patch`](tests/reference/divergences.patch)
   applied ([`tests/reference/build_reference.sh`](tests/reference/build_reference.sh)).
+  The exceptions are 15 cases whose input makes the C programs crash; their
+  expected results are the behavior that WFDB-x defines for that input (see
+  [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md#input-on-which-the-c-package-crashes)).
   Every implementation passes all of them on the reference platform, x86-64
   Linux with glibc (Python 3.13, GCC 13, Rust 1.97, Julia 1.13, R 4.3,
   GNU Octave 8.4 and OpenJDK 21 for Kotlin). The MATLAB/Octave code is tested with GNU Octave, also
@@ -155,6 +160,10 @@ requirements.
 | R | [`r/`](r/README.md) | `R CMD INSTALL r` | `wfdbx rdsamp -r 100s` |
 | Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.1.0")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
 
+Record `100s` is the sample record in `tests/data`. Run the tools there, or
+point `WFDBX_INPUT_DIR` at that directory; the Python package also includes it
+(see [`python/README.md`](python/README.md)).
+
 In Julia, R and MATLAB/Octave, `wfdbx` is a short alias for the language's
 own launcher of the tools; each README shows how to set it up. The Python
 package is distributed on PyPI as `wfdb-x`, with example
@@ -184,13 +193,14 @@ language runs the tools.
 
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) compares the speed and memory use
 of the seven implementations (and of wfdb-python and the original C tools)
-on the same records and the same machine, and explains how to get the most
-speed from WFDB-x in application code. In short, C++, Rust and Julia are the
-fastest (an hour of a two-signal ECG is read in 7 to 10 ms); Kotlin is 1.1
-to 2.5 times slower than C++; Python reads records about as fast as
-wfdb-python, and writes them 8 times faster; R and MATLAB/Octave take 0.07
-to 0.12 s for that hour, fast enough for most records. Version 1.1.0 is up
-to 5.6 times faster than 1.0.0, with identical results.
+on the same records and the same machine, verifies that they all give
+identical results, and explains how to get the most speed from WFDB-x in
+application code. In short, Rust, Julia and C++ are the fastest (an hour of
+a two-signal ECG is read in 7 to 9 ms); Kotlin reads records 1.2 to 1.8
+times slower than C++ (annotation files 4 to 8 times); Python reads records
+about as fast as wfdb-python, and writes them 8.5 times faster; R and
+MATLAB/Octave take 0.06 to 0.08 s for that hour, fast enough for most
+records.
 
 ## Command-line tools
 
@@ -241,7 +251,7 @@ verification and unit testing**.
   C sources, and were reviewed and tested by human engineers.
 * **Cross-language verification.** Every implementation is checked
   against the outputs of the original C tools and library on the
-  conformance suite: 1023 cases, plus 877 for legacy mode. Because all
+  conformance suite: 1081 cases, plus 877 for legacy mode. Because all
   seven must pass the same cases, each implementation is also checked
   against the other six.
 * **Unit testing.** Each implementation has its own unit tests of the

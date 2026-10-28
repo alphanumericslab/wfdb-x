@@ -16,8 +16,9 @@ Authors@R: c(
     person("Reza", "Sameni", role = c("aut", "cre", "cph"),
            email = "reza.sameni@gmail.com",
            comment = "the R implementation (WFDB-x)"))
-Description: The WFDB Software Package (library and command-line tools)
-    in R, part of WFDB-x: the same package in seven languages. It reads
+Description: A reimplementation of the WFDB Software Package (library and
+    command-line tools) in R, part of WFDB-x: the same package in seven
+    languages, tested to give byte-for-byte identical results. It reads
     and writes the physiologic signal, annotation and header files used by
     PhysioNet, the same files as the original C implementation, and its
     tools produce byte-identical output.

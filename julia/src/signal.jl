@@ -32,7 +32,7 @@
 # output signal file is never one of the input files of the open record; a
 # header written under a path names the record, its signal files and its
 # segments relative to its own directory; FLAC signal files are read and
-# written with WFDB-x's own codec (flac.jl) instead of libFLAC; additions:
+# written with WFDB-x's FLAC codec (flac.jl) instead of libFLAC; additions:
 # wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq,
 # getvecs and getvecs_status; legacy mode (wfdbx_set_legacy) restores the
 # original behavior. Each change is marked "WFDB-x:" in the code;
@@ -109,48 +109,24 @@ mutable struct IsData
 end
 IsData() = IsData(Siginfo(), 0, 0, 0, 0)
 
-"Decoded FLAC input (one signal group)."
+"""
+State of a FLAC signal group (one input group): libFLAC's decoder, and the
+samples it has decoded, in frame order, as the C library's iflac_samples()
+stores them.
+"""
 mutable struct FlacIn
     nsig::Int32
     datb::Int32                     # bits per sample
     spf::Int32
-    decoded::Bool
-    failed::Bool
-    chans::Vector{Vector{Int32}}
-    total::Int64                    # samples per channel
-    base::Int64
-    nfr::Int64
-    leftover::Int64
-    f::Int64                        # next frame
-    c::Int                          # next channel (0-based)
-    k::Int32                        # next sample within the frame
     md5_check::Bool
-    has_md5::Bool
-    md5::Vector{UInt8}
-    have_decoded_md5::Bool
-    decoded_md5::Vector{UInt8}
-    seeked::Bool
-    # State of the libFLAC decoder of the C library, which decodes one FLAC
-    # block at a time: the end of each block (in samples per channel), the
-    # end of the blocks decoded so far, whether the buffered samples were
-    # discarded by a failed seek, and whether decoding was aborted (after a
-    # failed seek, iflac_samples() aborts the decoding of the next block, and
-    # libFLAC then refuses to seek).
-    block_ends::Vector{Int64}
-    dec_end::Int64
-    discarded::Bool
-    aborted::Bool
+    dec::Union{Nothing,FlacDecoder} # (created when the file is first read)
+    samples::Vector{Int32}          # complete frames, in frame order
+    pos::Int                        # index (0-based) of the next sample to be returned
+    partial::Union{Nothing,Vector{Vector{Int32}}}   # an incomplete frame: one vector per signal
+    skip::Int64                     # samples to discard after a seek
 end
 FlacIn(nsig::Integer, datb::Integer, spf::Integer, md5_check::Bool) =
-    FlacIn(nsig, datb, spf, false, false, Vector{Int32}[], 0, 0, 0, 0, 0, 0, 0,
-           md5_check, false, UInt8[], false, UInt8[], false, Int64[], 0, false, false)
-
-# The end of the FLAC block that contains sample n - 1 (n > 0): the number of
-# samples (per channel) decoded once sample n - 1 is.
-function _flac_block_end(fi::FlacIn, n::Int64)
-    k = searchsortedfirst(fi.block_ends, n)
-    k <= length(fi.block_ends) ? fi.block_ends[k] : fi.total
-end
+    FlacIn(nsig, datb, spf, md5_check, nothing, Int32[], 0, nothing, 0)
 
 "Shared by all signals in an input group (file) (C `struct igdata`)."
 mutable struct IgData
@@ -158,7 +134,7 @@ mutable struct IgData
     datb::Int32
     fp::Union{Nothing,WfdbFile}
     start::Int64                    # signal file byte offset to sample 0
-    bsize::Int32                    # block size (bytes)
+    bsize::Int64                    # block size (bytes)
     buf::Vector{UInt8}
     bp::Int                         # bytes of buf consumed
     be::Int                         # bytes of buf holding data
@@ -264,6 +240,7 @@ mutable struct SigState
     dsbi::Int32             # index to oldest sample in dsbuf (-1: invalid)
     dsblen::Int
     framelen::Int           # total number of samples per frame
+    empty_group::Bool       # WFDB-x: the frames of a signal group hold no samples
     gvmode::Int32           # getvec mode
     gvc::Int32              # getvec sample-within-frame counter
     isedf::Int32
@@ -343,7 +320,7 @@ SigState() = SigState(
     HsData[], nothing, UInt8[], 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0.0, 0,
     0, 0, 0, 0, 0, Seginfo[], false, -1, -1,
     IsData[], IgData[], 0, 0, 0, Int32[], Int32[], Int32[], 0, 0, 0, 0, Int32[], false,
-    0, 0, 0, DEFWFDBGVMODE, 0, 0, Int32[], false, 0,
+    0, 0, 0, false, DEFWFDBGVMODE, 0, 0, Int32[], false, 0,
     OsData[], OgData[], 0, 0, nothing, nothing, OUTINFO_NONE, 0, 0,
     Vector{UInt8}[], false, 0, 0,
     0, 0, 0, 0, IsData[], Int32[], SigMapInfo[],
@@ -1561,25 +1538,21 @@ hsdfree(w::Wfdb) = (empty!(w.sig.hsd); nothing)
 # ---------------------------------------------------------------------------
 # FLAC input and output (glue to flac.jl)
 
-function _flac_pack!(fi::FlacIn, base::Int64)
-    fi.base = base
-    fi.nfr = (fi.total - base) ÷ fi.spf
-    fi.leftover = (fi.total - base) - fi.nfr * fi.spf
-    fi.f = 0
-    fi.c = 0
-    fi.k = 0
-    nothing
-end
-
-"The MD5 check of a FLAC input when it is closed (`flac_isclose`)."
+"""
+Close the decoder of a FLAC input, checking the MD5 signature if requested
+(`flac_isclose`).
+"""
 function flac_isclose(w::Wfdb, ig::IgData)
     fi = ig.flac
     fi === nothing && return nothing
-    if fi.md5_check && fi.has_md5 && fi.have_decoded_md5 && !fi.seeked
-        if any(!iszero, fi.md5) && fi.md5 != fi.decoded_md5
-            wfdb_error(w, "isigclose: warning: incorrect MD5 hash in FLAC input\n")
-        end
+    dec = fi.dec
+    if dec === nothing
+        # (nothing was read: libFLAC compares the signature of no samples
+        # with that of a STREAMINFO block it has not read)
+        fi.md5_check && wfdb_error(w, "isigclose: warning: incorrect MD5 hash in FLAC input\n")
+        return nothing
     end
+    flac_finish!(dec) || wfdb_error(w, "isigclose: warning: incorrect MD5 hash in FLAC input\n")
     nothing
 end
 
@@ -1632,40 +1605,81 @@ function flac_osclose(og::OgData)
     nothing
 end
 
-# Decode the FLAC file of input group g (0-based) at its first use.
-function flac_decode_group(w::Wfdb, g::Int)
+# The decoder of input group g (0-based), created at its first use.
+function _flac_decoder(w::Wfdb, g::Int)
     ig = w.sig.igd[g+1]
     fi = ig.flac
-    fi === nothing && return nothing
-    fi.decoded = true
-    data = ig.fp === nothing ? UInt8[] : read_to_end(ig.fp)
-    d = flac_decode(data, fi.nsig, fi.datb)
-    status = d.status
-    d.error_message === nothing || wfdb_error_msg(w, d.error_message)
-    msg = status == FLAC_SYNC ? "getvec: unable to decode FLAC (lost sync)\n" :
-          status == FLAC_HEADER ? "getvec: unable to decode FLAC (invalid header)\n" :
-          status == FLAC_CRC ? "getvec: unable to decode FLAC (CRC mismatch)\n" :
-          status == FLAC_UNPARSEABLE ? "getvec: unable to decode FLAC (unsupported format)\n" :
-          status == FLAC_EOF ? "getvec: unable to decode FLAC\n" :
-          status == FLAC_META ? "getvec: unexpected FLAC decoding error\n" : nothing
-    msg === nothing || wfdb_error_msg(w, msg)
-    if status != FLAC_OK
-        fi.failed = true
-        return nothing
+    if fi.dec === nothing
+        function on_error(status::FlacStatus)
+            wfdb_error_msg(w, status == FLAC_SYNC ? "getvec: unable to decode FLAC (lost sync)\n" :
+                              status == FLAC_HEADER ? "getvec: unable to decode FLAC (invalid header)\n" :
+                              status == FLAC_CRC ? "getvec: unable to decode FLAC (CRC mismatch)\n" :
+                              status == FLAC_UNPARSEABLE ?
+                              "getvec: unable to decode FLAC (unsupported format)\n" :
+                              "getvec: unable to decode FLAC\n")
+            ig.stat = -2
+            nothing
+        end
+        on_write(chans::Vector{Vector{Int32}}) = _flac_samples(w, ig, chans)
+        data = ig.fp === nothing ? UInt8[] : read_to_end(ig.fp)
+        fi.dec = FlacDecoder(data, ig.seek != 0, on_error, on_write, fi.md5_check)
     end
-    fi.chans = d.chans
-    fi.block_ends = d.block_ends
-    fi.total = isempty(fi.chans) ? Int64(0) : Int64(length(fi.chans[1]))
-    fi.has_md5 = d.has_md5
-    fi.md5 = collect(UInt8, d.md5)
-    if fi.md5_check && fi.total != 0
-        fi.decoded_md5 = collect(UInt8, flac_samples_md5(fi.chans, d.bps))
-        fi.have_decoded_md5 = true
-    end
-    _flac_pack!(fi, Int64(0))
-    nothing
+    fi.dec
 end
 
+# Store a block of decoded samples (iflac_samples): false to abort decoding.
+function _flac_samples(w::Wfdb, ig::IgData, chans::Vector{Vector{Int32}})
+    fi = ig.flac
+    if length(chans) != fi.nsig
+        wfdb_error(w, "getvec: wrong number of signals in FLAC signal file\n")
+        ig.stat = -2
+    end
+    if fi.dec.f_bps > fi.datb
+        wfdb_error(w, "getvec: wrong sample resolution in FLAC signal file\n")
+        ig.stat = -2
+    end
+    ig.stat < 0 && return false
+    n = isempty(chans) ? 0 : length(chans[1])
+    if fi.skip > n
+        fi.skip -= n
+        return true
+    end
+    if fi.skip != 0
+        chans = [c[fi.skip+1:end] for c in chans]
+        fi.skip = 0
+    end
+    if fi.pos != 0
+        deleteat!(fi.samples, 1:fi.pos)
+        fi.pos = 0
+    end
+    spf = Int(fi.spf)
+    out = fi.samples
+    if spf == 1 && fi.partial === nothing
+        if length(chans) == 1
+            append!(out, chans[1])
+        else
+            n = minimum(length, chans)
+            sizehint!(out, length(out) + n * length(chans))
+            for i in 1:n, c in chans
+                push!(out, c[i])
+            end
+        end
+        return true
+    end
+    if fi.partial !== nothing
+        chans = [vcat(p, c) for (p, c) in zip(fi.partial, chans)]
+        fi.partial = nothing
+    end
+    n = isempty(chans) ? 0 : length(chans[1])
+    nfr = n ÷ spf
+    for f in 0:spf:nfr*spf-1, c in chans
+        append!(out, view(c, f+1:f+spf))
+    end
+    n > nfr * spf && (fi.partial = [c[nfr*spf+1:end] for c in chans])
+    true
+end
+
+"Return the next sample from FLAC input group g (0-based) (`flac_getsamp`)."
 function flac_getsamp(w::Wfdb, g::Int)
     ig = w.sig.igd[g+1]
     fi = ig.flac
@@ -1673,51 +1687,43 @@ function flac_getsamp(w::Wfdb, g::Int)
         ig.stat = -2
         return Int32(0)
     end
-    fi.decoded || flac_decode_group(w, g)
-    if fi.failed
-        ig.stat = -2
-        return Int32(0)
+    p = fi.pos
+    if p < length(fi.samples)
+        fi.pos = p + 1
+        return @inbounds fi.samples[p+1]
     end
-    fi.aborted && return Int32(0)  # (the decoder does nothing; ig.stat is negative)
-    if fi.f < fi.nfr
-        # The frame of the next sample must have been decoded.
-        need = fi.base + (fi.f + 1) * fi.spf
-        if fi.discarded || need > fi.dec_end
-            ig.stat < 0 && return fi.dec_end < fi.total ? _flac_abort(w, g) : Int32(0)
-            fi.dec_end = _flac_block_end(fi, need)
+    dec = _flac_decoder(w, g)
+    while fi.pos >= length(fi.samples)
+        oldcount = fi.partial === nothing ? 0 : length(fi.partial[1])
+        if !flac_process_single!(dec)
+            if ig.stat != -2
+                wfdb_error(w, "getvec: unexpected FLAC decoding error\n")
+                ig.stat = -2
+            end
+            return Int32(0)
         end
-        v = fi.chans[fi.c+1][fi.base+fi.f*fi.spf+fi.k+1]
-        fi.k += Int32(1)
-        if fi.k == fi.spf
-            fi.k = 0
-            fi.c += 1
-            if fi.c == length(fi.chans)
-                fi.c = 0
-                fi.f += 1
+        ig.stat <= 0 && return Int32(0)
+        count = fi.partial === nothing ? 0 : length(fi.partial[1])
+        if fi.pos >= length(fi.samples) && count == oldcount
+            st = dec.state
+            if st == _FS_END_OF_STREAM
+                count != 0 && wfdb_error(w, "getvec: warning: %d samples left over at end of file\n",
+                                         count % Int32)
+                fi.partial = nothing
+                ig.stat = 0
+                return Int32(0)
+            end
+            if !(st == _FS_SEARCH_FOR_METADATA || st == _FS_READ_METADATA ||
+                 st == _FS_SEARCH_FOR_FRAME_SYNC)
+                wfdb_error(w, "getvec: unknown FLAC decoding state\n")
+                ig.stat = -2
+                return Int32(0)
             end
         end
-        return v
     end
-    fi.discarded && fi.dec_end < fi.total && return _flac_abort(w, g)
-    ig.stat < 0 && return Int32(0)
-    fi.dec_end = fi.total
-    left = fi.leftover
-    fi.leftover = 0
-    ig.stat = 0
-    left != 0 && wfdb_error(w, "getvec: warning: %d samples left over at end of file\n", left % Int32)
-    Int32(0)
-end
-
-# Decoding a block after a failed seek (ig.stat < 0): iflac_samples() aborts
-# the decoder, and flac_getsamp() reports the error.
-function _flac_abort(w::Wfdb, g::Int)
-    ig = w.sig.igd[g+1]
-    ig.flac.aborted = true
-    if ig.stat != -2
-        wfdb_error(w, "getvec: unexpected FLAC decoding error\n")
-        ig.stat = -2
-    end
-    Int32(0)
+    p = fi.pos
+    fi.pos = p + 1
+    fi.samples[p+1]
 end
 
 # Prepare input group g (0-based) for FLAC decoding; its signals are
@@ -1742,34 +1748,30 @@ function flac_isopen(w::Wfdb, g::Int, si::Int, ns::Int)
     Int32(0)
 end
 
+"Seek to frame t of FLAC input group g (0-based) (`flac_isseek`)."
 function flac_isseek(w::Wfdb, g::Int, t::Int64)
     ig = w.sig.igd[g+1]
     fi = ig.flac
-    fi === nothing || fi.decoded || flac_decode_group(w, g)
-    ig.stat = 1
-    ig.count = 0
     if fi === nothing
         ig.stat = -1
         return Int32(-1)
     end
-    fi.seeked = true
-    if fi.failed
-        ig.stat = -1
-        return Int32(-1)
-    end
+    dec = _flac_decoder(w, g)
+    dec.state == _FS_SEEK_ERROR && flac_flush!(dec)
+    empty!(fi.samples)
+    fi.pos = 0
+    fi.partial = nothing
+    ig.stat = 1
+    ig.count = 0
+    fi.skip = 0
+    # (seeking to the sample before the target, then discarding it, allows a
+    # seek to the end of the stream)
     tt = t * fi.spf + ig.start
-    if fi.aborted || tt > fi.total || tt < 0
-        # (libFLAC refuses to seek once decoding was aborted, or past the end
-        # of the stream; the buffered samples are discarded anyway)
-        fi.discarded = true
-        ig.stat = -1
-        return Int32(-1)
+    if tt != 0
+        tt -= 1
+        fi.skip = 1
     end
-    _flac_pack!(fi, tt)
-    fi.discarded = false
-    # The seek decodes the block that contains sample tt - 1 (sample 0 if tt
-    # is 0): libFLAC seeks to it, and the first sample is skipped.
-    fi.dec_end = _flac_block_end(fi, max(tt, Int64(1)))
+    flac_seek_absolute!(dec, tt) || (ig.stat = -1)
     ig.stat
 end
 
@@ -1807,6 +1809,7 @@ function isigclose(w::Wfdb)
     empty!(st.isd)
     st.nisig = 0
     st.framelen = 0
+    st.empty_group = false
 
     while !isempty(st.igd)
         ig = pop!(st.igd)
@@ -2149,6 +2152,11 @@ function getskewedframe(w::Wfdb, vecstart::Vector{Int32}, off::Int)
             isgsetframe(w, g, t0)
         end
     end
+    # (the seek may have opened another segment, with new signals)
+    nisig = st.nisig
+    isd = st.isd
+    igd = st.igd
+    st.empty_group && return Int32(-1)     # WFDB-x (see isigopen)
 
     # If the vector needs to be rearranged (variable-layout record), then
     # read samples into a temporary buffer.
@@ -2853,15 +2861,15 @@ function isigopen(w::Wfdb, record::OptByteStr, siarray::SiginfoArg, nsig::Intege
         ig = st.igd[gi+1]
         # Set the buffer size and the seek capability flag.
         if hs.info.bsize < 0
+            # (WFDB-x: -2147483648 gives 2147483648)
+            ig.bsize = -Int64(hs.info.bsize)
             hs.info.bsize = -hs.info.bsize
-            ig.bsize = hs.info.bsize
             ig.seek = 0
         else
             ig.bsize = hs.info.bsize
             ig.bsize == 0 && (ig.bsize = st.ibsize)
             ig.seek = 1
         end
-        ig.buf = zeros(UInt8, max(Int(ig.bsize), 0))
         ig.flac = nothing
         ig.data = 0
         ig.datb = 0
@@ -2883,6 +2891,11 @@ function isigopen(w::Wfdb, record::OptByteStr, siarray::SiginfoArg, nsig::Intege
                 continue
             end
         end
+        # WFDB-x: the buffer holds a block, or the whole file if a large
+        # block is larger (a block is read at once, and never yields more)
+        nbuf = max(Int(ig.bsize), 0)
+        (nbuf > _LARGE_READ && ig.fp !== nothing) && (nbuf = file_left(ig.fp, nbuf))
+        ig.buf = zeros(UInt8, nbuf)
 
         if isflacfmt(fmt) && flac_isopen(w, gi, si, sj - si) < 0
             ig.buf = UInt8[]
@@ -2954,9 +2967,15 @@ function isigopen(w::Wfdb, record::OptByteStr, siarray::SiginfoArg, nsig::Intege
 
     # Determine the total number of samples per frame.
     st.framelen = 0
+    gspf = Dict{UInt32,Int}()
     for k in 1:st.nisig
-        st.framelen += st.isd[k].info.spf
+        info = st.isd[k].info
+        st.framelen += info.spf
+        info.fmt != 0 && (gspf[info.group] = get(gspf, info.group, 0) + info.spf)
     end
+    # WFDB-x: a signal group whose frames hold no samples (an EDF file can
+    # give 0 samples per data record) is at the end of its data at once
+    st.empty_group = any(iszero, values(gspf))
 
     # Allocate workspace for getvec, isgsettime, and tnextvec.
     if st.tspf > st.tuvlen
@@ -3397,7 +3416,7 @@ const _BULK_VECTORS = Ref(Int64(0))
 function _bulk_static_ok(st::SigState)
     _BULK_ENABLED[] || return false
     nisig = st.nisig
-    (nisig == 0 || st.have_dsbuf || (st.nvsig != nisig && st.need_sigmap == 0) ||
+    (nisig == 0 || st.have_dsbuf || st.empty_group || (st.nvsig != nisig && st.need_sigmap == 0) ||
      !(st.ifreq == 0.0 || st.ifreq == st.sfreq)) && return false
     gfmt = fill(Int32(-1), st.nigroup)
     for s in 1:nisig
@@ -3831,7 +3850,8 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
     bulk = _bulk_static_ok(st)
     seg = st.segp
     if !st.have_dsbuf && st.ispfmax < 2 && (st.ifreq == 0.0 || st.ifreq == st.sfreq)
-        # Fast path: getvec is getframe, which is getskewedframe.
+        # Fast path: getvec is getframe (getskewedframe, unless a segment
+        # opened during the call needs deskewing).
         stride = max(Int(st.tspf), 0)
         need = _vec_need(st)
         pos = off
@@ -3839,6 +3859,7 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
             if st.segp != seg       # (another segment: other signals)
                 seg = st.segp
                 bulk = _bulk_static_ok(st)
+                need = _vec_need(st)
             end
             if bulk
                 # WFDB-x: as many frames as possible in bulk (identical
@@ -3855,8 +3876,7 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
             if pos + need > length(out)
                 # (the caller's array is too short for another vector)
                 tmp = zeros(Int32, need)
-                stat = getskewedframe(w, tmp, 0)
-                st.istime += 1
+                stat = getframe_at(w, tmp, 0)
                 keep = stat == -4 && keep_checksum_frame
                 stat < 0 && !keep && break
                 m = min(max(length(out) - pos, 0), stride)
@@ -3866,8 +3886,7 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
                 pos += stride
                 continue
             end
-            stat = getskewedframe(w, out, pos)
-            st.istime += 1
+            stat = getframe_at(w, out, pos)
             if stat < 0
                 # WFDB-x: the frame of a checksum error is complete
                 (stat == -4 && keep_checksum_frame) && (k += 1)

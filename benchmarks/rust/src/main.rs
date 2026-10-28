@@ -16,6 +16,7 @@
 // Software Foundation, either version 3 of the License, or (at your option)
 // any later version. See LICENSE.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::Instant;
@@ -23,7 +24,7 @@ use std::time::Instant;
 use wfdbx::record::Error;
 use wfdbx::{
     read_annotations, read_record, write_annotations, write_record, Annotations, ReadOptions,
-    WriteOptions,
+    Record, WriteOptions,
 };
 
 const OPS: [&str; 7] = [
@@ -36,15 +37,61 @@ const OPS: [&str; 7] = [
     "write_ann",
 ];
 
-/// The 64-bit sum of the samples of a record read with default options.
-fn digital_sum(record: &str) -> Result<String, Error> {
-    let rec = read_record(record, &ReadOptions::default())?;
-    Ok(rec
-        .samples
-        .iter()
-        .map(|&v| v as i64)
-        .sum::<i64>()
-        .to_string())
+/// The result of a call: what it read (the physical values too, for
+/// read_long_phys).
+#[derive(Default)]
+struct Res {
+    rec: Option<Record>,
+    phys: Vec<Vec<f64>>,
+    ann: Option<Annotations>,
+}
+
+/// Save the result of the first call of `op` as dump/op.* (see
+/// benchmarks/python/bench.py), little-endian.
+fn save(op: &str, res: &Res, out: &Path, dump: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let p = |ext: &str| dump.join(format!("{op}.{ext}"));
+    let mut b: Vec<u8> = Vec::new();
+    match (op, res) {
+        ("read_long" | "read_mimic" | "read_wide", Res { rec: Some(r), .. }) => {
+            for &x in &r.samples {
+                b.extend_from_slice(&x.to_le_bytes());
+            }
+            std::fs::File::create(p("bin"))?.write_all(&b)?;
+        }
+        ("read_long_phys", Res { phys: v, .. }) => {
+            for i in 0..v.first().map_or(0, |x| x.len()) {
+                for x in v {
+                    b.extend_from_slice(&x[i].to_le_bytes());
+                }
+            }
+            std::fs::File::create(p("bin"))?.write_all(&b)?;
+        }
+        ("read_ann", Res { ann: Some(a), .. }) => {
+            for k in 0..a.len() {
+                b.extend_from_slice(&a.samples[k].to_le_bytes());
+                for x in [a.codes[k], a.subtypes[k], a.chans[k], a.nums[k]] {
+                    b.extend_from_slice(&x.to_le_bytes());
+                }
+                match &a.aux[k] {
+                    Some(x) => {
+                        b.extend_from_slice(&(x.len() as i32).to_le_bytes());
+                        b.extend_from_slice(x);
+                    }
+                    None => b.extend_from_slice(&(-1i32).to_le_bytes()),
+                }
+            }
+            std::fs::File::create(p("ann"))?.write_all(&b)?;
+        }
+        ("write_long", _) => {
+            std::fs::copy(out.join("out.hea"), p("hea"))?;
+            std::fs::copy(out.join("out.dat"), p("dat"))?;
+        }
+        ("write_ann", _) => {
+            std::fs::copy(out.join("out.atr"), p("atr"))?;
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
 }
 
 /// The size of a file in bytes.
@@ -55,7 +102,7 @@ fn size(path: &Path) -> String {
         .to_string()
 }
 
-fn run(op: &str, out: &Path, reps: usize) -> Result<String, Error> {
+fn run(op: &str, out: &Path, reps: usize) -> Result<String, Box<dyn std::error::Error>> {
     // Untimed preparation.
     let src = if op == "write_long" {
         Some(read_record("long", &ReadOptions::default())?)
@@ -82,47 +129,89 @@ fn run(op: &str, out: &Path, reps: usize) -> Result<String, Error> {
         ..Default::default()
     });
 
-    let call = || -> Result<String, Error> {
+    // call() is the timed call: the operation alone, returning what it
+    // read. check() is computed from the first call's result, outside the
+    // timed calls.
+    let call = || -> Result<Res, Error> {
+        let read = |name: &str| -> Result<Res, Error> {
+            Ok(Res {
+                rec: Some(read_record(name, &ReadOptions::default())?),
+                ..Default::default()
+            })
+        };
         match op {
-            "read_long" => digital_sum("long"),
+            "read_long" => read("long"),
             "read_long_phys" => {
                 let rec = read_record("long", &ReadOptions::default())?;
-                let mut sum = 0.0;
-                for s in 0..rec.nsig {
-                    sum += rec
-                        .physical_signal(s)?
-                        .iter()
-                        .filter(|v| !v.is_nan())
-                        .sum::<f64>();
-                }
-                Ok(format!("{}", (sum * 1000.0).round() / 1000.0))
+                let phys = (0..rec.nsig)
+                    .map(|s| rec.physical_signal(s))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Res {
+                    rec: Some(rec),
+                    phys,
+                    ann: None,
+                })
             }
-            "read_mimic" => digital_sum("mimic"),
-            "read_wide" => digital_sum("wide"),
+            "read_mimic" => read("mimic"),
+            "read_wide" => read("wide"),
             "write_long" => {
                 let r = src.as_ref().unwrap();
                 write_record("out", &r.samples, r.nsig, r.fs, wopt.as_ref().unwrap())?;
-                Ok(size(&out.join("out.dat")))
+                Ok(Res::default())
             }
-            "read_ann" => Ok(read_annotations("long", "atr", None, None, None, false)?
-                .len()
-                .to_string()),
+            "read_ann" => Ok(Res {
+                ann: Some(read_annotations("long", "atr", None, None, None, false)?),
+                ..Default::default()
+            }),
             "write_ann" => {
                 write_annotations("out", "atr", ann.as_ref().unwrap(), 0.0, Some(out))?;
-                Ok(size(&out.join("out.atr")))
+                Ok(Res::default())
             }
             _ => unreachable!(),
         }
     };
+    let check = |res: &Res| -> String {
+        match op {
+            "read_long" | "read_mimic" | "read_wide" => res
+                .rec
+                .as_ref()
+                .unwrap()
+                .samples
+                .iter()
+                .map(|&v| v as i64)
+                .sum::<i64>()
+                .to_string(),
+            "read_long_phys" => {
+                let sum: f64 = res
+                    .phys
+                    .iter()
+                    .flat_map(|v| v.iter())
+                    .filter(|v| !v.is_nan())
+                    .sum();
+                format!("{}", (sum * 1000.0).round() / 1000.0)
+            }
+            "write_long" => size(&out.join("out.dat")),
+            "read_ann" => res.ann.as_ref().unwrap().len().to_string(),
+            "write_ann" => size(&out.join("out.atr")),
+            _ => unreachable!(),
+        }
+    };
 
+    let dump = std::env::var_os("WFDBX_BENCH_DUMP").filter(|d| !d.is_empty());
     let t = Instant::now();
-    let check = call()?;
+    let res = call()?;
     let first = t.elapsed().as_secs_f64();
+    let check = check(&res);
+    if let Some(d) = &dump {
+        save(op, &res, out, Path::new(d))?;
+    }
+    drop(res);
     let mut times = Vec::with_capacity(reps);
     for _ in 0..reps {
         let t = Instant::now();
-        call()?;
+        let res = call()?;
         times.push(t.elapsed().as_secs_f64());
+        drop(res);
     }
     let best = times.iter().copied().fold(f64::INFINITY, f64::min);
     let times: Vec<String> = times.iter().map(|t| format!("{t:?}")).collect();

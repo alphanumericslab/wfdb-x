@@ -19,6 +19,12 @@ case runs in a fresh copy of this directory.
   [`make_inputs.py`](make_inputs.py) (run from this directory): WAV files,
   EDF+ files, AHA-format files (`1201.ANO`, `1201.CMP`), and headers in the
   old format.
+* **`flacspf`**: 5 signals in format `508x3` (3 samples per frame), 1,200
+  frames, written by the original `xform -M` with `WFDB_FLAC_BLOCK_SIZE=1001`
+  from a record of the same layout whose samples follow a simple repeating
+  pattern: FLAC blocks that are not a multiple of the samples per frame, on which the
+  original library writes past the end of a buffer (see
+  [`docs/KNOWN_C_BEHAVIORS.md`](../../docs/KNOWN_C_BEHAVIORS.md)).
 * **SCP-ECG files** for `parsescp`: `example.scp`, a standard 12-lead
   record, and `scp62.scp` and `scp63.scp`, two non-standard files that
   `parsescp` rejects.

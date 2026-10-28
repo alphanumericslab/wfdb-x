@@ -203,6 +203,12 @@ def cmod(a, b):
     return a - b * cdiv(a, b)
 
 
+def cstr(s):
+    """s as a C string: up to its first NUL character, if any."""
+    k = s.find("\0")
+    return s if k < 0 else s[:k]
+
+
 # Conversions of an integer to a C integer type (two's complement wrap).
 
 def int32(x):

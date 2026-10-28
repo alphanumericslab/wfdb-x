@@ -380,6 +380,9 @@ function fread!(f::WfdbFile, buf::AbstractVector{UInt8}, n::Integer=length(buf))
             continue
         end
         count = want - want % f.rbufsize
+        # (a block may be far larger than the file: never ask for more bytes
+        # than the file holds)
+        count > _LARGE_READ && (count = file_left(f, count))
         tmp = Vector{UInt8}(undef, count)
         r = _read_direct!(f, tmp, count)
         r <= 0 && break
@@ -412,6 +415,32 @@ function _read_direct!(f::WfdbFile, buf::Vector{UInt8}, n::Int)
     end
     f.fpos >= 0 && (f.fpos += r)
     r
+end
+
+# Reads of more bytes are limited by file_left.
+const _LARGE_READ = 1 << 20
+
+"""
+    file_left(f, n) -> Int
+
+`n`, or fewer if fewer bytes are left in the regular or in-memory file `f`:
+the size of a buffer that holds what reading `n` bytes can return. (WFDB-x:
+a block size in a header may be far larger than the signal file.)
+"""
+function file_left(f::WfdbFile, n::Integer)
+    n = Int(n)
+    if f.kind == _K_MEM
+        return clamp(f.rlen - f.rpos, 0, n)
+    elseif f.kind == _K_FILE && f.fd >= 0 && f.fpos >= 0
+        st = try
+            stat(Base.RawFD(f.fd))
+        catch
+            return n
+        end
+        isfile(st) || return n
+        return clamp(Int(st.size) - Int(f.fpos) + (f.rlen - f.rpos), 0, n)
+    end
+    n
 end
 
 """

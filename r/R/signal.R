@@ -20,7 +20,7 @@
 # output signal file is never one of the input files of the open record; a
 # header written under a path names the record, its signal files and its
 # segments relative to its own directory; FLAC signal files are read and
-# written with WFDB-x's own codec (flac.R) instead of libFLAC; additions:
+# written with WFDB-x's FLAC codec (flac.R) instead of libFLAC; additions:
 # wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq,
 # getframes and putframes; legacy mode (wfdbx_set_legacy) restores the original
 # behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
@@ -128,6 +128,7 @@ sig_reset <- function() {
   st$dsbi <- -1
   st$dsblen <- 0
   st$framelen <- 0
+  st$empty_group <- FALSE
   st$gvmode <- .DEFWFDBGVMODE
   st$gvc <- 0
   st$isedf <- 0
@@ -182,11 +183,12 @@ sig_reset()
 # invalid signal numbers) in the unit conversion functions.  It exists for
 # compatibility only.
 
-#' Turn legacy mode on (on = TRUE) or off; returns the previous setting.
+#' Turn legacy mode on (on = TRUE) or off; returns the previous setting,
+#' invisibly.
 wfdbx_set_legacy <- function(on) {
   previous <- .sig$legacy
   .sig$legacy <- isTRUE(as.logical(on))
-  previous
+  invisible(previous)
 }
 
 #' Whether legacy mode is on.
@@ -1101,9 +1103,11 @@ wfdbx_legacy_args <- function(argv) {
   }
   hsd <- st$hsd
   on.exit(st$hsd <- hsd)
-  while (length(hsd) < nsig) hsd[[length(hsd) + 1L]] <- .hsdata()
   s <- 0
   while (s < nsig) {
+    # (one signal at a time: the number of signals may be far larger than
+    # the number of signal lines)
+    if (s >= length(hsd)) hsd[[s + 1]] <- .hsdata()
     hs <- hsd[[s + 1]]
     hp <- if (s) hsd[[s]] else NULL
     repeat {
@@ -1253,6 +1257,7 @@ wfdbx_legacy_args <- function(argv) {
   st$isd <- list()
   st$nisig <- 0
   st$framelen <- 0
+  st$empty_group <- FALSE
   for (ig in st$igd) {
     if (!is.null(ig$flac)) flac_isclose(ig)
     if (!is.null(ig$fp)) wf_close(ig$fp)
@@ -1545,9 +1550,14 @@ wfdbx_legacy_args <- function(argv) {
   g <- st$nigroup
   while (g) {
     g <- g - 1
-    if (igd[[g + 1]]$initial_skip)
+    if (g < length(st$igd) && st$igd[[g + 1]]$initial_skip)
       .isgsetframe(g, if (st$in_msrec) st$segarray[[st$segp + 1]]$samp0 else 0)
   }
+  # (the seek may have opened another segment, with new signals)
+  nisig <- st$nisig
+  isd <- st$isd
+  igd <- st$igd
+  if (st$empty_group) return(list(stat = -1, v = vec))   # WFDB-x (see isigopen)
   tspf <- st$tspf
   need_sigmap <- st$need_sigmap
   if (length(vec) < tspf) vec <- c(vec, numeric(tspf - length(vec)))
@@ -1653,27 +1663,29 @@ wfdbx_legacy_args <- function(argv) {
   st <- .sig
   stat <- -1
   if (!is.null(st$dsbuf)) {
+    # (the buffer stays in place while frames are read: a segment opened
+    # meanwhile keeps it, as in C)
     tspf <- st$tspf
-    dsbuf <- st$dsbuf
-    st$dsbuf <- NULL
     if (st$dsbi < 0) {
       i <- 0
       while (i < st$dsblen) {
-        r <- .getskewedframe(dsbuf[i + seq_len(tspf)])
+        st$dsbi <- i
+        r <- .getskewedframe(st$dsbuf[i + seq_len(tspf)])
         stat <- r$stat
-        if (length(r$v) >= tspf) dsbuf[i + seq_len(tspf)] <- r$v[seq_len(tspf)]
+        if (length(r$v) >= tspf) st$dsbuf[i + seq_len(tspf)] <- r$v[seq_len(tspf)]
         if (stat < 0) break
         i <- i + tspf
       }
       st$dsbi <- 0
     } else {
-      r <- .getskewedframe(dsbuf[st$dsbi + seq_len(tspf)])
+      dsbi <- st$dsbi
+      r <- .getskewedframe(st$dsbuf[dsbi + seq_len(tspf)])
       stat <- r$stat
-      if (length(r$v) >= tspf) dsbuf[st$dsbi + seq_len(tspf)] <- r$v[seq_len(tspf)]
-      st$dsbi <- st$dsbi + tspf
+      if (length(r$v) >= tspf) st$dsbuf[dsbi + seq_len(tspf)] <- r$v[seq_len(tspf)]
+      st$dsbi <- dsbi + tspf
       if (st$dsbi >= st$dsblen) st$dsbi <- 0
     }
-    st$dsbuf <- dsbuf
+    dsbuf <- st$dsbuf
     j <- 0
     for (vs in st$vsd[seq_len(st$nvsig)]) {
       i <- j + st$dsbi + vs$skew * tspf
@@ -1877,7 +1889,17 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
   setgvmode(st$gvmode)
   st$gvc <- st$ispfmax
   st$framelen <- 0
-  for (is in st$isd[seq_len(st$nisig)]) st$framelen <- st$framelen + is$info$spf
+  gspf <- rep(NA_real_, st$nigroup)       # (NA: a group of null signals)
+  for (is in st$isd[seq_len(st$nisig)]) {
+    st$framelen <- st$framelen + is$info$spf
+    if (is$info$fmt != 0) {
+      g <- is$info$group + 1
+      gspf[g] <- if (is.na(gspf[g])) is$info$spf else gspf[g] + is$info$spf
+    }
+  }
+  # WFDB-x: a signal group whose frames hold no samples (an EDF file can
+  # give 0 samples per data record) is at the end of its data at once
+  st$empty_group <- any(gspf == 0, na.rm = TRUE)
   if (st$tspf > st$tuvlen) {
     st$tvector <- numeric(st$tspf)
     st$uvector <- numeric(st$tspf)
@@ -2998,7 +3020,7 @@ timstr <- function(t) {
     seconds <- t %% 60
     t <- t %/% 60
     minutes <- t %% 60
-    hours <- t %/% 60
+    hours <- cint32(t %/% 60)       # (an int in C)
     if (hours > 0) {
       st$time_string <- .f("%2d:%02d:%02d.%03d", hours, minutes, seconds, msec)
     } else {
@@ -3664,7 +3686,8 @@ wfdb_freeinfo <- function() {
   nisig <- st$nisig
   nvsig <- st$nvsig
   need_sigmap <- st$need_sigmap
-  if (n <= 0 || nisig == 0 || (if (need_sigmap) nisig > nvsig else nvsig != nisig) ||
+  if (n <= 0 || nisig == 0 || st$empty_group ||
+      (if (need_sigmap) nisig > nvsig else nvsig != nisig) ||
       !(st$ifreq == 0 || st$ifreq == st$sfreq)) return(NULL)
   lay <- .bulk_layout(st)
   if (is.null(lay)) return(NULL)
@@ -4281,7 +4304,7 @@ putframes <- function(m) {
     # ("   %2d:%02d.%03d" of minutes, seconds, msec, or "%2d:%02d:%02d.%03d"
     # with the hours)
     p <- list(.cfmt_tab(key = m, fn = function(u) {
-      h <- u %/% 60
+      h <- cint32(u %/% 60)         # (an int in C)
       ifelse(h > 0, csprintf_v("%2d:%02d:", h, u %% 60), csprintf_v("   %2d:", u %% 60))
     }), .cfmt_tab("%02d.", seconds), .cfmt_tab("%03d", msec))
     if (!pieces) out[el] <- do.call(paste0, lapply(p, function(q) q$tab[q$i]))

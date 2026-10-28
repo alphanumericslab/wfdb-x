@@ -381,7 +381,8 @@ static int getptp(WFDB_Time t)
     }
 
     for (i = 0; i < nsig; i++)
-        amp[i][namp] = vmax[i] - vmin[i];
+        amp[i][namp] = static_cast<int>(static_cast<unsigned>(vmax[i]) -
+                                        static_cast<unsigned>(vmin[i]));  // (wraps, as in C)
 
     return (0);
 }

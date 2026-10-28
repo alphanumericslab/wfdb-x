@@ -17,7 +17,7 @@ Each implementation mirrors the C sources, file by file:
 | `lib/calib.c` | `_calib.py` | calibration list |
 | `lib/wfdbinit.c` | `_wfdbinit.py` | `wfdbinit`, `wfdbquit`, `wfdbflush` |
 | `lib/ecgcodes.h`, `lib/ecgmap.h`, the mapping functions of `lib/annot.c` | `_ecgcodes.py` | annotation codes and mapping tables |
-| FLAC support in `lib/signal.c` (libFLAC) | `_flac.py` | the FLAC support of the signal functions, and WFDB-x's own FLAC decoder and encoder |
+| FLAC support in `lib/signal.c` (libFLAC) | `_flac.py` | the FLAC support of the signal functions, a translation of libFLAC 1.4.3's stream decoder, and WFDB-x's own FLAC encoder |
 | `app/*.c`, `convert/*.c` | `apps/*.py` | command-line tools |
 | (C standard library) | `_cstd.py` | `strtol`, `strtod`, `strtok`, `sscanf`, `fgets`, glibc `rand`, `printf` details |
 

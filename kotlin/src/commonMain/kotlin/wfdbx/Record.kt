@@ -375,6 +375,19 @@ private inline fun <T> Wfdb.withLegacy(on: Boolean, f: () -> T): T {
     }
 }
 
+/**
+ * Runs [f], restoring the getvec mode ([setgvmode]) afterwards (also on
+ * errors): readRecord sets it, and opening an EDF record changes it.
+ */
+private inline fun <T> Wfdb.withGvmode(f: () -> T): T {
+    val previous = getgvmode()
+    try {
+        return f()
+    } finally {
+        setgvmode(previous)
+    }
+}
+
 /** Runs [f] with the input directory and network access given (if not null), restoring the previous settings afterwards. */
 internal inline fun <T> Wfdb.withInput(inputDir: String?, network: Boolean?, f: () -> T): T {
     val prevDir = if (inputDir != null) wfdbx_set_input_dir(fname(inputDir)) else null
@@ -527,24 +540,26 @@ private fun legacyAdcres(fmt: Int): Int = when (fmt) {
  * ```
  */
 fun Wfdb.readHeader(record: String, inputDir: String? = null, network: Boolean? = null, legacy: Boolean = false): Header =
-    withLegacy(legacy) {
-        withInput(inputDir, network) {
-            val rec = fname(record)
-            wfdbquit()
-            val n = isigopen(rec, null, 0)
-            if (n < 0) fail("can't read header for record $record")
-            val si = Array(n) { Siginfo() }
-            if (n > 0) isigopen(rec, si, -n)
-            stripDesc(si)
-            val fs = sampfreq(null as ByteArray?)
-            val b = baseTimeFields()
-            val h = Header(
-                name = record, fs = fs, counterFreq = getcfreq(), baseCounter = getbasecount(),
-                nsamples = wfdbxHeaderNsamples(), nsig = n, siginfo = si.toList(), baseTime = b.text,
-                baseTimeMs = b.ms, baseDate = b.date, comments = infoStrings(rec),
-            )
-            wfdbquit()
-            h
+    withGvmode {
+        withLegacy(legacy) {
+            withInput(inputDir, network) {
+                val rec = fname(record)
+                wfdbquit()
+                val n = isigopen(rec, null, 0)
+                if (n < 0) fail("can't read header for record $record")
+                val si = Array(n) { Siginfo() }
+                if (n > 0) isigopen(rec, si, -n)
+                stripDesc(si)
+                val fs = sampfreq(null as ByteArray?)
+                val b = baseTimeFields()
+                val h = Header(
+                    name = record, fs = fs, counterFreq = getcfreq(), baseCounter = getbasecount(),
+                    nsamples = wfdbxHeaderNsamples(), nsig = n, siginfo = si.toList(), baseTime = b.text,
+                    baseTimeMs = b.ms, baseDate = b.date, comments = infoStrings(rec),
+                )
+                wfdbquit()
+                h
+            }
         }
     }
 
@@ -561,8 +576,8 @@ private const val CHUNK_FRAMES = 1L shl 20
  * @param channels the signals to read, by number (`"0"`) or name
  *   (`"MLII"`, as in [Record.names]), in the order wanted (null: all
  *   signals)
- * @param from the first sample: a sample number or a time string (null:
- *   the start of the record)
+ * @param from the first sample: a sample number (not negative) or a time
+ *   string (null: the start of the record)
  * @param to the sample after the last one (null: the end of the record)
  * @param physical also return the samples in physical units
  *   ([Record.physical]); every signal read must then have a gain
@@ -585,7 +600,9 @@ private const val CHUNK_FRAMES = 1L shl 20
  * @return the [Record]
  * @throws WfdbException if the header or a signal file cannot be read
  *   ("can't read record REC"), if a channel is not in the record ("record
- *   REC has no signal C"), if a time string needs the sampling frequency
+ *   REC has no signal C"), if `from` is a negative sample number
+ *   ("readRecord: from must not be negative"), if a time string needs the
+ *   sampling frequency
  *   and the header gives none ("sampling frequency of record REC is not
  *   specified"), if `physical` is true and a signal has no gain ("signal N
  *   of record REC is uncalibrated"), if `from` is beyond the end ("can't
@@ -618,9 +635,11 @@ fun Wfdb.readRecord(
     inputDir: String? = null,
     network: Boolean? = null,
     legacy: Boolean = false,
-): Record = withLegacy(legacy) {
-    withInput(inputDir, network) {
-        readRecordImpl(record, channels, from, to, physical, highres, pad, checksumWarning, onWarning)
+): Record = withGvmode {
+    withLegacy(legacy) {
+        withInput(inputDir, network) {
+            readRecordImpl(record, channels, from, to, physical, highres, pad, checksumWarning, onWarning)
+        }
     }
 }
 
@@ -640,6 +659,8 @@ private fun Wfdb.readRecordImpl(
     val fs = sampfreq(null as ByteArray?)
     checkTimeFreq(record, from, to)
     val t0 = resolve(from) ?: 0L
+    // WFDB-x: isigsettime would take a negative time as an absolute one
+    if (t0 < 0) fail("readRecord: from must not be negative")
     val t1 = resolve(to)
     stripDesc(si)
     val cols: IntArray = if (channels == null) {
@@ -668,9 +689,10 @@ private fun Wfdb.readRecordImpl(
     // values at first, in case the header or `to` promises more than the
     // files hold), and grown if there are more.
     val length = wfdbxHeaderNsamples() * (if (highres && sig.spfmax > 1) sig.spfmax.toLong() else 1L)
-    var remaining: Long? = if (t1 == null) null else maxOf(t1 - t0, 0L)
+    // (t0 >= 0: no overflow)
+    var remaining: Long? = if (t1 == null) null else if (t1 <= t0) 0L else t1 - t0
     val expected = remaining ?: maxOf(length - t0, 0L)
-    var all = IntArray(minOf(expected * nsig, 1L shl 26).toInt().coerceAtLeast(nsig))
+    var all = IntArray((minOf(expected, (1L shl 26) / nsig) * nsig).toInt().coerceAtLeast(nsig))
     // Vectors read per getvecs call at most: whole frames, and a multiple of
     // 6 of them, so that formats 212, 310 and 311 end each call on a whole
     // packed unit (the frames are then read in blocks).
@@ -948,12 +970,15 @@ fun Wfdb.writeRecord(
  * Writes samples in physical units as a new record, as [writeRecord] does
  * from ADC units. Each value is converted to ADC units as `round(x * gain)
  * + baseline`, with halves rounded away from zero; NaN becomes an invalid
- * sample. Every signal must have a gain other than 0.
+ * sample, and an infinite value, or one whose ADC value is beyond the range
+ * of 32-bit integers, is an error (before anything is written). Every
+ * signal must have a gain other than 0.
  *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @throws WfdbException as [writeRecord], and "writeRecord: signal N is
- *   uncalibrated" if a gain is 0
+ * @throws WfdbException as [writeRecord], "writeRecord: signal N is
+ *   uncalibrated" if a gain is 0, and "writeRecord: sample I is infinite or
+ *   beyond the range of 32-bit ADC units"
  *
  * ```
  * val x = DoubleArray(3600) { sin(it / 50.0) }
@@ -985,6 +1010,7 @@ fun Wfdb.writeRecord(
         withLegacy(legacy) {
             val leg = isLegacy()
             if (nsig <= 0) throw WfdbException("writeRecord: no signals")
+            checkPerSignal(spec, nsig, leg)
             checkWriteFreq(fs, leg)
             // gain and baseline of each column of a frame
             val g = ArrayList<Double>()
@@ -1011,7 +1037,14 @@ fun Wfdb.writeRecord(
                 if (v.isNaN()) {
                     WFDB_INVALID_SAMPLE
                 } else {
-                    d2i((if (v >= 0.0) kotlin.math.truncate(v + 0.5) else kotlin.math.truncate(v - 0.5)) + b[c].toDouble())
+                    val r = (if (v >= 0.0) kotlin.math.truncate(v + 0.5) else kotlin.math.truncate(v - 0.5)) + b[c].toDouble()
+                    // WFDB-x: an infinite value, or one beyond the range of
+                    // 32-bit ADC units, cannot be written (C's conversion is
+                    // undefined)
+                    if (!(r >= Int.MIN_VALUE.toDouble() && r <= Int.MAX_VALUE.toDouble())) {
+                        throw WfdbException("writeRecord: sample $it is infinite or beyond the range of 32-bit ADC units")
+                    }
+                    d2i(r)
                 }
             }
             writeAdc(record, adc, nsig, fs, spec)
@@ -1040,6 +1073,30 @@ private fun adcresOf(adcres: IntArray?, k: Int, fmt: Int, legacy: Boolean): Int 
     return r
 }
 
+/**
+ * Checks that each per-signal argument holds no value, one value for all
+ * signals, or one value per signal (WFDB-x: before anything is written).
+ * A required argument ([WriteSpec.gains], [WriteSpec.adcres],
+ * [WriteSpec.units]) with fewer values is reported as missing values
+ * instead, except in legacy mode.
+ */
+private fun checkPerSignal(spec: WriteSpec, nsig: Int, legacy: Boolean) {
+    val lens = listOf(
+        Triple("gains", spec.gains?.size, true),
+        Triple("baselines", spec.baselines?.size, false),
+        Triple("adczeros", spec.adczeros?.size, false),
+        Triple("adcres", spec.adcres?.size, true),
+        Triple("units", spec.units?.size, true),
+        Triple("names", spec.names?.size, false),
+        Triple("sampsPerFrame", spec.sampsPerFrame?.size, false),
+    )
+    for ((name, n, required) in lens) {
+        if (n != null && n > 1 && n != nsig && !(required && !legacy && n < nsig)) {
+            throw WfdbException("writeRecord: $name must have one value per signal")
+        }
+    }
+}
+
 /** Checks the samples per frame (in both modes, before anything else): each signal has at least one sample per frame. */
 private fun checkWriteSpf(spf: IntArray?) {
     if (spf != null && spf.any { it < 1 }) throw WfdbException("writeRecord: sampsPerFrame must hold integers >= 1")
@@ -1053,6 +1110,7 @@ private fun checkWriteFreq(fs: Double, legacy: Boolean) {
 private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Double, spec: WriteSpec) {
     if (nsig <= 0) throw WfdbException("writeRecord: no signals")
     val legacy = isLegacy()
+    checkPerSignal(spec, nsig, legacy)
     checkWriteFreq(fs, legacy)
     val rec = fname(record)
     val datName = fname("$record.dat")
@@ -1079,17 +1137,21 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
     }
     wfdbquit()
     val errors = wfdbx_write_errors()
-    if (osigfopen(si, nsig) != nsig) fail("can't create signal file for record $record")
-    setsampfreq(fs)
-    // The counter frequency and base count survive wfdbquit() (as in the C
-    // library); a new record written here has neither.
-    setcfreq(0.0)
-    setbasecount(0.0)
-    if (spec.baseTime != null) setbasetime(spec.baseTime.latin1())
-    putframes(samples, samples.size / frame)
-    if (newheader(rec) < 0) fail("can't create header for record $record")
-    for (c in spec.comments ?: emptyList()) putinfo(c.latin1())
-    wfdbquit()
+    try {
+        if (osigfopen(si, nsig) != nsig) fail("can't create signal file for record $record")
+        setsampfreq(fs)
+        // The counter frequency and base count survive wfdbquit() (as in the
+        // C library); a new record written here has neither.
+        setcfreq(0.0)
+        setbasecount(0.0)
+        if (spec.baseTime != null) setbasetime(spec.baseTime.latin1())
+        putframes(samples, samples.size / frame)
+        if (newheader(rec) < 0) fail("can't create header for record $record")
+        for (c in spec.comments ?: emptyList()) putinfo(c.latin1())
+    } finally {
+        // (the output signals are closed whatever happens)
+        wfdbquit()
+    }
     if (wfdbx_write_errors() > errors) throw WfdbException("write error on record $record")
 }
 
@@ -1111,9 +1173,12 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  * @param symbols mnemonics such as "N" or "V" (an unknown mnemonic becomes
  *   code 0, NOTQRS)
  * @param codes annotation codes, used instead of [symbols]
- * @param subtypes subtype of each annotation (null: 0)
- * @param chans channel number of each annotation (null: 0)
- * @param nums annotator number of each annotation (null: 0)
+ * @param subtypes subtype of each annotation (null: 0; as in C, stored in
+ *   one byte: other values wrap around to -128 to 127)
+ * @param chans channel number of each annotation (null: 0; stored in one
+ *   byte: other values wrap around to 0 to 255)
+ * @param nums annotator number of each annotation (null: 0; stored in one
+ *   byte: other values wrap around to -128 to 127)
  * @param aux auxiliary text of each annotation, or null where there is none
  *   (texts longer than 255 bytes are cut)
  * @param fs if given, written to the file as the frequency in which the
@@ -1153,7 +1218,7 @@ fun Wfdb.writeAnnotations(
     fun check(name: String, size: Int?) {
         if (size != null && size != n) throw WfdbException("writeAnnotations: $name must have one value per annotation")
     }
-    check("symbols", if (codes == null) symbols?.size else null)
+    check("symbols", symbols?.size)
     check("codes", codes?.size)
     check("subtypes", subtypes?.size)
     check("chans", chans?.size)
@@ -1178,7 +1243,12 @@ fun Wfdb.writeAnnotations(
                     fail("can't create annotator $annotator for record $record")
                 }
                 // (as putann for each annotation, but encoded at once)
-                putanns(0, n, samples, types, subtypes ?: zeros, chans ?: zeros, nums ?: zeros, auxes)
+                try {
+                    putanns(0, n, samples, types, subtypes ?: zeros, chans ?: zeros, nums ?: zeros, auxes)
+                } catch (e: Throwable) {
+                    wfdbquit() // (the annotator is closed whatever happens)
+                    throw e
+                }
                 val previous = ann.sortOverride
                 ann.sortOverride = sort
                 try {

@@ -34,7 +34,7 @@ static int g16(std::FILE *fp)
 
     l = std::fgetc(fp);
     h = std::fgetc(fp);
-    return (((h << 8) & 0xff00) | (l & 0xff));
+    return static_cast<int>(((static_cast<unsigned>(h) << 8) & 0xff00) | (l & 0xff));
 }
 
 int main(int argc, char **argv)

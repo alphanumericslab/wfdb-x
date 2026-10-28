@@ -63,11 +63,18 @@ if S.skip_pending
             end
         end
     end
+    % (the seek may have opened another segment, with new signals)
+    nisig = S.nisig;
+    igd = S.igd;
     pending = false;
     for g = 1:S.nigroup
         pending = pending || igd{g}.initial_skip;
     end
     S.skip_pending = pending;
+end
+if S.empty_group
+    stat = -1;      % WFDB-x (see wfdbx.isigopen)
+    return;
 end
 plan = S.plan;
 if isempty(plan)

@@ -138,13 +138,17 @@ public:
 
     // Binary helpers (wfdb_g16, wfdb_g32, wfdb_p16, wfdb_p32): 16-bit and
     // 32-bit integers in PDP-11 byte order.
+    // (The shifts are those of C on usual hosts, also for negative values
+    // and EOF.)
     int g16() {
         int x = getc();
-        return static_cast<int>(static_cast<short>((getc() << 8) | (x & 0xff)));
+        return static_cast<int>(static_cast<short>(
+            (static_cast<unsigned>(getc()) << 8) | (x & 0xff)));
     }
     long g32() {
         long x = g16(), y = g16();
-        return (x << 16) | (y & 0xffff);
+        return static_cast<long>(static_cast<unsigned long>(x) << 16) |
+               (y & 0xffff);
     }
     void p16(unsigned int x) {
         putc(static_cast<char>(x));

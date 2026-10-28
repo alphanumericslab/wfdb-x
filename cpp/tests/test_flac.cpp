@@ -232,24 +232,78 @@ WFDBX_TEST(flac_decode_records)
         Decoded d2 = decode(data.data(), data.size(), rc.channels, rc.bps);
         CHECK(d2.status == Status::ok);
         CHECK(d2.chans == d.chans);
-        // Trailing zero bytes are ignored.
+        // Trailing zero bytes are not a frame (libFLAC reports a loss of
+        // sync after the last frame).
         std::vector<unsigned char> padded = data;
         padded.resize(padded.size() + 100, 0);
         Decoded d3 = decode(padded.data(), padded.size(), 0, 0);
-        CHECK(d3.status == Status::ok);
+        CHECK(d3.status == Status::sync);
         CHECK(d3.chans == d.chans);
-        // A truncated stream cannot be decoded.
+        // The last frame of a truncated stream is lost; the others are
+        // decoded.
         Decoded d4 = decode(data.data(), data.size() - 3, 0, 0);
-        CHECK(d4.status != Status::ok);
-        // Neither can a stream with a corrupted frame.
+        CHECK(d4.status == Status::sync);
+        REQUIRE(d4.chans.size() == d.chans.size());
+        CHECK(d4.chans[0].size() < d.chans[0].size());
+        CHECK(std::equal(d4.chans[0].begin(), d4.chans[0].end(),
+                         d.chans[0].begin()));
+        // A corrupted frame is an error.
         std::vector<unsigned char> bad = data;
         bad[bad.size() / 2] ^= 0x10;
         Decoded d5 = decode(bad.data(), bad.size(), 0, 0);
         CHECK(d5.status != Status::ok);
-        // nor something that is not a FLAC stream.
+        // Something that is not a FLAC stream loses sync.
         Decoded d6 = decode(data.data() + 1, data.size() - 1, 0, 0);
-        CHECK(d6.status == Status::meta);
+        CHECK(d6.status == Status::sync);
     }
+}
+
+// Damaged streams are decoded as libFLAC decodes them (cases edge-flac-* of
+// the conformance suite): frame by frame, up to the first error.
+WFDBX_TEST(flac_decode_damaged)
+{
+    std::vector<unsigned char> data;
+    REQUIRE(read_file(wfdbx_tests::data_dir() + "/flac16.dat", data));
+    REQUIRE(data.size() == 36102);
+    Decoded d = decode(data.data(), data.size(), 3, 16);
+    REQUIRE(d.status == Status::ok);
+    REQUIRE(d.chans.size() == 3 && d.chans[0].size() == 9000);
+    // The number of channels is that of each frame, not that of STREAMINFO
+    // (byte 20 holds it).
+    for (int nch : {2, 6}) {
+        std::vector<unsigned char> x = data;
+        x[20] = static_cast<unsigned char>((x[20] & ~0x0e) | ((nch - 1) << 1));
+        Decoded dx = decode(x.data(), x.size(), 3, 16);
+        CHECK(dx.status == Status::ok);
+        CHECK(dx.channels == nch);
+        CHECK(dx.chans == d.chans);
+    }
+    // An ID3v2 tag before the stream is skipped.
+    std::vector<unsigned char> id3 = {'I', 'D', '3', 4, 0, 0, 0, 0, 0, 10};
+    id3.resize(20, 0);
+    id3.insert(id3.end(), data.begin(), data.end());
+    Decoded di = decode(id3.data(), id3.size(), 3, 16);
+    CHECK(di.status == Status::ok);
+    CHECK(di.chans == d.chans);
+    // One byte missing: the last frame (from sample 8192) is lost.
+    Decoded dt = decode(data.data(), data.size() - 1, 3, 16);
+    CHECK(dt.status == Status::sync);
+    REQUIRE(dt.chans.size() == 3);
+    CHECK_EQ(dt.chans[0].size(), 8192u);
+    CHECK(std::equal(dt.chans[2].begin(), dt.chans[2].end(),
+                     d.chans[2].begin()));
+    // One trailing byte that starts a sync code: no error.
+    std::vector<unsigned char> tb = data;
+    tb.push_back(0xff);
+    Decoded db = decode(tb.data(), tb.size(), 3, 16);
+    CHECK(db.status == Status::ok);
+    CHECK(db.chans == d.chans);
+    // A bit flipped in frame 0: nothing is decoded.
+    std::vector<unsigned char> bf = data;
+    bf[1000] ^= 0x10;
+    Decoded dbf = decode(bf.data(), bf.size(), 3, 16);
+    CHECK(dbf.status == Status::sync);
+    CHECK(dbf.chans.empty());
 }
 
 WFDBX_TEST(flac_encoder_matches_python)

@@ -80,9 +80,9 @@ if ~S.has_pinfo
                     break;
                 end
             end
-            while ~isempty(buf)
+            while ~isempty(wfdbx.internal.cstr(buf))
                 if buf(1) == '#'
-                    pinfo{end + 1} = strip_info(buf); %#ok<AGROW>
+                    pinfo{end + 1} = strip_info(wfdbx.internal.cstr(buf)); %#ok<AGROW>
                 end
                 line = ifile.getline();
                 if isempty(line)
@@ -101,7 +101,7 @@ if ~S.has_pinfo
                 break;
             end
             if buf(1) == '#'
-                pinfo{end + 1} = strip_info(buf); %#ok<AGROW>
+                pinfo{end + 1} = strip_info(wfdbx.internal.cstr(buf)); %#ok<AGROW>
             end
         end
         ifile.close();

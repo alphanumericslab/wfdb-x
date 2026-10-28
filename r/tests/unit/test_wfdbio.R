@@ -223,3 +223,26 @@ expect_equal(wfdberror(), "getinfo: caller did not specify record name\n",
              "getinfo after wfdb_freeinfo, no record: error")
 wfdbverbose()
 wfdbio_reset()
+
+# The set functions return the previous setting invisibly (nothing is
+# printed at the top level), and wfdb_error is exported, as in the other
+# languages
+wfdbio_reset()
+old_legacy <- wfdbx_get_legacy()
+for (f in list(function() wfdbx_set_input_dir("a"), function() wfdbx_set_input_dir(NULL),
+               function() wfdbx_set_output_dir("b"), function() wfdbx_set_output_dir(NULL),
+               function() wfdbx_set_network(0), function() wfdbx_set_legacy(old_legacy))) {
+  check(!withVisible(f())$visible, paste("invisible:", deparse(body(f))))
+}
+expect_equal(list(wfdbx_set_input_dir("a"), wfdbx_set_input_dir(NULL)), list(NULL, "a"),
+             "wfdbx_set_input_dir: the previous setting")
+wfdbio_reset()
+if (nzchar(.rdir)) {
+  ns <- readLines(file.path(dirname(.rdir), "NAMESPACE"))
+  check(any(grepl("\\bwfdb_error\\b", ns)), "wfdb_error exported")
+}
+wfdbquiet()
+wfdb_error("test %d\n", 42L)
+wfdbverbose()
+expect_equal(wfdberror(), "test 42\n", "wfdb_error")
+wfdbio_reset()

@@ -914,6 +914,15 @@ function xform_main(args::Vector{String})
                 msiglist[k] += dfin[j].spf
             end
         end
+        # WFDB-x: room for every output sample of a frame, and for every
+        # input sample that they read (C sizes vout for the input frame and
+        # writes past its end when the output frame is larger; the samples
+        # read beyond the input frame are 0 here)
+        ospf = sum((Int(dfout[k].spf) for k in 1:nosig); init=0)
+        length(vout) < ospf && append!(vout, zeros(Int32, ospf - length(vout)))
+        need = maximum((Int(msiglist[k]) + Int(dfout[k].spf) for k in 1:nosig);
+                       init=0)
+        length(vin) < need && append!(vin, zeros(Int32, need - length(vin)))
     end
 
     # Process the signals.

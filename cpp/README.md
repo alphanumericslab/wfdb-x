@@ -1,10 +1,10 @@
 # WFDB-x for C++
 
-> **WFDB-x** is the WFDB Software Package (the library and its 33
-> command-line tools) reimplemented in seven languages: Python, C++,
-> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
-> the original C package and to each other. This is the C++
-> implementation.
+> **WFDB-x** is a reimplementation of the WFDB Software Package (the library
+> and its command-line tools) in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
+> identical results to the original C package and to each other. This is the
+> C++ implementation.
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
@@ -16,8 +16,9 @@ command-line tools. It reads and writes the same files as the original C
 library, and its tools print the same output.
 
 Everything is in namespace `wfdbx`. The library needs only the C++17
-standard library. It builds with CMake 3.14 or later and GCC 8, Clang 7 or
-MSVC 2019 and later, on Linux, macOS and Windows.
+standard library. It builds with CMake 3.14 or later and a C++17 compiler whose
+standard library has `std::filesystem` (GCC 9, Clang 9 or MSVC 2019 and
+later; macOS 10.15 or later), on Linux, macOS and Windows.
 
 ## Three ways to use WFDB-x
 
@@ -285,7 +286,10 @@ wfdbx::write_annotations("rand", "qrs", qrs);
 
 The full signature is `write_annotations(record, annotator, ann, fs, dir,
 sort)`. Give the annotation types as `symbols` or as `codes`. `subtypes`,
-`chans`, `nums` and `aux` are optional. `fs`, if greater than 0, is recorded
+`chans`, `nums` and `aux` are optional. Each of these fields is either empty
+or has one entry per annotation; any other length throws `wfdbx::Error`
+before anything is written. `subtypes`, `chans` and `nums` are stored in 8
+bits, as in C (300 is stored as 44). `fs`, if greater than 0, is recorded
 in the file. `dir` is the directory in which to create the file.
 
 If the annotations are not in time order, the file is sorted when it is
@@ -319,7 +323,10 @@ only. Without `sort`, the `WFDBANNSORT` environment variable decides
 * `write_record` throws `wfdbx::Error` if a `samps_per_frame` value is less
   than 1 ("write_record: samps_per_frame must hold integers >= 1", checked
   before anything else), or if the number of samples is not a multiple of
-  the frame size. `write_record` and `write_annotations` throw
+  the frame size. `write_record_physical` also throws if a sample is
+  infinite or out of the range of a 32-bit ADC value (NaN is stored as an
+  invalid sample). Nothing is written then.
+* `read_record` throws `wfdbx::Error` if `from` is negative. `write_record` and `write_annotations` throw
   `wfdbx::Error` when a file cannot be written completely, for example on a
   full disk: "write error on record REC", "write error on annotator ANN for
   record REC" (also in legacy mode).

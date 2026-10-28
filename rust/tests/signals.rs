@@ -2391,3 +2391,152 @@ fn write_record_frame_checks() {
         }
     }
 }
+
+#[test]
+fn read_record_restores_gvmode() {
+    // read_record sets the getvec mode for its own reading only: the mode
+    // before the call is restored afterwards, also after an error.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.setgvmode(WFDB_LOWRES);
+    let hi = ReadOptions {
+        to: Some(20.into()),
+        highres: true,
+        pad: true,
+        ..Default::default()
+    };
+    let r = w.read_record("mfreq", &hi).unwrap();
+    assert_eq!(r.fs, 400.0);
+    assert_eq!(w.getgvmode(), WFDB_LOWRES);
+    assert_eq!(w.sampfreq("mfreq"), 100.0);
+    w.wfdbquiet();
+    let bad = ReadOptions {
+        channels: vec!["XX".to_string()],
+        ..hi.clone()
+    };
+    assert!(w.read_record("mfreq", &bad).is_err());
+    w.wfdbverbose();
+    assert_eq!(w.getgvmode(), WFDB_LOWRES);
+    assert_eq!(w.sampfreq("mfreq"), 100.0);
+    w.setgvmode(WFDB_HIGHRES);
+    w.read_record("mfreq", &ReadOptions::default()).unwrap();
+    assert_eq!(w.getgvmode(), WFDB_HIGHRES);
+    w.setgvmode(WFDB_LOWRES);
+}
+
+#[test]
+fn read_record_from_and_to() {
+    // A negative `from` is an error (isigsettime would take it as an
+    // absolute time); `to` far beyond the end reads to the end.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    let neg = ReadOptions {
+        from: Some((-5).into()),
+        to: Some(3.into()),
+        ..Default::default()
+    };
+    let e = w.read_record("100s", &neg).unwrap_err();
+    assert_eq!(e.message(), "read_record: from must not be negative");
+    let far = ReadOptions {
+        from: Some(21590.into()),
+        to: Some(i64::MAX.into()),
+        ..Default::default()
+    };
+    let r = w.read_record("100s", &far).unwrap();
+    assert_eq!((r.nsamples(), r.sampfrom), (10, 21590));
+    let back = ReadOptions {
+        from: Some(5.into()),
+        to: Some(i64::MIN.into()),
+        ..Default::default()
+    };
+    assert_eq!(w.read_record("100s", &back).unwrap().nsamples(), 0);
+}
+
+#[test]
+fn physical_writing_out_of_range() {
+    // NaN is an invalid sample; an infinite value, or one beyond the range
+    // of 32-bit ADC units, is an error before any file is created.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    let o = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    for bad in [f64::INFINITY, f64::NEG_INFINITY, 1.1e7, -1.1e7] {
+        let x = [0.0, 1.0, bad, 2.0];
+        let e = w.write_record_physical("pr", &x, 2, 100.0, &o).unwrap_err();
+        assert_eq!(
+            e.message(),
+            "write_record: sample 2 is infinite or beyond the range of 32-bit ADC units"
+        );
+        assert!(!std::path::Path::new("pr.dat").exists());
+        assert!(!std::path::Path::new("pr.hea").exists());
+    }
+    let o32 = WriteOptions {
+        fmt: 32,
+        adcres: vec![32],
+        ..o.clone()
+    };
+    let x = [10737418.235, -10737418.235, f64::NAN, 1.0];
+    w.write_record_physical("pr", &x, 2, 100.0, &o32).unwrap();
+    let r = w.read_record("pr", &ReadOptions::default()).unwrap();
+    assert_eq!(
+        r.samples,
+        [i32::MAX, i32::MIN + 1, WFDB_INVALID_SAMPLE, 200]
+    );
+}
+
+#[test]
+fn write_record_option_lengths() {
+    // A per-signal option has no value, one value, or one value per
+    // signal; anything else is an error before any file is created, and a
+    // later call works normally.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    let x = vec![1i32; 9];
+    let good = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    let bad = [
+        WriteOptions {
+            names: vec!["a".into(), "b".into()],
+            ..good.clone()
+        },
+        WriteOptions {
+            baselines: vec![1, 2, 3, 4],
+            ..good.clone()
+        },
+        WriteOptions {
+            gains: vec![1.0, 2.0, 3.0, 4.0],
+            ..good.clone()
+        },
+        WriteOptions {
+            samps_per_frame: vec![1, 1],
+            ..good.clone()
+        },
+    ];
+    for (k, o) in bad.iter().enumerate() {
+        let e = w.write_record("wl", &x, 3, 100.0, o).unwrap_err();
+        assert!(
+            e.message().ends_with("must have one value per signal"),
+            "{k}: {e}"
+        );
+        assert!(!std::path::Path::new("wl.dat").exists(), "{k}");
+    }
+    // (a required option with fewer values: missing values)
+    let few = WriteOptions {
+        gains: vec![1.0, 2.0],
+        ..good.clone()
+    };
+    let e = w.write_record("wl", &x, 3, 100.0, &few).unwrap_err();
+    assert_eq!(e.message(), "write_record: gains must be specified");
+    assert!(!std::path::Path::new("wl.dat").exists());
+    w.write_record("wl", &x, 3, 100.0, &good).unwrap();
+    let r = w.read_record("wl", &ReadOptions::default()).unwrap();
+    assert_eq!(r.samples, x);
+}

@@ -1,9 +1,10 @@
 # WFDB-x for R
 
-> **WFDB-x** is the WFDB Software Package (the library and its 33
-> command-line tools) reimplemented in seven languages: Python, C++,
-> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
-> the original C package and to each other. This is the R implementation.
+> **WFDB-x** is a reimplementation of the WFDB Software Package (the library
+> and its command-line tools) in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
+> identical results to the original C package and to each other. This is the
+> R implementation.
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
@@ -213,7 +214,7 @@ vector with one value per signal.
 
 | Argument | Meaning |
 |---|---|
-| `signals` | matrix with one row per sample and one column per signal; ADC units, or physical units with `physical = TRUE` (`NA` is written as an invalid sample) |
+| `signals` | matrix with one row per sample and one column per signal; ADC units (integers within the range of a 32-bit integer), or physical units with `physical = TRUE` (`NA` is written as an invalid sample; an infinite value, or one beyond the range of 32-bit ADC units, is an error) |
 | `fs` | sampling frequency in Hz |
 | `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
 | `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
@@ -236,7 +237,11 @@ write_annotations("rand", "qrs", sample = c(100, 460, 820), symbol = c("N", "N",
 
 Give the annotation types as `symbol` or as `code`. `subtype`, `chan`,
 `num` and `aux` are optional, and `fs` records the frequency in which
-`sample` is counted. `sample` can also be a data frame returned by
+`sample` is counted. Each of `symbol`, `code`, `subtype`, `chan`, `num`
+and `aux` is one value for all annotations, or a vector with one value per
+annotation; any other length is an error, before the file is created. As
+in C, subtypes and annotator numbers are stored as signed bytes and
+channels as unsigned bytes (other values wrap around). `sample` can also be a data frame returned by
 `read_annotations`, which then gives all the fields.
 
 If the annotations are not in time order, the file is sorted when it is
@@ -263,8 +268,14 @@ only. Without `sort`, the `WFDBANNSORT` environment variable decides
 * In `write_record`, each `samps_per_frame` value must be an integer of 1
   or more ("samps_per_frame must hold integers >= 1"), and `signals` must
   have `sum(samps_per_frame)` columns ("signals has N columns, but
-  samps_per_frame adds up to M"). These are checked first, and nothing is
-  written.
+  samps_per_frame adds up to M"). A vector of per-signal values must have
+  one value per signal, and the samples must be valid (see `signals`
+  above). All the arguments are checked first, and nothing is written if
+  one is invalid. Whatever happens, `write_record` and `write_annotations`
+  close their output signals and annotators before they return.
+* A negative `sampfrom` in `read_record` is an error.
+* `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
+  only: the mode in force before the call is restored afterwards.
 * Invalid arguments, and a value the operation needs but the record does not
   give, stop with an error. For example, a time string such as `"0:10"`
   needs the sampling frequency, and `physical = TRUE` needs the gain of each
@@ -365,7 +376,7 @@ are set:
 | network access (off by default) | `wfdbx_set_network(1)` | `network = TRUE` | `WFDBX_NETWORK=1` |
 
 A function call overrides the environment variable, and an option applies to
-that one call. Each `set` function returns the previous setting.
+that one call. Each `set` function returns the previous setting, invisibly.
 `wfdbx_get_input_dir()`, `wfdbx_get_output_dir()` and `wfdbx_get_network()`
 return the current settings, and passing `NULL` to a `set` function restores
 the default.
@@ -451,7 +462,7 @@ and returns its exit status. `wfdbx_tools()` lists the tools.
 
 ```r
 wfdbx_set_input_dir("wfdb-x/tests/data")   # the sample record 100s (see Quick start)
-wfdbx_tool("rdsamp", c("-r", "100s", "-t", "s3"))
+wfdbx_tool("rdsamp", c("-r", "100s", "-t", "s3"))   # prints 3 lines; returns 0, the exit status
 ```
 
 The tools have the options and output of the original WFDB tools, which are
@@ -503,7 +514,7 @@ while ((g <- getvec())$stat > 0) {     # g$v: one sample per signal
   # ...
 }
 
-annopen("100s", list(anninfo("atr", WFDB_READ)))
+annopen("100s", list(anninfo("atr", WFDB_READ)))   # 0: opened
 while ((g <- getann(0))$stat == 0)
   cat(g$annot$time, annstr(g$annot$anntyp), aux_string(g$annot$aux), "\n")
 wfdbquit()
@@ -531,7 +542,8 @@ Differences from C that come from the language:
   frame it could not read. `putframes(m)` writes the rows of a matrix.
 * Errors are reported by return values, as in C, not by R errors.
   `wfdberror()` returns the last message, and `wfdbquiet()` stops the
-  messages from being printed.
+  messages from being printed. `wfdb_error(fmt, ...)` reports a message
+  of a program's own in the same way.
 * `wfdbx_write_errors()` (a WFDB-x addition) returns the number of output
   files that the library could not write, flush or close, plus those
   counted by `wfdbx_note_write_error()` (also an addition), which a program

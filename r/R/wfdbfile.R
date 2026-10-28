@@ -62,6 +62,7 @@
 
 .WF_BLOCK <- 65536L    # (writes)
 .WF_RBLOCK <- 4096L    # (reads)
+.WF_LARGE_READ <- 1048576   # (reads of more bytes are limited by the file size)
 
 # The files open for writing (most recent last), flushed by wf_flush_all()
 # when a tool exits, as C's exit() flushes every open stdio stream.
@@ -142,8 +143,9 @@ is_wfdb_file <- function(x) is.environment(x) && isTRUE(x$wfdb_file)
 
 wf_read <- function(f, n) {
   if (!.wf_rcheck(f)) return(raw(0))
-  n <- as.integer(n)
-  if (n <= 0L) return(raw(0))
+  # (n may be beyond the integer range: a block size of 2^31 bytes)
+  n <- trunc(as.numeric(n))
+  if (n <= 0) return(raw(0))
   avail <- f$blen - f$bpos + 1L
   if (avail >= n) {
     b <- f$buf[f$bpos:(f$bpos + n - 1L)]
@@ -164,6 +166,12 @@ wf_read <- function(f, n) {
     f$blen <- 0L
     f$bpos <- 1L
     count <- need - need %% .WF_RBLOCK
+    # (a block may be far larger than the file: never ask for more bytes
+    # than a regular file holds)
+    if (count > .WF_LARGE_READ) {
+      sz <- .wf_size(f)
+      if (!is.na(sz)) count <- min(count, max(sz - f$bstart, 0) + 1)
+    }
     rest <- tryCatch(readBin(f$con, "raw", count), error = function(e) {
       f$err <- TRUE
       raw(0)

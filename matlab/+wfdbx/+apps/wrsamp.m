@@ -737,7 +737,9 @@ end
 while line_has_alpha(line)
     [line, li] = read_line(data, lstart, seps, li);
 end
-if wfdbx.osigfopen(si, nosig) < nosig || wfdbx.setsampfreq(freq) < 0
+% (nosig is unsigned in C, so an error (-1) from osigfopen passes)
+if wfdbx.internal.cuint32(wfdbx.osigfopen(si, nosig)) < nosig || ...
+        wfdbx.setsampfreq(freq) < 0
     status = 2;
     return;
 end

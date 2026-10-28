@@ -20,6 +20,10 @@ Each case is a dict with keys:
           --timeout)
   wfdb    (optional) value of the WFDB environment variable (default: not
           set; "." in the legacy suite)
+  golden_impl (optional) the WFDB-x implementation whose results are the
+          golden results, for input on which the C tool crashes or gives a
+          machine-dependent result (see docs/KNOWN_C_BEHAVIORS.md); such a
+          case is not checked against C
 The placeholders are also replaced in stdin, env, files and www_files.
 
 Part of WFDB-x, Reza Sameni, Oct 2026.
@@ -1121,3 +1125,276 @@ for _t, _a in [("rdsamp", "-r 100s"), ("rdsamp", "-r 100s -t s1"),
          stdout_full=True)
 # a failing standard output does not change a nonzero exit status
 case("rdsamp", "-r nosuch", cid="wrerr-stdout-status", stdout_full=True)
+
+# ---------------------------------------------------------------------------
+# Edge cases found by review: skewed and offset segments, damaged FLAC files,
+# unusual headers and arguments. Each record is written by the case itself.
+
+def _i16(values):
+    return b"".join(int(v).to_bytes(2, "little", signed=True) for v in values)
+
+
+def _i32(values):
+    return b"".join(int(v).to_bytes(4, "little", signed=True) for v in values)
+
+
+# a skewed signal in a later segment of a fixed-layout record
+_SKEW2 = {"a.dat": _i16(range(20)), "b.dat": _i16(range(100, 120)),
+          "a.hea": "a 2 100 10\na.dat 16 200/mV 12 0 0 0 0 x\n"
+                   "a.dat 16 200/mV 12 0 1 0 0 y\n",
+          "b.hea": "b 2 100 10\nb.dat 16 200/mV 12 0 100 0 0 x\n"
+                   "b.dat 16:2 200/mV 12 0 101 0 0 y\n",
+          "m.hea": "m/2 2 100 20\na 10\nb 10\n"}
+for _a in ["-r m", "-r m -c", "-r m -p", "-r m -H", "-r m -f s5 -t s15",
+           "-r m -s y"]:
+    case("rdsamp", _a, cid="edge-skewseg-rdsamp-" + _a.replace(" ", "_"),
+         files=_SKEW2)
+case("sigamp", "-r m -w 0.01", cid="edge-skewseg-sigamp", files=_SKEW2)
+
+# three segments of a larger record, each with its own skew
+_lcg = [12345]
+
+
+def _rnd(n, lo, hi):
+    out = []
+    for _ in range(n):
+        _lcg[0] = (_lcg[0] * 1103515245 + 12345) & 0x7fffffff
+        out.append(lo + _lcg[0] % (hi - lo + 1))
+    return out
+
+
+_SKEW3 = {"m3.hea": "m3/3 2 250 600\ns1 200\ns2 200\ns3 200\n"}
+for _k, _sk in [(1, (0, 3)), (2, (2, 0)), (3, (5, 1))]:
+    _SKEW3["s%d.dat" % _k] = _i16(_rnd(420, -2000, 2000))
+    _SKEW3["s%d.hea" % _k] = (
+        "s%d 2 250 200\ns%d.dat 16:%d 200/mV 12 0 0 0 0 a\n"
+        "s%d.dat 16:%d 200/mV 12 0 0 0 0 b\n" % (_k, _k, _sk[0], _k, _sk[1]))
+case("rdsamp", "-r m3", cid="edge-skewseg3-rdsamp", files=_SKEW3)
+case("rdsamp", "-r m3 -f s190 -t s410 -p", cid="edge-skewseg3-rdsamp-ft",
+     files=_SKEW3)
+
+# a variable-layout record: a null layout segment, then a skewed segment
+_SKEWV = {"a.dat": _i16(range(20)), "b.dat": _i16(range(100, 105)),
+          "L.hea": "L 2 100 0\n~ 0 200/mV 12 0 0 0 0 x\n"
+                   "~ 0 200/mV 12 0 0 0 0 y\n",
+          "a.hea": "a 2 100 10\na.dat 16 200/mV 12 0 0 0 0 x\n"
+                   "a.dat 16:2 200/mV 12 0 1 0 0 y\n",
+          "b.hea": "b 1 100 5\nb.dat 16 200/mV 12 0 100 0 0 y\n",
+          "v.hea": "v/3 2 100 15\nL 0\na 10\nb 5\n"}
+case("rdsamp", "-r v", cid="edge-skewvlay-rdsamp", files=_SKEWV)
+case("rdsamp", "-r v -p -H", cid="edge-skewvlay-rdsamp-pH", files=_SKEWV)
+
+# a segment with a byte offset and no samples, then a segment too large
+case("rdsamp", "-r ms", cid="edge-offsetseg-rdsamp",
+     files={"a.dat": b"ABCD", "b.dat": bytes(range(8)),
+            "a.hea": "a 1 1000 0\na.dat 16+4 200 16 0 0 0 0 x\n",
+            "b.hea": "b 1 1000 2\nb.dat 16x2 200 16 0 0 0 0 y\n",
+            "ms.hea": "ms/2 1 1000 2\na 0\nb 2\n"})
+# a zero-length segment with a byte offset, then a normal one
+_ZSEG = {"a.dat": b"X", "b.dat": _i16(range(10)),
+         "a.hea": "a 1 500 0\na.dat 16+1 200/mV 16 0 0 0 0 x\n",
+         "b.hea": "b 1 500 10\nb.dat 16 200/mV 16 0 0 0 0 x\n",
+         "ms.hea": "ms/2 1 500 10\na 0\nb 10\n"}
+case("rdsamp", "-r ms", cid="edge-zeroseg-rdsamp", files=_ZSEG)
+case("sigamp", "-r ms", cid="edge-zeroseg-sigamp", files=_ZSEG)
+case("wfdb2mat", "-r ms", cid="edge-zeroseg-wfdb2mat", files=_ZSEG)
+
+# damaged FLAC files (flac16: three frames, at bytes 86, 16671 and 32883)
+_F16 = _rd("flac16.dat")
+case("rdsamp", "-r flac16", cid="edge-flac-trailing-byte",
+     files={"flac16.dat": _F16 + b"\xff"})
+case("rdsamp", "-r flac16", cid="edge-flac-trailing-zeros",
+     files={"flac16.dat": _F16 + b"\0" * 16})
+case("rdsamp", "-r flac16", cid="edge-flac-truncated",
+     files={"flac16.dat": _F16[:36101]})
+case("rdsamp", "-r flac16 -f s8180 -t s8200", cid="edge-flac-truncated-ft",
+     files={"flac16.dat": _F16[:36101]})
+_F16X = bytearray(_F16)
+_F16X[1000] ^= 0x10                     # a bit flipped in frame 0
+_F16X = bytes(_F16X)
+case("rdsamp", "-r flac16", cid="edge-flac-bitflip",
+     files={"flac16.dat": _F16X})
+case("rdsamp", "-r flac16 -f s600 -t s603", cid="edge-flac-bitflip-f600",
+     files={"flac16.dat": _F16X})
+case("rdsamp", "-r flac16 -f s5000 -t s5003", cid="edge-flac-bitflip-f5000",
+     files={"flac16.dat": _F16X})
+case("sigamp", "-r flac16", cid="edge-flac-bitflip-sigamp",
+     files={"flac16.dat": _F16X})
+
+
+def _flac_channels(n):
+    """flac16.dat with n channels in its STREAMINFO (its frames have 3)."""
+    d = bytearray(_F16)
+    d[20] = (d[20] & ~0x0e) | ((n - 1) << 1)
+    return bytes(d)
+
+
+case("rdsamp", "-r flac16 -t s3", cid="edge-flac-streaminfo-6ch",
+     files={"flac16.dat": _flac_channels(6)})
+case("rdsamp", "-r flac16 -t s3", cid="edge-flac-streaminfo-2ch",
+     files={"flac16.dat": _flac_channels(2)})
+# an ID3v2 tag before the FLAC stream
+case("rdsamp", "-r flac16 -t s5", cid="edge-flac-id3",
+     files={"flac16.dat": b"ID3\x04\x00\x00\x00\x00\x00\x0a" + b"\0" * 10
+            + _F16})
+
+
+def _crc8(b):
+    c = 0
+    for x in b:
+        c ^= x
+        for _ in range(8):
+            c = ((c << 1) ^ 0x07) & 0xff if c & 0x80 else (c << 1) & 0xff
+    return c
+
+
+def _crc16(b):
+    c = 0
+    for x in b:
+        c ^= x << 8
+        for _ in range(8):
+            c = ((c << 1) ^ 0x8005) & 0xffff if c & 0x8000 else (c << 1) & 0xffff
+    return c
+
+
+def _bits(fields):
+    """Bytes from (value, width) fields, most significant bit first."""
+    v = n = 0
+    for x, w in fields:
+        v = (v << w) | (x & ((1 << w) - 1))
+        n += w
+    n8 = (n + 7) // 8
+    return (v << (8 * n8 - n)).to_bytes(n8, "big")
+
+
+def _flac(nsamp, frames):
+    """A FLAC stream, 1 channel, 16 bits, 250 Hz, block size 16, with the
+    given frames (each a list of subframe bit fields)."""
+    info = _bits([(16, 16), (16, 16), (0, 24), (0, 24), (250, 20), (0, 3),
+                  (15, 5), (nsamp, 36)]) + b"\0" * 16
+    out = b"fLaC" + b"\x80" + len(info).to_bytes(3, "big") + info
+    for k, sub in enumerate(frames):
+        h = bytes([0xff, 0xf8, 0x60, 0x08, k, 15])
+        f = h + bytes([_crc8(h)]) + _bits(sub)
+        out += f + _crc16(f).to_bytes(2, "big")
+    return out
+
+
+# a CONSTANT subframe with 16 wasted bits (as many as its sample width)
+case("rdsamp", "-r fw", cid="edge-flac-wasted-bits",
+     files={"fw.hea": "fw 1 250 16\nfw.dat 516 200 16 0 0 0 0 s\n",
+            "fw.dat": _flac(16, [[(0, 1), (0, 6), (1, 1), (1, 16)]])})
+# FLAC blocks (1001 samples) that are not a multiple of the samples per
+# frame (3): C's iflac_samples writes past the end of its buffer (heap
+# corruption, see KNOWN_C_BEHAVIORS.md), so the results are WFDB-x's
+case("rdsamp", "-r flacspf -H", cid="edge-flac-spf3", golden_impl="python")
+case("rdsamp", "-r flacspf", cid="edge-flac-spf3-lowres",
+     golden_impl="python")
+case("sigamp", "-r flacspf", cid="edge-flac-spf3-sigamp", golden_impl="python")
+# an empty FLAC signal file, and a header of length 0
+_FEMPTY = {"fe.hea": "fe 1 250 0\nfe.dat 516 200 16 0 0 0 0 s\n",
+           "fe.dat": _flac(0, [])}
+case("wfdb2mat", "-r fe", cid="edge-flac-empty-wfdb2mat", files=_FEMPTY)
+case("rdsamp", "-r fe", cid="edge-flac-empty-rdsamp", files=_FEMPTY)
+
+# headers: a NUL byte in an info line, in a description, in a file name
+case("wfdbdesc", "nul", cid="edge-hdr-nul-info",
+     files={"nul.hea": "nul 2 250 10\nfmt16.dat 16 200 12 0 0 0 0 a\n"
+                       "fmt16.dat 16 200 12 0 0 0 0 b\n#info\0tail\n"})
+case("wfdbdesc", "nul", cid="edge-hdr-nul-desc",
+     files={"nul.hea": "nul 2 250 10\nfmt16.dat 16 200 12 0 0 0 0 ab\0cd\n"
+                       "fmt16.dat 16 200 12 0 0 0 0 b\n"})
+case("rdsamp", "-r nul -t s3", cid="edge-hdr-nul-file",
+     files={"nul.hea": "nul 2 250 10\nfmt16.dat\0x 16 200 12 0 0 0 0 a\n"
+                       "fmt16.dat 16 200 12 0 0 0 0 b\n"})
+# a header naming a signal file that does not exist
+case("sampfreq", "-a h", cid="edge-sampfreq-missing-dat",
+     files={"h.hea": "h 2 250\nfmt16.dat 16 200 12 0 0 0 0 a\n"
+                     "nosuch.dat 16 200 12 0 0 0 0 b\n"})
+# no sampling frequency (record 16), and a time that needs one
+case("time2sec", "-r 16 0.004", cid="edge-time2sec-nofreq")
+# hours beyond the range of an int
+case("wfdbtime", "-r q s9000000000000000", cid="edge-wfdbtime-hours",
+     files={"q.hea": "q 0 250\n"})
+# an output record whose ADC resolution is 0
+case("xform", "-i fmt16 -o o -t 0.02 -s 0", cid="edge-xform-adcres0",
+     files={"o.hea": "o 1 250\no.dat 16 200/mV 0 0 0 0 0 x\n"})
+# amplitudes beyond the range of an int
+_A32 = {"a32.dat": _i32([2000000000 if i % 2 else -2000000000
+                         for i in range(1000)]),
+        "a32.hea": "a32 1 250 1000\na32.dat 32 200/mV 32 0 0 0 0 x\n"}
+case("sigamp", "-r a32", cid="edge-sigamp-int32", files=_A32)
+case("sigamp", "-r a32 -a qrs", cid="edge-sigamp-int32-ann",
+     files=dict(_A32, **{"a32.qrs": _rd("100s.atr")}))
+# 9 signals cannot go in one FLAC file
+case("wrsamp", "-i w9.txt -o w9 -F 250 -G 200 -R 16 -U mV -O 516 "
+     "0 1 2 3 4 5 6 7 8", cid="edge-wrsamp-flac-9sig",
+     files={"w9.txt": "1 2 3 4 5 6 7 8 9\n"})
+# xform -M with output signals of other numbers of samples per frame than
+# the input signals: a frame of the same total size is read as C reads it
+case("xform", "-i mfreq -o o -M -t s5", cid="edge-xform-M-spf-same-total",
+     files={"o.hea": "o 3 100\no.dat 16x4 200/mV 16 0 0 0 0 a\n"
+                     "o.dat 16x2 200/mV 16 0 0 0 0 b\n"
+                     "o.dat 16 200/mV 16 0 0 0 0 c\n"})
+# ... and a larger output frame, on which C writes past the end of its
+# output array (see KNOWN_C_BEHAVIORS.md), so the results are WFDB-x's
+case("xform", "-i fmt16 -o o -M -t s5", cid="edge-xform-M-spf-larger",
+     golden_impl="python",
+     files={"o.hea": "o 3 250\no.dat 16x3 200/mV 16 0 0 0 0 a\n"
+                     "o.dat 16x3 200/mV 16 0 0 0 0 b\n"
+                     "o.dat 16x3 200/mV 16 0 0 0 0 c\n"})
+case("xform", "-i mfreq -o o -M -t s5", cid="edge-xform-M-spf-larger-mf",
+     golden_impl="python",
+     files={"o.hea": "o 3 100\no.dat 16x4 200/mV 16 0 0 0 0 a\n"
+                     "o.dat 16x4 200/mV 16 0 0 0 0 b\n"
+                     "o.dat 16x4 200/mV 16 0 0 0 0 c\n"})
+# a subtype that does not fit in a signed char
+case("wrann", "-r 100s -a sub", cid="edge-wrann-subtype300",
+     stdin="    0:00.004        1     N  300    0    0\n"
+           "    0:00.008        2     N -200    0    0\n")
+
+# Input on which C crashes or fails in a machine-dependent way: the golden
+# results are those of a WFDB-x implementation (see golden_impl above, and
+# docs/KNOWN_C_BEHAVIORS.md).
+# a negative or impossibly large number of signals (C: "can't allocate")
+case("wfdbdesc", "n", cid="edge-nsig-negative", golden_impl="cpp",
+     files={"n.hea": "n -1 250 10\n"})
+case("rdsamp", "-r n", cid="edge-nsig-negative-rdsamp", golden_impl="cpp",
+     files={"n.hea": "n -1 250 10\n"})
+case("wfdbdesc", "n", cid="edge-nsig-huge", golden_impl="cpp",
+     files={"n.hea": "n 4294967295 250 10\n"})
+case("wfdbdesc", "n", cid="edge-nsig-huge2", golden_impl="cpp",
+     files={"n.hea": "n 3000000000 250 10\n"
+                     "fmt16.dat 16 200 12 0 0 0 0 s\n"})
+
+
+def _edf_spr(value):
+    """fmt16.edf with every samples-per-record field set to value (an
+    8-byte field)."""
+    d = bytearray(_rd("fmt16.edf"))
+    ns = int(d[252:256])
+    off = 256 + ns * 216
+    d[off:off + 8 * ns] = value * ns
+    return bytes(d)
+
+
+# an EDF file whose samples-per-record fields are blank, or 0 (C: SIGFPE)
+case("rdsamp", "-r b.edf -t s2000", cid="edge-edf-spr-blank",
+     golden_impl="python", files={"b.edf": _edf_spr(b" " * 8)})
+case("rdsamp", "-r b.edf", cid="edge-edf-spr-blank-all",
+     golden_impl="python", files={"b.edf": _edf_spr(b" " * 8)})
+case("rdsamp", "-r z.edf -f s5 -t s10", cid="edge-edf-spr-zero",
+     golden_impl="python", files={"z.edf": _edf_spr(b"0       ")})
+case("sigamp", "-r z.edf", cid="edge-edf-spr-zero-sigamp",
+     golden_impl="python", files={"z.edf": _edf_spr(b"0       ")})
+# a block size of -2147483648 (C: "can't allocate"), read as 2147483648
+_BS = "bs 1 250 100\nfmt16.dat 16 200 12 0 0 0 %d s\n"
+case("rdsamp", "-r bs", cid="edge-bsize-intmin", golden_impl="python",
+     files={"bs.hea": _BS % -2147483648})
+case("rdsamp", "-r bs -f s50", cid="edge-bsize-intmin-f",
+     golden_impl="python", files={"bs.hea": _BS % -2147483648})
+# the largest block size
+case("rdsamp", "-r bs", cid="edge-bsize-intmax",
+     files={"bs.hea": _BS % 2147483647})
+case("rdsamp", "-r bs -f s50", cid="edge-bsize-intmax-f",
+     files={"bs.hea": _BS % 2147483647})

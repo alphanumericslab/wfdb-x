@@ -1098,3 +1098,82 @@ def test_names_without_spaces(datadir):
     assert w.isigopen("sp", si, 3) == 3
     assert [s.desc for s in si] == ["III ", "ABP\t ", "PLETH"]
     w.wfdbquit()
+
+
+def test_read_record_restores_gvmode(datadir):
+    # read_record sets the getvec mode for its own reading only: the mode
+    # set before the call is in force afterwards, after an error too.
+    for mode in (w.WFDB_LOWRES, w.WFDB_HIGHRES | w.WFDB_GVPAD):
+        w.setgvmode(mode)
+        r = w.read_record("mfreq", highres=not mode, pad=not mode)
+        assert r.fs == (400.0 if not mode else 100.0)
+        assert w.getgvmode() == mode
+        with pytest.raises(IOError):
+            w.read_record("nosuchrecord", highres=True, pad=True)
+        assert w.getgvmode() == mode
+    w.setgvmode(w.WFDB_LOWRES)
+    w.read_record("mfreq", highres=True)
+    si = []
+    assert w.isigopen("mfreq", si, 3) == 3
+    assert w.sampfreq(None) == 100.0
+    w.wfdbquit()
+
+
+def test_read_record_negative_sampfrom(datadir):
+    # A negative sampfrom is an error (it was taken as an absolute time).
+    for frm in (-5, -1):
+        with pytest.raises(ValueError, match="sampfrom"):
+            w.read_record("fmt16", sampfrom=frm, sampto=3)
+    r = w.read_record("fmt16", sampfrom=0, sampto=3)
+    assert len(r.signals) == 3
+    big = w.read_record("fmt16", sampfrom=5, sampto=2**63 - 1)
+    assert len(big.signals) == len(w.read_record("fmt16").signals) - 5
+
+
+def test_write_record_invalid_samples(datadir):
+    # Samples in ADC units must be integers (floats with whole values are
+    # integers) within the range of a 32-bit integer, and samples in
+    # physical units must not be infinite or beyond that range: anything
+    # else is an error before any file is created, and leaves no output
+    # signal open.
+    kw = dict(fs=100, gains=200, adcres=16, units="mV")
+    bad = [(np.array([1.7, -1.7]), 16, False, "integers"),
+           (np.array([1.0, np.nan]), 16, False, "integers"),
+           (np.array([2**33 + 5, 2**31]), 32, False, "32-bit"),
+           (np.array([-2**31 - 1, 0]), 32, False, "32-bit"),
+           (np.array([2**64 - 1], np.uint64), 32, False, "32-bit"),
+           (np.array([1, 2**70], dtype=object), 32, False, "32-bit"),
+           (np.array([np.inf, 1.0]), 16, True, "infinite"),
+           (np.array([1.0, -np.inf]), 16, True, "infinite"),
+           (np.array([2e7, 1.0]), 32, True, "range")]
+    for x, fmt, physical, msg in bad:
+        with pytest.raises(ValueError, match=msg):
+            w.write_record("x", x, fmt=fmt, physical=physical, **kw)
+        assert not os.path.exists("x.dat") and not os.path.exists("x.hea")
+        assert w._signal._s.nosig == 0
+    w.write_record("x", np.array([1.0, -2.0, 3.0]), **kw)
+    assert w.read_record("x").signals.ravel().tolist() == [1, -2, 3]
+    w.write_record("x", np.array([np.nan, 1.0]), physical=True, **kw)
+    assert w.read_record("x").signals.ravel().tolist() == \
+        [w.WFDB_INVALID_SAMPLE, 200]
+    w.write_record("x", np.array([2**31 - 1, -2**31 + 1]), fmt=32,
+                   **dict(kw, adcres=32))
+    assert w.read_record("x").signals.ravel().tolist() == \
+        [2**31 - 1, -2**31 + 1]
+
+
+def test_write_record_per_signal_lengths(datadir):
+    # A list of per-signal values must have one value per signal.  (Too
+    # few gains, ADC resolutions or units are reported as missing values,
+    # see above.)
+    x = np.zeros((4, 2), np.int64)
+    kw = dict(gains=200, adcres=16, units="mV")
+    for arg, v in [("gains", [200] * 3), ("adcres", [16, 16, 16]),
+                   ("units", ["mV"] * 3), ("names", ["a", "b", "c"]),
+                   ("names", ["a"]), ("baselines", [0]),
+                   ("adczeros", [0, 0, 0]), ("fmt", [16, 16, 16])]:
+        with pytest.raises(ValueError, match="one value per signal"):
+            w.write_record("x", x, 100, **dict(kw, **{arg: v}))
+        assert not os.path.exists("x.dat") and not os.path.exists("x.hea")
+    w.write_record("x", x, 100, names=["a", "b"], **kw)
+    assert w.read_record("x").names == ["a", "b"]

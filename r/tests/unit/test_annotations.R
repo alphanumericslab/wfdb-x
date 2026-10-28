@@ -933,4 +933,44 @@ if (file.exists("/dev/full")) {
   }
   unlink("100s.full")
 }
+
+# per-annotation arguments are one value for all annotations, or one per
+# annotation; anything else is an error before the file is created, and
+# leaves no annotator open (review P14)
+for (kw in list(list(symbol = c("N", "V", "N"), aux = c("x", "y")), list(symbol = c("N", "V")),
+                list(code = c(1, 1, 1, 1)), list(symbol = "N", subtype = c(1, 2)),
+                list(symbol = "N", chan = 1:4), list(symbol = "N", num = c(0, 0)),
+                list(symbol = "N", aux = c("a", NA, "b", "c")))) {
+  lab <- paste("argument lengths:", paste(names(kw), collapse = ","))
+  msg <- tryCatch(do.call(write_annotations, c(list("100s", "bad", c(10, 20, 30)), kw)),
+                  error = function(e) conditionMessage(e))
+  check(grepl("must have one value per annotation", msg), lab)
+  check(!file.exists("100s.bad") && length(.ann$oad) == 0, paste(lab, ": nothing left"))
+}
+write_annotations("100s", "ok", c(10, 20, 30), symbol = "V", aux = "x", subtype = 3, chan = 0:2)
+a <- read_annotations("100s", "ok")
+expect_equal(a$symbol, c("V", "V", "V"), "one symbol for all")
+expect_equal(a$aux, c("x", "x", "x"), "one aux for all")
+expect_equal(a$subtype, c(3, 3, 3), "one subtype for all")
+expect_equal(a$chan, c(0, 1, 2), "a chan per annotation")
+
+# subtyp and num are signed chars, and chan an unsigned char, in C: a value
+# is wrapped to one byte before it is encoded, giving the bytes that C's
+# putann writes (those of the C wrann for "N 300 0 0", "N 0 300 0", "N 0 0
+# 300", "N -200 0 0", "N 256 0 0" at samples 1 to 5; review P13)
+c_bytes <- as.raw(strtoi(substring("01042cf401042cf8010400f82cf0010438f400f001040000",
+                                   seq(1, 47, 2), seq(2, 48, 2)), 16L))
+sub <- c(300, 0, 0, -200, 256)
+chn <- c(0, 300, 0, 0, 0)
+nm <- c(0, 0, 300, 0, 0)
+write_annotations("100s", "sub", 1:5, symbol = "N", subtype = sub, chan = chn, num = nm)
+expect_equal(readBin("100s.sub", "raw", 100), c_bytes, "write_annotations: C bytes")
+annopen("100s", list(anninfo("sub2", WFDB_WRITE)), 1)
+for (k in 1:5) putann(0, annotation(time = k, anntyp = NORMAL, subtyp = sub[k], chan = chn[k],
+                                    num = nm[k]))
+wfdbquit()
+expect_equal(readBin("100s.sub2", "raw", 100), c_bytes, "putann: C bytes")
+a <- read_annotations("100s", "sub")
+expect_equal(c(a$subtype, a$chan, a$num), c(44, 0, 0, 56, 0, 0, 44, 0, 0, 0, 0, 0, 44, 0, 0),
+             "signed char fields read back")
 }

@@ -17,7 +17,7 @@
 // an output signal file is never one of the input files of the open record; a
 // header written under a path names the record, its signal files and its
 // segments relative to its own directory; FLAC signal files are read and
-// written with WFDB-x's own codec (flac.cpp) instead of libFLAC; additions:
+// written with WFDB-x's FLAC codec (flac.cpp) instead of libFLAC; additions:
 // wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
 // wfdbx_time_needs_freq, getvecs, and the functions used by the high-level
 // functions and check_record; legacy mode (wfdbx_set_legacy) restores the
@@ -42,7 +42,7 @@
 // global state of the C library (the open record and signals) is kept, so
 // that the behavior of the C library is reproduced exactly.
 //
-// FLAC signal files are decoded and encoded by flac.cpp, WFDB-x's own codec
+// FLAC signal files are decoded and encoded by flac.cpp, WFDB-x's FLAC codec
 // (the C library uses libFLAC); the functions that connect it to the signal
 // functions (flac_isopen, flac_getsamp, ...) port the FLAC support of
 // signal.c.
@@ -85,8 +85,6 @@ constexpr int SAMP24_MIN = -0x800000, SAMP24_MAX = 0x7fffff;    // 24, 524
 // 524); the C library reserves 500 to 532 for them.
 constexpr int FLAC_FMT_BASE = 500;
 constexpr int FLAC_FMT_MAXBITS = 32;
-
-constexpr size_t FLAC_READ_CHUNK = 65536;   // bytes read at a time by flac_decode
 
 // EDF headers: a fixed part of EDF_HDR_RECORD bytes, followed by
 // EDF_HDR_RECORD bytes per signal; no field is longer than EDF_MAXFIELD.
@@ -168,36 +166,32 @@ struct ISData {             // unique for each input signal
     int gvcount = 0;        // counter for updating gvindex
 };
 
-// Decoded FLAC input (one signal group)
-struct FlacIn {
-    int nsig = 0;           // number of signals in the group
-    int datb = 0;           // resolution of the group (8, 16, or 24)
-    int spf = 0;            // samples per signal per frame
-    bool decoded = false;   // the stream has been decoded
-    bool failed = false;    // decoding failed
-    std::vector<std::vector<int32_t>> chans;
-    long long total = 0;    // samples per channel
-    // Position in frame order: frame f, channel c, sample k within frame,
-    // relative to sample number `base` of each channel.
-    long long base = 0, nfr = 0, leftover = 0, f = 0;
-    size_t c = 0;
-    int k = 0;
-    bool md5_check = false;
-    bool has_md5 = false;
-    unsigned char md5[16] = {};
-    bool have_decoded_md5 = false;
-    unsigned char decoded_md5[16] = {};
-    bool seeked = false;
-    // State of the libFLAC decoder of the C library, which decodes one FLAC
-    // block at a time: the end of each block (in samples per channel), the
-    // end of the blocks decoded so far, whether the buffered samples were
-    // discarded by a failed seek, and whether decoding was aborted (after a
-    // failed seek, iflac_samples() aborts the decoding of the next block,
-    // and libFLAC then refuses to seek).
-    std::vector<long long> block_ends;
-    long long dec_end = 0;
-    bool discarded = false;
-    bool aborted = false;
+struct IGData;
+
+// FLAC input (one signal group): the libFLAC decoder of the C library, with
+// its callbacks (iflac_read, ..., iflac_samples), and the members of the
+// group's struct igdata that the FLAC functions use.
+struct FlacIn : flac::StreamClient {
+    IGData *ig = nullptr;
+    std::unique_ptr<flac::StreamDecoder> dec;
+    int nsig = 0;           // number of signals in the group (g->data)
+    int datb = 0;           // resolution of the group (g->datb)
+    int spf = 0;            // samples per signal per frame (g->packspf)
+    // Decoded samples, in frame order (g->buf): the samples from bp to
+    // packptr are not yet read; packcount samples of each signal of the
+    // next frame follow packptr.
+    std::vector<int32_t> buf;
+    size_t bp = 0, packptr = 0;
+    unsigned packcount = 0;
+
+    flac::ReadStatus read(unsigned char *buffer, size_t *bytes) override;
+    flac::CallbackStatus seek(uint64_t pos) override;
+    flac::CallbackStatus tell(uint64_t *pos) override;
+    flac::CallbackStatus length(uint64_t *len) override;
+    bool eof() override;
+    flac::WriteStatus write(const flac::FrameHeader &header,
+                            const int32_t *const buffer[]) override;
+    void error(flac::ErrorStatus status) override;
 };
 
 struct IGData {             // shared by all signals in a group (file)
@@ -205,7 +199,9 @@ struct IGData {             // shared by all signals in a group (file)
     int datb = 0;           // more raw data used for bit-packed formats
     FilePtr fp;             // file pointer for an input signal group
     long start = 0;         // signal file byte offset to sample 0
-    int bsize = 0;          // if non-zero, all reads are in multiples of bsize
+    long long bsize = 0;    // if non-zero, all reads are in multiples of bsize
+    long long rsize = 0;    // WFDB-x: bytes read at a time: bsize, or less if
+                            // the file is smaller (see isigopen)
     std::vector<char> buf;  // input buffer
     char *bp = nullptr;     // next location in buf
     char *be = nullptr;     // input buffer endpoint
@@ -329,6 +325,7 @@ bool have_dsbuf;        // dsbuf != NULL
 int dsbi;               // index to oldest sample in dsbuf
 unsigned dsblen;        // capacity of dsbuf, in samples
 unsigned framelen;      // total number of samples per frame
+bool empty_group;       // WFDB-x: the frames of a signal group hold no samples
 int gvmode = DEFWFDBGVMODE;     // getvec mode
 int gvc;                // getvec sample-within-frame counter
 int isedf;              // if non-zero, record is stored as EDF/EDF+
@@ -1212,130 +1209,182 @@ void hsdfree()
 }
 
 // ---------------------------------------------------------------------------
-// FLAC input (glue to flac.cpp; ports of the functions of _flac.py)
+// FLAC input (glue to flac.cpp: ports of the FLAC functions of signal.c)
 
-void flac_pack(FlacIn &fi, long long base)
+flac::ReadStatus FlacIn::read(unsigned char *buffer, size_t *bytes)
 {
-    fi.base = base;
-    fi.nfr = (fi.total - base) / fi.spf;
-    fi.leftover = (fi.total - base) - fi.nfr * fi.spf;
-    fi.f = 0;
-    fi.c = 0;
-    fi.k = 0;
+    if (*bytes == 0) return flac::ReadStatus::abort;
+    *bytes = ig->fp->read(buffer, 1, *bytes);
+    if (ig->fp->error()) return flac::ReadStatus::abort;
+    if (*bytes == 0) return flac::ReadStatus::end_of_stream;
+    return flac::ReadStatus::cont;
 }
 
-void flac_decode(IGData *ig)
+flac::CallbackStatus FlacIn::seek(uint64_t pos)
 {
-    FlacIn &fi = *ig->flac;
-    fi.decoded = true;
-    std::vector<unsigned char> data;
-    if (ig->fp) {
-        unsigned char tmp[FLAC_READ_CHUNK];
-        size_t n;
-        while ((n = ig->fp->read(tmp, 1, sizeof(tmp))) > 0)
-            data.insert(data.end(), tmp, tmp + n);
+    if (!ig->seek) return flac::CallbackStatus::unsupported;
+    if (pos > static_cast<uint64_t>(LONG_MAX) ||
+        ig->fp->seek(static_cast<long>(pos), SEEK_SET))
+        return flac::CallbackStatus::error;
+    return flac::CallbackStatus::ok;
+}
+
+flac::CallbackStatus FlacIn::tell(uint64_t *pos)
+{
+    if (!ig->seek) return flac::CallbackStatus::unsupported;
+    long p = ig->fp->tell();
+    if (p < 0) return flac::CallbackStatus::error;
+    *pos = static_cast<uint64_t>(p);
+    return flac::CallbackStatus::ok;
+}
+
+flac::CallbackStatus FlacIn::length(uint64_t *len)
+{
+    if (!ig->seek) return flac::CallbackStatus::unsupported;
+    long pos = ig->fp->tell(), end;
+    if (pos < 0) return flac::CallbackStatus::error;
+    if (ig->fp->seek(0L, SEEK_END) || (end = ig->fp->tell()) < 0) {
+        ig->fp->seek(pos, SEEK_SET);
+        return flac::CallbackStatus::error;
     }
-    flac::Decoded d = flac::decode(data.data(), data.size(), fi.nsig, fi.datb);
-    switch (d.status) {
-    case flac::Status::ok:
-        break;
-    case flac::Status::sync:
+    if (ig->fp->seek(pos, SEEK_SET)) return flac::CallbackStatus::error;
+    *len = static_cast<uint64_t>(end);
+    return flac::CallbackStatus::ok;
+}
+
+bool FlacIn::eof()
+{
+    return ig->fp->eof() != 0;
+}
+
+// iflac_error: the stream is damaged.  (libFLAC then goes on to the next
+// frame; iflac_samples stops it.)
+void FlacIn::error(flac::ErrorStatus status)
+{
+    switch (status) {
+    case flac::ErrorStatus::lost_sync:
         wfdb_error("getvec: unable to decode FLAC (lost sync)\n");
         break;
-    case flac::Status::header:
+    case flac::ErrorStatus::bad_header:
         wfdb_error("getvec: unable to decode FLAC (invalid header)\n");
         break;
-    case flac::Status::crc:
+    case flac::ErrorStatus::frame_crc_mismatch:
         wfdb_error("getvec: unable to decode FLAC (CRC mismatch)\n");
         break;
-    case flac::Status::unparseable:
+    case flac::ErrorStatus::unparseable_stream:
         wfdb_error("getvec: unable to decode FLAC (unsupported format)\n");
         break;
-    case flac::Status::eof:
+    default:
         wfdb_error("getvec: unable to decode FLAC\n");
         break;
-    case flac::Status::meta:
-        wfdb_error("getvec: unexpected FLAC decoding error\n");
-        break;
-    case flac::Status::wfdb:
-        break;      // reported by the decoder
     }
-    if (d.status != flac::Status::ok) {
-        fi.failed = true;
-        return;
-    }
-    fi.chans = std::move(d.chans);
-    fi.block_ends = std::move(d.block_ends);
-    fi.total = fi.chans.empty() ? 0 : static_cast<long long>(fi.chans[0].size());
-    fi.has_md5 = d.has_md5;
-    std::memcpy(fi.md5, d.md5, sizeof(fi.md5));
-    if (fi.md5_check && fi.total) {
-        flac::samples_md5(fi.chans, d.bps, fi.decoded_md5);
-        fi.have_decoded_md5 = true;
-    }
-    flac_pack(fi, 0);
+    ig->stat = -2;
 }
 
-// The end of the FLAC block that contains sample n - 1 (n > 0): the number
-// of samples (per channel) decoded once sample n - 1 is.
-static long long flac_block_end(const FlacIn &fi, long long n)
+// iflac_samples: a block of samples has been decoded; store them in frame
+// order after those not yet read.
+flac::WriteStatus FlacIn::write(const flac::FrameHeader &header,
+                                const int32_t *const buffer[])
 {
-    auto it = std::lower_bound(fi.block_ends.begin(), fi.block_ends.end(), n);
-    return it != fi.block_ends.end() ? *it : fi.total;
-}
-
-// Decoding a block after a failed seek (ig->stat < 0): iflac_samples()
-// aborts the decoder, and flac_getsamp() reports the error.
-static int flac_abort(IGData *ig)
-{
-    ig->flac->aborted = true;
-    if (ig->stat != -2) {
-        wfdb_error("getvec: unexpected FLAC decoding error\n");
+    const size_t fnsig = header.channels;
+    size_t nsamp = header.blocksize;
+    if (fnsig != static_cast<size_t>(nsig)) {
+        wfdb_error("getvec: wrong number of signals in FLAC signal file\n");
         ig->stat = -2;
     }
-    return 0;
+    if (header.bits_per_sample > static_cast<uint32_t>(datb)) {
+        wfdb_error("getvec: wrong sample resolution in FLAC signal file\n");
+        ig->stat = -2;
+    }
+    // If the resolution or number of signals is incorrect, or if an error
+    // was detected by iflac_error, stop decoding.
+    if (ig->stat < 0) return flac::WriteStatus::abort;
+
+    const size_t uspf = static_cast<size_t>(spf), frmsize = fnsig * uspf;
+    // Shift the samples not yet read (and the incomplete frame) to the
+    // beginning of the buffer, and make room for the new ones.
+    const size_t keep = packptr - bp + (packcount ? frmsize : 0);
+    if (bp) {
+        std::memmove(buf.data(), buf.data() + bp, keep * sizeof(int32_t));
+        packptr -= bp;
+        bp = 0;
+    }
+    // WFDB-x: room for every frame that the new samples complete or start,
+    // after the packcount samples already stored for the incomplete frame
+    // (C allocates nsig * nsamp samples plus one frame, which is too few
+    // when packcount > 1, and writes past the end of its buffer).
+    const size_t need = packptr + ((packcount + nsamp) / uspf + 1) * frmsize;
+    if (buf.size() < need) buf.resize(need);
+
+    // ig->count is the number of initial samples to skip, following a seek
+    // (see flac_isseek).
+    size_t ipos;
+    if (static_cast<size_t>(ig->count) > nsamp) {
+        ig->count -= static_cast<int>(nsamp);
+        return flac::WriteStatus::cont;
+    }
+    ipos = static_cast<size_t>(ig->count);
+    nsamp -= ipos;
+    ig->count = 0;
+
+    size_t p = packptr + packcount, orem = uspf - packcount;
+    while (nsamp != 0) {
+        size_t n = nsamp < orem ? nsamp : orem;
+        for (size_t s = 0; s < fnsig; s++) {
+            std::memcpy(buf.data() + p, buffer[s] + ipos, n * sizeof(int32_t));
+            p += uspf;
+        }
+        nsamp -= n;
+        orem -= n;
+        if (orem == 0) {
+            packptr += frmsize;
+            p = packptr;
+            orem = uspf;
+            ipos += n;
+        }
+    }
+    packcount = static_cast<unsigned>(uspf - orem);
+    return flac::WriteStatus::cont;
 }
 
+// Read and return the next sample from a FLAC signal file.
 int flac_getsamp(IGData *ig)
 {
     FlacIn &fi = *ig->flac;
-    if (!fi.decoded) flac_decode(ig);
-    if (fi.failed) {
-        ig->stat = -2;
-        return 0;
-    }
-    if (fi.aborted)
-        return 0;       // (the decoder does nothing; ig->stat is negative)
-    if (fi.f < fi.nfr) {
-        // The frame of the next sample must have been decoded.
-        long long need = fi.base + (fi.f + 1) * fi.spf;
-        if (fi.discarded || need > fi.dec_end) {
-            if (ig->stat < 0)
-                return fi.dec_end < fi.total ? flac_abort(ig) : 0;
-            fi.dec_end = flac_block_end(fi, need);
+    // If the next frame has not yet been decoded, read more data from the
+    // input file.
+    while (fi.bp == fi.packptr) {
+        unsigned oldcount = fi.packcount;
+        if (!fi.dec->process_single()) {
+            if (ig->stat != -2) {
+                wfdb_error("getvec: unexpected FLAC decoding error\n");
+                ig->stat = -2;
+            }
+            return 0;
         }
-        int v = fi.chans[fi.c][fi.base + fi.f * fi.spf + fi.k];
-        if (++fi.k == fi.spf) {
-            fi.k = 0;
-            if (++fi.c == fi.chans.size()) {
-                fi.c = 0;
-                fi.f++;
+        if (ig->stat <= 0) return 0;
+        if (fi.bp == fi.packptr && fi.packcount == oldcount) {
+            switch (fi.dec->state()) {
+            case flac::State::end_of_stream:
+                if (fi.packcount != 0)
+                    wfdb_error("getvec: warning: %d samples left over"
+                               " at end of file\n",
+                               static_cast<int>(fi.packcount));
+                fi.packcount = 0;
+                ig->stat = 0;
+                return 0;
+            case flac::State::search_for_metadata:
+            case flac::State::read_metadata:
+            case flac::State::search_for_frame_sync:
+                break;
+            default:
+                wfdb_error("getvec: unknown FLAC decoding state\n");
+                ig->stat = -2;
+                return 0;
             }
         }
-        return v;
     }
-    if (fi.discarded && fi.dec_end < fi.total)
-        return flac_abort(ig);
-    if (ig->stat < 0)
-        return 0;
-    fi.dec_end = fi.total;
-    if (fi.leftover) {
-        wfdb_error("getvec: warning: %d samples left over at end of file\n",
-                   static_cast<int>(fi.leftover));
-        fi.leftover = 0;
-    }
-    ig->stat = 0;
-    return 0;
+    return fi.buf[fi.bp++];
 }
 
 int flac_isopen(IGData *ig, const HSData *hs, unsigned ns)
@@ -1354,55 +1403,49 @@ int flac_isopen(IGData *ig, const HSData *hs, unsigned ns)
     }
     ig->flac = std::make_unique<FlacIn>();
     FlacIn &fi = *ig->flac;
+    fi.ig = ig;
     fi.nsig = static_cast<int>(ns);
     fi.datb = hs[0].info.fmt - FLAC_FMT_BASE;
     fi.spf = hs[0].info.spf;
+    // If WFDB_FLAC_CHECK_MD5 is defined, the MD5 hash of the stream is
+    // verified (if the whole record is read without isigsettime).
     const char *p = std::getenv("WFDB_FLAC_CHECK_MD5");
-    fi.md5_check = p && *p;
+    fi.dec = std::make_unique<flac::StreamDecoder>(fi, p && *p);
     ig->count = 0;
     return 0;
 }
 
 int flac_isclose(IGData *ig)
 {
-    FlacIn &fi = *ig->flac;
-    if (fi.md5_check && fi.has_md5 && fi.have_decoded_md5 && !fi.seeked) {
-        bool nonzero = false;
-        for (unsigned char b : fi.md5)
-            if (b) nonzero = true;
-        if (nonzero && std::memcmp(fi.md5, fi.decoded_md5, 16) != 0) {
-            wfdb_error("isigclose: warning: incorrect MD5 hash in FLAC "
-                       "input\n");
-            return -1;
-        }
+    if (!ig->flac->dec->finish()) {
+        wfdb_error("isigclose: warning: incorrect MD5 hash in FLAC input\n");
+        return -1;
     }
     return 0;
 }
 
+// Seek to the given frame number in an input stream.
 int flac_isseek(IGData *ig, WFDB_Time t)
 {
     FlacIn &fi = *ig->flac;
-    if (!fi.decoded) flac_decode(ig);
+    // If there was a previous seek error, clear the decoder state so we can
+    // try again.
+    if (fi.dec->state() == flac::State::seek_error) fi.dec->flush();
+    // Nothing has been read in the current block.
+    fi.bp = fi.packptr = 0;
+    fi.packcount = 0;
     ig->stat = 1;
     ig->count = 0;
-    fi.seeked = true;
-    if (fi.failed) {
-        ig->stat = -1;
-        return -1;
-    }
+    // libFLAC cannot seek to the end of the stream: seek to the sample
+    // before, and skip it (ig->count).
     WFDB_Time tt = t * fi.spf + ig->start;
-    if (fi.aborted || tt > fi.total || tt < 0) {
-        // (libFLAC refuses to seek once decoding was aborted, or past the
-        // end of the stream; the buffered samples are discarded anyway)
-        fi.discarded = true;
-        ig->stat = -1;
-        return -1;
+    if (tt != 0) {
+        tt--;
+        ig->count = 1;
     }
-    flac_pack(fi, tt);
-    fi.discarded = false;
-    // The seek decodes the block that contains sample tt - 1 (sample 0 if
-    // tt is 0): libFLAC seeks to it, and the first sample is skipped.
-    fi.dec_end = flac_block_end(fi, tt > 1 ? tt : 1);
+    // This invokes FlacIn::write, with a (partial) block of samples
+    // starting at the requested sample number.
+    if (!fi.dec->seek_absolute(static_cast<uint64_t>(tt))) ig->stat = -1;
     return ig->stat;
 }
 
@@ -1488,6 +1531,7 @@ void isigclose()
     isd.clear();
     nisig = 0;
     framelen = 0;
+    empty_group = false;
 
     while (!igd.empty()) {
         IGData *ig = igd.back().get();
@@ -1570,9 +1614,8 @@ int osigclose()
 
 int r8_fill(IGData *g)
 {
-    int n = (g->bsize > 0) ? g->bsize : ibsize;
-    n = static_cast<int>(g->fp->read(g->buf.data(), 1, n));
-    g->stat = n;
+    size_t n = g->fp->read(g->buf.data(), 1, static_cast<size_t>(g->rsize));
+    g->stat = n > static_cast<size_t>(INT_MAX) ? INT_MAX : static_cast<int>(n);
     g->bp = g->buf.data();
     g->be = g->bp + n;
     return static_cast<signed char>(*(g->bp++));
@@ -1593,7 +1636,7 @@ inline int r16(IGData *g)
     }
     int l = r8(g);
     int h = r8(g);
-    return static_cast<int16_t>(static_cast<uint16_t>((h << 8) | (l & 0xff)));
+    return static_cast<int16_t>(static_cast<uint16_t>(ishl(h, 8) | (l & 0xff)));
 }
 
 inline int r61(IGData *g)
@@ -1605,7 +1648,7 @@ inline int r61(IGData *g)
     }
     int h = r8(g);
     int l = r8(g);
-    return static_cast<int16_t>(static_cast<uint16_t>((l & 0xff) | (h << 8)));
+    return static_cast<int16_t>(static_cast<uint16_t>((l & 0xff) | ishl(h, 8)));
 }
 
 inline int r24(IGData *g)
@@ -2054,7 +2097,7 @@ int isgsetframe(WFDB_Group g, WFDB_Time t)
     if (ig->seek) {
         tt = static_cast<long>(t * b);
         nb = tt / static_cast<long>(d) + ig->start;
-        if ((i = ig->bsize) == 0) i = ibsize;
+        if ((i = static_cast<int>(ig->bsize)) == 0) i = ibsize;
         // Seek to a position such that the next block read will contain the
         // desired sample.
         tt = nb / i;
@@ -2095,7 +2138,8 @@ int isgsetframe(WFDB_Group g, WFDB_Time t)
             nb = tt / static_cast<long>(d);
         }
         while (nb > ig->bsize && !ig->fp->eof())
-            nb -= static_cast<long>(ig->fp->read(ig->buf.data(), 1, ig->bsize));
+            nb -= static_cast<long>(ig->fp->read(ig->buf.data(), 1,
+                                                 static_cast<size_t>(ig->rsize)));
     }
 
     // Reset the block pointer to indicate nothing has been read in the
@@ -2132,6 +2176,9 @@ int getskewedframe(WFDB_Sample *vector)
         if (igd[--g]->initial_skip)
             isgsetframe(g, in_msrec ? segarray[segp].samp0 : 0);
     }
+    // WFDB-x: a signal group whose frames hold no samples is at the end of
+    // its data at once.
+    if (empty_group) return -1;
 
     // If the vector needs to be rearranged (variable-layout record), then
     // read samples into a temporary buffer.
@@ -2771,13 +2818,16 @@ int isigopen(const char *record_arg, WFDB_Siginfo *siarray, int nsig)
 
         // Set the buffer size and the seek capability flag.
         if (hs->info.bsize < 0) {
-            ig->bsize = hs->info.bsize = -hs->info.bsize;
+            // WFDB-x: without overflow (-INT_MIN is 2147483648; INT_MIN is
+            // left in the signal information, as in C on usual hosts)
+            ig->bsize = -static_cast<long long>(hs->info.bsize);
+            if (hs->info.bsize != INT_MIN) hs->info.bsize = -hs->info.bsize;
             ig->seek = 0;
         } else {
             if ((ig->bsize = hs->info.bsize) == 0) ig->bsize = ibsize;
             ig->seek = 1;
         }
-        ig->buf.assign(ig->bsize, 0);
+        ig->rsize = ig->bsize;
         ig->flac.reset();
 
         // Check that the signal file is readable.
@@ -2794,6 +2844,14 @@ int isigopen(const char *record_arg, WFDB_Siginfo *siarray, int nsig)
                 continue;
             }
         }
+        // WFDB-x: a block larger than the signal file is not read whole: the
+        // buffer holds the file and one more byte (so that a read stops at
+        // the end of the file as that of a whole block would).
+        if (ig->fp) {
+            long long left = ig->fp->bytes_left();
+            if (left >= 0 && left < ig->rsize) ig->rsize = left + 1;
+        }
+        ig->buf.assign(static_cast<size_t>(ig->rsize), 0);
 
         if (isflacfmt(hs->info.fmt)) {
             if (flac_isopen(ig, &hsd[si], sj - si) < 0) {
@@ -2805,7 +2863,7 @@ int isigopen(const char *record_arg, WFDB_Siginfo *siarray, int nsig)
         }
 
         // All tests passed -- fill in remaining data for this group.
-        ig->be = ig->bp = ig->buf.data() + ig->bsize;
+        ig->be = ig->bp = ig->buf.data() + ig->rsize;
         ig->start = hs->start;
         ig->initial_skip = (ig->start > 0);
         ig->stat = 1;
@@ -2863,6 +2921,16 @@ int isigopen(const char *record_arg, WFDB_Siginfo *siarray, int nsig)
 
     // Determine the total number of samples per frame.
     for (si = framelen = 0; si < nisig; si++) framelen += isd[si]->info.spf;
+    // WFDB-x: whether the frames of a signal group hold no samples (as in an
+    // EDF file with 0 samples per data record)
+    empty_group = false;
+    for (unsigned gi = 0; gi < nigroup && !empty_group; gi++) {
+        empty_group = true;
+        for (si = 0; si < nisig; si++)
+            if (static_cast<unsigned>(isd[si]->info.group) == gi &&
+                isd[si]->info.spf > 0)
+                empty_group = false;
+    }
 
     // Allocate workspace for getvec, isgsettime, and tnextvec.
     if (tspf > tuvlen) {
@@ -3151,7 +3219,7 @@ int getframe(WFDB_Sample *vector)
 // same as with frame-by-frame reading; the change from one segment to the
 // next is made by getskewedframe().  The input buffer is kept as
 // frame-by-frame reading leaves it: the file is read in the same blocks (of
-// ig->bsize bytes, into the start of the buffer), and the buffer holds the
+// ig->rsize bytes, into the start of the buffer), and the buffer holds the
 // last block read, as r8_fill() leaves it.
 
 namespace detail {
@@ -3383,7 +3451,7 @@ long long bulk_frames(WFDB_Sample *out, long long n)
         long long need = nf * bg.gfl * bg.nb / bg.ns;
         long long have = ig->be - ig->bp;
         if (have >= need) continue;
-        long long bs = (ig->bsize > 0) ? ig->bsize : ibsize;
+        long long bs = ig->rsize;
         long long k = (need - have + bs - 1) / bs;
         bg.stage.resize(static_cast<size_t>(have + k * bs));
         if (have > 0) std::memcpy(bg.stage.data(), ig->bp, static_cast<size_t>(have));
@@ -3442,7 +3510,7 @@ long long bulk_frames(WFDB_Sample *out, long long n)
             // the bytes not used (if the file has just been truncated:
             // everything read and not used).
             long long have = ig->be - ig->bp;
-            long long bs = (ig->bsize > 0) ? ig->bsize : ibsize;
+            long long bs = ig->rsize;
             long long total = have + bg.got;
             long long start = need > have ? have + (need - have - 1) / bs * bs
                                           : 0;
@@ -3641,8 +3709,8 @@ long long getvecs(WFDB_Sample *out, long long n, int *status)
         const bool frames = ispfmax < 2;
         size_t stride = static_cast<size_t>(frames ? tspf : nvsig);
         // WFDB-x: vectors are read in bulk where possible (bulk_frames), and
-        // one at a time otherwise (if ispfmax < 2, getvec is getframe, which
-        // is getskewedframe).  Bulk reading is tried again when a
+        // one at a time otherwise (if ispfmax < 2, getvec is getframe).
+        // Bulk reading is tried again when a
         // multi-segment record moves to another segment.
         bool bulk = true;
         int bulk_seg = segp;
@@ -3661,10 +3729,11 @@ long long getvecs(WFDB_Sample *out, long long n, int *status)
                     continue;
                 }
             }
-            if (frames) {
-                stat = getskewedframe(out);
-                istime++;
-            } else
+            if (frames)
+                // (getframe, not getskewedframe: a segment opened during
+                // this call may need deskewing.)
+                stat = getframe(out);
+            else
                 stat = getvec(out);
             if (stat < 0) break;
             k++;

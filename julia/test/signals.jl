@@ -39,6 +39,15 @@ end
 
 isig(w, rec) = W.isigopen(w, rec, nothing, 8)
 
+# The message of the WfdbError thrown by f() (nothing if none).
+hlerr(f) = try
+    f()
+    nothing
+catch e
+    e isa W.WfdbError || rethrow()
+    e.msg
+end
+
 # getvec / getframe: the status followed by n samples.
 function vec_(w, n)
     v = zeros(Int32, n + 8)
@@ -870,14 +879,6 @@ end
         @test W.wfdbx_get_legacy(Wfdb()) == 0    # per library instance
         W.wfdbx_set_legacy(w, false)
     end
-end
-
-hlerr(f) = try
-    f()
-    nothing
-catch e
-    e isa W.WfdbError || rethrow()
-    e.msg
 end
 
 @testset "high-level API without defaults" begin
@@ -2376,3 +2377,212 @@ end
     rm(d; recursive=true, force=true)
 end
 
+
+# Fixes from the second review (WFDB-x 1.1.0).
+
+@testset "read_record restores the getvec mode" begin
+    with_data() do w
+        # read_record sets the getvec mode for its own reading only: the mode
+        # set before the call is in force afterwards, after an error too.
+        for mode in (W.WFDB_LOWRES, W.WFDB_HIGHRES | W.WFDB_GVPAD)
+            W.setgvmode(w, mode)
+            hi = mode == W.WFDB_LOWRES
+            r = W.read_record(w, "mfreq"; highres=hi, pad=hi)
+            @test r.fs == (hi ? 400.0 : 100.0)
+            @test W.getgvmode(w) == mode
+            @test hlerr(() -> W.read_record(w, "nosuch"; highres=true, pad=true)) ==
+                  "can't read record nosuch"
+            @test W.getgvmode(w) == mode
+        end
+        W.setgvmode(w, W.WFDB_LOWRES)
+        W.read_record(w, "mfreq"; highres=true)
+        @test isig(w, "mfreq") == 3
+        @test W.sampfreq(w, nothing) == 100.0
+    end
+end
+
+@testset "read_record: negative from" begin
+    with_data() do w
+        # A negative from is an error (it was taken as an absolute time).
+        for from in (-5, -1)
+            @test hlerr(() -> W.read_record(w, "fmt16"; from=from, to=3)) ==
+                  "read_record: from must not be negative"
+        end
+        @test size(W.read_record(w, "fmt16"; from=0, to=3).samples, 1) == 3
+        n = size(W.read_record(w, "fmt16").samples, 1)
+        @test size(W.read_record(w, "fmt16"; from=5, to=typemax(Int64)).samples, 1) == n - 5
+        @test size(W.read_record(w, "fmt16"; from=5, to=typemin(Int64)).samples, 1) == 0
+    end
+end
+
+@testset "segments with skew or a byte offset" begin
+    with_data() do w
+        # A block read deskews a segment opened during the read (C: 18 rows,
+        # the last 114 115).
+        write("a.dat", reinterpret(UInt8, htol.(Int16.(0:19))))
+        write("b.dat", reinterpret(UInt8, htol.(Int16.(100:119))))
+        write("a.hea", "a 2 100 10\na.dat 16 200/mV 12 0 0 0 0 x\na.dat 16 200/mV 12 0 1 0 0 y\n")
+        write("b.hea", "b 2 100 10\nb.dat 16 200/mV 12 0 100 0 0 x\n" *
+                       "b.dat 16:2 200/mV 12 0 101 0 0 y\n")
+        write("m.hea", "m/2 2 100 20\na 10\nb 10\n")
+        r = W.read_record(w, "m")
+        @test size(r.samples, 1) == 18
+        @test r.samples[end, :] == Int32[114, 115]
+        @test r.samples[10:11, :] == Int32[18 19; 100 101]
+        # A segment with a byte offset (C: one frame, an invalid sample).
+        write("o.dat", b"ABCD")
+        write("o.hea", "o 1 1000 0\no.dat 16+4 200 16 0 0 0 0 x\n")
+        write("p.dat", UInt8.(0:7))
+        write("p.hea", "p 1 1000 2\np.dat 16x2 200 16 0 0 0 0 y\n")
+        write("ms.hea", "ms/2 1 1000 2\no 0\np 2\n")
+        W.wfdbquiet(w)
+        @test W.isigopen(w, "ms", nothing, 1) == 1
+        v = zeros(Int32, 4)
+        @test W.getvecs(w, v, 4) == 1
+        @test v[1] == WFDB_INVALID_SAMPLE
+        W.wfdbverbose(w)
+    end
+end
+
+@testset "EDF signals with no samples" begin
+    with_data() do w
+        # An EDF file whose samples-per-record fields are 0: the signal
+        # group is at the end of its data at once.
+        d = read("fmt16.edf")
+        ns = parse(Int, String(d[253:256]))
+        off = 256 + ns * 216
+        d[off+1:off+8*ns] .= UInt8(' ')
+        d[off+1:8:off+8*ns] .= UInt8('0')
+        write("z.edf", d)
+        W.wfdbquiet(w)
+        @test W.isigopen(w, "z.edf", nothing, ns) == ns
+        v = zeros(Int32, 2 * ns)
+        @test W.getvec(w, v) == -1
+        @test W.getvecs(w, v, 2) == -1
+        @test size(W.read_record(w, "z.edf").samples, 1) == 0
+        W.wfdbverbose(w)
+    end
+end
+
+@testset "damaged FLAC files" begin
+    with_data() do w
+        W.wfdbquiet(w)
+        data = read("flac16.dat")
+        full = W.read_record(w, "flac16").samples
+        # Every sample before a damaged frame is returned (frames start at
+        # bytes 86, 16671 and 32883; a truncated last frame).
+        write("flac16.dat", data[1:end-1])
+        @test W.isigopen(w, "flac16", nothing, 3) == 3
+        v = zeros(Int32, 3 * 9000)
+        @test W.getvecs(w, v, 9000) == 8192
+        @test reshape(v[1:3*8192], 3, :) == permutedims(full[1:8192, :])
+        # A trailing byte is ignored.
+        write("flac16.dat", [data; 0xff])
+        @test W.read_record(w, "flac16").samples == full
+        # A bit flipped in frame 0: seeking past it works.
+        bad = copy(data)
+        bad[87+100] ⊻= 0x01
+        write("flac16.dat", bad)
+        @test W.isigopen(w, "flac16", nothing, 3) == 3
+        @test W.isigsettime(w, 600) < 0
+        @test W.isigsettime(w, 5000) == 0
+        @test W.getvec(w, v) == 3 && v[1:3] == full[5001, :]
+        # Each frame gives its own number of channels (STREAMINFO says 6).
+        bad = copy(data)
+        bad[21] = (bad[21] & ~0x0e) | UInt8((6 - 1) << 1)
+        write("flac16.dat", bad)
+        @test W.read_record(w, "flac16").samples == full
+        W.wfdbverbose(w)
+    end
+end
+
+@testset "writers check their arguments first" begin
+    with_data() do w
+        W.wfdbquiet(w)
+        kw = (gains=200.0, adcres=16, units="mV")
+        # Samples in ADC units within the range of Int32; physical values
+        # finite and within it.
+        for (x, physical, msg) in
+            ((Int64[2^33 + 5 2^31], false, "write_record: samples in ADC units must be " *
+                                           "within the range of a 32-bit integer"),
+             (Int64[-2^31 - 1 0], false, "write_record: samples in ADC units must be " *
+                                         "within the range of a 32-bit integer"),
+             ([Inf 1.0], true, "write_record: signal 0 has a sample that is infinite or " *
+                               "beyond the range of 32-bit ADC units"),
+             ([1.0 -Inf], true, "write_record: signal 1 has a sample that is infinite or " *
+                                "beyond the range of 32-bit ADC units"),
+             ([2e7 1.0], true, "write_record: signal 0 has a sample that is infinite or " *
+                               "beyond the range of 32-bit ADC units"))
+            f = physical ? W.write_record_physical : W.write_record
+            @test hlerr(() -> f(w, "x", x, 100.0; fmt=32, kw...)) == msg
+            @test !isfile("x.dat") && !isfile("x.hea")
+            @test w.sig.nosig == 0
+        end
+        # Per-signal vectors: one value, or one per signal.
+        x = zeros(Int32, 4, 2)
+        for (name, v) in ((:gains, [200.0, 200.0, 200.0]), (:adcres, [16, 16, 16]),
+                          (:units, ["mV", "mV", "mV"]), (:names, ["a", "b", "c"]),
+                          (:baselines, [0, 0, 0]), (:adczeros, [0, 0, 0]))
+            @test hlerr(() -> W.write_record(w, "x", x, 100.0; kw..., (name => v,)...)) ==
+                  "write_record: $name must have one value per signal"
+            @test !isfile("x.dat") && !isfile("x.hea")
+        end
+        W.write_record(w, "x", Int64[2^31-1 -2^31+1], 100.0; fmt=32, gains=200.0, adcres=32,
+                       units="mV")
+        @test W.read_record(w, "x").samples == Int32[2^31-1 -2^31+1]
+        W.write_record_physical(w, "x", [NaN 1.0], 100.0; kw...)
+        @test W.read_record(w, "x").samples == Int32[WFDB_INVALID_SAMPLE 200]
+        # Per-annotation fields: empty, or one element per annotation.
+        t = [10, 20, 30]
+        for (name, a) in
+            (("aux", Annotations(samples=t, symbols=[b"N", b"V", b"N"], aux=[b"x"])),
+             ("symbols", Annotations(samples=t, symbols=[b"N", b"V"])),
+             ("codes", Annotations(samples=t, codes=[1, 1, 1, 1])),
+             ("subtypes", Annotations(samples=t, codes=[1, 1, 1], subtypes=[1, 2])),
+             ("chans", Annotations(samples=t, codes=[1, 1, 1], chans=[1, 2, 3, 4])),
+             ("nums", Annotations(samples=t, codes=[1, 1, 1], nums=[0])))
+            @test hlerr(() -> W.write_annotations(w, "100s", "bad", a)) ==
+                  "write_annotations: $name must have one entry per annotation (3), or none"
+            @test !isfile("100s.bad")
+            @test isempty(w.ann.oad)
+        end
+        # A later call works normally.
+        W.write_annotations(w, "100s", "ok", Annotations(samples=t, codes=[1, 5, 1],
+                                                         chans=[0, 1, 2]))
+        a = W.read_annotations(w, "100s", "ok")
+        @test a.samples == t && a.codes == [1, 5, 1] && a.chans == [0, 1, 2]
+        W.wfdbverbose(w)
+    end
+end
+
+@testset "annotation subtypes, channels and numbers are C chars" begin
+    if isdefined(W, :getann)    # (annot.jl)
+        with_data() do w
+            # subtyp and num are signed chars, and chan an unsigned char, in
+            # C: a value is wrapped to one byte before it is encoded, giving
+            # the bytes that C's putann writes (those of the C wrann for
+            # "N 300 0 0", "N 0 300 0", "N 0 0 300", "N -200 0 0" and
+            # "N 256 0 0" at samples 1 to 5).
+            c_bytes = UInt8[0x01, 0x04, 0x2c, 0xf4, 0x01, 0x04, 0x2c, 0xf8, 0x01, 0x04, 0x00,
+                            0xf8, 0x2c, 0xf0, 0x01, 0x04, 0x38, 0xf4, 0x00, 0xf0, 0x01, 0x04,
+                            0x00, 0x00]
+            sub, chan, num = [300, 0, 0, -200, 256], [0, 300, 0, 0, 0], [0, 0, 300, 0, 0]
+            W.write_annotations(w, "100s", "sub", Annotations(samples=1:5, codes=fill(1, 5),
+                                                              subtypes=sub, chans=chan, nums=num))
+            @test read("100s.sub") == c_bytes
+            @test W.annopen(w, "100s", [Anninfo("sub2", WFDB_WRITE)], 1) == 0
+            for k in 1:5
+                W.putann(w, 0, Annotation(time=k, anntyp=1, subtyp=sub[k] % Int8,
+                                          chan=chan[k] % UInt8, num=num[k] % Int8))
+            end
+            W.wfdbquit(w)
+            @test read("100s.sub2") == c_bytes
+            a = W.read_annotations(w, "100s", "sub")
+            @test a.subtypes == [44, 0, 0, 56, 0]
+            @test a.chans == [0, 44, 0, 0, 0]
+            @test a.nums == [0, 0, 44, 0, 0]
+        end
+    else
+        @test_skip "annot.jl"
+    end
+end

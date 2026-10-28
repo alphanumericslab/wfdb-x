@@ -56,7 +56,7 @@ wfdbx_get_network()
   to turn it on.
 }
 \value{
-  The \code{set} functions return the previous setting, and the
+  The \code{set} functions return the previous setting, invisibly, and the
   \code{get} functions the current one.  A directory is a character
   string, or \code{NULL} for the current directory.  The network setting
   is 1 (allowed) or 0 (forbidden).

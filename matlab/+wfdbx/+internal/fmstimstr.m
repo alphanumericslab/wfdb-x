@@ -42,7 +42,7 @@ if t > 0 || (S.btime == 0 && S.bdate == 0)
     seconds = mod(t, 60);
     t = floor(t / 60);
     minutes = mod(t, 60);
-    hours = floor(t / 60);
+    hours = wfdbx.internal.cint32(floor(t / 60));   % (an int in C)
     if hours > 0
         s = sprintf('%2d:%02d:%02d.%03d', hours, minutes, seconds, msec);
     else

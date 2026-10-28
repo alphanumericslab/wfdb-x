@@ -228,6 +228,40 @@ wfdbx.flushcal();
 assert_eq(wfdbx.getcal([], []), -1, 'flushcal');
 
 write_annotations_write_error();
+signed_char_fields();
+end
+
+function signed_char_fields()
+% subtyp and num are signed chars, and chan an unsigned char, in C: a value
+% given through the API is wrapped to one byte before it is encoded,
+% giving the bytes that C's putann writes (those of the C reference's
+% wrann for "N 300 0 0", "N 0 300 0", "N 0 0 300", "N -200 0 0",
+% "N 256 0 0" at samples 1 to 5).
+c_bytes = uint8(hex2dec(reshape(['01042cf401042cf8010400f82cf0010438f4' ...
+    '00f001040000'], 2, [])'))';
+sub = [300 0 0 -200 256];
+chan = [0 300 0 0 0];
+num = [0 0 300 0 0];
+wfdbx.write_annotations('100s', 'sub', 1:5, 'symbols', repmat({'N'}, 1, 5), ...
+    'subtypes', sub, 'chans', chan, 'nums', num);
+assert_eq(readfile('100s.sub'), c_bytes, 'write_annotations bytes');
+assert_eq(wfdbx.annopen('100s', wfdbx.anninfo('sub2', wfdbx.WFDB_WRITE()), 1), ...
+    0, 'annopen');
+a = wfdbx.annotation();
+for k = 1:5
+    a.time = k;
+    a.anntyp = wfdbx.NORMAL();
+    a.subtyp = sub(k);
+    a.chan = chan(k);
+    a.num = num(k);
+    wfdbx.putann(0, a);
+end
+wfdbx.wfdbquit();
+assert_eq(readfile('100s.sub2'), c_bytes, 'putann bytes');
+r = wfdbx.read_annotations('100s', 'sub');
+assert_eq(r.subtypes', [44 0 0 56 0], 'subtypes read back');
+assert_eq(r.chans', [0 44 0 0 0], 'chans read back');
+assert_eq(r.nums', [0 0 44 0 0], 'nums read back');
 end
 
 function write_annotations_write_error()

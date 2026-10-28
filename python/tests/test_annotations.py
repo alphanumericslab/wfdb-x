@@ -658,3 +658,51 @@ def test_write_annotations_write_error(datadir, capfd, n, legacy):
         w.write_annotations("100s", "full", list(range(1, n + 1)),
                             symbols=["N"] * n, legacy=legacy)
     assert "write error on annotation file full" in capfd.readouterr().err
+
+
+def test_write_annotations_argument_lengths(datadir):
+    # Per-annotation arguments are absent, one value for all, or one value
+    # per annotation; anything else is an error before the file is created,
+    # and leaves no annotator open.
+    import numpy as np
+    t = [10, 20, 30]
+    for kw in [dict(symbols=["N", "V", "N"], aux=["x"]),
+               dict(symbols=["N", "V"]), dict(codes=[1, 1, 1, 1]),
+               dict(symbols="N", subtypes=[1, 2]),
+               dict(symbols="N", chans=np.array([1, 2, 3, 4])),
+               dict(symbols="N", nums=[0]),
+               dict(symbols="N", aux=["a", None, "b", "c"])]:
+        with pytest.raises(ValueError, match="one value per annotation"):
+            w.write_annotations("100s", "bad", t, **kw)
+        assert not os.path.exists("100s.bad")
+        assert w._annot._a.oad == []
+    w.write_annotations("100s", "ok", t, symbols="V", aux="x",
+                        subtypes=np.array(3), chans=[0, 1, 2])
+    a = w.read_annotations("100s", "ok")
+    assert a.symbols == ["V", "V", "V"] and a.aux == ["x", "x", "x"]
+    assert a.subtypes.tolist() == [3, 3, 3] and a.chans.tolist() == [0, 1, 2]
+
+
+def test_write_annotations_signed_char_fields(datadir):
+    # subtyp and num are signed chars, and chan an unsigned char, in C: a
+    # value given through the API is wrapped to one byte before it is
+    # encoded, giving the bytes that C's putann writes (those of crefd's
+    # wrann for "N 300 0 0", "N 0 300 0", "N 0 0 300", "N -200 0 0",
+    # "N 256 0 0" at samples 1 to 5).
+    c_bytes = bytes.fromhex("01042cf401042cf8010400f82cf0010438f400f0"
+                            "01040000")
+    args = ([1, 2, 3, 4, 5], ["N"] * 5)
+    kw = dict(subtypes=[300, 0, 0, -200, 256], chans=[0, 300, 0, 0, 0],
+              nums=[0, 0, 300, 0, 0])
+    w.write_annotations("100s", "sub", *args, **kw)
+    assert open("100s.sub", "rb").read() == c_bytes
+    w.annopen("100s", [w.Anninfo("sub2", w.WFDB_WRITE)], 1)
+    for k in range(5):
+        w.putann(0, w.Annotation(k + 1, w.NORMAL, kw["subtypes"][k],
+                                 kw["chans"][k], kw["nums"][k]))
+    w.wfdbquit()
+    assert open("100s.sub2", "rb").read() == c_bytes
+    a = w.read_annotations("100s", "sub")
+    assert a.subtypes.tolist() == [44, 0, 0, 56, 0]
+    assert a.chans.tolist() == [0, 44, 0, 0, 0]
+    assert a.nums.tolist() == [0, 0, 44, 0, 0]

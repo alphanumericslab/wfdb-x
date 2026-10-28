@@ -19,8 +19,12 @@
 package wfdbx.bench
 
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import kotlin.system.exitProcess
+import wfdbx.Annotations
+import wfdbx.Record
 import wfdbx.WfdbException
 import wfdbx.readAnnotations
 import wfdbx.readRecord
@@ -30,11 +34,52 @@ import wfdbx.writeRecord
 
 private val OPS = listOf("read_long", "read_long_phys", "read_mimic", "read_wide", "write_long", "read_ann", "write_ann")
 
-/** The 64-bit sum of the samples of a record read with default options. */
-private fun digitalSum(record: String): String {
+/** The 64-bit sum of the samples of [rec]. */
+private fun digitalSum(rec: Record): String {
     var sum = 0L
-    for (v in readRecord(record).samples) sum += v
+    for (v in rec.samples) sum += v
     return sum.toString()
+}
+
+/**
+ * Save [kept], the result of the first call of [op], as dump/op.* (see
+ * benchmarks/python/bench.py), little-endian. Record.samples and
+ * Record.physical are already frame by frame.
+ */
+private fun save(op: String, kept: Any?, out: File, dump: File) {
+    val p = { ext: String -> File(dump, "$op.$ext") }
+    when (op) {
+        "read_long", "read_mimic", "read_wide" -> {
+            val x = (kept as Record).samples
+            val b = ByteBuffer.allocate(4 * x.size).order(ByteOrder.LITTLE_ENDIAN)
+            b.asIntBuffer().put(x)
+            p("bin").writeBytes(b.array())
+        }
+        "read_long_phys" -> {
+            val x = (kept as Record).physical!!
+            val b = ByteBuffer.allocate(8 * x.size).order(ByteOrder.LITTLE_ENDIAN)
+            b.asDoubleBuffer().put(x)
+            p("bin").writeBytes(b.array())
+        }
+        "read_ann" -> {
+            val a = kept as Annotations
+            val aux = a.aux.map { it?.toByteArray(Charsets.ISO_8859_1) }
+            val b = ByteBuffer.allocate(28 * a.size + aux.sumOf { it?.size ?: 0 })
+                .order(ByteOrder.LITTLE_ENDIAN)
+            for (k in 0 until a.size) {
+                b.putLong(a.samples[k]).putInt(a.codes[k]).putInt(a.subtypes[k])
+                    .putInt(a.chans[k]).putInt(a.nums[k])
+                val x = aux[k]
+                if (x == null) b.putInt(-1) else b.putInt(x.size).put(x)
+            }
+            p("ann").writeBytes(b.array())
+        }
+        "write_long" -> {
+            File(out, "out.hea").copyTo(p("hea"), overwrite = true)
+            File(out, "out.dat").copyTo(p("dat"), overwrite = true)
+        }
+        "write_ann" -> File(out, "out.atr").copyTo(p("atr"), overwrite = true)
+    }
 }
 
 private fun run(op: String, out: File, reps: Int): String {
@@ -42,43 +87,60 @@ private fun run(op: String, out: File, reps: Int): String {
     val src = if (op == "write_long") readRecord("long") else null
     val ann = if (op == "write_ann") readAnnotations("long", "atr") else null
 
-    val call: () -> String = when (op) {
-        "read_long" -> { -> digitalSum("long") }
-        "read_long_phys" -> { ->
-            var sum = 0.0
-            for (v in readRecord("long", physical = true).physical!!) if (!v.isNaN()) sum += v
-            (Math.round(sum * 1000.0) / 1000.0).toString()
-        }
-        "read_mimic" -> { -> digitalSum("mimic") }
-        "read_wide" -> { -> digitalSum("wide") }
+    // call() is the timed call: the operation alone, returning what it
+    // read. check() is computed from the first call's result, outside the
+    // timed calls.
+    val call: () -> Any? = when (op) {
+        "read_long" -> { -> readRecord("long") }
+        "read_long_phys" -> { -> readRecord("long", physical = true) }
+        "read_mimic" -> { -> readRecord("mimic") }
+        "read_wide" -> { -> readRecord("wide") }
         "write_long" -> { ->
             val r = src!!
             writeRecord(
                 "out", r.samples, r.nsig, r.fs, fmt = 16, gains = r.gains.toDoubleArray(),
                 adcres = intArrayOf(16), units = r.units, dir = out.path,
             )
-            File(out, "out.dat").length().toString()
+            null
         }
-        "read_ann" -> { -> readAnnotations("long", "atr").size.toString() }
+        "read_ann" -> { -> readAnnotations("long", "atr") }
         "write_ann" -> { ->
             val a = ann!!
             writeAnnotations("out", "atr", a.samples, codes = a.codes, aux = a.aux, dir = out.path)
-            File(out, "out.atr").length().toString()
+            null
         }
         else -> error("unknown operation $op")
     }
+    val check: (Any?) -> String = { res ->
+        when (op) {
+            "read_long_phys" -> {
+                var sum = 0.0
+                for (v in (res as Record).physical!!) if (!v.isNaN()) sum += v
+                (Math.round(sum * 1000.0) / 1000.0).toString()
+            }
+            "write_long" -> File(out, "out.dat").length().toString()
+            "read_ann" -> (res as Annotations).size.toString()
+            "write_ann" -> File(out, "out.atr").length().toString()
+            else -> digitalSum(res as Record)
+        }
+    }
 
+    val dump = System.getenv("WFDBX_BENCH_DUMP")?.takeIf { it.isNotEmpty() }
     var t = System.nanoTime()
-    val check = call()
+    var res = call()
     val first = (System.nanoTime() - t) / 1e9
+    val value = check(res)
+    if (dump != null) save(op, res, out, File(dump))
+    res = null
     val times = DoubleArray(reps)
     for (i in 0 until reps) {
         t = System.nanoTime()
-        call()
+        res = call()
         times[i] = (System.nanoTime() - t) / 1e9
+        res = null
     }
     return "{\"op\": \"$op\", \"first\": $first, \"best\": ${times.min()}, " +
-        "\"times\": [${times.joinToString(", ")}], \"check\": $check}"
+        "\"times\": [${times.joinToString(", ")}], \"check\": $value}"
 }
 
 fun main(args: Array<String>) {
@@ -97,7 +159,10 @@ fun main(args: Array<String>) {
         exitProcess(2)
     }
     wfdbxSetInputDir(dir)
-    val out = Files.createTempDirectory("wfdbx-bench-").toFile()
+    // (in $TMPDIR if set, as the other drivers)
+    val tmp = System.getenv("TMPDIR")?.takeIf { it.isNotEmpty() }
+    val out = (if (tmp != null) Files.createTempDirectory(File(tmp).toPath(), "wfdbx-bench-")
+               else Files.createTempDirectory("wfdbx-bench-")).toFile()
     val line = try {
         run(op, out, reps)
     } catch (e: WfdbException) {

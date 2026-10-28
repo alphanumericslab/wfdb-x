@@ -156,14 +156,17 @@ twine upload --repository testpypi dist/*
 
 Then look at the page `https://test.pypi.org/project/wfdb-x/<version>/`
 (the README, the figure, the links), and install the package in a new
-environment. TestPyPI does not have NumPy and the other dependencies, so
-let pip take them from PyPI with `--extra-index-url`:
+environment. The package must come from TestPyPI and from nowhere else:
+when two indexes are given (`--index-url` and `--extra-index-url`), pip
+treats them as equal and may take the same version from either. So install
+the dependencies from PyPI first, then the package alone from TestPyPI,
+with `--no-deps`:
 
 ```sh
 python3 -m venv /tmp/wfdbx-testpypi && . /tmp/wfdbx-testpypi/bin/activate
-pip install --index-url https://test.pypi.org/simple/ \
-            --extra-index-url https://pypi.org/simple/ \
-            "wfdb-x[examples]==<version>"
+pip install "numpy>=1.17" matplotlib jupyter    # the dependencies (and the examples' extras), from PyPI
+pip install --no-deps --index-url https://test.pypi.org/simple/ "wfdb-x==<version>"
+pip show wfdb-x                 # Version: <version>
 wfdbx --version                 # WFDB-x <version>
 WFDBX_INPUT_DIR=$(python3 -c "import wfdbx; print(wfdbx.sample_data_dir())") \
     wfdbx rdsamp -r 100s -t 2   # a tool, on the sample record
@@ -171,11 +174,10 @@ python3 -c "import wfdbx; wfdbx.wfdbx_set_input_dir(wfdbx.sample_data_dir()); pr
 wfdbx --examples ex && ls ex    # the example notebooks
 ```
 
-(`--extra-index-url` also lets pip take `wfdb-x` from PyPI if TestPyPI
-does not have the version asked for; pinning `==<version>` avoids testing
-the wrong one.) Remember that the version just uploaded to TestPyPI cannot
-be uploaded there again: to try again after a fix, use the next version, or
-a pre-release number such as `1.1.0rc2`.
+(The dependencies are those of `python/pyproject.toml`: `dependencies`, and
+the `examples` extra.) Remember that the version just uploaded to TestPyPI
+cannot be uploaded there again: to try again after a fix, use the next
+version, or a pre-release number such as `1.1.0rc2`.
 
 ## 6. Release on PyPI
 

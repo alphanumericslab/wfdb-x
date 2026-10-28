@@ -21,10 +21,12 @@ version. See LICENSE.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import platform
 import resource
+import shutil
 import subprocess
 import sys
 import time
@@ -110,7 +112,9 @@ def timed(cmd, env=None, cwd=None, stdout=subprocess.PIPE):
 
 
 def peak_rss(cmd, env=None, cwd=None):
-    """Run cmd in a fresh python process to read its own peak RSS (MB)."""
+    """Run cmd in a fresh python process to read its own peak RSS (MB).
+    (A process inherits the peak RSS of the process it was started from,
+    about 11 MB here: values near it are upper bounds.)"""
     code = ("import resource,subprocess,sys;"
             "r=subprocess.run(sys.argv[1:],stdout=subprocess.DEVNULL,"
             "stderr=subprocess.DEVNULL).returncode;"
@@ -138,13 +142,64 @@ def clean_env():
 
 def run_driver(lang, op, data, reps):
     cmd = DRIVERS[lang] + [op, data, str(reps)]
-    _, _, out = timed(cmd, env=clean_env())
+    env = clean_env()
+    if lang in DUMPS:
+        # (the result of the operation, saved outside the timed calls)
+        d = os.path.join(BUILD, "results", lang)
+        os.makedirs(d, exist_ok=True)
+        env["WFDBX_BENCH_DUMP"] = d
+    _, _, out = timed(cmd, env=env)
     lines = [ln for ln in out.decode().splitlines() if ln.startswith("{")]
     if not lines:
         raise RuntimeError("%s %s: no result" % (lang, op))
     r = json.loads(lines[-1])
     r["rss_mb"] = peak_rss(cmd, env=clean_env())
     return r
+
+
+# The operations whose result wfdb-python computes differently.
+WFDB_PYTHON_DIFFERS = ["read_mimic"]
+
+# The languages whose drivers save the result of each operation (all of
+# WFDB-x), and the files they save (benchmarks/README.md): samples as
+# arrays (compared as numbers, NaN equal to NaN), the rest byte for byte.
+DUMPS = ["cpp", "rust", "julia", "kotlin", "python", "r", "octave"]
+RESULTS = {"read_long": [(".bin", "<i4")], "read_mimic": [(".bin", "<i4")],
+           "read_wide": [(".bin", "<i4")], "read_long_phys": [(".bin", "<f8")],
+           "read_ann": [(".ann", None)], "write_ann": [(".atr", None)],
+           "write_long": [(".hea", None), (".dat", None)]}
+
+
+def compare_results(langs, ops):
+    """Compare the saved results of every operation across languages;
+    return a list of differences."""
+    import numpy as np
+    bad = []
+    for op in ops:
+        langs_op = [x for x in langs if x in DUMPS]
+        for ext, dtype in RESULTS[op]:
+            ref = None
+            for lang in langs_op:
+                p = os.path.join(BUILD, "results", lang, op + ext)
+                if not os.path.exists(p):
+                    bad.append("%s %s%s: no result saved" % (lang, op, ext))
+                    continue
+                with open(p, "rb") as f:
+                    b = f.read()
+                if ref is None:
+                    ref = (lang, b)
+                    continue
+                if dtype is None or len(b) != len(ref[1]):
+                    same = b == ref[1]
+                else:
+                    x = np.frombuffer(b, dtype)
+                    y = np.frombuffer(ref[1], dtype)
+                    same = np.array_equal(x, y,
+                                          equal_nan=dtype.endswith("f8"))
+                if not same:
+                    bad.append("%s%s: %s differs from %s" % (op, ext, lang,
+                                                            ref[0]))
+    return bad
 
 
 def tool_env(lang, cbin):
@@ -260,11 +315,31 @@ def main():
     langs = a.langs.split(",")
     ops = a.ops.split(",")
     data = os.path.abspath(a.data)
-    if not os.path.exists(os.path.join(data, "long.hea")):
+    # (the records are written again when make_records.py changes)
+    gen = os.path.join(HERE, "make_records.py")
+    with open(gen, "rb") as f:
+        stamp = hashlib.sha256(f.read()).hexdigest()
+    stamp_file = os.path.join(data, "make_records.sha256")
+    try:
+        with open(stamp_file) as f:
+            current = f.read().strip() == stamp
+    except OSError:
+        current = False
+    if not current:
         sys.stderr.write("writing the records in %s\n" % data)
-        subprocess.run([sys.executable, os.path.join(HERE, "make_records.py"),
-                        data], check=True)
+        shutil.rmtree(data, ignore_errors=True)
+        subprocess.run([sys.executable, gen, data], check=True)
+        with open(stamp_file, "w") as f:
+            f.write(stamp + "\n")
+    if "wfdb-python" in langs and subprocess.run(
+            DRIVERS["wfdb-python"][:1] + ["-c", "import wfdb"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        sys.stderr.write("wfdb-python is not installed (pip install wfdb; "
+                         "WFDB_PYTHON names the Python that has it): "
+                         "skipped\n")
+        langs.remove("wfdb-python")
     res = {"_versions": versions(), "_tools": {}}
+    shutil.rmtree(os.path.join(BUILD, "results"), ignore_errors=True)
     for lang in langs:
         sys.stderr.write("== %s\n" % NAMES[lang])
         if not a.no_build:
@@ -283,11 +358,15 @@ def main():
         res["_tools"]["c"] = {t: run_tool("c", t, args, data, a.tool_reps,
                                           os.path.abspath(a.cbin))
                               for t, args, _ in TOOLS}
-    # All the WFDB-x languages must have read and written the same data.
-    bad = []
+    # All the WFDB-x languages must have read and written the same data:
+    # the same samples, annotations and files (and so the same checks).
+    bad = compare_results(langs, ops)
     for op in ops:
+        # (wfdb-python too, except for mimic: it averages the samples of a
+        # multi-frequency record with another rounding)
         checks = {x: res[x][op]["check"] for x in langs
-                  if x != "wfdb-python" and op in res.get(x, {})}
+                  if (x != "wfdb-python" or op not in WFDB_PYTHON_DIFFERS)
+                  and op in res.get(x, {})}
         if checks and not all(same(v, list(checks.values())[0])
                               for v in checks.values()):
             bad.append("%s: %s" % (op, checks))
@@ -305,6 +384,10 @@ def main():
     if bad:
         sys.stderr.write("DIFFERENT RESULTS:\n  " + "\n  ".join(bad) + "\n")
         sys.exit(1)
+    compared = [NAMES[x] for x in langs if x in DUMPS]
+    if len(compared) > 1:
+        sys.stderr.write("Identical results (samples, annotations and files "
+                         "written) in %s.\n" % ", ".join(compared))
 
 
 if __name__ == "__main__":

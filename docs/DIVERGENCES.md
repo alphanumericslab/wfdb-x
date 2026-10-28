@@ -5,8 +5,11 @@ exceptions described here: **it has no built-in signal parameters**; it
 **finds files only where they are named** (no search path, and no network
 access unless the user asks for it); it **sorts out-of-order annotation
 files itself**, instead of running a separate program, and **without losing
-annotations** as the original `sortann` does; it **never writes over a file
-it is reading**; and its tools **report write errors in their exit status**.
+annotations** as the original `sortann` does; it **never writes a signal
+file over a signal file it is reading**; and its tools **report write
+errors in their exit status**. It also gives a defined result for input on
+which the C package crashes (see
+[Input on which the C package crashes](#input-on-which-the-c-package-crashes)).
 They are deliberate, the same in all seven implementations, and tested like
 everything else: the reference results of the conformance suite come from
 the C package with
@@ -232,7 +235,7 @@ The tools use the environment variables.
 * **Network access is off by default.** A URL is opened only when it has
   been turned on (`wfdbx_set_network(1)`, `WFDBX_NETWORK=1`, or the
   `network` option); otherwise the library says once that network access is
-  disabled: `wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or
+  disabled: `WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or
   call wfdbx_set_network(1) to open URL`. All seven implementations can read
   URLs (C++ and Rust through the system `curl` program, which they run
   without a shell; a missing `curl` is reported when a URL is opened;
@@ -274,7 +277,7 @@ The tools use the environment variables.
   name contains a space must be set with `wfdbx_set_input_dir`, which takes
   the name as it is. `getwfdb` returns `.` when no input directory is set.
   The `WFDB` environment variable is used only in legacy mode; when it is
-  set, the library says once that it is ignored (`wfdb-x: the WFDB
+  set, the library says once that it is ignored (`WFDB-x: the WFDB
   environment variable is ignored; set WFDBX_INPUT_DIR instead (or use
   legacy mode)`).
 
@@ -368,7 +371,7 @@ use legacy mode to sort annotation files** unless reproducing the
 original's results, losses included, is the point: nothing in the output
 says that annotations were dropped.
 
-## An output file is never one of the input files
+## An output signal file is never one of the input signal files
 
 A record's files can be shared: the segments of a multi-segment record are
 other records, so `xform -i vlay -o fmt16` reads `fmt16.dat` (a segment of
@@ -394,6 +397,13 @@ part of the conformance suite). The high-level `write_record` reads nothing:
 it closes any open record first, so it simply replaces existing files of the
 same name. Legacy mode does not check, as the original.
 
+The check covers signal files only. Other files are written as the original
+writes them, even when they are inputs: `snip -i 100s -n 100s` writes the
+header `100s.hea` of its output record over that of its input record, and
+`wrsamp -i big.dat -o big` reads its text input from the file that it writes
+as the signal file `big.dat`. Such commands destroy their input, in C and in
+WFDB-x alike; the output record needs a name of its own.
+
 ## Write errors give a nonzero exit status
 
 The original tools report a file that cannot be written (a full disk, for
@@ -418,6 +428,73 @@ close (found when it closes them); `wfdbx_write_errors()` returns that
 count, and `wfdbx_note_write_error()` adds to it for a program that writes
 a file itself. In legacy mode the tools exit with the original status and
 print no new messages.
+
+## Input on which the C package crashes
+
+### Why
+
+Some malformed or unusual input makes the C package crash, run out of
+memory, or give a result that depends on the machine. These are bugs of
+the C code; a crash cannot be reproduced, so WFDB-x gives each such input
+one defined, safe result, the same in all seven implementations. The
+complete list, with the C behavior and the WFDB-x choice for each, is the
+table [Undefined behaviors (not reproduced)](KNOWN_C_BEHAVIORS.md#undefined-behaviors-not-reproduced)
+in `KNOWN_C_BEHAVIORS.md`. Those found while reviewing version 1.1.0:
+
+* **A header with a negative or impossibly large number of signals**
+  (`n -1 250 10`). C reads the count into an `int` and converts it to an
+  unsigned size: -1 becomes 4,294,967,295, and the library tries to
+  allocate memory for that many signals before it reads their lines
+  (`can't allocate (4294967295*8) bytes for hsd`, exit status 1; on a
+  machine where the allocation succeeds, the result differs). WFDB-x never
+  allocates for the declared count before the lines are read, and reports
+  `init: unexpected EOF in header file for record n`, as C does for a
+  header with fewer signal lines than it declares.
+* **An EDF file whose signals have 0 samples per data record** (or a blank
+  field). C divides by the number of samples per frame and crashes with a
+  floating-point exception (SIGFPE) in `rdsamp` and in any program that
+  reads the samples. In WFDB-x, a signal group whose frames hold no samples
+  is at its end at once: no samples are read, and nothing loops.
+* **A header block size of -2147483648.** C makes a negative block size
+  positive by negating it; the negation of the smallest `int` overflows
+  (undefined behavior), and the result, converted to an unsigned size,
+  cannot be allocated (`can't allocate`). WFDB-x computes the negation
+  without overflow (2,147,483,648 bytes), as intended. It reads the file
+  exactly as with the block size 2,147,483,647 (the case for which C has a
+  result), and never allocates a buffer larger than the signal file.
+* **A FLAC signal file with 3 or more samples per frame whose FLAC block
+  size is not a multiple of them** (for example format `508x3` with FLAC
+  blocks of 1001 samples, as in the test record `flacspf`). C's
+  `iflac_samples` makes room for the samples of a new block plus one
+  frame, but the block also completes the frame that the previous block
+  left unfinished, so up to (samples per frame - 2) samples of each signal
+  are written past the end of the buffer. The heap is corrupted: the
+  program may abort (`free(): invalid next size`) or, with luck, print the
+  right samples. WFDB-x makes room for every frame that the block completes
+  or starts, and reads the samples correctly.
+* **`xform -M` with an output record whose signals have more samples per
+  frame than the input signals** (given by the header of an existing
+  output record). C sizes its array of output samples for the input frame
+  and writes the output frame into it, past its end, and reads the input
+  frame past its end too (`free(): invalid pointer`, abort, or a
+  segmentation fault). WFDB-x gives both arrays room for every sample: the
+  output samples are those C computes, and those read beyond the input
+  frame are 0. When the output frame is not larger than the input frame,
+  the result is that of C.
+* **`wfdb2mat` with a one-character record name** (`-r m`). C builds the
+  output name from the byte before the name, so it writes `m.mat` and
+  `m.hea`, overwriting the header of its input record. WFDB-x names the
+  output `mm`, as it names `100sm` the output for `100s`.
+* **`mit2wav` with a signal of more than 16 bits of ADC resolution**
+  (formats 24 and 32). C shifts the samples by a negative amount
+  (undefined behavior): on x86-64, the gain is multiplied by 65,536 and the
+  samples are written as 0. WFDB-x shifts the samples right to 16 bits and
+  writes a gain multiplier of 0.
+
+The conformance suite checks all but the `wfdb2mat` and `mit2wav` cases
+with results recorded from WFDB-x (cases with `golden_impl`; see
+[`conformance.md`](conformance.md#adding-cases)). Legacy mode gives the
+same results, since the C behavior cannot be reproduced.
 
 ## Additions
 

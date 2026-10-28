@@ -5,13 +5,16 @@ function write_annotations(record, annotator, samples, varargin)
 %   of the sample numbers SAMPLES.  The other fields are given as options:
 %
 %     'symbols'   cell array of mnemonics ('N', 'V', ...), or a char vector
-%                 of one-character mnemonics ('NNV'); or
+%                 of one-character mnemonics ('NNV'), one per annotation
+%                 (or one for all); or
 %     'codes'     annotation codes (wfdbx.NORMAL(), ...).  One of the two is
 %                 required.
 %     'subtypes', 'chans', 'nums'   one value for all annotations, or one
-%                 per annotation (default 0)
-%     'aux'       cell array of auxiliary texts ([] for none), or one char
-%                 vector for all
+%                 per annotation (default 0).  As in C, they are stored in
+%                 one byte each, and other values wrap around (subtypes and
+%                 nums to -128..127, chans to 0..255).
+%     'aux'       cell array of auxiliary texts, one per annotation ([] for
+%                 none), or one char vector for all
 %     'fs'        time resolution to record in the file, in ticks per second
 %     'dir'       folder in which to create the file (default: the output
 %                 directory).  RECORD must then be a plain name.
@@ -26,13 +29,17 @@ function write_annotations(record, annotator, samples, varargin)
 %   is 0.
 %
 %   Errors: an error (identifier 'wfdbx:write_annotations') is thrown if
-%   neither 'symbols' nor 'codes' is given, if 'dir' does not exist, if the
-%   file cannot be created, or if it cannot be written completely, for
-%   example when the disk is full ("write error on annotator ANNOTATOR for
-%   record RECORD", after the library's message; in legacy mode too).
+%   neither 'symbols' nor 'codes' is given, if a per-annotation option
+%   ('symbols', 'codes', 'subtypes', 'chans', 'nums', 'aux') given as a list
+%   does not have one value per annotation ("... must have one value per
+%   annotation"), if 'dir' does not exist, if the file cannot be created,
+%   or if it cannot be written completely, for example when the disk is
+%   full ("write error on annotator ANNOTATOR for record RECORD", after the
+%   library's message; in legacy mode too).  The arguments are checked
+%   before the file is created.
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
-%   WFDB library functions.
+%   WFDB library functions; it also closes the annotator when it fails.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -78,9 +85,13 @@ if ~(isempty(opt.sort) || ((islogical(opt.sort) || isnumeric(opt.sort)) && ...
 end
 if ischar(opt.symbols)
     opt.symbols = num2cell(opt.symbols);
+elseif isa(opt.symbols, 'string')
+    opt.symbols = cellstr(opt.symbols);
 end
 if ischar(opt.aux)
     opt.aux = repmat({opt.aux}, 1, numel(samples));
+elseif isa(opt.aux, 'string')
+    opt.aux = cellstr(opt.aux);
 end
 samples = reshape(double(samples), 1, []);
 n = numel(samples);
@@ -88,6 +99,10 @@ if isempty(opt.codes)
     if isempty(opt.symbols) && n > 0
         error('wfdbx:write_annotations', 'symbols or codes must be given');
     end
+    if numel(opt.symbols) == 1      % (one mnemonic for all)
+        opt.symbols = repmat(reshape(opt.symbols, 1, 1), 1, n);
+    end
+    check(opt.symbols, n, 'symbols');
     % (wfdbx.strann once for each distinct mnemonic; anything but text is
     % code 0, as for strann)
     sym = reshape(opt.symbols(1:n), 1, []);
@@ -105,12 +120,17 @@ else
     codes = reshape(double(opt.codes), 1, []);
 end
 A.time = samples;
-A.anntyp = per(codes, n);
-A.subtyp = per(opt.subtypes, n);
-A.chan = per(opt.chans, n);
-A.num = per(opt.nums, n);
+A.anntyp = per(codes, n, 'codes');
+A.subtyp = per(opt.subtypes, n, 'subtypes');
+A.chan = per(opt.chans, n, 'chans');
+A.num = per(opt.nums, n, 'nums');
 A.aux = cell(1, n);
 if ~isempty(opt.aux)
+    if ~iscell(opt.aux)
+        error('wfdbx:write_annotations', ...
+            'aux must be a cell array of strings, or one string');
+    end
+    check(opt.aux, n, 'aux');
     % (each distinct string is encoded once)
     aux = reshape(opt.aux(1:n), 1, []);
     idx = find(cellfun('isclass', aux, 'char'));
@@ -126,22 +146,30 @@ if ~isempty(opt.aux)
 end
 wfdbx.wfdbquit();
 errors = wfdbx.wfdbx_write_errors();
-if ~isempty(opt.fs)
-    wfdbx.setafreq(opt.fs);
-end
-if wfdbx.annopen(record, wfdbx.anninfo(annotator, 1), 1) < 0
-    wfdbx.wfdbquit();
-    error('wfdbx:write_annotations', 'can''t create annotator %s for record %s', ...
-        annotator, record);
-end
-wfdbx.internal.putann_bulk(0, A);
-% WFDB-x: the 'sort' option, for the closing of this file only
 st = wfdbx.internal.ann_state();
-if ~isempty(opt.sort)
-    st.sort_override = logical(opt.sort);
+% (the annotator is closed however this ends)
+try
+    if ~isempty(opt.fs)
+        wfdbx.setafreq(opt.fs);
+    end
+    if wfdbx.annopen(record, wfdbx.anninfo(annotator, 1), 1) < 0
+        error('wfdbx:write_annotations', ...
+            'can''t create annotator %s for record %s', annotator, record);
+    end
+    wfdbx.internal.putann_bulk(0, A);
+    % WFDB-x: the 'sort' option, for the closing of this file only
+    if ~isempty(opt.sort)
+        st.sort_override = logical(opt.sort);
+    end
+    wfdbx.wfdbquit();
+catch err
+    st.sort_override = [];
+    wfdbx.wfdbquit();
+    if ~isempty(opt.fs)
+        wfdbx.setafreq(0);
+    end
+    rethrow(err);
 end
-unset = onCleanup(@() clear_sort(st)); %#ok<NASGU>
-wfdbx.wfdbquit();
 st.sort_override = [];
 if ~isempty(opt.fs)
     wfdbx.setafreq(0);
@@ -152,13 +180,20 @@ if wfdbx.wfdbx_write_errors() > errors
 end
 end
 
-function clear_sort(st)
-st.sort_override = [];
-end
-
-function v = per(v, n)
+function v = per(v, n, what)
+% one value for all annotations, or one per annotation
 v = reshape(double(v), 1, []);
 if numel(v) == 1
     v = repmat(v, 1, n);
+else
+    check(v, n, what);
+end
+end
+
+function check(v, n, what)
+% WFDB-x: a list of values must have one value per annotation
+if numel(v) ~= n
+    error('wfdbx:write_annotations', ...
+        '%s must have one value per annotation', what);
 end
 end

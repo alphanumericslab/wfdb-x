@@ -157,7 +157,7 @@ while ~found && nsig ~= 0
     if isempty(line)
         break;
     end
-    tok = regexp(line, '[ \t\n\r]+', 'split');
+    tok = regexp(wfdbx.internal.cstr(line), '[ \t\n\r]+', 'split');
     tok = tok(~cellfun('isempty', tok));
     if isempty(tok) || tok{1}(1) == '#'
         continue;

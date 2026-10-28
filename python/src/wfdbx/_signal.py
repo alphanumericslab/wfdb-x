@@ -25,7 +25,7 @@ read only from the header's directory (on disk or at its URL), never searched
 for, and a name that leaves that directory is refused; an output signal file is
 never one of the input files of the open record; a header written under a path
 names the record, its signal files and its segments relative to its own
-directory; FLAC signal files are read and written with WFDB-x's own codec
+directory; FLAC signal files are read and written with WFDB-x's FLAC codec
 (_flac.py) instead of libFLAC; additions: wfdbx_set_legacy, wfdbx_get_legacy,
 wfdbx_legacy_args, wfdbx_time_needs_freq, getframes, and the readers and
 writers used by the high-level functions; legacy mode (wfdbx_set_legacy)
@@ -55,7 +55,7 @@ import time as _time
 
 from ._cstd import (LONG_MIN, LONG_MAX, INT_MAX, INT_MIN, UINT_MAX, strtol,
                     strtod, Strtok, cdiv, cmod, int16, int32, sprintf, d2l,
-                    fdiv as _fdiv)
+                    cstr, fdiv as _fdiv)
 from . import _flac
 from . import _wfdbio as wio
 from ._wfdbio import wfdb_error, wfdb_open, WFDB_READ, WFDB_WRITE, \
@@ -544,6 +544,7 @@ class _SigState:
         self.dsbi = -1
         self.dsblen = 0
         self.framelen = 0
+        self.empty_group = False
         self.gvmode = DEFWFDBGVMODE
         self.gvc = 0
         self.isedf = 0
@@ -1038,6 +1039,7 @@ def _readheader(record):
     if line == "":
         wfdb_error("init: record %s header is empty\n", record)
         return -2
+    line = cstr(line)       # (C reads each line as a string)
     if line.startswith("#wfdb"):
         vals = []
         pos = 5         # just past "#wfdb"
@@ -1074,7 +1076,7 @@ def _readheader(record):
             wfdb_error("init: can't find record name in record %s header\n",
                        record)
             return -2
-        tok = Strtok(line)
+        tok = Strtok(cstr(line))
         p = tok.next(sep)
     slash = p.find("/", 1)
     if slash >= 1:
@@ -1169,7 +1171,7 @@ def _readheader(record):
                     s_.segarray = None
                     s_.segments = 0
                     return -2
-                tok = Strtok(line)
+                tok = Strtok(cstr(line))
                 p = tok.next(sep)
                 if p is not None and not p.startswith("#"):
                     break
@@ -1208,10 +1210,12 @@ def _readheader(record):
                        "(%d)\n", record, s_.msnsamples)
             wfdb_error(" does not match sum of segment lengths (%d)\n", ns)
         return 0
-    while len(s_.hsd) < nsig:
-        s_.hsd.append(_HSData())
     s = 0
     while s < nsig:
+        # (one signal at a time: the number of signals may be far larger
+        # than the number of signal lines)
+        if s >= len(s_.hsd):
+            s_.hsd.append(_HSData())
         hs = s_.hsd[s]
         hp = s_.hsd[s - 1] if s else None
         while True:
@@ -1220,7 +1224,7 @@ def _readheader(record):
                 wfdb_error("init: unexpected EOF in header file for record "
                            "%s\n", record)
                 return -2
-            tok = Strtok(line)
+            tok = Strtok(cstr(line))
             p = tok.next(sep)
             if p is not None and not p.startswith("#"):
                 break
@@ -1350,6 +1354,7 @@ def _isigclose():
     s_.isd = []
     s_.nisig = 0
     s_.framelen = 0
+    s_.empty_group = False
     for ig in s_.igd:
         if ig.flac is not None:
             _flac.isclose(ig)
@@ -1615,6 +1620,11 @@ def _getskewedframe(vector, vstart=0):
         g -= 1
         if igd[g].initial_skip:
             _isgsetframe(g, s_.segarray[s_.segp].samp0 if s_.in_msrec else 0)
+    # (the seek may have opened another segment, with new signals)
+    isd = s_.isd
+    igd = s_.igd
+    if s_.empty_group:
+        return -1       # WFDB-x (see isigopen)
     if s_.need_sigmap:
         vec = s_.ovec
         vi = 0
@@ -1957,8 +1967,15 @@ def isigopen(record, siarray=None, nsig=0):
     setgvmode(s_.gvmode)
     s_.gvc = s_.ispfmax
     s_.framelen = 0
+    gspf = {}
     for i in range(s_.nisig):
-        s_.framelen += s_.isd[i].info.spf
+        info = s_.isd[i].info
+        s_.framelen += info.spf
+        if info.fmt != 0:
+            gspf[info.group] = gspf.get(info.group, 0) + info.spf
+    # WFDB-x: a signal group whose frames hold no samples (an EDF file can
+    # give 0 samples per data record) is at the end of its data at once
+    s_.empty_group = 0 in gspf.values()
     if s_.tspf > s_.tuvlen:
         s_.tvector = [0] * s_.tspf
         s_.uvector = [0] * s_.tspf
@@ -2024,7 +2041,7 @@ def _segment_has_file(seg, fid):
             line = hf.getline()
             if not line:
                 break
-            tok = [t for t in re.split("[ \t\n\r]+", line) if t]
+            tok = [t for t in re.split("[ \t\n\r]+", cstr(line)) if t]
             if not tok or tok[0].startswith("#"):
                 continue
             if nsig < 0:            # the record line
@@ -3262,9 +3279,9 @@ def getinfo(record=None):
                     buf = line
                     if buf.startswith("#"):
                         break
-                while buf != "":
+                while cstr(buf) != "":
                     if buf.startswith("#"):
-                        s_.pinfo.append(_strip_info(buf)[1:])
+                        s_.pinfo.append(_strip_info(cstr(buf))[1:])
                     line = ifile.getline()
                     if line == "":
                         break
@@ -3277,7 +3294,7 @@ def getinfo(record=None):
                 if buf == "":
                     break
                 if buf.startswith("#"):
-                    s_.pinfo.append(_strip_info(buf)[1:])
+                    s_.pinfo.append(_strip_info(cstr(buf))[1:])
             ifile.close()
         s_.ninfo = len(s_.pinfo)
     if s_.info_i < s_.ninfo:
@@ -3452,7 +3469,7 @@ def _fmstimstr(t, f):
         seconds = t % 60
         t //= 60
         minutes = t % 60
-        hours = t // 60
+        hours = int32(t // 60)      # (an int in C)
         if hours > 0:
             s_.time_string = "%2d:%02d:%02d.%03d" % (hours, minutes, seconds,
                                                     msec)
@@ -4056,7 +4073,7 @@ def _bulk_eligible():
     of a packed unit, read sequentially from a regular file; in
     high-resolution mode, at the start of a frame."""
     s_ = _s
-    if s_.nisig == 0 or s_.dsbuf is not None or \
+    if s_.nisig == 0 or s_.dsbuf is not None or s_.empty_group or \
             not (s_.ifreq == 0.0 or s_.ifreq == s_.sfreq) or \
             (s_.nvsig != s_.nisig and not s_.need_sigmap):
         return False
@@ -4095,11 +4112,12 @@ def _bulk_read(ig, need):
     ahead = len(ig.ahead)
     nblocks = -(-(need - have - ahead) // bsize) if need > have + ahead \
         else 0
-    data = bytearray(have + ahead + nblocks * bsize)
+    want = nblocks * bsize
+    data = bytearray(have + ahead + ig.fp.left(want))
     view = memoryview(data)
     view[:have] = memoryview(ig.buf)[ig.bp:ig.be]
     view[have:have + ahead] = ig.ahead
-    got = ig.fp.readinto(view[have + ahead:]) if nblocks else 0
+    got = ig.fp.readinto(view[have + ahead:], want) if nblocks else 0
     return view[:have + ahead + got], have
 
 

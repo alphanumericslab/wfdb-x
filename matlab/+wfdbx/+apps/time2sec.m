@@ -54,9 +54,10 @@ if argc == 4 && strcmp(argv{2}, '-r')
         t = -t;
     end
     sf = wfdbx.sampfreq([]);
-    seconds = fix(t / sf);
+    % (as in C: with no sampling frequency, t / sf is infinite or NaN)
+    seconds = wfdbx.internal.d2l(t / sf);
     t = t - seconds * sf;
-    milliseconds = fix((t * 1000) / sf + 0.5);
+    milliseconds = wfdbx.internal.cint32(wfdbx.internal.d2l((t * 1000) / sf + 0.5));
     if milliseconds >= 1000
         seconds = seconds + 1;
         milliseconds = milliseconds - 1000;

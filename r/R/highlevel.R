@@ -97,6 +97,18 @@
   expr
 }
 
+# The range of a 32-bit sample (WFDB_Sample).
+.HL_INT32_MIN <- -2147483648
+.HL_INT32_MAX <- 2147483647
+
+# Evaluate expr (a reader that sets the getvec mode) and restore the mode in
+# force before it afterwards, also on errors (WFDB-x).
+.hl_gvmode <- function(expr) {
+  old <- getgvmode()
+  on.exit(setgvmode(old))
+  expr
+}
+
 # The base time and date of the open record (WFDB-x), as read_record and
 # read_header give them: base_time, the text timstr(0) gives (NULL if the
 # header gives no base time, or, without legacy mode, no sampling
@@ -206,10 +218,12 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #'
 #' channels: signal numbers (0-based, as in WFDB) or names (as in names;
 #' default: all);
-#' sampfrom, sampto: sample numbers or time strings (sampto exclusive;
-#' default: the end of the record); highres: WFDB_HIGHRES mode for
-#' multi-frequency records; pad: WFDB_GVPAD mode (invalid samples replaced
-#' by the previous valid sample).
+#' sampfrom, sampto: sample numbers or time strings (sampfrom >= 0; sampto
+#' exclusive; default: the end of the record); highres: WFDB_HIGHRES mode
+#' for multi-frequency records; pad: WFDB_GVPAD mode (invalid samples
+#' replaced by the previous valid sample).  The getvec mode (highres, pad)
+#' applies to this call only: the mode in force before the call is
+#' restored afterwards (WFDB-x).
 #'
 #' WFDB-x: no built-in sampling frequency, gain, ADC resolution or units
 #' (see docs/DIVERGENCES.md): a time string that needs the sampling
@@ -218,13 +232,13 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' is uncalibrated (gain 0).  An unspecified ADC resolution is reported as 0
 #' (siginfo adcres) and unspecified units as NULL (never as millivolts).
 #'
-#' Errors: stop() if the record cannot be read, a channel does not exist or
-#' sampfrom cannot be reached; also if reading stops with a getvec status
-#' below -1 (e.g. -3: a signal file shorter than its header says, or a read
-#' or decoding error), with the message "can't read signal data of record
-#' REC (getvec status S)", also in legacy mode (reaching the end of the
-#' record before sampto is not an error, nor is a checksum error: see
-#' checksum_warning).
+#' Errors: stop() if the record cannot be read, a channel does not exist,
+#' sampfrom is negative or cannot be reached; also if reading stops with a
+#' getvec status below -1 (e.g. -3: a signal file shorter than its header
+#' says, or a read or decoding error), with the message "can't read signal
+#' data of record REC (getvec status S)", also in legacy mode (reaching the
+#' end of the record before sampto is not an error, nor is a checksum
+#' error: see checksum_warning).
 #'
 #' checksum_warning: if TRUE (the default), warn (warning(): "checksum error
 #' in record REC: the signal data do not match the checksums in its header")
@@ -248,8 +262,12 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
                         physical = FALSE, highres = FALSE, pad = FALSE,
                         input_dir = NULL, network = NULL,
-                        legacy = FALSE, checksum_warning = TRUE) .hl_legacy(legacy, .hl_input(input_dir, network, {
+                        legacy = FALSE, checksum_warning = TRUE) .hl_legacy(legacy, .hl_input(input_dir, network, .hl_gvmode({
   legacy <- wfdbx_get_legacy()
+  # WFDB-x: a negative sampfrom is an error (isigsettime would take it as
+  # an absolute time)
+  if (is.numeric(sampfrom) && length(sampfrom) == 1L && !is.na(sampfrom) && sampfrom < 0)
+    stop("sampfrom must not be negative")
   wfdbquit()
   nsig <- isigopen(record, 0)$nsig
   if (nsig <= 0) {
@@ -360,15 +378,17 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
               checksum_ok = checksum_ok)
   wfdbquit()
   rec
-}))
+})))
 
 #' Write signals (and a header) as record `record`.
 #'
 #' signals: a matrix (one row per sample, one column per signal) of ADC
-#' units, or of physical units if physical = TRUE (converted with the gains
-#' and baselines, rounding as physadu() does; NA becomes an invalid
-#' sample).  fs: sampling frequency (required, > 0).  gains (required):
-#' ADC units per physical unit; a gain of 0 declares a signal uncalibrated,
+#' units (integers within the range of a 32-bit integer; NA becomes an
+#' invalid sample), or of physical units if physical = TRUE (converted with
+#' the gains and baselines, rounding as physadu() does; NA becomes an
+#' invalid sample, and an infinite value, or one whose ADC value is beyond
+#' the range of a 32-bit integer, is an error).  fs: sampling frequency
+#' (required, > 0).  gains (required): ADC units per physical unit; a gain of 0 declares a signal uncalibrated,
 #' which is allowed only when the samples are given in ADC units (physical
 #' = FALSE).  adcres (required): ADC resolutions in bits (>= 1).  units
 #' (required for every signal whose gain is not 0): physical units, e.g.
@@ -397,7 +417,9 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' checked first, before any file is created), if the signal file or the
 #' header cannot be created, or if they cannot be written completely, for
 #' example when the disk is full ("write error on record R", after the
-#' library's messages).
+#' library's messages).  All the arguments, the samples included, are
+#' checked before any file is created; whatever happens, the output
+#' signals are closed (wfdbquit) before the function returns.
 write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          adczeros = 0, adcres = NULL, units = NULL, names = NULL,
                          base_time = NULL, comments = NULL, physical = FALSE,
@@ -428,10 +450,10 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
     if (missing(gains) || is.null(gains) || length(gains) == 0L)
       stop("gains must be specified")
   }
-  per <- function(v, default = NULL) {
+  per <- function(v, default = NULL, name = deparse(substitute(v))) {
     if (is.null(v)) return(rep(list(default), nsig))
     if (length(v) == 1L && !is.list(v)) return(rep(list(v), nsig))
-    if (length(v) != nsig) stop("expected ", nsig, " values")
+    if (length(v) != nsig) stop(name, " must have one value per signal")
     as.list(v)
   }
   fmts <- unlist(per(fmt))
@@ -478,10 +500,26 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
         c <- c + 1
         v <- x[, c] * g
         r <- ifelse(v >= 0, trunc(v + 0.5), trunc(v - 0.5)) + bases[k]
-        r[is.na(v)] <- WFDB_INVALID_SAMPLE
+        # WFDB-x: NA (or NaN) is an invalid sample; an infinite value, or
+        # one beyond the range of a 32-bit sample, is an error
+        na <- is.na(v)
+        if (any(!na & !(r >= .HL_INT32_MIN & r <= .HL_INT32_MAX)))
+          stop("signal ", k - 1, " has a sample that is infinite or beyond the range ",
+               "of 32-bit ADC units")
+        r[na] <- WFDB_INVALID_SAMPLE
         x[, c] <- r
       }
     }
+  } else {
+    # WFDB-x: samples in ADC units are integers within the range of a
+    # 32-bit sample (anything else is an error, not converted); NA is an
+    # invalid sample
+    na <- is.na(x)
+    if (any(!na & !(x >= .HL_INT32_MIN & x <= .HL_INT32_MAX)))
+      stop("samples in ADC units must be within the range of a 32-bit integer")
+    if (any(!na & x != trunc(x)))
+      stop("samples in ADC units must be integers")
+    if (any(na)) x[na] <- WFDB_INVALID_SAMPLE
   }
   si <- lapply(seq_len(nsig), function(k) {
     siginfo(fname = paste0(record, ".dat"),
@@ -491,25 +529,25 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
             spf = spf[k], bsize = 0, adcres = res[k], adczero = zeros[k],
             baseline = bases[k])
   })
+  fs <- as.numeric(fs)
+  comments <- as.character(comments)
   wfdbquit()
   errors <- wfdbx_write_errors()
-  if (osigfopen(si, nsig) != nsig) {
-    wfdbquit()
-    stop("can't create signal file for record ", record)
-  }
-  setsampfreq(as.numeric(fs))
-  # (the counter frequency and base count survive wfdbquit, as in C; a new
-  # record written here has neither)
-  setcfreq(0)
-  setbasecount(0)
-  if (!is.null(base_time)) setbasetime(base_time)
-  putframes(x)
-  if (newheader(record) < 0) {
-    wfdbquit()
-    stop("can't create header for record ", record)
-  }
-  for (c in comments) putinfo(c)
-  wfdbquit()
+  # (the output signals are closed however this ends)
+  tryCatch({
+    if (osigfopen(si, nsig) != nsig)
+      stop("can't create signal file for record ", record)
+    setsampfreq(fs)
+    # (the counter frequency and base count survive wfdbquit, as in C; a
+    # new record written here has neither)
+    setcfreq(0)
+    setbasecount(0)
+    if (!is.null(base_time)) setbasetime(base_time)
+    putframes(x)
+    if (newheader(record) < 0)
+      stop("can't create header for record ", record)
+    for (c in comments) putinfo(c)
+  }, finally = wfdbquit())
   if (wfdbx_write_errors() > errors) stop("write error on record ", record)
   invisible()
 }))

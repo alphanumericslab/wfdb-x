@@ -1069,6 +1069,21 @@ fn main() {
         for i in 0..nosig_u {
             msiglist[i] = dfin[..siglist[i] as usize].iter().map(|s| s.spf).sum();
         }
+        // WFDB-x: room for every output sample of a frame, and for every
+        // input sample that they read (C sizes vout for the input frame and
+        // writes past its end when the output frame is larger; the samples
+        // read beyond the input frame are 0 here)
+        let ospf: usize = dfout[..nosig_u].iter().map(|s| s.spf.max(0) as usize).sum();
+        if vout.len() < ospf {
+            vout.resize(ospf, 0);
+        }
+        let need = (0..nosig_u)
+            .map(|i| msiglist[i] as usize + dfout[i].spf.max(0) as usize)
+            .max()
+            .unwrap_or(0);
+        if vin.len() < need {
+            vin.resize(need, 0);
+        }
     }
 
     let more = |nsamp: &mut i64| -> bool {

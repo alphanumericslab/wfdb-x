@@ -6,7 +6,10 @@ function status = wfdbx_bench(op, datadir, reps)
 %
 %     {"op": OP, "first": S, "best": S, "times": [S, ...], "check": C}
 %
-%   (times in seconds; C, a check value of the first call).  STATUS is 0,
+%   (times in seconds; C, a check value of the first call).  If the
+%   environment variable WFDBX_BENCH_DUMP is set (not empty), the result of
+%   the first call is saved in that directory (outside the timed calls).
+%   STATUS is 0,
 %   or 2 for an unknown OP.  See benchmarks/README.md for the operations.
 %   The matlab/ folder of WFDB-x must be on the path.  Works in MATLAB and
 %   in Octave (benchmarks/matlab/bench.m runs it from the shell).
@@ -45,9 +48,14 @@ if strcmp(op, 'write_long')
 elseif strcmp(op, 'write_ann')
     ann = wfdbx.read_annotations('long', 'atr');
 end
+dump = getenv('WFDBX_BENCH_DUMP');
 t = tic();
-check = run(op, out, src, ann);
+result = run(op, out, src, ann);
 first = toc(t);
+check = check_value(op, out, result);
+if ~isempty(dump)
+    save_result(op, out, result, fullfile(dump, op));
+end
 times = zeros(1, reps);
 for k = 1:reps
     t = tic();
@@ -65,35 +73,86 @@ fprintf('{"op": "%s", "first": %s, "best": %s, "times": [%s], "check": %s}\n', .
 status = 0;
 end
 
-function check = run(op, out, src, ann)
-% One call of the operation OP; CHECK is its check value.  The sums are
-% exact in double precision (fewer than 2^53 in magnitude).
+function x = run(op, out, src, ann)
+% One call of the operation OP; X is its result (the samples, the
+% annotations, or [] for the writers).
+x = [];
 switch op
-    case 'read_long'
-        x = wfdbx.read_record('long');
-        check = sum(x.signals(:));
+    case {'read_long', 'read_mimic', 'read_wide'}
+        x = wfdbx.read_record(op(6:end));
+        x = x.signals;
     case 'read_long_phys'
         x = wfdbx.read_record('long', 'physical', true);
-        v = x.signals(:);
-        check = round(sum(v(~isnan(v))) * 1000) / 1000;
-    case 'read_mimic'
-        x = wfdbx.read_record('mimic');
-        check = sum(x.signals(:));
-    case 'read_wide'
-        x = wfdbx.read_record('wide');
-        check = sum(x.signals(:));
+        x = x.signals;
     case 'write_long'
         wfdbx.write_record('out', src.signals, src.fs, 'fmt', 16, ...
             'gains', src.gains, 'adcres', 16, 'units', src.units, 'dir', out);
-        check = file_size(fullfile(out, 'out.dat'));
     case 'read_ann'
-        a = wfdbx.read_annotations('long', 'atr');
-        check = numel(a.samples);
+        x = wfdbx.read_annotations('long', 'atr');
     case 'write_ann'
         wfdbx.write_annotations('out', 'atr', ann.samples, 'codes', ann.codes, ...
             'aux', ann.aux, 'dir', out);
+end
+end
+
+function check = check_value(op, out, x)
+% The check value of the result X of OP.  The sums are exact in double
+% precision (fewer than 2^53 in magnitude).
+switch op
+    case {'read_long', 'read_mimic', 'read_wide'}
+        check = sum(double(x(:)));
+    case 'read_long_phys'
+        v = x(:);
+        check = round(sum(v(~isnan(v))) * 1000) / 1000;
+    case 'write_long'
+        check = file_size(fullfile(out, 'out.dat'));
+    case 'read_ann'
+        check = numel(x.samples);
+    case 'write_ann'
         check = file_size(fullfile(out, 'out.atr'));
 end
+end
+
+function save_result(op, out, x, p)
+% Saves the result X of OP in the files P.* (little-endian): the samples
+% frame by frame (row-major), the annotations, or copies of the files
+% written.
+switch op
+    case {'read_long', 'read_mimic', 'read_wide'}
+        write_file([p '.bin'], x.', 'int32');
+    case 'read_long_phys'
+        x(isnan(x)) = NaN;
+        write_file([p '.bin'], x.', 'double');
+    case 'write_long'
+        copyfile(fullfile(out, 'out.hea'), [p '.hea']);
+        copyfile(fullfile(out, 'out.dat'), [p '.dat']);
+    case 'read_ann'
+        % each annotation: time (int64), code, subtype, chan, num, the
+        % length of the aux text (int32; -1 if none) and the aux text
+        f = fopen([p '.ann'], 'w', 'ieee-le');
+        for k = 1:numel(x.samples)
+            a = x.aux{k};
+            if ischar(a)
+                b = uint8(double(a));
+                n = numel(b);
+            else
+                b = uint8([]);
+                n = -1;
+            end
+            fwrite(f, x.samples(k), 'int64');
+            fwrite(f, [x.codes(k), x.subtypes(k), x.chans(k), x.nums(k), n], 'int32');
+            fwrite(f, b, 'uint8');
+        end
+        fclose(f);
+    case 'write_ann'
+        copyfile(fullfile(out, 'out.atr'), [p '.atr']);
+end
+end
+
+function write_file(path, x, precision)
+f = fopen(path, 'w', 'ieee-le');
+fwrite(f, x, precision);
+fclose(f);
 end
 
 function n = file_size(path)

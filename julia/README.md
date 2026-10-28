@@ -1,10 +1,10 @@
 # WFDB-x for Julia
 
-> **WFDB-x** is the WFDB Software Package (the library and its 33
-> command-line tools) reimplemented in seven languages: Python, C++,
-> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
-> the original C package and to each other. This is the Julia
-> implementation.
+> **WFDB-x** is a reimplementation of the WFDB Software Package (the library
+> and its command-line tools) in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
+> identical results to the original C package and to each other. This is the
+> Julia implementation.
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
@@ -119,7 +119,7 @@ x = physical(rec)
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
 | `channels` | signals to read, by number (`0` is the first signal) or name (as in `signal_names`) | all signals |
-| `from`, `to` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
+| `from`, `to` | first sample, and the sample after the last one: a sample number (`from` is not negative) or a time string (see below) | the whole record |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `pad` | replace invalid samples by the previous valid one | `false` |
 | `checksum_warning` | warn when the data do not match the header's checksums | `true` |
@@ -200,7 +200,9 @@ in file order. `length(ann)` is the number of annotations.
 
 `write_record` takes samples in ADC units. `write_record_physical` takes
 samples in physical units and converts them with the given gains and
-baselines. `NaN` is written as an invalid sample.
+baselines. `NaN` is written as an invalid sample; an infinite value, or one
+whose ADC value lies outside the range of `Int32`, is an error. Samples in
+ADC units must also lie within that range.
 
 ```julia
 x = randn(3600, 2)                  # random samples: the record "rand" is written by this example
@@ -213,7 +215,7 @@ sampling frequency, the gain and ADC resolution of each signal, and the
 units of each calibrated signal are required; there are no defaults. A gain
 of 0 marks a signal as uncalibrated, which is only allowed with
 `write_record`. Per-signal options take one value for all signals, or a
-vector with one value per signal.
+vector with one value per signal; a vector of another length is an error.
 
 | Argument | Meaning |
 |---|---|
@@ -236,7 +238,10 @@ write_annotations("rand", "qrs", ann)            # writes rand.qrs, for the reco
 ```
 
 Give the annotation types as `symbols` or as `codes`. `subtypes`, `chans`,
-`nums` and `aux` are optional. The `fs` option records the time resolution
+`nums` and `aux` are optional. Each of these fields is either empty or has
+one element per annotation; any other length is an error, reported before
+the file is created. As in C, the subtype, channel and annotator number are
+stored in one byte each (other values wrap around). The `fs` option records the time resolution
 in the file; `ann.fs` is not used. `dir` and `legacy` are as in
 `write_record`.
 
@@ -273,6 +278,12 @@ on unless it is `0`).
   the samples is not their sum ("write_record: signals has N columns, but
   samps_per_frame adds up to M"). These are checked before anything else,
   and nothing is written.
+* The writers check all their arguments before they create a file.
+  Whatever happens, they close their output signals and annotators before
+  they return.
+* A negative `from` in `read_record` throws a `WfdbError`.
+* `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
+  only: the mode in force before the call is restored afterwards.
 * `write_record`, `write_record_physical` and `write_annotations` throw a
   `WfdbError` when a file cannot be written completely, for example on a
   full disk: "write error on record REC", "write error on annotator ANN for

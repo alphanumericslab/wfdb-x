@@ -465,4 +465,52 @@ class AnnotationsTest {
         assertEquals(listOf(0, 0, -3), List(3) { w.getann(0, a) })
         w.wfdbquit()
     }
+
+    @Test
+    fun writeAnnotationsByteFields() = withData("annbytes") { d, w ->
+        // The subtype, channel and annotator number are stored in one byte
+        // each, as in C: 300 is written as 44, and -200 as 56. Expected
+        // bytes: the file written by the C wrann from the lines
+        // "0:00.004 1 N 300 300 300" and "0:00.008 2 V -200 0 0" (record 100s).
+        w.writeAnnotations(
+            "100s", "sub", longArrayOf(1, 2), codes = intArrayOf(NORMAL, PVC), subtypes = intArrayOf(300, -200),
+            chans = intArrayOf(300, 0), nums = intArrayOf(300, 0), fs = 360.0,
+        )
+        assertEquals(
+            "005817fc23232074696d65207265736f6c7574696f6e3a203336300000ecffffffff01000104" +
+                "2cf42cf82cf0011438f400f800f00000",
+            hex(d.read("100s.sub")!!),
+        )
+        val r = w.readAnnotations("100s", "sub")
+        assertEquals(listOf(44, 56), r.subtypes.toList())
+        assertEquals(listOf(44, 0), r.chans.toList())
+        assertEquals(listOf(44, 0), r.nums.toList())
+    }
+
+    @Test
+    fun writeAnnotationsFieldLengths() = withData("annlen") { d, w ->
+        // A per-annotation argument is absent or has one value per
+        // annotation; anything else is an error, before the file is created.
+        // A later call works normally.
+        val t = longArrayOf(10, 20, 30)
+        val sym = listOf("N", "V", "N")
+        val bad = listOf<() -> Unit>(
+            { w.writeAnnotations("100s", "len", t, symbols = sym, aux = listOf("x")) },
+            { w.writeAnnotations("100s", "len", t, symbols = listOf("N")) },
+            { w.writeAnnotations("100s", "len", t, symbols = sym, codes = intArrayOf(1, 1, 1, 1)) },
+            { w.writeAnnotations("100s", "len", t, codes = intArrayOf(1, 1, 1), symbols = listOf("N")) },
+            { w.writeAnnotations("100s", "len", t, symbols = sym, subtypes = intArrayOf(1, 2)) },
+            { w.writeAnnotations("100s", "len", t, symbols = sym, chans = intArrayOf(1)) },
+            { w.writeAnnotations("100s", "len", t, symbols = sym, nums = intArrayOf(1, 2, 3, 4)) },
+        )
+        for (f in bad) {
+            val e = assertFailsWith<WfdbException> { f() }
+            assertTrue(e.message!!.endsWith("must have one value per annotation"), e.message)
+            assertNull(d.read("100s.len"))
+        }
+        w.writeAnnotations("100s", "len", t, symbols = sym)
+        val r = w.readAnnotations("100s", "len")
+        assertEquals(t.toList(), r.samples.toList())
+        assertEquals(listOf(NORMAL, PVC, NORMAL), r.codes.toList())
+    }
 }

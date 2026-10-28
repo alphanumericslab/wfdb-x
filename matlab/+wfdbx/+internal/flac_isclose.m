@@ -1,10 +1,12 @@
 function stat = flac_isclose(ig)
 %FLAC_ISCLOSE Finish reading a FLAC input group (flac_isclose).
 %   STAT = wfdbx.internal.flac_isclose(IG) checks, if the environment
-%   variable WFDB_FLAC_CHECK_MD5 was set when the group was opened and the
-%   whole stream was decoded without seeking, the MD5 signature of the
-%   decoded samples against STREAMINFO ("isigclose: warning: incorrect MD5
-%   hash in FLAC input", STAT -1); STAT is 0 otherwise.
+%   variable WFDB_FLAC_CHECK_MD5 was set when the stream was first read,
+%   the MD5 signature of the decoded samples against STREAMINFO, as
+%   libFLAC does when no seek was made ("isigclose: warning: incorrect MD5
+%   hash in FLAC input", STAT -1); STAT is 0 otherwise.  (If nothing was
+%   read, libFLAC compares the signature of no samples with that of a
+%   STREAMINFO block it has not read.)
 %
 %   Translation of the C function flac_isclose() (lib/signal.c, WFDB
 %   10.7.0).
@@ -32,9 +34,15 @@ function stat = flac_isclose(ig)
 
 stat = 0;
 fi = ig.flac;
-if ~isempty(fi) && fi.md5_check && ~isempty(fi.md5) && ...
-        ~isempty(fi.decoded_md5) && ~fi.seeked && any(fi.md5) && ...
-        ~isequal(fi.md5, fi.decoded_md5)
+if isempty(fi)
+    return;
+end
+if isempty(fi.dec)
+    ok = isempty(wfdbx.internal.cgetenv('WFDB_FLAC_CHECK_MD5'));
+else
+    [~, ok] = wfdbx.internal.flac_decoder('finish', fi.dec);
+end
+if ~ok
     wfdbx.internal.wfdb_error('isigclose: warning: incorrect MD5 hash in FLAC input\n');
     stat = -1;
 end

@@ -59,8 +59,15 @@ app_sampfreq <- function(args = character(0)) {
     }
     setgvmode(WFDB_LOWRES)
     freq <- sampfreq(NULL)
-    for (i in seq_len(max(nsig, 0)))
-      cprintf("%s\t%g\n", si[[i]]$desc, si[[i]]$spf * freq)
+    for (i in seq_len(max(nsig, 0))) {
+      if (i <= length(si)) {
+        cprintf("%s\t%g\n", si[[i]]$desc, si[[i]]$spf * freq)
+      } else {
+        # (a signal that could not be opened: C prints the zeroed entry of
+        # its array)
+        cprintf("(null)\t0\n")
+      }
+    }
   }
   0
 }

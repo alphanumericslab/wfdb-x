@@ -143,9 +143,12 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' sample: the annotation times (or a data frame as returned by
 #' read_annotations, whose columns then give all fields).  Give either
 #' symbol (mnemonics such as "N") or code (annotation type codes).
-#' subtype, chan and num are recycled; aux is a character vector (NA for
-#' none) or NULL.  If fs is given, it is recorded as the time resolution of
-#' the file (setafreq).  Annotations out of order are sorted when the file
+#' symbol, code, subtype, chan, num and aux are each one value for all
+#' annotations, or one value per annotation (any other length is an error,
+#' before the file is created); aux is a character vector (NA for none) or
+#' NULL.  As in C, subtypes and annotator numbers are stored as signed
+#' bytes and channels as unsigned bytes (other values wrap around).  If fs
+#' is given, it is recorded as the time resolution of the file (setafreq).  Annotations out of order are sorted when the file
 #' is closed (as the sortann tool does; WFDB-x: in this process, whereas the
 #' C library, as legacy mode, runs sortann), unless the WFDBANNSORT
 #' environment variable is 0.  dir: if given, the directory (which must
@@ -164,6 +167,8 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' annotator A for record R"), or if the file cannot be written completely,
 #' for example when the disk is full ("write error on annotator A for
 #' record R", after the library's message), and on invalid arguments.
+#' The arguments are checked before the file is created; whatever
+#' happens, the annotator is closed (wfdbquit) before the function returns.
 write_annotations <- function(record, annotator, sample, symbol = NULL, code = NULL,
                               subtype = 0, chan = 0, num = 0, aux = NULL, fs = NULL,
                               dir = NULL, legacy = FALSE, sort = NULL) {
@@ -188,14 +193,24 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
     if (is.null(aux) && !is.null(df$aux)) aux <- df$aux
   }
   n <- length(sample)
+  # WFDB-x: a per-annotation argument is one value for all annotations, or
+  # one value per annotation
+  per <- function(v, name) {
+    if (length(v) != 1L && length(v) != n)
+      stop(name, " must have one value per annotation")
+    rep_len(v, n)
+  }
   if (is.null(code)) {
     if (is.null(symbol)) stop("symbol or code must be given")
-    code <- strann(as.character(symbol))
+    code <- strann(as.character(per(symbol, "symbol")))
   }
-  code <- rep_len(as.numeric(code), n)
+  code <- as.numeric(per(code, "code"))
+  subtype <- as.numeric(per(subtype, "subtype"))
+  chan <- as.numeric(per(chan, "chan"))
+  num <- as.numeric(per(num, "num"))
   auxl <- vector("list", n)
   if (!is.null(aux)) {
-    aux <- rep_len(as.character(aux), n)
+    aux <- as.character(per(aux, "aux"))
     ok <- which(!is.na(aux))
     # (each distinct string is converted once)
     u <- unique(aux[ok])
@@ -206,22 +221,21 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
     })
     auxl[ok] <- ub[match(aux[ok], u)]
   }
+  afs <- if (!is.null(fs)) as.numeric(fs)
   wfdbquit()
   errors <- wfdbx_write_errors()
   # (the sort option applies to the file written here only: set after the
   # wfdbquit above, which closes any annotator opened before)
   .ann$sort_override <- sort
   on.exit(.ann$sort_override <- NULL, add = TRUE)
-  if (!is.null(fs)) setafreq(as.numeric(fs))
-  on.exit(if (!is.null(fs)) setafreq(0), add = TRUE)
-  if (annopen(record, list(anninfo(annotator, WFDB_WRITE)), 1) < 0) {
-    wfdbquit()
+  if (!is.null(afs)) setafreq(afs)
+  on.exit(if (!is.null(afs)) setafreq(0), add = TRUE)
+  # (the annotator is closed however this ends)
+  on.exit(wfdbquit(), add = TRUE, after = FALSE)
+  if (annopen(record, list(anninfo(annotator, WFDB_WRITE)), 1) < 0)
     stop(sprintf("can't create annotator %s for record %s", annotator, record))
-  }
   st <- .putann_bulk(0, list(time = trunc(as.numeric(sample)), anntyp = code,
-                             subtyp = rep_len(as.numeric(subtype), n),
-                             chan = rep_len(as.numeric(chan), n),
-                             num = rep_len(as.numeric(num), n), aux = auxl))
+                             subtyp = subtype, chan = chan, num = num, aux = auxl))
   wfdbquit()
   if (wfdbx_write_errors() > errors)
     stop(sprintf("write error on annotator %s for record %s", annotator, record))

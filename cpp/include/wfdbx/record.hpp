@@ -204,7 +204,9 @@ struct ReadOptions : InputOptions {
 /// Returns a Record, with the samples in ADC units.
 ///
 /// Throws Error if the record cannot be read or has no signals, if a
-/// requested signal does not exist, or if opt.from cannot be reached.  A
+/// requested signal does not exist, if opt.from is negative ("read_record:
+/// from must not be negative") or cannot be reached.  The getvec mode
+/// (getgvmode()) is the same after the call as before it.  A
 /// signal file that is shorter than its header says, or that cannot be read
 /// or decoded, throws "can't read signal data of record R (getvec status
 /// S)".  If the header gives no sampling frequency, rec.fs is 0, and a time
@@ -382,7 +384,9 @@ void write_record(const std::string &record,
 
 /// As write_record(), with samples in physical units.  Each sample v is
 /// stored as round(v * gain) + baseline, and NaN is stored as an invalid
-/// sample.  Throws Error ("signal N is uncalibrated") if a gain is 0.
+/// sample.  Throws Error ("signal N is uncalibrated") if a gain is 0, and
+/// ("sample I is out of range") if a sample is infinite or its ADC value is
+/// outside the range of a 32-bit integer; nothing is written then.
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 void write_record_physical(const std::string &record,
@@ -392,8 +396,12 @@ void write_record_physical(const std::string &record,
 /// Write the annotation file of `annotator` for `record`,
 /// "<record>.<annotator>".  The type of each annotation is its `symbols`
 /// entry ("N", "V", ...; an unknown mnemonic gives NOTQRS), or its `codes`
-/// entry if the symbol is empty or missing.  Missing subtypes, chans, nums
-/// and aux entries are 0 or absent, and aux texts are cut to 255 bytes.  If
+/// entry if the symbol is empty or absent.  Each of symbols, codes,
+/// subtypes, chans, nums and aux is either empty (subtypes, chans and nums
+/// are then 0, and there is no aux) or has one entry per annotation; any
+/// other length throws Error before anything is written.  subtypes, chans
+/// and nums are stored in 8 bits, as by putann() (300 is stored as 44, as
+/// in C), and aux texts are cut to 255 bytes.  If
 /// fs > 0, it is recorded in the file (ann.fs is not used).  If `dir` is not
 /// empty, the file is created in that directory, which must exist.
 ///

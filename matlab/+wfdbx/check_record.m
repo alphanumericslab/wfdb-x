@@ -110,7 +110,8 @@ io = wfdbx.internal.io_state();
 printing = io.error_print;
 legacy = wfdbx.wfdbx_set_legacy(0);
 io.error_print = false;
-restore = onCleanup(@() restore_state(io, printing, legacy)); %#ok<NASGU>
+mode = wfdbx.getgvmode();    % (restored too: the check sets it)
+restore = onCleanup(@() restore_state(io, printing, legacy, mode)); %#ok<NASGU>
 wfdbx.wfdbquit();
 rep = reshape(struct('severity', {}, 'code', {}, 'where', {}, 'message', {}), 0, 1);
 [rep, len] = check_record_signals(record, rep);
@@ -143,10 +144,11 @@ if nargout == 0
 end
 end
 
-function restore_state(io, printing, legacy)
+function restore_state(io, printing, legacy, mode)
 wfdbx.wfdbquit();
 io.error_print = printing;
 wfdbx.wfdbx_set_legacy(legacy);
+wfdbx.setgvmode(mode);
 end
 
 

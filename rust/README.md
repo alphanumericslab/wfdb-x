@@ -1,10 +1,10 @@
 # WFDB-x for Rust
 
-> **WFDB-x** is the WFDB Software Package (the library and its 33
-> command-line tools) reimplemented in seven languages: Python, C++,
-> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
-> the original C package and to each other. This is the Rust
-> implementation.
+> **WFDB-x** is a reimplementation of the WFDB Software Package (the library
+> and its command-line tools) in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
+> identical results to the original C package and to each other. This is the
+> Rust implementation.
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
@@ -146,7 +146,7 @@ let mlii = rec.physical_signal(0)?;   // Vec<f64>, in physical units
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
 | `channels` | signals to read, by number (`"0"`) or name (`"MLII"`, as in `names()`) | all signals |
-| `from`, `to` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
+| `from`, `to` | first sample, and the sample after the last one: a sample number (`from` is not negative) or a time string (see below) | the whole record |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `pad` | replace invalid samples by the previous valid one | `false` |
 | `checksum_warning` | warn when the data do not match the header's checksums | `true` |
@@ -230,7 +230,9 @@ is an `Annotations` value, in file order:
 
 `write_record(record, &samples, nsig, fs, &opt)` writes a record from
 samples in ADC units (`i32`). `write_record_physical` takes the same
-arguments with samples in physical units (`f64`). This example writes two
+arguments with samples in physical units (`f64`): NaN becomes an invalid
+sample, and an infinite value, or one beyond the range of `i32` in ADC
+units, is an error. This example writes two
 sine waves as a new record, `sine`, in the current directory:
 
 ```rust
@@ -291,8 +293,12 @@ write_annotations("sine", "qrs", &ann, 0.0, None)?;   // writes sine.qrs
 
 The arguments are `record`, `annotator`, the annotations, `fs` and an
 optional existing output directory. Give the annotation types as `symbols`
-or as `codes`. `subtypes`, `chans`, `nums` and `aux` are optional. A
-positive `fs` is stored in the file as the frequency of its sample numbers.
+or as `codes`. `subtypes`, `chans`, `nums` and `aux` are optional. Each of
+these fields is either empty or has one entry per annotation; anything else
+is an error, reported before the file is created. As in C, the subtype,
+channel and annotator number are stored in one byte each (other values wrap
+around). A positive `fs` is stored in the file as the frequency of its
+sample numbers.
 
 If the annotations are not in time order, the file is sorted when it is
 written. `write_annotations_with` takes an `AnnWriteOptions` with the fields

@@ -111,5 +111,12 @@ repository were produced on x86-64 Linux (glibc), with libFLAC 1.4.3.
 
 Add calls to `case(tool, args, ...)` in `cases.py`, regenerate the golden
 results of the new cases (`harness.py golden --cbin ... CASE_IDS`), and check
-them in. A case must not depend on the current date or time, or on behavior
-that is undefined in C (see [`KNOWN_C_BEHAVIORS.md`](KNOWN_C_BEHAVIORS.md)).
+them in. A case must not depend on the current date or time.
+
+A case whose input makes the C tool crash, or fail in a way that depends on
+the machine, cannot have results from C. Such a case names, with
+`golden_impl`, the WFDB-x implementation whose results are recorded instead
+(for example `golden_impl="python"`); they are the behavior that
+[`KNOWN_C_BEHAVIORS.md`](KNOWN_C_BEHAVIORS.md) documents for that input, and
+every implementation must give them. `harness.py golden` runs that
+implementation for such a case, and `harness.py check --impl c` skips it.

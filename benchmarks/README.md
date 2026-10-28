@@ -12,18 +12,21 @@ python3 benchmarks/run.py --cbin /path/to/wfdb/bin   # also time the original C 
 ```
 
 `run.py` writes the test records (with `make_records.py`, into
-`benchmarks/build/data`, the same on every run), builds the drivers of the
-compiled languages (into `benchmarks/build`), runs every operation in every
-language, and prints the results as Markdown tables (`--json FILE` and
-`--markdown FILE` save them). It stops with an error if two languages read
-or wrote different data. For wfdb-python, set `WFDB_PYTHON` to a Python
-that has the `wfdb` package (`pip install wfdb`).
+`benchmarks/build/data`, the same on every run; they are written again when
+`make_records.py` changes), builds the drivers of the compiled languages
+(into `benchmarks/build`), runs every operation in every language, and
+prints the results as Markdown tables (`--json FILE` and `--markdown FILE`
+save them). It stops with an error if two languages read or wrote different
+data (see below). For wfdb-python, set `WFDB_PYTHON` to a Python that has
+the `wfdb` package (`pip install wfdb`); without it, wfdb-python is skipped.
+Peak memory includes about 11 MB inherited from the runner, so values near
+that are upper bounds.
 
 ## The records
 
 | Record | Contents |
 |---|---|
-| `long` | 2 signals, format 212, 360 Hz, 1 hour (1,296,000 frames), and its annotation file `long.atr` (4,500 annotations, some with text) |
+| `long` | 2 signals, format 212 (12-bit ADC), 360 Hz, 1 hour (1,296,000 frames), and its annotation file `long.atr` (4,500 annotations within the record, some with text) |
 | `mimic` | multi-segment: 12 segments of 75,000 frames, 4 signals in format 212 at 125 Hz, the first at 4 samples per frame (500 Hz), as in the MIMIC Database |
 | `wide` | 12 signals, format 16, 500 Hz, 10 minutes: a 12-lead ECG |
 
@@ -69,6 +72,23 @@ more ("best": the fastest of them), and prints one line of JSON:
 ```
 
 The runner also measures the peak memory of the whole driver process.
+
+When the environment variable `WFDBX_BENCH_DUMP` names a directory, a
+driver also saves there the result of its first call (outside the timed
+calls), so that the runner can compare the results of the languages
+exactly. All the files are little-endian:
+
+| Operation | File | Contents |
+|---|---|---|
+| `read_long`, `read_mimic`, `read_wide` | `OP.bin` | the samples read, frame by frame (row-major), as int32 |
+| `read_long_phys` | `OP.bin` | the values read, frame by frame, as float64 (NaN for invalid samples) |
+| `read_ann` | `OP.ann` | for each annotation: its time (int64), code, subtype, chan and num (int32), the length of its text (int32; -1 if it has none) and the text |
+| `write_long` | `OP.hea`, `OP.dat` | the header and signal file written |
+| `write_ann` | `OP.atr` | the annotation file written |
+
+The runner compares the arrays value by value (NaN equal to NaN) and the
+other files byte for byte, across all the WFDB-x languages, and stops with
+an error if any of them differ.
 
 This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GPL-3.0-or-later;
 see [LICENSE](../LICENSE).

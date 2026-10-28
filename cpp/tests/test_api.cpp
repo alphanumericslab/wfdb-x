@@ -23,9 +23,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <random>
 #include <string>
@@ -1175,4 +1177,156 @@ WFDBX_TEST(write_record_frame_checks)
     w.samps_per_frame = {1, 1};
     write_record("good", x, 2, 250, w);
     CHECK(read_record("good").samples == x);
+}
+
+// read_record leaves the getvec mode as it was, also when it throws.
+WFDBX_TEST(read_record_restores_gvmode)
+{
+    DataDir d;
+    const int prev = getgvmode();
+    setgvmode(WFDB_LOWRES);
+    ReadOptions o;
+    o.highres = true;
+    o.pad = true;
+    o.to = 20;
+    Record r = read_record("mfreq", o);
+    CHECK(r.fs == 400 && r.nsamples() == 20);
+    CHECK_EQ(getgvmode(), WFDB_LOWRES);
+    CHECK(sampfreq("mfreq") == 100);    // (the base frequency)
+    wfdbquit();
+    o.from = -1;
+    CHECK_EQ(error_of([&] { read_record("mfreq", o); }),
+             "read_record: from must not be negative");
+    CHECK_EQ(getgvmode(), WFDB_LOWRES);
+    setgvmode(prev);
+}
+
+// A negative `from` is an error; `to` far beyond the end reads to the end.
+WFDBX_TEST(read_record_from_to_limits)
+{
+    DataDir d;
+    ReadOptions o;
+    o.from = -5;
+    o.to = 3;
+    CHECK_EQ(error_of([&] { read_record("100s", o); }),
+             "read_record: from must not be negative");
+    Record all = read_record("100s");
+    o.from = 5;
+    o.to = std::numeric_limits<long long>::max();
+    Record r = read_record("100s", o);
+    REQUIRE(r.nsamples() == all.nsamples() - 5);
+    CHECK(r.sampfrom == 5);
+    CHECK(std::equal(r.samples.begin(), r.samples.end(),
+                     all.samples.begin() + 5 * all.nsig));
+}
+
+// Infinite samples, and samples whose ADC values are out of the range of an
+// int, are errors (nothing is written); NaN is an invalid sample.
+WFDBX_TEST(write_record_physical_out_of_range)
+{
+    DataDir d;
+    WriteOptions w;
+    w.gains = {200};
+    w.adcres = {16};
+    w.units = {"mV"};
+    for (double bad : {std::numeric_limits<double>::infinity(),
+                       -std::numeric_limits<double>::infinity(), 1.1e7,
+                       -1.1e7}) {
+        std::vector<double> x = {0.0, bad};
+        CHECK_EQ(error_of([&] { write_record_physical("big", x, 1, 100, w); }),
+                 "write_record: sample 1 is out of range");
+        CHECK(!fs::exists("big.hea") && !fs::exists("big.dat"));
+    }
+    // (the largest value that fits, and a later call that works)
+    w.fmt = 32;
+    w.adcres = {32};
+    std::vector<double> x = {0.0, 2147483647.0 / 200, NAN};
+    write_record_physical("big", x, 1, 100, w);
+    std::vector<WFDB_Sample> expect = {0, 2147483647, WFDB_INVALID_SAMPLE};
+    CHECK(read_record("big").samples == expect);
+}
+
+// Each per-annotation field is empty or has one entry per annotation;
+// nothing is written otherwise, and a later call works.
+WFDBX_TEST(write_annotations_field_lengths)
+{
+    DataDir d;
+    Annotations a;
+    a.samples = {10, 20, 30};
+    a.symbols = {"N", "V", "N"};
+    a.aux = {std::string("x")};
+    CHECK_EQ(error_of([&] { write_annotations("100s", "bad", a); }),
+             "write_annotations: aux must have one entry per annotation (3), "
+             "or none");
+    a.aux.clear();
+    a.subtypes = {1, 2};
+    CHECK_EQ(error_of([&] { write_annotations("100s", "bad", a); }),
+             "write_annotations: subtypes must have one entry per annotation "
+             "(3), or none");
+    a.subtypes.clear();
+    a.codes = {NORMAL, PVC, NORMAL, NORMAL};
+    CHECK_EQ(error_of([&] { write_annotations("100s", "bad", a); }),
+             "write_annotations: codes must have one entry per annotation "
+             "(3), or none");
+    CHECK(!fs::exists("100s.bad"));
+    a.codes.clear();
+    a.nums = {0, 1, 2};
+    write_annotations("100s", "bad", a);
+    Annotations r = read_annotations("100s", "bad");
+    REQUIRE(r.size() == 3);
+    CHECK(r.codes[1] == PVC && r.nums[2] == 2);
+}
+
+// subtypes, chans and nums are stored in 8 bits, as C stores them (the
+// expected bytes are those written by the C tool wrann for the same
+// annotations).
+WFDBX_TEST(write_annotations_byte_fields)
+{
+    DataDir d;
+    Annotations a;
+    a.samples = {1, 2, 3};
+    a.symbols = {"N", "V", "N"};
+    a.subtypes = {300, -200, 0};
+    a.chans = {300, 5, 0};
+    a.nums = {300, -7, 0};
+    write_annotations("100s", "sub", a, 360);
+    const unsigned char expect[] = {
+        0x00, 0x58, 0x17, 0xfc, 0x23, 0x23, 0x20, 0x74, 0x69, 0x6d, 0x65,
+        0x20, 0x72, 0x65, 0x73, 0x6f, 0x6c, 0x75, 0x74, 0x69, 0x6f, 0x6e,
+        0x3a, 0x20, 0x33, 0x36, 0x30, 0x00, 0x00, 0xec, 0xff, 0xff, 0xff,
+        0xff, 0x01, 0x00, 0x01, 0x04, 0x2c, 0xf4, 0x2c, 0xf8, 0x2c, 0xf0,
+        0x01, 0x14, 0x38, 0xf4, 0x05, 0xf8, 0xf9, 0xf3, 0x01, 0x04, 0x00,
+        0xf8, 0x00, 0xf0, 0x00, 0x00};
+    CHECK(slurp("100s.sub") ==
+          std::string(reinterpret_cast<const char *>(expect), sizeof(expect)));
+    Annotations r = read_annotations("100s", "sub");
+    REQUIRE(r.size() == 3);
+    CHECK(r.subtypes[0] == 44 && r.chans[0] == 44 && r.nums[0] == 44);
+    CHECK(r.subtypes[1] == 56 && r.nums[1] == -7);
+}
+
+// An EDF file whose data records hold no samples: the signals end at once.
+WFDBX_TEST(edf_no_samples_per_record)
+{
+    DataDir d;
+    const int prev = getgvmode();   // (opening an EDF record changes it)
+    std::string edf = slurp("fmt16.edf");
+    REQUIRE(edf.size() > 256);
+    int ns = std::atoi(edf.substr(252, 4).c_str());
+    for (const char *field : {"        ", "0       "}) {
+        std::string x = edf;
+        for (int s = 0; s < ns; s++)
+            x.replace(256 + ns * 216 + 8 * s, 8, field);
+        std::ofstream("z.edf", std::ios::binary) << x;
+        Record r = read_record("z.edf");
+        CHECK(r.nsamples() == 0 && r.nsig == ns);
+        std::vector<WFDB_Siginfo> si(ns);
+        REQUIRE(isigopen("z.edf", si.data(), ns) == ns);
+        std::vector<WFDB_Sample> v(ns + 1);
+        CHECK(getvec(v.data()) == -1);
+        CHECK(getframe(v.data()) == -1);
+        CHECK(getvecs(v.data(), 1, nullptr) == -1);
+        wfdbquit();
+    }
+    setgvmode(prev);
 }

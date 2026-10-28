@@ -37,6 +37,7 @@
 %   wfdbquiet         - Suppress WFDB library error messages.
 %   wfdbverbose       - Enable WFDB library error messages (the default).
 %   wfdberror         - The most recent WFDB library error message.
+%   wfdb_error        - Report an error as the WFDB library does.
 %   wfdbversion       - The version of the WFDB library reproduced.
 %   wfdbdefwfdb       - The default WFDB path.
 %   wfdbdefwfdbcal    - The default name of the calibration file.

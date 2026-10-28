@@ -5,10 +5,11 @@ function v = flac_getsamp(ig)
 %   the end of the data, 0 is returned and IG.stat is set to 0 (the first
 %   time, a warning gives the number of samples left over that do not
 %   fill a frame); after a decoding error, 0 is returned and IG.stat is
-%   -2.  After a failed seek (IG.stat negative), the next sample that
-%   needs a FLAC block to be decoded makes the decoding fail ("getvec:
-%   unexpected FLAC decoding error"; IG.stat -2), as libFLAC aborts in the
-%   C library.  IG.stat is not changed otherwise.
+%   -2.  The next FLAC frame is decoded when no decoded sample is left.
+%   After an error (IG.stat negative), the next frame decoded makes the
+%   decoding stop ("getvec: unexpected FLAC decoding error" if no message
+%   was given; IG.stat -2), as libFLAC aborts in the C library.  IG.stat
+%   is not changed otherwise.
 %
 %   See also wfdbx.internal.flac_getsamps (many samples at once).
 %
@@ -37,62 +38,28 @@ function v = flac_getsamp(ig)
 % any later version. See LICENSE.
 
 fi = ig.flac;
-if ~fi.decoded
-    fi = wfdbx.internal.flac_ensure(ig);
-end
-if ~isempty(fi.error)
-    ig.stat = -2;
-    v = 0;
-    return;
-end
-v = 0;
-if fi.aborted
-    return;     % (the decoder does nothing; ig.stat is negative)
-end
 p = fi.pos;
-if p < numel(fi.samples)
-    % The frame of the next sample must have been decoded.
-    need = fi.base + (floor(p / (fi.nsig * fi.spf)) + 1) * fi.spf;
-    if fi.discarded || need > fi.dec_end
-        if ig.stat < 0
-            if fi.dec_end < fi.total
-                flac_abort(ig);
-            end
-            return;
-        end
-        fi.dec_end = wfdbx.internal.flac_block_end(fi, need);
-    end
+if p < fi.len
     fi.pos = p + 1;
     ig.flac = fi;
     v = fi.samples(p + 1);
     return;
 end
-if fi.discarded && fi.dec_end < fi.total
-    flac_abort(ig);
-    return;
-end
-if ig.stat < 0
-    return;
-end
-fi.dec_end = fi.total;
-if fi.leftover
-    wfdbx.internal.wfdb_error( ...
-        'getvec: warning: %d samples left over at end of file\n', fi.leftover);
-    fi.leftover = 0;
-end
-ig.flac = fi;
-ig.stat = 0;
 v = 0;
+if ~isempty(fi.pending)
+    % (a failure found by decoding ahead: see flac_refill)
+    ig.stat = fi.pending;
+    fi.pending = [];
+    ig.flac = fi;
+    return;
 end
-
-function flac_abort(ig)
-% Decoding a block after a failed seek (ig.stat < 0): iflac_samples()
-% aborts the decoder, and flac_getsamp() reports the error.
+fi = [];        %#ok<NASGU> (the samples are then appended in place)
+if ~wfdbx.internal.flac_refill(ig)
+    return;
+end
 fi = ig.flac;
-fi.aborted = true;
+p = fi.pos;
+fi.pos = p + 1;
 ig.flac = fi;
-if ig.stat ~= -2
-    wfdbx.internal.wfdb_error('getvec: unexpected FLAC decoding error\n');
-    ig.stat = -2;
-end
+v = fi.samples(p + 1);
 end

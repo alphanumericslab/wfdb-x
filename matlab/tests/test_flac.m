@@ -226,15 +226,20 @@ for k = 1:size(ff, 1)
         ff{k, 4}, [ff{k, 1} ' samples']);
 end
 
-% Decoding errors
-assert_eq(flacerr(uint8('fLaX')), 'wfdbx:flac:meta', 'bad marker');
+% Decoding errors (as libFLAC reports them)
+assert_eq(flacerr(uint8('fLaX')), 'wfdbx:flac:sync', 'bad marker');
+assert_eq(flacerr(uint8('fLa')), 'wfdbx:flac:meta', 'no marker');
 b = readfile(fullfile(data, 'flac8.dat'));
-assert_eq(flacerr(b(1:end-100)), 'wfdbx:flac:eof', 'truncated');
+assert_eq(flacerr(b(1:end-100)), 'wfdbx:flac:sync', 'truncated');
 c = b;
 c(end-10) = bitxor(c(end-10), 1);
 assert_eq(flacerr(c), 'wfdbx:flac:crc', 'CRC mismatch');
-[ch, ~] = wfdbx.internal.flac_decode([b, zeros(1, 50, 'uint8')]);
-assert_eq(size(ch), [2 5000], 'trailing zeros ignored');
+assert_eq(flacerr([b, zeros(1, 50, 'uint8')]), 'wfdbx:flac:sync', ...
+    'trailing zeros');
+% an ID3v2 tag before the stream is skipped
+[ch, ~] = wfdbx.internal.flac_decode([uint8('ID3'), uint8([4 0 0 0 0 0 3]), ...
+    zeros(1, 3, 'uint8'), b]);
+assert_eq(size(ch), [2 5000], 'ID3v2 tag skipped');
 
 % Encoding: files identical to those written by the Python encoder
 cases = {16, 2, 9000, [0 1], 1, 23563, '0f8d92a0a9f0cb39a8403e279236f0cc'; ...
@@ -282,6 +287,7 @@ for k = 1:size(cases, 1)
     % reading through the input glue (frame order, seeks, end of data)
     ig = wfdbx.internal.IGData();
     ig.fp = wfdbx.internal.wfdb_fopen(fname, 'rb');
+    ig.seek = 1;        % (as isigopen sets it for a file that can seek)
     hs = struct('info', num2cell(si));
     assert_eq(wfdbx.internal.flac_isopen(ig, hs, nch), 0, 'flac_isopen');
     ig.stat = 1;

@@ -292,10 +292,11 @@ app_sigamp <- function(args = character(0)) {
     t <- from
     while (namp < nmax && (to == 0 || t < to)) {
       # getrms(): read the window, then again after isigsettime(t)
-      v1 <- readv(dtw)
+      # (at least one vector each time, as in C)
+      v1 <- readv(max(dtw, 1))
       if (is.null(v1)) break
       if (isigsettime(t) < 0) break
-      v2 <- readv(dtw)
+      v2 <- readv(max(dtw, 1))
       if (is.null(v2)) break
       amp[, namp + 1] <- rms(v1, v2)
       tm[namp + 1] <- t

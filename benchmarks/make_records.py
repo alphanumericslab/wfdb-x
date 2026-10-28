@@ -4,8 +4,9 @@
 
 DIR receives three records, the same on every run (fixed random seeds):
 
-  long   2 signals, format 212, 360 Hz, 1 hour (1,296,000 frames), and its
-         annotation file long.atr (4,500 beats, some with aux strings): a
+  long   2 signals, format 212 (12-bit ADC), 360 Hz, 1 hour (1,296,000
+         frames), and its annotation file long.atr (4,500 beats within the
+         record, some with aux strings): a
          long single-segment record, like those of the MIT-BIH databases
   mimic  a multi-segment record of 12 segments of 75,000 frames, 125 Hz,
          4 signals in format 212, the first at 4 samples per frame (an ECG
@@ -45,10 +46,13 @@ def main(d):
     os.makedirs(d, exist_ok=True)
     rng = np.random.default_rng(2026)
     # long: 1 hour, 2 signals at 360 Hz, format 212, with annotations
-    x = walk(rng, 1296000, 2, -2047, 2047)
-    wfdbx.write_record("long", x, 360, fmt=212, gains=200, adcres=11,
+    n = 1296000
+    x = walk(rng, n, 2, -2047, 2047)
+    wfdbx.write_record("long", x, 360, fmt=212, gains=200, adcres=12,
                        units="mV", names=["MLII", "V5"], dir=d)
-    t = np.cumsum(rng.integers(220, 360, size=4500))
+    # (beats 200 to 329 samples apart: all of them within the record)
+    t = np.cumsum(rng.integers(200, 330, size=4500))
+    assert t[-1] < n
     sym = rng.choice(["N", "N", "N", "N", "V", "A"], size=4500)
     aux = [("(AFIB" if k % 97 == 0 else None) for k in range(4500)]
     wfdbx.write_annotations("long", "atr", t, symbols=list(sym), aux=aux,

@@ -64,6 +64,19 @@ private:
     bool prev_;
 };
 
+// The getvec mode (setgvmode) restored at the end of the lifetime of the
+// object (also when an exception is thrown): read_record sets it, and
+// opening an EDF record changes it.
+class GvmodeScope {
+public:
+    GvmodeScope() : prev_(getgvmode()) {}
+    ~GvmodeScope() { setgvmode(prev_); }
+    GvmodeScope(const GvmodeScope &) = delete;
+    GvmodeScope &operator=(const GvmodeScope &) = delete;
+private:
+    int prev_;
+};
+
 // WFDB-x: the library's input directory and network access (see
 // InputOptions) set for the lifetime of the object, for the options that are
 // set (restoring the previous settings afterwards, also when an exception is
@@ -302,6 +315,7 @@ Header read_header(const std::string &record, bool legacy,
 {
     LegacyScope scope(legacy);
     InputScope input_scope(input);
+    GvmodeScope gvmode_scope;
     wfdbquit();
     int n = isigopen(record.c_str(), nullptr, 0);
     if (n < 0) fail("can't read header for record " + record);
@@ -327,6 +341,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
     const ReadOptions opt = with_library_legacy(options);
     LegacyScope scope(opt.legacy);
     InputScope input_scope(opt);
+    GvmodeScope gvmode_scope;
     wfdbquit();
     int nsig = isigopen(record.c_str(), nullptr, 0);
     if (nsig <= 0) fail("can't read record " + record);
@@ -345,6 +360,8 @@ Record read_record(const std::string &record, const ReadOptions &options)
         (opt.from.needs_freq() || opt.to.needs_freq()))
         fail("sampling frequency of record " + record + " is not specified");
     WFDB_Time from = opt.from.resolve();
+    // (isigsettime would take a negative time as an absolute one)
+    if (from < 0) fail("read_record: from must not be negative");
     std::optional<WFDB_Time> to;
     if (!opt.to.empty()) to = opt.to.resolve();
 
@@ -626,11 +643,17 @@ void write_record_physical(const std::string &record,
     for (size_t i = 0; i < samples.size(); i++) {
         size_t c = i % g.size();
         double v = samples[i] * g[c];
-        if (std::isnan(v))
+        if (std::isnan(v)) {
             adc[i] = WFDB_INVALID_SAMPLE;
-        else
-            adc[i] = static_cast<WFDB_Sample>(
-                (v >= 0 ? std::trunc(v + 0.5) : std::trunc(v - 0.5)) + b[c]);
+            continue;
+        }
+        // An infinite value, or one whose ADC value is not an int, cannot
+        // be stored.
+        double d = (v >= 0 ? std::trunc(v + 0.5) : std::trunc(v - 0.5)) + b[c];
+        if (!(d >= -2147483648.0 && d <= 2147483647.0))
+            throw Error("write_record: sample " + std::to_string(i) +
+                        " is out of range");
+        adc[i] = static_cast<WFDB_Sample>(d);
     }
     write_adc(record, adc, nsig, fs, opt);
 }
@@ -641,6 +664,17 @@ void write_annotations(const std::string &record, const std::string &annotator,
 {
     OutputDirScope dir_scope(record, dir);
     size_t n = ann.samples.size();
+    // Each per-annotation field is absent (empty) or has one entry per
+    // annotation (checked before anything is written).
+    const std::pair<const char *, size_t> fields[] = {
+        {"symbols", ann.symbols.size()}, {"codes", ann.codes.size()},
+        {"subtypes", ann.subtypes.size()}, {"chans", ann.chans.size()},
+        {"nums", ann.nums.size()}, {"aux", ann.aux.size()}};
+    for (const auto &f : fields)
+        if (f.second != 0 && f.second != n)
+            throw Error(std::string("write_annotations: ") + f.first +
+                        " must have one entry per annotation (" +
+                        std::to_string(n) + "), or none");
     wfdbquit();
     int errors = wfdbx_write_errors();
     AnnSortScope sort_scope(sort);  // (for the file written here only)

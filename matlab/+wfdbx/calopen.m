@@ -66,6 +66,7 @@ while true
     if isempty(buf)
         break;
     end
+    buf = wfdbx.internal.cstr(buf);     % (C reads each line as a string)
     i = 1;
     while i <= numel(buf) && any(buf(i) == sprintf(' \t\r'))
         i = i + 1;

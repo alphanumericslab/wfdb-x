@@ -403,8 +403,8 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
         iframelen = nisig
         oframelen = nosig
     }
-    val vin = IntArray(maxOf(iframelen, 1))
-    val vout = IntArray(maxOf(oframelen, 1))
+    var vin = IntArray(maxOf(iframelen, 1))
+    var vout = IntArray(maxOf(oframelen, 1))
 
     val orecV = orec
     if (orecV != null) {
@@ -874,6 +874,18 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
             for (q in 0 until siglist[k]) s += dfin[q].spf
             msiglist[k] = s
         }
+        // WFDB-x: room for every output sample of a frame, and for every
+        // input sample that they read (C sizes vout for the input frame and
+        // writes past its end when the output frame is larger; the samples
+        // read beyond the input frame are 0 here)
+        var ospf = 0
+        var need = 0
+        for (k in 0 until nosig) {
+            ospf += dfout[k].spf
+            need = maxOf(need, msiglist[k] + dfout[k].spf)
+        }
+        if (vout.size < ospf) vout = vout.copyOf(ospf)
+        if (vin.size < need) vin = vin.copyOf(need)
     }
 
     fun more(): Boolean {

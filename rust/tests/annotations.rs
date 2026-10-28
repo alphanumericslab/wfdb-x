@@ -1256,3 +1256,93 @@ fn write_annotations_write_error() {
         }
     }
 }
+
+#[test]
+fn write_annotations_byte_fields() {
+    // The subtype, channel and annotator number are stored in one byte each,
+    // as in C: 300 is written as 44, and -200 as 56. Expected bytes: the file
+    // written by the C wrann from the lines
+    // "0:00.004 1 N 300 300 300" and "0:00.008 2 V -200 0 0" (record 100s).
+    let d = DataDir::new("bytes");
+    let mut w = d.wfdb();
+    let a = record::Annotations {
+        samples: vec![1, 2],
+        codes: vec![NORMAL, PVC],
+        subtypes: vec![300, -200],
+        chans: vec![300, 0],
+        nums: vec![300, 0],
+        ..Default::default()
+    };
+    w.write_annotations("100s", "sub", &a, 360.0, None).unwrap();
+    assert_eq!(
+        hex(&std::fs::read("100s.sub").unwrap()),
+        "005817fc23232074696d65207265736f6c7574696f6e3a20333630\
+         0000ecffffffff01000104\
+         2cf42cf82cf001143 8f400f800f00000"
+            .replace(' ', "")
+    );
+    let r = w
+        .read_annotations("100s", "sub", None, None, None, false)
+        .unwrap();
+    assert_eq!(r.subtypes, [44, 56]);
+    assert_eq!(r.chans, [44, 0]);
+    assert_eq!(r.nums, [44, 0]);
+}
+
+#[test]
+fn write_annotations_field_lengths() {
+    // A per-annotation field is empty or has one entry per annotation;
+    // anything else is an error, before the file is created. A later call
+    // works normally.
+    let d = DataDir::new("lengths");
+    let mut w = d.wfdb();
+    let good = record::Annotations {
+        samples: vec![10, 20, 30],
+        symbols: vec!["N".into(), "V".into(), "N".into()],
+        ..Default::default()
+    };
+    let bad = [
+        record::Annotations {
+            aux: vec![Some(b"x".to_vec())],
+            ..good.clone()
+        },
+        record::Annotations {
+            symbols: vec!["N".into()],
+            ..good.clone()
+        },
+        record::Annotations {
+            codes: vec![1, 1, 1, 1],
+            ..good.clone()
+        },
+        record::Annotations {
+            subtypes: vec![1, 2],
+            ..good.clone()
+        },
+        record::Annotations {
+            chans: vec![1],
+            ..good.clone()
+        },
+        record::Annotations {
+            nums: vec![1, 2, 3, 4],
+            ..good.clone()
+        },
+    ];
+    for (k, a) in bad.iter().enumerate() {
+        let e = w
+            .write_annotations("100s", "len", a, 0.0, None)
+            .unwrap_err();
+        assert!(
+            e.message()
+                .contains("must have one entry per annotation (3)"),
+            "{k}: {e}"
+        );
+        assert!(!std::path::Path::new("100s.len").exists(), "{k}");
+    }
+    w.write_annotations("100s", "len", &good, 0.0, None)
+        .unwrap();
+    let r = w
+        .read_annotations("100s", "len", None, None, None, false)
+        .unwrap();
+    assert_eq!(r.samples, [10, 20, 30]);
+    assert_eq!(r.codes, [NORMAL, PVC, NORMAL]);
+}

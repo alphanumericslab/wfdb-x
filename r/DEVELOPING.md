@@ -324,7 +324,7 @@ containment check), `.in_header_dir(name)`, `.dirname(name)`, `.fetch(url)`,
 `.fetch_open(url)`, `tool_command(tool)`, `shell_quote(s)`; constants
 `WFDB_LOCAL`, `WFDB_NET`, `WFDB_READ`, ..., `WFDB_APPEND`, `DEFWFDB`,
 `DEFWFDBCAL`, `WFDB_MAXRNL`, `WFDB_VERSION`. Public: `getwfdb`, `setwfdb`,
-`resetwfdb`, `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdbfile`,
+`resetwfdb`, `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdb_error`, `wfdbfile`,
 `wfdbmemerr`, `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
 `wfdbdefwfdbcal`, `wfdbx_set_input_dir`, `wfdbx_get_input_dir`,
 `wfdbx_set_output_dir`, `wfdbx_get_output_dir`, `wfdbx_set_network`,
@@ -515,21 +515,29 @@ annotation), `ann`, `ann_tt`, `pann` (pushback), `buf`, `index`,
 
 `flac.R` is a FLAC decoder and encoder in R (no libFLAC): the decoder
 handles all of FLAC (Rice codes decoded with vector operations, LPC
-restoration one sample at a time); the encoder writes exactly the bytes of
-the Python encoder (fixed predictors, Rice partitions; MD5 signature in
-STREAMINFO, `md5_raw` in R, or `tools::md5sum` for inputs of 4 KiB or more).
-`flac_decode(raw)` decodes a whole stream.  The signal module uses it
+restoration one sample at a time) and follows libFLAC 1.4.3's stream
+decoder step by step, as the Python decoder does (`.flac_decoder` and the
+`.fd_*` functions: frame-sync search, CRC checks, the return to just after
+the sync code of a damaged frame, the binary search of `seek_absolute`, the
+channel count of each frame header, an ID3v2 tag before `fLaC`; the refills
+of libFLAC's 8 KiB input buffer are reproduced from the positions of the
+codes read, `.fd_feed`).  It decodes one frame at a time, when the samples
+are needed, so that every sample before a damaged frame is returned.  The
+encoder writes exactly the bytes of the Python encoder (fixed predictors,
+Rice partitions; MD5 signature in STREAMINFO, `md5_raw` in R, or
+`tools::md5sum` for inputs of 4 KiB or more).  `flac_decode(raw)` decodes a
+whole stream.  The signal module uses it
 through these functions (same arguments as in the Python and MATLAB ports),
 on its input and output group environments:
 
 | Function | Contract |
 |---|---|
-| `flac_isopen(ig, hs, ns)` | `ig`: input group with fields `fp` (open WFDB_FILE), `start` (samples to skip at the start of the stream, per signal), `stat`, `count`; `hs`: list of the `ns` signals' header data, `hs[[i]]$info$fmt` (508, 516, 524) and `hs[[i]]$info$spf`.  Checks `ns <= 8` and equal `spf`, sets `ig$flac` (decoder state) and `ig$count <- 0`; returns 0 or -1 (message printed).  The stream is decoded on the first read or seek. |
-| `flac_getsamp(ig)` | the next sample, in WFDB frame order (for each frame, `spf` samples of each signal in turn).  At the end: 0, `ig$stat <- 0` (the first time, `getvec: warning: N samples left over at end of file` if the samples do not fill a frame); after a decoding error (message `getvec: unable to decode FLAC ...`): 0, `ig$stat <- -2`.  `ig$stat` is not changed otherwise. |
+| `flac_isopen(ig, hs, ns)` | `ig`: input group with fields `fp` (open WFDB_FILE), `start` (samples to skip at the start of the stream, per signal), `stat`, `count`; `hs`: list of the `ns` signals' header data, `hs[[i]]$info$fmt` (508, 516, 524) and `hs[[i]]$info$spf`.  Checks `ns <= 8` and equal `spf`, sets `ig$flac` (decoder state) and `ig$count <- 0`; returns 0 or -1 (message printed).  The file is read, and the decoder created, on the first read or seek (seekable if `ig$seek` is not 0). |
+| `flac_getsamp(ig)` | the next sample, in WFDB frame order (for each frame, `spf` samples of each signal in turn).  At the end: 0, `ig$stat <- 0` (the first time, `getvec: warning: N samples left over at end of file` if the samples do not fill a frame); after a decoding error (message `getvec: unable to decode FLAC ...`): 0, `ig$stat <- -2`.  The next frame is decoded when the samples decoded so far are used up.  `ig$stat` is not changed otherwise. |
 | `flac_getsamps(ig, n)` | exactly `n` calls of `flac_getsamp` (`n = Inf`: all the remaining samples, without reads past the end): `list(v = samples, st = ig$stat after each call)`. |
-| `flac_navail(ig)` | the number of samples that remain to be read (the stream is decoded first if needed), or -1 after a decoding error. |
-| `flac_isseek(ig, t)` | position at frame `t` (sample `t * spf + ig$start` of each signal); sets `ig$stat <- 1`, `ig$count <- 0`; returns 1, or -1 (`ig$stat <- -1`) if out of range or undecodable. |
-| `flac_isclose(ig)` | with `WFDB_FLAC_CHECK_MD5` set at open, checks the MD5 signature if the whole stream was read without seeking; returns 0, or -1 (`isigclose: warning: incorrect MD5 hash in FLAC input`).  The caller closes `ig$fp`. |
+| `flac_navail(ig)` | the number of samples that `flac_getsamp` returns without decoding more of the stream, or -1 if `ig$stat` is negative (after a decoding error or a failed seek). |
+| `flac_isseek(ig, t)` | position at frame `t` (sample `t * spf + ig$start` of each signal) with libFLAC's `seek_absolute`; sets `ig$stat <- 1`, `ig$count <- 0`; returns 1, or -1 (`ig$stat <- -1`) if the seek fails. |
+| `flac_isclose(ig)` | with `WFDB_FLAC_CHECK_MD5` set at open, checks the MD5 signature of the samples decoded, as libFLAC does (not after a seek); returns 0, or -1 (`isigclose: warning: incorrect MD5 hash in FLAC input`).  The caller closes `ig$fp`. |
 | `flac_osinit(og, si, ns)` | `og`: output group with fields `fp`, `bsize`, `buf`; `si`: list of the `ns` `siginfo()` (`fmt`, `spf`).  Checks as above (`osigfopen: ...` messages), sets `og$flac` and `og$bsize <- ns * spf * 4`; returns 0 or -1. |
 | `flac_osopen(og)` | writes the stream header to `og$fp` (STREAMINFO completed at close, VORBIS_COMMENT vendor `wfdb-x`); returns 0. |
 | `flac_putsamp(v, fmt, og)`, `flac_putsamps(v, fmt, og)` | append one sample / a vector of samples in WFDB frame order (values wrapped to 8, 16 or 24 bits as `fmt` says); a frame of 4096 samples per signal is encoded and written whenever available; return 0. |

@@ -28,7 +28,7 @@ import os
 import sys
 
 import wfdbx as w
-from wfdbx._cstd import atoi, d2i, cfmt_float
+from wfdbx._cstd import atoi, d2i, cfmt_float, int32
 from ._common import Output, Exit, eprintf, legacy, legacy_gains, run
 
 NMAX = 300              # default maximum number of measurements per signal
@@ -263,7 +263,7 @@ def _main(argv, out):
                 if not ok:
                     break
                 for k in range(nsig):
-                    amp[k][namp] = float(vmax[k] - vmin[k])
+                    amp[k][namp] = float(int32(vmax[k] - vmin[k]))
                 if vflag or qflag:
                     printamp(t)
                 namp += 1

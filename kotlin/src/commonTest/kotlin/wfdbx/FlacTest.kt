@@ -23,7 +23,7 @@ import wfdbx.cstd.latin1
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class FlacTest {
@@ -131,39 +131,103 @@ class FlacTest {
         assertEquals("82829f1f3f2bb0f18b25f278e5bba8bd", hex(m.digest()))
     }
 
+    /**
+     * The MD5 signature of decoded samples, as computed by libFLAC: the
+     * samples interleaved, each stored in (bps+7)/8 little-endian bytes.
+     */
+    private fun samplesMd5(chans: Array<IntArray>, bps: Int): ByteArray {
+        val md5 = Md5()
+        val nb = (bps + 7) / 8
+        val n = if (chans.isEmpty()) 0 else chans[0].size
+        val buf = ByteArray(nb * chans.size)
+        for (i in 0 until n) {
+            var k = 0
+            for (c in chans) for (j in 0 until nb) buf[k++] = (c[i] ushr (8 * j)).toByte()
+            md5.update(buf)
+        }
+        return md5.digest()
+    }
+
+    /** A whole stream decoded frame by frame (as the C library would read it, but going on after errors). */
+    private class Decoded : FlacClient {
+        val errors = ArrayList<FlacDecodeError>()
+        private val samples = ArrayList<ArrayList<Int>>()
+
+        /** The channels and bits per sample of each frame. */
+        val shapes = ArrayList<Pair<Int, Int>>()
+
+        /** Channels and bits per sample, from STREAMINFO. */
+        var channels = 0
+        var bps = 0
+        var hasMd5 = false
+        var md5 = ByteArray(FLAC_MD5_LEN)
+        var end: FlacState? = null
+
+        val chans: Array<IntArray> get() = Array(samples.size) { samples[it].toIntArray() }
+
+        override fun error(e: FlacDecodeError) {
+            errors.add(e)
+        }
+
+        override fun write(h: FlacFrameHeader, chans: Array<IntArray>, off: Int): Boolean {
+            shapes.add(Pair(h.channels, h.bitsPerSample))
+            while (samples.size < chans.size) samples.add(ArrayList())
+            for (c in chans.indices) for (i in 0 until h.blocksize) samples[c].add(chans[c][off + i])
+            return true
+        }
+    }
+
+    private fun decode(data: ByteArray): Decoded {
+        val dec = FlacStreamDecoder(data, true, false)
+        val d = Decoded()
+        while (dec.processSingle(d) && dec.state != FlacState.END_OF_STREAM) {
+        }
+        d.end = dec.state
+        d.channels = dec.siChannels
+        d.bps = dec.siBps
+        d.hasMd5 = dec.hasMd5
+        d.md5 = dec.md5sum
+        return d
+    }
+
     @Test
     fun flacDecodeRecords() {
         for (rc in records) {
             val data = readFile("${testDataDir()}/${rc.name}.dat")!!
-            val d = flacDecode(data, 0, 0)
-            assertEquals(FlacStatus.OK, d.status, rc.name)
+            val d = decode(data)
+            val chans = d.chans
+            assertTrue(d.errors.isEmpty(), rc.name)
+            assertEquals(FlacState.END_OF_STREAM, d.end)
             assertEquals(rc.channels, d.channels)
             assertEquals(rc.bps, d.bps)
-            assertEquals(rc.channels, d.chans.size)
-            assertEquals(rc.nsamp, d.chans[0].size)
-            assertEquals(rc.digest, samplesDigest(d.chans))
-            assertContentEquals(rc.first, d.chans[0].copyOf(3))
-            assertEquals(rc.last, d.chans.last().last())
+            assertEquals(rc.channels, chans.size)
+            assertEquals(rc.nsamp, chans[0].size)
+            assertEquals(rc.digest, samplesDigest(chans))
+            assertContentEquals(rc.first, chans[0].copyOf(3))
+            assertEquals(rc.last, chans.last().last())
             // The MD5 signature in STREAMINFO matches the decoded samples.
             assertTrue(d.hasMd5)
-            assertContentEquals(d.md5, flacSamplesMd5(d.chans, d.bps))
-            // Decoding with the expected numbers of signals and bits
-            val d2 = flacDecode(data, rc.channels, rc.bps)
-            assertEquals(FlacStatus.OK, d2.status)
-            for (c in d.chans.indices) assertContentEquals(d.chans[c], d2.chans[c])
-            // Trailing zero bytes are ignored.
-            val d3 = flacDecode(data.copyOf(data.size + 100), 0, 0)
-            assertEquals(FlacStatus.OK, d3.status)
-            for (c in d.chans.indices) assertContentEquals(d.chans[c], d3.chans[c])
-            // A truncated stream cannot be decoded.
-            assertNotEquals(FlacStatus.OK, flacDecode(data.copyOf(data.size - 3), 0, 0).status)
-            // Neither can a stream with a corrupted frame.
+            assertContentEquals(d.md5, samplesMd5(chans, d.bps))
+            // Every frame has the channels and resolution of STREAMINFO.
+            assertTrue(d.shapes.all { it == Pair(rc.channels, rc.bps) })
+            // Trailing zero bytes: all the samples, then lost sync.
+            val d3 = decode(data.copyOf(data.size + 100))
+            assertEquals(listOf(FlacDecodeError.LOST_SYNC), d3.errors)
+            val chans3 = d3.chans
+            for (c in chans.indices) assertContentEquals(chans[c], chans3[c])
+            // A truncated stream: all the frames but the last.
+            val d4 = decode(data.copyOf(data.size - 3))
+            assertEquals(listOf(FlacDecodeError.LOST_SYNC), d4.errors)
+            val n4 = d4.chans[0].size
+            assertTrue(n4 < rc.nsamp)
+            assertContentEquals(chans[0].copyOf(n4), d4.chans[0])
+            // A stream with a corrupted frame.
             val bad = data.copyOf()
             val mid = bad.size / 2
             bad[mid] = (bad[mid].toInt() xor 0x10).toByte()
-            assertNotEquals(FlacStatus.OK, flacDecode(bad, 0, 0).status)
-            // nor something that is not a FLAC stream.
-            assertEquals(FlacStatus.META, flacDecode(data.copyOfRange(1, data.size), 0, 0).status)
+            assertFalse(decode(bad).errors.isEmpty())
+            // Something that is not a FLAC stream.
+            assertEquals(FlacDecodeError.LOST_SYNC, decode(data.copyOfRange(1, data.size)).errors.firstOrNull())
         }
     }
 
@@ -180,21 +244,22 @@ class FlacTest {
             assertTrue(bytes.indexOf("wfdb-x".latin1()) >= 0)
 
             // Round trip
-            val d = flacDecode(bytes, ec.nsig, ec.bps)
-            assertEquals(FlacStatus.OK, d.status)
+            val d = decode(bytes)
+            val chans = d.chans
+            assertTrue(d.errors.isEmpty())
             assertEquals(ec.nsig, d.channels)
             assertEquals(ec.bps, d.bps)
-            assertEquals(ec.nsig, d.chans.size)
+            assertEquals(ec.nsig, chans.size)
             val nper = ec.nframes * ec.spf
             for (s in 0 until ec.nsig) {
-                assertEquals(nper, d.chans[s].size)
+                assertEquals(nper, chans[s].size)
                 for (f in 0 until ec.nframes) for (k in 0 until ec.spf) {
                     val i = (f * ec.nsig + s) * ec.spf + k
-                    assertEquals(wrap(x[i], ec.bps), d.chans[s][f * ec.spf + k])
+                    assertEquals(wrap(x[i], ec.bps), chans[s][f * ec.spf + k])
                 }
             }
             assertTrue(d.hasMd5)
-            assertContentEquals(d.md5, flacSamplesMd5(d.chans, d.bps))
+            assertContentEquals(d.md5, samplesMd5(chans, d.bps))
         }
     }
 
@@ -209,17 +274,12 @@ class FlacTest {
         enc.finish(out)
         val b = out.toByteArray()
         enc.streaminfo().copyInto(b, 8)
-        val d = flacDecode(b, 0, 0)
-        assertEquals(FlacStatus.OK, d.status)
-        assertEquals(2, d.chans.size)
-        assertEquals(4, d.chans[0].size)
-        assertEquals(700, d.chans[1][3])
-        // The wrong number of signals is detected when expected.
-        val d2 = flacDecode(b, 3, 16)
-        assertEquals(FlacStatus.WFDB, d2.status)
-        assertEquals("getvec: wrong number of signals in FLAC signal file\n", d2.errorMessage?.latin1())
-        val d3 = flacDecode(b, 2, 8)
-        assertEquals(FlacStatus.WFDB, d3.status)
-        assertEquals("getvec: wrong sample resolution in FLAC signal file\n", d3.errorMessage?.latin1())
+        val d = decode(b)
+        val chans = d.chans
+        assertTrue(d.errors.isEmpty())
+        assertEquals(2, chans.size)
+        assertEquals(4, chans[0].size)
+        assertEquals(700, chans[1][3])
+        assertEquals(listOf(Pair(2, 16)), d.shapes)
     }
 }

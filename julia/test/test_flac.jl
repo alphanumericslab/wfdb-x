@@ -130,9 +130,13 @@ end
         # Decoding with the expected numbers of signals and bits
         d2 = flac_decode(data, rc.channels, rc.bps)
         @test d2.status == FLAC_OK && d2.chans == d.chans
-        # Trailing zero bytes are ignored.
+        # Trailing zero bytes are reported as lost sync, as libFLAC does.
         d3 = flac_decode([data; zeros(UInt8, 100)], 0, 0)
-        @test d3.status == FLAC_OK && d3.chans == d.chans
+        @test d3.status == FLAC_SYNC && isempty(d3.chans)
+        # An ID3v2 tag before the stream is skipped, as libFLAC does.
+        id3 = UInt8[b"ID3"; 0x04; 0x00; 0x00; 0x00; 0x00; 0x00; 0x05; zeros(UInt8, 5)]
+        d4 = flac_decode([id3; data], 0, 0)
+        @test d4.status == FLAC_OK && d4.chans == d.chans
         # A truncated stream cannot be decoded.
         @test flac_decode(data[1:end-3], 0, 0).status != FLAC_OK
         # Neither can a stream with a corrupted frame,
@@ -140,8 +144,10 @@ end
         mid = length(bad) ÷ 2
         bad[mid+1] ⊻= 0x10
         @test flac_decode(bad, 0, 0).status != FLAC_OK
-        # nor something that is not a FLAC stream.
-        @test flac_decode(data[2:end], 0, 0).status == FLAC_META
+        # nor something that is not a FLAC stream (libFLAC looks for the
+        # stream marker, and reports lost sync).
+        @test flac_decode(data[2:end], 0, 0).status == FLAC_SYNC
+        @test flac_decode(UInt8[], 0, 0).status == FLAC_META
     end
 end
 

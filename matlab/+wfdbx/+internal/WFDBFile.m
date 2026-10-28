@@ -123,11 +123,30 @@ classdef WFDBFile < handle
                 b = zeros(1, 0, 'uint8');
                 k = 0;
             else
-                [b, k] = fread(obj.fp, n, 'uint8=>uint8');
+                % WFDB-x: a block may be far larger than the file: never
+                % ask for more bytes than the file holds
+                [b, k] = fread(obj.fp, obj.left(n), 'uint8=>uint8');
                 b = b';
             end
             if k < n
                 obj.eof = true;
+            end
+        end
+
+        function n = left(obj, n)
+            %LEFT N, or fewer if fewer bytes are left in the file (only a
+            %large N is checked, and only in a file that can seek).
+            if n <= 1048576
+                return;
+            end
+            p = ftell(obj.fp);
+            if p < 0 || fseek(obj.fp, 0, 'eof') ~= 0
+                return;
+            end
+            sz = ftell(obj.fp);
+            fseek(obj.fp, p, 'bof');
+            if sz >= 0
+                n = max(min(n, sz - p), 0);
             end
         end
 

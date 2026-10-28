@@ -34,20 +34,25 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   \item{sampfrom, sampto}{the first sample to read, and the sample after
     the last one.  Each is a sample number or a time string, such as
     \code{"0:10"} (10 seconds), \code{"s1000"} (sample 1000) or \code{"e"}
-    (the end of the record); see \code{\link{strtim}}.  By default the
-    whole record is read.}
+    (the end of the record); see \code{\link{strtim}}.  A negative
+    \code{sampfrom} is an error.  By default the whole record is read.}
   \item{physical}{\code{read_record}: if \code{TRUE}, return the samples
     in physical units, \code{(sample - baseline) / gain}, instead of ADC
     units.  \code{write_record}: if \code{TRUE}, \code{signals} are in
     physical units.  They are converted to ADC units with \code{gains} and
     \code{baselines} and rounded, and \code{NA} is written as an invalid
-    sample.}
+    sample.  An infinite value, or one whose ADC value is beyond the range
+    of a 32-bit integer, is an error.}
   \item{highres}{if \code{TRUE}, read a multi-frequency record at the
     highest sampling frequency of its signals.  Samples of the slower
     signals are repeated.  By default such a record is read at its frame
     rate, and the samples of the faster signals are averaged.}
   \item{pad}{if \code{TRUE}, replace each invalid sample by the previous
-    valid sample of the same signal.}
+    valid sample of the same signal.
+
+    \code{highres} and \code{pad} set the getvec mode
+    (\code{\link{setgvmode}}) for this call only: the mode in force before
+    the call is restored afterwards, also after an error.}
   \item{input_dir}{the input directory for this call only: a local
     directory, a \code{~} path or a URL.  \code{NULL}, the default, keeps
     the current setting.}
@@ -61,7 +66,9 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     \code{FALSE} turns the warning off.}
   \item{signals}{the samples to write: a numeric matrix with one row per
     sample and one column per signal.  A vector is written as a single
-    signal.  For a multi-frequency record, see \code{samps_per_frame}.}
+    signal.  For a multi-frequency record, see \code{samps_per_frame}.
+    In ADC units, the samples must be integers within the range of a
+    32-bit integer, and \code{NA} is written as an invalid sample.}
   \item{fs}{the sampling frequency in Hz, greater than 0.  For a
     multi-frequency record, this is the frame rate.}
   \item{fmt}{the storage format of the signal file, such as 16, 212 or
@@ -162,7 +169,12 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
       be an integer >= 1 (\samp{samps_per_frame must hold integers >= 1}),
       and \code{signals} must have \code{sum(samps_per_frame)} columns
       (\samp{signals has N columns, but samps_per_frame adds up to M});
-      these are checked first, and nothing is written.
+      a vector of per-signal values must have one value per signal, and
+      the samples must be valid (see \code{signals} and
+      \code{physical}).  All the arguments are checked first, and
+      nothing is written if one is invalid.  Whatever happens,
+      \code{write_record} closes the output signals
+      (\code{\link{wfdbquit}}) before it returns.
     \item When the signal file or the header cannot be written completely
       (for example, when the disk is full), \code{write_record} stops with
       the error \samp{write error on record REC}, after the messages of the

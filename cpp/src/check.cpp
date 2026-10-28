@@ -892,11 +892,13 @@ public:
         if (in_.network) prev_net_ = wfdbx_set_network(*in_.network ? 1 : 0);
         legacy_ = wfdbx_set_legacy(0);
         print_ = detail::wfdb_set_error_print(false);
+        gvmode_ = getgvmode();
         wfdbquit();
     }
     ~CheckScope()
     {
         wfdbquit();
+        setgvmode(gvmode_);
         detail::wfdb_set_error_print(print_);
         wfdbx_set_legacy(legacy_);
         if (in_.network) wfdbx_set_network(prev_net_);
@@ -911,6 +913,7 @@ private:
     int prev_net_ = 0;
     int legacy_ = 0;
     bool print_ = true;
+    int gvmode_ = 0;
 };
 
 } // namespace

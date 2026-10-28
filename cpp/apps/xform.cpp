@@ -35,6 +35,7 @@
 // doubles to int yield INT_MIN (as on x86), and int additions and
 // subtractions wrap around.
 
+#include <algorithm>
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -873,11 +874,14 @@ int main(int argc, char **argv)
     }
 
     // Determine the legal range of sample values for each output signal.
+    // (The shift count is taken modulo 64, as on x86: an ADC resolution of
+    // 0 gives 1 << 63.)
     for (i = 0; i < nosig; i++) {
+        unsigned sh = (static_cast<unsigned>(dfout[i].adcres) - 1U) & 63U;
         vmax[i] = static_cast<int>(static_cast<unsigned long long>(
-            dfout[i].adczero + (1ULL << (dfout[i].adcres - 1)) - 1));
+            dfout[i].adczero + (1ULL << sh) - 1));
         vmin[i] = static_cast<int>(static_cast<unsigned long long>(
-            dfout[i].adczero - (1ULL << (dfout[i].adcres - 1))));
+            dfout[i].adczero - (1ULL << sh)));
     }
 
     // If resampling is required, initialize the interpolation/decimation
@@ -909,6 +913,18 @@ int main(int argc, char **argv)
                 k += dfin[j].spf;
             msiglist[i] = k;
         }
+        // WFDB-x: room for every output sample of a frame, and for every
+        // input sample that they read (C sizes vout for the input frame and
+        // writes past its end when the output frame is larger; the samples
+        // read beyond the input frame are 0 here)
+        size_t ospf = 0, need = vin.size();
+        for (i = 0; i < nosig; i++) {
+            ospf += static_cast<size_t>(dfout[i].spf);
+            need = std::max(need, static_cast<size_t>(msiglist[i] +
+                                                      dfout[i].spf));
+        }
+        if (vout.size() < ospf) vout.resize(ospf, 0);
+        vin.resize(need, 0);
     }
 
     // Process the signals.

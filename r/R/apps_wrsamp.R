@@ -644,7 +644,8 @@ app_wrsamp <- function(args = character(0)) {
     si[[k]] <- s
   }
   while (.wrsamp_has_alpha(line)) line <- read_line()
-  if (osigfopen(si, nosig) < nosig || setsampfreq(freq) < 0) cexit(2)
+  # (nosig is unsigned in C, so an error (-1) from osigfopen passes)
+  if (cuint32(osigfopen(si, nosig)) < nosig || setsampfreq(freq) < 0) cexit(2)
   t <- 0
   while (t < t0) {
     line <- read_line()

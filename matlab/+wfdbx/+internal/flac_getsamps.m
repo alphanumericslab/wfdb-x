@@ -3,8 +3,9 @@ function [v, st] = flac_getsamps(ig, n)
 %   [V, ST] = wfdbx.internal.flac_getsamps(IG, N) has exactly the effect of
 %   N calls of wfdbx.internal.flac_getsamp(IG): V(k) is the k-th sample
 %   returned and ST(k) the value of IG.stat after it (as the outputs of
-%   wfdbx.internal.ig_read).  N may be Inf: then all the remaining samples
-%   are returned (without the reads past the end).
+%   wfdbx.internal.ig_read).  N may be Inf: then the samples are returned
+%   up to the end of the data or an error (the call of flac_getsamp that
+%   finds it is made, but its result is not returned).
 %
 %   This is the bulk accessor for the vectorized frame readers of the
 %   signal module: the samples come in WFDB frame order (for each frame,
@@ -34,60 +35,35 @@ function [v, st] = flac_getsamps(ig, n)
 % Software Foundation, either version 3 of the License, or (at your option)
 % any later version. See LICENSE.
 
-fi = ig.flac;
-if ~fi.decoded
-    fi = wfdbx.internal.flac_ensure(ig);
-end
-if ~isempty(fi.error)
-    if isinf(n)
-        n = 0;
-    end
-    v = zeros(1, n);
-    st = -2 * ones(1, n);
-    if n > 0
-        ig.stat = -2;
-    end
-    return;
-end
-if fi.aborted || fi.discarded || ig.stat < 0
-    % (after a failed seek: one sample at a time)
-    if isinf(n)
-        n = max(numel(fi.samples) - fi.pos, 0);
-    end
+inf_n = isinf(n);
+if inf_n
+    v = zeros(1, 0);
+    st = zeros(1, 0);
+else
     v = zeros(1, n);
     st = zeros(1, n);
-    for k = 1:n
-        v(k) = wfdbx.internal.flac_getsamp(ig);
-        st(k) = ig.stat;
+end
+k = 0;
+while k < n
+    fi = ig.flac;
+    p = fi.pos;
+    m = min(fi.len - p, n - k);
+    if m > 0
+        % (the decoded samples: ig.stat unchanged)
+        v(k+1:k+m) = fi.samples(p+1:p+m);
+        st(k+1:k+m) = ig.stat;
+        fi.pos = p + m;
+        ig.flac = fi;
+        k = k + m;
+        continue;
     end
-    return;
-end
-p = fi.pos;
-avail = numel(fi.samples) - p;
-if isinf(n)
-    n = avail;
-end
-k = min(n, avail);
-v = zeros(1, n);
-st = zeros(1, n);
-v(1:k) = fi.samples(p+1:p+k);
-st(1:k) = ig.stat;
-fi.pos = p + k;
-if k > 0
-    % the blocks decoded for the frame of the last sample read
-    need = fi.base + (floor((p + k - 1) / (fi.nsig * fi.spf)) + 1) * fi.spf;
-    if need > fi.dec_end
-        fi.dec_end = wfdbx.internal.flac_block_end(fi, need);
+    fi = [];    %#ok<NASGU> (the samples are then appended in place)
+    x = wfdbx.internal.flac_getsamp(ig);
+    if inf_n && ig.stat <= 0
+        break;
     end
+    k = k + 1;
+    v(k) = x;
+    st(k) = ig.stat;
 end
-if k < n
-    fi.dec_end = fi.total;
-    if fi.leftover
-        wfdbx.internal.wfdb_error( ...
-            'getvec: warning: %d samples left over at end of file\n', fi.leftover);
-        fi.leftover = 0;
-    end
-    ig.stat = 0;
-end
-ig.flac = fi;
 end

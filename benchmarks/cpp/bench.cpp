@@ -24,10 +24,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -70,6 +73,70 @@ int64_t sum(const std::vector<wfdbx::WFDB_Sample> &v)
     return s;
 }
 
+// The result of a call: what it read (the physical values too, for
+// read_long_phys).
+struct Result {
+    wfdbx::Record rec;
+    std::vector<std::vector<double>> phys;
+    wfdbx::Annotations ann;
+};
+
+// Append the bytes of x (little-endian on the machines we run on).
+template <typename T> void put(std::string &b, T x)
+{
+    char c[sizeof x];
+    std::memcpy(c, &x, sizeof x);
+    b.append(c, sizeof x);
+}
+
+void write_file(const fs::path &p, const std::string &b)
+{
+    std::ofstream f(p, std::ios::binary);
+    f.write(b.data(), (std::streamsize)b.size());
+    if (!f) throw std::runtime_error("can't write " + p.string());
+}
+
+// Save the result of the first call of op as dump/op.* (see
+// benchmarks/python/bench.py).
+void save(const std::string &op, const Result &r, const fs::path &out,
+          const fs::path &dump)
+{
+    fs::path p = dump / op;
+    std::string b;
+    if (op == "read_long" || op == "read_mimic" || op == "read_wide") {
+        for (wfdbx::WFDB_Sample x : r.rec.samples) put<int32_t>(b, x);
+        write_file(p.string() + ".bin", b);
+    } else if (op == "read_long_phys") {
+        for (size_t i = 0; i < r.rec.nsamples(); i++)
+            for (int s = 0; s < r.rec.nsig; s++) put<double>(b, r.phys[s][i]);
+        write_file(p.string() + ".bin", b);
+    } else if (op == "read_ann") {
+        const wfdbx::Annotations &a = r.ann;
+        for (size_t k = 0; k < a.size(); k++) {
+            put<int64_t>(b, a.samples[k]);
+            put<int32_t>(b, a.codes[k]);
+            put<int32_t>(b, a.subtypes[k]);
+            put<int32_t>(b, a.chans[k]);
+            put<int32_t>(b, a.nums[k]);
+            if (a.aux[k]) {
+                put<int32_t>(b, (int32_t)a.aux[k]->size());
+                b += *a.aux[k];
+            } else {
+                put<int32_t>(b, -1);
+            }
+        }
+        write_file(p.string() + ".ann", b);
+    } else if (op == "write_long") {
+        fs::copy_file(out / "out.hea", p.string() + ".hea",
+                      fs::copy_options::overwrite_existing);
+        fs::copy_file(out / "out.dat", p.string() + ".dat",
+                      fs::copy_options::overwrite_existing);
+    } else if (op == "write_ann") {
+        fs::copy_file(out / "out.atr", p.string() + ".atr",
+                      fs::copy_options::overwrite_existing);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char **argv)
@@ -98,24 +165,40 @@ int main(int argc, char **argv)
             ann.codes = std::move(a.codes);
             ann.aux = std::move(a.aux);
         }
-        std::function<double()> run;
+        // run(r) is the timed call: the operation alone, its result in r.
+        // check(r) is computed from the first call's result, outside the
+        // timed calls.
+        std::function<void(Result &)> run;
+        std::function<double(const Result &)> check;
+        auto read = [](const char *name) {
+            return [name](Result &r) { r.rec = wfdbx::read_record(name); };
+        };
+        auto sample_sum = [](const Result &r) { return (double)sum(r.rec.samples); };
         if (op == "read_long") {
-            run = [] { return (double)sum(wfdbx::read_record("long").samples); };
+            run = read("long");
+            check = sample_sum;
         } else if (op == "read_long_phys") {
-            run = [] {
-                wfdbx::Record rec = wfdbx::read_record("long");
+            run = [](Result &r) {
+                r.rec = wfdbx::read_record("long");
+                r.phys.clear();
+                for (int i = 0; i < r.rec.nsig; i++)
+                    r.phys.push_back(r.rec.physical_signal(i));
+            };
+            check = [](const Result &r) {
                 double s = 0;
-                for (int i = 0; i < rec.nsig; i++)
-                    for (double v : rec.physical_signal(i))
-                        if (!std::isnan(v)) s += v;
+                for (const std::vector<double> &v : r.phys)
+                    for (double x : v)
+                        if (!std::isnan(x)) s += x;
                 return std::round(s * 1000) / 1000;
             };
         } else if (op == "read_mimic") {
-            run = [] { return (double)sum(wfdbx::read_record("mimic").samples); };
+            run = read("mimic");
+            check = sample_sum;
         } else if (op == "read_wide") {
-            run = [] { return (double)sum(wfdbx::read_record("wide").samples); };
+            run = read("wide");
+            check = sample_sum;
         } else if (op == "write_long") {
-            run = [&] {
+            run = [&](Result &) {
                 wfdbx::WriteOptions w;
                 w.fmt = 16;
                 w.adcres = {16};
@@ -125,15 +208,16 @@ int main(int argc, char **argv)
                 }
                 w.dir = out.string();
                 wfdbx::write_record("out", src.samples, src.nsig, src.fs, w);
-                return (double)fs::file_size(out / "out.dat");
             };
+            check = [&](const Result &) { return (double)fs::file_size(out / "out.dat"); };
         } else if (op == "read_ann") {
-            run = [] { return (double)wfdbx::read_annotations("long", "atr").size(); };
+            run = [](Result &r) { r.ann = wfdbx::read_annotations("long", "atr"); };
+            check = [](const Result &r) { return (double)r.ann.size(); };
         } else if (op == "write_ann") {
-            run = [&] {
+            run = [&](Result &) {
                 wfdbx::write_annotations("out", "atr", ann, 0, out.string());
-                return (double)fs::file_size(out / "out.atr");
             };
+            check = [&](const Result &) { return (double)fs::file_size(out / "out.atr"); };
         } else {
             std::fprintf(stderr, "%s: unknown operation %s\n", argv[0],
                          op.c_str());
@@ -141,13 +225,22 @@ int main(int argc, char **argv)
         }
         if (run) {
             using clock = std::chrono::steady_clock;
-            auto t = clock::now();
-            double check = run();
-            double first = std::chrono::duration<double>(clock::now() - t).count();
+            const char *dump = std::getenv("WFDBX_BENCH_DUMP");
+            double value;
+            double first;
+            {
+                Result r;
+                auto t = clock::now();
+                run(r);
+                first = std::chrono::duration<double>(clock::now() - t).count();
+                value = check(r);
+                if (dump && *dump) save(op, r, out, dump);
+            }
             std::vector<double> times;
             for (int i = 0; i < reps; i++) {
-                t = clock::now();
-                run();
+                Result r;
+                auto t = clock::now();
+                run(r);
                 times.push_back(
                     std::chrono::duration<double>(clock::now() - t).count());
             }
@@ -158,7 +251,7 @@ int main(int argc, char **argv)
                         op.c_str(), json_number(first).c_str(),
                         json_number(*std::min_element(times.begin(),
                                                       times.end())).c_str(),
-                        ts.c_str(), json_number(check).c_str());
+                        ts.c_str(), json_number(value).c_str());
         }
     } catch (const std::exception &e) {
         std::fprintf(stderr, "%s: %s: %s\n", argv[0], op.c_str(), e.what());

@@ -1,0 +1,4 @@
+msm 1 500 10
+msm.mat 16+192 200/mV 16 0 0 45 8 x
+#Creator: wfdb2mat
+#Source: record ms

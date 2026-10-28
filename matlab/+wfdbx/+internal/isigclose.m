@@ -35,6 +35,7 @@ S.plan = [];
 S.skip_pending = false;
 S.nisig = 0;
 S.framelen = 0;
+S.empty_group = false;
 igd = S.igd;
 for g = 1:numel(igd)
     ig = igd{g};

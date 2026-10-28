@@ -48,6 +48,7 @@ version. See LICENSE.
 
 import io
 import os
+import stat
 import sys
 
 from ._cstd import sprintf, strtol
@@ -97,6 +98,9 @@ DSEP = "/"              # directory separator
 _ENC = "latin-1"        # text encoding: one character per byte
 
 
+_LARGE_READ = 1 << 20      # reads of more bytes are limited by WFDBFile.left
+
+
 class WFDBFile:
     """A WFDB_FILE: a local file or an in-memory copy of a remote file."""
 
@@ -112,10 +116,31 @@ class WFDBFile:
         self._err = False
         self._eof = False
 
+    def left(self, n):
+        """n, or fewer if fewer bytes are left in the file: the size of a
+        buffer that holds what read(n) can return.  (Only a large n is
+        checked, and only in a regular or in-memory file.)"""
+        if n <= _LARGE_READ:
+            return n
+        try:
+            pos = self.fp.tell()
+            if isinstance(self.fp, io.BytesIO):
+                size = len(self.fp.getbuffer())
+            else:
+                st = os.fstat(self.fp.fileno())
+                if not stat.S_ISREG(st.st_mode):
+                    return n
+                size = st.st_size
+        except (AttributeError, OSError, ValueError):
+            return n
+        return max(min(n, size - pos), 0)
+
     # The methods below emulate the C stdio functions used by the library.
     def read(self, n):
         try:
-            b = self.fp.read(n)
+            # (a block may be far larger than the file: never ask for
+            # more bytes than the file holds)
+            b = self.fp.read(self.left(n))
         except (OSError, ValueError):
             self._err = True
             return b""
@@ -125,10 +150,11 @@ class WFDBFile:
             self._eof = True
         return b
 
-    def readinto(self, buf):
+    def readinto(self, buf, want=None):
         """Read up to len(buf) bytes into the writable buffer buf (as
         read(len(buf)), without an intermediate bytes object); returns the
-        number of bytes read."""
+        number of bytes read.  want: the number of bytes requested, if more
+        than len(buf) (see left())."""
         n = len(buf)
         got = 0
         try:
@@ -145,7 +171,7 @@ class WFDBFile:
                     got += k
         except (OSError, ValueError):
             self._err = True
-        if got < n:
+        if got < (n if want is None else want):
             self._eof = True
         return got
 

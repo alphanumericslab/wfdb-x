@@ -1,10 +1,10 @@
 # WFDB-x for Kotlin
 
-> **WFDB-x** is the WFDB Software Package (the library and its 33
-> command-line tools) reimplemented in seven languages: Python, C++,
-> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
-> the original C package and to each other. This is the Kotlin
-> implementation.
+> **WFDB-x** is a reimplementation of the WFDB Software Package (the library
+> and its command-line tools) in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
+> identical results to the original C package and to each other. This is the
+> Kotlin implementation.
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
@@ -159,7 +159,7 @@ rec.physical!![0]     // its first sample, in mV
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
 | `channels` | signals to read, by number (`"0"`) or name (`"MLII"`, as in `names`) | all signals |
-| `from`, `to` | first sample, and the sample after the last one: a `TimeSpec` (see below) | the whole record |
+| `from`, `to` | first sample, and the sample after the last one: a `TimeSpec` (see below; `from` is not negative) | the whole record |
 | `physical` | also return the samples in physical units (`Record.physical`) | `false` |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `pad` | replace invalid samples by the previous valid one | `false` |
@@ -251,10 +251,13 @@ sampling frequency, the gain and ADC resolution of each signal, and the
 units of each calibrated signal are required; there are no defaults. The
 samples are given frame by frame, as `Record.samples`: an `IntArray` of ADC
 units, or a `DoubleArray` of physical units, converted to ADC units as
-`round(x * gain) + baseline` (NaN becomes an invalid sample). A gain of 0
-marks a signal as uncalibrated, which is only allowed for samples in ADC
-units. Per-signal arguments take one value for all signals, or one value per
-signal.
+`round(x * gain) + baseline` (NaN becomes an invalid sample; an infinite
+value, or one beyond the range of 32-bit integers in ADC units, is an error).
+A gain of 0 marks a signal as uncalibrated, which is only allowed for
+samples in ADC units. Per-signal arguments take one value for all signals,
+or one value per signal; anything else is an error. The arguments are
+checked before any file is created, and the output signals are closed
+whatever happens.
 
 | Argument | Meaning |
 |---|---|
@@ -275,7 +278,10 @@ writeAnnotations("rand", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N"
 ```
 
 Give the annotation types as `symbols` or as `codes`. `subtypes`, `chans`,
-`nums` and `aux` are optional. An `Annotations` object can also be written
+`nums` and `aux` are optional. Each of these arguments, when given, has one
+value per annotation; anything else is an error, reported before the file
+is created. As in C, the subtype, channel and annotator number are stored
+in one byte each (other values wrap around). An `Annotations` object can also be written
 as it is: `writeAnnotations("rand", "atr2", ann)`. If the annotations are
 not in time order, the file is sorted when it is written. `sort = false`
 keeps the given order (without the library's advice to run `sortann`) and
@@ -298,7 +304,7 @@ keeps the given order (without the library's advice to run `sortann`) and
 * When the data do not match the checksums in the header, `readRecord`
   returns all the data and warns: "checksum error in record REC: the signal
   data do not match the checksums in its header". By default the warning is
-  printed on the standard error, as `wfdb-x: ` followed by the message,
+  printed on the standard error, as `WFDB-x: ` followed by the message,
   unless `wfdbquiet()` was called; `onWarning = { msg -> ... }` receives it
   instead, and `checksumWarning = false` turns it off. `rec.checksumOk` is
   `false` either way. Checksums are only checked when a read reaches the end

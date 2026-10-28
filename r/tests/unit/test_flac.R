@@ -113,6 +113,7 @@ if (!nzchar(data) || !dir.exists(data)) {
     ig <- new.env()
     ig$fp <- wfdb_fopen(file, "rb")
     ig$start <- 0
+    ig$seek <- 1
     ig$stat <- 1
     ig$count <- 0
     hs <- replicate(ns, list(info = siginfo(fmt = fmt, spf = spf)), simplify = FALSE)

@@ -16,8 +16,8 @@ function stat = isgsetframe(g, t)
 % code.
 %
 % Changes from the original: a seek drops the blocks read ahead by the bulk
-% reader. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
-% gives the reasons.
+% reader, or skips them first (in a group that cannot seek). Each change is
+% marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
@@ -242,6 +242,7 @@ else
     t0 = S.istime - fix(ig.bp / b);
     t1 = t0 + fix(ig.be / b);
     if t < t0
+        ig.ahead = zeros(1, 0, 'uint8');    % (WFDB-x: the bulk reader's blocks)
         if ig.fp.seek(0, 0)
             wfdbx.internal.wfdb_error('isigsettime: improper seek on signal group %d\n', g);
             stat = -1;
@@ -255,8 +256,15 @@ else
     else
         nb = fix((t - t1) * b / d);
     end
-    while nb > ig.bsize && ~ig.fp.feof()
-        nb = nb - numel(ig.fp.read(ig.bsize));
+    % (WFDB-x: the blocks read ahead by the bulk reader come first)
+    while nb > ig.bsize && ~(isempty(ig.ahead) && ig.fp.feof())
+        if isempty(ig.ahead)
+            nb = nb - numel(ig.fp.read(ig.bsize));
+        else
+            m = min(ig.bsize, numel(ig.ahead));
+            ig.ahead = ig.ahead(m + 1:end);
+            nb = nb - m;
+        end
     end
 end
 ig.bp = 0;

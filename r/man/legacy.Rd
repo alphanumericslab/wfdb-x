@@ -41,7 +41,7 @@ wfdbx_legacy_args(argv)
   describes what changes in legacy mode.
 }
 \value{
-  \code{wfdbx_set_legacy} returns the previous setting and
+  \code{wfdbx_set_legacy} returns the previous setting (invisibly) and
   \code{wfdbx_get_legacy} the current one, \code{TRUE} or \code{FALSE}.
 
   \code{wfdbx_legacy_args} returns a list with two elements: \code{argv},

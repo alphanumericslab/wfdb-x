@@ -21,7 +21,7 @@ version. See LICENSE.
 
 import os
 
-from ._cstd import Strtok, strtod
+from ._cstd import Strtok, cstr, strtod
 from . import _wfdbio as wio
 from ._wfdbio import wfdb_error, wfdb_open, WFDB_READ, WFDB_WRITE, DEFWFDBCAL
 
@@ -107,6 +107,7 @@ def calopen(cfname=None):
         buf = cfile.getline()
         if buf == "":
             break
+        buf = cstr(buf)     # (C reads each line as a string)
         i = 0
         while i < len(buf) and buf[i] in " \t\r":
             i += 1

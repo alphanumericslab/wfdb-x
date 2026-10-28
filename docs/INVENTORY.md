@@ -36,23 +36,23 @@ macOS; the tests of the repository do not compile the native code (see
 | Tool | What it does | Cases | Python | C++ | MATLAB/Octave | Rust | Julia | R | Kotlin |
 |---|---|---:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **Signals** | | | | | | | | | |
-| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 285 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrsamp` | write a record from text (columns, scaling, any storage format) | 71 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbdesc` | describe the signals of a record (header contents) | 48 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 320 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrsamp` | write a record from text (columns, scaling, any storage format) | 72 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbdesc` | describe the signals of a record (header contents) | 53 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 49 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snip` | copy a segment of a record (any format) to a new record | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `xform` | convert records: format, sampling frequency, gain, signal selection | 54 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sampfreq` | print the sampling (or counter) frequency of a record | 22 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `xform` | convert records: format, sampling frequency, gain, signal selection | 58 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sampfreq` | print the sampling (or counter) frequency of a record | 23 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signame` | print signal names | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signum` | print the number of a named signal | 7 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbcat` | copy WFDB files to the standard output | 8 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbwhich` | print the path of a WFDB file | 17 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Time conversion** | | | | | | | | | |
-| `wfdbtime` | convert between sample numbers, elapsed and absolute times | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `time2sec` | convert a time string to seconds | 21 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbtime` | convert between sample numbers, elapsed and absolute times | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time2sec` | convert a time string to seconds | 22 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Annotations** | | | | | | | | | |
 | `rdann` | print annotations (filters by time, type, subtype, channel, number) | 78 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrann` | write an annotation file from text (`rdann` format) | 27 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrann` | write an annotation file from text (`rdann` format) | 28 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sortann` | sort an annotation file into time order | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ann2rr` | print RR intervals from annotations | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rr2ann` | write an annotation file from RR intervals | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -62,7 +62,7 @@ macOS; the tests of the repository do not compile the native code (see
 | `rdedfann` | print EDF+ annotations (as `rdann` text) | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wav2mit` | convert a WAV file to a WFDB record | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mit2wav` | convert a WFDB record to a WAV file | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdb2mat` | convert a WFDB record to a MATLAB/Octave .mat file | 29 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdb2mat` | convert a WFDB record to a MATLAB/Octave .mat file | 31 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `a2m` | convert AHA-format annotations to WFDB format | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `m2a` | convert WFDB annotations to AHA format | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ad2m` | convert AHA-format signals (tape/CD) to a WFDB record | 15 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -72,7 +72,7 @@ macOS; the tests of the repository do not compile the native code (see
 | `makeid` | write a record ID block (for AHA conversions) | 5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `readid` | read a record ID block | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `revise` | convert an old-style header to the current format | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Total** | 33 tools | **1023** | 1023 | 1023 | 1023 | 1023 | 1023 | 1023 | 1023 |
+| **Total** | 33 tools | **1081** | 1081 | 1081 | 1081 | 1081 | 1081 | 1081 | 1081 |
 
 ## Library functions
 
@@ -140,6 +140,7 @@ The C library functions keep their C names in every implementation
 | `wfdbfile` | path of a WFDB file | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdb_error` | error reporting | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbmemerr`, `wfdb_me_fatal` | behavior on memory errors | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbx_write_errors`, `wfdbx_note_write_error` | the number of output files that could not be written, flushed or closed, and a way for a program that writes a file itself to add to it (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_time_needs_freq` | whether `strtim` needs the sampling frequency for a string (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_set_legacy`, `wfdbx_get_legacy`, `wfdbx_legacy_args` | legacy mode: the original package's behavior, on request (addition; see [`DIVERGENCES.md`](DIVERGENCES.md)) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_set_output_dir`, `wfdbx_get_output_dir` | the output directory: every relative name written is created under it (`WFDBX_OUTPUT_DIR`; the high-level writers' `dir` option); addition, see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

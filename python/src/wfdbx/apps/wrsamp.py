@@ -29,7 +29,8 @@ version. See LICENSE.
 import sys
 
 import wfdbx as w
-from wfdbx._cstd import GlibcRand, atof, atoi, d2i, int32, sscanf, strtol
+from wfdbx._cstd import (GlibcRand, atof, atoi, d2i, int32, sscanf, strtol,
+                         uint32)
 from ._common import Exit, eprintf, eprint, legacy, legacy_help, run
 
 HELP = [
@@ -529,7 +530,8 @@ def _main(argv):
         si.append(s)
     while line_has_alpha(line):
         line = rd.read_line()
-    if w.osigfopen(si, nosig) < nosig or w.setsampfreq(freq) < 0:
+    # (nosig is unsigned in C, so an error (-1) from osigfopen passes)
+    if uint32(w.osigfopen(si, nosig)) < nosig or w.setsampfreq(freq) < 0:
         raise Exit(2)
     t = 0
     while t < t0:

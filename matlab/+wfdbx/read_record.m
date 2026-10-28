@@ -10,8 +10,9 @@ function rec = read_record(record, varargin)
 %     'channels'  signals to read: signal numbers (starting at 0), or a cell
 %                 array of numbers and names (by name, as in names; default:
 %                 all signals)
-%     'sampfrom'  first sample: a sample number, or a time string such as
-%                 '0:10' (10 seconds) or 's3600' (sample 3600); default 0
+%     'sampfrom'  first sample: a sample number (not negative), or a time
+%                 string such as '0:10' (10 seconds) or 's3600' (sample
+%                 3600); default 0
 %     'sampto'    the sample after the last one: a sample number or a time
 %                 string (default: the end of the record)
 %     'physical'  true to return physical units instead of ADC units
@@ -59,14 +60,16 @@ function rec = read_record(record, varargin)
 %   Errors: an error (identifier 'wfdbx:read_record') is thrown if the
 %   record cannot be read, if a signal file is shorter than its header says
 %   ("can't read signal data of record REC (getvec status -3)"), if a
-%   requested signal does not exist, if a time string needs the sampling
-%   frequency and the header gives none, or if 'physical' is true and a
-%   selected signal is uncalibrated.  If the data do not match the header's
+%   requested signal does not exist, if 'sampfrom' is negative, if a time
+%   string needs the sampling frequency and the header gives none, or if
+%   'physical' is true and a selected signal is uncalibrated.  If the data do not match the header's
 %   checksums, all the data are returned with the warning 'wfdbx:checksum'.
 %   Checksums are only checked when a read reaches the end of the record.
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
-%   WFDB library functions.
+%   WFDB library functions.  It sets the getvec mode ('highres', 'pad') for
+%   its own reading only: the mode in force before the call is restored
+%   afterwards.
 %
 %   Examples (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -108,6 +111,13 @@ legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_record'); %#ok<NASGU>
 restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, 'read_record'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 opt.legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
+if isnumeric(opt.sampfrom) && any(opt.sampfrom(:) < 0)
+    error('wfdbx:read_record', 'read_record: sampfrom must not be negative');
+end
+% WFDB-x: the getvec mode is set for this call only (restored afterwards,
+% also on errors)
+previous_mode = wfdbx.getgvmode();
+restore_mode = onCleanup(@() wfdbx.setgvmode(previous_mode)); %#ok<NASGU>
 wfdbx.wfdbquit();
 nsig = wfdbx.isigopen(record, 0);
 if nsig <= 0

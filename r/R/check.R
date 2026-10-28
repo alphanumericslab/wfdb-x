@@ -780,12 +780,14 @@ check_record <- function(record, annotators = character(0), input_dir = NULL,
     legacy <- wfdbx_set_legacy(FALSE)
     printing <- .wfdb_io$error_print
     .wfdb_io$error_print <- FALSE
+    gvmode <- getgvmode()
     tryCatch({
       wfdbquit()
       len <- .chk_record_signals(record, rep)
       for (a in annotators) .chk_annotator(record, a, len, rep)
     }, finally = {
       wfdbquit()
+      setgvmode(gvmode)         # (the mode before the call: WFDB-x)
       .wfdb_io$error_print <- printing
       wfdbx_set_legacy(legacy)
     })

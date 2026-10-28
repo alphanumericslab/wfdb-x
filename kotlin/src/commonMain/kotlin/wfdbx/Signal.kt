@@ -32,7 +32,7 @@
 // an output signal file is never one of the input files of the open record; a
 // header written under a path names the record, its signal files and its
 // segments relative to its own directory; FLAC signal files are read and
-// written with WFDB-x's own codec (Flac.kt) instead of libFLAC; additions:
+// written with WFDB-x's FLAC codec (Flac.kt) instead of libFLAC; additions:
 // getvecs, getvecs_status, wfdbx_bulk_read and putframes; legacy mode
 // (wfdbx_set_legacy) restores the original behavior. Each change is marked
 // "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
@@ -75,6 +75,12 @@ import wfdbx.cstd.strtol
 
 /** BUFSIZ of the reference platform (default buffer sizes). */
 private const val WFDB_BUFSIZ = 8192
+
+/**
+ * WFDB-x: the largest input buffer of a signal file whose size is not
+ * known (a larger block is read in several parts, with the same results).
+ */
+private const val BUF_MAX = 1 shl 26
 
 /** Frames per tile of the bulk path (see bulkFrames). */
 private const val BULK_TILE = 1024
@@ -128,57 +134,119 @@ internal class IsData {
     var gvcount = 0
 }
 
-/** Decoded FLAC input (one signal group). */
-internal class FlacIn {
-    var nsig = 0
-    var datb = 0
-    var spf = 0
-    var decoded = false
-    var failed = false
-    var chans: Array<IntArray> = emptyArray()
-    var total = 0L
-    var base = 0L
-    var nfr = 0L
-    var leftover = 0L
-    var f = 0L
-    var c = 0
-    var k = 0
+/** FLAC input (one signal group): the FLAC fields of the C `igdata`. */
+internal class FlacIn(val pack: FlacPack) {
+    /** The decoder (made from the signal file when the group is first read or sought). */
+    var dec: FlacStreamDecoder? = null
     var md5Check = false
-    var hasMd5 = false
-    var md5 = ByteArray(FLAC_MD5_LEN)
-    var haveDecodedMd5 = false
-    var decodedMd5 = ByteArray(FLAC_MD5_LEN)
-    var seeked = false
+}
 
-    // State of the libFLAC decoder of the C library, which decodes one FLAC
-    // block at a time: the end of each block (in samples per channel), the
-    // end of the blocks decoded so far, whether the buffered samples were
-    // discarded by a failed seek, and whether decoding was aborted (after a
-    // failed seek, iflac_samples() aborts the decoding of the next block,
-    // and libFLAC then refuses to seek).
-    var blockEnds = LongArray(0)
-    var decEnd = 0L
-    var discarded = false
-    var aborted = false
+/**
+ * The decoded samples of a FLAC signal group not yet read, in frame order,
+ * and what the decoder reports (C `iflac_samples` and `iflac_error`, which
+ * receive the results of the libFLAC decoder).
+ */
+internal class FlacPack(
+    /** Signals in the group (C `data`), and their resolution (`datb`). */
+    val nsig: Int,
+    val datb: Int,
+    /** Samples per frame of each signal (C `packspf`). */
+    val spf: Int,
+) : FlacClient {
+    /**
+     * `buf[bp until packptr]`: complete frames not yet read; then the frame
+     * being filled (up to `size`), of which `packcount` samples per signal
+     * are decoded.
+     */
+    var buf = IntArray(0)
+    var size = 0
+    var bp = 0
+    var packptr = 0
+    var packcount = 0
 
-    /** The end of the FLAC block that contains sample n - 1 (n > 0). */
-    fun blockEnd(n: Long): Long {
-        var lo = 0
-        var hi = blockEnds.size
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (blockEnds[mid] < n) lo = mid + 1 else hi = mid
-        }
-        return if (lo < blockEnds.size) blockEnds[lo] else total
+    /** Samples (per signal) to skip after a seek (C `count`). */
+    var count = 0L
+
+    /** The group's `stat` while the decoder runs. */
+    var stat = 0
+
+    /** The messages to report. */
+    val msgs = ArrayList<String>()
+
+    /** Sets the number of values in buf to n (new values are 0). */
+    private fun resize(n: Int) {
+        if (n > buf.size) buf = buf.copyOf(maxOf(n, 2 * buf.size))
+        if (n > size) buf.fill(0, size, n)
+        size = n
     }
 
-    fun pack(base: Long) {
-        this.base = base
-        nfr = (total - base) / spf
-        leftover = (total - base) - nfr * spf
-        f = 0
-        c = 0
-        k = 0
+    /** Drops the values read and the frame being filled (after a seek). */
+    fun clear() {
+        size = 0
+        bp = 0
+        packptr = 0
+        packcount = 0
+        count = 0
+    }
+
+    override fun error(e: FlacDecodeError) {
+        msgs.add(
+            when (e) {
+                FlacDecodeError.LOST_SYNC -> "getvec: unable to decode FLAC (lost sync)\n"
+                FlacDecodeError.BAD_HEADER -> "getvec: unable to decode FLAC (invalid header)\n"
+                FlacDecodeError.CRC_MISMATCH -> "getvec: unable to decode FLAC (CRC mismatch)\n"
+                FlacDecodeError.UNPARSEABLE -> "getvec: unable to decode FLAC (unsupported format)\n"
+            },
+        )
+        // (decoding stops at the next frame)
+        stat = -2
+    }
+
+    override fun write(h: FlacFrameHeader, chans: Array<IntArray>, off: Int): Boolean {
+        if (h.channels != nsig) {
+            msgs.add("getvec: wrong number of signals in FLAC signal file\n")
+            stat = -2
+        }
+        if (h.bitsPerSample > datb) {
+            msgs.add("getvec: wrong sample resolution in FLAC signal file\n")
+            stat = -2
+        }
+        if (stat < 0) return false
+        val frmsize = chans.size * spf
+        // Shift out the samples already read.
+        if (bp > 0) {
+            buf.copyInto(buf, 0, bp, size)
+            size -= bp
+            packptr -= bp
+            bp = 0
+        }
+        var nsamp = h.blocksize.toLong()
+        if (count > nsamp) {
+            count -= nsamp
+            return true
+        }
+        var ipos = off + count.toInt()
+        nsamp -= count
+        count = 0
+        // Store the samples in frame order.
+        var orem = spf - packcount
+        var p = packptr + packcount
+        resize(packptr + frmsize)
+        while (nsamp != 0L) {
+            val n = minOf(nsamp, orem.toLong()).toInt()
+            for (s in chans.indices) chans[s].copyInto(buf, p + s * spf, ipos, ipos + n)
+            nsamp -= n
+            orem -= n
+            if (orem == 0) {
+                packptr += frmsize
+                resize(packptr + frmsize)
+                p = packptr
+                orem = spf
+                ipos += n
+            }
+        }
+        packcount = spf - orem
+        return true
     }
 }
 
@@ -188,7 +256,9 @@ internal class IgData {
     var datb = 0
     var fp: WfdbFile? = null
     var start = 0L
-    var bsize = 0
+
+    /** Block size (WFDB-x: a Long, since that of a header can be 2^31: see isigopen). */
+    var bsize = 0L
     var buf = ByteArray(0)
     var bp = 0
     var be = 0
@@ -199,8 +269,7 @@ internal class IgData {
     var stat = 0
 
     private fun r8Fill(): Int {
-        var n = if (bsize > 0) bsize else buf.size
-        if (n > buf.size) n = buf.size
+        val n = if (bsize > 0) minOf(bsize, buf.size.toLong()).toInt() else buf.size
         val got = fp?.read(buf, 0, n) ?: 0
         stat = got
         bp = 0
@@ -617,6 +686,13 @@ internal class SigState {
     var dsbi = 0
     var dsblen = 0
     var framelen = 0
+
+    /**
+     * WFDB-x: is there a signal group whose frames hold no samples (an EDF
+     * file can give 0 samples per data record)? It is at the end of its
+     * data at once.
+     */
+    var emptyGroup = false
 
     /** getvec mode. */
     var gvmode = DEFWFDBGVMODE
@@ -1395,8 +1471,9 @@ private fun Wfdb.readheaderBody(record: ByteArray): Int {
         return -2
     }
 
-    // The second token specifies the number of signals.
-    val nsig = strtol10(p2).toInt()
+    // The second token specifies the number of signals (an unsigned int in
+    // C: -1 is 4294967295; WFDB-x: the signal lines run out first).
+    val nsig = strtol10(p2) and 0xffffffffL
 
     // Determine the frame rate, if present and not set already.
     val p3 = tk.next(SEP)
@@ -1709,103 +1786,91 @@ private fun Wfdb.segfail(msg: ByteArray): Int {
 // ---------------------------------------------------------------------------
 // FLAC input and output (glue to Flac.kt)
 
-/** flac_isclose: the MD5 check of a FLAC input (an error message if the check failed). */
+/**
+ * flac_isclose: closes the decoder of a FLAC input (an error message if the
+ * MD5 signature of its samples was checked and is wrong).
+ */
 private fun flacIsclose(ig: IgData): String? {
     val fi = ig.flac ?: return null
-    if (fi.md5Check && fi.hasMd5 && fi.haveDecodedMd5 && !fi.seeked) {
-        val nonzero = fi.md5.any { it != 0.toByte() }
-        if (nonzero && !fi.md5.contentEquals(fi.decodedMd5)) return "isigclose: warning: incorrect MD5 hash in FLAC input\n"
-    }
-    return null
+    val d = fi.dec
+    // (a decoder that has read nothing has no STREAMINFO signature)
+    val ok = if (d != null) d.finish() else !fi.md5Check
+    return if (ok) null else "isigclose: warning: incorrect MD5 hash in FLAC input\n"
 }
 
-private fun Wfdb.flacDecodeGroup(g: Int) {
+/**
+ * The decoder of FLAC signal group g, made from its signal file when first
+ * needed (C makes it when the group is opened; it reads nothing until then).
+ */
+private fun Wfdb.flacDecoder(g: Int) {
     val ig = sig.igd[g]
     val fi = ig.flac ?: return
-    fi.decoded = true
-    val data = ig.fp?.readToEnd() ?: ByteArray(0)
-    val d = flacDecode(data, fi.nsig, fi.datb)
-    val status = d.status
-    d.errorMessage?.let { wfdb_error(it) }
-    val msg = when (status) {
-        FlacStatus.OK, FlacStatus.WFDB -> null
-        FlacStatus.SYNC -> "getvec: unable to decode FLAC (lost sync)\n"
-        FlacStatus.HEADER -> "getvec: unable to decode FLAC (invalid header)\n"
-        FlacStatus.CRC -> "getvec: unable to decode FLAC (CRC mismatch)\n"
-        FlacStatus.UNPARSEABLE -> "getvec: unable to decode FLAC (unsupported format)\n"
-        FlacStatus.EOF -> "getvec: unable to decode FLAC\n"
-        FlacStatus.META -> "getvec: unexpected FLAC decoding error\n"
+    if (fi.dec == null) {
+        val data = ig.fp?.readToEnd() ?: ByteArray(0)
+        fi.dec = FlacStreamDecoder(data, ig.seek != 0, fi.md5Check)
     }
-    if (msg != null) wfdb_error(msg)
-    if (status != FlacStatus.OK) {
-        fi.failed = true
-        return
-    }
-    val bps = d.bps
-    fi.chans = d.chans
-    fi.blockEnds = d.blockEnds
-    fi.total = if (fi.chans.isEmpty()) 0 else fi.chans[0].size.toLong()
-    fi.hasMd5 = d.hasMd5
-    fi.md5 = d.md5
-    if (fi.md5Check && fi.total != 0L) {
-        fi.decodedMd5 = flacSamplesMd5(fi.chans, bps)
-        fi.haveDecodedMd5 = true
-    }
-    fi.pack(0)
 }
 
+/** Reports the messages of the decoder of a FLAC input. */
+private fun Wfdb.flacMessages(fi: FlacIn) {
+    for (m in fi.pack.msgs) wfdb_error(m)
+    fi.pack.msgs.clear()
+}
+
+/** flac_getsamp: the next sample of FLAC signal group g. */
 private fun Wfdb.flacGetsamp(g: Int): Int {
-    val ig0 = sig.igd[g]
-    if (ig0.flac?.decoded == false) flacDecodeGroup(g)
+    flacDecoder(g)
     val ig = sig.igd[g]
     val fi = ig.flac
     if (fi == null) {
         ig.stat = -2
         return 0
     }
-    if (fi.failed) {
-        ig.stat = -2
-        return 0
-    }
-    if (fi.aborted) return 0 // (the decoder does nothing; ig.stat is negative)
-    if (fi.f < fi.nfr) {
-        // The frame of the next sample must have been decoded.
-        val need = fi.base + (fi.f + 1) * fi.spf
-        if (fi.discarded || need > fi.decEnd) {
-            if (ig.stat < 0) return if (fi.decEnd < fi.total) flacAbort(g) else 0
-            fi.decEnd = fi.blockEnd(need)
+    val p = fi.pack
+    var stat = ig.stat
+    var v = 0
+    while (true) {
+        if (p.bp != p.packptr) {
+            // the next decoded sample
+            v = p.buf[p.bp++]
+            break
         }
-        val v = fi.chans[fi.c][(fi.base + fi.f * fi.spf + fi.k).toInt()]
-        fi.k++
-        if (fi.k == fi.spf) {
-            fi.k = 0
-            fi.c++
-            if (fi.c == fi.chans.size) {
-                fi.c = 0
-                fi.f++
+        // Decode the next FLAC frame (or metadata block).
+        val oldcount = p.packcount
+        p.stat = stat
+        val dec = fi.dec
+        val ok = dec != null && dec.processSingle(p)
+        stat = p.stat
+        flacMessages(fi)
+        if (!ok) {
+            if (stat != -2) {
+                wfdb_error("getvec: unexpected FLAC decoding error\n")
+                stat = -2
+            }
+            break
+        }
+        if (stat <= 0) break
+        if (p.bp == p.packptr && p.packcount == oldcount) {
+            when (dec!!.state) {
+                FlacState.END_OF_STREAM -> {
+                    if (p.packcount != 0) {
+                        wfdb_error(cformat("getvec: warning: %d samples left over at end of file\n", p.packcount))
+                    }
+                    p.packcount = 0
+                    stat = 0
+                    break
+                }
+                FlacState.SEARCH_FOR_METADATA, FlacState.READ_METADATA, FlacState.SEARCH_FOR_FRAME_SYNC -> {}
+                else -> {
+                    wfdb_error("getvec: unknown FLAC decoding state\n")
+                    stat = -2
+                    break
+                }
             }
         }
-        return v
     }
-    if (fi.discarded && fi.decEnd < fi.total) return flacAbort(g)
-    if (ig.stat < 0) return 0
-    fi.decEnd = fi.total
-    val left = fi.leftover
-    fi.leftover = 0
-    ig.stat = 0
-    if (left != 0L) wfdb_error(cformat("getvec: warning: %d samples left over at end of file\n", left.toInt()))
-    return 0
-}
-
-/** Decoding a block after a failed seek (ig.stat < 0): iflac_samples() aborts the decoder, and flac_getsamp() reports the error. */
-private fun Wfdb.flacAbort(g: Int): Int {
-    val ig = sig.igd[g]
-    ig.flac?.aborted = true
-    if (ig.stat != -2) {
-        ig.stat = -2
-        wfdb_error("getvec: unexpected FLAC decoding error\n")
-    }
-    return 0
+    ig.stat = stat
+    return v
 }
 
 private fun Wfdb.flacIsopen(g: Int, si: Int, ns: Int): Int {
@@ -1820,10 +1885,7 @@ private fun Wfdb.flacIsopen(g: Int, si: Int, ns: Int): Int {
             return -1
         }
     }
-    val fi = FlacIn()
-    fi.nsig = ns
-    fi.datb = hs[si].info.fmt - FLAC_FMT_BASE
-    fi.spf = hs[si].info.spf
+    val fi = FlacIn(FlacPack(ns, hs[si].info.fmt - FLAC_FMT_BASE, maxOf(hs[si].info.spf, 1)))
     val p = getenv("WFDB_FLAC_CHECK_MD5")
     fi.md5Check = p != null && p.isNotEmpty()
     val ig = sig.igd[g]
@@ -1832,36 +1894,35 @@ private fun Wfdb.flacIsopen(g: Int, si: Int, ns: Int): Int {
     return 0
 }
 
+/** flac_isseek: seeks FLAC signal group g to frame t. */
 private fun Wfdb.flacIsseek(g: Int, t: Long): Int {
-    if (sig.igd[g].flac?.decoded == false) flacDecodeGroup(g)
+    flacDecoder(g)
     val ig = sig.igd[g]
-    ig.stat = 1
-    ig.count = 0
     val start = ig.start
     val fi = ig.flac
-    if (fi == null) {
+    val dec = fi?.dec
+    if (fi == null || dec == null) {
         ig.stat = -1
         return -1
     }
-    fi.seeked = true
-    if (fi.failed) {
-        ig.stat = -1
-        return -1
+    // After a failed seek, clear the decoder state to try again.
+    if (dec.state == FlacState.SEEK_ERROR) dec.flush()
+    // Nothing is left of the current block.
+    val p = fi.pack
+    p.clear()
+    p.stat = 1
+    // Seek to the sample before the one wanted (seeking to the end of the
+    // stream fails), and skip it.
+    var tt = t * p.spf + start
+    if (tt != 0L) {
+        tt -= 1
+        p.count = 1
     }
-    val tt = t * fi.spf + start
-    if (fi.aborted || tt > fi.total || tt < 0) {
-        // (libFLAC refuses to seek once decoding was aborted, or past the
-        // end of the stream; the buffered samples are discarded anyway)
-        fi.discarded = true
-        ig.stat = -1
-        return -1
-    }
-    fi.pack(tt)
-    fi.discarded = false
-    // The seek decodes the block that contains sample tt - 1 (sample 0 if tt
-    // is 0): libFLAC seeks to it, and the first sample is skipped.
-    fi.decEnd = fi.blockEnd(maxOf(tt, 1))
-    return ig.stat
+    var stat = if (dec.seekAbsolute(tt, p)) p.stat else -1
+    flacMessages(fi)
+    if (stat > 0) stat = 1
+    ig.stat = stat
+    return stat
 }
 
 private fun Wfdb.flacOsinit(g: Int, si: Array<Siginfo>, s0: Int, ns: Int): Int {
@@ -1898,6 +1959,7 @@ private fun Wfdb.isigclose() {
     st.isd.clear()
     st.nisig = 0
     st.framelen = 0
+    st.emptyGroup = false
 
     while (st.igd.isNotEmpty()) {
         val ig = st.igd.removeAt(st.igd.size - 1)
@@ -2139,7 +2201,7 @@ private fun Wfdb.isgsetframe(g: Int, t0: Long): Int {
         val tt = t * b
         nb = tt / d + ig.start
         var i = ig.bsize
-        if (i == 0) i = ibsize
+        if (i == 0L) i = ibsize.toLong()
         // Seek to a position such that the next block read will contain the
         // desired sample.
         val tt2 = nb / i
@@ -2169,11 +2231,11 @@ private fun Wfdb.isgsetframe(g: Int, t0: Long): Int {
             val tt = (t - t1) * b
             nb = tt / d
         }
-        val bs = maxOf(ig.bsize, 0)
+        val bs = maxOf(ig.bsize, 0L)
         while (nb > ig.bsize) {
             val f = ig.fp ?: break
             if (f.eof()) break
-            val m = minOf(bs, ig.buf.size)
+            val m = minOf(bs, ig.buf.size.toLong()).toInt()
             nb -= f.read(ig.buf, 0, m)
         }
     }
@@ -2202,18 +2264,21 @@ private fun Wfdb.isgsetframe(g: Int, t0: Long): Int {
 private fun Wfdb.getskewedframe(vecstart: IntArray, voff: Int): Int {
     var stat = sig.nisig
     if (stat == 0) return if (sig.nvsig > 0) -1 else 0
-    val nisig = sig.nisig
-    if (sig.istime == 0L) for (k in 0 until nisig) sig.isd[k].samp = sig.isd[k].info.initval
+    if (sig.istime == 0L) for (k in 0 until sig.nisig) sig.isd[k].samp = sig.isd[k].info.initval
     var g = sig.nigroup
     while (g > 0) {
         // Go through groups in reverse order since seeking on group 0 should
         // always be done last.
         g--
-        if (sig.igd[g].initialSkip != 0) {
+        // (a seek that failed may have closed the input signals)
+        if (g < sig.nigroup && sig.igd[g].initialSkip != 0) {
             val t0 = if (sig.inMsrec != 0) sig.segarray[sig.segp].samp0 else 0L
             isgsetframe(g, t0)
         }
     }
+    // (the seek may have closed the input signals: see isigsettime)
+    val nisig = sig.nisig
+    if (sig.emptyGroup) return -1 // WFDB-x (see isigopen)
 
     // If the vector needs to be rearranged (variable-layout record), then
     // read samples into a temporary buffer.
@@ -2802,15 +2867,17 @@ fun Wfdb.isigopen(record: ByteArray?, siarray: Array<Siginfo>?, nsig: Int): Int 
         val ig = st.igd[gi]
         // Set the buffer size and the seek capability flag.
         if (hs.info.bsize < 0) {
-            hs.info.bsize = -hs.info.bsize
-            ig.bsize = hs.info.bsize
+            // WFDB-x: -2147483648 gives 2147483648 (C overflows)
+            ig.bsize = -hs.info.bsize.toLong()
+            hs.info.bsize = if (hs.info.bsize == Int.MIN_VALUE) Int.MAX_VALUE else -hs.info.bsize
             ig.seek = 0
         } else {
-            ig.bsize = hs.info.bsize
-            if (ig.bsize == 0) ig.bsize = st.ibsize
+            ig.bsize = hs.info.bsize.toLong()
+            if (ig.bsize == 0L) ig.bsize = st.ibsize.toLong()
             ig.seek = 1
         }
-        ig.buf = ByteArray(maxOf(ig.bsize, 0))
+        // (allocated once the signal file is open)
+        ig.buf = ByteArray(0)
         ig.flac = null
         ig.data = 0
         ig.datb = 0
@@ -2837,6 +2904,12 @@ fun Wfdb.isigopen(record: ByteArray?, siarray: Array<Siginfo>?, nsig: Int): Int 
                 si = sj
                 continue
             }
+            // WFDB-x: a buffer no larger than the file (a block can be
+            // larger), so reads and seeks are the same
+            var n = maxOf(ig.bsize, 0L)
+            val size = f.localSize()
+            if (size > 0) n = minOf(n, size)
+            ig.buf = ByteArray(minOf(n, BUF_MAX.toLong()).toInt())
         }
 
         if (isflacfmt(fmt) && flacIsopen(gi, si, sj - si) < 0) {
@@ -2849,7 +2922,9 @@ fun Wfdb.isigopen(record: ByteArray?, siarray: Array<Siginfo>?, nsig: Int): Int 
         }
 
         // All tests passed -- fill in remaining data for this group.
-        ig.bp = maxOf(ig.bsize, 0)
+        // (nothing is in the buffer; C sets bp to bsize, of which the
+        // buffer can now be a part)
+        ig.bp = ig.buf.size
         ig.be = ig.bp
         ig.start = hs.start
         ig.initialSkip = if (ig.start > 0) 1 else 0
@@ -2906,6 +2981,11 @@ fun Wfdb.isigopen(record: ByteArray?, siarray: Array<Siginfo>?, nsig: Int): Int 
     // Determine the total number of samples per frame.
     st.framelen = 0
     for (k in 0 until st.nisig) st.framelen += st.isd[k].info.spf
+    // WFDB-x: a signal group whose frames hold no samples
+    st.emptyGroup = (0 until st.nigroup).any { g ->
+        val gs = (0 until st.nisig).map { st.isd[it].info }.filter { it.group == g && it.fmt != 0 }
+        gs.isNotEmpty() && gs.all { it.spf == 0 }
+    }
 
     // Allocate workspace for getvec, isgsettime, and tnextvec.
     if (st.tspf > st.tuvlen) {
@@ -3661,7 +3741,8 @@ internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResu
     var k = 0L
     val st = sig
     if (!st.haveDsbuf && st.ispfmax < 2 && (st.ifreq == 0.0 || st.ifreq == st.sfreq)) {
-        // Fast path: getvec is getframe, which is getskewedframe.
+        // Fast path: getvec is getframe (getskewedframe until a segment that
+        // needs deskewing opens).
         val stride = maxOf(st.tspf, 0)
         val need = vecNeed()
         var pos = off
@@ -3677,8 +3758,7 @@ internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResu
             if (pos + need > out.size) {
                 // (the caller's array is too short for another vector)
                 val tmp = IntArray(need)
-                stat = getskewedframe(tmp, 0)
-                sig.istime++
+                stat = getframeImpl(tmp, 0)
                 val mm = minOf(maxOf(out.size - pos, 0), stride)
                 if (stat == -4) tmp.copyInto(out, pos, 0, mm) // (valid data with a checksum mismatch)
                 if (stat < 0) break
@@ -3688,8 +3768,9 @@ internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResu
                 pos += stride
                 continue
             }
-            stat = getskewedframe(out, pos)
-            sig.istime++
+            // (getframe, not getskewedframe: a segment opened by an earlier
+            // frame may need deskewing)
+            stat = getframeImpl(out, pos)
             if (stat < 0) break
             pos += stride
             k++

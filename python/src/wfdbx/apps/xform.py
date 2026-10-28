@@ -639,13 +639,25 @@ def _main(argv):
     if reopen:
         if w.osigfopen(dfout, nosig) != nosig:
             raise Exit(2)
-    vmax = [int32(dfout[k].adczero + (1 << (dfout[k].adcres - 1)) - 1)
+    # (1UL << (adcres - 1)) in C; on x86-64 the shift count is taken
+    # modulo 64, so an ADC resolution of 0 gives 1 << 63
+    vmax = [int32(dfout[k].adczero + (1 << ((dfout[k].adcres - 1) & 63)) - 1)
             for k in range(nosig)]
-    vmin = [int32(dfout[k].adczero - (1 << (dfout[k].adcres - 1)))
+    vmin = [int32(dfout[k].adczero - (1 << ((dfout[k].adcres - 1) & 63)))
             for k in range(nosig)]
     INV = w.WFDB_INVALID_SAMPLE
     vin = [0] * max(iframelen, 1)
     vout = [0] * max(oframelen, 1)
+    if Mflag:
+        # WFDB-x: room for every output sample of a frame, and for every
+        # input sample that they read (C sizes vout for the input frame and
+        # writes past its end when the output frame is larger; the samples
+        # read beyond the input frame are 0 here)
+        ospf = sum(dfout[k].spf for k in range(nosig))
+        vout += [0] * (ospf - len(vout))
+        need = max((sum(dfin[jj].spf for jj in range(siglist[k])) +
+                    dfout[k].spf for k in range(nosig)), default=0)
+        vin += [0] * (need - len(vin))
     vv = [0] * nosig
     v = [0] * nosig
     m = n = mn = 0

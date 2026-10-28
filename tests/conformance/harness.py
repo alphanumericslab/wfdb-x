@@ -124,6 +124,21 @@ def impl_command(impl, tool, cbin=None):
     return [t.replace("{tool}", tool) for t in tmpl]
 
 
+def impl_env(impl, cbin=None):
+    """The extra environment variables with which implementation impl
+    runs its tools (None: none)."""
+    bindir = cbin if impl == "c" else (
+        os.environ.get("WFDBX_%s_BIN" % impl.upper()) or BIN_DIRS.get(impl))
+    if bindir and not os.environ.get("WFDBX_%s_CMD" % impl.upper()):
+        return {"PATH": os.path.abspath(bindir) + os.pathsep +
+                os.environ.get("PATH", "")}
+    if impl == "python" and not os.environ.get("WFDBX_PYTHON_CMD"):
+        # (the Python tools of this repository, installed or not)
+        return {"PYTHONPATH": os.path.join(ROOT, "python", "src") +
+                os.pathsep + os.environ.get("PYTHONPATH", "")}
+    return None
+
+
 def snapshot(d):
     """Map relative path -> (size, mtime_ns, content hash) for files in d."""
     out = {}
@@ -527,10 +542,9 @@ def main():
             if needs_dev_full(case) and not have_full:
                 print("%-40s skipped (no %s)" % (case["id"], DEV_FULL))
                 continue
-            path = os.path.abspath(a.cbin) + os.pathsep + \
-                os.environ.get("PATH", "")
-            res = run_case(case, impl_command("c", case["tool"]),
-                           {"PATH": path}, a.timeout)
+            impl = case.get("golden_impl", "c")
+            res = run_case(case, impl_command(impl, case["tool"]),
+                           impl_env(impl, a.cbin), a.timeout)
             save_golden(case["id"], res)
             print("%-40s status %d, %d bytes out, %d files" % (
                 case["id"], res["status"], len(res["stdout"]),
@@ -542,25 +556,20 @@ def main():
         if not have_full:
             nskip = sum(map(needs_dev_full, cases))
             cases = [c for c in cases if not needs_dev_full(c)]
+        nown = 0
+        if a.impl == "c":
+            # (results that C cannot give: see golden_impl in cases.py)
+            nown = sum("golden_impl" in c for c in cases)
+            cases = [c for c in cases if "golden_impl" not in c]
 
         def one(case):
             if not os.path.isdir(golden_dir(case["id"])):
                 return case, ["missing golden results" + _misnamed(case)]
             exp = load_golden(case["id"])
-            extra = None
-            bindir = a.cbin if a.impl == "c" else (
-                os.environ.get("WFDBX_%s_BIN" % a.impl.upper()) or
-                BIN_DIRS.get(a.impl))
-            if bindir and not os.environ.get("WFDBX_%s_CMD" % a.impl.upper()):
-                extra = {"PATH": os.path.abspath(bindir) + os.pathsep +
-                         os.environ.get("PATH", "")}
-            if a.impl == "python" and not os.environ.get("WFDBX_PYTHON_CMD"):
-                # (the Python tools of this repository, installed or not)
-                extra = {"PYTHONPATH": os.path.join(ROOT, "python", "src") +
-                         os.pathsep + os.environ.get("PYTHONPATH", "")}
             try:
                 act = run_case(case, impl_command(a.impl, case["tool"],
-                                                  a.cbin), extra, a.timeout)
+                                                  a.cbin),
+                               impl_env(a.impl, a.cbin), a.timeout)
             except CaseTimeout as e:
                 return case, [str(e)]
             return case, compare(exp, act, case)
@@ -584,7 +593,9 @@ def main():
             elif a.verbose:
                 print("ok   %s" % case["id"])
         print("%d of %d cases passed" % (len(cases) - nfail, len(cases)) +
-              (" (%d skipped: no %s)" % (nskip, DEV_FULL) if nskip else ""))
+              (" (%d skipped: no %s)" % (nskip, DEV_FULL) if nskip else "") +
+              (" (%d skipped: results of WFDB-x, not C)" % nown
+               if nown else ""))
         return 1 if nfail else 0
     ap.print_help()
     return 2

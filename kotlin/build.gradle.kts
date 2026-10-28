@@ -143,8 +143,9 @@ publishing {
         pom {
             name.set("WFDB-x for Kotlin")
             description.set(
-                "The WFDB Software Package (library and command-line tools) in Kotlin, " +
-                    "part of WFDB-x: the same package in seven languages",
+                "A reimplementation of the WFDB Software Package (library and command-line tools) " +
+                    "in Kotlin, part of WFDB-x: the same package in seven languages, tested to give " +
+                    "byte-for-byte identical results",
             )
             url.set("https://github.com/alphanumericslab/wfdb-x")
             licenses {

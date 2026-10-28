@@ -13,9 +13,13 @@
 //
 // This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
-// It has no counterpart in the original package: it is WFDB-x's own
-// implementation of the FLAC format, which the original package reads and
-// writes with libFLAC.
+// Its FLAC decoder is a Rust translation of the stream decoder of libFLAC
+// 1.4.3 (src/libFLAC/stream_decoder.c and bitreader.c, and the restore
+// functions of fixed.c and lpc.c), made so that damaged files are decoded,
+// resynchronized and reported exactly as by the C library, which uses
+// libFLAC.  Its FLAC encoder is WFDB-x's own implementation of the FLAC
+// format; it has no counterpart in the original package.  WFDB-x needs no
+// external library at run time.
 //
 // Copyright (C) 2026 Reza Sameni.
 //
@@ -23,6 +27,39 @@
 // under the terms of the GNU General Public License as published by the Free
 // Software Foundation, either version 3 of the License, or (at your option)
 // any later version. See LICENSE.
+//
+// libFLAC is distributed under the following license, which applies to the
+// parts of this file translated from it (the stream decoder):
+//
+// Copyright (C) 2000-2009  Josh Coalson
+// Copyright (C) 2011-2023  Xiph.Org Foundation
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//
+// - Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//
+// - Redistributions in binary form must reproduce the above copyright
+// notice, this list of conditions and the following disclaimer in the
+// documentation and/or other materials provided with the distribution.
+//
+// - Neither the name of the Xiph.org Foundation nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR
+// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /// `FLAC__MAX_CHANNELS`.
 pub(crate) const MAX_CHANNELS: usize = 8;
@@ -42,6 +79,7 @@ const METADATA_HEADER_LEN: usize = 4;
 const METADATA_LAST: u8 = 0x80;
 /// Metadata block types.
 const METADATA_STREAMINFO: u8 = 0;
+const METADATA_SEEKTABLE: u8 = 3;
 const METADATA_VORBIS_COMMENT: u8 = 4;
 /// Length of the body of a STREAMINFO block.
 const STREAMINFO_LEN: usize = 34;
@@ -89,62 +127,52 @@ const RICE2_PARAM_BITS: i32 = 5;
 /// Width of the partition order of residual coding.
 const PARTITION_ORDER_BITS: i32 = 4;
 
-/// Decoding status (the libFLAC error that would have been reported).
+/// An error reported to [`Client::error`] (libFLAC's
+/// `FLAC__StreamDecoderErrorStatus`); decoding goes on after it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Status {
-    /// No error.
-    Ok,
+pub(crate) enum DecodeError {
     /// Lost sync.
-    Sync,
+    LostSync,
     /// Invalid frame header.
-    Header,
+    BadHeader,
     /// Frame CRC mismatch.
-    Crc,
+    CrcMismatch,
     /// Unsupported format.
     Unparseable,
-    /// Unexpected end of stream.
-    Eof,
-    /// Error in the stream header or metadata.
-    Meta,
-    /// Wrong number of channels or resolution (see `error_message`).
-    Wfdb,
 }
 
-/// The result of [`decode`].
-#[derive(Clone, Debug)]
-pub(crate) struct Decoded {
-    /// Decoding status.
-    pub status: Status,
-    /// Number of channels, from STREAMINFO.
-    pub channels: i32,
-    /// Bits per sample, from STREAMINFO.
-    pub bps: i32,
-    /// Samples, one vector per channel (empty on error).
-    pub chans: Vec<Vec<i32>>,
-    /// The end of each frame (FLAC block), in samples per channel.
-    pub block_ends: Vec<i64>,
-    /// Is there a STREAMINFO block (with an MD5 signature)?
-    pub has_md5: bool,
-    /// MD5 signature from STREAMINFO.
-    pub md5: [u8; MD5_LEN],
-    /// With status [`Status::Wfdb`]: the message that the C library
-    /// reports with `wfdb_error` (the caller prints it).
-    pub error_message: Option<Vec<u8>>,
+/// The state of a [`StreamDecoder`] (libFLAC's `FLAC__StreamDecoderState`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum State {
+    SearchForMetadata,
+    ReadMetadata,
+    SearchForFrameSync,
+    ReadFrame,
+    EndOfStream,
+    SeekError,
+    Aborted,
 }
 
-impl Default for Decoded {
-    fn default() -> Self {
-        Decoded {
-            status: Status::Ok,
-            channels: 0,
-            bps: 0,
-            chans: Vec::new(),
-            block_ends: Vec::new(),
-            has_md5: false,
-            md5: [0; MD5_LEN],
-            error_message: None,
-        }
-    }
+/// The header of a decoded frame (FLAC block).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct FrameHeader {
+    /// Samples per channel.
+    pub blocksize: u32,
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub bits_per_sample: u32,
+    /// The number of the first sample (per channel).
+    pub sample_number: u64,
+}
+
+/// The receiver of the results of a [`StreamDecoder`] (the error and write
+/// callbacks of libFLAC).
+pub(crate) trait Client {
+    /// An error in the stream (decoding goes on).
+    fn error(&mut self, e: DecodeError);
+    /// A decoded frame: the samples of each channel. Returns false to abort
+    /// decoding.
+    fn write(&mut self, h: &FrameHeader, chans: &[&[i32]]) -> bool;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +250,15 @@ fn load8(p: &[u8]) -> u64 {
 // ---------------------------------------------------------------------------
 // Decoder
 
-type R<T> = Result<T, Status>;
+/// Why a read within a frame stopped: the end of the stream (libFLAC's
+/// read callback then sets the end-of-stream state), or an error in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fail {
+    Eof,
+    Error(DecodeError),
+}
+
+type R<T> = Result<T, Fail>;
 
 /// MSB-first bit reader over a byte array.
 struct Bits<'a> {
@@ -258,12 +294,12 @@ impl<'a> Bits<'a> {
     fn read(&mut self, n: i32) -> R<u64> {
         if n <= 0 {
             if n < 0 {
-                return Err(Status::Unparseable);
+                return Err(Fail::Error(DecodeError::Unparseable));
             }
             return Ok(0);
         }
         if self.pos + n as u64 > self.end {
-            return Err(Status::Eof);
+            return Err(Fail::Eof);
         }
         let b = (self.pos >> 3) as usize;
         let off = (self.pos & 7) as u32;
@@ -303,7 +339,7 @@ impl<'a> Bits<'a> {
         let mut count = 0u64;
         loop {
             if b >= self.d.len() {
-                return Err(Status::Eof);
+                return Err(Fail::Eof);
             }
             let w = self.load(b) << off;
             if w != 0 {
@@ -340,43 +376,31 @@ impl<'a> Bits<'a> {
         Ok((q << k) | self.read(k)?)
     }
 
-    fn align(&mut self) {
-        self.pos = (self.pos + 7) & !7u64;
-    }
-
     fn byte_pos(&self) -> usize {
         (self.pos >> 3) as usize
     }
 }
 
-fn read_utf8(bits: &mut Bits) -> R<u64> {
-    let x = bits.read(8)?;
-    if x < 0x80 {
-        return Ok(x);
+/// Bits per sample of the frame header sample size codes (0: as in
+/// STREAMINFO; 3: reserved).
+const BPS_TABLE: [i32; 8] = [0, 8, 12, 0, 16, 20, 24, 32];
+
+/// Sample rates of the frame header sample rate codes 1 to 11.
+const SAMPLE_RATES: [u32; 12] = [
+    0, 88200, 176400, 192000, 8000, 16000, 22050, 24000, 32000, 44100, 48000, 96000,
+];
+
+/// The block size given by a frame header block size code (other than
+/// 0, 6 and 7).
+fn block_size_code(bsc: i32) -> i64 {
+    match bsc {
+        1 => 192,
+        2 => 576,
+        3 => 1152,
+        4 => 2304,
+        5 => 4608,
+        _ => 256i64 << (bsc - 8), // 8 .. 15
     }
-    let (mut v, n) = if (x & 0xE0) == 0xC0 {
-        (x & 0x1F, 1)
-    } else if (x & 0xF0) == 0xE0 {
-        (x & 0x0F, 2)
-    } else if (x & 0xF8) == 0xF0 {
-        (x & 0x07, 3)
-    } else if (x & 0xFC) == 0xF8 {
-        (x & 0x03, 4)
-    } else if (x & 0xFE) == 0xFC {
-        (x & 0x01, 5)
-    } else if x == 0xFE {
-        (0, 6)
-    } else {
-        return Err(Status::Header);
-    };
-    for _ in 0..n {
-        let y = bits.read(8)?;
-        if (y & 0xC0) != 0x80 {
-            return Err(Status::Header);
-        }
-        v = (v << 6) | (y & 0x3F);
-    }
-    Ok(v)
 }
 
 #[inline]
@@ -388,10 +412,21 @@ fn unfold(u: u64) -> i64 {
     }
 }
 
-fn read_residual(bits: &mut Bits, blocksize: i64, order: i32, out: &mut Vec<i64>) -> R<()> {
-    let method = bits.read(2)? as i32;
+#[inline]
+fn shl(x: i64, n: i32) -> i64 {
+    ((x as u64) << n) as i64
+}
+
+/// The residual of a subframe (`read_residual_partitioned_rice_`), after
+/// its coding method and partition order.
+fn read_residual(bits: &mut Bits, blocksize: u32, order: usize, out: &mut Vec<i64>) -> R<()> {
+    let method = bits.read(2)?;
     if method > 1 {
-        return Err(Status::Unparseable);
+        return Err(Fail::Error(DecodeError::Unparseable));
+    }
+    let porder = bits.read(PARTITION_ORDER_BITS)? as u32;
+    if ((blocksize >> porder) as usize) < order || blocksize % (1 << porder) > 0 {
+        return Err(Fail::Error(DecodeError::LostSync));
     }
     let pbits = if method == 0 {
         RICE_PARAM_BITS
@@ -399,65 +434,72 @@ fn read_residual(bits: &mut Bits, blocksize: i64, order: i32, out: &mut Vec<i64>
         RICE2_PARAM_BITS
     };
     let esc: u64 = (1 << pbits) - 1;
-    let porder = bits.read(PARTITION_ORDER_BITS)? as i32;
-    let nparts = 1i64 << porder;
-    if blocksize % nparts != 0 {
-        return Err(Status::Unparseable);
-    }
-    let psize = blocksize >> porder;
-    if porder > 0 && psize < order as i64 {
-        return Err(Status::Unparseable);
-    }
-    for part in 0..nparts {
-        let n = if part == 0 {
-            psize - order as i64
-        } else {
-            psize
-        };
+    let psize = (blocksize >> porder) as usize;
+    for part in 0..1usize << porder {
+        let first = if part == 0 { order } else { 0 };
         let k = bits.read(pbits)?;
-        if k == esc {
-            let nb = bits.read(5)? as i32;
-            for _ in 0..n {
-                out.push(bits.read_signed(nb)?);
+        if k < esc {
+            let kk = k as i32;
+            let start = bits.pos;
+            for _ in first..psize {
+                let v = bits.rice(kk)?;
+                // (a quotient too large for a 32-bit residual is an invalid
+                // symbol: libFLAC is then back at the start of the block)
+                if kk > 0 && v > u32::MAX as u64 {
+                    bits.pos = start;
+                    return Err(Fail::Error(DecodeError::LostSync));
+                }
+                out.push(unfold(v & 0xffff_ffff));
             }
         } else {
-            let kk = k as i32;
-            for _ in 0..n {
-                out.push(unfold(bits.rice(kk)?));
+            let nb = bits.read(5)? as i32;
+            if nb == 0 {
+                out.resize(out.len() + psize - first, 0);
+            } else {
+                for _ in first..psize {
+                    out.push(bits.read_signed(nb)?);
+                }
             }
         }
     }
     Ok(())
 }
 
-#[inline]
-fn shl(x: i64, n: i32) -> i64 {
-    ((x as u64) << n) as i64
-}
-
-fn decode_subframe(bits: &mut Bits, blocksize: i64, mut bps: i32) -> R<Vec<i64>> {
-    if bits.read(1)? != 0 {
-        return Err(Status::Unparseable);
-    }
-    let t = bits.read(6)? as i32;
+/// A subframe of `blocksize` samples of `bps` bits (`read_subframe_`).
+fn read_subframe(bits: &mut Bits, blocksize: u32, bps: u32) -> R<Vec<i64>> {
+    let x = bits.read(8)? as u32;
+    let mut bps = bps as i32;
     let mut wasted = 0;
-    if bits.read(1)? != 0 {
-        wasted = bits.unary()? as i32 + 1;
+    if x & 1 != 0 {
+        let u = bits.unary()?;
+        if u + 1 >= bps as u64 {
+            return Err(Fail::Error(DecodeError::LostSync));
+        }
+        wasted = u as i32 + 1;
         bps -= wasted;
     }
-    let bs = blocksize.max(0) as usize;
+    let t = x & 0xfe;
+    let bs = blocksize as usize;
     let mut s: Vec<i64>;
-    if t == SUBFRAME_CONSTANT {
+    if t & 0x80 != 0 {
+        // (the zero bit before the subframe type)
+        return Err(Fail::Error(DecodeError::LostSync));
+    } else if t == (SUBFRAME_CONSTANT as u32) << 1 {
         let v = bits.read_signed(bps)?;
         s = vec![v; bs];
-    } else if t == SUBFRAME_VERBATIM {
+    } else if t == (SUBFRAME_VERBATIM as u32) << 1 {
         s = Vec::with_capacity(bs);
-        for _ in 0..blocksize {
+        for _ in 0..bs {
             s.push(bits.read_signed(bps)?);
         }
-    } else if (SUBFRAME_FIXED..=SUBFRAME_FIXED + MAX_FIXED_ORDER as i32).contains(&t) {
-        let order = t - SUBFRAME_FIXED;
-        s = Vec::with_capacity(bs.max(order as usize));
+    } else if t < (SUBFRAME_FIXED as u32) << 1 {
+        return Err(Fail::Error(DecodeError::Unparseable));
+    } else if t <= ((SUBFRAME_FIXED + MAX_FIXED_ORDER as i32) as u32) << 1 {
+        let order = ((t >> 1) & 7) as usize;
+        if bs <= order {
+            return Err(Fail::Error(DecodeError::LostSync));
+        }
+        s = Vec::with_capacity(bs);
         for _ in 0..order {
             s.push(bits.read_signed(bps)?);
         }
@@ -513,27 +555,33 @@ fn decode_subframe(bits: &mut Bits, blocksize: i64, mut bps: i32) -> R<Vec<i64>>
                 }
             }
         }
-    } else if t >= SUBFRAME_LPC {
-        let order = (t - SUBFRAME_LPC + 1) as usize;
-        s = Vec::with_capacity(bs.max(order));
+    } else if t < (SUBFRAME_LPC as u32) << 1 {
+        return Err(Fail::Error(DecodeError::Unparseable));
+    } else {
+        let order = (((t >> 1) & 31) + 1) as usize;
+        if bs <= order {
+            return Err(Fail::Error(DecodeError::LostSync));
+        }
+        s = Vec::with_capacity(bs);
         for _ in 0..order {
             s.push(bits.read_signed(bps)?);
         }
-        let prec = bits.read(4)? as i32 + 1;
-        if prec == 16 {
+        let prec = bits.read(4)? as i32;
+        if prec == 15 {
             // (precision code 15, all ones, is invalid)
-            return Err(Status::Unparseable);
+            return Err(Fail::Error(DecodeError::LostSync));
         }
+        let prec = prec + 1;
         let shift = bits.read_signed(5)? as i32;
+        if shift < 0 {
+            return Err(Fail::Error(DecodeError::LostSync));
+        }
         let mut coefs = [0i64; MAX_LPC_ORDER];
         for c in coefs.iter_mut().take(order) {
             *c = bits.read_signed(prec)?;
         }
         let mut res = Vec::with_capacity(bs);
-        read_residual(bits, blocksize, order as i32, &mut res)?;
-        if shift < 0 {
-            return Err(Status::Unparseable);
-        }
+        read_residual(bits, blocksize, order, &mut res)?;
         for &r in &res {
             let base = s.len() - order;
             let mut acc = 0i64;
@@ -543,8 +591,6 @@ fn decode_subframe(bits: &mut Bits, blocksize: i64, mut bps: i32) -> R<Vec<i64>>
             }
             s.push(r.wrapping_add(acc >> shift));
         }
-    } else {
-        return Err(Status::Unparseable);
     }
     if wasted != 0 {
         for x in &mut s {
@@ -554,217 +600,969 @@ fn decode_subframe(bits: &mut Bits, blocksize: i64, mut bps: i32) -> R<Vec<i64>>
     Ok(s)
 }
 
-/// Bits per sample of the frame header sample size codes (0: as in
-/// STREAMINFO; 3: reserved).
-const BPS_TABLE: [i32; 8] = [0, 8, 12, 0, 16, 20, 24, 32];
-
-/// The block size given by a frame header block size code (other than
-/// 0, 6 and 7).
-fn block_size_code(bsc: i32) -> i64 {
-    match bsc {
-        1 => 192,
-        2 => 576,
-        3 => 1152,
-        4 => 2304,
-        5 => 4608,
-        _ => 256i64 << (bsc - 8), // 8 .. 15
-    }
+/// The body of a frame read by [`frame_body`].
+struct FrameBody {
+    /// The errors found, in order.
+    errors: Vec<DecodeError>,
+    /// Did the data end within the frame?
+    eof: bool,
+    /// The samples of each channel (None if the frame is not valid).
+    chans: Option<Vec<Vec<i32>>>,
+    /// The offset of the end of the frame (if valid).
+    end: usize,
 }
 
-/// Decode one frame at byte offset pos; returns the channels, the bits per
-/// sample and the offset of the next frame.
-fn decode_frame(data: &[u8], pos: usize, si_bps: i32) -> R<(Vec<Vec<i64>>, i32, usize)> {
-    let n = data.len();
-    if pos + 2 > n || u64::from(u16::from_be_bytes([data[pos], data[pos + 1]]) >> 1) != FRAME_SYNC {
-        return Err(Status::Sync);
-    }
+/// The subframes and footer of a frame that starts at `start`, from `pos`
+/// (after its header), as `read_frame_` reads them.
+fn frame_body(
+    data: &[u8],
+    start: usize,
+    pos: usize,
+    h: &FrameHeader,
+    assignment: i32,
+) -> FrameBody {
+    let mut body = FrameBody {
+        errors: Vec::new(),
+        eof: false,
+        chans: None,
+        end: pos,
+    };
     let mut bits = Bits::new(data, pos);
-    bits.read(15)?; // FRAME_SYNC
-    bits.read(1)?; // blocking strategy
-    let bsc = bits.read(4)? as i32;
-    let src = bits.read(4)? as i32;
-    let chc = bits.read(4)? as i32;
-    let ssc = bits.read(3)? as usize;
-    if bits.read(1)? != 0 {
-        return Err(Status::Header);
-    }
-    read_utf8(&mut bits)?;
-    let blocksize = if bsc == 0 {
-        return Err(Status::Header);
-    } else if bsc == BLOCKSIZE_CODE_8BIT {
-        bits.read(8)? as i64 + 1
-    } else if bsc == BLOCKSIZE_CODE_16BIT {
-        bits.read(16)? as i64 + 1
-    } else {
-        block_size_code(bsc)
-    };
-    // Sample rate codes 12 to 14: the rate follows in 8 or 16 bits; 15 is
-    // invalid.
-    if src == 12 {
-        bits.read(8)?;
-    } else if src == 13 || src == 14 {
-        bits.read(16)?;
-    } else if src == 15 {
-        return Err(Status::Header);
-    }
-    let bps = if ssc == 0 {
-        si_bps
-    } else if BPS_TABLE[ssc] != 0 {
-        BPS_TABLE[ssc]
-    } else {
-        return Err(Status::Header);
-    };
-    let hend = bits.byte_pos();
-    let crc = bits.read(8)? as u32;
-    if crc8(&data[pos..hend]) != crc {
-        return Err(Status::Header);
-    }
-    let mut chans: Vec<Vec<i64>> = Vec::new();
-    if chc < CHANNELS_LEFT_SIDE {
-        for _ in 0..=chc {
-            chans.push(decode_subframe(&mut bits, blocksize, bps)?);
+    let mut subframes: Vec<Vec<i64>> = Vec::with_capacity(h.channels as usize);
+    let mut ok = true;
+    for c in 0..h.channels {
+        // (the side channel has one bit more)
+        let side = match assignment {
+            CHANNELS_LEFT_SIDE | CHANNELS_MID_SIDE => c == 1,
+            CHANNELS_SIDE_RIGHT => c == 0,
+            _ => false,
+        };
+        match read_subframe(&mut bits, h.blocksize, h.bits_per_sample + side as u32) {
+            Ok(s) => subframes.push(s),
+            Err(Fail::Eof) => {
+                body.eof = true;
+                return body;
+            }
+            Err(Fail::Error(e)) => {
+                body.errors.push(e);
+                ok = false;
+                break;
+            }
         }
-    } else if chc <= CHANNELS_MID_SIDE {
-        if chc == CHANNELS_LEFT_SIDE {
-            // left/side
-            let a = decode_subframe(&mut bits, blocksize, bps)?;
-            let sd = decode_subframe(&mut bits, blocksize, bps + 1)?;
-            let b: Vec<i64> = a
-                .iter()
-                .zip(&sd)
-                .map(|(&x, &y)| x.wrapping_sub(y))
-                .collect();
-            chans.push(a);
-            chans.push(b);
-        } else if chc == CHANNELS_SIDE_RIGHT {
-            // side/right
-            let sd = decode_subframe(&mut bits, blocksize, bps + 1)?;
-            let b = decode_subframe(&mut bits, blocksize, bps)?;
-            let a: Vec<i64> = sd
-                .iter()
-                .zip(&b)
-                .map(|(&x, &y)| x.wrapping_add(y))
-                .collect();
-            chans.push(a);
-            chans.push(b);
-        } else {
-            // mid/side
-            let mid = decode_subframe(&mut bits, blocksize, bps)?;
-            let sd = decode_subframe(&mut bits, blocksize, bps + 1)?;
-            let m = mid.len().min(sd.len());
-            let mut le = Vec::with_capacity(m);
-            let mut ri = Vec::with_capacity(m);
-            for i in 0..m {
+    }
+    // The zero padding to a byte boundary.
+    let n = ((8 - bits.pos % 8) % 8) as i32;
+    if n > 0 && bits.read(n) != Ok(0) {
+        body.errors.push(DecodeError::LostSync);
+        return body;
+    }
+    if !ok {
+        return body;
+    }
+    let fend = bits.byte_pos();
+    let Ok(c16) = bits.read(16) else {
+        body.eof = true;
+        return body;
+    };
+    if crc16(&data[start..fend]) != c16 as u32 {
+        body.errors.push(DecodeError::CrcMismatch);
+        return body;
+    }
+    // Undo the stereo decorrelation.
+    let bs = h.blocksize as usize;
+    let mut chans: Vec<Vec<i32>> = Vec::with_capacity(subframes.len());
+    match assignment {
+        CHANNELS_LEFT_SIDE => {
+            let (a, sd) = (&subframes[0], &subframes[1]);
+            chans.push(a.iter().map(|&x| x as i32).collect());
+            chans.push((0..bs).map(|i| a[i].wrapping_sub(sd[i]) as i32).collect());
+        }
+        CHANNELS_SIDE_RIGHT => {
+            let (sd, b) = (&subframes[0], &subframes[1]);
+            chans.push((0..bs).map(|i| sd[i].wrapping_add(b[i]) as i32).collect());
+            chans.push(b.iter().map(|&x| x as i32).collect());
+        }
+        CHANNELS_MID_SIDE => {
+            let (mid, sd) = (&subframes[0], &subframes[1]);
+            let mut le = Vec::with_capacity(bs);
+            let mut ri = Vec::with_capacity(bs);
+            for i in 0..bs {
                 let x = shl(mid[i], 1) | (sd[i] & 1);
-                let y = sd[i];
-                le.push(x.wrapping_add(y) >> 1);
-                ri.push(x.wrapping_sub(y) >> 1);
+                le.push((x.wrapping_add(sd[i]) >> 1) as i32);
+                ri.push((x.wrapping_sub(sd[i]) >> 1) as i32);
             }
             chans.push(le);
             chans.push(ri);
         }
-    } else {
-        return Err(Status::Header);
-    }
-    bits.align();
-    let fend = bits.byte_pos();
-    let c16 = bits.read(16)? as u32;
-    if crc16(&data[pos..fend]) != c16 {
-        return Err(Status::Crc);
-    }
-    Ok((chans, bps, bits.byte_pos()))
-}
-
-fn decode_inner(data: &[u8], expect_nsig: i32, expect_bps: i32, result: &mut Decoded) -> R<()> {
-    let n = data.len();
-    // Errors in the stream header and metadata are reported by libFLAC
-    // without invoking its error callback ('meta' status).
-    if !data.starts_with(MARKER) {
-        return Err(Status::Meta);
-    }
-    let mut pos = MARKER.len();
-    let mut si_bps = 0;
-    let mut si_ch = 0;
-    loop {
-        if pos + METADATA_HEADER_LEN > n {
-            return Err(Status::Meta);
-        }
-        let hb = data[pos];
-        let ln = ((data[pos + 1] as usize) << 16)
-            | ((data[pos + 2] as usize) << 8)
-            | data[pos + 3] as usize;
-        let body = pos + METADATA_HEADER_LEN;
-        if body + ln > n {
-            return Err(Status::Meta);
-        }
-        if (hb & !METADATA_LAST) == METADATA_STREAMINFO {
-            if ln < STREAMINFO_LEN {
-                return Err(Status::Meta);
+        _ => {
+            for s in &subframes {
+                chans.push(s.iter().map(|&x| x as i32).collect());
             }
-            let mut b = Bits::new(data, body);
-            b.read(16)?;
-            b.read(16)?;
-            b.read(24)?;
-            b.read(24)?;
-            b.read(20)?;
-            si_ch = b.read(3)? as i32 + 1;
-            si_bps = b.read(5)? as i32 + 1;
-            b.read(36)?;
-            result.has_md5 = true;
-            let md5 = body + STREAMINFO_MD5_POS;
-            result.md5.copy_from_slice(&data[md5..md5 + MD5_LEN]);
-        }
-        pos = body + ln;
-        if hb & METADATA_LAST != 0 {
-            break;
         }
     }
-    result.channels = si_ch;
-    result.bps = si_bps;
-    result.chans = vec![Vec::new(); si_ch.max(1) as usize];
-    while pos < n {
-        let (fr, bps, newpos) = match decode_frame(data, pos, si_bps) {
-            Ok(x) => x,
-            Err(Status::Sync) if data[pos..].iter().all(|&c| c == 0) => break,
-            Err(e) => return Err(e),
-        };
-        pos = newpos;
-        if expect_nsig > 0 && fr.len() != expect_nsig as usize {
-            result.error_message =
-                Some(b"getvec: wrong number of signals in FLAC signal file\n".to_vec());
-            return Err(Status::Wfdb);
-        }
-        if expect_nsig > 0 && bps > expect_bps {
-            result.error_message =
-                Some(b"getvec: wrong sample resolution in FLAC signal file\n".to_vec());
-            return Err(Status::Wfdb);
-        }
-        for (dst, src) in result.chans.iter_mut().zip(fr.iter()) {
-            dst.extend(src.iter().map(|&x| x as i32));
-        }
-        if !fr.is_empty() {
-            result.block_ends.push(result.chans[0].len() as i64);
-        }
+    // The decoded samples must fit in bits_per_sample bits.
+    let shift = 32 - h.bits_per_sample;
+    let (lo, hi) = (i32::MIN >> shift, i32::MAX >> shift);
+    if chans.iter().any(|c| c.iter().any(|&v| v < lo || v > hi)) {
+        body.errors.push(DecodeError::CrcMismatch);
+        return body;
     }
-    Ok(())
+    body.chans = Some(chans);
+    body.end = bits.byte_pos();
+    body
 }
 
-/// Decode a complete FLAC stream.
-///
-/// If `expect_nsig > 0`, a frame with a different number of channels, or
-/// with more than `expect_bps` bits per sample, ends decoding with status
-/// [`Status::Wfdb`] and the message the C library reports (`getvec: wrong
-/// number of signals in FLAC signal file`, `getvec: wrong sample resolution
-/// in FLAC signal file`) in `error_message`; the caller reports it. Other
-/// errors are not reported (the status says what happened). Trailing zero
-/// bytes after the last frame are ignored.
-pub(crate) fn decode(data: &[u8], expect_nsig: i32, expect_bps: i32) -> Decoded {
-    let mut result = Decoded::default();
-    if let Err(e) = decode_inner(data, expect_nsig, expect_bps, &mut result) {
-        result.status = e;
-        result.chans.clear();
+/// A seek point of a SEEKTABLE metadata block.
+#[derive(Clone, Copy, Debug)]
+struct SeekPoint {
+    sample_number: u64,
+    stream_offset: u64,
+    frame_samples: u32,
+}
+
+/// The first bytes of an ID3v2 tag, and the marker of a FLAC stream.
+const ID3V2_TAG: &[u8] = b"ID3";
+/// Value of a placeholder seek point.
+const SEEKPOINT_PLACEHOLDER: u64 = u64::MAX;
+/// Length of a seek point.
+const SEEKPOINT_LEN: usize = 18;
+
+/// A FLAC stream decoder that decodes as libFLAC's stream decoder does,
+/// frame by frame, with the same results, errors and states, from a stream
+/// held in memory: it finds the metadata (after an ID3v2 tag, if any),
+/// reads STREAMINFO and SEEKTABLE, then decodes one frame (FLAC block) at a
+/// time; a damaged frame is reported to the client and skipped (decoding
+/// goes on at the next frame sync code), and [`StreamDecoder::seek_absolute`]
+/// seeks as libFLAC does (a bisection on the stream). The client receives
+/// the errors and the decoded frames ([`Client`]).
+pub(crate) struct StreamDecoder {
+    data: Vec<u8>,
+    /// The offset of the next byte to read.
+    pos: usize,
+    /// Can the stream seek (C: the signal group's `seek`)?
+    seekable: bool,
+    state: State,
+    /// The two bytes of the frame sync code of the frame being read, and
+    /// the offset that follows them.
+    warmup: [u8; 2],
+    framesync: usize,
+    has_stream_info: bool,
+    min_blocksize: u32,
+    max_blocksize: u32,
+    min_framesize: u32,
+    max_framesize: u32,
+    si_sample_rate: u32,
+    si_channels: u32,
+    si_bps: u32,
+    total_samples: u64,
+    md5sum: [u8; MD5_LEN],
+    seek_table: Option<Vec<SeekPoint>>,
+    first_frame_offset: u64,
+    fixed_block_size: u32,
+    next_fixed_block_size: u32,
+    samples_decoded: u64,
+    /// Channels and bits per sample of the last frame decoded (0: none).
+    channels: u32,
+    bps: u32,
+    last_frame: FrameHeader,
+    last_frame_is_set: bool,
+    is_seeking: bool,
+    target_sample: u64,
+    do_md5_checking: bool,
+    md5ctx: Md5,
+}
+
+impl StreamDecoder {
+    /// A decoder of the stream `data`, at its start (`FLAC__stream_decoder_init_stream`).
+    pub(crate) fn new(data: Vec<u8>, seekable: bool, md5_checking: bool) -> StreamDecoder {
+        StreamDecoder {
+            data,
+            pos: 0,
+            seekable,
+            state: State::SearchForMetadata,
+            warmup: [0; 2],
+            framesync: 0,
+            has_stream_info: false,
+            min_blocksize: 0,
+            max_blocksize: 0,
+            min_framesize: 0,
+            max_framesize: 0,
+            si_sample_rate: 0,
+            si_channels: 0,
+            si_bps: 0,
+            total_samples: 0,
+            md5sum: [0; MD5_LEN],
+            seek_table: None,
+            first_frame_offset: 0,
+            fixed_block_size: 0,
+            next_fixed_block_size: 0,
+            samples_decoded: 0,
+            channels: 0,
+            bps: 0,
+            last_frame: FrameHeader::default(),
+            last_frame_is_set: false,
+            is_seeking: false,
+            target_sample: 0,
+            do_md5_checking: md5_checking,
+            md5ctx: Md5::new(),
+        }
     }
-    result
+
+    pub(crate) fn state(&self) -> State {
+        self.state
+    }
+
+    /// The total number of samples (per channel) given by STREAMINFO (0 if
+    /// unknown).
+    pub(crate) fn total_samples(&self) -> u64 {
+        if self.has_stream_info {
+            self.total_samples
+        } else {
+            0
+        }
+    }
+
+    /// `FLAC__stream_decoder_finish`: false if the MD5 signature of the
+    /// decoded samples was checked and differs from that of STREAMINFO.
+    pub(crate) fn finish(&mut self) -> bool {
+        let computed = self.md5ctx.digest();
+        !(self.do_md5_checking && computed != self.md5sum)
+    }
+
+    /// `FLAC__stream_decoder_flush`.
+    pub(crate) fn flush(&mut self) {
+        self.samples_decoded = 0;
+        self.do_md5_checking = false;
+        self.last_frame_is_set = false;
+        self.state = State::SearchForFrameSync;
+    }
+
+    fn send_error(&self, client: &mut dyn Client, e: DecodeError) {
+        // (not reported while seeking)
+        if !self.is_seeking {
+            client.error(e);
+        }
+    }
+
+    /// The next byte (None at the end of the stream, which ends decoding).
+    fn byte(&mut self) -> Option<u8> {
+        match self.data.get(self.pos) {
+            Some(&b) => {
+                self.pos += 1;
+                Some(b)
+            }
+            None => {
+                self.state = State::EndOfStream;
+                None
+            }
+        }
+    }
+
+    /// Skips `n` bytes (false at the end of the stream).
+    fn skip(&mut self, n: usize) -> bool {
+        if n > self.data.len() - self.pos {
+            self.pos = self.data.len();
+            self.state = State::EndOfStream;
+            return false;
+        }
+        self.pos += n;
+        true
+    }
+
+    /// The big-endian value of the next `n` bytes.
+    fn bytes(&mut self, n: usize) -> Option<u64> {
+        let mut v = 0u64;
+        for _ in 0..n {
+            v = (v << 8) | self.byte()? as u64;
+        }
+        Some(v)
+    }
+
+    /// `FLAC__stream_decoder_get_decode_position`.
+    fn decode_position(&self) -> Option<u64> {
+        self.seekable.then_some(self.pos as u64)
+    }
+
+    /// `FLAC__stream_decoder_process_single`: decodes one metadata block or
+    /// one frame; false on a fatal error (the state tells which).
+    pub(crate) fn process_single(&mut self, client: &mut dyn Client) -> bool {
+        loop {
+            match self.state {
+                State::SearchForMetadata => {
+                    if !self.find_metadata(client) {
+                        return false;
+                    }
+                }
+                State::ReadMetadata => return self.read_metadata(),
+                State::SearchForFrameSync => {
+                    if !self.frame_sync(client) {
+                        return true;
+                    }
+                }
+                State::ReadFrame => match self.read_frame(client) {
+                    Err(()) => return false,
+                    Ok(true) => return true,
+                    Ok(false) => {}
+                },
+                State::EndOfStream | State::Aborted => return true,
+                State::SeekError => return false,
+            }
+        }
+    }
+
+    /// `FLAC__stream_decoder_process_until_end_of_metadata`.
+    fn process_until_end_of_metadata(&mut self, client: &mut dyn Client) -> bool {
+        loop {
+            match self.state {
+                State::SearchForMetadata => {
+                    if !self.find_metadata(client) {
+                        return false;
+                    }
+                }
+                State::ReadMetadata => {
+                    if !self.read_metadata() {
+                        return false;
+                    }
+                }
+                State::SearchForFrameSync
+                | State::ReadFrame
+                | State::EndOfStream
+                | State::Aborted => return true,
+                State::SeekError => return false,
+            }
+        }
+    }
+
+    /// `find_metadata_`: the `fLaC` marker (after an ID3v2 tag, if any),
+    /// or a frame sync code.
+    fn find_metadata(&mut self, client: &mut dyn Client) -> bool {
+        let (mut i, mut id, mut first) = (0, 0, true);
+        while i < MARKER.len() {
+            let Some(x) = self.byte() else {
+                return false;
+            };
+            if x == MARKER[i] {
+                first = true;
+                i += 1;
+                id = 0;
+                continue;
+            }
+            if id >= ID3V2_TAG.len() {
+                return false;
+            }
+            if x == ID3V2_TAG[id] {
+                id += 1;
+                i = 0;
+                if id == ID3V2_TAG.len() && !self.skip_id3v2_tag() {
+                    return false;
+                }
+                continue;
+            }
+            id = 0;
+            if x == 0xff {
+                self.warmup[0] = x;
+                let Some(y) = self.byte() else {
+                    return false;
+                };
+                if y == 0xff {
+                    self.pos -= 1; // (it may begin a sync code)
+                } else if y >> 1 == 0x7c {
+                    self.warmup[1] = y;
+                    self.framesync = self.pos;
+                    self.state = State::ReadFrame;
+                    return true;
+                }
+            }
+            i = 0;
+            if first {
+                self.send_error(client, DecodeError::LostSync);
+                first = false;
+            }
+        }
+        self.state = State::ReadMetadata;
+        true
+    }
+
+    /// `skip_id3v2_tag_`.
+    fn skip_id3v2_tag(&mut self) -> bool {
+        // the version and flags, then the size (7 bits per byte)
+        if self.bytes(3).is_none() {
+            return false;
+        }
+        let mut n = 0usize;
+        for _ in 0..4 {
+            let Some(x) = self.byte() else {
+                return false;
+            };
+            n = (n << 7) | (x & 0x7f) as usize;
+        }
+        self.skip(n)
+    }
+
+    /// `read_metadata_`: one metadata block. Blocks other than STREAMINFO
+    /// and SEEKTABLE are skipped.
+    fn read_metadata(&mut self) -> bool {
+        let Some(hdr) = self.bytes(METADATA_HEADER_LEN) else {
+            return false;
+        };
+        let is_last = hdr & 0x8000_0000 != 0;
+        let kind = ((hdr >> 24) & 0x7f) as u8;
+        let length = (hdr & 0xff_ffff) as usize;
+        if kind == METADATA_STREAMINFO {
+            let Some(b) = self.data.get(self.pos..self.pos + STREAMINFO_LEN) else {
+                self.skip(STREAMINFO_LEN);
+                return false;
+            };
+            let mut r = Bits::new(b, 0);
+            let mut f = |n: i32| r.read_long(n).unwrap_or(0);
+            self.min_blocksize = f(16) as u32;
+            self.max_blocksize = f(16) as u32;
+            self.min_framesize = f(24) as u32;
+            self.max_framesize = f(24) as u32;
+            self.si_sample_rate = f(20) as u32;
+            self.si_channels = f(3) as u32 + 1;
+            self.si_bps = f(5) as u32 + 1;
+            self.total_samples = f(36);
+            self.md5sum
+                .copy_from_slice(&b[STREAMINFO_MD5_POS..STREAMINFO_MD5_POS + MD5_LEN]);
+            self.pos += STREAMINFO_LEN;
+            if length < STREAMINFO_LEN || !self.skip(length - STREAMINFO_LEN) {
+                return false;
+            }
+            self.has_stream_info = true;
+            if self.md5sum == [0; MD5_LEN] {
+                self.do_md5_checking = false;
+            }
+        } else if kind == METADATA_SEEKTABLE {
+            self.seek_table = None;
+            if length > 0 {
+                if length % SEEKPOINT_LEN != 0 {
+                    return false;
+                }
+                let mut points = Vec::with_capacity(length / SEEKPOINT_LEN);
+                for _ in 0..length / SEEKPOINT_LEN {
+                    let (Some(sample_number), Some(stream_offset), Some(frame_samples)) =
+                        (self.bytes(8), self.bytes(8), self.bytes(2))
+                    else {
+                        return false;
+                    };
+                    points.push(SeekPoint {
+                        sample_number,
+                        stream_offset,
+                        frame_samples: frame_samples as u32,
+                    });
+                }
+                self.seek_table = Some(points);
+            }
+        } else if !self.skip(length) {
+            return false;
+        }
+        if is_last {
+            self.first_frame_offset = self.decode_position().unwrap_or(0);
+            self.state = State::SearchForFrameSync;
+        }
+        true
+    }
+
+    /// `frame_sync_`: finds the next frame sync code (false at the end of
+    /// the stream).
+    fn frame_sync(&mut self, client: &mut dyn Client) -> bool {
+        let mut first = true;
+        loop {
+            let Some(x) = self.byte() else {
+                return false;
+            };
+            if x == 0xff {
+                self.warmup[0] = x;
+                let Some(y) = self.byte() else {
+                    return false;
+                };
+                if y == 0xff {
+                    self.pos -= 1; // (it may begin a sync code)
+                } else if y >> 1 == 0x7c {
+                    self.warmup[1] = y;
+                    self.framesync = self.pos;
+                    self.state = State::ReadFrame;
+                    return true;
+                }
+            }
+            if first {
+                self.send_error(client, DecodeError::LostSync);
+                first = false;
+            }
+        }
+    }
+
+    /// `FLAC__bitreader_read_utf8_uint32` (`wide`: `_uint64`): the frame or
+    /// sample number of a frame header (None at the end of the stream;
+    /// u64::MAX if the coding is invalid). The bytes read go into `raw`.
+    fn read_utf8(&mut self, raw: &mut Vec<u8>, wide: bool) -> Option<u64> {
+        let x = self.byte()?;
+        raw.push(x);
+        let (mut v, n) = if x & 0x80 == 0 {
+            (x as u64, 0)
+        } else if x & 0xc0 != 0 && x & 0x20 == 0 {
+            ((x & 0x1f) as u64, 1)
+        } else if x & 0xe0 != 0 && x & 0x10 == 0 {
+            ((x & 0x0f) as u64, 2)
+        } else if x & 0xf0 != 0 && x & 0x08 == 0 {
+            ((x & 0x07) as u64, 3)
+        } else if x & 0xf8 != 0 && x & 0x04 == 0 {
+            ((x & 0x03) as u64, 4)
+        } else if x & 0xfc != 0 && x & 0x02 == 0 {
+            ((x & 0x01) as u64, 5)
+        } else if wide && x & 0xfe != 0 && x & 0x01 == 0 {
+            (0, 6)
+        } else {
+            return Some(u64::MAX);
+        };
+        for _ in 0..n {
+            let y = self.byte()?;
+            raw.push(y);
+            if y & 0x80 == 0 || y & 0x40 != 0 {
+                return Some(u64::MAX);
+            }
+            v = (v << 6) | (y & 0x3f) as u64;
+        }
+        Some(v)
+    }
+
+    /// A bad frame header: `undo` puts back the last byte read (libFLAC's
+    /// lookahead byte).
+    fn bad_header(
+        &mut self,
+        client: &mut dyn Client,
+        undo: bool,
+    ) -> Result<Option<(FrameHeader, i32)>, ()> {
+        if undo {
+            self.pos -= 1;
+        }
+        self.send_error(client, DecodeError::BadHeader);
+        self.state = State::SearchForFrameSync;
+        Ok(None)
+    }
+
+    /// `read_frame_header_`: the header and channel assignment of a frame
+    /// (None if the header is not valid; Err at the end of the stream).
+    fn read_frame_header(
+        &mut self,
+        client: &mut dyn Client,
+    ) -> Result<Option<(FrameHeader, i32)>, ()> {
+        let mut raw: Vec<u8> = self.warmup.to_vec();
+        let mut h = FrameHeader::default();
+        // (the reserved bit after the sync code)
+        let mut unparseable = raw[1] & 0x02 != 0;
+        for _ in 0..2 {
+            let x = self.byte().ok_or(())?;
+            if x == 0xff {
+                // (a sync code cannot appear in a header)
+                return self.bad_header(client, true);
+            }
+            raw.push(x);
+        }
+        let bsc = (raw[2] >> 4) as i32;
+        let mut blocksize_hint = 0;
+        match bsc {
+            0 => unparseable = true,
+            BLOCKSIZE_CODE_8BIT | BLOCKSIZE_CODE_16BIT => blocksize_hint = bsc,
+            _ => h.blocksize = block_size_code(bsc) as u32,
+        }
+        let src = (raw[2] & 0x0f) as i32;
+        let mut sample_rate_hint = 0;
+        match src {
+            0 => {
+                if self.has_stream_info {
+                    h.sample_rate = self.si_sample_rate;
+                } else {
+                    unparseable = true;
+                }
+            }
+            1..=11 => h.sample_rate = SAMPLE_RATES[src as usize],
+            12..=14 => sample_rate_hint = src,
+            _ => return self.bad_header(client, false),
+        }
+        let chc = (raw[3] >> 4) as i32;
+        let assignment = chc;
+        if chc & 8 != 0 {
+            h.channels = 2;
+            if chc > CHANNELS_MID_SIDE {
+                unparseable = true;
+            }
+        } else {
+            h.channels = chc as u32 + 1;
+        }
+        let ssc = ((raw[3] & 0x0e) >> 1) as usize;
+        if ssc == 0 {
+            if self.has_stream_info {
+                h.bits_per_sample = self.si_bps;
+            } else {
+                unparseable = true;
+            }
+        } else if BPS_TABLE[ssc] != 0 {
+            h.bits_per_sample = BPS_TABLE[ssc] as u32;
+        } else {
+            unparseable = true;
+        }
+        if raw[3] & 0x01 != 0 {
+            unparseable = true;
+        }
+        // The frame number, or the sample number (variable block size).
+        let variable = raw[1] & 0x01 != 0
+            || (self.has_stream_info && self.min_blocksize != self.max_blocksize);
+        let number = self.read_utf8(&mut raw, variable).ok_or(())?;
+        if number == u64::MAX || (!variable && number == u32::MAX as u64) {
+            return self.bad_header(client, true);
+        }
+        if blocksize_hint != 0 {
+            let mut x = self.byte().ok_or(())? as u32;
+            raw.push(x as u8);
+            if blocksize_hint == BLOCKSIZE_CODE_16BIT {
+                let y = self.byte().ok_or(())?;
+                raw.push(y);
+                x = (x << 8) | y as u32;
+            }
+            h.blocksize = x + 1;
+            if h.blocksize > 65535 {
+                return self.bad_header(client, true);
+            }
+        }
+        if sample_rate_hint != 0 {
+            let mut x = self.byte().ok_or(())? as u32;
+            raw.push(x as u8);
+            if sample_rate_hint != 12 {
+                let y = self.byte().ok_or(())?;
+                raw.push(y);
+                x = (x << 8) | y as u32;
+            }
+            h.sample_rate = match sample_rate_hint {
+                12 => x * 1000,
+                13 => x,
+                _ => x * 10,
+            };
+        }
+        let crc = self.byte().ok_or(())?;
+        if crc8(&raw) != crc as u32 {
+            return self.bad_header(client, false);
+        }
+        self.next_fixed_block_size = 0;
+        if variable {
+            h.sample_number = number;
+        } else if self.fixed_block_size != 0 {
+            h.sample_number = self.fixed_block_size as u64 * number;
+        } else if self.has_stream_info {
+            if self.min_blocksize == self.max_blocksize {
+                h.sample_number = self.min_blocksize as u64 * number;
+                self.next_fixed_block_size = self.max_blocksize;
+            } else {
+                unparseable = true;
+            }
+        } else if number == 0 {
+            h.sample_number = 0;
+            self.next_fixed_block_size = h.blocksize;
+        } else {
+            h.sample_number = h.blocksize as u64 * number;
+        }
+        if unparseable {
+            self.send_error(client, DecodeError::Unparseable);
+            self.state = State::SearchForFrameSync;
+            return Ok(None);
+        }
+        Ok(Some((h, assignment)))
+    }
+
+    /// `read_frame_`: one frame, after its sync code. Ok(true) if a frame was
+    /// decoded (and given to the client), Ok(false) if not (the decoder
+    /// searches for the next frame), Err on a fatal error.
+    fn read_frame(&mut self, client: &mut dyn Client) -> Result<bool, ()> {
+        let start = self.framesync - 2;
+        let Some((h, assignment)) = self.read_frame_header(client)? else {
+            return Ok(false);
+        };
+        let body = frame_body(&self.data, start, self.pos, &h, assignment);
+        for &e in &body.errors {
+            self.send_error(client, e);
+        }
+        let mut got = false;
+        if body.eof {
+            self.state = State::EndOfStream;
+        } else if let Some(chans) = body.chans {
+            self.pos = body.end;
+            // Missing frames are replaced by silence.
+            if self.last_frame_is_set && !self.is_seeking {
+                let last = self.last_frame;
+                let end = last.sample_number + last.blocksize as u64;
+                if end < h.sample_number
+                    && last.sample_rate == h.sample_rate
+                    && last.channels == h.channels
+                    && last.bits_per_sample == h.bits_per_sample
+                    && last.blocksize >= 16
+                {
+                    let mut need = h.sample_number - end;
+                    need = need
+                        .min(5 * last.sample_rate as u64)
+                        .min(50 * last.blocksize as u64);
+                    let mut e = last;
+                    let zeros = vec![0i32; last.blocksize as usize];
+                    while need > 0 {
+                        e.sample_number += e.blocksize as u64;
+                        if need < e.blocksize as u64 {
+                            e.blocksize = need as u32;
+                        }
+                        need -= e.blocksize as u64;
+                        self.samples_decoded = e.sample_number + e.blocksize as u64;
+                        let z: Vec<&[i32]> = (0..e.channels)
+                            .map(|_| &zeros[..e.blocksize as usize])
+                            .collect();
+                        if !self.write_frame(client, &e, &z) {
+                            self.state = State::Aborted;
+                            return Err(());
+                        }
+                    }
+                }
+            }
+            got = true;
+            if self.next_fixed_block_size != 0 {
+                self.fixed_block_size = self.next_fixed_block_size;
+            }
+            self.channels = h.channels;
+            self.bps = h.bits_per_sample;
+            self.samples_decoded = h.sample_number + h.blocksize as u64;
+            let refs: Vec<&[i32]> = chans.iter().map(|c| &c[..]).collect();
+            if !self.write_frame(client, &h, &refs) {
+                self.state = State::Aborted;
+                return Err(());
+            }
+        }
+        if !got {
+            // Damaged frame: go back to just after its sync code.
+            self.pos = self.framesync + 1;
+        }
+        self.state = State::SearchForFrameSync;
+        Ok(got)
+    }
+
+    /// `write_audio_frame_to_client_`.
+    fn write_frame(&mut self, client: &mut dyn Client, h: &FrameHeader, chans: &[&[i32]]) -> bool {
+        self.last_frame = *h;
+        self.last_frame_is_set = true;
+        if self.is_seeking {
+            let this = h.sample_number;
+            let next = this + h.blocksize as u64;
+            let target = self.target_sample;
+            if this <= target && target < next {
+                // the target frame: from the target sample on
+                let delta = (target - this) as usize;
+                self.is_seeking = false;
+                let mut h2 = *h;
+                h2.blocksize -= delta as u32;
+                h2.sample_number += delta as u64;
+                if delta > 0 {
+                    self.last_frame = h2;
+                }
+                let refs: Vec<&[i32]> = chans.iter().map(|c| &c[delta..]).collect();
+                return client.write(&h2, &refs);
+            }
+            return true;
+        }
+        if !self.has_stream_info {
+            self.do_md5_checking = false;
+        }
+        if self.do_md5_checking {
+            let nb = ((h.bits_per_sample + 7) / 8) as usize;
+            let mut buf = Vec::with_capacity(h.blocksize as usize * chans.len() * nb);
+            for i in 0..h.blocksize as usize {
+                for c in chans {
+                    buf.extend_from_slice(&c[i].to_le_bytes()[..nb]);
+                }
+            }
+            self.md5ctx.update(&buf);
+        }
+        client.write(h, chans)
+    }
+
+    /// `FLAC__stream_decoder_seek_absolute`: seeks to sample `sample`; the
+    /// client then receives the frame that holds it, from that sample on.
+    pub(crate) fn seek_absolute(&mut self, sample: u64, client: &mut dyn Client) -> bool {
+        if !matches!(
+            self.state,
+            State::SearchForMetadata
+                | State::ReadMetadata
+                | State::SearchForFrameSync
+                | State::ReadFrame
+                | State::EndOfStream
+        ) {
+            return false;
+        }
+        if self.total_samples() > 0 && sample >= self.total_samples() {
+            return false;
+        }
+        self.is_seeking = true;
+        self.do_md5_checking = false;
+        if !self.seekable {
+            self.is_seeking = false;
+            return false;
+        }
+        if matches!(self.state, State::SearchForMetadata | State::ReadMetadata) {
+            if !self.process_until_end_of_metadata(client) {
+                self.is_seeking = false;
+                return false;
+            }
+            if self.total_samples() > 0 && sample >= self.total_samples() {
+                self.is_seeking = false;
+                return false;
+            }
+        }
+        let ok = self.seek_to_sample(sample, client);
+        self.is_seeking = false;
+        ok
+    }
+
+    /// `seek_to_absolute_sample_`: a bisection on the stream.
+    fn seek_to_sample(&mut self, target: u64, client: &mut dyn Client) -> bool {
+        let stream_length = self.data.len() as u64;
+        let total = self.total_samples();
+        let (min_bs, max_bs) = (self.min_blocksize, self.max_blocksize);
+        let (min_fs, max_fs) = (self.min_framesize, self.max_framesize);
+        let channels = if self.channels == 0 {
+            self.si_channels
+        } else {
+            self.channels
+        };
+        let bps = if self.bps == 0 { self.si_bps } else { self.bps };
+        let mut approx: u32 = if max_fs > 0 {
+            (max_fs.wrapping_add(min_fs)) / 2 + 1
+        } else if min_bs == max_bs && min_bs > 0 {
+            min_bs.wrapping_mul(channels).wrapping_mul(bps) / 8 + 64
+        } else {
+            (4096u32.wrapping_mul(channels).wrapping_mul(bps)) / 8 + 64
+        };
+        let mut lower_bound = self.first_frame_offset;
+        let mut lower_bound_sample = 0u64;
+        let mut upper_bound = stream_length;
+        let mut upper_bound_sample = if total > 0 { total } else { target };
+        if self.state == State::SearchForFrameSync && self.samples_decoded != 0 {
+            if target < self.samples_decoded {
+                if let Some(p) = self.decode_position() {
+                    upper_bound = p;
+                    upper_bound_sample = self.samples_decoded;
+                }
+            } else if let Some(p) = self.decode_position() {
+                lower_bound = p;
+                lower_bound_sample = self.samples_decoded;
+            }
+        }
+        if let Some(table) = &self.seek_table {
+            let usable = |p: &SeekPoint| {
+                p.sample_number != SEEKPOINT_PLACEHOLDER
+                    && p.frame_samples > 0
+                    && (total == 0 || p.sample_number < total)
+            };
+            let (mut nlb, mut nub, mut nlbs, mut nubs) = (
+                lower_bound,
+                upper_bound,
+                lower_bound_sample,
+                upper_bound_sample,
+            );
+            if let Some(p) = table
+                .iter()
+                .rev()
+                .find(|p| usable(p) && p.sample_number <= target)
+            {
+                nlb = self.first_frame_offset.wrapping_add(p.stream_offset);
+                nlbs = p.sample_number;
+            }
+            if let Some(p) = table.iter().find(|p| usable(p) && p.sample_number > target) {
+                nub = self.first_frame_offset.wrapping_add(p.stream_offset);
+                nubs = p.sample_number;
+            }
+            if nub >= nlb {
+                lower_bound = nlb;
+                upper_bound = nub;
+                lower_bound_sample = nlbs;
+                upper_bound_sample = nubs;
+            }
+        }
+        if upper_bound_sample == lower_bound_sample {
+            upper_bound_sample += 1;
+        }
+        self.target_sample = target;
+        let (mut first_seek, mut seek_from_lower_bound) = (true, false);
+        loop {
+            if self.state == State::Aborted {
+                return false;
+            }
+            if lower_bound_sample >= upper_bound_sample
+                || lower_bound > upper_bound
+                || upper_bound >= i64::MAX as u64
+            {
+                self.state = State::SeekError;
+                return false;
+            }
+            let mut pos: i64 = if seek_from_lower_bound {
+                lower_bound as i64
+            } else {
+                lower_bound as i64
+                    + ((target - lower_bound_sample) as f64
+                        / (upper_bound_sample - lower_bound_sample) as f64
+                        * (upper_bound - lower_bound) as f64) as i64
+                    - approx as i64
+            };
+            if pos >= upper_bound as i64 {
+                pos = upper_bound as i64 - 1;
+            }
+            if pos < lower_bound as i64 {
+                pos = lower_bound as i64;
+            }
+            self.pos = (pos as u64).min(stream_length) as usize;
+            self.flush();
+            if !self.process_single(client)
+                || self.state == State::Aborted
+                || self.samples_decoded == 0
+            {
+                // No frame could be decoded: at the end of the stream, try
+                // once from the lower bound.
+                if self.state != State::Aborted && !seek_from_lower_bound {
+                    seek_from_lower_bound = true;
+                    continue;
+                }
+                self.state = State::SeekError;
+                return false;
+            }
+            seek_from_lower_bound = false;
+            if !self.is_seeking {
+                return true;
+            }
+            let this = self.last_frame.sample_number;
+            let bs = self.last_frame.blocksize as u64;
+            if this + bs >= upper_bound_sample && !first_seek {
+                if pos == lower_bound as i64 {
+                    self.state = State::SeekError;
+                    return false;
+                }
+                approx = if approx != 0 {
+                    approx.wrapping_mul(2)
+                } else {
+                    16
+                };
+                continue;
+            }
+            first_seek = false;
+            if this < lower_bound_sample {
+                self.state = State::SeekError;
+                return false;
+            }
+            let p = self.pos as u64;
+            if target < this {
+                upper_bound_sample = this + bs;
+                upper_bound = p;
+                approx = (2 * (upper_bound as i64 - pos) / 3 + 16) as u32;
+            } else {
+                lower_bound_sample = this + bs;
+                lower_bound = p;
+                approx = (2 * (lower_bound as i64 - pos) / 3 + 16) as u32;
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -906,6 +1704,7 @@ impl Md5 {
 
 /// The MD5 signature of decoded samples, as computed by libFLAC: the
 /// samples interleaved, each stored in `(bps+7)/8` little-endian bytes.
+#[cfg(test)]
 pub(crate) fn samples_md5(chans: &[Vec<i32>], bps: i32) -> [u8; MD5_LEN] {
     const CHUNK: usize = 1 << 16; // bytes passed to the digest at a time
     let mut md5 = Md5::new();
@@ -1639,12 +2438,56 @@ mod tests {
         assert_eq!(hex(&m.digest()), "82829f1f3f2bb0f18b25f278e5bba8bd");
     }
 
+    /// A whole stream decoded frame by frame (as the C library would read it,
+    /// but going on after errors).
+    #[derive(Default)]
+    struct Decoded {
+        errors: Vec<DecodeError>,
+        chans: Vec<Vec<i32>>,
+        /// The channels and bits per sample of each frame.
+        shapes: Vec<(u32, u32)>,
+        /// Channels and bits per sample, from STREAMINFO.
+        channels: i32,
+        bps: i32,
+        has_md5: bool,
+        md5: [u8; MD5_LEN],
+        end: Option<State>,
+    }
+
+    impl Client for Decoded {
+        fn error(&mut self, e: DecodeError) {
+            self.errors.push(e);
+        }
+        fn write(&mut self, h: &FrameHeader, chans: &[&[i32]]) -> bool {
+            self.shapes.push((h.channels, h.bits_per_sample));
+            self.chans
+                .resize(self.chans.len().max(chans.len()), Vec::new());
+            for (d, c) in self.chans.iter_mut().zip(chans) {
+                d.extend_from_slice(c);
+            }
+            true
+        }
+    }
+
+    fn decode(data: &[u8]) -> Decoded {
+        let mut dec = StreamDecoder::new(data.to_vec(), true, false);
+        let mut d = Decoded::default();
+        while dec.process_single(&mut d) && dec.state() != State::EndOfStream {}
+        d.end = Some(dec.state());
+        d.channels = dec.si_channels as i32;
+        d.bps = dec.si_bps as i32;
+        d.has_md5 = dec.has_stream_info;
+        d.md5 = dec.md5sum;
+        d
+    }
+
     #[test]
     fn flac_decode_records() {
         for rc in &RECORDS {
             let data = std::fs::read(data_dir().join(format!("{}.dat", rc.name))).unwrap();
-            let d = decode(&data, 0, 0);
-            assert_eq!(d.status, Status::Ok, "{}", rc.name);
+            let d = decode(&data);
+            assert!(d.errors.is_empty(), "{}", rc.name);
+            assert_eq!(d.end, Some(State::EndOfStream));
             assert_eq!(d.channels, rc.channels);
             assert_eq!(d.bps, rc.bps);
             assert_eq!(d.chans.len(), rc.channels as usize);
@@ -1655,25 +2498,32 @@ mod tests {
             // The MD5 signature in STREAMINFO matches the decoded samples.
             assert!(d.has_md5);
             assert_eq!(samples_md5(&d.chans, d.bps), d.md5);
-            // Decoding with the expected numbers of signals and bits
-            let d2 = decode(&data, rc.channels, rc.bps);
-            assert_eq!(d2.status, Status::Ok);
-            assert_eq!(d2.chans, d.chans);
-            // Trailing zero bytes are ignored.
+            // Every frame has the channels and resolution of STREAMINFO.
+            assert!(d
+                .shapes
+                .iter()
+                .all(|&(c, b)| (c as i32, b as i32) == (rc.channels, rc.bps)));
+            // Trailing zero bytes: all the samples, then lost sync.
             let mut padded = data.clone();
             padded.resize(padded.len() + 100, 0);
-            let d3 = decode(&padded, 0, 0);
-            assert_eq!(d3.status, Status::Ok);
+            let d3 = decode(&padded);
+            assert_eq!(d3.errors, [DecodeError::LostSync]);
             assert_eq!(d3.chans, d.chans);
-            // A truncated stream cannot be decoded.
-            assert_ne!(decode(&data[..data.len() - 3], 0, 0).status, Status::Ok);
-            // Neither can a stream with a corrupted frame.
+            // A truncated stream: all the frames but the last.
+            let d4 = decode(&data[..data.len() - 3]);
+            assert_eq!(d4.errors, [DecodeError::LostSync]);
+            assert!(d4.chans[0].len() < rc.nsamp);
+            assert_eq!(d4.chans[0][..], d.chans[0][..d4.chans[0].len()]);
+            // A stream with a corrupted frame.
             let mut bad = data.clone();
             let mid = bad.len() / 2;
             bad[mid] ^= 0x10;
-            assert_ne!(decode(&bad, 0, 0).status, Status::Ok);
-            // nor something that is not a FLAC stream.
-            assert_eq!(decode(&data[1..], 0, 0).status, Status::Meta);
+            assert!(!decode(&bad).errors.is_empty());
+            // Something that is not a FLAC stream.
+            assert_eq!(
+                decode(&data[1..]).errors.first(),
+                Some(&DecodeError::LostSync)
+            );
         }
     }
 
@@ -1689,8 +2539,8 @@ mod tests {
             assert!(bytes.windows(6).any(|w| w == b"wfdb-x"));
 
             // Round trip
-            let d = decode(&bytes, ec.nsig, ec.bps);
-            assert_eq!(d.status, Status::Ok);
+            let d = decode(&bytes);
+            assert!(d.errors.is_empty());
             assert_eq!(d.channels, ec.nsig);
             assert_eq!(d.bps, ec.bps);
             assert_eq!(d.chans.len(), ec.nsig as usize);
@@ -1722,23 +2572,11 @@ mod tests {
         enc.finish(&mut out);
         let si = enc.streaminfo();
         out[8..8 + si.len()].copy_from_slice(&si);
-        let d = decode(&out, 0, 0);
-        assert_eq!(d.status, Status::Ok);
+        let d = decode(&out);
+        assert!(d.errors.is_empty());
         assert_eq!(d.chans.len(), 2);
         assert_eq!(d.chans[0].len(), 4);
         assert_eq!(d.chans[1][3], 700);
-        // The wrong number of signals is detected when expected.
-        let d2 = decode(&out, 3, 16);
-        assert_eq!(d2.status, Status::Wfdb);
-        assert_eq!(
-            d2.error_message.as_deref(),
-            Some(&b"getvec: wrong number of signals in FLAC signal file\n"[..])
-        );
-        let d3 = decode(&out, 2, 8);
-        assert_eq!(d3.status, Status::Wfdb);
-        assert_eq!(
-            d3.error_message.as_deref(),
-            Some(&b"getvec: wrong sample resolution in FLAC signal file\n"[..])
-        );
+        assert_eq!(d.shapes, [(2, 16)]);
     }
 }

@@ -422,8 +422,8 @@ wfdbfile <- function(s, record) {
 }
 
 #' Set the input directory (a WFDB-x addition); returns the previous one
-#' (NULL if none).  A file named by a relative name (a record name, an
-#' annotation file, ...) is read as dir/name; dir may be a local directory
+#' (NULL if none), invisibly.  A file named by a relative name (a record
+#' name, an annotation file, ...) is read as dir/name; dir may be a local directory
 #' (relative to the current directory, or a ~ name) or the URL of a
 #' directory (see wfdbx_set_network).  Names given as absolute paths, ~
 #' names or URLs are used as given; nothing else is searched.  NULL or ""
@@ -435,7 +435,7 @@ wfdbx_set_input_dir <- function(dir) {
   .init_input_dir()
   previous <- .wfdb_io$input_dir
   .put_input_dir(dir)
-  previous
+  invisible(previous)
 }
 
 #' The input directory (see wfdbx_set_input_dir), or NULL.
@@ -459,8 +459,8 @@ wfdbx_get_input_dir <- function() {
 }
 
 #' Set the output directory (a WFDB-x addition); returns the previous one
-#' (NULL if none).  Output files (WFDB_WRITE or WFDB_APPEND mode) named by a
-#' relative name (the record name and the file type) are created as
+#' (NULL if none), invisibly.  Output files (WFDB_WRITE or WFDB_APPEND
+#' mode) named by a relative name (the record name and the file type) are created as
 #' dir/name (in legacy mode, any name); dir may be relative to the current
 #' directory or a ~ name.  NULL or "" restores the default: the value of
 #' the environment variable WFDBX_OUTPUT_DIR if it is set, otherwise none
@@ -472,11 +472,11 @@ wfdbx_set_output_dir <- function(dir) {
   st <- .wfdb_io
   if (!is.null(dir) && nzchar(dir) && .is_url(dir)) {
     wfdb_error(.OUTPUT_URL_ERROR)
-    return(st$output_dir)
+    return(invisible(st$output_dir))
   }
   previous <- st$output_dir
   st$output_dir <- if (is.null(dir) || !nzchar(dir)) st$env_output_dir else dir
-  previous
+  invisible(previous)
 }
 
 #' The output directory (see wfdbx_set_output_dir), or NULL.
@@ -486,7 +486,8 @@ wfdbx_get_output_dir <- function() {
 }
 
 #' Allow (on TRUE or > 0) or forbid (FALSE or 0) network access, i.e.
-#' opening URLs (a WFDB-x addition); returns the previous setting (1 or 0).
+#' opening URLs (a WFDB-x addition); returns the previous setting (1 or 0),
+#' invisibly.
 #' NULL or a negative number restores the default: allowed if the
 #' environment variable WFDBX_NETWORK is set to a non-zero number,
 #' otherwise forbidden.  Remote files are read in full (by the system
@@ -500,7 +501,7 @@ wfdbx_set_network <- function(on) {
   st <- .wfdb_io
   st$network <- if (is.null(on) || (!is.logical(on) && on < 0)) st$env_network else
     isTRUE(as.logical(on))
-  previous
+  invisible(previous)
 }
 
 #' 1 if network access is allowed (see wfdbx_set_network), else 0.

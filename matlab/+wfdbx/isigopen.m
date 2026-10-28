@@ -258,10 +258,27 @@ wfdbx.setgvmode(S.gvmode);
 S.gvc = S.ispfmax;
 framelen = 0;
 isd = S.isd;
+gspf = zeros(1, S.nigroup);     % samples per frame of each signal group
 for i = 1:S.nisig
-    framelen = framelen + isd(i).info.spf;
+    info = isd(i).info;
+    framelen = framelen + info.spf;
+    if info.fmt ~= 0
+        if info.group >= numel(gspf)
+            gspf(info.group + 1) = 0;
+        end
+        gspf(info.group + 1) = gspf(info.group + 1) + info.spf;
+    end
 end
 S.framelen = framelen;
+% WFDB-x: a signal group whose frames hold no samples (an EDF file can give
+% 0 samples per data record) is at the end of its data at once
+S.empty_group = false;
+for i = 1:S.nisig
+    info = isd(i).info;
+    if info.fmt ~= 0 && gspf(info.group + 1) == 0
+        S.empty_group = true;
+    end
+end
 if S.tspf > S.tuvlen
     S.tvector = zeros(1, S.tspf);
     S.uvector = zeros(1, S.tspf);

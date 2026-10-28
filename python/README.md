@@ -1,10 +1,10 @@
 # WFDB-x for Python
 
-> **WFDB-x** is the WFDB Software Package (the library and its 33
-> command-line tools) reimplemented in seven languages: Python, C++,
-> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
-> the original C package and to each other. This is the Python
-> implementation.
+> **WFDB-x** is a reimplementation of the WFDB Software Package (the library
+> and its command-line tools) in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
+> identical results to the original C package and to each other. This is the
+> Python implementation.
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
 
@@ -201,11 +201,15 @@ wfdbx.write_annotations("rand", "qrs", samples=[100, 460, 820], symbols=["N", "N
 ```
 
 Give the annotation types as `symbols` or as `codes`. `subtypes`, `chans`,
-`nums` and `aux` are optional. If the annotations are not in time order, the
-file is sorted when it is written. `sort=False` keeps the given order
-(without the library's advice to run `sortann`) and `sort=True` always
-sorts, for that call only. Without `sort`, the `WFDBANNSORT` environment
-variable decides (sorting is on unless it is `0`).
+`nums` and `aux` are optional. Each of these arguments is one value for all
+annotations, or a list with exactly one value per annotation; a list of any
+other length raises `ValueError` before the file is created. As in C,
+subtypes and annotator numbers are stored as signed bytes and channels as
+unsigned bytes (other values wrap around). If the annotations are not in
+time order, the file is sorted when it is written. `sort=False` keeps the
+given order (without the library's advice to run `sortann`) and `sort=True`
+always sorts, for that call only. Without `sort`, the `WFDBANNSORT`
+environment variable decides (sorting is on unless it is `0`).
 
 ### Errors and warnings
 
@@ -216,8 +220,18 @@ variable decides (sorting is on unless it is `0`).
   for the C-style functions, which report them only with a message, as in
   C.)
 * In `write_record`, `samps_per_frame` values that are not integers of at
-  least 1, and a number of columns of `signals` other than their sum, raise
-  `ValueError` before any file is created.
+  least 1, a number of columns of `signals` other than their sum, a list of
+  per-signal values without one value per signal, samples in ADC units that
+  are not integers (floats with whole values are integers) or that lie
+  outside the range of a 32-bit integer, and samples in physical units that
+  are infinite or whose ADC value lies outside that range, raise
+  `ValueError` before any file is created. (NaN in physical units is an
+  invalid sample.) Whatever the outcome, `write_record` and
+  `write_annotations` close their output files and the library's output
+  signals and annotators before they return.
+* A negative `sampfrom` in `read_record` raises `ValueError`.
+* `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
+  only: the mode in force before the call is restored afterwards.
 * A signal file that is shorter than its header says raises `IOError`:
   "can't read signal data of record REC (getvec status -3)".
 * An annotation file that ends before its end-of-file marker raises
@@ -521,9 +535,9 @@ jupyter lab
   differ from those of libFLAC.
 * **Speed.** `read_record` and `write_record` work on whole blocks of
   samples with NumPy: they read an hour of a two-signal ECG record in a few
-  hundredths of a second, as fast as wfdb-python. Reading sample by sample
-  with `getvec` is much slower in Python; prefer `read_record` (in chunks,
-  with `sampfrom` and `sampto`, for records too large for memory).
+  hundredths of a second, about as fast as wfdb-python. Reading sample by
+  sample with `getvec` is much slower in Python; prefer `read_record` (in
+  chunks, with `sampfrom` and `sampto`, for records too large for memory).
   [BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
   compares the seven languages and wfdb-python.
 

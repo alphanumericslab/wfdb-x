@@ -1037,8 +1037,12 @@ if reopen
 end
 X = struct();
 X.clip = clip;
-X.vmax = wfdbx.internal.cint32([dfout(1:nosig).adczero] + 2 .^ ([dfout(1:nosig).adcres] - 1) - 1);
-X.vmin = wfdbx.internal.cint32([dfout(1:nosig).adczero] - 2 .^ ([dfout(1:nosig).adcres] - 1));
+% (1UL << (adcres - 1)) in C; on x86-64 the shift count is taken modulo
+% 64, so an ADC resolution of 0 gives 1 << 63 (reduced modulo 2^32 here, as
+% the int conversion that follows does)
+half = mod(2 .^ mod([dfout(1:nosig).adcres] - 1, 64), 4294967296);
+X.vmax = wfdbx.internal.cint32([dfout(1:nosig).adczero] + half - 1);
+X.vmin = wfdbx.internal.cint32([dfout(1:nosig).adczero] - half);
 X.spm = spm;
 X.nsm = 0;
 X.nminutes = 0;
@@ -1069,6 +1073,12 @@ if Mflag
     end
     ospf = [dfout(1:nosig).spf];
     vout = zeros(1, max(oframelen, 1));
+    % WFDB-x: room for every output sample of a frame, and for every input
+    % sample that they read (C sizes vout for the input frame and writes
+    % past its end when the output frame is larger; the samples read beyond
+    % the input frame are 0 here)
+    vout(end + 1:sum(ospf)) = 0;
+    vin(end + 1:max([0, msiglist + ospf])) = 0;
     while true
         [st, vin] = wfdbx.getframe(vin);
         if st < nisig

@@ -61,7 +61,11 @@ def _main(argv, out):
         w.setgvmode(w.WFDB_LOWRES)
         freq = w.sampfreq(None)
         for i in range(max(nsig, 0)):
-            out.write("%s\t%g\n" % (si[i].desc, si[i].spf * freq))
+            if i < len(si):
+                out.write("%s\t%g\n" % (si[i].desc, si[i].spf * freq))
+            else:   # (a signal that could not be opened: C prints the
+                # zeroed entry of its array)
+                out.write("(null)\t0\n")
     return 0
 
 

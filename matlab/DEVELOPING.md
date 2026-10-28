@@ -364,7 +364,8 @@ microseconds in Octave: read data in bulk (`read`, `readall`) and decode it
 with vector operations.
 
 Public I/O functions in `+wfdbx/`: `getwfdb`, `setwfdb`, `resetwfdb`,
-`wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdbfile`, `wfdbmemerr`,
+`wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdb_error` (a wrapper of
+`internal.wfdb_error`), `wfdbfile`, `wfdbmemerr`,
 `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
 `wfdbdefwfdbcal`, and the WFDB-x additions `wfdbx_write_errors` and
 `wfdbx_note_write_error`.
@@ -625,12 +626,21 @@ array of `wfdbx.calinfo()` structures) of `wfdbx.internal.cal_state()`.
 `+wfdbx/+internal/flac_*.m` port `python/src/wfdbx/_flac.py`, without
 external libraries:
 
-* `[chans, bps, md5] = flac_decode(bytes, nsig, datb)` decodes a whole
-  stream (all FLAC features; CRCs checked); errors are thrown with the
-  identifiers `wfdbx:flac:meta|sync|header|crc|unparseable|eof|wfdb`.
-  Rice codes are decoded with vector operations (pointer doubling over
-  the positions of the one bits); LPC subframes need a loop over the
-  samples. The test records decode in 0.1-0.4 s.
+* `flac_decoder` is libFLAC's stream decoder (1.4.3), step by step, as
+  in the Python port: its states, frame-sync search, CRC checks, the
+  return to just after the last sync code after a damaged frame (with its
+  8192-byte input buffer modelled), the binary search of
+  `seek_absolute`, the channel count of each frame, ID3v2 tags. A
+  structure `D` is passed in and out (`'new'`, `'process'`, `'seek'`,
+  `'flush'`, `'finish'`); a read that finds no input sets `D.ni`, which
+  the function where libFLAC returns false clears. Subframes are decoded
+  with vector operations (Rice codes by pointer doubling over the
+  positions of the one bits; LPC subframes need a loop over the samples),
+  and the buffer refills that their reads cause are replayed afterwards.
+  The test records decode in 0.05-0.3 s.
+* `[chans, bps, md5] = flac_decode(bytes)` decodes a whole stream; the
+  first error is thrown with the identifiers
+  `wfdbx:flac:meta|sync|header|crc|unparseable`.
 * `frame = flac_encode_frame(block, bps, frame_no)` encodes one frame
   exactly as the Python encoder does (the files written are identical to
   Python's, vendor string `wfdb-x`).
@@ -649,9 +659,10 @@ codec state (a structure; `[]` when the group is not FLAC).
 | Function | Called by | Effect |
 |---|---|---|
 | `stat = flac_isopen(ig, hs, ns)` | `isigopen`, after opening `ig.fp` (`hs`: the group's 1-by-`ns` header data, fields `info.fmt`, `info.spf`) | checks (at most 8 signals, equal `spf`), sets `ig.flac`, `ig.count = 0`; 0 or -1 |
-| `v = flac_getsamp(ig)` | `getvec` (per sample) | next sample in WFDB frame order (per frame, `spf` samples of each signal in turn); decodes the stream on first use; at the end returns 0 with `ig.stat = 0` (and the "samples left over" warning once); after a decoding error, 0 with `ig.stat = -2`; `ig.stat` unchanged otherwise |
-| `[v, st] = flac_getsamps(ig, n)` | bulk readers | exactly `n` calls of `flac_getsamp` (`st(k)` = `ig.stat` after each, as `ig_read` returns); `n = Inf` returns all remaining samples at once (the bulk accessor for `getframes`) |
-| `stat = flac_isseek(ig, t)` | `isgsettime` | positions at frame `t` (+ `ig.start`); sets `ig.stat = 1`, `ig.count = 0`; returns 1, or -1 (out of range or undecodable) |
+| `v = flac_getsamp(ig)` | `getvec` (per sample) | next sample in WFDB frame order (per frame, `spf` samples of each signal in turn); decodes the next FLAC frame when no sample is left (`flac_refill`); at the end returns 0 with `ig.stat = 0` (and the "samples left over" warning once); after a decoding error, 0 with `ig.stat = -2`; `ig.stat` unchanged otherwise |
+| `[v, st] = flac_getsamps(ig, n)` | bulk readers | exactly `n` calls of `flac_getsamp` (`st(k)` = `ig.stat` after each, as `ig_read` returns); `n = Inf` returns the samples up to the end of the data or an error |
+| `ok = flac_refill(ig, ahead)` | `flac_getsamp`; `bulk_frames` (`ahead` true) | decodes frames until samples are added; decoding ahead defers a failure (`ig.flac.pending`) until the samples before it are read |
+| `stat = flac_isseek(ig, t)` | `isgsettime` | positions at frame `t` (+ `ig.start`) with libFLAC's seek; sets `ig.stat = 1`, `ig.count = 0`; returns 1, or -1 (the seek failed) |
 | `stat = flac_isclose(ig)` | `isigclose` | MD5 check if `WFDB_FLAC_CHECK_MD5` is set |
 | `stat = flac_osinit(og, si, ns)` | `osigfopen`, before opening `og.fp` (`si`: 1-by-`ns` siginfo) | checks, sets `og.flac` and `og.bsize = ns * spf * 4`; 0 or -1 |
 | `stat = flac_osopen(og)` | after opening `og.fp` | writes the stream header |

@@ -875,4 +875,84 @@ class RecordTest {
         assertEquals(d.path("nowhere"), w.wfdbxGetInputDir())
         assertFalse(w.wfdbxGetNetwork())
     }
+
+    // -----------------------------------------------------------------------
+    // Fixes from the second review
+
+    @Test
+    fun readRecordRestoresGvmode() = withData("gvmode") { _, w ->
+        // readRecord sets the getvec mode for its own reading only: the mode
+        // before the call is restored afterwards, also after an error.
+        w.setgvmode(WFDB_LOWRES)
+        val r = w.readRecord("mfreq", to = TimeSpec(20), highres = true, pad = true)
+        assertEquals(400.0, r.fs)
+        assertEquals(WFDB_LOWRES, w.getgvmode())
+        assertEquals(100.0, w.sampfreq("mfreq"))
+        w.wfdbquiet()
+        assertFailsWith<WfdbException> { w.readRecord("mfreq", channels = listOf("XX"), highres = true, pad = true) }
+        w.wfdbverbose()
+        assertEquals(WFDB_LOWRES, w.getgvmode())
+        assertEquals(100.0, w.sampfreq("mfreq"))
+        w.setgvmode(WFDB_HIGHRES)
+        w.readRecord("mfreq")
+        w.readHeader("mfreq")
+        assertEquals(WFDB_HIGHRES, w.getgvmode())
+        w.setgvmode(WFDB_LOWRES)
+    }
+
+    @Test
+    fun readRecordFromAndTo() = withData("fromto") { _, w ->
+        // A negative `from` is an error (isigsettime would take it as an
+        // absolute time); `to` far beyond the end reads to the end.
+        fails("readRecord: from must not be negative") { w.readRecord("100s", from = TimeSpec(-5), to = TimeSpec(3)) }
+        val r = w.readRecord("100s", from = TimeSpec(21590), to = TimeSpec(Long.MAX_VALUE))
+        assertEquals(Pair(10, 21590L), Pair(r.nsamples, r.sampfrom))
+        assertEquals(0, w.readRecord("100s", from = TimeSpec(5), to = TimeSpec(Long.MIN_VALUE)).nsamples)
+    }
+
+    @Test
+    fun physicalWritingOutOfRange() = withData("physrange") { d, w ->
+        // NaN is an invalid sample; an infinite value, or one beyond the
+        // range of 32-bit ADC units, is an error before any file is created.
+        for (bad in doubleArrayOf(Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, 1.1e7, -1.1e7)) {
+            fails("writeRecord: sample 2 is infinite or beyond the range of 32-bit ADC units") {
+                w.writeRecord("pr", doubleArrayOf(0.0, 1.0, bad, 2.0), 2, 100.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"))
+            }
+            assertFalse(fileExists(d.path("pr.dat")))
+            assertFalse(fileExists(d.path("pr.hea")))
+        }
+        val x = doubleArrayOf(10737418.235, -10737418.235, Double.NaN, 1.0)
+        w.writeRecord("pr", x, 2, 100.0, fmt = 32, gains = doubleArrayOf(200.0), adcres = intArrayOf(32), units = listOf("mV"))
+        assertEquals(listOf(Int.MAX_VALUE, Int.MIN_VALUE + 1, WFDB_INVALID_SAMPLE, 200), w.readRecord("pr").samples.toList())
+    }
+
+    @Test
+    fun writeRecordOptionLengths() = withData("optlen") { d, w ->
+        // A per-signal argument has no value, one value, or one value per
+        // signal; anything else is an error before any file is created, and
+        // a later call works normally.
+        val x = IntArray(9) { 1 }
+        val g = doubleArrayOf(200.0)
+        val r = intArrayOf(16)
+        val u = listOf("mV")
+        val bad = listOf<() -> Unit>(
+            { w.writeRecord("wl", x, 3, 100.0, gains = g, adcres = r, units = u, names = listOf("a", "b")) },
+            { w.writeRecord("wl", x, 3, 100.0, gains = g, adcres = r, units = u, baselines = intArrayOf(1, 2, 3, 4)) },
+            { w.writeRecord("wl", x, 3, 100.0, gains = doubleArrayOf(1.0, 2.0, 3.0, 4.0), adcres = r, units = u) },
+            { w.writeRecord("wl", x, 3, 100.0, gains = g, adcres = r, units = u, sampsPerFrame = intArrayOf(1, 1)) },
+            { w.writeRecord("wl", DoubleArray(9) { 1.0 }, 3, 100.0, gains = g, adcres = r, units = u, adczeros = intArrayOf(0, 0)) },
+        )
+        for (f in bad) {
+            val e = assertFailsWith<WfdbException> { f() }
+            assertTrue(e.message!!.endsWith("must have one value per signal"), e.message)
+            assertFalse(fileExists(d.path("wl.dat")))
+        }
+        // (a required argument with fewer values: missing values)
+        fails("writeRecord: gains must be specified") {
+            w.writeRecord("wl", x, 3, 100.0, gains = doubleArrayOf(1.0, 2.0), adcres = r, units = u)
+        }
+        assertFalse(fileExists(d.path("wl.dat")))
+        w.writeRecord("wl", x, 3, 100.0, gains = g, adcres = r, units = u)
+        assertEquals(x.toList(), w.readRecord("wl").samples.toList())
+    }
 }

@@ -31,7 +31,7 @@
 // an output signal file is never one of the input files of the open record; a
 // header written under a path names the record, its signal files and its
 // segments relative to its own directory; FLAC signal files are read and
-// written with WFDB-x's own codec (flac.rs) instead of libFLAC; additions:
+// written with WFDB-x's FLAC codec (flac.rs) instead of libFLAC; additions:
 // wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
 // wfdbx_time_needs_freq, getvecs, getvecs_status, and wfdbx_bulk_read,
 // wfdbx_bulk_vectors and wfdbx_input_state (for tests); legacy mode
@@ -95,49 +95,6 @@ struct IsData {
     gvcount: i32,
 }
 
-/// Decoded FLAC input (one signal group).
-#[derive(Default)]
-struct FlacIn {
-    nsig: i32,
-    datb: i32,
-    spf: i32,
-    decoded: bool,
-    failed: bool,
-    chans: Vec<Vec<i32>>,
-    total: i64,
-    base: i64,
-    nfr: i64,
-    leftover: i64,
-    f: i64,
-    c: usize,
-    k: i32,
-    md5_check: bool,
-    has_md5: bool,
-    md5: [u8; flac::MD5_LEN],
-    have_decoded_md5: bool,
-    decoded_md5: [u8; flac::MD5_LEN],
-    seeked: bool,
-    // State of the libFLAC decoder of the C library, which decodes one FLAC
-    // block at a time: the end of each block (in samples per channel), the
-    // end of the blocks decoded so far, whether the buffered samples were
-    // discarded by a failed seek, and whether decoding was aborted (after a
-    // failed seek, iflac_samples() aborts the decoding of the next block,
-    // and libFLAC then refuses to seek).
-    block_ends: Vec<i64>,
-    dec_end: i64,
-    discarded: bool,
-    aborted: bool,
-}
-
-impl FlacIn {
-    /// The end of the FLAC block that contains sample `n - 1` (`n > 0`):
-    /// the number of samples (per channel) decoded once sample `n - 1` is.
-    fn block_end(&self, n: i64) -> i64 {
-        let k = self.block_ends.partition_point(|&e| e < n);
-        self.block_ends.get(k).copied().unwrap_or(self.total)
-    }
-}
-
 /// Shared by all signals in an input group (file).
 #[derive(Default)]
 struct IgData {
@@ -145,7 +102,9 @@ struct IgData {
     datb: i32,
     fp: Option<WfdbFile>,
     start: i64,
-    bsize: i32,
+    /// Block size (WFDB-x: i64, since that of a header can be 2^31: see
+    /// isigopen).
+    bsize: i64,
     buf: Vec<u8>,
     bp: usize,
     be: usize,
@@ -282,6 +241,10 @@ pub struct SigState {
     dsbi: i32,
     dsblen: u32,
     framelen: u32,
+    /// WFDB-x: is there a signal group whose frames hold no samples (an
+    /// EDF file can give 0 samples per data record)? It is at the end of
+    /// its data at once.
+    empty_group: bool,
     gvmode: i32,
     gvc: i32,
     isedf: i32,
@@ -390,6 +353,7 @@ impl Default for SigState {
             dsbi: 0,
             dsblen: 0,
             framelen: 0,
+            empty_group: false,
             gvmode: DEFWFDBGVMODE,
             gvc: 0,
             isedf: 0,
@@ -2305,26 +2269,120 @@ impl Wfdb {
 // ---------------------------------------------------------------------------
 // FLAC input and output (glue to flac.rs)
 
-fn flac_pack(fi: &mut FlacIn, base: i64) {
-    fi.base = base;
-    fi.nfr = (fi.total - base) / fi.spf as i64;
-    fi.leftover = (fi.total - base) - fi.nfr * fi.spf as i64;
-    fi.f = 0;
-    fi.c = 0;
-    fi.k = 0;
+/// FLAC input (one signal group): the FLAC fields of the C `igdata`.
+#[derive(Default)]
+struct FlacIn {
+    /// The decoder (made from the signal file when the group is first read
+    /// or sought).
+    dec: Option<flac::StreamDecoder>,
+    md5_check: bool,
+    pack: FlacPack,
 }
 
-/// `flac_isclose`: the MD5 check of a FLAC input (an error message if the
-/// check failed).
-fn flac_isclose(ig: &IgData) -> Option<&'static [u8]> {
-    let fi = ig.flac.as_ref()?;
-    if fi.md5_check && fi.has_md5 && fi.have_decoded_md5 && !fi.seeked {
-        let nonzero = fi.md5.iter().any(|&b| b != 0);
-        if nonzero && fi.md5 != fi.decoded_md5 {
-            return Some(b"isigclose: warning: incorrect MD5 hash in FLAC input\n");
-        }
+/// The decoded samples of a FLAC signal group not yet read, in frame
+/// order, and what the decoder reports (C `iflac_samples` and
+/// `iflac_error`, which receive the results of the libFLAC decoder).
+#[derive(Default)]
+struct FlacPack {
+    /// Signals in the group (C `data`), and their resolution (`datb`).
+    nsig: u32,
+    datb: u32,
+    /// Samples per frame of each signal (C `packspf`).
+    spf: usize,
+    /// `buf[bp..packptr]`: complete frames not yet read; then the frame
+    /// being filled, of which `packcount` samples per signal are decoded.
+    buf: Vec<i32>,
+    bp: usize,
+    packptr: usize,
+    packcount: usize,
+    /// Samples (per signal) to skip after a seek (C `count`).
+    count: u64,
+    /// The group's `stat` while the decoder runs.
+    stat: i32,
+    /// The messages to report.
+    msgs: Vec<&'static [u8]>,
+}
+
+impl flac::Client for FlacPack {
+    fn error(&mut self, e: flac::DecodeError) {
+        self.msgs.push(match e {
+            flac::DecodeError::LostSync => b"getvec: unable to decode FLAC (lost sync)\n",
+            flac::DecodeError::BadHeader => b"getvec: unable to decode FLAC (invalid header)\n",
+            flac::DecodeError::CrcMismatch => b"getvec: unable to decode FLAC (CRC mismatch)\n",
+            flac::DecodeError::Unparseable => {
+                b"getvec: unable to decode FLAC (unsupported format)\n"
+            }
+        });
+        // (decoding stops at the next frame)
+        self.stat = -2;
     }
-    None
+
+    fn write(&mut self, h: &flac::FrameHeader, chans: &[&[i32]]) -> bool {
+        if h.channels != self.nsig {
+            self.msgs
+                .push(b"getvec: wrong number of signals in FLAC signal file\n");
+            self.stat = -2;
+        }
+        if h.bits_per_sample > self.datb {
+            self.msgs
+                .push(b"getvec: wrong sample resolution in FLAC signal file\n");
+            self.stat = -2;
+        }
+        if self.stat < 0 {
+            return false;
+        }
+        let (nsig, spf) = (chans.len(), self.spf);
+        let frmsize = nsig * spf;
+        // Shift out the samples already read.
+        if self.bp > 0 {
+            self.buf.drain(..self.bp);
+            self.packptr -= self.bp;
+            self.bp = 0;
+        }
+        let mut nsamp = h.blocksize as u64;
+        if self.count > nsamp {
+            self.count -= nsamp;
+            return true;
+        }
+        let mut ipos = self.count as usize;
+        nsamp -= self.count;
+        self.count = 0;
+        // Store the samples in frame order.
+        let mut nsamp = nsamp as usize;
+        let mut orem = spf - self.packcount;
+        let mut p = self.packptr + self.packcount;
+        self.buf.resize(self.packptr + frmsize, 0);
+        while nsamp != 0 {
+            let n = nsamp.min(orem);
+            for (s, c) in chans.iter().enumerate() {
+                let o = p + s * spf;
+                self.buf[o..o + n].copy_from_slice(&c[ipos..ipos + n]);
+            }
+            nsamp -= n;
+            orem -= n;
+            if orem == 0 {
+                self.packptr += frmsize;
+                self.buf.resize(self.packptr + frmsize, 0);
+                p = self.packptr;
+                orem = spf;
+                ipos += n;
+            }
+        }
+        self.packcount = spf - orem;
+        true
+    }
+}
+
+/// `flac_isclose`: closes the decoder of a FLAC input (an error message if
+/// the MD5 signature of its samples was checked and is wrong).
+fn flac_isclose(ig: &mut IgData) -> Option<&'static [u8]> {
+    let fi = ig.flac.as_mut()?;
+    let ok = match fi.dec.as_mut() {
+        Some(d) => d.finish(),
+        // (a decoder that has read nothing has no STREAMINFO signature)
+        None => !fi.md5_check,
+    };
+    (!ok).then_some(&b"isigclose: warning: incorrect MD5 hash in FLAC input\n"[..])
 }
 
 impl OgData {
@@ -2386,126 +2444,98 @@ impl OgData {
 }
 
 impl Wfdb {
-    fn flac_decode(&mut self, g: usize) {
+    /// The decoder of FLAC signal group `g`, made from its signal file
+    /// when first needed (C makes it when the group is opened; it reads
+    /// nothing until then).
+    fn flac_decoder(&mut self, g: usize) {
         let ig = &mut self.sig.igd[g];
+        let seekable = ig.seek != 0;
         let Some(fi) = ig.flac.as_mut() else {
             return;
         };
-        fi.decoded = true;
-        let data = match &mut ig.fp {
-            Some(f) => f.read_to_end(),
-            None => Vec::new(),
-        };
-        let d = flac::decode(&data, fi.nsig, fi.datb);
-        let status = d.status;
-        if let Some(m) = &d.error_message {
-            self.wfdb_error(m);
+        if fi.dec.is_none() {
+            let data = match &mut ig.fp {
+                Some(f) => f.read_to_end(),
+                None => Vec::new(),
+            };
+            fi.dec = Some(flac::StreamDecoder::new(data, seekable, fi.md5_check));
         }
-        let msg: Option<&[u8]> = match status {
-            flac::Status::Ok | flac::Status::Wfdb => None,
-            flac::Status::Sync => Some(b"getvec: unable to decode FLAC (lost sync)\n"),
-            flac::Status::Header => Some(b"getvec: unable to decode FLAC (invalid header)\n"),
-            flac::Status::Crc => Some(b"getvec: unable to decode FLAC (CRC mismatch)\n"),
-            flac::Status::Unparseable => {
-                Some(b"getvec: unable to decode FLAC (unsupported format)\n")
-            }
-            flac::Status::Eof => Some(b"getvec: unable to decode FLAC\n"),
-            flac::Status::Meta => Some(b"getvec: unexpected FLAC decoding error\n"),
-        };
-        if let Some(m) = msg {
-            self.wfdb_error(m);
-        }
-        let fi = self.sig.igd[g].flac.as_mut().unwrap();
-        if status != flac::Status::Ok {
-            fi.failed = true;
-            return;
-        }
-        let bps = d.bps;
-        fi.chans = d.chans;
-        fi.block_ends = d.block_ends;
-        fi.total = fi.chans.first().map_or(0, |c| c.len() as i64);
-        fi.has_md5 = d.has_md5;
-        fi.md5 = d.md5;
-        if fi.md5_check && fi.total != 0 {
-            fi.decoded_md5 = flac::samples_md5(&fi.chans, bps);
-            fi.have_decoded_md5 = true;
-        }
-        flac_pack(fi, 0);
     }
 
+    /// Reports the messages of the decoder of a FLAC input.
+    fn flac_messages(&mut self, fi: &mut FlacIn) {
+        for m in std::mem::take(&mut fi.pack.msgs) {
+            self.wfdb_error(m);
+        }
+    }
+
+    /// `flac_getsamp`: the next sample of FLAC signal group `g`.
     fn flac_getsamp(&mut self, g: usize) -> i32 {
-        if !self.sig.igd[g].flac.as_ref().map_or(true, |f| f.decoded) {
-            self.flac_decode(g);
-        }
-        let ig = &mut self.sig.igd[g];
-        let Some(fi) = ig.flac.as_mut() else {
-            ig.stat = -2;
+        self.flac_decoder(g);
+        let Some(mut fi) = self.sig.igd[g].flac.take() else {
+            self.sig.igd[g].stat = -2;
             return 0;
         };
-        if fi.failed {
-            ig.stat = -2;
-            return 0;
-        }
-        if fi.aborted {
-            return 0; // (the decoder does nothing; ig.stat is negative)
-        }
-        if fi.f < fi.nfr {
-            // The frame of the next sample must have been decoded.
-            let need = fi.base + (fi.f + 1) * fi.spf as i64;
-            if fi.discarded || need > fi.dec_end {
-                if ig.stat < 0 {
-                    return if fi.dec_end < fi.total {
-                        self.flac_abort(g)
-                    } else {
-                        0
-                    };
-                }
-                fi.dec_end = fi.block_end(need);
+        let mut stat = self.sig.igd[g].stat;
+        let v = loop {
+            let p = &mut fi.pack;
+            if p.bp != p.packptr {
+                // the next decoded sample
+                let v = p.buf[p.bp];
+                p.bp += 1;
+                break v;
             }
-            let v = fi.chans[fi.c][(fi.base + fi.f * fi.spf as i64 + fi.k as i64) as usize];
-            fi.k += 1;
-            if fi.k == fi.spf {
-                fi.k = 0;
-                fi.c += 1;
-                if fi.c == fi.chans.len() {
-                    fi.c = 0;
-                    fi.f += 1;
+            // Decode the next FLAC frame (or metadata block).
+            let oldcount = p.packcount;
+            p.stat = stat;
+            let ok = match fi.dec.as_mut() {
+                Some(d) => d.process_single(&mut fi.pack),
+                None => false,
+            };
+            stat = fi.pack.stat;
+            self.flac_messages(&mut fi);
+            if !ok {
+                if stat != -2 {
+                    self.wfdb_error("getvec: unexpected FLAC decoding error\n");
+                    stat = -2;
+                }
+                break 0;
+            }
+            if stat <= 0 {
+                break 0;
+            }
+            let p = &mut fi.pack;
+            if p.bp == p.packptr && p.packcount == oldcount {
+                match fi.dec.as_ref().map(|d| d.state()) {
+                    Some(flac::State::EndOfStream) => {
+                        if p.packcount != 0 {
+                            let msg = cformat!(
+                                b"getvec: warning: %d samples left over at end of file\n",
+                                p.packcount as i32
+                            );
+                            self.wfdb_error(msg);
+                        }
+                        fi.pack.packcount = 0;
+                        stat = 0;
+                        break 0;
+                    }
+                    Some(
+                        flac::State::SearchForMetadata
+                        | flac::State::ReadMetadata
+                        | flac::State::SearchForFrameSync,
+                    ) => {}
+                    _ => {
+                        self.wfdb_error("getvec: unknown FLAC decoding state\n");
+                        stat = -2;
+                        break 0;
+                    }
                 }
             }
-            return v;
-        }
-        if fi.discarded && fi.dec_end < fi.total {
-            return self.flac_abort(g);
-        }
-        if ig.stat < 0 {
-            return 0;
-        }
-        fi.dec_end = fi.total;
-        let left = fi.leftover;
-        fi.leftover = 0;
-        ig.stat = 0;
-        if left != 0 {
-            let msg = cformat!(
-                b"getvec: warning: %d samples left over at end of file\n",
-                left as i32
-            );
-            self.wfdb_error(msg);
-        }
-        0
-    }
-
-    /// Decoding a block after a failed seek (`ig.stat < 0`): iflac_samples()
-    /// aborts the decoder, and flac_getsamp() reports the error.
-    fn flac_abort(&mut self, g: usize) -> i32 {
+        };
         let ig = &mut self.sig.igd[g];
-        if let Some(fi) = ig.flac.as_mut() {
-            fi.aborted = true;
-        }
-        if ig.stat != -2 {
-            ig.stat = -2;
-            self.wfdb_error("getvec: unexpected FLAC decoding error\n");
-        }
-        0
+        ig.stat = stat;
+        ig.flac = Some(fi);
+        v
     }
 
     fn flac_isopen(&mut self, g: usize, si: usize, ns: u32) -> i32 {
@@ -2527,10 +2557,13 @@ impl Wfdb {
             }
         }
         let fi = FlacIn {
-            nsig: ns as i32,
-            datb: hs[0].info.fmt - FLAC_FMT_BASE,
-            spf: hs[0].info.spf,
             md5_check: cstd::getenv("WFDB_FLAC_CHECK_MD5").is_some_and(|p| !p.is_empty()),
+            pack: FlacPack {
+                nsig: ns,
+                datb: (hs[0].info.fmt - FLAC_FMT_BASE) as u32,
+                spf: hs[0].info.spf.max(1) as usize,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let ig = &mut self.sig.igd[g];
@@ -2539,38 +2572,51 @@ impl Wfdb {
         0
     }
 
+    /// `flac_isseek`: seeks FLAC signal group `g` to frame `t`.
     fn flac_isseek(&mut self, g: usize, t: i64) -> i32 {
-        if !self.sig.igd[g].flac.as_ref().map_or(true, |f| f.decoded) {
-            self.flac_decode(g);
-        }
-        let ig = &mut self.sig.igd[g];
-        ig.stat = 1;
-        ig.count = 0;
-        let start = ig.start;
-        let Some(fi) = ig.flac.as_mut() else {
-            ig.stat = -1;
+        self.flac_decoder(g);
+        let start = self.sig.igd[g].start;
+        let Some(mut fi) = self.sig.igd[g].flac.take() else {
+            self.sig.igd[g].stat = -1;
             return -1;
         };
-        fi.seeked = true;
-        if fi.failed {
-            ig.stat = -1;
+        // After a failed seek, clear the decoder state to try again.
+        let Some(dec) = fi.dec.as_mut() else {
+            self.sig.igd[g].flac = Some(fi);
+            self.sig.igd[g].stat = -1;
             return -1;
+        };
+        if dec.state() == flac::State::SeekError {
+            dec.flush();
         }
-        let tt = t.wrapping_mul(fi.spf as i64).wrapping_add(start);
-        if fi.aborted || tt > fi.total || tt < 0 {
-            // (libFLAC refuses to seek once decoding was aborted, or past
-            // the end of the stream; the buffered samples are discarded
-            // anyway)
-            fi.discarded = true;
-            ig.stat = -1;
-            return -1;
+        // Nothing is left of the current block.
+        let p = &mut fi.pack;
+        p.buf.clear();
+        p.bp = 0;
+        p.packptr = 0;
+        p.packcount = 0;
+        p.count = 0;
+        p.stat = 1;
+        // Seek to the sample before the one wanted (seeking to the end of
+        // the stream fails), and skip it.
+        let mut tt = t.wrapping_mul(p.spf as i64).wrapping_add(start);
+        if tt != 0 {
+            tt -= 1;
+            p.count = 1;
         }
-        flac_pack(fi, tt);
-        fi.discarded = false;
-        // The seek decodes the block that contains sample tt - 1 (sample 0
-        // if tt is 0): libFLAC seeks to it, and the first sample is skipped.
-        fi.dec_end = fi.block_end(tt.max(1));
-        ig.stat
+        let mut stat = if dec.seek_absolute(tt as u64, &mut fi.pack) {
+            fi.pack.stat
+        } else {
+            -1
+        };
+        self.flac_messages(&mut fi);
+        if stat > 0 {
+            stat = 1;
+        }
+        let ig = &mut self.sig.igd[g];
+        ig.stat = stat;
+        ig.flac = Some(fi);
+        stat
     }
 
     fn flac_osinit(&mut self, g: usize, si: &[Siginfo], ns: u32) -> i32 {
@@ -2619,9 +2665,10 @@ impl Wfdb {
         st.isd.clear();
         st.nisig = 0;
         st.framelen = 0;
+        st.empty_group = false;
 
         while let Some(mut ig) = self.sig.igd.pop() {
-            if let Some(m) = flac_isclose(&ig) {
+            if let Some(m) = flac_isclose(&mut ig) {
                 self.wfdb_error(m);
             }
             ig.fp = None;
@@ -2965,19 +3012,19 @@ impl Wfdb {
             nb = tt / d as i64 + ig.start;
             let mut i = ig.bsize;
             if i == 0 {
-                i = ibsize;
+                i = ibsize as i64;
             }
             // Seek to a position such that the next block read will contain
             // the desired sample.
-            let tt = nb / i as i64;
+            let tt = nb / i;
             let ok = match &mut ig.fp {
-                Some(f) => f.seek(tt * i as i64, SEEK_SET) == 0,
+                Some(f) => f.seek(tt * i, SEEK_SET) == 0,
                 None => false,
             };
             if !ok {
                 return self.seekerr(g);
             }
-            nb %= i as i64;
+            nb %= i;
         } else {
             // For special files, rewind if necessary and then read ahead.
             let istime = self.sig.istime;
@@ -3011,7 +3058,7 @@ impl Wfdb {
                 nb = tt / d as i64;
             }
             let bs = ig.bsize.max(0) as usize;
-            while nb > ig.bsize as i64 {
+            while nb > ig.bsize {
                 let Some(f) = ig.fp.as_mut() else { break };
                 if f.eof() {
                     break;
@@ -3071,7 +3118,8 @@ impl Wfdb {
             // Go through groups in reverse order since seeking on group 0
             // should always be done last.
             g -= 1;
-            if self.sig.igd[g as usize].initial_skip != 0 {
+            // (a seek that failed may have closed the input signals)
+            if g < self.sig.nigroup && self.sig.igd[g as usize].initial_skip != 0 {
                 let t0 = if self.sig.in_msrec != 0 {
                     self.sig.segarray[self.sig.segp as usize].samp0
                 } else {
@@ -3079,6 +3127,11 @@ impl Wfdb {
                 };
                 self.isgsetframe(g, t0);
             }
+        }
+        // (the seek may have closed the input signals: see isigsettime)
+        let nisig = self.sig.nisig as usize;
+        if self.sig.empty_group {
+            return -1; // WFDB-x (see isigopen)
         }
 
         // If the vector needs to be rearranged (variable-layout record),
@@ -3885,17 +3938,19 @@ impl Wfdb {
                 let ig = &mut st.igd[gi];
                 // Set the buffer size and the seek capability flag.
                 if hs.info.bsize < 0 {
-                    hs.info.bsize = hs.info.bsize.wrapping_neg();
-                    ig.bsize = hs.info.bsize;
+                    // WFDB-x: -2147483648 gives 2147483648 (C overflows)
+                    ig.bsize = -(hs.info.bsize as i64);
+                    hs.info.bsize = hs.info.bsize.saturating_neg();
                     ig.seek = 0;
                 } else {
-                    ig.bsize = hs.info.bsize;
+                    ig.bsize = hs.info.bsize as i64;
                     if ig.bsize == 0 {
-                        ig.bsize = ibsize;
+                        ig.bsize = ibsize as i64;
                     }
                     ig.seek = 1;
                 }
-                ig.buf = vec![0u8; ig.bsize.max(0) as usize];
+                // (allocated once the size of the signal file is known)
+                ig.buf = Vec::new();
                 ig.flac = None;
                 ig.data = 0;
                 ig.datb = 0;
@@ -3929,6 +3984,15 @@ impl Wfdb {
                     si = sj;
                     continue;
                 }
+                // WFDB-x: a buffer no larger than the file (a block can be
+                // larger), so reads and seeks are the same
+                let mut n = ig.bsize.max(0) as u64;
+                if let Some(size) = ig.fp.as_ref().and_then(WfdbFile::local_size) {
+                    if size > 0 {
+                        n = n.min(size);
+                    }
+                }
+                ig.buf = vec![0u8; n as usize];
             }
 
             if isflacfmt(fmt) && self.flac_isopen(gi, si, (sj - si) as u32) < 0 {
@@ -4031,6 +4095,13 @@ impl Wfdb {
         for k in 0..st.nisig as usize {
             st.framelen = st.framelen.wrapping_add(st.isd[k].info.spf as u32);
         }
+        // WFDB-x: a signal group whose frames hold no samples
+        st.empty_group = (0..st.nigroup as usize).any(|g| {
+            let mut sig = st.isd[..st.nisig as usize]
+                .iter()
+                .filter(|is| is.info.group as usize == g && is.info.fmt != 0);
+            sig.clone().next().is_some() && sig.all(|is| is.info.spf == 0)
+        });
 
         // Allocate workspace for getvec, isgsettime, and tnextvec.
         if st.tspf > st.tuvlen {
@@ -4925,7 +4996,8 @@ impl Wfdb {
         let mut k: i64 = 0;
         let st = &self.sig;
         if !st.have_dsbuf && st.ispfmax < 2 && (st.ifreq == 0.0 || st.ifreq == st.sfreq) {
-            // Fast path: getvec is getframe, which is getskewedframe.
+            // Fast path: getvec is getframe (getskewedframe until a segment
+            // that needs deskewing opens).
             let stride = st.tspf.max(0) as usize;
             let need = self.vec_need();
             let mut pos = 0usize;
@@ -4941,8 +5013,7 @@ impl Wfdb {
                 if pos + need > out.len() {
                     // (the caller's array is too short for another vector)
                     let mut tmp = vec![0; need];
-                    stat = self.getskewedframe(&mut tmp);
-                    self.sig.istime += 1;
+                    stat = self.getframe_impl(&mut tmp);
                     let m = out.len().saturating_sub(pos).min(stride);
                     if stat == -4 {
                         // (valid data with a checksum mismatch)
@@ -4959,8 +5030,9 @@ impl Wfdb {
                     pos += stride;
                     continue;
                 }
-                stat = self.getskewedframe(&mut out[pos..]);
-                self.sig.istime += 1;
+                // (getframe, not getskewedframe: a segment opened by an
+                // earlier frame may need deskewing)
+                stat = self.getframe_impl(&mut out[pos..]);
                 if stat < 0 {
                     break;
                 }

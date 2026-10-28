@@ -92,6 +92,7 @@ if isempty(line)
     nsig = -2;
     return;
 end
+line = wfdbx.internal.cstr(line);      % (C reads each line as a string)
 if strncmp(line, '#wfdb', 5)
     vals = [];
     pos = 6;
@@ -134,6 +135,7 @@ while ~ischar(p) || p(1) == '#'
         nsig = -2;
         return;
     end
+    line = wfdbx.internal.cstr(line);
     [t, rest] = tokens(line, sep, 4);
     p = t{1};
 end
@@ -263,7 +265,7 @@ if S.segments && ~S.in_msrec
                 nsig = -2;
                 return;
             end
-            t = tokens(line, sep, 2);
+            t = tokens(wfdbx.internal.cstr(line), sep, 2);
             p = t{1};
             if ischar(p) && p(1) ~= '#'
                 break;
@@ -315,16 +317,18 @@ if S.segments && ~S.in_msrec
     return;
 end
 hsd = S.hsd;
-if numel(hsd) < nsig
-    if isempty(hsd)
-        hsd = repmat(wfdbx.internal.hsdata(), 1, nsig);
-    else
-        hsd(end + 1:nsig) = repmat(wfdbx.internal.hsdata(), 1, nsig - numel(hsd));
-    end
-end
 fmtlist = [0 8 16 61 80 160 212 310 311 24 32 508 516 524];
 s = 0;
 while s < nsig
+    % (one signal at a time: the number of signals may be far larger than
+    % the number of signal lines)
+    if s >= numel(hsd)
+        if isempty(hsd)
+            hsd = wfdbx.internal.hsdata();
+        else
+            hsd(s + 1) = wfdbx.internal.hsdata();
+        end
+    end
     hs = hsd(s + 1);
     while true
         line = hh.getline();
@@ -335,6 +339,7 @@ while s < nsig
             nsig = -2;
             return;
         end
+        line = wfdbx.internal.cstr(line);
         [t, rest] = tokens(line, sep, 8);
         p = t{1};
         if ischar(p) && p(1) ~= '#'

@@ -129,12 +129,17 @@ Some files are WFDB-x's own code and credit no C author. These include the C
 standard-library emulation (`_cstd.py`, `rust/src/cstd*`,
 `matlab/+wfdbx/+internal/c*.m`, `kotlin/src/commonMain/kotlin/wfdbx/cstd/`, ...), the high-level APIs, the command-line drivers and the tests.
 
-The FLAC codec (`cpp/src/flac.cpp`, `rust/src/flac.rs`, `julia/src/flac.jl`,
-`kotlin/src/commonMain/kotlin/wfdbx/Flac.kt`, the codec parts of
-`python/src/wfdbx/_flac.py` and `r/R/flac.R`, and the MATLAB `flac_crc`,
-`flac_decode`, `flac_encode_frame`, `flac_streaminfo` and `flac_block_end`
-functions) is also WFDB-x's own: an independent implementation of the FLAC
-format. The C library uses libFLAC instead. The code that connects FLAC to
+The FLAC encoder (in `cpp/src/flac.cpp`, `rust/src/flac.rs`, `julia/src/flac.jl`,
+`kotlin/src/commonMain/kotlin/wfdbx/Flac.kt`, `python/src/wfdbx/_flac.py` and
+`r/R/flac.R`, and the MATLAB `flac_crc`, `flac_encode_frame`,
+`flac_streaminfo` and `flac_writeblock` functions, with the MATLAB driver
+`flac_decode`) is also WFDB-x's own: an independent implementation of the
+FLAC format. The C library uses libFLAC instead. The FLAC decoder of each
+implementation (in the same files, and the MATLAB `flac_decoder`) is a
+translation of the stream decoder of libFLAC 1.4.3, by Josh Coalson and the
+Xiph.Org Foundation (BSD-3-Clause license; see `third_party/README.md`), so
+that damaged files give the C library's results; each of these files
+carries libFLAC's license notice. The code that connects FLAC to
 the WFDB signal functions is different: it translates the FLAC support of
 `lib/signal.c`, written by Benjamin Moody (2020), and is credited to him.
 

@@ -373,7 +373,9 @@ if ischar(ainame)
             if size(v, 1) < m || st < nsig
                 break;
             end
-            amp(:, namp + 1) = (max(v, [], 1) - min(v, [], 1)).';
+            % (an int in C)
+            amp(:, namp + 1) = wfdbx.internal.cint32( ...
+                max(v, [], 1) - min(v, [], 1)).';
             if vflag || qflag
                 printamp(t);
             end

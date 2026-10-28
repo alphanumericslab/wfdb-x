@@ -55,7 +55,7 @@ out = [];
 ok = false;
 nisig = S.nisig;
 need_sigmap = S.need_sigmap;
-if n <= 0 || nisig == 0 || ~S.bulk_read || S.has_dsbuf || ...
+if n <= 0 || nisig == 0 || ~S.bulk_read || S.has_dsbuf || S.empty_group || ...
         ~(S.ifreq == 0 || S.ifreq == S.sfreq) || ...
         (S.nvsig ~= nisig && ~need_sigmap) || nisig > S.nvsig || ...
         nisig < minstat
@@ -90,7 +90,7 @@ for g = fgrp
     end
     ig = igd{g + 1};
     if isempty(ig.flac)
-        if ig.seek ~= 1 || isempty(ig.fp) || ig.initial_skip || ig.count
+        if isempty(ig.fp) || ig.initial_skip || ig.count
             return;
         end
     elseif ig.initial_skip || ig.count
@@ -102,18 +102,12 @@ for g = reshape(unique(grp(isnull)), 1, [])
         return;
     end
 end
-% FLAC groups: decode them now (as the first flac_getsamp would)
+% FLAC groups: the frames are decoded as needed (flac_refill); after an
+% error, getvec reads them
 for g = fgrp
     ig = igd{g + 1};
-    if ~isempty(ig.flac)
-        fi = ig.flac;
-        if ~fi.decoded
-            fi = wfdbx.internal.flac_ensure(ig);
-            ig.flac = fi;
-        end
-        if ~isempty(fi.error) || fi.aborted || fi.discarded || ig.stat < 0
-            return;     % (errors, and reads after a failed seek: getvec)
-        end
+    if ~isempty(ig.flac) && ig.stat < 0
+        return;
     end
 end
 ok = true;
@@ -173,8 +167,14 @@ haves = zeros(1, ng);
 for k = 1:ng
     ig = igd{fgrp(k) + 1};
     if ~isempty(ig.flac)
-        fi = ig.flac;
-        avail = floor((numel(fi.samples) - fi.pos) / nnv(k));
+        % (decoding the frames needed, as getvec would)
+        while ig.flac.len - ig.flac.pos < n * nnv(k) && ...
+                isempty(ig.flac.pending) && ig.stat > 0
+            if ~wfdbx.internal.flac_refill(ig, true)
+                break;
+            end
+        end
+        avail = floor((ig.flac.len - ig.flac.pos) / nnv(k));
         if avail < n
             n = avail;
         end

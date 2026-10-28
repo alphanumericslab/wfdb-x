@@ -415,6 +415,156 @@ checksum_warning();
 highres_checksum();
 truncated_annotations();
 base_time_fields();
+
+% --- WFDB-x: the getvec mode, sampfrom, and the checks of the writers
+read_record_gvmode();
+read_record_negative_sampfrom();
+write_record_invalid_samples();
+write_record_per_signal_lengths();
+write_annotations_argument_lengths();
+end
+
+function read_record_gvmode()
+% read_record sets the getvec mode for its own reading only: the mode set
+% before the call is in force afterwards, after an error too.
+for mode = [0, 3]       % WFDB_LOWRES; WFDB_HIGHRES + WFDB_GVPAD
+    wfdbx.setgvmode(mode);
+    r = wfdbx.read_record('mfreq', 'highres', mode == 0, 'pad', mode == 0);
+    if mode == 0
+        assert_eq(r.fs, 400, 'highres fs');
+    else
+        assert_eq(r.fs, 100, 'lowres fs');
+    end
+    assert_eq(wfdbx.getgvmode(), mode, 'getvec mode restored');
+    try
+        wfdbx.read_record('nosuchrecord', 'highres', true, 'pad', true);
+    catch
+    end
+    assert_eq(wfdbx.getgvmode(), mode, 'getvec mode restored after an error');
+end
+wfdbx.setgvmode(0);
+wfdbx.read_record('mfreq', 'highres', true);
+assert_eq(wfdbx.isigopen('mfreq', 3), 3, 'isigopen mfreq');
+assert_eq(wfdbx.sampfreq([]), 100, 'sampfreq after read_record');
+wfdbx.wfdbquit();
+end
+
+function read_record_negative_sampfrom()
+% A negative sampfrom is an error (it was taken as an absolute time).
+for frm = [-5, -1]
+    assert_error_msg(@() wfdbx.read_record('fmt16', 'sampfrom', frm, ...
+        'sampto', 3), 'read_record: sampfrom must not be negative', ...
+        'negative sampfrom');
+end
+r = wfdbx.read_record('fmt16', 'sampfrom', 0, 'sampto', 3);
+assert_eq(size(r.signals, 1), 3, 'sampfrom 0');
+r = wfdbx.read_record('fmt16');
+n = size(r.signals, 1);
+r = wfdbx.read_record('fmt16', 'sampfrom', 5, 'sampto', 2^63);
+assert_eq(size(r.signals, 1), n - 5, 'sampto beyond the end');
+end
+
+function write_record_invalid_samples()
+% Samples in ADC units must be integers within the range of a 32-bit
+% integer, and samples in physical units must not be infinite or beyond
+% that range: anything else is an error before any file is created, and
+% leaves no output signal open.
+kw = {'gains', 200, 'adcres', 16, 'units', 'mV'};
+bad = {[1.7; -1.7], 16, false, 'samples in ADC units must be integers'; ...
+    [1; NaN], 16, false, 'samples in ADC units must be integers'; ...
+    [2^33 + 5; 2^31], 32, false, ['samples in ADC units must be within ' ...
+    'the range of a 32-bit integer']; ...
+    [-2^31 - 1; 0], 32, false, ['samples in ADC units must be within ' ...
+    'the range of a 32-bit integer']; ...
+    [Inf; 1], 16, true, ['signal 0 has a sample that is infinite or ' ...
+    'beyond the range of 32-bit ADC units']; ...
+    [1; -Inf], 16, true, ['signal 0 has a sample that is infinite or ' ...
+    'beyond the range of 32-bit ADC units']; ...
+    [2e7; 1], 32, true, ['signal 0 has a sample that is infinite or ' ...
+    'beyond the range of 32-bit ADC units']};
+S = wfdbx.internal.sig_state();
+for k = 1:size(bad, 1)
+    [x, fmt, phys, msg] = bad{k, :};
+    m = '';
+    try
+        wfdbx.write_record('x', x, 100, 'fmt', fmt, 'physical', phys, kw{:});
+    catch err
+        m = err.message;
+    end
+    assert_eq(m, msg, sprintf('invalid samples %d', k));
+    assert_true(~isfile('x.dat') && ~isfile('x.hea'), 'no file written');
+    assert_eq(S.nosig, 0, 'no output signal open');
+end
+wfdbx.write_record('x', [1; -2; 3], 100, kw{:});
+r = wfdbx.read_record('x');
+assert_eq(r.signals', [1 -2 3], 'whole-valued doubles');
+wfdbx.write_record('x', [NaN; 1], 100, 'physical', true, kw{:});
+r = wfdbx.read_record('x');
+assert_eq(r.signals', [-32768 200], 'NaN is invalid');
+wfdbx.write_record('x', [2^31 - 1; -2^31 + 1], 100, 'fmt', 32, 'gains', ...
+    200, 'adcres', 32, 'units', 'mV');
+r = wfdbx.read_record('x');
+assert_eq(r.signals', [2^31 - 1, -2^31 + 1], 'the range of a 32-bit integer');
+% (an error while writing closes the output signals: a later call works)
+fid = fopen('afile', 'wb');     % (a file, not a folder)
+fclose(fid);
+wfdbx.wfdbquiet();
+assert_error(@() wfdbx.write_record('afile/x', [1; 2], 100, kw{:}), ...
+    'file not created');
+wfdbx.wfdbverbose();
+assert_eq(S.nosig, 0, 'no output signal open after a failure');
+delete('x.dat');
+delete('x.hea');
+end
+
+function write_record_per_signal_lengths()
+% A list of per-signal values must have one value per signal.
+x = zeros(4, 2);
+kw = {'gains', 200, 'adcres', 16, 'units', 'mV'};
+for c = {'gains', [200 200 200]; 'adcres', [16 16 16]; ...
+        'units', {'mV', 'mV', 'mV'}; 'names', {'a', 'b', 'c'}; ...
+        'names', {'a'}; 'baselines', [0 0 0]; 'adczeros', [0 0 0]; ...
+        'fmt', [16 16 16]}'
+    assert_error(@() wfdbx.write_record('x', x, 100, kw{:}, c{1}, c{2}), ...
+        ['per-signal ' c{1}]);
+    assert_true(~isfile('x.dat') && ~isfile('x.hea'), 'no file written');
+end
+wfdbx.write_record('x', x, 100, 'names', {'a', 'b'}, kw{:});
+r = wfdbx.read_record('x');
+assert_eq(r.names, {'a', 'b'}, 'names');
+delete('x.dat');
+delete('x.hea');
+end
+
+function write_annotations_argument_lengths()
+% Per-annotation arguments are absent, one value for all, or one value per
+% annotation; anything else is an error before the file is created, and
+% leaves no annotator open.
+t = [10 20 30];
+A = wfdbx.internal.ann_state();
+args = {{'symbols', {'N', 'V', 'N'}, 'aux', {'x'}}, ...
+    {'symbols', {'N', 'V'}}, {'codes', [1 1 1 1]}, ...
+    {'codes', 1, 'subtypes', [1 2]}, {'codes', 1, 'chans', [1 2 3 4]}, ...
+    {'codes', 1, 'nums', []}, {'codes', 1, 'aux', {'a', [], 'b', 'c'}}};
+for k = 1:numel(args)
+    m = '';
+    try
+        wfdbx.write_annotations('100s', 'bad', t, args{k}{:});
+    catch err
+        m = err.message;
+    end
+    assert_true(~isempty(strfind(m, 'must have one value per annotation')), ...
+        sprintf('argument lengths %d: %s', k, m));
+    assert_true(~isfile('100s.bad'), 'no annotation file');
+    assert_true(isempty(A.oad) || all(cellfun('isempty', A.oad)), ...
+        'no annotator open');
+end
+wfdbx.write_annotations('100s', 'ok', t, 'codes', wfdbx.PVC(), 'aux', 'x', ...
+    'subtypes', 3, 'chans', [0 1 2]);
+a = wfdbx.read_annotations('100s', 'ok');
+assert_eq(a.symbols, {'V'; 'V'; 'V'}, 'one code for all');
+assert_eq(a.subtypes', [3 3 3], 'one subtype for all');
+assert_eq(a.chans', [0 1 2], 'chans');
 end
 
 function highres_checksum()

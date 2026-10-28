@@ -23,6 +23,7 @@ version. See LICENSE.
 import sys
 
 import wfdbx as w
+from .._cstd import d2l, fdiv, int32
 from ._common import Output, Exit, eprintf, run
 
 
@@ -34,9 +35,10 @@ def _main(argv, out):
         if t < 0:
             t = -t
         sf = w.sampfreq(None)
-        seconds = int(t / sf)
-        t -= float(seconds * sf)
-        milliseconds = int((t * 1000.0) / sf + 0.5)
+        # (as in C: with no sampling frequency, t / sf is infinite or NaN)
+        seconds = d2l(fdiv(t, sf))
+        t -= float(seconds) * sf
+        milliseconds = int32(d2l(fdiv(t * 1000.0, sf) + 0.5))
         if milliseconds >= 1000:
             seconds += 1
             milliseconds -= 1000

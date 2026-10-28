@@ -53,11 +53,17 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
     \code{PVC} (see \code{\link{ecgcodes}}).  Give \code{symbol} or
     \code{code}.}
   \item{subtype, chan, num}{the subtype, channel and annotator number of
-    each annotation: small integers, recycled to the number of
-    annotations.}
+    each annotation: small integers.  As in C, subtypes and annotator
+    numbers are stored as signed bytes and channels as unsigned bytes
+    (other values wrap around).}
   \item{aux}{the auxiliary text of each annotation, such as a rhythm label
     \code{"(AFIB"}: a character vector with \code{NA} where there is none,
-    or \code{NULL}.  Texts longer than 255 bytes are truncated.}
+    or \code{NULL}.  Texts longer than 255 bytes are truncated.
+
+    \code{symbol}, \code{code}, \code{subtype}, \code{chan}, \code{num}
+    and \code{aux} each give one value for all annotations, or one value
+    per annotation; any other length is an error, raised before the file
+    is created.}
   \item{dir}{the directory, which must exist, in which to create the file.
     \code{record} must not contain a directory when \code{dir} is
     given.}
@@ -105,7 +111,9 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
   annotation file ANN}), if it cannot be written completely (for example,
   when the disk is full).  Invalid arguments, and
   a time string when the sampling frequency is not known, also stop with
-  an error.
+  an error.  \code{write_annotations} checks its arguments before it
+  creates the file, and whatever happens, it closes the annotator
+  (\code{\link{wfdbquit}}) before it returns.
 }
 \section{Origin}{
   Part of WFDB-x; not in the original WFDB package.

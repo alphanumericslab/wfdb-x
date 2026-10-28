@@ -18,38 +18,56 @@
 using WFDBX
 
 # Sum of the samples as a 64-bit integer.
-sum64(rec) = sum(Int64, rec.samples; init=Int64(0))
+sum64(x) = sum(Int64, x; init=Int64(0))
 
 # Sum of the values that are not NaN, rounded to 3 decimals.
 nansum(x) = round(sum(v for v in x if !isnan(v); init=0.0); digits=3)
 
+# Samples, frame by frame (row-major), little-endian.
+dump_samples(path, x) = write(path, htol.(permutedims(x)))
+
+# Each annotation: time (int64), code, subtype, chan, num, the length of the
+# aux text (int32; -1 if none) and the aux text, little-endian.
+function dump_annotations(path, a)
+    open(path, "w") do f
+        for k in eachindex(a.samples)
+            x = a.aux[k]
+            write(f, htol(Int64(a.samples[k])), htol(Int32(a.codes[k])),
+                  htol(Int32(a.subtypes[k])), htol(Int32(a.chans[k])), htol(Int32(a.nums[k])),
+                  htol(Int32(x === nothing ? -1 : length(x))))
+            x === nothing || write(f, x)
+        end
+    end
+end
+
+# (run, check, save): run() is the timed call; check and save see its result.
 function operation(op::String, out::String)
-    if op == "read_long"
-        () -> sum64(read_record("long"))
+    if op in ("read_long", "read_mimic", "read_wide")
+        rec = op[6:end]
+        (() -> read_record(rec).samples, sum64, (x, p) -> dump_samples(p * ".bin", x))
     elseif op == "read_long_phys"
-        () -> nansum(physical(read_record("long")))
-    elseif op == "read_mimic"
-        () -> sum64(read_record("mimic"))
-    elseif op == "read_wide"
-        () -> sum64(read_record("wide"))
+        (() -> physical(read_record("long")), nansum,
+         (x, p) -> dump_samples(p * ".bin", x))
     elseif op == "write_long"
         src = read_record("long")
         gains = [s.gain for s in src.siginfo]
         units = [s.units for s in src.siginfo]
-        function ()
-            write_record("out", src.samples, src.fs; fmt=16, gains=gains, adcres=16,
-                         units=units, dir=out)
-            filesize(joinpath(out, "out.dat"))
-        end
+        (() -> write_record("out", src.samples, src.fs; fmt=16, gains=gains, adcres=16,
+                            units=units, dir=out),
+         x -> filesize(joinpath(out, "out.dat")),
+         function (x, p)
+             cp(joinpath(out, "out.hea"), p * ".hea"; force=true)
+             cp(joinpath(out, "out.dat"), p * ".dat"; force=true)
+         end)
     elseif op == "read_ann"
-        () -> length(read_annotations("long", "atr"))
+        (() -> read_annotations("long", "atr"), length,
+         (x, p) -> dump_annotations(p * ".ann", x))
     elseif op == "write_ann"
         ann = read_annotations("long", "atr")
-        function ()
-            write_annotations("out", "atr", Annotations(samples=ann.samples, codes=ann.codes,
-                                                        aux=ann.aux); dir=out)
-            filesize(joinpath(out, "out.atr"))
-        end
+        (() -> write_annotations("out", "atr", Annotations(samples=ann.samples, codes=ann.codes,
+                                                           aux=ann.aux); dir=out),
+         x -> filesize(joinpath(out, "out.atr")),
+         (x, p) -> cp(joinpath(out, "out.atr"), p * ".atr"; force=true))
     else
         nothing
     end
@@ -63,15 +81,19 @@ function main(args::Vector{String})
     op, d, reps = args[1], args[2], parse(Int, args[3])
     wfdbx_set_input_dir(d)
     out = mktempdir(; prefix="wfdbx-bench-", cleanup=false)
+    dump = get(ENV, "WFDBX_BENCH_DUMP", "")
     try
-        run = operation(op, out)
-        if run === nothing
+        o = operation(op, out)
+        if o === nothing
             println(stderr, "unknown operation ", op)
             return 2
         end
+        run, check, save = o
         t = time_ns()
-        check = run()
+        result = run()
         first = (time_ns() - t) / 1e9
+        value = check(result)
+        isempty(dump) || save(result, joinpath(dump, op))
         times = Float64[]
         for _ in 1:reps
             t = time_ns()
@@ -79,7 +101,7 @@ function main(args::Vector{String})
             push!(times, (time_ns() - t) / 1e9)
         end
         println("{\"op\": \"", op, "\", \"first\": ", first, ", \"best\": ", minimum(times),
-                ", \"times\": [", join(string.(times), ", "), "], \"check\": ", check, "}")
+                ", \"times\": [", join(string.(times), ", "), "], \"check\": ", value, "}")
     finally
         rm(out; recursive=true, force=true)
     end

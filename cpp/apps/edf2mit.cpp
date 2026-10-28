@@ -45,6 +45,8 @@
 
 using namespace wfdbx;
 using cemul::d2i;
+using cemul::iadd;
+using cemul::ishl;
 
 static const char *pname;
 
@@ -335,7 +337,8 @@ int main(int argc, char **argv)
     for (i = 0; i < nosig; i++) {
         si[siglist[i]].fname = fname;
         si[siglist[i]].fmt = 16;
-        tspf += si[siglist[i]].spf = d2i(sampfreq[siglist[i]]/sps + 0.5);
+        si[siglist[i]].spf = d2i(sampfreq[siglist[i]]/sps + 0.5);
+        tspf = iadd(tspf, si[siglist[i]].spf);
         so[i] = si[siglist[i]];
     }
 
@@ -388,7 +391,7 @@ int main(int argc, char **argv)
                         h = b1;         // then high byte
                     }
                     *vo++ = static_cast<int>(
-                        static_cast<short>((h << 8) | (l & 0xff)));
+                        static_cast<short>(ishl(h, 8) | (l & 0xff)));
                 }
             }
             putvec(vout.data());

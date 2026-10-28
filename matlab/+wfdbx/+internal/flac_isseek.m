@@ -2,8 +2,10 @@ function stat = flac_isseek(ig, t)
 %FLAC_ISSEEK Seek to a frame of a FLAC input group (flac_isseek).
 %   STAT = wfdbx.internal.flac_isseek(IG, T) positions the input group IG
 %   at frame T (counted from IG.start samples into the stream); it
-%   returns IG.stat (1), or -1 if T is out of range or the stream cannot
-%   be decoded.
+%   returns IG.stat (1), or -1 if T is out of range or libFLAC's seek
+%   fails.  The samples decoded are discarded; the seek decodes the frame
+%   that holds the sample before frame T (sample 0 for frame 0), and that
+%   sample is discarded.
 %
 %   Translation of the C function flac_isseek() (lib/signal.c, WFDB 10.7.0).
 
@@ -28,31 +30,36 @@ function stat = flac_isseek(ig, t)
 % Software Foundation, either version 3 of the License, or (at your option)
 % any later version. See LICENSE.
 
-fi = wfdbx.internal.flac_ensure(ig);
+fi = ig.flac;
+if isempty(fi.dec)
+    fi.dec = wfdbx.internal.flac_dec_open(ig);
+end
+D = fi.dec;
+if D.state == 6         % SEEK_ERROR
+    D = wfdbx.internal.flac_decoder('flush', D);
+end
+fi.samples = zeros(1, 0);
+fi.len = 0;
+fi.pos = 0;
+fi.partial = [];
+fi.skip = 0;
+fi.pending = [];
 ig.stat = 1;
 ig.count = 0;
-fi.seeked = true;
-if ~isempty(fi.error)
-    ig.flac = fi;
-    ig.stat = -1;
-    stat = -1;
-    return;
-end
+% (seeking to the sample before the target, then discarding it, allows a
+% seek to the end of the stream)
 tt = t * fi.spf + ig.start;
-if fi.aborted || tt > fi.total || tt < 0
-    % (libFLAC refuses to seek once decoding was aborted, or past the end
-    % of the stream; the buffered samples are discarded anyway)
-    fi.discarded = true;
-    ig.flac = fi;
-    ig.stat = -1;
-    stat = -1;
-    return;
+if tt ~= 0
+    tt = tt - 1;
+    fi.skip = 1;
 end
-fi = wfdbx.internal.flac_pack(fi, tt);
-fi.discarded = false;
-% The seek decodes the block that contains sample tt - 1 (sample 0 if tt is
-% 0): libFLAC seeks to it, and the first sample is skipped.
-fi.dec_end = wfdbx.internal.flac_block_end(fi, max(tt, 1));
 ig.flac = fi;
+[D, ok] = wfdbx.internal.flac_decoder('seek', D, tt);
+fi = ig.flac;
+fi.dec = D;
+ig.flac = fi;
+if ~ok
+    ig.stat = -1;
+end
 stat = ig.stat;
 end

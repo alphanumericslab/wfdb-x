@@ -14,13 +14,15 @@ follows the code.
 
 The deliberate exceptions (no built-in signal parameters, files found only
 where they are named, in-process annotation sorting that loses nothing, no
-output file over an input file, and exit status 1 after a write error) are
+output signal file over an input signal file, and exit status 1 after a write error) are
 described in [`DIVERGENCES.md`](DIVERGENCES.md).
 
 A few C behaviors are *undefined* (crashes, infinite loops, reads of
 uninitialized memory). WFDB-x cannot reproduce those; for each one, the
-behavior chosen by WFDB-x is stated below. The conformance tests never
-exercise them.
+behavior chosen by WFDB-x is stated below. The conformance tests check a
+few of these choices, with reference results recorded from WFDB-x instead
+of C (the cases with `golden_impl` in `tests/conformance/cases.py`); they
+never run the C tools on such input.
 
 The reference platform is x86-64 Linux with glibc: `char` is signed,
 `long` is 64 bits, and the library is built with `-DWFDB_LARGETIME`
@@ -288,6 +290,13 @@ whether the WFDB-x choice matches it.
 | `isgsettime(g, t)` with a group number `g` that is not that of a signal group, when the input pointer is already at `t` | `isgsetframe` reads `igd[g]` past the end of its array before checking `g` (crash, or a return value of 0) | the group number is reported as incorrect (`isgsettime: incorrect signal group number`, -2), as for other times |
 | `xform` changing the sampling frequency or gain of samples close to the limits of an `int` (format 32, or large gains) | `int` overflow in the difference of consecutive samples, and conversions of out-of-range doubles to `int` | as on x86-64: the difference wraps around, and out-of-range conversions give `INT_MIN` |
 | `edf2mit` with a signal that has 0 samples per data record (sampling frequency 0) | the number of samples per frame is the conversion of 0.0/0.0 (NaN) to `int`; with another signal of nonzero frequency, `gcd()` loops forever | `INT_MIN` (as on x86-64); the loop is not avoided |
+| reading an EDF file (`rdsamp`, with or without `-f`, or any program that reads its samples) whose signals have 0 samples per data record, or a blank field | division by zero (SIGFPE) | a signal group whose frames hold no samples is at its end at once: no samples are read |
+| a header whose number of signals is negative or larger than the number of signal lines that follow (e.g. `n -1 250 10`) | the count is converted to an unsigned size and allocated (`can't allocate (4294967295*8) bytes for hsd`, exit status 1, or, where the allocation succeeds, `unexpected EOF in header file`) | `init: unexpected EOF in header file for record n`, at once, without allocating for the declared count |
+| a header block size of -2147483648 | negating `INT_MIN` overflows, and the result is converted to an unsigned size (`can't allocate`) | the block size is 2147483648, as the negation of a negative block size intends; the read buffer is never larger than the signal file |
+| reading a FLAC signal file (formats 508, 516 and 524) of 3 or more samples per frame whose FLAC block size is not a multiple of them (e.g. format `508x3` with blocks of 1001 samples: the test record `flacspf`) | `iflac_samples` makes room for one block plus one frame, but the block also completes the frame left unfinished by the previous block: it writes past the end of its buffer (heap corruption; an abort such as `free(): invalid next size`, or no visible effect) | the samples are read correctly |
+| `xform -M` with an output record whose signals have more samples per frame than the input signals | the array of output samples is sized for the input frame: the output frame is written past its end, and the input frame is read past its end (`free(): invalid pointer`, abort, or a segmentation fault) | both arrays have room for every sample; the output samples are those C computes, with 0 for the input samples beyond the input frame |
+| `wfdb2mat -r R` with a one-character record name | reads the byte before the name to build the output name: writes `R.mat` and `R.hea`, overwriting the input header | the output record is `Rm` (`Rm.mat`, `Rm.hea`), as for longer names |
+| `mit2wav` with a signal of more than 16 bits of ADC resolution (formats 24 and 32) | shifts by a negative amount: on x86-64 the gain multiplier becomes 65536 times too large and the samples are written as 0 | the samples are shifted right to 16 bits, and the gain multiplier is 0 |
 | `edf2mit` with a start date or time field that does not hold three numbers (e.g. a NUL byte in the field) | the day, month, year, hour, minute or second not read by `sscanf` is an uninitialized variable | 0 is used |
 | `rdsamp -c`/`-X` with a signal description or units string containing `'` or `\` | `escapify()` loops forever or crashes | the characters are escaped with a backslash (the evident intent of `escapify()`; `wrsamp`, which rdsamp(1) says parses `-X` output, treats `\` as an escape) |
 | `wrann` input line with no space after column 9 (including fragments of lines longer than 399 bytes) | scans past the end of the line buffer (crash or garbage) | the remainder of the line is treated as empty |

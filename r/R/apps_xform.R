@@ -807,6 +807,10 @@ app_xform <- function(args = character(0)) {
     ioff <- cumsum(c(0, ispf))[siglist + 1]
     sigof <- rep(sigs, ospf)
     icol <- ioff[sigof] + sequence(ospf)
+    # WFDB-x: room for every input sample that the output samples read (C
+    # reads past the end of vin when the output frame is larger; the
+    # samples read beyond the input frame are 0 here)
+    pad <- numeric(max(0, icol - sum(ispf)))
     XM <- X
     XM$gain <- gain[sigof]
     XM$deltav <- deltav[sigof]
@@ -830,7 +834,7 @@ app_xform <- function(args = character(0)) {
           }
         }
         nr <- nr + 1
-        blk[nr, ] <- g$v[icol]
+        blk[nr, ] <- c(g$v, pad)[icol]
       }
       bk <- blk[seq_len(nr), , drop = FALSE]
       y <- .xform_input(bk, XM)

@@ -639,16 +639,17 @@ def _put_ann_word(oa, n, annot):
     delta = (t - oa.ann.time) & _U64
     achan = uint8(annot.chan)
     anum = int8(annot.num)
+    asub = int8(annot.subtyp)       # (a signed char in C)
     if not (achan > uint8(oa.ann.chan) or anum > int8(oa.ann.num) or
             t > oa.ann.time or (t == 0 and oa.ann.time == 0)):
         oa.out_of_order = 1
     if oa.info.stat == WFDB_AHA_WRITE:
         f.putc(0)
-        f.putc(mamap(annot.anntyp, annot.subtyp))
+        f.putc(mamap(annot.anntyp, asub))
         f.p32(t)
         oa.seqno += 1
         f.p16(oa.seqno)
-        f.putc(annot.subtyp)
+        f.putc(asub)
         f.putc(annot.anntyp)
         if annot.aux is not None:
             ln = annot.aux[0] if annot.aux[0] < AUXLEN else AUXLEN
@@ -685,8 +686,8 @@ def _put_ann_word(oa, n, annot):
             delta = 0
         annwd = (delta + (annot.anntyp << CS)) & 0xFFFFFFFF
         f.p16(annwd)
-        if annot.subtyp != 0:
-            f.p16(SUB + (DATA & annot.subtyp))
+        if asub != 0:
+            f.p16(SUB + (DATA & asub))
         if achan != uint8(oa.ann.chan):
             f.p16(CHN + (DATA & achan))
         if anum != int8(oa.ann.num):
@@ -859,6 +860,7 @@ def _encode_anns(oa, n, times, anntyps, subtyps, chans, nums, auxes,
             items = [auxes[k] for k in aux_idx]
         else:
             return None
+    sub_all = ((sub_all + 128) & 0xFF) - 128        # (signed char)
     achan_all = chan_all & 0xFF
     anum_all = ((num_all + 128) & 0xFF) - 128       # (signed char)
     keep = (t_all != WFDB_TIME_MIN) & (t_all != WFDB_TIME_MAX)
@@ -1059,6 +1061,7 @@ def _putanns_loop(oa, n, count, times, anntyps, subtyps, chans, nums,
         chan = chans[k]
         num = nums[k]
         aux = auxes[k]
+        subtyp = int8(subtyp)           # (a signed char in C)
         achan = chan & 0xFF
         anum = num & 0xFF
         if anum & 0x80:

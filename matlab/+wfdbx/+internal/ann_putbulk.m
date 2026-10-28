@@ -78,7 +78,7 @@ if oa.stat ~= WFDB_WRITE || any(abs(d) > MAXSKIP) || ...
 end
 m = numel(idx);
 typ = A.anntyp(idx);
-sub = A.subtyp(idx);
+sub = mod(A.subtyp(idx) + 128, 256) - 128;     % signed char
 achan = mod(A.chan(idx), 256);
 pchan = [mod(oa.ann.chan, 256), achan(1:end-1)];
 anum = mod(A.num(idx) + 128, 256) - 128;

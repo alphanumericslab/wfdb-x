@@ -100,6 +100,7 @@ classdef SigState < handle
         dsbi = -1
         dsblen = 0
         framelen = 0
+        empty_group = false     % a signal group whose frames hold no samples
         plan = []               % cached per-signal constants (getskewedframe)
         skip_pending = false    % some input group has initial_skip set
         gvmode = 0
