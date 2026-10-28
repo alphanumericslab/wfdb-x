@@ -18,7 +18,7 @@
 // uncalibrated signals stay uncalibrated in the output header (the original
 // wrote 200 adu/mV), and unspecified units are written as "nd" (the original
 // wrote "mV"); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: convert/wfdb2mat.c, WFDB Software Package 10.7.0.
@@ -170,14 +170,14 @@ fun Wfdb.wfdb2matMain(argv0: Array<ByteArray>): Int {
     val vi = IntArray(nisig)
     nisig = isigopen(record, si, nisig)
     if (nisig <= 0) exit(2)
-    // wfdb-x: no default gain (the C program assumed 200 adu/mV for
+    // WFDB-x: no default gain (the C program assumed 200 adu/mV for
     // uncalibrated signals, as legacy mode does).
     if (legacy) {
         for (k in 0 until minOf(nisig, si.size)) if (si[k].gain == 0.0) si[k].gain = WFDB_DEFGAIN
     }
     if (highres) setgvmode(WFDB_HIGHRES)
     val freq = sampfreq(null as ByteArray?)
-    // wfdb-x: no default sampling frequency (except in legacy mode).
+    // WFDB-x: no default sampling frequency (except in legacy mode).
     if (freq <= 0.0 && !legacy) {
         eprintf("%s: sampling frequency of record %s is not specified\n", pname, record)
         exit(2)
@@ -305,7 +305,7 @@ fun Wfdb.wfdb2matMain(argv0: Array<ByteArray>): Int {
         o.adczero = 0
         o.baseline = o.baseline - s.adczero
         val u = o.units
-        // wfdb-x: unspecified units are written as "nd" (C, legacy mode: mV)
+        // WFDB-x: unspecified units are written as "nd" (C, legacy mode: mV)
         if (u == null) o.units = (if (legacy) "mV" else "nd").latin1()
         else if (u.isEmpty()) o.units = "nd".latin1()
     }

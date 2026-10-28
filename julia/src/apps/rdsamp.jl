@@ -19,7 +19,7 @@
 # output (-X), and the gain of each selected signal for physical units (-p, -P)
 # (the original assumed 250 Hz and 200 adu/mV); unspecified units are shown as
 # "nd" (the original showed "mV"); --legacy, as the first argument, restores
-# the original behavior. Each change is marked "wfdb-x:" in the code;
+# the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/rdsamp.c, WFDB Software Package 10.7.0.
@@ -197,6 +197,53 @@ end
     nothing
 end
 
+# The decimal digits of 0 to 99, two per number.
+const _RDSAMP_PAIRS = UInt8[UInt8('0') + d for i in 0:99 for d in (i ÷ 10, i % 10)]
+
+# printf("<lead>%<width>ld", v) (lead may be 0) into buf[p+1:...], which
+# has room for it; the new end p.
+@inline function _rdsamp_put_integer!(buf::Vector{UInt8}, p::Int, lead::UInt8, v::Int64,
+                                      width::Int)
+    u = unsigned(v < 0 ? -v : v)    # (typemin(Int64) is its own unsigned magnitude)
+    nd = 1
+    t = UInt64(10)
+    while nd < 20 && u >= t         # (10^19 < 2^64)
+        nd += 1
+        t *= UInt64(10)
+    end
+    pairs = _RDSAMP_PAIRS
+    @inbounds begin
+        if lead != 0
+            p += 1
+            buf[p] = lead
+        end
+        for _ in nd+(v < 0)+1:width
+            p += 1
+            buf[p] = UInt8(' ')
+        end
+        if v < 0
+            p += 1
+            buf[p] = UInt8('-')
+        end
+        q = p + nd
+        while u >= 100
+            r = 2 * Int(u % 100)
+            u ÷= 100
+            buf[q] = pairs[r+2]
+            buf[q-1] = pairs[r+1]
+            q -= 2
+        end
+        if u >= 10
+            r = 2 * Int(u)
+            buf[q] = pairs[r+2]
+            buf[q-1] = pairs[r+1]
+        else
+            buf[q] = UInt8('0') + u % UInt8
+        end
+    end
+    p + nd
+end
+
 function _rdsamp_flush!(out::Vector{UInt8})
     if !isempty(out)
         cout_write(out)
@@ -208,7 +255,7 @@ end
 _rdsamp_skip_spaces(s::String) = String(lstrip(==(' '), s))
 
 function rdsamp_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -320,14 +367,14 @@ function rdsamp_main(args::Vector{String})
     si = [Siginfo() for _ in 1:nsig]
     nsig = isigopen(rec, si, nsig)
     nsig <= 0 && cexit(2)
-    if legacy                       # wfdb-x: the C program's default gain
+    if legacy                       # WFDB-x: the C program's default gain
         for k in 1:nsig
             si[k].gain == 0.0 && (si[k].gain = WFDB_DEFGAIN)
         end
     end
     highres && setgvmode(WFDB_HIGHRES)
     freq = sampfreq(nothing)
-    # wfdb-x: no default sampling frequency (the C program assumed 250 Hz
+    # WFDB-x: no default sampling frequency (the C program assumed 250 Hz
     # if the header did not specify one, as legacy mode does).
     if !legacy && freq <= 0.0 &&
        ((from > 0 && wfdbx_time_needs_freq(argv[from]) != 0) ||
@@ -364,7 +411,7 @@ function rdsamp_main(args::Vector{String})
     end
     nsig = length(sig)
 
-    # wfdb-x: no default gain (the C program assumed 200 adu/mV for
+    # WFDB-x: no default gain (the C program assumed 200 adu/mV for
     # uncalibrated signals, as legacy mode does).
     if pflag != 0 && !legacy
         for k in 1:nsig
@@ -526,7 +573,7 @@ function rdsamp_main(args::Vector{String})
             append!(out, tufmt)
             for s in sig
                 un = si[s+1].units
-                # wfdb-x: unspecified units are shown as "nd" (C, legacy mode: mV)
+                # WFDB-x: unspecified units are shown as "nd" (C, legacy mode: mV)
                 u = un !== nothing ? copy(cstr(un)) : Vector{UInt8}(legacy ? b"mV" : b"nd")
                 if !cflag
                     len = min(length(u), pflag > 1 ? _RDSAMP_UNITS_WIDTH_HP : _RDSAMP_UNITS_WIDTH)
@@ -613,20 +660,29 @@ function rdsamp_main(args::Vector{String})
         xflag && append!(out, b"<samplevectors>\n")
         vlead = cflag ? UInt8(',') : UInt8('\t')
         twidth, vwidth = cflag ? (0, 0) : (15, 7)
+        # (the lines are written at out[p+1:...], with room for the longest)
+        linemax = 21 + 22 * length(sig) + 1
+        p = length(out)
         while to == 0 || from < to
             k = Int64(_RDSAMP_CHUNK)
             (to != 0 && to - from < k) && (k = to - from)
             m = getvecs(vbuf, k)
+            resize!(out, p + Int(max(m, 0)) * linemax)
             for f in 0:m-1
                 vo = f * nvec
-                _rdsamp_integer!(out, 0x00, from, twidth)
+                p = _rdsamp_put_integer!(out, p, 0x00, from, twidth)
                 from += 1
                 for s in sig
-                    _rdsamp_integer!(out, vlead, Int64(vbuf[vo+s+1]), vwidth)
+                    p = _rdsamp_put_integer!(out, p, vlead, Int64(vbuf[vo+s+1]), vwidth)
                 end
-                push!(out, UInt8('\n'))
+                p += 1
+                out[p] = UInt8('\n')
             end
-            length(out) >= _RDSAMP_OUT_LIMIT && _rdsamp_flush!(out)
+            resize!(out, p)
+            if p >= _RDSAMP_OUT_LIMIT
+                _rdsamp_flush!(out)
+                p = 0
+            end
             m < k && break
         end
     end
@@ -666,7 +722,7 @@ register_workload("rdsamp") do
                      "-r nr -t s3 -v -p")
             workload_tool("rdsamp", split(opts)...)
         end
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         for opts in ("-r nf -t 1 -p -v", "-r uc -t s5 -P -v", "-r nr -t s3 -v -p -X")
             workload_tool("rdsamp", "--legacy", split(opts)...)
         end

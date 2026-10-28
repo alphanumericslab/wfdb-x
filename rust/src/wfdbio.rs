@@ -5,7 +5,7 @@
 //! `wfdberror`, `wfdbquiet`), and [`WfdbFile`], the buffered file type used
 //! by the library and the tools (C's `WFDB_FILE` / `FILE *`).
 //!
-//! wfdb-x: files are found by explicit names (see [`Wfdb::wfdb_open`]): a
+//! WFDB-x: files are found by explicit names (see [`Wfdb::wfdb_open`]): a
 //! relative name is read under the input directory
 //! ([`Wfdb::wfdbx_set_input_dir`], `WFDBX_INPUT_DIR`) and written under the
 //! output directory ([`Wfdb::wfdbx_set_output_dir`], `WFDBX_OUTPUT_DIR`);
@@ -36,7 +36,7 @@
 // wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
 // wfdbx_write_errors, wfdbx_note_write_error and wfdbx_fclose_output; legacy
 // mode (wfdbx_set_legacy) restores the original behavior (the WFDB path,
-// without network access). Each change is marked "wfdb-x:" in the code;
+// without network access). Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -128,9 +128,9 @@ pub struct WfdbFile {
     can_write: bool,
     append: bool,
     closed: bool,
-    /// wfdb-x: an output file of the library (see [`wfdbx_write_errors`]).
+    /// WFDB-x: an output file of the library (see [`wfdbx_write_errors`]).
     out: bool,
-    /// wfdb-x: a remote file (a URL fetched in full, read from memory).
+    /// WFDB-x: a remote file (a URL fetched in full, read from memory).
     remote: bool,
     /// The name with which a local file was opened (for [`FileId`] on
     /// systems without file identities in the standard library).
@@ -312,14 +312,14 @@ impl WfdbFile {
         matches!(self.kind, Kind::Stdin(_) | Kind::Stdout | Kind::Stderr)
     }
 
-    /// wfdb-x: is this a remote file (a URL, fetched in full)?
+    /// WFDB-x: is this a remote file (a URL, fetched in full)?
     ///
     /// Part of WFDB-x; not in the original WFDB package.
     pub fn is_remote(&self) -> bool {
         self.remote
     }
 
-    /// wfdb-x: the identity of an open local file (`None` for the standard
+    /// WFDB-x: the identity of an open local file (`None` for the standard
     /// streams, memory and remote files).
     pub(crate) fn file_id(&self) -> Option<FileId> {
         let Kind::File(f) = &self.kind else {
@@ -341,7 +341,7 @@ impl WfdbFile {
         }
     }
 
-    /// wfdb-x: the size in bytes of an open local file (`None` for the
+    /// WFDB-x: the size in bytes of an open local file (`None` for the
     /// standard streams, memory and remote files).
     pub(crate) fn local_size(&self) -> Option<u64> {
         match &self.kind {
@@ -350,7 +350,7 @@ impl WfdbFile {
         }
     }
 
-    /// The type of the file: [`WFDB_NET`] for a remote file (wfdb-x: a
+    /// The type of the file: [`WFDB_NET`] for a remote file (WFDB-x: a
     /// URL, fetched in full), otherwise [`WFDB_LOCAL`].
     ///
     /// Part of WFDB-x; not in the original WFDB package.
@@ -1019,7 +1019,7 @@ impl WfdbFile {
     /// C `fclose` (the standard streams are flushed, not closed): returns
     /// 0, or `EOF` if an error occurred (including earlier write errors).
     ///
-    /// wfdb-x: an output file opened by the library (`wfdb_open`,
+    /// WFDB-x: an output file opened by the library (`wfdb_open`,
     /// `wfdb_fopen`) that could not be written, flushed or closed counts as
     /// a write error (see [`wfdbx_write_errors`]).
     ///
@@ -1085,23 +1085,23 @@ pub struct IoState {
     /// Current record name (for `%r` in the WFDB path).
     irec: Vec<u8>,
     mem_behavior: i32,
-    /// wfdb-x: the directory in which `wfdb_open` creates output files
+    /// WFDB-x: the directory in which `wfdb_open` creates output files
     /// (`None`: files are created as named; see `wfdbx_set_output_dir`).
     output_dir: Option<Vec<u8>>,
-    /// wfdb-x: the value of `WFDBX_OUTPUT_DIR` (read on first use).
+    /// WFDB-x: the value of `WFDBX_OUTPUT_DIR` (read on first use).
     env_output_dir: Option<Vec<u8>>,
     output_dir_init: bool,
     /// WFDB-x (normal mode): the directory under which relative names are
     /// read (`None`: the current directory; see `wfdbx_set_input_dir`).
     input_dir: Option<Vec<u8>>,
-    /// wfdb-x: the value of `WFDBX_INPUT_DIR` (read on first use).
+    /// WFDB-x: the value of `WFDBX_INPUT_DIR` (read on first use).
     env_input_dir: Option<Vec<u8>>,
     input_dir_init: bool,
     /// WFDB-x (normal mode): the input directory set by the last
     /// `setwfdb`, for `resetwfdb`, and whether `setwfdb` was called.
     setwfdb_input_dir: Option<Vec<u8>>,
     setwfdb_called: bool,
-    /// wfdb-x: network access allowed (`None` until first needed: then
+    /// WFDB-x: network access allowed (`None` until first needed: then
     /// from `WFDBX_NETWORK`, whose value is `env_network`).
     network: Option<bool>,
     env_network: bool,
@@ -1143,7 +1143,7 @@ fn spr1(record: &[u8], ftype: &[u8]) -> Vec<u8> {
     v
 }
 
-/// wfdb-x: whether `s` is an absolute local path: on POSIX systems, one
+/// WFDB-x: whether `s` is an absolute local path: on POSIX systems, one
 /// beginning with `/`; on Windows, one beginning with `X:\`, `X:/`, `\\` or
 /// `/`.
 pub(crate) fn is_absolute_path(s: &[u8]) -> bool {
@@ -1160,9 +1160,9 @@ pub(crate) fn is_absolute_path(s: &[u8]) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: names, directories and remote files (normal mode)
+// WFDB-x: names, directories and remote files (normal mode)
 
-/// wfdb-x: the identity of a file: device and inode numbers on POSIX
+/// WFDB-x: the identity of a file: device and inode numbers on POSIX
 /// systems; elsewhere (the standard library has no file IDs there), the
 /// canonical absolute path, compared case-insensitively.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1340,7 +1340,7 @@ fn current_uid() -> Option<u32> {
 /// The next component of the WFDB path string `s`, from position `q`
 /// (after any whitespace): returns its start, its end (the position of the
 /// character that follows it) and its type ([`WFDB_LOCAL`] or
-/// [`WFDB_NET`]). (wfdb-x: formerly in the body of `wfdb_parse_path`; also
+/// [`WFDB_NET`]). (WFDB-x: formerly in the body of `wfdb_parse_path`; also
 /// used by `setwfdb` in normal mode.)
 fn path_component(s: &[u8], mut q: usize) -> (usize, usize, i32) {
     let n = s.len();
@@ -1478,7 +1478,7 @@ pub(crate) fn local_fopen(fname: &[u8], mode: &[u8], legacy: bool) -> Option<Wfd
     if mode.first() == Some(&b'r') && is_directory(fname) {
         return None;
     }
-    let out = mode.first() != Some(&b'r'); // wfdb-x: see wfdbx_write_errors
+    let out = mode.first() != Some(&b'r'); // WFDB-x: see wfdbx_write_errors
     if let Some(mut f) = WfdbFile::fopen(fname, mode) {
         f.out = out;
         return Some(f);
@@ -1502,7 +1502,7 @@ pub(crate) fn local_fopen(fname: &[u8], mode: &[u8], legacy: bool) -> Option<Wfd
     None
 }
 
-// wfdb-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
+// WFDB-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
 // report success when its output was not written.
 static WRITE_ERRORS: AtomicI32 = AtomicI32::new(0);
 
@@ -1557,7 +1557,7 @@ pub fn wfdb_striphea(record: &[u8]) -> Vec<u8> {
 }
 
 /// Run `sortann --legacy -r. RECORD -a ANNOTATOR` to sort an annotation
-/// file (used by `oannclose` in legacy mode; wfdb-x: the program is run
+/// file (used by `oannclose` in legacy mode; WFDB-x: the program is run
 /// without a shell, with the arguments passed directly, with `--legacy` so
 /// that it behaves as the original, and in the output directory `dir`, if
 /// one is set, where the file was written). The program is looked for in
@@ -1585,10 +1585,10 @@ pub fn run_sortann(record: &[u8], annotator: &[u8], dir: Option<&[u8]>) -> i32 {
     let _ = std::io::stderr().flush();
     let mut cmd = std::process::Command::new(prog);
     if let Some(d) = dir {
-        cmd.current_dir(cstd::bytes_to_os(d)); // wfdb-x: the output directory
+        cmd.current_dir(cstd::bytes_to_os(d)); // WFDB-x: the output directory
     }
     match cmd
-        .arg("--legacy") // wfdb-x: the child behaves as the original
+        .arg("--legacy") // WFDB-x: the child behaves as the original
         .arg("-r.")
         .arg(cstd::bytes_to_os(record))
         .arg("-a")
@@ -1676,7 +1676,7 @@ impl Wfdb {
         p
     }
 
-    /// C `getwfdb()`: wfdb-x: in normal mode, the input directory (see
+    /// C `getwfdb()`: WFDB-x: in normal mode, the input directory (see
     /// [`Wfdb::wfdbx_set_input_dir`]), or `"."` if none is set. In legacy
     /// mode, the WFDB path (initialized from the `WFDB` environment
     /// variable, or [`DEFWFDB`], on first use).
@@ -1699,12 +1699,12 @@ impl Wfdb {
         self.io.wfdbpath.clone().unwrap_or_default()
     }
 
-    /// C `setwfdb(path)`: wfdb-x: in normal mode, `path`, split into
+    /// C `setwfdb(path)`: WFDB-x: in normal mode, `path`, split into
     /// components as the WFDB path is (at spaces, `;`, and `:` outside
     /// URLs), must contain at most one non-empty component, which becomes
     /// the input directory (none, e.g. `""` or `";"`: the default; see
     /// [`Wfdb::wfdbx_set_input_dir`]); with more, it reports `setwfdb:
-    /// wfdb-x reads from a single input directory; ...` and changes
+    /// WFDB-x reads from a single input directory; ...` and changes
     /// nothing. Nothing is exported to the environment.
     ///
     /// In legacy mode, as in C: set the WFDB path (`NULL`: from the
@@ -1729,7 +1729,7 @@ impl Wfdb {
         self.wfdb_parse_path(Some(&path));
     }
 
-    /// C `resetwfdb()`: wfdb-x: in normal mode, restore the input directory
+    /// C `resetwfdb()`: WFDB-x: in normal mode, restore the input directory
     /// set by the last `setwfdb`, if any (`wfdbquit` does not call it in
     /// normal mode). In legacy mode, restore the WFDB path to its initial
     /// value (only if `getwfdb` was called before any `setwfdb`).
@@ -1759,7 +1759,7 @@ impl Wfdb {
         self.io.error_print = false;
     }
 
-    /// wfdb-x: turns the printing of error messages on or off (as
+    /// WFDB-x: turns the printing of error messages on or off (as
     /// `wfdbverbose` and `wfdbquiet`); returns the previous setting.
     pub(crate) fn wfdbx_set_error_print(&mut self, on: bool) -> bool {
         std::mem::replace(&mut self.io.error_print, on)
@@ -1854,7 +1854,7 @@ impl Wfdb {
             && cstd::getenv("WFDB").is_some_and(|p| !p.is_empty())
         {
             self.wfdb_error(
-                "wfdb-x: the WFDB environment variable is ignored; set \
+                "WFDB-x: the WFDB environment variable is ignored; set \
                  WFDBX_INPUT_DIR instead (or use legacy mode)\n",
             );
         }
@@ -1884,7 +1884,7 @@ impl Wfdb {
         }
         if found.len() > 1 {
             self.wfdb_error(
-                "setwfdb: wfdb-x reads from a single input directory; use \
+                "setwfdb: WFDB-x reads from a single input directory; use \
                  wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n",
             );
             return -1;
@@ -2052,7 +2052,7 @@ impl Wfdb {
         status
     }
 
-    /// wfdb-x: the name of the local file that `wfdb_open(name, NULL,
+    /// WFDB-x: the name of the local file that `wfdb_open(name, NULL,
     /// WFDB_WRITE)` creates in normal mode, or `None` if it creates none
     /// (the standard output, or a URL).
     pub(crate) fn wfdbx_output_file(&mut self, name: &[u8]) -> Option<Vec<u8>> {
@@ -2068,7 +2068,7 @@ impl Wfdb {
     }
 
     /// Records `msg` as the latest error (as `wfdb_error` does), without
-    /// printing it (wfdb-x: for a message that a high-level function
+    /// printing it (WFDB-x: for a message that a high-level function
     /// replaces with its own).
     pub(crate) fn wfdb_error_unprinted(&mut self, msg: impl AsRef<[u8]>) {
         let print = std::mem::replace(&mut self.io.error_print, false);
@@ -2162,7 +2162,7 @@ impl Wfdb {
                 WfdbFile::stdin()
             } else {
                 let mut f = WfdbFile::stdout();
-                f.out = true; // wfdb-x: see wfdbx_write_errors
+                f.out = true; // WFDB-x: see wfdbx_write_errors
                 f
             });
         }
@@ -2174,7 +2174,7 @@ impl Wfdb {
             let mut name = spr1(&r, s);
             self.init_output_dir();
             if self.wfdbx_get_legacy() == 0 {
-                // wfdb-x: a relative name in the output directory, if one
+                // WFDB-x: a relative name in the output directory, if one
                 // is set; a URL cannot be written
                 if is_url(&name) {
                     self.io.filename = name;
@@ -2182,7 +2182,7 @@ impl Wfdb {
                 }
                 name = self.resolve(&name, true);
             } else if let Some(dir) = &self.io.output_dir {
-                // wfdb-x: legacy mode: any name in the output directory
+                // WFDB-x: legacy mode: any name in the output directory
                 let mut d = dir.clone();
                 d.push(DSEP);
                 d.append(&mut name);
@@ -2193,7 +2193,7 @@ impl Wfdb {
             return self.wfdb_fopen(&name, fmode);
         }
 
-        // wfdb-x: in normal mode, the file is opened at the one location
+        // WFDB-x: in normal mode, the file is opened at the one location
         // that its name designates (see resolve); nothing is searched.
         if self.wfdbx_get_legacy() == 0 {
             let p = self.resolve(&r, false);
@@ -2260,7 +2260,7 @@ impl Wfdb {
         None
     }
 
-    /// wfdb-x: opens the file at location `p` (as resolved, or in the
+    /// WFDB-x: opens the file at location `p` (as resolved, or in the
     /// directory of a header) for reading, trying the two forms of the name
     /// (`P.TYPE`, then `P.TYP`) there.
     fn open_at(&mut self, p: &[u8], s: &[u8]) -> Option<WfdbFile> {
@@ -2277,7 +2277,7 @@ impl Wfdb {
         None
     }
 
-    /// wfdb-x: opens, for reading, a file named in the header of record
+    /// WFDB-x: opens, for reading, a file named in the header of record
     /// `record` (a signal file, or a segment of a multi-segment record, of
     /// type `s`): `name`, in the directory `dir` of that header (as
     /// returned by `wfdbx_dirname`; `None` if unknown, for a header read
@@ -2347,14 +2347,14 @@ impl Wfdb {
         local_fopen(fname, mode, false)
     }
 
-    /// wfdb-x: opens a URL for reading: if network access is allowed, the
+    /// WFDB-x: opens a URL for reading: if network access is allowed, the
     /// file is read in full by `curl` (once per process: the contents, or
     /// the failure, are kept), and read from memory.
     fn fetch_open(&mut self, url: &[u8]) -> Option<WfdbFile> {
         if self.wfdbx_get_network() == 0 {
             if !NETWORK_WARNED.swap(true, Ordering::Relaxed) {
                 self.wfdb_error(crate::cformat!(
-                    b"wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open %s\n",
+                    b"WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open %s\n",
                     url
                 ));
             }
@@ -2374,7 +2374,7 @@ impl Wfdb {
                     Err(not_found) => {
                         if not_found && !CURL_WARNED.swap(true, Ordering::Relaxed) {
                             self.wfdb_error(
-                                "wfdb-x: network access needs the curl program, which was not found\n",
+                                "WFDB-x: network access needs the curl program, which was not found\n",
                             );
                         }
                         None
@@ -2396,7 +2396,7 @@ impl Wfdb {
     /// letters, digits, `_`, `~`, `-` and `/`; otherwise prints `init:
     /// illegal character N in DESCRIPTION name` and returns -1.
     ///
-    /// wfdb-x: a record name (`description` "record") may be a path;
+    /// WFDB-x: a record name (`description` "record") may be a path;
     /// outside legacy mode only its last component (the record's own name)
     /// is checked, so that directories with other characters (such as
     /// `my.data/rec`) can be written.
@@ -2857,7 +2857,7 @@ mod tests {
             b"init: illegal character 46 in record name\n"
         );
         assert_eq!(w.wfdb_checkname(b"", b"record"), -1);
-        // wfdb-x: only the last component of a record name is checked
+        // WFDB-x: only the last component of a record name is checked
         // (outside legacy mode)
         assert_eq!(w.wfdb_checkname(b"my.data/rec", b"record"), 0);
         assert_eq!(w.wfdb_checkname(b"/a.b/c d/rec", b"record"), 0);

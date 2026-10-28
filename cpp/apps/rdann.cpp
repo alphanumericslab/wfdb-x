@@ -11,7 +11,7 @@
 // Changes from the original: no built-in sampling frequency: the new option -F
 // FREQ gives it when the record has no header or its header gives none, and is
 // then required (the original assumed 250 Hz); --legacy, as the first
-// argument, restores the original behavior. Each change is marked "wfdb-x:" in
+// argument, restores the original behavior. Each change is marked "WFDB-x:" in
 // the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rdann.c, WFDB Software Package 10.7.0.
@@ -65,7 +65,7 @@ static const char *help_strings[] = {
     nullptr
 };
 
-// wfdb-x: the help text of the original program, printed in legacy mode
+// WFDB-x: the help text of the original program, printed in legacy mode
 static const char *legacy_help_strings[] = {
     "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
     "where RECORD and ANNOTATOR specify the input, and OPTIONS may include:",
@@ -85,7 +85,7 @@ static const char *legacy_help_strings[] = {
 
 static void help()
 {
-    // wfdb-x: the original help text in legacy mode
+    // WFDB-x: the original help text in legacy mode
     const char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;
 
     std::fprintf(stderr, hs[0], pname);
@@ -93,7 +93,7 @@ static void help()
         std::fprintf(stderr, "%s\n", hs[i]);
 }
 
-// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
+// Exit after reporting an unrecognized option (WFDB-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -103,7 +103,7 @@ static void help()
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -179,7 +179,7 @@ int main(int argc, char **argv)
                 from = i;   // to be converted to sample intervals below
                 break;
             case 'F':   // sampling frequency follows (WFDB-x)
-                if (wfdbx_get_legacy())   // wfdb-x: not in the original
+                if (wfdbx_get_legacy())   // WFDB-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ffreq) != 1 ||
                     Ffreq <= 0.) {
@@ -266,7 +266,7 @@ int main(int argc, char **argv)
         std::exit(1);
     }
 
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the record had no header, as legacy mode does); -F specifies one.
     if (wfdbx_get_legacy()) {
         if ((sps = sampfreq(record)) < 0.)

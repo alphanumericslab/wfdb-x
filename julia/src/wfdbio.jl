@@ -27,7 +27,7 @@
 # wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
 # wfdbx_write_errors, wfdbx_note_write_error and wfdbx_fclose_output; legacy
 # mode (wfdbx_set_legacy) restores the original behavior (the WFDB path,
-# without network access). Each change is marked "wfdb-x:" in the code;
+# without network access). Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -106,8 +106,8 @@ mutable struct WfdbFile
     can_write::Bool
     append::Bool
     closed::Bool
-    remote::Bool                # wfdb-x: the contents of a URL (read in memory)
-    out::Bool                   # wfdb-x: an output file of the library (see fclose)
+    remote::Bool                # WFDB-x: the contents of a URL (read in memory)
+    out::Bool                   # WFDB-x: an output file of the library (see fclose)
 end
 
 function WfdbFile(kind::UInt8, can_read::Bool, can_write::Bool)
@@ -766,7 +766,7 @@ function _release!(f::WfdbFile)
             f.owns_fd = false
         end
     end
-    # wfdb-x: an output file that could not be written, flushed or closed
+    # WFDB-x: an output file that could not be written, flushed or closed
     # counts as a write error (see wfdbx_write_errors)
     (f.out && (err || status != 0)) && wfdbx_note_write_error()
     status
@@ -776,7 +776,7 @@ end
     fclose(f) -> Int32
 
 C `fclose` (the standard streams are flushed, not closed): returns 0, or
-`EOF` if an error occurred (including earlier write errors). wfdb-x: for an
+`EOF` if an error occurred (including earlier write errors). WFDB-x: for an
 output file opened by the library (`wfdb_fopen`, `wfdb_open`), such an
 error counts as a write error (see [`wfdbx_write_errors`](@ref)).
 """
@@ -821,7 +821,7 @@ mutable struct IoState
     filename::Vector{UInt8}     # name of the file most recently opened by wfdb_open
     irec::Vector{UInt8}         # current record name (for %r in the WFDB path)
     mem_behavior::Int32
-    # wfdb-x: the settings that locate files (see wfdbx_set_input_dir,
+    # WFDB-x: the settings that locate files (see wfdbx_set_input_dir,
     # wfdbx_set_output_dir, wfdbx_set_network); each is read from its
     # environment variable when first needed
     input_dir::Union{Nothing,Vector{UInt8}}
@@ -908,7 +908,7 @@ _mkdir(d::Vector{UInt8}) = raw_mkdir(d)
 
 Open a file as the WFDB library does. A directory cannot be opened for
 reading; when a file cannot be created (`"wb"` or `"ab"`), the missing
-directories in its path are created and the file is opened again. wfdb-x:
+directories in its path are created and the file is opened again. WFDB-x:
 an `http://` or `https://` URL can only be read, and only if network access
 is allowed (see [`wfdbx_set_network`](@ref)). In legacy mode, names
 containing `..` or `://` are refused (as by the reference C library, built
@@ -940,7 +940,7 @@ function wfdb_fopen(w::Wfdb, fname::ByteStr, mode::ByteStr)
         end
         (tried && ok) && (f = cfopen(fname, mode))
     end
-    # wfdb-x: an output file (see fclose)
+    # WFDB-x: an output file (see fclose)
     f !== nothing && (f.out = mode[1] != UInt8('r'))
     f
 end
@@ -961,7 +961,7 @@ const _PKGROOT = dirname(@__DIR__)
 
 Run `sortann --legacy -r. RECORD -a ANNOTATOR` to sort an annotation file
 (used by `oannclose` in legacy mode), as the C library runs the `sortann`
-program, in the directory `dir` if given (wfdb-x: the output directory,
+program, in the directory `dir` if given (WFDB-x: the output directory,
 where the file is; `--legacy` makes the child behave as the original
 program): in a separate
 Julia process (the same `julia` binary and project, `bin/wfdbx.jl
@@ -1086,7 +1086,7 @@ end
 """
     getwfdb([w]) -> Vector{UInt8}
 
-C `getwfdb()`. wfdb-x: the input directory (see
+C `getwfdb()`. WFDB-x: the input directory (see
 [`wfdbx_set_input_dir`](@ref)), or `"."` if none is set: files are not
 searched for. In legacy mode, the WFDB path, the list of places searched
 for WFDB files (initialized from the `WFDB` environment variable, or
@@ -1116,7 +1116,7 @@ end
 """
     setwfdb([w], path)
 
-C `setwfdb(path)`. wfdb-x: set the input directory (a C-compatible form of
+C `setwfdb(path)`. WFDB-x: set the input directory (a C-compatible form of
 [`wfdbx_set_input_dir`](@ref)). `path` is split into components as the WFDB
 path is (at spaces, semicolons, and colons other than in URLs); it must
 contain at most one non-empty component, which becomes the input directory
@@ -1154,7 +1154,7 @@ end
 """
     resetwfdb([w])
 
-C `resetwfdb()`. wfdb-x: restore the input directory set by the last
+C `resetwfdb()`. WFDB-x: restore the input directory set by the last
 [`setwfdb`](@ref), if any ([`wfdbquit`](@ref) does not call it, except in
 legacy mode). In legacy mode, restore the WFDB path to its initial value
 (only if `getwfdb` was called before any `setwfdb`).
@@ -1258,7 +1258,7 @@ wfdb_me_fatal(w::Wfdb) = w.io.mem_behavior
 wfdb_filename(w::Wfdb) = copy(w.io.filename)
 
 # ---------------------------------------------------------------------------
-# wfdb-x: the settings that locate files
+# WFDB-x: the settings that locate files
 
 _startswith(a::AbstractVector{UInt8}, p::AbstractVector{UInt8}) =
     length(a) >= length(p) && view(a, 1:length(p)) == p
@@ -1282,7 +1282,7 @@ function _init_input_dir!(w::Wfdb)
     if !io.wfdb_warned && !_legacy(w)
         io.wfdb_warned = true
         _nonempty_env("WFDB") === nothing ||
-            wfdb_error(w, "wfdb-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n")
+            wfdb_error(w, "WFDB-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n")
     end
     nothing
 end
@@ -1458,7 +1458,7 @@ function wfdbx_get_network(w::Wfdb)
     Int32(io.network)
 end
 
-# wfdb-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
+# WFDB-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
 # report success when its output was not written.
 """
     wfdbx_write_errors() -> Int32
@@ -1508,7 +1508,7 @@ end
 function _setwfdb_normal(w::Wfdb, p::OptByteStr)
     dirs = [c.prefix for c in _path_components(_dirarg(p)) if !isempty(c.prefix)]
     if length(dirs) > 1
-        wfdb_error(w, "setwfdb: wfdb-x reads from a single input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n")
+        wfdb_error(w, "setwfdb: WFDB-x reads from a single input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n")
         return Int32(-1)
     end
     d = isempty(dirs) ? nothing : dirs[1]
@@ -1631,7 +1631,7 @@ Open a WFDB file of type `type` for a record. `mode` is `WFDB_READ`,
 `WFDB_WRITE` (create the file) or `WFDB_APPEND`. The file name is the
 record name and the type, joined by a `.` (if `record` is empty or
 `nothing`, `type` is the file name); `record` `"-"` is the standard input
-or output. wfdb-x: a relative name is read under the input directory
+or output. WFDB-x: a relative name is read under the input directory
 ([`wfdbx_set_input_dir`](@ref)) and written under the output directory
 ([`wfdbx_set_output_dir`](@ref)); an absolute name, a `~` name or a URL is
 used as given (a URL can only be read, and only if network access is
@@ -1658,7 +1658,7 @@ function wfdb_open(w::Wfdb, s::OptByteStr, record::OptByteStr, mode::Integer)
     if rb == b"-"
         mode == WFDB_READ && return wfdb_stdin()
         f = wfdb_stdout()
-        f.out = true                    # wfdb-x: see fclose
+        f.out = true                    # WFDB-x: see fclose
         return f
     end
     r = _expand_record(rb)
@@ -1667,16 +1667,16 @@ function wfdb_open(w::Wfdb, s::OptByteStr, record::OptByteStr, mode::Integer)
         io.filename = _spr1(r, sb)
         _init_output_dir!(w)
         if !_legacy(w)
-            # wfdb-x: a relative name in the output directory, if one is
+            # WFDB-x: a relative name in the output directory, if one is
             # set; a URL cannot be written
             _is_url(io.filename) && return nothing
             io.filename = _resolve(w, io.filename, true)
-        elseif io.output_dir !== nothing    # wfdb-x: legacy mode: any name
+        elseif io.output_dir !== nothing    # WFDB-x: legacy mode: any name
             io.filename = UInt8[io.output_dir; DSEP; io.filename]
         end
         return wfdb_fopen(w, io.filename, mode == WFDB_WRITE ? "wb" : "ab")
     end
-    # wfdb-x: the one location that the name designates
+    # WFDB-x: the one location that the name designates
     _legacy(w) || return _open_at(w, _resolve(w, r, false), sb)
 
     isempty(io.path_list) && getwfdb(w)
@@ -1751,7 +1751,7 @@ function _expand_record(rb::Vector{UInt8})
     r
 end
 
-# wfdb-x: the name of the local file that wfdb_open(name, nothing,
+# WFDB-x: the name of the local file that wfdb_open(name, nothing,
 # WFDB_WRITE) creates in normal mode, or nothing if it creates none (the
 # standard output, or a URL).
 function wfdbx_output_file(w::Wfdb, name::OptByteStr)
@@ -1792,7 +1792,7 @@ function wfdbx_open_in(w::Wfdb, d::Union{Nothing,Vector{UInt8}}, s::OptByteStr,
     _open_at(w, UInt8[d; name], s === nothing ? UInt8[] : cstr(bytes(s)))
 end
 
-# wfdb-x: remote files. The Downloads standard library is loaded only when
+# WFDB-x: remote files. The Downloads standard library is loaded only when
 # a URL is first read (it takes a while to load).
 const _DOWNLOADS = Base.PkgId(Base.UUID("f43a241f-c20a-4ad4-852c-f6b1247861c6"), "Downloads")
 const NET_TIMEOUT = 30      # seconds to connect, or without receiving data
@@ -1840,7 +1840,7 @@ function _fetch_open(w::Wfdb, url::Vector{UInt8})
     if wfdbx_get_network(w) == 0
         if !w.io.network_warned
             w.io.network_warned = true
-            wfdb_error(w, "wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open %s\n",
+            wfdb_error(w, "WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open %s\n",
                        url)
         end
         return nothing
@@ -1857,7 +1857,7 @@ end
 
 0 if `name` contains only letters, digits, `_`, `~`, `-` and `/`;
 otherwise prints `init: illegal character N in DESCRIPTION name` and
-returns -1. wfdb-x: for a record name (`description` `"record"`), only its
+returns -1. WFDB-x: for a record name (`description` `"record"`), only its
 last component (after the last `/`) is checked, except in legacy mode.
 
 Translation of the C function wfdb_checkname() (lib/wfdbio.c, WFDB 10.7.0):
@@ -1866,7 +1866,7 @@ name is checked; see docs/DIVERGENCES.md.
 """
 function wfdb_checkname(w::Wfdb, name::ByteStr, desc::ByteStr)
     nm = cstr(bytes(name))
-    # wfdb-x: a record name may be a path; outside legacy mode only its last
+    # WFDB-x: a record name may be a path; outside legacy mode only its last
     # component (the record's own name) is checked, so that directories with
     # other characters (such as "my.data/rec") can be written.
     if bytes(desc) == b"record" && !_legacy(w)
@@ -1929,7 +1929,7 @@ function wfdb_parse_path(w::Wfdb, p::OptByteStr)
     Int32(0)
 end
 
-# The components of a WFDB path string (wfdb-x: also used by setwfdb in
+# The components of a WFDB path string (WFDB-x: also used by setwfdb in
 # normal mode).
 function _path_components(s::AbstractVector{UInt8})
     pl = PathComponent[]
@@ -2017,7 +2017,7 @@ end
     wfdbfile([w], type, record) -> Union{Vector{UInt8},Nothing}
 
 C `wfdbfile(type, record)`: the pathname (or URL) of a WFDB file (found as
-[`wfdb_open`](@ref) finds it: wfdb-x: under the input directory, for a
+[`wfdb_open`](@ref) finds it: WFDB-x: under the input directory, for a
 relative name; in legacy mode, in the WFDB path), or `nothing`. With both arguments `nothing`,
 the name of the file most recently opened.
 
@@ -2100,7 +2100,7 @@ register_workload("wfdbio") do
             wfdb_error(w, "x %s %d\n", "y", 1); wfdberror(w); getwfdb(w); resetwfdb(w)
             m = wfdb_memfile(b"ab\ncd"); getc(m); fclose(m)
             wfdb_fopen("nosuch/x", "rb"); cfopen("nosuch", "rb")
-            # wfdb-x: the settings that locate files (no network access)
+            # WFDB-x: the settings that locate files (no network access)
             wfdbx_set_input_dir(w, "~/x"); wfdbx_get_input_dir(w); wfdbfile(w, "hea", "r")
             wfdbx_set_input_dir(w, nothing); wfdbfile(w, "hea", "~nosuchuser/r")
             wfdbx_set_output_dir(w, "out"); wfdbx_get_output_dir(w); wfdbx_set_output_dir(w, nothing)

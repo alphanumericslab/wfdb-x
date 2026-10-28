@@ -117,7 +117,7 @@ std::optional<std::string> file(const char *type, const std::string &record)
 }
 
 const std::string single_dir_error =
-    "setwfdb: wfdb-x reads from a single input directory; use "
+    "setwfdb: WFDB-x reads from a single input directory; use "
     "wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n";
 const std::string not_in_dir = " is not in the header's directory\n";
 
@@ -327,7 +327,7 @@ WFDBX_TEST(files_fresh_process)
     }
     // WFDB is ignored, with a warning (once)
     CHECK_EQ(getwfdb(), "envin");
-    CHECK_EQ(wfdberror(), "wfdb-x: the WFDB environment variable is ignored; "
+    CHECK_EQ(wfdberror(), "WFDB-x: the WFDB environment variable is ignored; "
                           "set WFDBX_INPUT_DIR instead (or use legacy mode)\n");
     // a function call overrides an environment variable; nullptr or ""
     // restores its value
@@ -345,7 +345,7 @@ WFDBX_TEST(files_fresh_process)
     // network off: the open fails, with a message the first time only
     wfdbx_set_network(0);
     CHECK(!file("hea", "http://127.0.0.1:1/x"));
-    const std::string off = "wfdb-x: network access is disabled; set "
+    const std::string off = "WFDB-x: network access is disabled; set "
         "WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open "
         "http://127.0.0.1:1/x.hea\n";
     CHECK_EQ(wfdberror(), off);
@@ -357,7 +357,7 @@ WFDBX_TEST(files_fresh_process)
         EnvVar path("PATH", "/nonexistent-wfdbx");
         CHECK(!file("hea", "http://127.0.0.1:1/z"));
     }
-    CHECK_EQ(wfdberror(), "wfdb-x: network access needs the curl program, "
+    CHECK_EQ(wfdberror(), "WFDB-x: network access needs the curl program, "
                           "which was not found\n");
     wfdbx_set_network(0);
 }

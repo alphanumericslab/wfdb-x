@@ -1,32 +1,54 @@
 # WFDB-x for Rust
 
+> **WFDB-x** is the WFDB Software Package (the library and its 33
+> command-line tools) reimplemented in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
+> the original C package and to each other. This is the Rust
+> implementation.
+> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
+> · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+
 The `wfdbx` crate reads and writes physiological signal records in the WFDB
 format used by [PhysioNet](https://physionet.org). It is a complete Rust
-implementation of the WFDB Software Package 10.7.0: the library and all of
-its command-line tools. It reads and writes the same files as the original C
+implementation of the WFDB Software Package: the library and all of its
+command-line tools. It reads and writes the same files as the original C
 library, and its tools print the same output.
-
-You can use it in three ways:
-
-* **High-level functions** that read and write whole records and annotation
-  files in one call: `read_record`, `read_header`, `read_annotations`,
-  `write_record`, `write_record_physical`, `write_annotations`, and
-  `check_record`, which checks a record.
-* **Command-line tools** such as `rdsamp`, `rdann` and `wrsamp`, each a
-  separate program.
-* **The WFDB library functions** under their C names (`isigopen`, `getvec`,
-  `getann`, ...), for programs written against the C library.
 
 The crate needs Rust 1.70 or later. It has no dependencies beyond the Rust
 standard library, and runs on Linux, macOS and Windows.
 
-WFDB-x is part of a project that provides the same package in seven languages
-with identical behavior; see the
-[project README](https://github.com/alphanumericslab/wfdb-x#readme).
+## Three ways to use WFDB-x
+
+All three are written in Rust; none of them calls the C library.
+
+1. **The high-level functions (recommended).** `read_record`,
+   `read_header`, `read_annotations`, `write_record`,
+   `write_record_physical`, `write_annotations` and `check_record` read and
+   write whole records and annotation files in one call, as `Vec`s (samples
+   in `Vec<i32>`, frame by frame, or `Vec<f64>` in physical units), with
+   their options in a `ReadOptions` or `WriteOptions` struct, and return a
+   `Result` whose error type is `wfdbx::record::Error`. They read signal
+   files in large blocks, so they are the fastest way to read a record.
+   They are an addition of WFDB-x: the C package has no equivalent. Use
+   them for new code and analysis.
+2. **The WFDB library functions** under their C names (`isigopen`,
+   `getvec`, `getann`, `putann`, ...), with the C behavior: sample by
+   sample and annotation by annotation, errors reported by return values.
+   Use them to port a program written against the C library, or for the
+   exact C semantics.
+3. **The command-line tools** (`rdsamp`, `rdann`, `wrsamp`, `xform`, and
+   29 others), with the options, output and exit status of the C tools,
+   each a separate program run by name after `cargo install --path rust`
+   (`rdsamp -r 100s`). Use them in shell scripts and pipelines, or to
+   reproduce work done with the original tools.
+
+The high-level functions return exactly the samples and annotations that
+the library functions (and the C library) give.
 
 ## Installation
 
-To use the library in a Cargo project, add it to your `Cargo.toml`:
+To use the library in a Cargo project, add it to the project's `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -231,11 +253,11 @@ let opt = WriteOptions {
 write_record_physical("sine", &x, 2, fs, &opt)?;
 ```
 
-This writes the header `sine.hea` and the signal file `sine.dat`. You must
-give the sampling frequency, the gain and ADC resolution of each signal, and
-the units of each calibrated signal; there are no defaults. A gain of 0
-marks a signal as uncalibrated, which is only allowed for samples given in
-ADC units. Per-signal options take one value for all signals, or a vector
+This writes the header `sine.hea` and the signal file `sine.dat`. The
+sampling frequency, the gain and ADC resolution of each signal, and the
+units of each calibrated signal are required; there are no defaults. A gain
+of 0 marks a signal as uncalibrated, which is only allowed for samples given
+in ADC units. Per-signal options take one value for all signals, or a vector
 with one value per signal.
 
 | Argument or option | Meaning |
@@ -274,7 +296,7 @@ positive `fs` is stored in the file as the frequency of its sample numbers.
 
 If the annotations are not in time order, the file is sorted when it is
 written. `write_annotations_with` takes an `AnnWriteOptions` with the fields
-`dir` and `sort`: `sort: Some(false)` keeps the order you gave (without
+`dir` and `sort`: `sort: Some(false)` keeps the given order (without
 the library's advice to run `sortann`) and `Some(true)` always sorts, for
 that call only. With `sort: None`, the
 `WFDBANNSORT` environment variable decides (sorting is on unless it is `0`).
@@ -292,7 +314,7 @@ that call only. With `sort: None`, the
   sampling frequency, and `physical_signal` needs the gain of the signal.
 * When the data do not match the checksums in the header, `read_record`
   returns all the data and prints a warning on the standard error:
-  "wfdb-x: checksum error in record REC: the signal data do not match the
+  "WFDB-x: checksum error in record REC: the signal data do not match the
   checksums in its header". `checksum_warning: false` turns the warning off;
   `rec.checksum_ok` is `false` either way. Checksums are only checked when a
   read reaches the end of the record.
@@ -326,7 +348,7 @@ println!("{report}");
 
 `check_record(record, annotators)` checks the header of a record, its signal
 specifications, every sample of its signal files, and the annotation files
-you name. It reports each problem it finds. It returns an error only for an
+named. It reports each problem it finds. It returns an error only for an
 empty record name, never for a problem in the record. `check_record_with`
 also takes a `ReadOptions`, whose `input_dir` and `network` apply to that
 call. It checks for problems similar to those found by Benjamin Moody's
@@ -374,20 +396,20 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-WFDB-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where they are named, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
 | a full path: `/data/mitdb/100`, `C:\data\100` | that path | that path |
-| a home path: `~/data/100` | your home directory | your home directory |
+| a home path: `~/data/100` | the user's home directory | the user's home directory |
 | a URL: `https://.../100` | that URL, if network access is on | (URLs cannot be written) |
 | anything else: `100`, `mitdb/100`, `../data/100` | the **input directory** | the **output directory** |
 
 In this table, `/data/mitdb` stands for a local copy of the MIT-BIH
 Arrhythmia Database, and `100` for its record 100.
 
-The input and output directories are both the current directory unless you
-set them:
+The input and output directories are both the current directory unless they
+are set:
 
 | Setting | Function | Option of the high-level functions | Environment variable |
 |---|---|---|---|
@@ -460,10 +482,10 @@ when it cannot connect, or receives nothing, for 30 seconds.
 ## Signal parameters
 
 WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
-that a record does not give. Where one is needed, you must give it: in
+that a record does not give. Where one is needed, it must be given: in
 `write_record`, as the `fs` argument of `read_annotations`, or as an option
-of the tools (see below). A record whose header gives no frequency has
-`fs = 0`. See
+of the tools (see below). A record whose header gives no frequency has `fs =
+0`. See
 [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md)
 for the reasons.
 
@@ -521,8 +543,8 @@ same arguments and return values, so programs and documentation written for
 the C library carry over directly. The library's state, such as the open
 record and annotators, is held by a `Wfdb` value, and each function is a
 method of it. Where a C function fills an array, the Rust function fills a
-slice that you pass. This example reads the sample record `100s` (see the
-quick start) from `tests/data`; run it from the root of the repository:
+slice passed by the caller. This example reads the sample record `100s` (see
+the quick start) from `tests/data`; run it from the root of the repository:
 
 ```rust
 use wfdbx::{Anninfo, Annotation, Siginfo, Wfdb, WFDB_READ};
@@ -549,7 +571,7 @@ Differences from C that come from the language:
 * Every method is also a free function with the same name and arguments,
   such as `wfdbx::isigopen(...)`. The free functions use a default `Wfdb`
   value, one per thread. Separate `Wfdb` values do not share any state, so
-  you can open several records at once, in one thread or in several.
+  several records can be open at once, in one thread or in several.
 * Strings are bytes. Arguments accept `&str`, `&[u8]` or `b"..."`, and
   results are `Vec<u8>`. C's `NULL` is `None`; pass `wfdbx::NULL` for a
   `NULL` argument.
@@ -606,11 +628,15 @@ describes what changes in legacy mode.
   written without any external library. The C library reads files written
   by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
-* **Speed.** Build your program in release mode (`cargo build --release`).
-  `read_record` then reads 8 million samples in a few hundredths of a
-  second on a typical laptop.
+* **Speed.** Build programs in release mode (`cargo build --release`).
+  `read_record` reads signal files in large blocks and is the fastest way to
+  read a record. For a program that processes a record as a stream,
+  `getvecs` reads many frames at once; it is faster than calling `getvec`
+  for each frame.
+  [BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+  compares the seven languages and wfdb-python.
 * **Tool names.** The tools have the same names as the original WFDB tools.
-  If both are installed, the one that comes first in your `PATH` runs.
+  If both are installed, the one that comes first in the `PATH` runs.
 * **No unsafe code.** The crate does not use `unsafe`.
 
 ## Testing
@@ -636,6 +662,8 @@ python3 tests/conformance/harness.py check --legacy --impl rust   # legacy mode
 developers of WFDB-x.
 
 ## Authors and license
+
+WFDB-x implements version 10.7.0 of the WFDB Software Package.
 
 The WFDB library and tools were written by George B. Moody, with revisions by
 Benjamin Moody and contributions from many others; `parsescp` was written by

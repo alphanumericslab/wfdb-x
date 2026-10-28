@@ -17,7 +17,7 @@
 # are shown as "nd" (the original assumed 250 Hz, 200 adu/mV, a resolution
 # based on the format, and millivolts); when an output signal file would be one
 # of the input files, the message says so; --legacy, as the first argument,
-# restores the original behavior. Each change is marked "wfdb-x:" in the code;
+# restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/xform.c, WFDB Software Package 10.7.0.
@@ -373,7 +373,7 @@ app_xform <- function(args = character(0)) {
     setgvmode(WFDB_HIGHRES)
   }
   ifreq <- sampfreq(NULL)
-  # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+  # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
   # the input header did not specify one, as legacy mode does).
   legacy <- wfdbx_get_legacy()
   if (ifreq <= 0 && !legacy) {
@@ -387,7 +387,7 @@ app_xform <- function(args = character(0)) {
     # an output record was specified
     if (!is.null(nrec) && newheader(nrec) < 0) cexit(2)
     ofreq <- sampfreq(orec)
-    if (ofreq == 0 && !legacy) {   # wfdb-x: no default sampling frequency
+    if (ofreq == 0 && !legacy) {   # WFDB-x: no default sampling frequency
       wfdbquit()
       .app_nofreq(pname, orec, 2)
     }
@@ -491,9 +491,9 @@ app_xform <- function(args = character(0)) {
         if (!(ofreq < 0)) break
       }
     }
-    if (ofreq == 0 && legacy) {    # wfdb-x: legacy mode (as the C program)
+    if (ofreq == 0 && legacy) {    # WFDB-x: legacy mode (as the C program)
       ofreq <- WFDB_DEFFREQ
-    } else if (ofreq == 0) {       # wfdb-x: the C program assumed 250 Hz
+    } else if (ofreq == 0) {       # WFDB-x: the C program assumed 250 Hz
       ceprintf("%s: the output sampling frequency must be > 0\n", pname)
       wfdbquit()
       cexit(1)
@@ -560,10 +560,10 @@ app_xform <- function(args = character(0)) {
       }
       ceprintf(" Signal %d gain (adu/%s) [%g]: ", k - 1,
                if (!is.null(d$units)) d$units else if (legacy) "mV" else "nd",
-               d$gain)                    # wfdb-x: C (legacy mode) showed "mV"
+               d$gain)                    # WFDB-x: C (legacy mode) showed "mV"
       answer <- script_fgets(32)
       d$gain <- scan1(answer, "%lf", d$gain)
-      # wfdb-x: a resolution is offered only if it comes from the input (or
+      # WFDB-x: a resolution is offered only if it comes from the input (or
       # the previous output signal) and suits the output format; the C
       # program otherwise offered one based on the format (12 bits for
       # 16-bit formats).  Without one, the user must give it.  Legacy mode: as
@@ -690,7 +690,7 @@ app_xform <- function(args = character(0)) {
   if (!is.null(orec)) {
     r <- osigopen(orec, nosig)
     if (r$nsig != nosig) {
-      # wfdb-x: say why if an output file is one of the input files (the
+      # WFDB-x: say why if an output file is one of the input files (the
       # library's message, quieted above, is the last error)
       e <- charToRaw(wfdberror())
       tail <- charToRaw(" is also an input file\n")
@@ -739,7 +739,7 @@ app_xform <- function(args = character(0)) {
     dk <- dfout[[k]]
     if (dk$gain == 0) {
       # output gain not specified: scale by the ratio of the resolutions.
-      # wfdb-x: this needs both resolutions (the C program guessed an
+      # WFDB-x: this needs both resolutions (the C program guessed an
       # unspecified input resolution from the format, assuming WFDB_DEFRES
       # for 16-bit formats, as legacy mode does).
       if (legacy) {
@@ -757,9 +757,9 @@ app_xform <- function(args = character(0)) {
       }
       gain[k] <- 2^dk$adcres / 2^di$adcres
     } else if (di$gain == 0 && legacy) {
-      gain[k] <- dk$gain / WFDB_DEFGAIN    # wfdb-x: legacy mode (as the C program)
+      gain[k] <- dk$gain / WFDB_DEFGAIN    # WFDB-x: legacy mode (as the C program)
     } else if (di$gain == 0) {
-      # wfdb-x: an uncalibrated input signal cannot be rescaled to the given
+      # WFDB-x: an uncalibrated input signal cannot be rescaled to the given
       # gain (the C program assumed an input gain of WFDB_DEFGAIN).
       ceprintf("%s: signal %d of record %s is uncalibrated; it cannot be rescaled to the specified gain\n",
                pname, j - 1, irec)

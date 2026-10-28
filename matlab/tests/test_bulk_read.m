@@ -2,9 +2,11 @@ function test_bulk_read()
 %TEST_BULK_READ The bulk reader gives the results of the per-frame path.
 %   Multi-frequency records, multi-segment records (fixed and variable
 %   layout, null segments) and the test records are read with read_record
-%   with the bulk reader (wfdbx.internal.bulk_frames) on and off, and
-%   getframes is mixed with getvec and isigsettime: the samples, statuses
-%   and library state are the same.  The signal names of the high-level
+%   with the bulk reader (wfdbx.internal.bulk_frames) on and off (also
+%   decoding in small blocks), getframes is mixed with getvec and
+%   isigsettime, and the frame at which the checksums are verified is read
+%   with right and wrong checksums: the samples, statuses and library state
+%   are the same.  The signal names of the high-level
 %   readers have no white space at their ends.
 
 % This file is part of WFDB-x, an independent reimplementation of the WFDB
@@ -32,6 +34,7 @@ copyfile(fullfile(data, '*'), d);   % (read from the current directory)
 
 bulk_read_multifrequency();
 bulk_read_multisegment();
+bulk_read_checksums();
 bulk_multifrequency_interleaved(false);
 bulk_multifrequency_interleaved(true);
 names_without_spaces();
@@ -42,10 +45,12 @@ function bulk_read_multifrequency()
 % Records of several sampling frequencies are read in blocks: the same
 % samples as frame by frame, in low- and high-resolution modes.  (The
 % records are shorter than in the Python tests, as Octave reads them frame
-% by frame slowly; small input buffers make them span many.)
+% by frame slowly; small input buffers make them span many, and the frames
+% are decoded 29 samples at a time, so that they span many blocks.)
 S = wfdbx.internal.sig_state();
 ibsize = S.ibsize;
 S.ibsize = 1000;
+S.bulk_block = 29;
 fmts = [8 16 61 80 160 212 310 311 24 32];
 spfs = {[4 1 1 1], [2 3], [1 2], [8 1], [3 3 1]};
 for fmt = fmts
@@ -65,6 +70,7 @@ for fmt = fmts
     end
 end
 S.ibsize = ibsize;
+S.bulk_block = 65536;
 end
 
 function bulk_read_multisegment()
@@ -126,6 +132,69 @@ for k = 1:numel(d)
     end
 end
 wfdbx.wfdbverbose();
+end
+
+function bulk_read_checksums()
+% The frame at which the checksums are verified (the last one) is read in
+% blocks when they are right, by getvec (status -4) when one is wrong: the
+% same vectors, statuses, error message and library state either way, in
+% both resolutions, for groups that end on a whole packed unit or not.
+S = wfdbx.internal.sig_state();
+r = wfdbx.internal.GlibcRand(17);
+cases = {16, 1, 300; 212, [1 1 1], 300; 212, [1 1 1], 301; 212, [2 1], 299; ...
+    310, [2 1], 299; 311, 1, 301; 24, [2 3], 250; 8, [1 1], 200};
+for k = 1:size(cases, 1)
+    [fmt, spf, n] = cases{k, :};
+    mf_record('ck', r, fmt, spf, n, 200, {});
+    for bad = [false true]
+        if bad
+            corrupt_checksum('ck.hea');
+        end
+        for hr = [false true]
+            what = sprintf('checksum frame: format %d, spf %s, %d frames, bad %d, highres %d', ...
+                fmt, mat2str(spf), n, bad, hr);
+            out = cell(1, 2);
+            for b = 1:2
+                S.bulk_read = b == 1;
+                S.bulk_vectors = 0;
+                wfdbx.wfdbquiet();
+                assert_eq(wfdbx.isigopen('ck', numel(spf)), numel(spf), what);
+                wfdbx.setgvmode(double(hr));
+                [x, stat, last] = wfdbx.getframes(1e6);
+                [stat2, v] = wfdbx.getvec();
+                isd = S.isd;
+                info = [isd.info];
+                out{b} = {x, stat, last, stat2, v, S.istime, [isd.samp], ...
+                    [info.cksum], [info.nsamp], S.gvc, wfdbx.wfdberror()};
+                if b == 1
+                    bulk = S.bulk_vectors;
+                end
+                wfdbx.wfdbquit();
+                wfdbx.wfdbverbose();
+            end
+            S.bulk_read = true;
+            wfdbx.setgvmode(0);
+            assert_eq(out{1}, out{2}, what);
+            % (all in blocks, unless a group ends within a packed unit)
+            nn = sum(spf);
+            units = [212 2; 310 3; 311 3];
+            j = find(units(:, 1) == fmt);
+            whole = isempty(j) || mod(n * nn, units(j, 2)) == 0;
+            if ~bad && whole && fmt ~= 8
+                assert_eq(bulk, size(out{1}{1}, 1), [what ' (in blocks)']);
+            end
+        end
+    end
+end
+end
+
+function corrupt_checksum(name)
+% Add 1 to the checksum of the first signal in the header NAME.
+lines = regexp(fileread(name), '\n', 'split');
+f = regexp(lines{2}, ' ', 'split');
+f{7} = sprintf('%d', str2double(f{7}) + 1);
+lines{2} = strjoin(f, ' ');
+write_text(name, strjoin(lines, char(10)));
 end
 
 function bulk_multifrequency_interleaved(hr)
@@ -227,6 +296,7 @@ else
     w = reshape(r.rand(n * cols), n, cols) / wfdbx.internal.GlibcRand.RAND_MAX;
     x(w < 0.01) = -32768;       % WFDB_INVALID_SAMPLE
     x(1:2, 1) = -32768;
+    x(end, :) = -32768;
 end
 opts = {'fmt', fmt, 'gains', gains, 'adcres', ranges(k, 3), 'units', 'mV', ...
     'samps_per_frame', spf};
@@ -305,6 +375,7 @@ wfdbx.wfdbquit();
 wfdbx.wfdbverbose();
 S = wfdbx.internal.sig_state();
 S.bulk_read = true;
+S.bulk_block = 65536;
 S.ibsize = ibsize;
 cd(old);
 if isfolder(d)

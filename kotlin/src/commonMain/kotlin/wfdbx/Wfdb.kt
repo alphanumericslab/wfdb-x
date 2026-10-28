@@ -69,7 +69,7 @@ class Wfdb {
     /** <ecgmap.h> tables (Ecgcodes.kt). */
     internal val maps = EcgMaps()
 
-    /** wfdb-x: legacy mode (see [wfdbx_set_legacy]). */
+    /** WFDB-x: legacy mode (see [wfdbx_set_legacy]). */
     internal var legacy = false
 }
 

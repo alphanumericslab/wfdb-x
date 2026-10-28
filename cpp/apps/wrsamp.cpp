@@ -14,7 +14,7 @@
 // adu/mV, a resolution based on the format, and millivolts); -G 0 declares the
 // signals uncalibrated; -G, -R and -U take one value per signal; --legacy, as
 // the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1993-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -199,7 +199,7 @@ static const char *help_strings[] = {
     nullptr
 };
 
-// wfdb-x: the help text of the original program, printed in legacy mode
+// WFDB-x: the help text of the original program, printed in legacy mode
 static const char *legacy_help_strings[] = {
     "usage: %s [OPTIONS ...] [COLUMN ...]\n",
     "where COLUMN selects a field to be copied (leftmost field is column 0),",
@@ -248,7 +248,7 @@ static const char *legacy_help_strings[] = {
     std::exit(1);
 }
 
-// wfdb-x: the ADC resolution the C program (and legacy mode) inferred from
+// WFDB-x: the ADC resolution the C program (and legacy mode) inferred from
 // the format.
 static int legacy_adcres(int format)
 {
@@ -275,7 +275,7 @@ static int legacy_adcres(int format)
 
 static void help()
 {
-    // wfdb-x: the original help text in legacy mode
+    // WFDB-x: the original help text in legacy mode
     const char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;
 
     std::fprintf(stderr, hs[0], pname);
@@ -292,17 +292,17 @@ static void help()
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
     const char *gain = "", *line = nullptr, *record = nullptr, *scale = "";
-    const char *res = "", *uopt = nullptr;     // wfdb-x: -R and -U
+    const char *res = "", *uopt = nullptr;     // WFDB-x: -R and -U
     const char *delim = " \t\r\n,";     // defpmode.delim
     char rsep = '\n', sflag = 0, Xflag = 0;
     std::vector<std::string> dstrings, ustrings;
     bool have_dstrings = false, have_ustrings = false;
-    double freq = 0.0;  // wfdb-x: no default frequency
+    double freq = 0.0;  // WFDB-x: no default frequency
     int dflag = 0, format = 16, i, j, zflag = 0;
     std::FILE *ifile = stdin;
     long t = 0L, t0 = 0L, t1 = 0L;
@@ -310,7 +310,7 @@ int main(int argc, char **argv)
 
     pname = prog_name(argv[0]);
     if (wfdbx_get_legacy())
-        freq = WFDB_DEFFREQ;    // wfdb-x: the default of the C program
+        freq = WFDB_DEFFREQ;    // WFDB-x: the default of the C program
 
     for (i = 1; i < argc && *argv[i] == '-'; i++) {
         switch (*(argv[i] + 1)) {
@@ -345,8 +345,8 @@ int main(int argc, char **argv)
             help();
             std::exit(1);
             break;
-        case 'R':   // wfdb-x: ADC resolution(s) in bits
-            if (wfdbx_get_legacy())     // wfdb-x: not in the original
+        case 'R':   // WFDB-x: ADC resolution(s) in bits
+            if (wfdbx_get_legacy())     // WFDB-x: not in the original
                 unrecognized(argv[i]);
             if (++i >= argc) {
                 std::fprintf(stderr, "%s: ADC resolution(s) must follow -R\n",
@@ -355,8 +355,8 @@ int main(int argc, char **argv)
             }
             res = argv[i];
             break;
-        case 'U':   // wfdb-x: units
-            if (wfdbx_get_legacy())     // wfdb-x: not in the original
+        case 'U':   // WFDB-x: units
+            if (wfdbx_get_legacy())     // WFDB-x: not in the original
                 unrecognized(argv[i]);
             if (++i >= argc) {
                 std::fprintf(stderr, "%s: units must follow -U\n", pname);
@@ -438,7 +438,7 @@ int main(int argc, char **argv)
         }
     }
 
-    // wfdb-x: the sampling frequency, the gains, the ADC resolutions, and the
+    // WFDB-x: the sampling frequency, the gains, the ADC resolutions, and the
     // units (of calibrated signals) must be specified when a header is
     // written (the C program assumed 250 Hz, 200 adu/mV, a resolution based
     // on the format, and millivolts), as legacy mode does.
@@ -603,7 +603,7 @@ int main(int argc, char **argv)
                 dstrings[fv[k]] : std::string();
         else
             si[k].desc = "col " + std::to_string(fv[k]);
-        if (uopt) {     // wfdb-x: -U (the last one applies to the rest)
+        if (uopt) {     // WFDB-x: -U (the last one applies to the rest)
             while (*uopt == ' ') uopt++;
             if (*uopt) {
                 const char *q = uopt;
@@ -621,7 +621,7 @@ int main(int argc, char **argv)
         si[k].fmt = format;
         si[k].spf = 1;
         si[k].bsize = 0;
-        // wfdb-x: the ADC resolutions are given by -R (the last one applies
+        // WFDB-x: the ADC resolutions are given by -R (the last one applies
         // to the remaining signals); the C program (and legacy mode) inferred
         // them from the format or assumed WFDB_DEFRES.
         if (wfdbx_get_legacy())
@@ -643,12 +643,12 @@ int main(int argc, char **argv)
         si[k].baseline = 0;
         while (*gain == ' ') gain++;
         if (std::sscanf(gain, "%lf", &si[k].gain) < 1)
-            // wfdb-x: C (legacy mode): WFDB_DEFGAIN
+            // WFDB-x: C (legacy mode): WFDB_DEFGAIN
             si[k].gain = (k == 0) ? (wfdbx_get_legacy() ? WFDB_DEFGAIN : 0.)
                                   : si[k - 1].gain;
         else
             while (*gain != '\0' && *gain != ' ') gain++;
-        // wfdb-x: the units of a calibrated signal must be specified, by -U
+        // WFDB-x: the units of a calibrated signal must be specified, by -U
         // or by the input (the C program left them out: millivolts).
         if (record != nullptr && !wfdbx_get_legacy() && si[k].gain != 0. &&
             (!si[k].units || si[k].units->empty())) {

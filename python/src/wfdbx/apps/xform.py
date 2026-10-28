@@ -16,7 +16,7 @@ output signal) and suits the output format; unspecified units are shown as "nd"
 (the original assumed 250 Hz, 200 adu/mV, a resolution based on the format, and
 millivolts); when an output signal file would be one of the input files, the
 message says so; --legacy, as the first argument, restores the original
-behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 gives the reasons.
 
 Original C program: app/xform.c, WFDB Software Package 10.7.0.
@@ -283,7 +283,7 @@ def _main(argv):
     elif Hflag:
         w.setgvmode(w.WFDB_HIGHRES)
     ifreq = w.sampfreq(None)
-    # wfdb-x: no default sampling frequency (C assumed 250 Hz if the input
+    # WFDB-x: no default sampling frequency (C assumed 250 Hz if the input
     # header did not specify one, as legacy mode does).
     if ifreq <= 0.0 and not legacy():
         freq_not_specified(pname, irec)
@@ -301,7 +301,7 @@ def _main(argv):
         if nrec is not None and w.newheader(nrec) < 0:
             raise Exit(2)
         ofreq = w.sampfreq(orec)
-        # wfdb-x: no default sampling frequency (legacy mode: no check)
+        # WFDB-x: no default sampling frequency (legacy mode: no check)
         if ofreq == 0.0 and not legacy():
             freq_not_specified(pname, orec)
             w.wfdbquit()
@@ -362,8 +362,8 @@ def _main(argv):
                 if not ofreq < 0:
                     break
         if ofreq == 0 and legacy():
-            ofreq = w.WFDB_DEFFREQ  # wfdb-x: as in the C program
-        elif ofreq == 0:    # wfdb-x: C assumed 250 Hz
+            ofreq = w.WFDB_DEFFREQ  # WFDB-x: as in the C program
+        elif ofreq == 0:    # WFDB-x: C assumed 250 Hz
             eprintf("%s: the output sampling frequency must be > 0\n", pname)
             w.wfdbquit()
             raise Exit(1)
@@ -439,7 +439,7 @@ def _main(argv):
                         ub.append(ch)
                 units = "".join(ub)
                 d.units = units if units else None
-            # wfdb-x: C (legacy mode) showed "mV" for unspecified units
+            # WFDB-x: C (legacy mode) showed "mV" for unspecified units
             eprintf(" Signal %d gain (adu/%s) [%g]: ", k,
                     d.units if d.units is not None else
                     ("mV" if legacy() else "nd"), d.gain)
@@ -447,7 +447,7 @@ def _main(argv):
             n, v = sscanf(answer, "%lf")
             if n == 1:
                 d.gain = v[0]
-            # wfdb-x: a resolution is offered only if it comes from the input
+            # WFDB-x: a resolution is offered only if it comes from the input
             # (or the previous output signal) and suits the output format; C
             # otherwise offered one based on the format (12 bits for 16-bit
             # formats).  Without one, the user must give it.  Legacy mode: as
@@ -563,7 +563,7 @@ def _main(argv):
     if orec is not None:
         dfout = []
         if w.osigopen(orec, dfout, nosig) != nosig:
-            # wfdb-x: say why if an output file is one of the input files
+            # WFDB-x: say why if an output file is one of the input files
             # (the library's message, quieted above, is the last error)
             e = w.wfdberror()
             if not legacy() and e.startswith("osigopen: output file ") and \
@@ -602,7 +602,7 @@ def _main(argv):
         di = dfin[j]
         do = dfout[k]
         if do.gain == 0.0:
-            # wfdb-x: rescaling by ADC resolution needs both resolutions (C
+            # WFDB-x: rescaling by ADC resolution needs both resolutions (C
             # guessed an unspecified input resolution from the format,
             # assuming WFDB_DEFRES for 16-bit formats, as legacy mode does).
             if legacy():
@@ -618,9 +618,9 @@ def _main(argv):
                 raise Exit(2)
             gain[k] = float(1 << do.adcres) / float(1 << di.adcres)
         elif di.gain == 0.0 and legacy():
-            gain[k] = do.gain / w.WFDB_DEFGAIN     # wfdb-x: as in C
+            gain[k] = do.gain / w.WFDB_DEFGAIN     # WFDB-x: as in C
         elif di.gain == 0.0:
-            # wfdb-x: an uncalibrated input signal cannot be rescaled to the
+            # WFDB-x: an uncalibrated input signal cannot be rescaled to the
             # specified gain (C assumed an input gain of WFDB_DEFGAIN).
             eprintf("%s: signal %d of record %s is uncalibrated; it cannot be "
                     "rescaled to the specified gain\n", pname, j, irec)

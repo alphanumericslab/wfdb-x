@@ -10,7 +10,7 @@ the original program, but it is new code, not the original C code.
 Changes from the original: no built-in sampling frequency: the new option -F
 FREQ gives it when the record header gives none, and is then required for -s
 (the original assumed 250 Hz); --legacy, as the first argument, restores the
-original behavior. Each change is marked "wfdb-x:" in the code;
+original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/m2a.c, WFDB Software Package 10.7.0.
@@ -40,7 +40,7 @@ HELP = [
     "            and convert them to milliseconds",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {
     " -F FREQ   sampling frequency, if the record header does not specify one":
     None})
@@ -108,7 +108,7 @@ def _main(argv):
         while w.getann(0, annot) >= 0:
             w.putann(0, annot)
     else:
-        # wfdb-x: no default sampling frequency (C assumed 250 Hz if the
+        # WFDB-x: no default sampling frequency (C assumed 250 Hz if the
         # record header did not specify one, as legacy mode does); -F
         # specifies one.
         if w.sampfreq(record) <= 0.0:

@@ -17,7 +17,7 @@ function status = snip(args)
 %       -s          suppress output of info strings in header
 %       -t TIME     stop at specified time
 %
-%   wfdb-x: the input record must specify its sampling frequency (the C
+%   WFDB-x: the input record must specify its sampling frequency (the C
 %   program assumed 250 Hz); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
@@ -45,7 +45,7 @@ function status = snip(args)
 % Changes from the original: no built-in sampling frequency: the input record
 % must give it, for the header of the excerpt (the original assumed 250 Hz);
 % --legacy, as the first argument, restores the original behavior. Each change
-% is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/snip.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -234,7 +234,7 @@ if recurse && maxseg > 0
         ohfile.write(uint8([orseg wfdbx.internal.csprintf(' %d', len) ...
             sprintf('\r\n')]));
     end
-    ohfile.close();     % wfdb-x: reports a write error
+    ohfile.close();     % WFDB-x: reports a write error
     return;
 end
 if opt.fmt <= 0
@@ -461,7 +461,7 @@ if nsig < 0
     status = 2;
     return;
 end
-% wfdb-x: the output header needs the sampling frequency (the C program
+% WFDB-x: the output header needs the sampling frequency (the C program
 % assumed 250 Hz if the input header did not specify one).
 if ~wfdbx.wfdbx_get_legacy() && wfdbx.sampfreq([]) <= 0  % (WFDB-x)
     wfdbx.internal.ceprintf( ...

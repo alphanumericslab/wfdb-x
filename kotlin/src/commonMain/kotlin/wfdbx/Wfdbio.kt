@@ -6,7 +6,7 @@
 // legacy-mode switch (wfdbx_set_legacy, wfdbx_legacy_args). WfdbFile, the
 // buffered file type, is in WfdbFile.kt.
 //
-// wfdb-x: files are found by explicit names (see wfdb_open): a relative
+// WFDB-x: files are found by explicit names (see wfdb_open): a relative
 // name is read under the input directory (wfdbx_set_input_dir,
 // WFDBX_INPUT_DIR) and written under the output directory
 // (wfdbx_set_output_dir, WFDBX_OUTPUT_DIR); by default, the current
@@ -38,7 +38,7 @@
 // wfdbx_write_errors, wfdbx_note_write_error and wfdbx_fclose_output, and
 // legacy mode: wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args; legacy mode (wfdbx_set_legacy) restores the original
 // behavior (the WFDB path, without network access). Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
@@ -97,17 +97,17 @@ internal class IoState {
     var irec = ByteArray(0)
     var memBehavior = 1
 
-    /** wfdb-x: the directory in which wfdb_open creates output files (null: files are created as named). */
+    /** WFDB-x: the directory in which wfdb_open creates output files (null: files are created as named). */
     var outputDir: ByteArray? = null
 
-    /** wfdb-x: the value of WFDBX_OUTPUT_DIR (read on first use). */
+    /** WFDB-x: the value of WFDBX_OUTPUT_DIR (read on first use). */
     var envOutputDir: ByteArray? = null
     var outputDirInit = false
 
     /** WFDB-x (normal mode): the directory under which relative names are read (null: the current directory). */
     var inputDir: ByteArray? = null
 
-    /** wfdb-x: the value of WFDBX_INPUT_DIR (read on first use). */
+    /** WFDB-x: the value of WFDBX_INPUT_DIR (read on first use). */
     var envInputDir: ByteArray? = null
     var inputDirInit = false
 
@@ -115,7 +115,7 @@ internal class IoState {
     var setwfdbInputDir: ByteArray? = null
     var setwfdbCalled = false
 
-    /** wfdb-x: network access allowed (null until first needed: then from WFDBX_NETWORK, whose value is envNetwork). */
+    /** WFDB-x: network access allowed (null until first needed: then from WFDBX_NETWORK, whose value is envNetwork). */
     var network: Boolean? = null
     var envNetwork = false
 }
@@ -141,7 +141,7 @@ private fun spr2(record: ByteArray, ftype: ByteArray): ByteArray =
     bcat(record, byteArrayOf('.'.code.toByte()), ftype.copyOf(minOf(ftype.size, 3)))
 
 /**
- * wfdb-x: whether [s] is an absolute local path: one beginning with "/"
+ * WFDB-x: whether [s] is an absolute local path: one beginning with "/"
  * (and, on Windows-style names, "X:\", "X:/" or "\\").
  */
 internal fun isAbsolutePath(s: ByteArray): Boolean {
@@ -320,7 +320,7 @@ internal fun localFopen(fname0: ByteArray, mode: String, legacy: Boolean): WfdbF
     val fname = cstr(fname0)
     if (legacy && (fname.indexOf("..".latin1()) >= 0 || fname.indexOf("://".latin1()) >= 0)) return null
     if (mode.startsWith("r") && Platform.isDirectory(fname)) return null
-    val out = !mode.startsWith("r") // wfdb-x: see wfdbx_write_errors
+    val out = !mode.startsWith("r") // WFDB-x: see wfdbx_write_errors
     WfdbFile.fopen(fname, mode)?.let {
         it.out = out
         return it
@@ -340,7 +340,7 @@ internal fun localFopen(fname0: ByteArray, mode: String, legacy: Boolean): WfdbF
     return null
 }
 
-// wfdb-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
+// WFDB-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
 // report success when its output was not written.
 private var writeErrors = 0
 
@@ -388,7 +388,7 @@ fun wfdb_striphea(record: ByteArray): ByteArray {
 
 /**
  * Runs `sortann --legacy -r. RECORD -a ANNOTATOR` to sort an annotation
- * file (used by oannclose in legacy mode; wfdb-x: the program is run
+ * file (used by oannclose in legacy mode; WFDB-x: the program is run
  * without a shell, with --legacy so that it behaves as the original, and
  * in the output directory [dir], if one is set). Returns the exit status
  * (-1 if it could not be run).
@@ -476,7 +476,7 @@ private fun Wfdb.getiwfdb(p0: ByteArray): ByteArray {
 }
 
 /**
- * C `getwfdb()`: wfdb-x: in normal mode, the input directory (see
+ * C `getwfdb()`: WFDB-x: in normal mode, the input directory (see
  * [wfdbx_set_input_dir]), or "." if none is set. In legacy mode, the WFDB
  * path (initialized from the WFDB environment variable, or [DEFWFDB], on
  * first use).
@@ -501,11 +501,11 @@ fun Wfdb.getwfdb(): ByteArray {
 }
 
 /**
- * C `setwfdb(path)`: wfdb-x: in normal mode, [p], split into components as
+ * C `setwfdb(path)`: WFDB-x: in normal mode, [p], split into components as
  * the WFDB path is (at spaces, ";", and ":" outside URLs), must contain at
  * most one non-empty component, which becomes the input directory (none,
  * e.g. "" or ";": the default; see [wfdbx_set_input_dir]); with more, it
- * reports "setwfdb: wfdb-x reads from a single input directory; ..." and
+ * reports "setwfdb: WFDB-x reads from a single input directory; ..." and
  * changes nothing. Nothing is exported to the environment.
  *
  * In legacy mode, as in C: sets the WFDB path (null: from the environment
@@ -532,7 +532,7 @@ fun Wfdb.setwfdb(p: ByteArray?) {
 fun Wfdb.setwfdb(p: String) = setwfdb(p.latin1())
 
 /**
- * C `resetwfdb()`: wfdb-x: in normal mode, restores the input directory set
+ * C `resetwfdb()`: WFDB-x: in normal mode, restores the input directory set
  * by the last setwfdb, if any (wfdbquit does not call it in normal mode).
  * In legacy mode, restores the WFDB path to its initial value (only if
  * getwfdb was called before any setwfdb).
@@ -567,7 +567,7 @@ fun Wfdb.wfdbverbose() {
     io.errorPrint = true
 }
 
-/** wfdb-x: turns the printing of error messages on or off; returns the previous setting. */
+/** WFDB-x: turns the printing of error messages on or off; returns the previous setting. */
 internal fun Wfdb.wfdbxSetErrorPrint(on: Boolean): Boolean {
     val p = io.errorPrint
     io.errorPrint = on
@@ -608,7 +608,7 @@ fun Wfdb.wfdb_error_fmt(fmt: String, vararg args: Any?) = wfdb_error(cformat(fmt
 
 /**
  * Records [msg] as the latest error (as wfdb_error does), without printing
- * it (wfdb-x: for a message that a high-level function replaces with its
+ * it (WFDB-x: for a message that a high-level function replaces with its
  * own).
  */
 internal fun Wfdb.wfdbErrorUnprinted(msg: ByteArray) {
@@ -649,7 +649,7 @@ private fun Wfdb.initInputDir() {
         val w = getenv("WFDB")
         if (w != null && w.isNotEmpty()) {
             wfdbWarned = true
-            wfdb_error("wfdb-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n")
+            wfdb_error("WFDB-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n")
         }
     }
 }
@@ -672,7 +672,7 @@ private fun Wfdb.setwfdbNormal(p0: ByteArray?): Int {
     }
     if (found.size > 1) {
         wfdb_error(
-            "setwfdb: wfdb-x reads from a single input directory; use " +
+            "setwfdb: WFDB-x reads from a single input directory; use " +
                 "wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n"
         )
         return -1
@@ -842,7 +842,7 @@ fun Wfdb.wfdbx_get_legacy(): Int = if (legacy) 1 else 0
  * Part of WFDB-x; not in the original WFDB package.
  */
 fun Wfdb.wfdbx_legacy_args(argv: MutableList<ByteArray>): Int {
-    if (argv.isNotEmpty()) exitCheckInit(argv[0], this) // wfdb-x: see wfdbx.cstd.exit
+    if (argv.isNotEmpty()) exitCheckInit(argv[0], this) // WFDB-x: see wfdbx.cstd.exit
     if (argv.size < 2 || !beq(argv[1], "--legacy")) return 0
     argv.removeAt(1)
     wfdbx_set_legacy(1)
@@ -868,7 +868,7 @@ fun Wfdb.wfdbx_fclose_output(fp: WfdbFile, pname: ByteArray, name: ByteArray): I
 }
 
 /**
- * wfdb-x: the name of the local file that wfdb_open(name, NULL, WFDB_WRITE)
+ * WFDB-x: the name of the local file that wfdb_open(name, NULL, WFDB_WRITE)
  * creates in normal mode, or null if it creates none (the standard output,
  * or a URL).
  */
@@ -946,7 +946,7 @@ fun Wfdb.wfdb_open(s0: ByteArray?, record0: ByteArray?, mode: Int): WfdbFile? {
         return null
     }
     if (beq(record, "-")) {
-        // wfdb-x: the standard output is an output file (see wfdbx_write_errors)
+        // WFDB-x: the standard output is an output file (see wfdbx_write_errors)
         return if (mode == WFDB_READ) WfdbFile.stdin() else WfdbFile.stdout().also { it.out = true }
     }
     // If the record name ends with '/', append the last component of the
@@ -957,7 +957,7 @@ fun Wfdb.wfdb_open(s0: ByteArray?, record0: ByteArray?, mode: Int): WfdbFile? {
         var name = spr1(r, s)
         initOutputDir()
         if (!legacy) {
-            // wfdb-x: a relative name in the output directory, if one is
+            // WFDB-x: a relative name in the output directory, if one is
             // set; a URL cannot be written
             if (isUrl(name)) {
                 io.filename = name
@@ -966,14 +966,14 @@ fun Wfdb.wfdb_open(s0: ByteArray?, record0: ByteArray?, mode: Int): WfdbFile? {
             name = resolve(name, true)
         } else {
             val dir = io.outputDir
-            // wfdb-x: legacy mode: any name in the output directory
+            // WFDB-x: legacy mode: any name in the output directory
             if (dir != null) name = bcat(dir, byteArrayOf(DSEP.toByte()), name)
         }
         io.filename = name
         return wfdb_fopen(name, if (mode == WFDB_WRITE) "wb" else "ab")
     }
 
-    // wfdb-x: in normal mode, the file is opened at the one location that
+    // WFDB-x: in normal mode, the file is opened at the one location that
     // its name designates (see resolve); nothing is searched.
     if (!legacy) return openAt(resolve(r, false), s)
 
@@ -1032,7 +1032,7 @@ fun Wfdb.wfdb_open(s0: ByteArray?, record0: ByteArray?, mode: Int): WfdbFile? {
 fun Wfdb.wfdb_open(s: String?, record: String?, mode: Int): WfdbFile? = wfdb_open(s?.latin1(), record?.latin1(), mode)
 
 /**
- * wfdb-x: opens the file at location [p] (as resolved, or in the directory
+ * WFDB-x: opens the file at location [p] (as resolved, or in the directory
  * of a header) for reading, trying the two forms of the name (P.TYPE, then
  * P.TYP) there.
  */
@@ -1047,7 +1047,7 @@ private fun Wfdb.openAt(p: ByteArray, s: ByteArray): WfdbFile? {
 }
 
 /**
- * wfdb-x: opens, for reading, a file named in the header of record
+ * WFDB-x: opens, for reading, a file named in the header of record
  * [record] (a signal file, or a segment of a multi-segment record, of type
  * [s]): [name], in the directory [dir] of that header (as returned by
  * [wfdbx_dirname]; null if unknown, for a header read from the standard
@@ -1092,7 +1092,7 @@ fun Wfdb.wfdb_fopen(fname0: ByteArray, mode: String): WfdbFile? {
 }
 
 /**
- * wfdb-x: opens a URL for reading: if network access is allowed, the file
+ * WFDB-x: opens a URL for reading: if network access is allowed, the file
  * is read in full (once per process: the contents, or the failure, are
  * kept), and read from memory.
  */
@@ -1100,7 +1100,7 @@ private fun Wfdb.fetchOpen(url: ByteArray): WfdbFile? {
     if (wfdbx_get_network() == 0) {
         if (!networkWarned) {
             networkWarned = true
-            wfdb_error(cformat("wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open %s\n", url))
+            wfdb_error(cformat("WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open %s\n", url))
         }
         return null
     }
@@ -1113,7 +1113,7 @@ private fun Wfdb.fetchOpen(url: ByteArray): WfdbFile? {
         val r = Platform.fetchUrl(url)
         if (r.data == null && r.toolMissing && !curlWarned) {
             curlWarned = true
-            wfdb_error("wfdb-x: network access needs the curl program, which was not found\n")
+            wfdb_error("WFDB-x: network access needs the curl program, which was not found\n")
         }
         data = r.data
         withGlobalLock { fetched[key] = data }
@@ -1128,7 +1128,7 @@ private fun Wfdb.fetchOpen(url: ByteArray): WfdbFile? {
  * digits, "_", "~", "-" and "/"; otherwise prints "init: illegal character
  * N in DESCRIPTION name" and returns -1.
  *
- * wfdb-x: a record name (description "record") may be a path; outside
+ * WFDB-x: a record name (description "record") may be a path; outside
  * legacy mode only its last component (the record's own name) is checked,
  * so that directories with other characters (such as "my.data/rec") can be
  * written.

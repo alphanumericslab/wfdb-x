@@ -1,4 +1,4 @@
-//! wfdb-x: network access (normal mode), against a local HTTP server on
+//! WFDB-x: network access (normal mode), against a local HTTP server on
 //! 127.0.0.1 (no other host is contacted): off by default (the message,
 //! once per process), URL names and a URL input directory, files named in
 //! a remote header, caching, a 404, a redirection, curl missing, the
@@ -104,7 +104,7 @@ fn network() {
     assert_eq!(w.getwfdb(), b".");
     assert_eq!(
         w.wfdberror(),
-        b"wfdb-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n"
+        b"WFDB-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n"
     );
     let mut w = Wfdb::new();
     w.wfdbquiet();
@@ -148,7 +148,7 @@ fn network() {
     let hea = format!("{db}100s");
     assert!(w.wfdb_open("hea", &hea, WFDB_READ).is_none());
     let msg = format!(
-        "wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open {db}100s.hea\n"
+        "WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open {db}100s.hea\n"
     );
     assert_eq!(w.wfdberror(), msg.as_bytes());
     assert!(w.read_header(&hea, false).is_err());
@@ -244,7 +244,7 @@ fn network() {
         .is_none());
     assert_eq!(
         w.wfdberror(),
-        b"wfdb-x: network access needs the curl program, which was not found\n"
+        b"WFDB-x: network access needs the curl program, which was not found\n"
     );
     let mut w = Wfdb::new();
     w.wfdbquiet();

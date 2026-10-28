@@ -277,7 +277,7 @@ WFDBX_TEST(read_record_checksum_warning_once)
         CHECK(!r.checksum_ok);
         CHECK_EQ(r.nsamples(), size_t(12));
 #ifdef WFDBX_HAVE_DUP
-        CHECK_EQ(count(err, "wfdb-x: checksum error in record r"),
+        CHECK_EQ(count(err, "WFDB-x: checksum error in record r"),
                  size_t(warn ? 1 : 0));
         CHECK_EQ(count(err, "checksum error"), size_t(warn ? 1 : 0));
 #endif

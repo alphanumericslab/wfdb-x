@@ -36,7 +36,7 @@
 // wfdbx_time_needs_freq, getvecs, getvecs_status, and wfdbx_bulk_read,
 // wfdbx_bulk_vectors and wfdbx_input_state (for tests); legacy mode
 // (wfdbx_set_legacy) restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/signal.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by
@@ -226,7 +226,7 @@ pub struct SigState {
     bcount: f64,
     prolog_bytes: i64,
 
-    // wfdb-x: files named in a header (see open_header)
+    // WFDB-x: files named in a header (see open_header)
     /// Directory of the header read last by readheader (see
     /// `wfdbx_dirname`; `None` if unknown, i.e. for the standard input).
     hdr_dir: Option<Vec<u8>>,
@@ -237,19 +237,21 @@ pub struct SigState {
     /// True while setmsheader reads the headers of the segments it was
     /// given.
     user_segments: bool,
-    /// wfdb-x: true during a high-level read: getvec's checksum message is
+    /// WFDB-x: true during a high-level read: getvec's checksum message is
     /// recorded but not printed.
     pub(crate) cksum_quiet: bool,
-    /// wfdb-x: true if `getvecs` must not use its bulk path (see
+    /// WFDB-x: true if `getvecs` must not use its bulk path (see
     /// `Wfdb::wfdbx_bulk_read`; for tests).
     bulk_off: bool,
-    /// wfdb-x: the number of vectors read by the bulk path (for tests).
+    /// WFDB-x: the number of vectors read by the bulk path (for tests).
     bulk_vectors: i64,
-    /// wfdb-x: storage of the bulk path: the signal groups, the frames as
+    /// WFDB-x: storage of the bulk path: the signal groups, the frames as
     /// read and the frames as getframe gives them.
     bulk_groups: Vec<BulkGroup>,
     bulk_in: Vec<i32>,
     bulk_fr: Vec<i32>,
+    /// (and the raw samples of a tile of frames)
+    bulk_raw: Vec<i32>,
 
     // Multi-segment records
     segments: i32,
@@ -331,7 +333,7 @@ pub struct SigState {
     // sample()
     sample_tt: i64,
 
-    // wfdb-x: legacy mode (see `Wfdb::wfdbx_set_legacy`)
+    // WFDB-x: legacy mode (see `Wfdb::wfdbx_set_legacy`)
     legacy: bool,
 }
 
@@ -361,6 +363,7 @@ impl Default for SigState {
             bulk_groups: Vec::new(),
             bulk_in: Vec::new(),
             bulk_fr: Vec::new(),
+            bulk_raw: Vec::new(),
             segments: 0,
             in_msrec: 0,
             msbtime: 0,
@@ -799,7 +802,7 @@ impl IgData {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: bulk input (getvecs)
+// WFDB-x: bulk input (getvecs)
 //
 // `Wfdb::bulk_frames` decodes many frames at once, straight from the input
 // buffers, and makes the sample vectors of getvec from them, exactly as the
@@ -831,138 +834,136 @@ fn sext(v: u32, bits: u32) -> i32 {
     ((v << (32 - bits)) as i32) >> (32 - bits)
 }
 
-/// Stores the samples of `it`, in order, as `m` frames of `nn` samples in
-/// `out` (frames of `stride` values; the group's samples start at `s0`).
-#[inline(always)]
-fn bulk_scatter(
-    out: &mut [i32],
-    stride: usize,
-    s0: usize,
-    nn: usize,
-    m: usize,
-    mut it: impl Iterator<Item = i32>,
-) {
-    if nn == stride {
-        for (x, v) in out[..m * nn].iter_mut().zip(it) {
-            *x = v;
-        }
-        return;
-    }
-    for f in 0..m {
-        let base = f * stride + s0;
-        for x in &mut out[base..base + nn] {
-            *x = it.next().unwrap_or(0);
-        }
-    }
-}
-
 /// Decodes the raw samples (as the `rFMT` functions return them; for format
-/// 8, the first differences) of `m` frames of a group of `nn` signals in
-/// format `fmt` from `b` (whose length is the exact number of bytes).
-fn bulk_decode(fmt: i32, b: &[u8], out: &mut [i32], stride: usize, s0: usize, nn: usize, m: usize) {
-    let u16le = |c: &[u8]| c[0] as u32 | (c[1] as u32) << 8;
+/// 8, the first differences) packed in `b` into `out`, one per value of
+/// `out` (`b` holds exactly the bytes of `out.len()` samples).
+fn bulk_decode(fmt: i32, b: &[u8], out: &mut [i32]) {
     match fmt {
-        8 => bulk_scatter(out, stride, s0, nn, m, b.iter().map(|&c| c as i8 as i32)),
-        80 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.iter().map(|&c| c as i32 - (1 << 7)),
-        ),
-        16 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.chunks_exact(2)
-                .map(|c| i16::from_le_bytes([c[0], c[1]]) as i32),
-        ),
-        61 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.chunks_exact(2)
-                .map(|c| i16::from_be_bytes([c[0], c[1]]) as i32),
-        ),
-        160 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.chunks_exact(2).map(|c| u16le(c) as i32 - (1 << 15)),
-        ),
-        24 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.chunks_exact(3)
-                .map(|c| sext(c[0] as u32 | (c[1] as u32) << 8 | (c[2] as u32) << 16, 24)),
-        ),
-        32 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.chunks_exact(4)
-                .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]])),
-        ),
-        212 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.chunks_exact(3).flat_map(|c| {
+        8 => {
+            for (o, &c) in out.iter_mut().zip(b) {
+                *o = c as i8 as i32;
+            }
+        }
+        80 => {
+            for (o, &c) in out.iter_mut().zip(b) {
+                *o = c as i32 - (1 << 7);
+            }
+        }
+        16 => {
+            for (o, c) in out.iter_mut().zip(b.chunks_exact(2)) {
+                *o = i16::from_le_bytes([c[0], c[1]]) as i32;
+            }
+        }
+        61 => {
+            for (o, c) in out.iter_mut().zip(b.chunks_exact(2)) {
+                *o = i16::from_be_bytes([c[0], c[1]]) as i32;
+            }
+        }
+        160 => {
+            for (o, c) in out.iter_mut().zip(b.chunks_exact(2)) {
+                *o = u16::from_le_bytes([c[0], c[1]]) as i32 - (1 << 15);
+            }
+        }
+        24 => {
+            for (o, c) in out.iter_mut().zip(b.chunks_exact(3)) {
+                *o = sext(c[0] as u32 | (c[1] as u32) << 8 | (c[2] as u32) << 16, 24);
+            }
+        }
+        32 => {
+            for (o, c) in out.iter_mut().zip(b.chunks_exact(4)) {
+                *o = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+            }
+        }
+        212 => {
+            for (o, c) in out.chunks_exact_mut(2).zip(b.chunks_exact(3)) {
                 let (b0, b1, b2) = (c[0] as u32, c[1] as u32, c[2] as u32);
-                [
-                    sext(b0 | (b1 & 0x0f) << 8, 12),
-                    sext(b2 | (b1 & 0xf0) << 4, 12),
-                ]
-            }),
-        ),
-        310 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.chunks_exact(4).flat_map(|c| {
-                let (w0, w1) = (u16le(&c[..2]), u16le(&c[2..]));
-                [
-                    sext((w0 >> 1) & 0x3ff, 10),
-                    sext((w1 >> 1) & 0x3ff, 10),
-                    sext(((w0 & 0xf800) >> 11) | ((w1 & 0xf800) >> 6), 10),
-                ]
-            }),
-        ),
-        311 => bulk_scatter(
-            out,
-            stride,
-            s0,
-            nn,
-            m,
-            b.chunks_exact(4).flat_map(|c| {
-                let w0 = u16le(&c[..2]);
-                let w1 = u16le(&c[2..]);
-                [
-                    sext(w0 & 0x3ff, 10),
-                    sext(((w0 & 0xfc00) >> 10) | ((c[2] as u32 & 0xf) << 6), 10),
-                    sext((w1 >> 4) & 0x3ff, 10),
-                ]
-            }),
-        ),
+                o[0] = sext(b0 | (b1 & 0x0f) << 8, 12);
+                o[1] = sext(b2 | (b1 & 0xf0) << 4, 12);
+            }
+        }
+        310 => {
+            for (o, c) in out.chunks_exact_mut(3).zip(b.chunks_exact(4)) {
+                let w0 = c[0] as u32 | (c[1] as u32) << 8;
+                let w1 = c[2] as u32 | (c[3] as u32) << 8;
+                o[0] = sext((w0 >> 1) & 0x3ff, 10);
+                o[1] = sext((w1 >> 1) & 0x3ff, 10);
+                o[2] = sext(((w0 & 0xf800) >> 11) | ((w1 & 0xf800) >> 6), 10);
+            }
+        }
+        311 => {
+            for (o, c) in out.chunks_exact_mut(3).zip(b.chunks_exact(4)) {
+                let w0 = c[0] as u32 | (c[1] as u32) << 8;
+                let w1 = c[2] as u32 | (c[3] as u32) << 8;
+                o[0] = sext(w0 & 0x3ff, 10);
+                o[1] = sext(((w0 & 0xfc00) >> 10) | ((c[2] as u32 & 0xf) << 6), 10);
+                o[2] = sext((w1 >> 4) & 0x3ff, 10);
+            }
+        }
         _ => {}
     }
 }
+
+/// Stores the samples of one signal in `m` frames, as getskewedframe does
+/// with each sample: from `raw` (`spf` samples every `rstride` values) into
+/// `out` (`spf` every `ostride` values), invalid samples (code `inval`)
+/// replaced by `samp` (the last valid sample) if `pad`, else by
+/// `WFDB_INVALID_SAMPLE`; format 8 (`diff`): the running sums of the
+/// differences. Updates `samp` and `cksum`.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn bulk_signal(
+    raw: &[i32],
+    rstride: usize,
+    out: &mut [i32],
+    ostride: usize,
+    m: usize,
+    spf: usize,
+    diff: bool,
+    inval: i32,
+    pad: bool,
+    samp: &mut i32,
+    cksum: &mut i32,
+) {
+    let (mut sp, mut ck) = (*samp, *cksum);
+    if diff {
+        for i in 0..m {
+            for j in 0..spf {
+                sp = sp.wrapping_add(raw[i * rstride + j]);
+                out[i * ostride + j] = sp;
+                ck = ck.wrapping_sub(sp);
+            }
+        }
+    } else if pad {
+        for i in 0..m {
+            for j in 0..spf {
+                let v = raw[i * rstride + j];
+                ck = ck.wrapping_sub(v);
+                if v != inval {
+                    sp = v;
+                }
+                out[i * ostride + j] = sp;
+            }
+        }
+    } else {
+        for i in 0..m {
+            for j in 0..spf {
+                let v = raw[i * rstride + j];
+                ck = ck.wrapping_sub(v);
+                if v != inval {
+                    sp = v;
+                    out[i * ostride + j] = v;
+                } else {
+                    out[i * ostride + j] = WFDB_INVALID_SAMPLE;
+                }
+            }
+        }
+    }
+    *samp = sp;
+    *cksum = ck;
+}
+
+/// The number of frames decoded at once by the bulk path (at most).
+const BULK_TILE: usize = 1024;
 
 /// A group of input signals read by the bulk path (see
 /// `Wfdb::bulk_frames`).
@@ -1153,15 +1154,10 @@ fn meansamp(s: &[i32], n: i32) -> i32 {
     let neg = (sum < 0) as i64;
     if n & (n - 1) != 0 {
         ((sum + neg) / n as i64 - neg) as i32
+    } else if n > 0 {
+        // (n halvings, each rounding down)
+        (sum >> n.trailing_zeros()) as i32
     } else {
-        let mut n = n;
-        loop {
-            n /= 2;
-            if n == 0 {
-                break;
-            }
-            sum = (sum - (sum < 0) as i64) / 2;
-        }
         sum as i32
     }
 }
@@ -1663,7 +1659,7 @@ impl Wfdb {
         nsig
     }
 
-    /// wfdb-x: opens the header (of type `s`: `"hea"`, or `None` for a file
+    /// WFDB-x: opens the header (of type `s`: `"hea"`, or `None` for a file
     /// name) of a record, or of a segment named in the header of the
     /// current multi-segment record (in the directory of that header), and
     /// notes its directory (`hdr_dir`). Legacy mode: `wfdb_open` (the WFDB
@@ -1845,7 +1841,7 @@ impl Wfdb {
 
         // For local files, be sure that the name (p) within the header file
         // matches the name (record) provided as an argument to this function.
-        // (wfdb-x: a remote header, a fetched URL, is not checked, as the C
+        // (WFDB-x: a remote header, a fetched URL, is not checked, as the C
         // library did not check remote files.)
         let is_std = self
             .sig
@@ -1907,7 +1903,7 @@ impl Wfdb {
         } else if self.sig.legacy && self.sig.ffreq == 0.0 {
             self.sig.ffreq = WFDB_DEFFREQ;
         }
-        // wfdb-x: if the header does not specify the sampling frequency (and
+        // WFDB-x: if the header does not specify the sampling frequency (and
         // the caller has not set one with setsampfreq), it remains
         // unspecified (0); the C library assumed WFDB_DEFFREQ (250 Hz), as
         // legacy mode does.
@@ -1970,7 +1966,7 @@ impl Wfdb {
         // Special processing for master header of a multi-segment record.
         if self.sig.segments != 0 && self.sig.in_msrec == 0 {
             let st = &mut self.sig;
-            // wfdb-x: the segments are in the directory of this header
+            // WFDB-x: the segments are in the directory of this header
             if !st.legacy {
                 st.msrec_dir = st.hdr_dir.clone();
                 st.msrec_name = Some(record.to_vec());
@@ -2214,7 +2210,7 @@ impl Wfdb {
             }
             hs.info.units = units;
 
-            // Determine the ADC resolution in bits.  wfdb-x: if this number
+            // Determine the ADC resolution in bits.  WFDB-x: if this number
             // is missing, it is unspecified (0); the C library inferred it
             // from the format or assumed WFDB_DEFRES (12 bits), as legacy
             // mode does.
@@ -3221,7 +3217,7 @@ impl Wfdb {
                         && fmt != 0
                     {
                         let msg = cformat!(b"getvec: checksum error in signal %d\n", s as i32);
-                        // wfdb-x: not printed during a high-level read (it
+                        // WFDB-x: not printed during a high-level read (it
                         // prints its own warning), but recorded
                         if self.sig.cksum_quiet {
                             self.wfdb_error_unprinted(msg);
@@ -3350,7 +3346,7 @@ impl Wfdb {
     // -----------------------------------------------------------------------
     // Opening output signals
 
-    /// wfdb-x: whether the signal file `fname` of a header line names one of
+    /// WFDB-x: whether the signal file `fname` of a header line names one of
     /// the signal files of the segment `seg` of the open multi-segment
     /// record (located as isigopen locates them in normal mode, without
     /// changing `hdr_dir`): a header or signal file that cannot be found, or
@@ -3411,7 +3407,7 @@ impl Wfdb {
         false
     }
 
-    /// wfdb-x: whether the output signal file `fname` (as named in an output
+    /// WFDB-x: whether the output signal file `fname` (as named in an output
     /// signal specification, created by `wfdb_open(fname, NULL,
     /// WFDB_WRITE)`) exists and is one of the signal files of the open input
     /// record: an open input signal file, or a signal file of a segment of
@@ -3528,7 +3524,7 @@ impl Wfdb {
                 }
                 if os.info.fmt != 0 {
                     let fname = os.info.fname.clone();
-                    // wfdb-x: never an input file (see is_input_file)
+                    // WFDB-x: never an input file (see is_input_file)
                     if !self.sig.legacy
                         && self.is_input_file(fname.as_deref().map_or(&b""[..], cstd::cstr))
                     {
@@ -3744,7 +3740,7 @@ impl Wfdb {
     /// record.
     ///
     /// The header of `record` is found as [`Wfdb::wfdb_open`] finds files
-    /// (wfdb-x: the signal files it names are in its directory; legacy mode:
+    /// (WFDB-x: the signal files it names are in its directory; legacy mode:
     /// all are found in the WFDB path), and up to `nsig` signals are
     /// opened; `siarray` receives their [`Siginfo`]. Input
     /// signals open before are closed first, unless the record name begins
@@ -3913,7 +3909,7 @@ impl Wfdb {
             } else {
                 let fname = st.hsd[si].info.fname.clone();
                 let fname = fname.as_ref().map(|v| cstd::cstr(v));
-                // wfdb-x: in the directory of the header
+                // WFDB-x: in the directory of the header
                 let f = if self.sig.legacy {
                     self.wfdb_open(fname, crate::wfdb::NULL, WFDB_READ)
                 } else {
@@ -4294,7 +4290,7 @@ impl Wfdb {
         if g <= 0.0 {
             self.sig.ifreq = 0.0;
             if self.sig.nisig > 0 && !self.sig.legacy {
-                // wfdb-x: the frequency is unspecified
+                // WFDB-x: the frequency is unspecified
                 self.wfdb_error("setifreq: sampling frequency is not specified\n");
             } else {
                 self.wfdb_error("setifreq: no open input record\n");
@@ -4521,7 +4517,7 @@ impl Wfdb {
         stat
     }
 
-    /// wfdb-x: reads up to `n` sample vectors (at most as many as fit in
+    /// WFDB-x: reads up to `n` sample vectors (at most as many as fit in
     /// `out`) at once, as whole frames, exactly as as many `getvec` calls
     /// would (`getskewedframe` calls and `istime` if `ispfmax < 2`), and
     /// returns their number (0 if the bulk path cannot be used for the next
@@ -4665,6 +4661,7 @@ impl Wfdb {
         // are the vectors of getvec (ispfmax < 2), else `fbuf`.
         let mut ibuf = std::mem::take(&mut st.bulk_in);
         let mut fbuf = std::mem::take(&mut st.bulk_fr);
+        let mut raw = std::mem::take(&mut st.bulk_raw);
         if need_sigmap && ibuf.len() < nf * flen {
             ibuf.resize(nf * flen, 0);
         }
@@ -4700,49 +4697,61 @@ impl Wfdb {
                 }
                 let fmt = gr.fmt;
                 let (nb, ns) = bulk_unit(fmt).unwrap_or((1, 1));
-                let used = nf * gr.gfl * nb / ns;
+                let gfl = gr.gfl;
+                let used = nf * gfl * nb / ns;
                 let ig = &mut st.igd[st.isd[gr.s0].info.group as usize];
-                bulk_decode(
-                    fmt,
-                    &ig.buf[ig.bp..ig.bp + used],
-                    inb,
-                    istride,
-                    gr.pos,
-                    gr.gfl,
-                    nf,
-                );
-                ig.bp += used;
-                // As getskewedframe does with each sample.
-                let inval = fmt_range(fmt).0;
-                let mut c = gr.pos;
-                for is in &mut st.isd[gr.s0..gr.s1] {
-                    let spf = is.info.spf as usize;
-                    let (mut samp, mut cksum) = (is.samp, is.info.cksum);
-                    for f in 0..nf {
-                        let b = f * istride + c;
-                        let col = &mut inb[b..b + spf];
-                        if fmt == 8 {
-                            for x in col {
-                                samp = samp.wrapping_add(*x);
-                                *x = samp;
-                                cksum = cksum.wrapping_sub(samp);
-                            }
-                        } else {
-                            for x in col {
-                                let v = *x;
-                                cksum = cksum.wrapping_sub(v);
-                                if v == inval {
-                                    *x = if pad { samp } else { WFDB_INVALID_SAMPLE };
-                                } else {
-                                    samp = v;
-                                }
-                            }
-                        }
-                    }
-                    is.samp = samp;
-                    is.info.cksum = cksum;
-                    c += spf;
+                let bytes = &ig.buf[ig.bp..ig.bp + used];
+                let (diff, inval) = (fmt == 8, fmt_range(fmt).0);
+                // Tile by tile (of whole packed units), signal by signal: the
+                // tile's raw samples stay in the cache.
+                let tile = BULK_TILE / period * period;
+                if raw.len() < tile * gfl {
+                    raw.resize(tile * gfl, 0);
                 }
+                let mut f0 = 0usize;
+                while f0 < nf {
+                    let m = tile.min(nf - f0);
+                    let r = &mut raw[..m * gfl];
+                    bulk_decode(fmt, &bytes[f0 * gfl * nb / ns..(f0 + m) * gfl * nb / ns], r);
+                    let mut c = 0usize;
+                    for is in &mut st.isd[gr.s0..gr.s1] {
+                        let spf = is.info.spf as usize;
+                        let o = &mut inb[f0 * istride + gr.pos + c..];
+                        let (samp, cksum) = (&mut is.samp, &mut is.info.cksum);
+                        if spf == 1 {
+                            bulk_signal(
+                                &r[c..],
+                                gfl,
+                                o,
+                                istride,
+                                m,
+                                1,
+                                diff,
+                                inval,
+                                pad,
+                                samp,
+                                cksum,
+                            );
+                        } else {
+                            bulk_signal(
+                                &r[c..],
+                                gfl,
+                                o,
+                                istride,
+                                m,
+                                spf,
+                                diff,
+                                inval,
+                                pad,
+                                samp,
+                                cksum,
+                            );
+                        }
+                        c += spf;
+                    }
+                    f0 += m;
+                }
+                ig.bp += used;
             }
             if !need_sigmap && flen < tlen {
                 for f in 0..nf {
@@ -4780,6 +4789,7 @@ impl Wfdb {
         }
         let st = &mut self.sig;
         st.bulk_in = ibuf;
+        st.bulk_raw = raw;
         if frames {
             st.bulk_fr = fbuf;
             return nf;
@@ -4787,14 +4797,23 @@ impl Wfdb {
 
         // The sample vectors of getvec, as rgetvec makes them.
         if !highres {
-            let mut o = 0usize;
-            for f in fbuf[..nf * tlen].chunks_exact(tlen) {
-                let mut tp = 0usize;
-                for v in &st.vsd[..nv] {
-                    let sf = v.info.spf;
-                    out[o] = meansamp(&f[tp..], sf);
-                    o += 1;
-                    tp += sf as usize;
+            // (the first column and the samples per frame of each signal)
+            let mut cols = Vec::with_capacity(nv);
+            let mut tp = 0usize;
+            for v in &st.vsd[..nv] {
+                cols.push((tp, v.info.spf));
+                tp += v.info.spf as usize;
+            }
+            for (f, o) in fbuf[..nf * tlen]
+                .chunks_exact(tlen)
+                .zip(out.chunks_exact_mut(nv))
+            {
+                for (x, &(tp, sf)) in o.iter_mut().zip(&cols) {
+                    *x = if sf == 1 {
+                        f[tp]
+                    } else {
+                        meansamp(&f[tp..], sf)
+                    };
                 }
             }
         } else {
@@ -4837,7 +4856,7 @@ impl Wfdb {
         nf * per
     }
 
-    /// wfdb-x: turns the bulk path of [`Wfdb::getvecs`] on or off (it is on
+    /// WFDB-x: turns the bulk path of [`Wfdb::getvecs`] on or off (it is on
     /// by default) and returns the previous setting. The results are the
     /// same either way; this is for testing the bulk path against the
     /// per-frame path.
@@ -4850,7 +4869,7 @@ impl Wfdb {
         previous
     }
 
-    /// wfdb-x: the number of sample vectors read by the bulk path of
+    /// WFDB-x: the number of sample vectors read by the bulk path of
     /// [`Wfdb::getvecs`] so far (for tests).
     ///
     /// Part of WFDB-x; not in the original WFDB package.
@@ -4859,7 +4878,7 @@ impl Wfdb {
         self.sig.bulk_vectors
     }
 
-    /// wfdb-x: the state of the input signals as text: `istime`, `gvc`,
+    /// WFDB-x: the state of the input signals as text: `istime`, `gvc`,
     /// and each signal's last sample, checksum and remaining samples (for
     /// tests).
     ///
@@ -4877,7 +4896,7 @@ impl Wfdb {
     /// Reads up to `n` sample vectors, as `n` calls of [`Wfdb::getvec`]
     /// would, into `out` (vector after vector, one value per signal in
     /// each). Not part of the C library; faster than calling `getvec` in a
-    /// loop (wfdb-x: where no frame needs special handling, it decodes the
+    /// loop (WFDB-x: where no frame needs special handling, it decodes the
     /// complete frames in the input buffers at once, with the same results).
     ///
     /// # Returns
@@ -4911,7 +4930,7 @@ impl Wfdb {
             let need = self.vec_need();
             let mut pos = 0usize;
             while k < n {
-                // wfdb-x: as many frames as possible at once (see bulk_frames)
+                // WFDB-x: as many frames as possible at once (see bulk_frames)
                 let m = self.bulk_frames(&mut out[pos..], n - k);
                 if m > 0 {
                     stat = self.sig.nisig as i32;
@@ -4956,7 +4975,7 @@ impl Wfdb {
             }
             let mut pos = 0usize;
             while k < n {
-                // wfdb-x: as many vectors as possible at once (see
+                // WFDB-x: as many vectors as possible at once (see
                 // bulk_frames; none if the input is resampled or deskewed)
                 let m = self.bulk_frames(&mut out[pos..], n - k);
                 if m > 0 {
@@ -5354,7 +5373,7 @@ impl Wfdb {
         n
     }
 
-    /// wfdb-x: `name` as written into the header of `record`: outside
+    /// WFDB-x: `name` as written into the header of `record`: outside
     /// legacy mode, names are written relative to the header's directory
     /// (where the reader looks for them): the directory part of `record`
     /// is removed from `name` when `name` begins with it.
@@ -5619,7 +5638,7 @@ impl Wfdb {
             }
             self.sig.in_msrec = 1;
             self.sig.nsamples = 0;
-            self.sig.user_segments = true; // wfdb-x: names given by the caller
+            self.sig.user_segments = true; // WFDB-x: names given by the caller
             let n = self.readheader(&name);
             self.sig.user_segments = false;
             self.sig.in_msrec = old_in_msrec;
@@ -6026,7 +6045,7 @@ impl Wfdb {
     ///
     /// # Returns
     ///
-    /// The frequency (`> 0`); 0 if the header does not specify it (wfdb-x:
+    /// The frequency (`> 0`); 0 if the header does not specify it (WFDB-x:
     /// C assumed 250 Hz) and none was set with `setsampfreq`; -1 if the
     /// header cannot be read, -2 if it is incorrect.
     ///
@@ -6290,7 +6309,7 @@ impl Wfdb {
     /// The frequency used by `timstr`, `mstimstr` and `strtim`, or 0 if
     /// none is specified.
     ///
-    /// wfdb-x: no default sampling frequency (C used 1 sample per second,
+    /// WFDB-x: no default sampling frequency (C used 1 sample per second,
     /// as legacy mode does).
     fn tfreq(&self) -> f64 {
         let st = &self.sig;
@@ -6305,7 +6324,7 @@ impl Wfdb {
         }
     }
 
-    /// wfdb-x: the result of `timstr` and `mstimstr` (named `func` in the
+    /// WFDB-x: the result of `timstr` and `mstimstr` (named `func` in the
     /// error message) when no sampling frequency is specified: the time as
     /// a sample number (`"s"` followed by `|t|`, a valid `strtim` argument).
     fn nofreq_timstr(&mut self, func: &str, t: i64) -> Vec<u8> {
@@ -6380,7 +6399,7 @@ impl Wfdb {
     /// Part of WFDB-x; not in the original WFDB package.
     pub fn wfdbx_legacy_args(&mut self, argv: &mut Vec<Vec<u8>>) -> i32 {
         if let Some(argv0) = argv.first() {
-            cstd::exit_check_init(argv0); // wfdb-x: see cstd::exit
+            cstd::exit_check_init(argv0); // WFDB-x: see cstd::exit
         }
         if argv.len() < 2 || argv[1] != b"--legacy" {
             return 0;
@@ -6393,7 +6412,7 @@ impl Wfdb {
     /// C `timstr(t)`: a time string (`hh:mm:ss`, or `[hh:mm:ss dd/mm/yyyy]`
     /// for a time of day: `t <= 0` when the base time is defined).
     ///
-    /// wfdb-x: if no sampling frequency is specified, reports an error and
+    /// WFDB-x: if no sampling frequency is specified, reports an error and
     /// returns the time as a sample number (`"s"` followed by `|t|`).
     ///
     /// Translation of the C function timstr() (lib/signal.c, WFDB 10.7.0):
@@ -6411,7 +6430,7 @@ impl Wfdb {
 
     /// C `mstimstr(t)`: as `timstr`, with milliseconds.
     ///
-    /// wfdb-x: if no sampling frequency is specified, reports an error and
+    /// WFDB-x: if no sampling frequency is specified, reports an error and
     /// returns the time as a sample number (`"s"` followed by `|t|`).
     ///
     /// Translation of the C function mstimstr() (lib/signal.c, WFDB 10.7.0):
@@ -6536,7 +6555,7 @@ impl Wfdb {
     /// elapsed time from the start of the record for a time of day; 0 for
     /// the base time, or for an incorrectly formatted string.
     ///
-    /// wfdb-x: if no sampling frequency is specified and the string needs
+    /// WFDB-x: if no sampling frequency is specified and the string needs
     /// one (see [`Wfdb::wfdbx_time_needs_freq`]), reports an error and
     /// returns 0.
     ///
@@ -6548,7 +6567,7 @@ impl Wfdb {
         let string = string.as_ref();
         let mut f = self.tfreq();
         if f <= 0.0 {
-            // wfdb-x: no default sampling frequency (C used 1 sample per
+            // WFDB-x: no default sampling frequency (C used 1 sample per
             // second)
             if self.wfdbx_time_needs_freq(string) != 0 {
                 self.wfdb_error("strtim: sampling frequency is not specified\n");
@@ -6613,7 +6632,7 @@ impl Wfdb {
         date
     }
 
-    /// wfdb-x: the gain of signal `s` for the unit conversion functions
+    /// WFDB-x: the gain of signal `s` for the unit conversion functions
     /// (named `func` in error messages), or 0 after reporting an error if
     /// `s` is not a valid signal number or the signal is uncalibrated. The
     /// C library assumed WFDB_DEFGAIN (200 adu per physical unit) instead.
@@ -6621,7 +6640,7 @@ impl Wfdb {
     /// an invalid signal number, without an error.
     fn conversion_gain(&mut self, func: &str, s: u32) -> f64 {
         if self.sig.legacy {
-            // wfdb-x: legacy mode (original behavior)
+            // WFDB-x: legacy mode (original behavior)
             let g = self.baseline_gain(s).1;
             return if g == 0.0 { WFDB_DEFGAIN } else { g };
         }
@@ -6652,7 +6671,7 @@ impl Wfdb {
 
     /// C `adumuv(s, a)`: convert ADC units to microvolts.
     ///
-    /// wfdb-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
+    /// WFDB-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
     /// `s` is invalid or the signal is uncalibrated.
     ///
     /// Translation of the C function adumuv() (lib/signal.c, WFDB 10.7.0):
@@ -6674,7 +6693,7 @@ impl Wfdb {
 
     /// C `muvadu(s, v)`: convert microvolts to ADC units.
     ///
-    /// wfdb-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
+    /// WFDB-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
     /// `s` is invalid or the signal is uncalibrated.
     ///
     /// Translation of the C function muvadu() (lib/signal.c, WFDB 10.7.0):
@@ -6696,7 +6715,7 @@ impl Wfdb {
 
     /// C `aduphys(s, a)`: convert ADC units to physical units.
     ///
-    /// wfdb-x: returns NaN (after reporting an error) if `s` is invalid or
+    /// WFDB-x: returns NaN (after reporting an error) if `s` is invalid or
     /// the signal is uncalibrated.
     ///
     /// Translation of the C function aduphys() (lib/signal.c, WFDB 10.7.0):
@@ -6714,7 +6733,7 @@ impl Wfdb {
 
     /// C `physadu(s, v)`: convert physical units to ADC units.
     ///
-    /// wfdb-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
+    /// WFDB-x: returns `WFDB_INVALID_SAMPLE` (after reporting an error) if
     /// `s` is invalid or the signal is uncalibrated.
     ///
     /// Translation of the C function physadu() (lib/signal.c, WFDB 10.7.0):
@@ -7293,4 +7312,69 @@ pub fn setmsheader<S: AsRef<[u8]>>(
     nsegments: u32,
 ) -> i32 {
     with_default(|w| w.setmsheader(record, segment_name, nsegments))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// meansamp as in C: for a power of 2, n halvings of the sum.
+    fn meansamp_halving(s: &[i32], n: i32) -> i32 {
+        let mut sum: i64 = (n / 2) as i64;
+        for &x in &s[..n.max(0) as usize] {
+            if x == WFDB_INVALID_SAMPLE {
+                return WFDB_INVALID_SAMPLE;
+            }
+            sum += x as i64;
+        }
+        let neg = (sum < 0) as i64;
+        if n & (n - 1) != 0 {
+            ((sum + neg) / n as i64 - neg) as i32
+        } else {
+            let mut n = n;
+            loop {
+                n /= 2;
+                if n == 0 {
+                    break;
+                }
+                sum = (sum - (sum < 0) as i64) / 2;
+            }
+            sum as i32
+        }
+    }
+
+    #[test]
+    fn meansamp_as_halving() {
+        let mut r: u64 = 12345;
+        let mut next = || {
+            r = r
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (r >> 33) as i64
+        };
+        let mut s = [0i32; 64];
+        for k in 0..200000 {
+            let n = (next() % 65) as i32;
+            let big = k % 3 == 0;
+            for x in s.iter_mut() {
+                *x = if big {
+                    (next() as i32).wrapping_mul(2654435761u32 as i32)
+                } else {
+                    (next() % 9) as i32 - 4
+                };
+                if *x == WFDB_INVALID_SAMPLE && next() % 2 == 0 {
+                    *x = 0;
+                }
+            }
+            if k % 50 == 0 && n > 0 {
+                s[(next() % n as i64) as usize] = WFDB_INVALID_SAMPLE;
+            }
+            assert_eq!(
+                meansamp(&s, n),
+                meansamp_halving(&s, n),
+                "{:?} {n}",
+                &s[..n as usize]
+            );
+        }
+    }
 }

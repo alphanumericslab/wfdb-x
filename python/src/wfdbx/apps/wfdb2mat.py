@@ -12,7 +12,7 @@ record must give the sampling frequency (the original assumed 250 Hz),
 uncalibrated signals stay uncalibrated in the output header (the original wrote
 200 adu/mV), and unspecified units are written as "nd" (the original wrote
 "mV"); --legacy, as the first argument, restores the original behavior. Each
-change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/wfdb2mat.c, WFDB Software Package 10.7.0.
   Copyright (C) 2009-2013 George B. Moody; revised 2014-2021 by Benjamin Moody.
@@ -141,7 +141,7 @@ def _main(argv, out):
     if nisig <= 0:
         raise Exit(2)
     vi = [0] * nisig
-    # wfdb-x: uncalibrated signals remain uncalibrated in the output (C
+    # WFDB-x: uncalibrated signals remain uncalibrated in the output (C
     # assumed 200 adu/mV), and the output header needs the sampling
     # frequency (C assumed 250 Hz).  Legacy mode: as in the C program.
     if legacy():
@@ -255,7 +255,7 @@ def _main(argv, out):
         o.fmt = wfdbtype
         o.adczero = 0
         o.baseline -= si[sig[k]].adczero
-        if o.units is None:     # wfdb-x: not assumed to be millivolts
+        if o.units is None:     # WFDB-x: not assumed to be millivolts
             o.units = "mV" if legacy() else "nd"    # (C, legacy mode: mV)
         elif len(o.units) == 0:
             o.units = "nd"

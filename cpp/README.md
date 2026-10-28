@@ -1,30 +1,50 @@
 # WFDB-x for C++
 
+> **WFDB-x** is the WFDB Software Package (the library and its 33
+> command-line tools) reimplemented in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
+> the original C package and to each other. This is the C++
+> implementation.
+> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
+> · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+
 `libwfdbx` reads and writes physiological signal records in the WFDB format
 used by [PhysioNet](https://physionet.org). It is a complete C++17
-implementation of the WFDB Software Package 10.7.0: the library and all of
-its command-line tools. It reads and writes the same files as the original C
+implementation of the WFDB Software Package: the library and all of its
+command-line tools. It reads and writes the same files as the original C
 library, and its tools print the same output.
-
-You can use it in three ways:
-
-* **High-level functions** in `<wfdbx/record.hpp>` that read and write whole
-  records and annotation files as `std::vector`s: `read_record`,
-  `read_header`, `read_annotations`, `write_record`, `write_annotations`,
-  and `check_record`, which checks a record.
-* **Command-line tools** such as `rdsamp`, `rdann` and `wrsamp`, built as
-  separate programs.
-* **The WFDB library functions** in `<wfdbx/wfdb.hpp>` under their C names
-  (`isigopen`, `getvec`, `getann`, ...), for programs written against the C
-  library.
 
 Everything is in namespace `wfdbx`. The library needs only the C++17
 standard library. It builds with CMake 3.14 or later and GCC 8, Clang 7 or
 MSVC 2019 and later, on Linux, macOS and Windows.
 
-WFDB-x is part of a project that provides the same package in seven languages
-with identical behavior; see the
-[project README](https://github.com/alphanumericslab/wfdb-x#readme).
+## Three ways to use WFDB-x
+
+All three are written in C++; none of them calls the C library.
+
+1. **The high-level functions (recommended).** `read_record`,
+   `read_header`, `read_annotations`, `write_record`, `write_annotations`
+   and `check_record`, in `<wfdbx/record.hpp>`, read and write whole
+   records and annotation files as `std::vector`s, in one call, with
+   options given as fields of a struct (`ReadOptions`, `WriteOptions`), and
+   throw `wfdbx::Error` on errors. They read signal files in large blocks,
+   so they are the fastest way to read a record. They are an addition of
+   WFDB-x: the C package has no equivalent. Use them for new code and
+   analysis.
+2. **The WFDB library functions** in `<wfdbx/wfdb.hpp>`, under their C
+   names (`isigopen`, `getvec`, `getann`, `putann`, ...), with the C
+   behavior: sample by sample and annotation by annotation, with errors
+   reported by return values. Use them to port a program written against
+   the C library, or for the exact C semantics.
+3. **The command-line tools** (`rdsamp`, `rdann`, `wrsamp`, `xform`, and
+   29 others), with the options, output and exit status of the C tools,
+   built as separate programs and run by their names (`rdsamp -r 100s`).
+   Use them in shell scripts and pipelines, or to reproduce work done with
+   the original tools.
+
+The high-level functions return exactly the samples and annotations that
+the library functions (and the C library) give.
 
 ## Installation
 
@@ -234,9 +254,9 @@ wfdbx::write_record_physical("rand", x, 2, 360, w);
 ```
 
 This writes the header `rand.hea` and the signal file `rand.dat`. The
-samples are given frame by frame, as in `Record::samples`. You must give the
-sampling frequency, the gain and ADC resolution of each signal, and the
-units of each calibrated signal; there are no defaults. A gain of 0 marks a
+samples are given frame by frame, as in `Record::samples`. The sampling
+frequency, the gain and ADC resolution of each signal, and the units of each
+calibrated signal are required; there are no defaults. A gain of 0 marks a
 signal as uncalibrated, which is only allowed for samples given in ADC
 units. Per-signal fields take one value for all signals, or one value per
 signal.
@@ -269,7 +289,7 @@ sort)`. Give the annotation types as `symbols` or as `codes`. `subtypes`,
 in the file. `dir` is the directory in which to create the file.
 
 If the annotations are not in time order, the file is sorted when it is
-written. `sort = false` keeps the order you gave (without the library's
+written. `sort = false` keeps the given order (without the library's
 advice to run `sortann`) and `sort = true` always sorts, for that call
 only. Without `sort`, the `WFDBANNSORT` environment variable decides
 (sorting is on unless it is `0`).
@@ -291,7 +311,7 @@ only. Without `sort`, the `WFDBANNSORT` environment variable decides
   specified"), and `physical()` needs the gain of the signal ("signal N of
   record REC is uncalibrated").
 * When the data do not match the checksums in the header, `read_record`
-  returns all the data and prints a warning on the standard error: "wfdb-x:
+  returns all the data and prints a warning on the standard error: "WFDB-x:
   checksum error in record REC: the signal data do not match the checksums
   in its header". `checksum_warning = false` turns the warning off;
   `rec.checksum_ok` is `false` either way. Checksums are only checked when a
@@ -338,7 +358,7 @@ std::printf("%s\n", report.to_string().c_str());
 
 `check_record(record, annotators, input)` checks the header of a record,
 its signal specifications, every sample of its signal files, and the
-annotation files you name. It reports each problem it finds. It never
+annotation files named. It reports each problem it finds. It never
 throws for a problem in the record (it throws `wfdbx::Error` only for an
 empty record name). `input` is an `InputOptions` (`input_dir`, `network`),
 as for `read_header`. It checks for problems similar to those found by
@@ -386,20 +406,20 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-WFDB-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where they are named, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
 | a full path: `/data/mitdb/100`, `C:\data\100` | that path | that path |
-| a home path: `~/data/100` | your home directory | your home directory |
+| a home path: `~/data/100` | the user's home directory | the user's home directory |
 | a URL: `https://.../100` | that URL, if network access is on | (URLs cannot be written) |
 | anything else: `100`, `mitdb/100`, `../data/100` | the **input directory** | the **output directory** |
 
 In this table, `/data/mitdb` stands for a local copy of the MIT-BIH
 Arrhythmia Database, and `100` for its record 100.
 
-The input and output directories are both the current directory unless you
-set them:
+The input and output directories are both the current directory unless they
+are set:
 
 | Setting | Function | Option of the high-level functions | Environment variable |
 |---|---|---|---|
@@ -460,17 +480,17 @@ when it cannot connect, or receives nothing, for 30 seconds.
 ## Signal parameters
 
 WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
-that a record does not give. Where one is needed, you must give it: in
+that a record does not give. Where one is needed, it must be given: in
 `write_record`, as the `fs` argument of `read_annotations`, or as an option
-of the tools (see below). A record whose header gives no frequency has
-`fs = 0`. See
+of the tools (see below). A record whose header gives no frequency has `fs =
+0`. See
 [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md)
 for the reasons.
 
 ## Command-line tools
 
 Each tool is a separate program in `cpp/build/bin/`, or in the `bin`
-directory of the installation. With that directory in your `PATH`, run a
+directory of the installation. With that directory in the `PATH`, run a
 tool by its name. These commands read the sample record `100s` (the first
 minute of record 100 of the MIT-BIH Arrhythmia Database), included with
 WFDB-x in the `tests/data` directory of a copy of the repository:
@@ -604,8 +624,12 @@ describes what changes in legacy mode.
   written without any external library. The C library reads files written
   by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
-* **Speed.** WFDB-x for C++ is faster than the C library: `rdsamp` prints a
-  30-minute, two-signal record two to three times as fast.
+* **Speed.** `read_record` reads signal files in large blocks, and is the
+  fastest way to read a record. Code that processes a record as a stream
+  should read it with `getvecs(buffer, n)`, which reads many frames at once,
+  rather than with one `getvec` call per frame.
+  [BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+  compares the seven languages and wfdb-python.
 
 ## Testing
 
@@ -621,12 +645,15 @@ and the FLAC codec. The tests of `check_record` write the corpus of
 `python/tests/check_corpus.py` with `python3` (or the program named by
 `WFDBX_PYTHON`) and the Python package of `python/src`, and compare the
 reports with its `expected.txt`; without Python they are skipped.
-`build/wfdbx_check_corpus DIR` prints the reports for a corpus in DIR. Developer notes are in [DEVELOPING.md](DEVELOPING.md). The conformance suite
+`cpp/build/wfdbx_check_corpus DIR` prints the reports for a corpus in DIR.
+Developer notes are in [DEVELOPING.md](DEVELOPING.md). The conformance suite
 ([`docs/conformance.md`](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/conformance.md))
 runs every tool and compares its results, byte for byte, with those of the
 original C programs. Add `--legacy` to run it in legacy mode.
 
 ## Authors and license
+
+WFDB-x implements version 10.7.0 of the WFDB Software Package.
 
 The WFDB library and tools were written by George B. Moody, with revisions by
 Benjamin Moody and contributions from many others; `parsescp` was written by

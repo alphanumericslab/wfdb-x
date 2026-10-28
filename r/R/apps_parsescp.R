@@ -15,7 +15,7 @@
 # allocated, and samples beyond the end of a signal shorter than lead 0, are
 # read as absent or as zeros (undefined behavior in the original); --legacy, as
 # the first argument, restores the original behavior. Each change is marked
-# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -47,11 +47,11 @@ app_parsescp <- function(args = character(0)) {
 .SCP_CHUNK <- 1048576          # samples processed at a time (memory use)
 .SCP_INVALID <- -32768         # WFDB_INVALID_SAMPLE
 .SCP_ZMAX <- 2000              # -z: larger values are marked invalid
-# The gain (adu/mV) of the WFDB record.  wfdb-x: exact, not assumed: the
+# The gain (adu/mV) of the WFDB record.  WFDB-x: exact, not assumed: the
 # samples have been rescaled to units of 5000 nV (see gref and gres), i.e.,
 # 200 adu/mV.  (Its sampling frequency is the one given in the SCP file.)
 .SCP_GAIN <- 200
-.SCP_LEGACY_SFREQ <- 500       # wfdb-x: legacy mode: the C program's frequency
+.SCP_LEGACY_SFREQ <- 500       # WFDB-x: legacy mode: the C program's frequency
 .SCP_NV <- 29999               # section 10: not computed by analyzer
 .SCP_REJ <- 29998              # lead rejected
 .SCP_ABSENT <- 19999           # wave not present
@@ -431,7 +431,7 @@ app_parsescp <- function(args = character(0)) {
   fw(dfile, "QRS axis: %d\n", P$QRSaxis)
   fw(dfile, "T axis: %d\n", P$Taxis)
   .app_fwrite(dfile, charToRaw(.scp_precgmeas(P)))
-  .app_fclose(dfile)            # wfdb-x: reports a write error
+  .app_fclose(dfile)            # WFDB-x: reports a write error
 
   # Generate the key file.
   kfile <- cons[[3L]]
@@ -507,7 +507,7 @@ app_parsescp <- function(args = character(0)) {
 .scp_write_wfdb_record <- function(P) {
   recname <- P$recname
   leadname <- c("I", "II", "III", "aVR", "aVF", "aVL", "V1", "V2", "V3", "V4", "V5", "V6")
-  # wfdb-x: the sampling frequency is the one given in the SCP file (the C
+  # WFDB-x: the sampling frequency is the one given in the SCP file (the C
   # program always wrote 500 Hz, as legacy mode does); without one, no record
   # is written.
   legacy <- wfdbx_get_legacy()
@@ -1076,10 +1076,10 @@ app_parsescp <- function(args = character(0)) {
     if (P$sfreq > 0 && P$sfreq != 1.0e6 / sampint)
       cprintf("Warning: section 5 and 6 sample intervals don't match")
     P$sfreq <- 1.0e6 / sampint
-  } else if (wfdbx_get_legacy()) {   # wfdb-x: as in the C program
+  } else if (wfdbx_get_legacy()) {   # WFDB-x: as in the C program
     cprintf("Error: sampling frequency not specified;  assuming 500 Hz\n")
     P$sfreq <- .SCP_LEGACY_SFREQ
-  } else {                     # wfdb-x: the C program assumed 500 Hz
+  } else {                     # WFDB-x: the C program assumed 500 Hz
     cprintf("Error: sampling frequency not specified\n")
   }
   # (sic: bytes 3 and 4, see docs/KNOWN_C_BEHAVIORS.md)
@@ -1652,7 +1652,7 @@ app_parsescp <- function(args = character(0)) {
     }
     for (i in seq_len(nleads) - 1L) {
       s <- P$ecg[[i + 1]]
-      # wfdb-x: a reference beat that was not allocated (e.g. section 3
+      # WFDB-x: a reference beat that was not allocated (e.g. section 3
       # follows section 5 and gives more leads) is absent
       ref <- if (i < length(P$refbeat)) P$refbeat[[i + 1]] else NULL
       if (is.null(s) || is.null(ref)) next
@@ -1674,7 +1674,7 @@ app_parsescp <- function(args = character(0)) {
   invisible()
 }
 
-# wfdb-x: signals that could not be allocated (undefined behavior in C)
+# WFDB-x: signals that could not be allocated (undefined behavior in C)
 # are read as zeros, and so are samples beyond the end of a signal shorter
 # than lead 0.
 .scp_fill_signals <- function(P) {

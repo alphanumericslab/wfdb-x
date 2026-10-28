@@ -13,7 +13,7 @@ specified" (lengths are then given in sample intervals only), a gain of 0 as
 "uncalibrated" (the original: "uncalibrated; assume 200"), and unspecified
 units as "adu/nd" (the original assumed 250 Hz, 12 bits and millivolts);
 --legacy, as the first argument, restores the original behavior. Each change is
-marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
   Copyright (C) 1989-2012 George B. Moody; revised 2018-2020 by Benjamin Moody.
@@ -67,7 +67,7 @@ def _main(argv, out):
             out.write(info + "\n")
             info = w.getinfo(None)
         out.write("=====\n")
-    # wfdb-x: if the sampling frequency is not specified, times are not
+    # WFDB-x: if the sampling frequency is not specified, times are not
     # shown (C assumed 250 Hz).  In legacy mode, the output is that of the
     # C program.
     freq = w.sampfreq(None)
@@ -145,15 +145,15 @@ def _main(argv, out):
         out.write(" File: %s\n" % (si.fname if si.fmt else "[none]"))
         out.write(" Description: %s\n" % si.desc)
         out.write(" Gain: ")
-        if legacy():    # wfdb-x: legacy mode, as in the C program
+        if legacy():    # WFDB-x: legacy mode, as in the C program
             out.write("uncalibrated; assume %g" % w.WFDB_DEFGAIN
                       if si.gain == 0.0 else "%.12g" % si.gain)
             out.write(" adu/%s\n" % (si.units if si.units is not None
                                      else "mV"))
-        elif si.gain == 0.0:   # wfdb-x: no default gain
+        elif si.gain == 0.0:   # WFDB-x: no default gain
             out.write("uncalibrated\n")
         else:
-            # wfdb-x: unspecified units are shown as "nd" (C assumed mV)
+            # WFDB-x: unspecified units are shown as "nd" (C assumed mV)
             out.write("%.12g adu/%s\n" % (si.gain, si.units if si.units
                                            is not None else "nd"))
         out.write(" Initial value: %d\n" % si.initval)
@@ -170,7 +170,7 @@ def _main(argv, out):
             out.write("%d-byte blocks\n" % si.bsize)
         if si.adcres > 0 or legacy():
             out.write(" ADC resolution: %d bits\n" % si.adcres)
-        else:               # wfdb-x: no default resolution
+        else:               # WFDB-x: no default resolution
             out.write(" ADC resolution: not specified\n")
         out.write(" ADC zero: %d\n" % si.adczero)
         out.write(" Baseline: %d\n" % si.baseline)

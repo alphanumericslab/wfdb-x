@@ -1,5 +1,5 @@
-% wfdb-x: read and write WFDB records in MATLAB and GNU Octave
-% Version 10.7.0 (WFDB Software Package 10.7.0)
+% WFDB-x: read and write WFDB records in MATLAB and GNU Octave
+% Version 1.1.0
 %
 % Call the functions with the package name, such as wfdbx.read_record.
 % Text arguments are char vectors or MATLAB strings.  Samples, times and

@@ -4,7 +4,7 @@ function g = conversion_gain(S, fn, s)
 %   input signal SIG (S is the signal state).  If SIG is not a valid signal
 %   number, it reports "FN: invalid signal number SIG" and returns 0; if
 %   the signal is uncalibrated (gain 0), it reports "FN: signal SIG is
-%   uncalibrated" and returns 0.  wfdb-x: the C library assumed
+%   uncalibrated" and returns 0.  WFDB-x: the C library assumed
 %   WFDB_DEFGAIN (200 adu per physical unit) in both cases, as legacy mode
 %   (wfdbx.wfdbx_set_legacy) does, without an error; see
 %   docs/DIVERGENCES.md.
@@ -23,7 +23,7 @@ function g = conversion_gain(S, fn, s)
 %
 % Changes from the original: an uncalibrated signal or an invalid signal
 % number is an error, and 0 is returned (the C library assumed a gain of
-% 200). Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+% 200). Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 % gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -39,7 +39,7 @@ function g = conversion_gain(S, fn, s)
 WFDB_DEFGAIN = 200;     % lib/wfdb.h
 
 s = mod(s, 4294967296);     % WFDB_Signal is unsigned
-if S.legacy_mode    % wfdb-x: legacy mode (original behavior)
+if S.legacy_mode    % WFDB-x: legacy mode (original behavior)
     if s < S.nvsig
         g = S.vsd(s + 1).info.gain;
     else

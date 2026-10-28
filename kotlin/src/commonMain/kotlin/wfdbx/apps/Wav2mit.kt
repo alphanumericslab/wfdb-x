@@ -24,7 +24,7 @@
 // GAIN (required) and -U UNITS (required unless the gain is 0) give them (the
 // original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
 // millivolts); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
@@ -76,7 +76,7 @@ private val WAV2MIT_HELP = arrayOf(
     " -U UNITS   physical units (required unless the gain is 0)",
 )
 
-/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
+/** WFDB-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val WAV2MIT_WFDBX_LINES = setOf(WAV2MIT_HELP[3], WAV2MIT_HELP[6])
 
 private fun Wfdb.wav2mitHelp(pname: ByteArray) {
@@ -162,7 +162,7 @@ fun Wfdb.wav2mitMain(argv0: Array<ByteArray>): Int {
         exit(1)
     }
     val ifname: ByteArray = ifname0
-    // wfdb-x: the gain (-G), and the units (-U) of a calibrated signal, must be
+    // WFDB-x: the gain (-G), and the units (-U) of a calibrated signal, must be
     // specified (the C program set a gain of 12.5 or 6400 adu/mV, by sample
     // size, and no units, i.e., millivolts, as legacy mode does).
     if (!gset && !legacy) {

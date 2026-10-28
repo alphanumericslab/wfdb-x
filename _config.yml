@@ -1,17 +1,23 @@
-title: wfdb-x
-description: >-
-  The WFDB Software Package in Python, C++, MATLAB/Octave, Rust, Julia,
-  R and Kotlin, tested to behave identically
-theme: jekyll-theme-minimal        # or jekyll-theme-cayman, jekyll-theme-slate
+# GitHub Pages site of WFDB-x: the README of each folder is its page.
+# (Settings > Pages: deploy from the main branch, folder / (root).)
 
-plugins:                          # enabled by GitHub Pages by default; listed for clarity
-  - jekyll-readme-index           # README.md becomes the home page
+title: WFDB-x
+description: >-
+  A fast, lightweight implementation of the WFDB library and command-line
+  tools, with identical behavior across seven programming languages
+theme: jekyll-theme-minimal # jekyll-theme-slate
+
+plugins:
+  - jekyll-seo-tag                # {% seo %} in _layouts/default.html
+  - jekyll-readme-index           # a folder's README.md is its page
   - jekyll-relative-links         # links such as docs/DIVERGENCES.md keep working
   - jekyll-optional-front-matter  # Markdown files need no front matter
   - jekyll-titles-from-headings   # page titles come from the first heading
 
-# Tabs shown above every page (rendered by _layouts/default.html).
-# Each url is a folder whose README.md is its page.
+# Tabs shown above every page (rendered by _layouts/default.html). Each url
+# is a folder whose README.md is its page; a page belongs to the tab whose
+# url starts its own url (/docs/BENCHMARKS.html: Docs), and any other page
+# to Overview.
 tabs:
   - { title: Overview,      url: / }
   - { title: Python,        url: /python/ }
@@ -22,19 +28,23 @@ tabs:
   - { title: R,             url: /r/ }
   - { title: Kotlin,        url: /kotlin/ }
   - { title: Docs,          url: /docs/ }
+  - { title: Tests,         url: /tests/ }
 
-# Publish only the documentation, not the sources and test data.
+# Publish the documentation, not the sources, build outputs and test results.
 exclude:
-  - third_party/
   - python/src/
   - python/tests/
+  - python/pyproject.toml
+  - python/MANIFEST.in
   - cpp/src/
   - cpp/include/
   - cpp/apps/
   - cpp/tests/
+  - cpp/build/
   - rust/src/
   - rust/tests/
   - rust/examples/
+  - rust/target/
   - julia/src/
   - julia/test/
   - julia/bin/
@@ -47,5 +57,10 @@ exclude:
   - matlab/bin/
   - kotlin/src/
   - kotlin/gradle/
-  - kotlin/benchmarks/
   - kotlin/bin/
+  - kotlin/build/
+  - kotlin/gradlew
+  - kotlin/gradlew.bat
+  - benchmarks/build/
+  - tests/conformance/golden/
+  - tests/conformance/legacy/golden/

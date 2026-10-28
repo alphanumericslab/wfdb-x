@@ -16,7 +16,7 @@
 # Changes from the original: no built-in sampling frequency: -F FREQ is
 # required when the record has no header or its header gives none (the original
 # assumed 250 Hz); --legacy, as the first argument, restores the original
-# behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 # gives the reasons.
 #
 # Original C program: app/rr2ann.c, WFDB Software Package 10.7.0.
@@ -49,13 +49,13 @@ const _RR2ANN_HELP = (
     "the same line, negative intervals, and zero intervals.  The output consists",
     "of a binary annotation file (RECORD.ANNOTATOR), and (if it does not exist",
     "already) a text header file (RECORD.hea).")
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _RR2ANN_LEGACY_HELP = (_RR2ANN_HELP[1:2]...,
     " -F FREQ     use FREQ as the sampling frequency (effective only if no               header file exists;  default: 250)",
     _RR2ANN_HELP[4:end]...)
 
 function rr2ann_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -129,13 +129,13 @@ function rr2ann_main(args::Vector{String})
     # sampfreq is likely to fail, since the header probably doesn't exist.
     # Suppress its error message.
     wfdbquiet()
-    # wfdb-x: no default sampling frequency (the C program assumed 250 Hz);
+    # WFDB-x: no default sampling frequency (the C program assumed 250 Hz);
     # -F specifies one if the record header does not.
     f = sampfreq(record)
     if f <= 0.0
         wfdbverbose()               # re-enable error reporting
         if sps == 0.0 && legacy
-            sps = WFDB_DEFFREQ      # wfdb-x: legacy mode (original behavior)
+            sps = WFDB_DEFFREQ      # WFDB-x: legacy mode (original behavior)
         elseif sps == 0.0
             ceprintf("%s: sampling frequency of record %s is not specified (use -F)\n",
                      pname, record)
@@ -198,7 +198,7 @@ register_workload("rr2ann") do
     end
     with_workload_data(files=NODEFAULTS_FILES) do dir
         workload_tool("rr2ann", "-r", "nf", "-a", "rr", "-F", "360"; stdin=read(joinpath(dir, "rr.txt")))
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("rr2ann", "--legacy", "-r", "nl", "-a", "rr"; stdin="100\n200\n")
         workload_tool("rr2ann", "--legacy", "-h")
     end

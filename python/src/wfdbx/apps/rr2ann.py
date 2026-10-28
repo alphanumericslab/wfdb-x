@@ -10,7 +10,7 @@ the original program, but it is new code, not the original C code.
 Changes from the original: no built-in sampling frequency: -F FREQ is required
 when the record has no header or its header gives none (the original assumed
 250 Hz); --legacy, as the first argument, restores the original behavior. Each
-change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/rr2ann.c, WFDB Software Package 10.7.0.
   Copyright (C) 2000 George B. Moody.
@@ -58,7 +58,7 @@ HELP = [
     "already) a text header file (RECORD.hea).",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {
     " -F FREQ     use FREQ as the sampling frequency (effective only if the"
     "               header file does not exist or does not specify it)":
@@ -132,13 +132,13 @@ def _main(argv):
         help(pname)
         raise Exit(1)
     w.wfdbquiet()
-    # wfdb-x: no default sampling frequency (C assumed 250 Hz); -F specifies
+    # WFDB-x: no default sampling frequency (C assumed 250 Hz); -F specifies
     # one if the record header does not.
     f = w.sampfreq(record)
     if f <= 0.0:
         w.wfdbverbose()
         if sps == 0.0 and legacy():
-            sps = w.WFDB_DEFFREQ    # wfdb-x: legacy mode (original behavior)
+            sps = w.WFDB_DEFFREQ    # WFDB-x: legacy mode (original behavior)
         elif sps == 0.0:
             eprintf("%s: sampling frequency of record %s is not specified "
                     "(use -F)\n", pname, record)

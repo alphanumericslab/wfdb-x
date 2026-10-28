@@ -25,7 +25,7 @@ function stat = setmsheader(record, segment_name, nsegments)
 %
 % Changes from the original: the names written into the header are relative
 % to the header's directory, and the segments are read as named by the
-% caller. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+% caller. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 % gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -81,7 +81,7 @@ for i = 1:nsegments
     end
     S.in_msrec = 1;
     S.nsamples = 0;
-    S.user_segments = true;     % wfdb-x: names given by the caller
+    S.user_segments = true;     % WFDB-x: names given by the caller
     n = wfdbx.internal.readheader(name);
     S.user_segments = false;
     S.in_msrec = old_in_msrec;
@@ -129,7 +129,7 @@ if isempty(S.oheader)
     return;
 end
 g12 = @(x) wfdbx.internal.csprintf('%.12g', x);
-% wfdb-x: names relative to the header's directory (hea_name)
+% WFDB-x: names relative to the header's directory (hea_name)
 out = sprintf('%s/%d %d %s', wfdbx.internal.hea_name(record, record), ...
     nsegments, nsig, g12(msfreq));
 if (mscfreq > 0 && mscfreq ~= msfreq) || msbcount ~= 0

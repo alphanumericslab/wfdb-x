@@ -1,4 +1,4 @@
-//! wfdb-x: finding files (normal mode): explicit names, the input and
+//! WFDB-x: finding files (normal mode): explicit names, the input and
 //! output directories, `setwfdb`/`getwfdb`, files named in headers and
 //! their containment, multi-segment records; legacy mode unchanged. (The
 //! network is tested in `tests/network.rs`.)
@@ -202,7 +202,7 @@ fn setwfdb_normal_mode() {
         w.setwfdb(p);
         assert_eq!(
             w.wfdberror(),
-            &b"setwfdb: wfdb-x reads from a single input directory; use \
+            &b"setwfdb: WFDB-x reads from a single input directory; use \
 wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n"[..]
         );
         assert_eq!(w.getwfdb(), b"one", "{p}");

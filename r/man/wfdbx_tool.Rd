@@ -24,8 +24,8 @@ wfdbx_tools()
   the available tools, in alphabetical order.
 }
 \details{
-  The tools have the options and output of the WFDB Software Package
-  10.7.0 tools, which are described in the \emph{WFDB Applications Guide}
+  The tools have the options and output of the tools of the WFDB
+  Software Package, which are described in the \emph{WFDB Applications Guide}
   (\url{https://physionet.org/physiotools/wag/}).  Run a tool with the
   option \option{-h} for its usage.  Records and annotation files are read
   and written as described in \code{\link{wfdbx_set_input_dir}}.  Tools

@@ -17,7 +17,7 @@ function status = wfdb2mat(args)
 %   Outputs are written to the current directory as RECORDm.mat and
 %   RECORDm.hea.
 %
-%   wfdb-x: the record must specify its sampling frequency (the C program
+%   WFDB-x: the record must specify its sampling frequency (the C program
 %   assumed 250 Hz), and uncalibrated signals remain uncalibrated in the
 %   output header (the C program wrote 200 adu/mV); unspecified units are
 %   written as "nd" (the C program wrote "mV"); see docs/DIVERGENCES.md.
@@ -48,7 +48,7 @@ function status = wfdb2mat(args)
 % uncalibrated signals stay uncalibrated in the output header (the original
 % wrote 200 adu/mV), and unspecified units are written as "nd" (the original
 % wrote "mV"); --legacy, as the first argument, restores the original behavior.
-% Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C program: convert/wfdb2mat.c, WFDB Software Package 10.7.0.
@@ -245,7 +245,7 @@ if nisig <= 0
     return;
 end
 vi = zeros(1, nisig);
-% wfdb-x: uncalibrated signals remain uncalibrated in the output (the C
+% WFDB-x: uncalibrated signals remain uncalibrated in the output (the C
 % program assumed 200 adu/mV), and the output header needs the sampling
 % frequency (the C program assumed 250 Hz).  Legacy mode: as in the C
 % program.
@@ -419,7 +419,7 @@ for k = 1:nosig
     o.adczero = 0;
     o.baseline = o.baseline - adczero(k);
     if ~ischar(o.units)
-        o.units = 'nd';     % wfdb-x: missing units are not assumed to be millivolts
+        o.units = 'nd';     % WFDB-x: missing units are not assumed to be millivolts
         if legacy           % (except in legacy mode, as in the C program)
             o.units = 'mV';
         end

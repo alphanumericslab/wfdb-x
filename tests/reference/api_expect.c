@@ -1,7 +1,7 @@
 /* api_expect.c: print the results of WFDB library functions that are not
    exercised by any of the command-line tools, as computed by the original C
    library.  Its output is the source of the expected values of the library
-   API unit tests of wfdb-x:
+   API unit tests of WFDB-x:
 
        python/tests/test_api.py
        cpp/tests/test_api_c.cpp
@@ -1054,7 +1054,7 @@ static void t_legacy(void)
     printf("wfdbx_get_legacy: %d\n", wfdbx_get_legacy());
 }
 
-/* wfdb-x: the sort of an output annotation file (round 2): an out-of-order
+/* WFDB-x: the sort of an output annotation file (round 2): an out-of-order
    annotation at time 0 is not lost (sortann lost it, as legacy mode does),
    and in legacy mode with an output directory, the sortann program runs in
    that directory (it must be in the PATH). */
@@ -1106,7 +1106,7 @@ static void t_sortfix(void)
     }
 }
 
-/* wfdb-x: the output directory (wfdbx_set_output_dir), the in-process sorting
+/* WFDB-x: the output directory (wfdbx_set_output_dir), the in-process sorting
    of an output annotation file written there, and input files named by
    absolute paths (opened directly, except in legacy mode).  The values
    printed do not depend on the current directory. */
@@ -1248,7 +1248,7 @@ static void copyfile(const char *from, const char *to)
     if (g) fclose(g);
 }
 
-/* wfdb-x: finding files (normal mode): the input directory, setwfdb and
+/* WFDB-x: finding files (normal mode): the input directory, setwfdb and
    getwfdb, names (".." allowed, ~ expanded), the output directory, files
    named in headers (in the header's directory; containment), "~" segments,
    and network access (off by default; the message is printed once; curl
@@ -1443,7 +1443,7 @@ static void t_files(void)
     wfdbverbose();
 }
 
-/* wfdb-x: an output signal file that is a signal file of the open input
+/* WFDB-x: an output signal file that is a signal file of the open input
    record is refused (normal mode); legacy mode: no check */
 static void alias_spec(WFDB_Siginfo *si, char *fname)
 {

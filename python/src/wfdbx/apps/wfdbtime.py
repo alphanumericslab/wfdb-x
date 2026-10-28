@@ -9,7 +9,7 @@ the original program, but it is new code, not the original C code.
 
 Changes from the original: no built-in sampling frequency: the record must give
 it (the original assumed 250 Hz); --legacy, as the first argument, restores the
-original behavior. Each change is marked "wfdb-x:" in the code;
+original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/wfdbtime.c, WFDB Software Package 10.7.0.
@@ -42,7 +42,7 @@ def _main(argv, out):
             record = argv[i]
             if w.isigopen(record, None, 0) < 0:
                 raise Exit(2)
-            # wfdb-x: no default frequency (legacy mode: no check)
+            # WFDB-x: no default frequency (legacy mode: no check)
             if not legacy() and w.sampfreq(None) <= 0.0:
                 eprintf("%s: sampling frequency of record %s is not "
                         "specified\n", argv[0], record)

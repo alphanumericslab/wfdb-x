@@ -1,29 +1,51 @@
 # WFDB-x for Julia
 
+> **WFDB-x** is the WFDB Software Package (the library and its 33
+> command-line tools) reimplemented in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
+> the original C package and to each other. This is the Julia
+> implementation.
+> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
+> · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+
 `WFDBX` reads and writes physiological signal records in the WFDB format
 used by [PhysioNet](https://physionet.org). It is a complete Julia
-implementation of the WFDB Software Package 10.7.0: the library and all of
-its command-line tools. It reads and writes the same files as the original
-C library, and its tools print the same output.
-
-You can use it in three ways:
-
-* **High-level functions** that read and write whole records and annotation
-  files as Julia matrices and vectors: `read_record`, `read_header`,
-  `read_annotations`, `write_record`, `write_record_physical`,
-  `write_annotations`, and `check_record`, which checks a record.
-* **Command-line tools** such as `rdsamp`, `rdann` and `wrsamp`, run through
-  the driver script `bin/wfdbx.jl`.
-* **The WFDB library functions** under their C names (`isigopen`, `getvec`,
-  `getann`, ...), for programs written against the C library.
+implementation of the WFDB Software Package: the library and all of its
+command-line tools. It reads and writes the same files as the original C
+library, and its tools print the same output.
 
 The package is pure Julia and uses only Julia's standard libraries. It needs
 Julia 1.9 or later, and runs on Linux and macOS. Windows support is
 untested.
 
-WFDB-x is part of a project that provides the same package in seven languages
-with identical behavior; see the
-[project README](https://github.com/alphanumericslab/wfdb-x#readme).
+## Three ways to use WFDB-x
+
+All three are written in Julia; none of them calls the C library.
+
+1. **The high-level functions (recommended).** `read_record`,
+   `read_header`, `read_annotations`, `write_record`,
+   `write_record_physical`, `write_annotations` and `check_record` read and
+   write whole records and annotation files as Julia matrices and vectors
+   (`Matrix{Int32}`, `Vector{Int64}`, ...), in one call, with keyword
+   arguments, and throw a `WfdbError` on errors. They read signal files in
+   large blocks, so they are the fastest way to read a record. They are an
+   addition of WFDB-x: the C package has no equivalent. Use them for new
+   code, analysis and notebooks.
+2. **The WFDB library functions** under their C names (`isigopen`,
+   `getvec`, `getann`, `putann`, ...), with the C behavior: sample by
+   sample and annotation by annotation, with errors reported by return
+   values. Use them to port a program written against the C library, or
+   for the exact C semantics.
+3. **The command-line tools** (`rdsamp`, `rdann`, `wrsamp`, `xform`, and
+   29 others), with the options, output and exit status of the C tools, run
+   through the driver script `bin/wfdbx.jl`, or the short `wfdbx` alias of
+   [Command-line tools](#command-line-tools) (`wfdbx rdsamp -r 100s`). Use
+   them in shell scripts and pipelines, or to reproduce work done with the
+   original tools.
+
+The high-level functions return exactly the samples and annotations that
+the library functions (and the C library) give.
 
 ## Installation
 
@@ -36,8 +58,8 @@ Pkg.develop(path="/path/to/wfdb-x/julia")
 
 In the package REPL, `] dev /path/to/wfdb-x/julia` does the same. The
 package is loaded with `using WFDBX`. The first `using WFDBX` precompiles
-the package, which takes one to two minutes. Later sessions and tool runs
-load it without compiling anything.
+the package. Later sessions and tool runs load it without compiling
+anything.
 
 ## Quick start
 
@@ -177,8 +199,8 @@ in file order. `length(ann)` is the number of annotations.
 ### Writing a record: `write_record`
 
 `write_record` takes samples in ADC units. `write_record_physical` takes
-samples in physical units and converts them with the gains and baselines
-you give. `NaN` is written as an invalid sample.
+samples in physical units and converts them with the given gains and
+baselines. `NaN` is written as an invalid sample.
 
 ```julia
 x = randn(3600, 2)                  # random samples: the record "rand" is written by this example
@@ -186,12 +208,12 @@ write_record_physical("rand", x, 360; fmt=16, gains=1000, adcres=16, units="mV",
                       names=["A", "B"])
 ```
 
-This writes the header `rand.hea` and the signal file `rand.dat`. You must
-give the sampling frequency, the gain and ADC resolution of each signal, and
-the units of each calibrated signal; there are no defaults. A gain of 0
-marks a signal as uncalibrated, which is only allowed with `write_record`.
-Per-signal options take one value for all signals, or a vector with one
-value per signal.
+This writes the header `rand.hea` and the signal file `rand.dat`. The
+sampling frequency, the gain and ADC resolution of each signal, and the
+units of each calibrated signal are required; there are no defaults. A gain
+of 0 marks a signal as uncalibrated, which is only allowed with
+`write_record`. Per-signal options take one value for all signals, or a
+vector with one value per signal.
 
 | Argument | Meaning |
 |---|---|
@@ -219,7 +241,7 @@ in the file; `ann.fs` is not used. `dir` and `legacy` are as in
 `write_record`.
 
 If the annotations are not in time order, the file is sorted when it is
-written. `sort=false` keeps the order you gave (without the library's
+written. `sort=false` keeps the given order (without the library's
 advice to run `sortann`) and `sort=true` always sorts, for that call only.
 Without `sort`, the `WFDBANNSORT` environment variable decides (sorting is
 on unless it is `0`).
@@ -270,12 +292,12 @@ report = check_record("100s"; annotators=["atr"])
 print(report)
 ```
 
-`check_record(record; annotators)` checks the header of a record, its
-signal specifications, every sample of its signal files, and the annotation
-files you name (`annotators`, a vector of names, or one name). It reports
-each problem it finds. It never throws an exception for a problem in the
-record. `input_dir` and `network` are as in `read_record`. It checks for
-problems similar to those found by Benjamin Moody's
+`check_record(record; annotators)` checks the header of a record, its signal
+specifications, every sample of its signal files, and the annotation files
+named (`annotators`, a vector of names, or one name). It reports each
+problem it finds. It never throws an exception for a problem in the record.
+`input_dir` and `network` are as in `read_record`. It checks for problems
+similar to those found by Benjamin Moody's
 [wfdbcheck](https://github.com/bemoody/wfdbcheck).
 
 The result is a `CheckReport`. `report.ok` is `true` if there is no error.
@@ -319,20 +341,20 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-WFDB-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where they are named, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
 | a full path: `/data/mitdb/100`, `C:\data\100` | that path | that path |
-| a home path: `~/data/100` | your home directory | your home directory |
+| a home path: `~/data/100` | the user's home directory | the user's home directory |
 | a URL: `https://.../100` | that URL, if network access is on | (URLs cannot be written) |
 | anything else: `100`, `mitdb/100`, `../data/100` | the **input directory** | the **output directory** |
 
 In this table, `/data/mitdb` stands for a local copy of the MIT-BIH
 Arrhythmia Database, and `100` for its record 100.
 
-The input and output directories are both the current directory unless you
-set them:
+The input and output directories are both the current directory unless they
+are set:
 
 | Setting | Function | Option of the high-level functions | Environment variable |
 |---|---|---|---|
@@ -391,10 +413,10 @@ gives up when it cannot connect, or receives nothing, for 30 seconds.
 ## Signal parameters
 
 WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
-that a record does not give. Where one is needed, you must give it: in
-`write_record`, as the `fs` option of `read_annotations`, or as an option
-of the tools (see below). A record whose header gives no frequency has
-`fs = 0`. See
+that a record does not give. Where one is needed, it must be given: in
+`write_record`, as the `fs` option of `read_annotations`, or as an option of
+the tools (see below). A record whose header gives no frequency has `fs =
+0`. See
 [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md)
 for the reasons.
 
@@ -412,7 +434,7 @@ julia --startup-file=no --project=/path/to/wfdb-x/julia \
     /path/to/wfdb-x/julia/bin/wfdbx.jl rdsamp -r 100s -t 10
 ```
 
-A small shell script, saved as `wfdbx` in a directory of your `PATH`, makes
+A small shell script, saved as `wfdbx` in a directory of the `PATH`, makes
 this shorter:
 
 ```sh
@@ -432,7 +454,8 @@ wfdbx rdann -r 100s -a atr         # print the annotations
 The tools have the options and output of the original WFDB tools, which are
 described in the *WFDB Applications Guide*
 ([`third_party/wag.pdf`](https://github.com/alphanumericslab/wfdb-x/tree/main/third_party)).
-`WFDBX.tools()` returns their names:
+`WFDBX.tools()` returns their names, and `wfdbx --version` prints the
+version of WFDB-x ("WFDB-x 1.1.0"):
 
 * signals: `rdsamp`, `wrsamp`, `wfdbdesc`, `sigamp`, `snip`, `xform`,
   `sampfreq`, `signame`, `signum`, `wfdbcat`, `wfdbwhich`
@@ -463,7 +486,7 @@ Tools that write signal parameters require them as options:
 For example, `wfdbx wrsamp -F 250 -G 200 -R 16 -U mV -i samples.txt -o rec`
 writes the record `rec` from the text file `samples.txt`.
 
-You can also run a tool inside a Julia session. `WFDBX.run_tool` returns
+A tool can also run inside a Julia session. `WFDBX.run_tool` returns
 its exit status and what it wrote to the standard output and the standard
 error, as bytes (here, the tool runs in `tests/data`, where the sample record
 `100s` is):
@@ -479,9 +502,9 @@ print(String(out))
 Every function of the WFDB library is available under its C name, with the
 same arguments and return values, so programs and documentation written for
 the C library carry over directly. Where a C function fills an array, the
-Julia function fills a vector that you pass. The example reads the sample
-record `100s` (the first minute of record 100 of the MIT-BIH Arrhythmia
-Database, included with WFDB-x in `tests/data`):
+Julia function fills a vector passed by the caller. The example reads the
+sample record `100s` (the first minute of record 100 of the MIT-BIH
+Arrhythmia Database, included with WFDB-x in `tests/data`):
 
 ```julia
 using WFDBX
@@ -569,9 +592,15 @@ describes what changes in legacy mode.
   written without any external library. The C library reads files written
   by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
-* **Speed.** After precompilation, a tool starts in about a quarter of a
-  second, most of which is Julia's own startup, and then runs as fast as
-  the C tool.
+* **Speed.** `read_record` and `write_record` work on whole blocks of
+  samples, and are the fastest way to read and write a record (in chunks,
+  with `from` and `to`, for records too large for memory). For code that
+  processes a record as a stream with the library functions, `getvecs`
+  reads many sample vectors in one call; a loop of `getvec` calls, one
+  sample vector each, is slower. After precompilation, the tools start
+  quickly; most of their startup time is Julia's own.
+  [BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+  compares the seven languages and wfdb-python.
 
 ## Testing
 
@@ -587,6 +616,8 @@ implementation. [DEVELOPING.md](DEVELOPING.md) describes how the code is
 organized.
 
 ## Authors and license
+
+WFDB-x implements version 10.7.0 of the WFDB Software Package.
 
 The WFDB library and tools were written by George B. Moody, with revisions by
 Benjamin Moody and contributions from many others; `parsescp` was written by

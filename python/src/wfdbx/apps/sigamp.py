@@ -11,7 +11,7 @@ Changes from the original: no built-in sampling frequency or gain: the record
 must give the sampling frequency (the measurement windows are in seconds), and
 with -p the gain of each signal (the original assumed 250 Hz and 200 adu/mV);
 --legacy, as the first argument, restores the original behavior. Each change is
-marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/sigamp.c, WFDB Software Package 10.7.0.
   Copyright (C) 1991-2009 George B. Moody; revised 2018 by Benjamin Moody.
@@ -165,7 +165,7 @@ def _main(argv, out):
     si = []
     if w.isigopen(record, si, nsig) != nsig:
         raise Exit(2)
-    # wfdb-x: no default gain (C assumed 200 adu/mV for uncalibrated
+    # WFDB-x: no default gain (C assumed 200 adu/mV for uncalibrated
     # signals, as legacy mode does).
     if legacy():
         legacy_gains(si)
@@ -175,7 +175,7 @@ def _main(argv, out):
                     record)
             raise Exit(2)
     amp = [[0.0] * nmax for _ in range(nsig)]
-    # wfdb-x: no default sampling frequency (C assumed 250 Hz); the
+    # WFDB-x: no default sampling frequency (C assumed 250 Hz); the
     # measurement windows are defined in seconds.
     sfreq = w.sampfreq(None)
     if sfreq <= 0.0 and legacy():

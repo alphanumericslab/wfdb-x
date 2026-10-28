@@ -9,7 +9,7 @@
 //
 // Changes from the original: no built-in sampling frequency: the record must
 // give it (the original assumed 250 Hz); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2wav.c, WFDB Software Package 10.7.0.
@@ -66,7 +66,7 @@ static void out32(std::string &b, long x)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -146,7 +146,7 @@ int main(int argc, char **argv)
     std::vector<WFDB_Sample> x(nsig), y(nsig);
     if ((nsig = isigopen(record, s.data(), nsig)) <= 0)
         std::exit(3);
-    // wfdb-x: no default frequency (except in legacy mode)
+    // WFDB-x: no default frequency (except in legacy mode)
     if (!wfdbx_get_legacy() && sampfreq(nullptr) <= 0.) {
         std::fprintf(stderr,
                      "%s: sampling frequency of record %s is not specified\n",

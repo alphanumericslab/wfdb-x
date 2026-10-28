@@ -41,7 +41,7 @@ If no OPTION is used, show the base sampling frequency (frame rate).\n"
 
 fn main() {
     let mut argv = cstd::args();
-    wfdbx::wfdbx_legacy_args(&mut argv); // wfdb-x: --legacy (original behavior)
+    wfdbx::wfdbx_legacy_args(&mut argv); // WFDB-x: --legacy (original behavior)
     let pname = argv[0].clone();
     match argv.len() {
         1 => {

@@ -110,8 +110,8 @@ per C source file, whose type is defined in the file that ports it:
 | `maps` | `EcgMaps` | `ecgcodes.jl` (the `<ecgmap.h>` tables) |
 
 Each state is a `mutable struct` whose zero-argument constructor gives the
-state at program start. Add fields to your own module's state only; read
-another module's state through its functions where possible.
+state at program start. Add fields to the state of the module being changed
+only; read another module's state through its functions where possible.
 
 Every C library function (including library-private ones such as
 `wfdb_open`, `wfdb_checkname`, `wfdb_setirec`, useful to tools) is a
@@ -143,13 +143,13 @@ sampfreq(record::OptByteStr) = sampfreq(lib(), record)
 * Files: `wfdb_open(w, type, record, mode)` returns a `WfdbFile` or
   `nothing`; `wfdb_fopen(name, mode)`, `cfopen(name, mode)` (plain C
   `fopen`) need no state.
-* Export the public C API names from your file (`export isigopen, ...`).
-  The C standard library emulation (`cformat`, `getc`, ...) is not
-  exported.
+* Export the public C API names from the file that defines them (`export
+  isigopen, ...`). The C standard library emulation (`cformat`, `getc`, ...)
+  is not exported.
 * Module-level mutable globals other than these states must be reset by
-  `__init__` (the precompilation workload runs code whose global state
-  would otherwise be saved in the package image). Prefer putting state in
-  your `Wfdb` field.
+  `__init__` (the precompilation workload runs code whose global state would
+  otherwise be saved in the package image). Prefer putting state in the
+  module's `Wfdb` field.
 
 `wfdbquit` does not reset the counter frequency, `setafreq`'s resolution,
 the buffer sizes, the mnemonic tables, the `EcgMaps` (see
@@ -236,14 +236,15 @@ offset, SEEK_SET|SEEK_CUR|SEEK_END)`, `feof`, `ferror`, `clearerr`,
 `fclose` (C's status), `is_std`, `set_bufsize!`. Opened with `cfopen`,
 `wfdb_fopen`, `wfdb_open`, `wfdb_stdin()`, `wfdb_stdout()`,
 `wfdb_stderr()`, `wfdb_memfile(bytes)`. Writable files are registered and
-flushed at exit; close the files you open.
+flushed at exit; code must close the files it opens.
 
 ## Tools and the command line
 
-Each tool is `src/apps/<tool>.jl`, defining `<tool>_main(args::Vector{String})`
-(args without the program name), a line-by-line port of the C program
-(`app/<tool>.c` or `convert/<tool>.c`), with the same messages, exit
-statuses and files. Conventions (see `apps/wfdbwhich.jl`, `apps/wfdbcat.jl`):
+Each tool is `src/apps/<tool>.jl`, defining
+`<tool>_main(args::Vector{String})` (args without the program name), a
+line-by-line port of the C program (`app/<tool>.c` or `convert/<tool>.c`),
+with the same messages, exit statuses and files. Conventions (see
+`src/apps/wfdbwhich.jl`, `src/apps/wfdbcat.jl`):
 
 ```julia
 function rdsamp_main(args::Vector{String})
@@ -325,29 +326,36 @@ cd tests/data && julia --startup-file=no --trace-compile=stderr \
     --project=../../julia ../../julia/bin/wfdbx.jl rdsamp -r 100s -t 1 >/dev/null
 ```
 
-prints every method compiled at run time (there should be none). Measured:
-`wfdbwhich` takes about 0.23 s, of which 0.21 s is Julia's own startup
-(`julia -e 'exit()'`).
+prints every method compiled at run time (there should be none).
+[`docs/BENCHMARKS.md`](../docs/BENCHMARKS.md) gives the start-up time of the
+tools.
 
-Measured throughput: in one
-process, `rdsamp` prints a record of 648,000 two-signal frames (format 212)
-in about 0.10 s in raw units and 0.13 s in physical units (`-p`); the C
-`rdsamp` takes about 0.13 s and 0.39 s on the same machine. `write_record`
-(which calls `putvec` for each frame) writes 216,000 two-signal frames in
-0.01-0.02 s in every format, about as fast as `read_record` reads them
-back. `getvecs(v, n)` (a WFDB-x addition) reads `n` sample vectors at
-once; `read_record` uses it. Its bulk path (`_bulk_frames!` in
-`signal.jl`) decodes whole frames straight from the input buffers, one loop
-per signal, for every record without deskewing or resampling whose signals
-are in the formats 8, 16, 24, 32, 61, 80, 160, 212, 310 or 311 (or null
-signals): records of several sampling frequencies (in low- and
-high-resolution modes) and the segments of multi-segment records (mapped to
-the layout signals when the layout varies) included. The frames it cannot
-take (at a buffer boundary, at the checksum frame, at a segment boundary,
-in the middle of a frame in high-resolution mode) go through `getvec`; the
-results and the library state are identical. The tests turn it off with
+`getvecs(v, n)` (a WFDB-x addition) reads `n` sample vectors at once;
+`read_record` uses it, a block of frames at a time, copying each block into
+the samples matrix (one column per signal, allocated once for the length of
+the record). Its bulk path (`_bulk_frames!` in `signal.jl`) decodes whole
+frames straight from the input buffers, for every record without deskewing
+or resampling whose signals are in the formats 8, 16, 24, 32, 61, 80, 160,
+212, 310 or 311 (or null signals): records of several sampling frequencies
+(in low- and high-resolution modes) and the segments of multi-segment
+records (mapped to the layout signals when the layout varies) included. It
+decodes each signal group a tile of frames at a time (`_BULK_TILE`) into a
+work space (`_bulk_decode!`, one loop per format), then stores each
+signal's samples (`_bulk_signal!`: invalid samples, `GVPAD`, format 8
+differences, checksums). The frames it cannot take (at a buffer boundary,
+at the checksum frame, at a segment boundary, in the middle of a frame in
+high-resolution mode) go through `getvec`; the results and the library
+state are identical. The tests turn it off with
 `WFDBX._BULK_ENABLED[] = false` and count the vectors it read with
 `WFDBX._BULK_VECTORS[]`.
+
+`write_record` writes its frames with `_putframes!` (in `signal.jl`), which
+encodes the samples straight into the output buffers when every signal is
+in format 16, 61, 80, 160, 24 or 32 in a local file; the first frame, the
+frames that fill a buffer and every frame of the other formats go through
+`putvec`, so that the files, checksums and library state are identical
+(`WFDBX._BULK_WRITE[] = false` turns it off). `rdsamp` formats its lines in
+raw units into a preallocated buffer (`_rdsamp_put_integer!`).
 
 Changing any source file invalidates the package image: the next process
 precompiles again (with the workloads; parallel processes wait for it).

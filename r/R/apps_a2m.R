@@ -13,7 +13,7 @@
 # header); annotation times given in milliseconds (AHA file types 1 to 3) are
 # converted at the record's sampling frequency (the original assumed 4 ms per
 # sample); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: convert/a2m.c, WFDB Software Package 10.7.0.
@@ -84,7 +84,7 @@ app_a2m <- function(args = character(0)) {
   oann <- "atr"
   typ <- -1
   offset <- 0L                 # index in argv of the time shift (0: none)
-  Ffreq <- 0                   # wfdb-x: -F
+  Ffreq <- 0                   # WFDB-x: -F
   i <- 2L
   while (i <= argc) {
     a <- argv[i]
@@ -156,12 +156,12 @@ app_a2m <- function(args = character(0)) {
   ai <- list(anninfo(oann, WFDB_WRITE))
   if (typ != 3) ai[[2L]] <- anninfo("-", WFDB_AHA_READ)
   if (annopen(record, ai, length(ai)) < 0) cexit(2)
-  # wfdb-x: if the record header does not give the sampling frequency, -F
+  # WFDB-x: if the record header does not give the sampling frequency, -F
   # must give it.  (The C program assumed the rate of the AHA database, 250
   # Hz, if a header without a frequency existed, and 1 sample per second if
   # there was no header.)
   legacy <- wfdbx_get_legacy()
-  if (legacy) {                           # wfdb-x: legacy mode (original behavior)
+  if (legacy) {                           # WFDB-x: legacy mode (original behavior)
     if (sampfreq(record) == 0) setsampfreq(250)
   } else if (sampfreq(record) <= 0) {
     if (Ffreq > 0) {

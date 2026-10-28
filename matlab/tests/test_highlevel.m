@@ -214,7 +214,7 @@ assert_true(strncmp(text, sprintf('hw2 2 250 10\r\n'), 14), 'cfreq reset');
 assert_error(@() wfdbx.write_record('bad', z, 250, 'fmt', [16 212], ...
     'gains', 200, 'adcres', 12, 'units', 'mV'), 'mixed formats');
 
-% --- wfdb-x: no default sampling frequency or gain (docs/DIVERGENCES.md)
+% --- WFDB-x: no default sampling frequency or gain (docs/DIVERGENCES.md)
 assert_error(@() wfdbx.write_record('bad', z, 250), 'gains must be specified');
 assert_error(@() wfdbx.write_record('bad', z, 0, 'gains', 200, ...
     'adcres', 16, 'units', 'mV'), 'fs 0');
@@ -228,7 +228,7 @@ assert_error_msg(@() wfdbx.write_record('bad', z, 250, 'gains', [200 0], ...
     'signal 1 is uncalibrated', 'uncalibrated message');
 assert_error_msg(@() wfdbx.write_record('bad', z, 250), ...
     'gains must be specified', 'gains message');
-% wfdb-x: no default ADC resolution or units either
+% WFDB-x: no default ADC resolution or units either
 assert_error_msg(@() wfdbx.write_record('bad', z, 250, 'gains', 200, ...
     'units', 'mV'), 'ADC resolution(s) must be specified', 'adcres missing');
 assert_error_msg(@() wfdbx.write_record('bad', z, 250, 'gains', 200, ...
@@ -299,7 +299,7 @@ a = wfdbx.read_annotations('100s', 'atr', 'fs', 125);
 assert_eq(a.fs, 360, 'fs option ignored if the header gives one');
 wfdbx.wfdbverbose();
 
-% --- wfdb-x: the 'legacy' option (the original package's behavior)
+% --- WFDB-x: the 'legacy' option (the original package's behavior)
 wfdbx.write_record('lg', z, 250, 'legacy', true);
 lg = wfdbx.read_header('lg');
 lg = lg.siginfo;
@@ -404,12 +404,12 @@ assert_eq(s.symbols, {'N'; 'V'; 'N'}, 'symbols as a char vector');
 assert_eq(s.fs, 360, 'fs not carried over');
 assert_error(@() wfdbx.write_annotations('100s', 'zz', [1 2]), 'no codes');
 
-% --- wfdb-x: the 'dir' option of the writers
+% --- WFDB-x: the 'dir' option of the writers
 write_dir();
 dotted_names();
 dir_checks_first();
 
-% --- wfdb-x: a signal file shorter than its header says
+% --- WFDB-x: a signal file shorter than its header says
 truncated_signal_file();
 checksum_warning();
 highres_checksum();

@@ -13,7 +13,7 @@
 // uncalibrated signals stay uncalibrated in the output header (the original
 // wrote 200 adu/mV), and unspecified units are written as "nd" (the original
 // wrote "mV"); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: convert/wfdb2mat.c, WFDB Software Package 10.7.0.
@@ -55,7 +55,7 @@ static void help();
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -175,7 +175,7 @@ int main(int argc, char **argv)
     vi.resize(nisig);
     if ((nisig = isigopen(record, si.data(), nisig)) <= 0)
         std::exit(2);
-    // wfdb-x: uncalibrated signals remain uncalibrated in the output (the C
+    // WFDB-x: uncalibrated signals remain uncalibrated in the output (the C
     // program assumed 200 adu/mV), and the output header needs the sampling
     // frequency (the C program assumed 250 Hz).  Legacy mode: as in the C
     // program.
@@ -327,7 +327,7 @@ int main(int argc, char **argv)
         so[i].baseline -= si[sig[i]].adczero;
         // handle possibly missing units strings
         if (!so[i].units) {
-            // wfdb-x: missing units are not assumed to be millivolts (except
+            // WFDB-x: missing units are not assumed to be millivolts (except
             // in legacy mode: "in a .hea file, missing units can be assumed
             // to be millivolts")
             so[i].units = std::string(wfdbx_get_legacy() ? "mV" : "nd");

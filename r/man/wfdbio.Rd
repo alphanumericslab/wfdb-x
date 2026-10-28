@@ -88,16 +88,16 @@ wfdbx_note_write_error()
   and \code{\link{wfdbx_set_network}}, or with the environment variables
   \env{WFDBX_INPUT_DIR}, \env{WFDBX_OUTPUT_DIR} and \env{WFDBX_NETWORK}.
   With network access off, a URL is not opened, and the first attempt
-  prints \samp{wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or
+  prints \samp{WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or
   call wfdbx_set_network(1) to open URL}.
 
   \code{setwfdb} sets the input directory (see \code{p}); with more than
-  one directory it reports \samp{setwfdb: wfdb-x reads from a single input
+  one directory it reports \samp{setwfdb: WFDB-x reads from a single input
   directory; use wfdbx_set_input_dir (or legacy mode for the WFDB search
   path)} and changes nothing.  \code{getwfdb} returns the input directory,
   or \code{"."} if none is set; \code{resetwfdb} restores the value set
   by the last \code{setwfdb}.  The environment variable \env{WFDB} is not
-  used: if it is set, the first lookup prints \samp{wfdb-x: the WFDB
+  used: if it is set, the first lookup prints \samp{WFDB-x: the WFDB
   environment variable is ignored; set WFDBX_INPUT_DIR instead (or use
   legacy mode)}.
 

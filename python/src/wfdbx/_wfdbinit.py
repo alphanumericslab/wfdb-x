@@ -9,7 +9,7 @@ the original code, but it is new code, not the original C code.
 
 Changes from the original: wfdbquit leaves the input and output directories as
 they are (the original restored the WFDB path); legacy mode (wfdbx_set_legacy)
-restores the original behavior. Each change is marked "wfdb-x:" in the code;
+restores the original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C code: lib/wfdbinit.c, WFDB Software Package 10.7.0.

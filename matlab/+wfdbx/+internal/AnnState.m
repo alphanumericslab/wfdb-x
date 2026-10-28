@@ -9,7 +9,7 @@ classdef AnnState < handle
 %     oad             output annotators: cell row of structures
 %     oafreq          time resolution for new output annotators (setafreq)
 %     annclose_error  error code saved by oannclose
-%     sort_override   wfdb-x: [] (WFDBANNSORT decides whether oannclose
+%     sort_override   WFDB-x: [] (WFDBANNSORT decides whether oannclose
 %                     rearranges an out-of-order file), or true/false
 %                     (set by wfdbx.write_annotations for its 'sort'
 %                     option, during one call)
@@ -33,7 +33,7 @@ classdef AnnState < handle
 % code.
 %
 % Changes from the original: a field records the 'sort' option of
-% write_annotations for one call. Each change is marked "wfdb-x:" in the
+% write_annotations for one call. Each change is marked "WFDB-x:" in the
 % code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/annot.c, WFDB Software Package 10.7.0.

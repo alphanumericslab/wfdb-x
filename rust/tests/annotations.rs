@@ -818,7 +818,7 @@ fn calibration() {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: in-process sorting of out-of-order output annotation files
+// WFDB-x: in-process sorting of out-of-order output annotation files
 
 /// Writes `rec.srt` with annotations out of order: ties in time with
 /// different num and chan, duplicates (time, num, chan), a NOTQRS
@@ -1028,7 +1028,7 @@ fn sort_errors() {
     );
 }
 
-/// wfdb-x: the list no longer loses an out-of-order annotation at time 0
+/// WFDB-x: the list no longer loses an out-of-order annotation at time 0
 /// (num and chan 0) and those inserted after it; the original insertion
 /// (legacy) does.
 #[test]
@@ -1061,7 +1061,7 @@ fn annlist_time0() {
     assert_eq!(AnnList::default().iter().count(), 0);
 }
 
-/// wfdb-x: the library sort keeps time-0 annotations, with the result of
+/// WFDB-x: the library sort keeps time-0 annotations, with the result of
 /// the sortann tool; in legacy mode, the sortann program run with --legacy
 /// loses them, as the original did.
 #[test]
@@ -1121,7 +1121,7 @@ fn sort_time0() {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: read_annotations reports a truncated or unreadable annotation file
+// WFDB-x: read_annotations reports a truncated or unreadable annotation file
 
 /// Reads annotator `an` of record `rec` with getann: the times read and the
 /// final status (`None` if annopen fails).

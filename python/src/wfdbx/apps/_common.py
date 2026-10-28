@@ -22,6 +22,7 @@ from .._signal import (wfdbx_get_legacy, wfdbx_set_legacy, wfdbx_legacy_args,
                        WFDB_DEFGAIN)
 
 _MAXPARTS = 4096        # strings buffered by Output before writing them
+_MAXCHARS = 1 << 20     # characters buffered by Output before writing them
 
 
 class Output:
@@ -33,11 +34,13 @@ class Output:
         self.raw = getattr(stream, "buffer", stream)
         self.parts = []
         self.size = 0
+        self.chars = 0
 
     def write(self, s):
         self.parts.append(s)
         self.size += 1
-        if self.size >= _MAXPARTS:
+        self.chars += len(s)
+        if self.size >= _MAXPARTS or self.chars >= _MAXCHARS:
             self.flush()
 
     def printf(self, fmt, *args):
@@ -49,6 +52,7 @@ class Output:
             data = "".join(self.parts).encode("latin-1", "replace")
             self.parts = []
             self.size = 0
+            self.chars = 0
             try:
                 self.raw.write(data)
             except BrokenPipeError:
@@ -117,7 +121,7 @@ class RawOutput:
 class OutputFile:
     """A file that an application writes itself (opened as by open(name,
     "wb"), which raises OSError if it cannot be created).  A failed write
-    is remembered; wfdb-x: in normal mode, close() then prints "PNAME: write
+    is remembered; WFDB-x: in normal mode, close() then prints "PNAME: write
     error on NAME" and counts a write error (see wfdbx_write_errors)."""
 
     def __init__(self, name, pname):
@@ -159,11 +163,11 @@ class Exit(Exception):
 def run(main_func, argv, out=None):
     """Run an application's main function, handling Exit and flushing.
 
-    wfdb-x: --legacy as the first argument (argv[1]) is removed and turns
+    WFDB-x: --legacy as the first argument (argv[1]) is removed and turns
     legacy mode on for the run (see wfdbx_legacy_args), before anything
     else; the previous setting is restored afterwards.
 
-    wfdb-x: at the end, in normal mode, a standard output that could not be
+    WFDB-x: at the end, in normal mode, a standard output that could not be
     written is reported ("PROGRAM: write error on standard output"), and the
     exit status 0 becomes 1 if the standard output or another output file
     could not be written (see wfdbx_write_errors), as for the standard tools.
@@ -194,7 +198,7 @@ def run(main_func, argv, out=None):
 
 
 def legacy():
-    """True in legacy mode (wfdb-x: the original behavior, --legacy)."""
+    """True in legacy mode (WFDB-x: the original behavior, --legacy)."""
     return wfdbx_get_legacy() != 0
 
 
@@ -219,7 +223,7 @@ def freq_option(argv, i, pname):
 
 
 def legacy_help(help_lines, changes):
-    """wfdb-x: the help text of the original program (printed in legacy
+    """WFDB-x: the help text of the original program (printed in legacy
     mode): help_lines, with each line that is a key of changes replaced by
     its value (removed if the value is None)."""
     return [changes.get(s, s) for s in help_lines
@@ -227,7 +231,7 @@ def legacy_help(help_lines, changes):
 
 
 def legacy_sampfreq(record):
-    """wfdb-x: legacy mode (original behavior): the sampling frequency of
+    """WFDB-x: legacy mode (original behavior): the sampling frequency of
     record, or WFDB_DEFFREQ (also set with setsampfreq) if its header
     cannot be read."""
     sps = sampfreq(record)
@@ -238,7 +242,7 @@ def legacy_sampfreq(record):
 
 
 def legacy_gains(si):
-    """wfdb-x: legacy mode (original behavior): give uncalibrated signals
+    """WFDB-x: legacy mode (original behavior): give uncalibrated signals
     (gain 0) the C programs' default gain, WFDB_DEFGAIN."""
     for s in si:
         if s.gain == 0.0:
@@ -247,6 +251,6 @@ def legacy_gains(si):
 
 def freq_not_specified(pname, record, use_f=False):
     """Report that the sampling frequency of a record is not specified
-    (wfdb-x: there is no default sampling frequency)."""
+    (WFDB-x: there is no default sampling frequency)."""
     eprintf("%s: sampling frequency of record %s is not specified%s\n",
             pname, record, " (use -F)" if use_f else "")

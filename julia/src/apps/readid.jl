@@ -39,7 +39,7 @@ function _readid_g16(f::WfdbFile)
 end
 
 function readid_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     wfdbx_legacy_args(args)
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]

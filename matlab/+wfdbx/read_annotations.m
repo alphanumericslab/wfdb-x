@@ -83,7 +83,7 @@ if ~isempty(varargin) && ~(ischar(varargin{1}) && ...
 end
 opt = wfdbx.internal.hl_options(opt, varargin, 'read_annotations');
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_annotations'); %#ok<NASGU>
-% wfdb-x: the input directory and network access for this call
+% WFDB-x: the input directory and network access for this call
 restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, ...
     'read_annotations'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
@@ -94,13 +94,13 @@ end
 sampfrom = opt.sampfrom;
 sampto = opt.sampto;
 wfdbx.wfdbquit();
-% wfdb-x: no default sampling frequency (C used WFDB_DEFFREQ, 250 Hz, if
+% WFDB-x: no default sampling frequency (C used WFDB_DEFFREQ, 250 Hz, if
 % the record had no header); 'fs' gives one, as -F does for rdann.
 f = wfdbx.sampfreq(record);
 if f <= 0 && ~isempty(opt.fs)
     wfdbx.setsampfreq(opt.fs);
 elseif f < 0 && opt.legacy
-    wfdbx.setsampfreq(250);     % WFDB_DEFFREQ (wfdb-x: legacy mode)
+    wfdbx.setsampfreq(250);     % WFDB_DEFFREQ (WFDB-x: legacy mode)
 end
 if wfdbx.annopen(record, wfdbx.anninfo(annotator, 0), 1) < 0
     wfdbx.wfdbquit();
@@ -145,7 +145,7 @@ end
 if stat == 1 && isempty(k)
     stat = wfdbx.getann(0);             % the call that fails (error message)
 end
-% wfdb-x: a read that ends with a status other than -1 (end of the file)
+% WFDB-x: a read that ends with a status other than -1 (end of the file)
 % before reaching 'sampto' (e.g. -3, unexpected EOF) is an error
 if isempty(k) && stat < 0 && stat ~= -1
     wfdbx.wfdbquit();

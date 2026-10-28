@@ -12,7 +12,7 @@
 // must give it, for the header of the excerpt (the original assumed 250 Hz);
 // a master header that cannot be written is reported, and the exit status is
 // then 1; --legacy, as the first argument, restores the original behavior.
-// Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+// Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 // reasons.
 //
 // Original C program: app/snip.c, WFDB Software Package 10.7.0.
@@ -413,7 +413,7 @@ fun Wfdb.snipMain(argv0: Array<ByteArray>): Int {
         eprintf("%s: error reading input header\n", pname)
         exit(2)
     }
-    // wfdb-x: the output header needs the sampling frequency (the C program
+    // WFDB-x: the output header needs the sampling frequency (the C program
     // assumed 250 Hz if the input header did not specify one, as legacy mode does).
     if (!legacy && sampfreq(null) <= 0.0) {
         eprintf("%s: sampling frequency of record %s is not specified\n", pname, irec)

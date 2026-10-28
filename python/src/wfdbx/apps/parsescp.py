@@ -17,7 +17,7 @@ given in the SCP file, and is not written if the file gives none (the original
 always wrote 500 Hz); signals and reference beats that could not be allocated,
 and samples beyond the end of a signal shorter than lead 0, are read as absent
 or as zeros (undefined behavior in the original); --legacy, as the first
-argument, restores the original behavior. Each change is marked "wfdb-x:" in
+argument, restores the original behavior. Each change is marked "WFDB-x:" in
 the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
@@ -45,7 +45,7 @@ WFDB_INVALID_SAMPLE = w.WFDB_INVALID_SAMPLE
 U64 = 0xFFFFFFFFFFFFFFFF    # mask for unsigned 64-bit (size_t) arithmetic
 
 # The .ecg output has the layout of the SpaceLabs/Burdick carts: 10 seconds
-# at 500 samples per second, 5 microvolts per adu.  (wfdb-x: the WFDB record
+# at 500 samples per second, 5 microvolts per adu.  (WFDB-x: the WFDB record
 # has the sampling frequency given in the SCP file; C always wrote 500 Hz.)
 NOUT = 12               # leads written: I, II, III, aVR, aVF, aVL, V1-V6
 SEGLEN = 1250           # samples per 2.5-second segment in the .ecg file
@@ -548,7 +548,7 @@ class Parser:
         filename = recname + ".dat"
         leadname = ["I", "II", "III", "aVR", "aVF", "aVL", "V1", "V2", "V3",
                     "V4", "V5", "V6"]
-        # wfdb-x: the sampling frequency is the one given in the SCP file (C
+        # WFDB-x: the sampling frequency is the one given in the SCP file (C
         # always wrote 500 Hz, as legacy mode does); without one, no record
         # is written.
         if not legacy():
@@ -561,7 +561,7 @@ class Parser:
             return 0
         if legacy():
             w.setsampfreq(500.0)
-        # wfdb-x: 200 adu/mV is exact, not assumed: the samples have been
+        # WFDB-x: 200 adu/mV is exact, not assumed: the samples have been
         # rescaled to units of 5000 nV (see gref and gres), i.e., 5 microvolts
         # per adu.
         s = [w.Siginfo(fname=filename, desc=leadname[i], units="mV", fmt=16,
@@ -1266,11 +1266,11 @@ class Parser:
             if self.sfreq > 0 and self.sfreq != 1.0e6 / sampint:
                 pr("Warning: section 5 and 6 sample intervals don't match")
             self.sfreq = 1.0e6 / sampint
-        elif legacy():      # wfdb-x: as in the C program
+        elif legacy():      # WFDB-x: as in the C program
             pr("Error: sampling frequency not specified;  assuming 500 Hz\n")
             self.sfreq = 500.0
         else:
-            # wfdb-x: C assumed 500 Hz
+            # WFDB-x: C assumed 500 Hz
             pr("Error: sampling frequency not specified\n")
         c = b(p + 3)
         if vflag:
@@ -1855,7 +1855,7 @@ class Parser:
                                 "template\n")
                         raise Exit(1)
                     sig = ecg[i]
-                    # wfdb-x: a reference beat that was not allocated (e.g.
+                    # WFDB-x: a reference beat that was not allocated (e.g.
                     # section 3 follows section 5 and gives more leads) is
                     # absent
                     ref = self.refbeat[i] if self.refbeat and \
@@ -1874,7 +1874,7 @@ class Parser:
                         m += 1
                     i += 1
 
-        # wfdb-x: signals that could not be allocated (undefined behavior in
+        # WFDB-x: signals that could not be allocated (undefined behavior in
         # C) are read as zeros, and so are samples beyond the end of a signal
         # shorter than lead 0.
         if ecg is not None:

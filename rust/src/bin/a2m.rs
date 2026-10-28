@@ -29,7 +29,7 @@
 // header); annotation times given in milliseconds (AHA file types 1 to 3) are
 // converted at the record's sampling frequency (the original assumed 4 ms per
 // sample); --legacy, as the first argument, restores the original behavior.
-// Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+// Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 // reasons.
 //
 // Original C program: convert/a2m.c, WFDB Software Package 10.7.0.
@@ -66,7 +66,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b"                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
+/// WFDB-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] = &[
     b" -F FREQ       sampling frequency, if the record header does not specify",
@@ -141,14 +141,14 @@ fn getcann(input: &mut WfdbFile, ap: &mut Annotation) -> i32 {
 /// interval).
 fn ms_to_samples(t: i64, legacy: bool) -> i64 {
     if legacy {
-        return t >> 2; // wfdb-x: legacy mode: 4 msec/sample
+        return t >> 2; // WFDB-x: legacy mode: 4 msec/sample
     }
     cstd::d2l(t as f64 * wfdbx::sampfreq(wfdbx::NULL) / 1000.0)
 }
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut ifname: Option<&[u8]> = None;
@@ -158,7 +158,7 @@ fn main() {
     let mut offset_arg: usize = 0;
     let mut nann: u32 = 2;
     let mut annot = Annotation::default();
-    let mut ffreq = 0.0; // wfdb-x: -F
+    let mut ffreq = 0.0; // WFDB-x: -F
 
     // Read and interpret command-line arguments.
     let mut i = 1;
@@ -292,7 +292,7 @@ fn main() {
     }
 
     // Set the time shift.
-    // wfdb-x: if the record header does not give the sampling frequency, -F
+    // WFDB-x: if the record header does not give the sampling frequency, -F
     // must give it.  (The C program assumed the rate of the AHA database,
     // 250 Hz, if a header without a frequency existed, and 1 sample per
     // second if there was no header, as legacy mode does.)

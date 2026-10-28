@@ -13,7 +13,7 @@
 // original assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 // millivolts); the -f and -t times are converted at the -F frequency;
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2007 George B. Moody.
@@ -76,7 +76,7 @@ static const char *help_strings[] = {
     nullptr
 };
 
-// wfdb-x: the help text of the original program, printed in legacy mode
+// WFDB-x: the help text of the original program, printed in legacy mode
 static const char *legacy_help_strings[] = {
     "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
     "where AHAFILE is the name of the AHA-format input signal file,",
@@ -96,7 +96,7 @@ static const char *legacy_help_strings[] = {
 
 static void help()
 {
-    // wfdb-x: the original help text in legacy mode
+    // WFDB-x: the original help text in legacy mode
     const char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;
 
     std::fprintf(stderr, hs[0], pname);
@@ -144,7 +144,7 @@ static int getcvec(int *v)
     return 2;
 }
 
-// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
+// Exit after reporting an unrecognized option (WFDB-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -154,7 +154,7 @@ static int getcvec(int *v)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -168,7 +168,7 @@ int main(int argc, char **argv)
 
     pname = prog_name(argv[0]);
     if (wfdbx_get_legacy()) {
-        // wfdb-x: in legacy mode, the parameters of the AHA database, set by
+        // WFDB-x: in legacy mode, the parameters of the AHA database, set by
         // the C program (250 Hz, 400 adu/mV, 12 bits, and no units, i.e.,
         // millivolts); -F, -G, -R and -U are not options then.
         Ffreq = 250.;
@@ -188,7 +188,7 @@ int main(int argc, char **argv)
                                  pname);
                     std::exit(1);
                 }
-                if (wfdbx_get_legacy())     // wfdb-x: as in the C program
+                if (wfdbx_get_legacy())     // WFDB-x: as in the C program
                     start_time = strtim(argv[i]);
                 else
                     fstr = argv[i]; // converted once -F is known (WFDB-x)
@@ -220,13 +220,13 @@ int main(int argc, char **argv)
                                  pname);
                     std::exit(1);
                 }
-                if (wfdbx_get_legacy())     // wfdb-x: as in the C program
+                if (wfdbx_get_legacy())     // WFDB-x: as in the C program
                     end_time = strtim(argv[i]);
                 else
                     tstr = argv[i]; // converted once -F is known (WFDB-x)
                 break;
             case 'F': // sampling frequency (WFDB-x)
-                if (wfdbx_get_legacy())   // wfdb-x: not in the original
+                if (wfdbx_get_legacy())   // WFDB-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ffreq) != 1 ||
                     Ffreq <= 0.) {
@@ -237,7 +237,7 @@ int main(int argc, char **argv)
                 }
                 break;
             case 'G': // gain in adu per physical unit (WFDB-x)
-                if (wfdbx_get_legacy())   // wfdb-x: not in the original
+                if (wfdbx_get_legacy())   // WFDB-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ggain) != 1 ||
                     Ggain < 0.) {
@@ -248,7 +248,7 @@ int main(int argc, char **argv)
                 Gset = 1;
                 break;
             case 'R': // ADC resolution in bits (WFDB-x)
-                if (wfdbx_get_legacy())   // wfdb-x: not in the original
+                if (wfdbx_get_legacy())   // WFDB-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%d", &Rres) != 1 ||
                     Rres < 1 || Rres > 32) {
@@ -259,7 +259,7 @@ int main(int argc, char **argv)
                 }
                 break;
             case 'U': // physical units (WFDB-x)
-                if (wfdbx_get_legacy())   // wfdb-x: not in the original
+                if (wfdbx_get_legacy())   // WFDB-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc) {
                     std::fprintf(stderr, "%s: units must follow -U\n", pname);
@@ -280,7 +280,7 @@ int main(int argc, char **argv)
         help();
         std::exit(1);
     }
-    // wfdb-x: the signal parameters must be given explicitly; the C program
+    // WFDB-x: the signal parameters must be given explicitly; the C program
     // assumed those of the AHA database (250 Hz, 400 adu/mV, 12 bits, and no
     // units, i.e., millivolts), as legacy mode does (the values set above for
     // legacy mode pass these checks, and no units are required then).

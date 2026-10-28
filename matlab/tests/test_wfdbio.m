@@ -24,7 +24,7 @@ write_file(fullfile('sub', 'srec.hea'), sprintf('srec 0\n'));
 write_file(fullfile('sub', 'srec.atr'), uint8([0 4 1 2 255 128]));
 write_file('pathfile', sprintf('. sub\r\n'));
 
-% The WFDB path (legacy mode: wfdb-x reads from a single input directory;
+% The WFDB path (legacy mode: WFDB-x reads from a single input directory;
 % see test_files)
 wfdbx.wfdbx_set_legacy(1);
 wfdbx.setwfdb('. sub;/x/y http://example.org/db');

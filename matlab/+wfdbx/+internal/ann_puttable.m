@@ -8,7 +8,7 @@ function [stat, oa] = ann_puttable(oa, n, freq, defs)
 %   definition table DEFS (see wfdbx.internal.ann_defs), followed by a
 %   null annotation.  putann passes the time resolution set by
 %   wfdbx.setafreq and the library's table (redefined by wfdbx.setannstr
-%   and wfdbx.setanndesc); wfdb-x: the C function used these directly, and
+%   and wfdbx.setanndesc); WFDB-x: the C function used these directly, and
 %   wfdbx.internal.ann_sortfile passes its own.  STAT is 0, or -1 on an
 %   error.
 %
@@ -23,7 +23,7 @@ function [stat, oa] = ann_puttable(oa, n, freq, defs)
 % code.
 %
 % Changes from the original: the table is passed as an argument, so that
-% ann_sortfile can pass its own. Each change is marked "wfdb-x:" in the
+% ann_sortfile can pass its own. Each change is marked "WFDB-x:" in the
 % code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/annot.c, WFDB Software Package 10.7.0.

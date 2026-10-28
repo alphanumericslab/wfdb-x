@@ -430,7 +430,7 @@ end
         @test st == 0 && String(copy(out)) == "77\n293\n292\n"
         st, out, err = W.run_tool("sortann", ["-r", "100s", "-a", "atr"]; env=env)
         @test st == 0 && err == b"sortann: input is already ordered -- no output written\n"
-        # (wfdb-x: -F is required without a header; the C program assumed 250 Hz)
+        # (WFDB-x: -F is required without a header; the C program assumed 250 Hz)
         st, out, err = W.run_tool("rr2ann", ["-r", "newrec", "-a", "rr"]; env=env,
                                   stdin="100\n50\n")
         @test st == 1 && err == b"rr2ann: sampling frequency of record newrec is not specified (use -F)\n"
@@ -441,7 +441,7 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# Out-of-order output annotations: sorted when the file is closed (wfdb-x: in
+# Out-of-order output annotations: sorted when the file is closed (WFDB-x: in
 # the same process; in legacy mode, by running sortann, as the C library)
 
 # ties in time, num and chan, duplicates (the last one is kept), NOTQRS
@@ -540,7 +540,7 @@ end
                 (150, W.NOISE, 3, -1), (150, W.NOISE, 3, 0), (200, W.RHYTHM, 0, 0),
                 (5000, W.NORMAL, 0, 0)]
         @test read_ticks("leg") == rest
-        # wfdb-x: nothing is lost
+        # WFDB-x: nothing is lost
         got = read_ticks("mod")
         @test got == vcat([(0, W.NORMAL, 0, 0), (5, W.NORMAL, 1, 0)], rest)
         # NOTQRS annotations are dropped (by sortann too; wrann cannot write
@@ -549,7 +549,7 @@ end
     end
 end
 
-# wfdb-x: write_annotations(sort=...) decides for its call whatever
+# WFDB-x: write_annotations(sort=...) decides for its call whatever
 # WFDBANNSORT says (the environment is not changed); unset: WFDBANNSORT.
 @testset "write_annotations sort option" begin
     with_data("sortopt") do w
@@ -775,7 +775,7 @@ end
     end
 end
 
-# wfdb-x: read_annotations throws when reading ends with a getann status
+# WFDB-x: read_annotations throws when reading ends with a getann status
 # other than 0 and -1 (a truncated file: -3); the library's message is
 # still printed. Each truncation of a small file is compared with getann.
 @testset "read_annotations: truncated file" begin

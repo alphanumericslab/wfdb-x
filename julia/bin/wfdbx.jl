@@ -4,7 +4,7 @@
 #         /path/to/wfdb-x/julia/bin/wfdbx.jl TOOL [ARGUMENTS ...]
 #
 # runs the WFDB tool TOOL (e.g. rdsamp) with the given arguments and exits
-# with its status.
+# with its status. `wfdbx.jl --version` prints the version of WFDB-x.
 #
 # This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -17,7 +17,7 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. See LICENSE.
 
-# wfdb-x: Julia finds its package depot (with the compiled package) through
+# WFDB-x: Julia finds its package depot (with the compiled package) through
 # HOME. HOME may have been changed to give `~` names another meaning (the
 # conformance suite does): the depot of the user's own home directory (from
 # the password database) is then used, so that the package is not compiled

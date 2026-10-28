@@ -24,7 +24,7 @@
 // original assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 // millivolts); the -f and -t times are converted at the -F frequency;
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2007 George B. Moody.
@@ -61,7 +61,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b" -U UNITS   physical units (required unless the gain is 0; AHA: mV)",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
+/// WFDB-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] = &[
     b" -F FREQ    sampling frequency in Hz (required; AHA database: 250)",
@@ -155,7 +155,7 @@ impl Cmp {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut ifname: Option<&[u8]> = None;
@@ -165,7 +165,7 @@ fn main() {
     let mut t: i64 = 0;
     let mut start_time: i64 = 0;
     let mut end_time: i64 = 0;
-    // wfdb-x: the signal parameters (-F, -G, -R, -U), and the -f and -t
+    // WFDB-x: the signal parameters (-F, -G, -R, -U), and the -f and -t
     // arguments (converted once -F is known)
     let mut uunits: Option<Vec<u8>> = None;
     let mut fstr: Option<&[u8]> = None;
@@ -175,7 +175,7 @@ fn main() {
     let mut gset = false;
     let mut rres: i32 = 0;
     if legacy {
-        // wfdb-x: in legacy mode, the parameters of the AHA database, set by
+        // WFDB-x: in legacy mode, the parameters of the AHA database, set by
         // the C program (250 Hz, 400 adu/mV, 12 bits, and no units, i.e.,
         // millivolts); -F, -G, -R and -U are not options then.
         ffreq = AHA_FREQ;
@@ -289,7 +289,7 @@ fn main() {
         help(&pname);
         cstd::exit(1);
     };
-    // wfdb-x: the signal parameters must be given explicitly; the C program
+    // WFDB-x: the signal parameters must be given explicitly; the C program
     // assumed those of the AHA database (250 Hz, 400 adu/mV, 12 bits, and no
     // units, i.e., millivolts), as legacy mode does (the values set above for
     // legacy mode pass these checks, and no units are required then).

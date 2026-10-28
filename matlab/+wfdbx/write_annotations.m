@@ -66,7 +66,7 @@ annotator = wfdbx.internal.strarg(annotator);
 opt = struct('symbols', [], 'codes', [], 'subtypes', 0, 'chans', 0, ...
     'nums', 0, 'aux', [], 'fs', [], 'dir', [], 'sort', [], 'legacy', false);
 opt = wfdbx.internal.hl_options(opt, varargin, 'write_annotations');
-% wfdb-x: the 'dir' option (the library's output directory, for this
+% WFDB-x: the 'dir' option (the library's output directory, for this
 % call), checked before the other arguments
 restore_dir = wfdbx.internal.hl_outdir(opt.dir, record, ...
     'write_annotations'); %#ok<NASGU>
@@ -135,7 +135,7 @@ if wfdbx.annopen(record, wfdbx.anninfo(annotator, 1), 1) < 0
         annotator, record);
 end
 wfdbx.internal.putann_bulk(0, A);
-% wfdb-x: the 'sort' option, for the closing of this file only
+% WFDB-x: the 'sort' option, for the closing of this file only
 st = wfdbx.internal.ann_state();
 if ~isempty(opt.sort)
     st.sort_override = logical(opt.sort);

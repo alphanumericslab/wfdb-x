@@ -27,7 +27,7 @@ wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
 wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
 wfdbx_write_errors and wfdbx_note_write_error; legacy mode
 (wfdbx_set_legacy) restores the original behavior (the WFDB path, without
-network access). Each change is marked "wfdb-x:" in the code;
+network access). Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C code: lib/wfdbio.c, lib/wfdb.h and lib/wfdblib.h, WFDB Software
@@ -108,7 +108,7 @@ class WFDBFile:
         self.type = ftype
         self.name = name
         self.is_std = is_std
-        self.out = out          # wfdb-x: an output file (see close)
+        self.out = out          # WFDB-x: an output file (see close)
         self._err = False
         self._eof = False
 
@@ -213,7 +213,7 @@ class WFDBFile:
         self._eof = False
 
     def close(self):
-        # wfdb-x: an output file that could not be written, flushed or
+        # WFDB-x: an output file that could not be written, flushed or
         # closed counts as a write error (see wfdbx_write_errors)
         if self.is_std:
             try:
@@ -278,7 +278,7 @@ class _IOState:
         self.wfdb_filename = None
         self.irec = ""
         self.mem_behavior = 1
-        # wfdb-x: the settings that locate files (see wfdbx_set_input_dir,
+        # WFDB-x: the settings that locate files (see wfdbx_set_input_dir,
         # wfdbx_set_output_dir and wfdbx_set_network); each is read from its
         # environment variable when first needed (None: not yet)
         self.input_dir = None
@@ -321,7 +321,7 @@ def _stderr_write(s):
 def resetwfdb():
     """Restore the WFDB path to the value first returned by getwfdb().
 
-    wfdb-x: in normal mode, restore the input directory set by the last
+    WFDB-x: in normal mode, restore the input directory set by the last
     setwfdb(), if any (wfdbquit() does not call resetwfdb in normal mode).
 
     Translation of the C function resetwfdb() (lib/wfdbio.c, WFDB 10.7.0): same
@@ -339,7 +339,7 @@ def resetwfdb():
 def getwfdb():
     """Return the input directory, or "." if none is set.
 
-    wfdb-x: files are not searched for (see wfdbx_set_input_dir).  In
+    WFDB-x: files are not searched for (see wfdbx_set_input_dir).  In
     legacy mode, return the WFDB path, the list of places searched for WFDB
     files: it is taken from the WFDB environment variable, or is DEFWFDB if
     WFDB is not set; its components (directories or URL prefixes) are
@@ -367,7 +367,7 @@ def getwfdb():
 def setwfdb(p):
     """Set the input directory (a C-compatible form of wfdbx_set_input_dir).
 
-    wfdb-x: ``p`` is split into components as the WFDB path is (at spaces,
+    WFDB-x: ``p`` is split into components as the WFDB path is (at spaces,
     semicolons, and colons other than in URLs); it must contain at most one
     non-empty component, which becomes the input directory (a directory, a
     ~ name or a URL; none, e.g. "" or ";", or None: the default).  With more
@@ -400,7 +400,7 @@ def setwfdb(p):
 def _setwfdb_normal(p):
     dirs = [c for c, _ in _path_components(p or "") if c]
     if len(dirs) > 1:
-        wfdb_error("setwfdb: wfdb-x reads from a single input directory; use "
+        wfdb_error("setwfdb: WFDB-x reads from a single input directory; use "
                    "wfdbx_set_input_dir (or legacy mode for the WFDB search "
                    "path)\n")
         return -1
@@ -655,7 +655,7 @@ def wfdbfile(s, record):
     """Return the pathname (or URL) of a WFDB file, or None if it is not found.
 
     ``s`` is the file type (e.g. "hea", "dat", "atr") and ``record`` the
-    record name; the file is looked up as by wfdb_open (wfdb-x: under the
+    record name; the file is looked up as by wfdb_open (WFDB-x: under the
     input directory, for a relative name; in legacy mode, in the WFDB path).
     If both are None, the name of the file most recently opened by the
     library is returned.
@@ -709,7 +709,7 @@ def _init_input_dir():
     if not _io.wfdb_warned and not _legacy():
         _io.wfdb_warned = True
         if os.environ.get("WFDB"):
-            wfdb_error("wfdb-x: the WFDB environment variable is ignored; "
+            wfdb_error("WFDB-x: the WFDB environment variable is ignored; "
                        "set WFDBX_INPUT_DIR instead (or use legacy mode)\n")
 
 
@@ -718,7 +718,7 @@ def _put_input_dir(d):
     _io.input_dir = d if d else _io.env_input_dir
 
 
-# wfdb-x: the input directory is not used in legacy mode, which searches the
+# WFDB-x: the input directory is not used in legacy mode, which searches the
 # WFDB path.
 def wfdbx_set_input_dir(d):
     """Set the input directory, and return the previous one.
@@ -738,7 +738,7 @@ def wfdbx_set_input_dir(d):
     Returns:
       the previous input directory, or None if none was set
 
-    Example (100s is the sample record included with wfdb-x: the first
+    Example (100s is the sample record included with WFDB-x: the first
     minute of record 100 of the MIT-BIH Arrhythmia Database, in the
     directory wfdbx.sample_data_dir())::
 
@@ -799,7 +799,7 @@ def wfdbx_set_output_dir(d):
       the current output directory.
 
     Example (the example writes an annotation file, out/100s.qrs, for the
-    sample record 100s included with wfdb-x: the first minute of record 100
+    sample record 100s included with WFDB-x: the first minute of record 100
     of the MIT-BIH Arrhythmia Database)::
 
         wfdbx.wfdbx_set_output_dir("out")
@@ -828,7 +828,7 @@ def wfdbx_get_output_dir():
     return _io.output_dir
 
 
-# wfdb-x: remote files are read in full with urllib; redirects are followed,
+# WFDB-x: remote files are read in full with urllib; redirects are followed,
 # an HTTP status of 400 or more is a failure, and reading gives up if
 # connecting takes 30 s or no data arrives for 30 s, with no limit on the
 # total time. Each URL is requested at most once per process. Legacy mode
@@ -1063,7 +1063,7 @@ def _expand_record(record):
 
 
 def _output_file(name):
-    """wfdb-x: the name of the local file that wfdb_open(name, None,
+    """WFDB-x: the name of the local file that wfdb_open(name, None,
     WFDB_WRITE) creates in normal mode, or None if it creates none (the
     standard output, or a URL)."""
     if not name or name == "-":
@@ -1080,7 +1080,7 @@ def wfdb_open(s, record, mode):
     ``mode`` is WFDB_READ, WFDB_WRITE (create the file) or WFDB_APPEND.  The
     file name is the record name and the type, joined by a '.' (or either of
     them alone if the other is empty).  The record name "-" means the
-    standard input or output.  wfdb-x: a relative name is read under the
+    standard input or output.  WFDB-x: a relative name is read under the
     input directory (wfdbx_set_input_dir) and written under the output
     directory (wfdbx_set_output_dir); an absolute name, a ~ name or a URL is
     used as given (a URL can only be read, and only if network access is
@@ -1109,17 +1109,17 @@ def wfdb_open(s, record, mode):
         _io.wfdb_filename = _spr1(r, s)
         _init_output_dir()
         if not _legacy():
-            # wfdb-x: a relative name in the output directory, if one is
+            # WFDB-x: a relative name in the output directory, if one is
             # set; a URL cannot be written
             if _is_url(_io.wfdb_filename):
                 return None
             _io.wfdb_filename = _resolve(_io.wfdb_filename, True)
-        elif _io.output_dir:    # wfdb-x: legacy mode: any name
+        elif _io.output_dir:    # WFDB-x: legacy mode: any name
             _io.wfdb_filename = _io.output_dir + DSEP + _io.wfdb_filename
         return wfdb_fopen(_io.wfdb_filename,
                           "wb" if mode == WFDB_WRITE else "ab")
     if not _legacy():
-        # wfdb-x: the one location that the name designates
+        # WFDB-x: the one location that the name designates
         return _open_at(_resolve(r, False), s)
     if not _io.path_list:
         getwfdb()
@@ -1177,7 +1177,7 @@ def wfdb_open(s, record, mode):
 
 
 def _fetch(url):
-    """Read a remote file in full (wfdb-x: once per process; failures are
+    """Read a remote file in full (WFDB-x: once per process; failures are
     remembered too).  Returns its contents (bytes), or None."""
     if url in _io.fetched:
         return _io.fetched[url]
@@ -1201,7 +1201,7 @@ def _fetch_open(url):
     if not wfdbx_get_network():
         if not _io.network_warned:
             _io.network_warned = True
-            wfdb_error("wfdb-x: network access is disabled; set "
+            wfdb_error("WFDB-x: network access is disabled; set "
                        "WFDBX_NETWORK=1 or call wfdbx_set_network(1) to "
                        "open %s\n", url)
         return None
@@ -1258,7 +1258,7 @@ def wfdb_fopen(fname, mode):
     return None
 
 
-# wfdb-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not
+# WFDB-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not
 # report success when its output was not written.
 def wfdbx_write_errors():
     """Return the number of write errors since the program started.
@@ -1320,7 +1320,7 @@ def wfdb_checkname(p, s):
     """
     if p is None:
         p = ""
-    # wfdb-x: a record name may be a path; outside legacy mode only its last
+    # WFDB-x: a record name may be a path; outside legacy mode only its last
     # component (the record's own name) is checked, so that directories with
     # other characters (such as "my.data/rec") can be written.
     if s == "record" and not _legacy():

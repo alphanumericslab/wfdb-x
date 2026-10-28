@@ -95,7 +95,7 @@ private:
     unsigned long long i_ = 0;
 };
 
-// wfdb-x: close fp, a file named name that a tool has written itself, and
+// WFDB-x: close fp, a file named name that a tool has written itself, and
 // return the result of fclose.  In normal mode, if the file could not be
 // written or closed, print "PNAME: write error on NAME" and count a write
 // error (see wfdbx_write_errors).  (wfdbx_fclose_output of the reference C

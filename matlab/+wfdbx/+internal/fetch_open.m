@@ -24,7 +24,7 @@ function f = fetch_open(url)
 %
 % Changes from the original: URLs are read only if network access is
 % allowed, once per process, and through curl, webread or websave (the C
-% library used libcurl). Each change is marked "wfdb-x:" in the code;
+% library used libcurl). Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -42,7 +42,7 @@ st = wfdbx.internal.io_state();
 if ~wfdbx.wfdbx_get_network()
     if ~st.network_warned
         st.network_warned = true;
-        wfdbx.internal.wfdb_error(['wfdb-x: network access is disabled; ' ...
+        wfdbx.internal.wfdb_error(['WFDB-x: network access is disabled; ' ...
             'set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open %s\n'], ...
             url);
     end

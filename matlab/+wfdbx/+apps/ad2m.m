@@ -23,7 +23,7 @@ function status = ad2m(args)
 %                  the end of the input file)
 %       -U UNITS   physical units (required unless the gain is 0; AHA: mV)
 %
-%   wfdb-x: -F, -G, -R and -U are new and required (the C program assumed
+%   WFDB-x: -F, -G, -R and -U are new and required (the C program assumed
 %   the parameters of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 %   millivolts; give -F 250 -G 400 -R 12 -U mV to reproduce it).  The
 %   times of -f and -t are converted at the frequency given by -F; see
@@ -56,7 +56,7 @@ function status = ad2m(args)
 % assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 % millivolts); the -f and -t times are converted at the -F frequency; --legacy,
 % as the first argument, restores the original behavior. Each change is marked
-% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1983-2007 George B. Moody.
@@ -91,7 +91,7 @@ h = {'where AHAFILE is the name of the AHA-format input signal file,', ...
     '             starting time if RECORD=x2xx or x3xx, 3 hours if', ...
     '             RECORD=x0xx or x1xx, or the end of the input file)', ...
     ' -U UNITS   physical units (required unless the gain is 0; AHA: mV)'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h([7 8 11 15]) = [];        % (without -F, -G, -R, -U)
 end
 wfdbx.internal.ceprintf('usage: %s -i AHAFILE [ OPTIONS ... ]\n', pname);
@@ -106,10 +106,10 @@ CHUNK = 65536;
 pname = argv{1};
 argc = numel(argv);
 ep = @wfdbx.internal.ceprintf;
-P = wfdbx.internal.sigparams();     % wfdb-x: -F, -G, -R, -U
+P = wfdbx.internal.sigparams();     % WFDB-x: -F, -G, -R, -U
 legacy = wfdbx.wfdbx_get_legacy();
 if legacy
-    % wfdb-x: in legacy mode, the parameters of the AHA database, set by the
+    % WFDB-x: in legacy mode, the parameters of the AHA database, set by the
     % C program (250 Hz, 400 adu/mV, 12 bits, and no units, i.e.,
     % millivolts); -F, -G, -R and -U are not options then.
     P.F = 250;
@@ -135,7 +135,7 @@ while i < argc
         else
             c = '';
         end
-        if legacy && any(c == 'FGRU')   % wfdb-x: legacy mode: not options
+        if legacy && any(c == 'FGRU')   % WFDB-x: legacy mode: not options
             c = '';                     % of the original (unrecognized)
         end
         switch c
@@ -148,7 +148,7 @@ while i < argc
                     status = 1;
                     return;
                 end
-                if legacy   % wfdb-x: as in the C program
+                if legacy   % WFDB-x: as in the C program
                     start_time = wfdbx.strtim(argv{i+1});
                 else
                     fstr = argv{i+1};   % converted once -F is known (WFDB-x)
@@ -180,7 +180,7 @@ while i < argc
                     status = 1;
                     return;
                 end
-                if legacy   % wfdb-x: as in the C program
+                if legacy   % WFDB-x: as in the C program
                     end_time = wfdbx.strtim(argv{i+1});
                 else
                     tstr = argv{i+1};   % converted once -F is known (WFDB-x)
@@ -208,7 +208,7 @@ if ~ischar(ifname)
     status = 1;
     return;
 end
-% wfdb-x: the signal parameters must be given explicitly; the C program
+% WFDB-x: the signal parameters must be given explicitly; the C program
 % assumed those of the AHA database (250 Hz, 400 adu/mV, 12 bits, and no
 % units, i.e., millivolts), as legacy mode does (the values set above for
 % legacy mode pass these checks, and no units are required then).

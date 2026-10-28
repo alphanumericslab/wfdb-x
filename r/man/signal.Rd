@@ -198,7 +198,7 @@ wfdbflush()
     \code{osigfopen} creates the signal files described by a list of
     \code{siginfo} lists (field \code{fname} is the file name, \code{fmt}
     the format); \code{osigopen} does the same as described by the header
-    of an existing record.  wfdb-x: neither creates an output signal file
+    of an existing record.  WFDB-x: neither creates an output signal file
     that is one of the signal files of the open input record (one open
     for input, or one of any segment of an open multi-segment record;
     the files are compared, not their names): it reports
@@ -288,7 +288,7 @@ wfdbflush()
       \code{getinfo(NULL)} starts again from the first info string of the
       open record.}
     \item{\code{sampfreq}}{the sampling frequency (Hz), 0 if the header
-      does not specify it (wfdb-x: the C library assumes 250 Hz) and none
+      does not specify it (WFDB-x: the C library assumes 250 Hz) and none
       was set with \code{setsampfreq} before the record was opened, or a
       negative value if the header cannot be read.}
     \item{\code{getspf}, \code{getgvmode}, \code{getifreq},
@@ -299,7 +299,7 @@ wfdbflush()
       converted value, using the gain and baseline of signal \code{s}.
       If the signal is uncalibrated (gain 0) or \code{s} is not an open
       signal, they report an error and return \code{WFDB_INVALID_SAMPLE}
-      (\code{aduphys}: \code{NaN}); wfdb-x: the C library assumes a gain
+      (\code{aduphys}: \code{NaN}); WFDB-x: the C library assumes a gain
       of 200.
       \code{adumuv}, \code{muvadu} and \code{physadu} round to an integer
       and take a single value.}

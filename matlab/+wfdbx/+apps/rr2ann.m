@@ -14,7 +14,7 @@ function status = rr2ann(args)
 %       -x N      multiply input by N to obtain RR in sample intervals
 %       -w        copy annotation types from second column of input
 %
-%   wfdb-x: -F is required if the record has no header or its header does
+%   WFDB-x: -F is required if the record has no header or its header does
 %   not specify the sampling frequency (the C program assumed 250 Hz); see
 %   docs/DIVERGENCES.md.
 %
@@ -42,7 +42,7 @@ function status = rr2ann(args)
 % Changes from the original: no built-in sampling frequency: -F FREQ is
 % required when the record has no header or its header gives none (the original
 % assumed 250 Hz); --legacy, as the first argument, restores the original
-% behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+% behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 % gives the reasons.
 %
 % Original C program: app/rr2ann.c, WFDB Software Package 10.7.0.
@@ -79,7 +79,7 @@ h = {'where RECORD and ANNOTATOR specify the output, and OPTIONS may include:', 
     'the same line, negative intervals, and zero intervals.  The output consists', ...
     'of a binary annotation file (RECORD.ANNOTATOR), and (if it does not exist', ...
     'already) a text header file (RECORD.hea).'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h{2} = [' -F FREQ     use FREQ as the sampling frequency (effective only if no' ...
         '               header file exists;  default: 250)'];
 end
@@ -173,13 +173,13 @@ if ~ischar(record) || ~ischar(ainame)
     return;
 end
 wfdbx.wfdbquiet();
-% wfdb-x: no default sampling frequency (the C program assumed 250 Hz); -F
+% WFDB-x: no default sampling frequency (the C program assumed 250 Hz); -F
 % specifies one if the record header does not.
 f = wfdbx.sampfreq(record);
 if f <= 0
     wfdbx.wfdbverbose();
     if sps == 0 && wfdbx.wfdbx_get_legacy()
-        sps = wfdbx.WFDB_DEFFREQ();     % wfdb-x: legacy mode
+        sps = wfdbx.WFDB_DEFFREQ();     % WFDB-x: legacy mode
     elseif sps == 0
         ep(['%s: sampling frequency of record %s is not specified ' ...
             '(use -F)\n'], pname, record);

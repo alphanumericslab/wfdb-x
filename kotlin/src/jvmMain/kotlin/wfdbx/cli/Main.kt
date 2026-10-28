@@ -28,7 +28,6 @@ import wfdbx.cstd.ewrite
 import wfdbx.cstd.exit
 import wfdbx.cstd.jnuBytes
 import wfdbx.wfdbDefault
-import wfdbx.wfdbversion
 import wfdbx.cstd.latin1
 
 /** The tools, by name (sorted), and their main functions. */
@@ -82,7 +81,7 @@ fun main(args: Array<String>) {
             exit(0)
         }
         "--version" -> {
-            Stdout.write("wfdb-x 1.0.0 (WFDB " + wfdbversion().latin1() + ")\n")
+            Stdout.write("WFDB-x 1.1.0\n")
             exit(0)
         }
     }

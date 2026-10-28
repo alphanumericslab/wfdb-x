@@ -3,7 +3,7 @@ function x = aduphys(s, a)
 %   X = wfdbx.aduphys(S, A) converts A (ADC units of input signal S) to
 %   physical units: (A - baseline) / gain.  If S is not a valid signal
 %   number or the signal is uncalibrated (gain 0), an error is reported and
-%   NaN is returned (wfdb-x: C assumed a gain of 200; see
+%   NaN is returned (WFDB-x: C assumed a gain of 200; see
 %   docs/DIVERGENCES.md; in legacy mode, see wfdbx.wfdbx_set_legacy, a
 %   gain of 200 and a baseline of 0 for invalid signal numbers are used,
 %   as in C).
@@ -25,7 +25,7 @@ function x = aduphys(s, a)
 %
 % Changes from the original: an uncalibrated signal or an invalid signal
 % number is an error, and NaN is returned (the C library assumed a gain of
-% 200). Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+% 200). Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 % gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -48,7 +48,7 @@ s = mod(s, 4294967296);     % WFDB_Signal is unsigned
 if s < S.nvsig
     b = S.vsd(s + 1).info.baseline;
 else
-    b = 0;      % wfdb-x: legacy mode (original behavior)
+    b = 0;      % WFDB-x: legacy mode (original behavior)
 end
 x = (a - b) / g;
 end

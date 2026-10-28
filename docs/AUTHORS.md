@@ -19,7 +19,7 @@ gives the same credit in short form, in the same order in every language:
    a Python translation of lib/annot.c from the WFDB Software Package
    10.7.0, by George B. Moody");
 3. "Changes from the original": how the file differs from the C code (each
-   change is marked "wfdb-x:" in the code, and
+   change is marked "WFDB-x:" in the code, and
    [`DIVERGENCES.md`](DIVERGENCES.md) gives the reasons), or "none, apart
    from the language";
 4. the copyright of the C file, with its revisers (for example, "Copyright
@@ -155,12 +155,12 @@ people:
   Muesch, Joonas Paalasmaa, Tony Ricke, Dave Schaffer, Dan Scott, Allavatam
   Venugopal, Mauro Villarroel, Andrew Walsh, Piotr Wlodarek and Yinqi Zhang.
 
-The guide also credits several pieces of work that WFDB-x doesn't port:
+The guide also credits these pieces of work:
 
-* Mike Dakin wrote the first NETFILES (HTTP client) implementation, which
-  Benjamin Moody later reimplemented with libcurl.
-* Benjamin Moody also implemented variable-layout records, which WFDB-x
-  does port, in `signal.c`.
+* Michael Dakin wrote the first NETFILES (HTTP client) implementation, which
+  Benjamin Moody later reimplemented with libcurl; WFDB-x does not port it.
+* Benjamin Moody also implemented variable-layout records (in `signal.c`,
+  which WFDB-x ports).
 * Pat Hamilton and Bob Farrell made the classic Mac OS and MS Windows
   ports.
 * Jose Garcia Moros and Salvador Olmos made the Matlab/Octave

@@ -10,7 +10,7 @@
 //
 // Changes from the original: no built-in sampling frequency: the record must
 // give it (the original assumed 250 Hz); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/wfdbtime.c, WFDB Software Package 10.7.0.
@@ -26,7 +26,7 @@ use wfdbx::{ceprintf, cformat, cprintf, cstd};
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let mut record: Option<&[u8]> = None;
 
@@ -45,7 +45,7 @@ fn main() {
                 cstd::exit(2);
             }
             if !legacy && wfdbx::sampfreq(wfdbx::NULL) <= 0.0 {
-                // wfdb-x: no default sampling frequency (except in legacy mode)
+                // WFDB-x: no default sampling frequency (except in legacy mode)
                 ceprintf!(
                     b"%s: sampling frequency of record %s is not specified\n",
                     argv[0],

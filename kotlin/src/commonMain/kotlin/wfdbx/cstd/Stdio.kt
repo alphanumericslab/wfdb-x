@@ -116,7 +116,7 @@ object Stdout {
     /**
      * C `fflush(stdout)`: 0, or -1 (EOF) on a write error.
      *
-     * wfdb-x: after a write error, the output is discarded (as if the
+     * WFDB-x: after a write error, the output is discarded (as if the
      * standard output were the null device), so that later writes and
      * flushes do nothing; [error] stays true.
      */
@@ -184,7 +184,7 @@ private var exitPname: ByteArray? = null
 private var exitWfdb: Wfdb? = null
 
 /**
- * wfdb-x: enables the check of write errors at [exit] (called by
+ * WFDB-x: enables the check of write errors at [exit] (called by
  * wfdbx_legacy_args, as the tools call it first); [argv0] gives the program
  * name of its message, and the legacy mode of [w] applies. Only the first
  * call counts.
@@ -196,7 +196,7 @@ internal fun exitCheckInit(argv0: ByteArray, w: Wfdb) {
 }
 
 /**
- * wfdb-x: the exit status of the tools. In normal mode, the standard output
+ * WFDB-x: the exit status of the tools. In normal mode, the standard output
  * is flushed; if it could not be written, "PROGRAM: write error on standard
  * output" is printed. Then, if [status] is 0 and the standard output or
  * another output file could not be written (see wfdbx.wfdbx_write_errors),
@@ -217,7 +217,7 @@ private fun exitCheck(status: Int): Int {
  * without closing records or annotators: no annotation end marks, no header
  * updates), then the standard output, and ends the process.
  *
- * wfdb-x: after wfdbx_legacy_args, in normal mode, a standard output that
+ * WFDB-x: after wfdbx_legacy_args, in normal mode, a standard output that
  * could not be written is reported ("PROGRAM: write error on standard
  * output"), and the status 0 becomes 1 if the standard output or another
  * output file could not be written (see wfdbx.wfdbx_write_errors).

@@ -23,7 +23,7 @@
 # guessed the resolution from the storage format); unspecified units are
 # written as "nd" (the original wrote "mV"); an EDF file that cannot be
 # written is reported (wfdbx_fclose_output); --legacy, as the first argument,
-# restores the original behavior. Each change is marked "wfdb-x:" in the code;
+# restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
@@ -101,7 +101,7 @@ function _mit2edf_legacy_adcres(fmt::Int32)
 end
 
 function mit2edf_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -175,7 +175,7 @@ function mit2edf_main(args::Vector{String})
     nsig <= 0 && cexit(3)
     ns = Int(nsig)
 
-    # wfdb-x: an EDF file needs the sampling frequency, and the gain and the
+    # WFDB-x: an EDF file needs the sampling frequency, and the gain and the
     # ADC resolution of each signal (the C program assumed 250 Hz and
     # 200 adu/mV if the header did not specify them, and guessed the
     # resolution from the storage format, as legacy mode does).
@@ -279,7 +279,7 @@ function mit2edf_main(args::Vector{String})
     # Calculate physical and digital extrema.
     for i in 1:ns
         s = si[i]
-        # (wfdb-x: the ADC resolution was checked above; the C program
+        # (WFDB-x: the ADC resolution was checked above; the C program
         # guessed it from the storage format if the header did not give it,
         # as legacy mode does.)
         legacy && s.adcres < 1 && (s.adcres = _mit2edf_legacy_adcres(s.fmt))
@@ -357,7 +357,7 @@ function mit2edf_main(args::Vector{String})
 
     # Physical dimension (e.g., uV or degreeC).
     for s in si
-        if s.units === nothing      # wfdb-x: unspecified units are "nd" (C, legacy: mV)
+        if s.units === nothing      # WFDB-x: unspecified units are "nd" (C, legacy: mV)
             s.units = Vector{UInt8}(legacy ? b"mV" : b"nd")
         elseif length(s.units) > _EDF_SHORT_LEN
             resize!(s.units, _EDF_SHORT_LEN)
@@ -498,7 +498,7 @@ register_workload("mit2edf") do
         workload_tool("mit2edf", "-r", "nf")
         workload_tool("mit2edf", "-r", "uc")
         workload_tool("mit2edf", "-r", "nr")
-        for rec in ("nf", "uc", "nr")       # wfdb-x: legacy mode (original behavior)
+        for rec in ("nf", "uc", "nr")       # WFDB-x: legacy mode (original behavior)
             workload_tool("mit2edf", "--legacy", "-r", rec)
         end
     end

@@ -104,7 +104,7 @@ opt = struct('channels', [], 'sampfrom', 0, 'sampto', [], ...
     'network', [], 'legacy', false, 'checksum_warning', true);
 opt = wfdbx.internal.hl_options(opt, varargin, 'read_record');
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_record'); %#ok<NASGU>
-% wfdb-x: the input directory and network access for this call
+% WFDB-x: the input directory and network access for this call
 restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, 'read_record'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 opt.legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
@@ -128,7 +128,7 @@ if opt.pad
 end
 wfdbx.setgvmode(mode);
 fs = wfdbx.sampfreq([]);
-% wfdb-x: no default sampling frequency (C assumed 250 Hz)
+% WFDB-x: no default sampling frequency (C assumed 250 Hz)
 [from, ok1] = wfdbx.internal.hl_time(opt.sampfrom, fs);
 [to, ok2] = wfdbx.internal.hl_time(opt.sampto, fs);
 if ~ok1 || ~ok2
@@ -139,7 +139,7 @@ end
 if isempty(from)
     from = 0;
 end
-% wfdb-x: the signal names without the white space at their ends
+% WFDB-x: the signal names without the white space at their ends
 si = wfdbx.internal.strip_desc(si);
 if isempty(opt.channels)
     cols = 0:nsig - 1;
@@ -175,7 +175,7 @@ else
 end
 [base_time, base_time_ms, base_date] = wfdbx.internal.hl_basetime(fs);
 if opt.physical && ~opt.legacy
-    % wfdb-x: no default gain (C assumed 200 adu/mV, as legacy mode does)
+    % WFDB-x: no default gain (C assumed 200 adu/mV, as legacy mode does)
     k = find([si(cols + 1).gain] == 0, 1);
     if ~isempty(k)
         wfdbx.wfdbquit();
@@ -192,12 +192,10 @@ if isempty(to)
 else
     remaining = max(to - from, 0);
 end
-% The output is allocated once, for the number of frames requested or (to
-% the end) those the header gives (strtim('e')), up to 2^25 samples (a
-% header may claim more than its files hold); it grows (doubling) only if
-% more are read.  Frames are read in chunks of about 2^22 samples (whole
-% frames, a multiple of 6 of them, so that formats 212, 310 and 311 end
-% each chunk on a whole packed unit: the frames are then read in blocks).
+% Frames are read in chunks of about 2^22 samples (whole frames, a
+% multiple of 6 of them, so that formats 212, 310 and 311 end each chunk on
+% a whole packed unit: the frames are then read in blocks), joined at the
+% end.
 CHUNK = max(65536, floor(4194304 / nsig));
 S = wfdbx.internal.sig_state();
 if opt.highres
@@ -206,20 +204,14 @@ else
     unit = 6;
 end
 CHUNK = CHUNK - mod(CHUNK, unit);
-if isfinite(remaining)
-    cap = remaining;
-else
-    cap = max(wfdbx.strtim('e') - from, 0);
-end
-data = zeros(min(cap, max(65536, floor(33554432 / nsig))), nsig);
-nrows = 0;
+parts = {};
 cksum_error = false;
 S.cksum_quiet = true;       % (getvec's checksum message: see below)
 quiet = onCleanup(@() set_cksum_quiet(S, false)); %#ok<NASGU>
 while remaining > 0
     n = min(CHUNK, remaining);
     [x, stat, last] = wfdbx.getframes(n);
-    % wfdb-x: -4, a checksum error: the samples are valid (the vector for
+    % WFDB-x: -4, a checksum error: the samples are valid (the vector for
     % which getvec returned -4 included), only their sum does not match
     % the header: a warning (see below), not an error.  In high-resolution
     % mode getvec returns -4 for each sample vector of the frame at which
@@ -228,20 +220,15 @@ while remaining > 0
         x = [x; last]; %#ok<AGROW>
         cksum_error = true;
     end
-    k = size(x, 1);
-    if k > 0
-        if nrows + k > size(data, 1)
-            data = [data(1:nrows, :); zeros(max(nrows, k), nsig)]; %#ok<AGROW>
-        end
-        data(nrows + 1:nrows + k, :) = x;
-        nrows = nrows + k;
+    if ~isempty(x)
+        parts{end + 1} = x; %#ok<AGROW>
     end
     remaining = remaining - size(x, 1);
     if stat == -4
         continue;
     end
     if size(x, 1) < n
-        % wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a signal
+        % WFDB-x: a status below -1 (e.g. -3, unexpected EOF: a signal
         % file shorter than its header says, or a decoder or I/O error) is
         % an error, not the end of the data (-1)
         if stat < -1
@@ -258,9 +245,14 @@ if cksum_error && opt.checksum_warning
     warning('wfdbx:checksum', ['checksum error in record %s: the signal ' ...
         'data do not match the checksums in its header'], record);
 end
-if nrows < size(data, 1)
-    data = data(1:nrows, :);
+if isempty(parts)
+    data = zeros(0, nsig);
+elseif numel(parts) == 1
+    data = parts{1};
+else
+    data = vertcat(parts{:});
 end
+clear parts x last     % (data is then modified in place)
 if ~isequal(cols, 0:nsig - 1)
     data = data(:, cols + 1);
 end
@@ -276,11 +268,19 @@ baselines = [sel.baseline];
 if opt.physical
     g = gains;
     if opt.legacy
-        g(g == 0) = 200;    % WFDB_DEFGAIN (wfdb-x: legacy mode)
+        g(g == 0) = 200;    % WFDB_DEFGAIN (WFDB-x: legacy mode)
     end
-    inv = data == -32768;   % WFDB_INVALID_SAMPLE
-    data = (data - baselines) ./ g;
-    data(inv) = NaN;
+    % (in blocks of rows, whose temporary arrays stay in the cache)
+    nr = size(data, 1);
+    step = max(256, floor(32768 / max(numel(g), 1)));
+    for f = 1:step:nr
+        r = f:min(f + step - 1, nr);
+        X = data(r, :);
+        inv = X == -32768;      % WFDB_INVALID_SAMPLE
+        X = (X - baselines) ./ g;
+        X(inv) = NaN;
+        data(r, :) = X;
+    end
 end
 rec.name = record;
 rec.fs = fs;

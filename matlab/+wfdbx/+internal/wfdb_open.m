@@ -8,7 +8,7 @@ function f = wfdb_open(s, record, mode)
 %   record name ending with '/' ('dir/') means 'dir/dir'.  The record '-'
 %   is the standard input (MODE 0) or output.
 %
-%   wfdb-x: nothing is searched.  A relative name is read under the input
+%   WFDB-x: nothing is searched.  A relative name is read under the input
 %   directory (wfdbx.wfdbx_set_input_dir) and written under the output
 %   directory (wfdbx.wfdbx_set_output_dir), if one is set; an absolute
 %   name, a ~ name or a URL is used as given (a URL can only be read, and
@@ -41,7 +41,7 @@ function f = wfdb_open(s, record, mode)
 % relative name is read under the input directory and written under the
 % output directory, an absolute name, a ~ name or a URL is used as given,
 % and URLs are opened only if network access is allowed. Each change is
-% marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
@@ -86,14 +86,14 @@ if mode == 1 || mode == 4
     st.wfdb_filename = spr1(r, s);
     wfdbx.internal.init_output_dir(st);
     if ~legacy
-        % wfdb-x: a relative name in the output directory, if one is set;
+        % WFDB-x: a relative name in the output directory, if one is set;
         % a URL cannot be written
         if wfdbx.internal.is_url(st.wfdb_filename)
             f = [];
             return;
         end
         st.wfdb_filename = wfdbx.internal.resolve_name(st.wfdb_filename, true);
-    elseif ischar(st.output_dir)    % wfdb-x: legacy mode: any name
+    elseif ischar(st.output_dir)    % WFDB-x: legacy mode: any name
         st.wfdb_filename = [st.output_dir '/' st.wfdb_filename];
     end
     if mode == 1
@@ -103,7 +103,7 @@ if mode == 1 || mode == 4
     end
     return;
 end
-if ~legacy      % wfdb-x: the one location that the name designates
+if ~legacy      % WFDB-x: the one location that the name designates
     f = wfdbx.internal.open_at(wfdbx.internal.resolve_name(r, false), s);
     return;
 end

@@ -31,7 +31,7 @@ wf(file.path("sub", "srec.hea"), "srec 0\n")
 wf(file.path("sub", "srec.atr"), c(0, 4, 1, 2, 255, 128))
 wf("pathfile", ". sub\r\n")
 
-# The WFDB path (legacy mode: wfdb-x reads from a single input directory,
+# The WFDB path (legacy mode: WFDB-x reads from a single input directory,
 # see test_files.R)
 wfdbx_set_legacy(TRUE)
 on.exit(wfdbx_set_legacy(FALSE), add = TRUE)

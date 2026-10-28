@@ -1913,7 +1913,7 @@ function cflush()
     Int32(0)
 end
 
-# wfdb-x: the standard output could not be written. The error flag is set
+# WFDB-x: the standard output could not be written. The error flag is set
 # (C's ferror(stdout)); what is left of the output is lost: descriptor 1 is
 # now the null device, so that later writes, and any flush at process exit,
 # succeed (they have no effect, as in C after a write error).

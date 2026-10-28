@@ -2,7 +2,7 @@ function f = sampfreq(record)
 %SAMPFREQ Sampling frequency of a record.
 %   F = wfdbx.sampfreq(RECORD) reads the header of RECORD and returns its
 %   sampling frequency (in Hz); a negative value if the header cannot be
-%   read, and 0 if the header does not specify it (wfdb-x: C assumed
+%   read, and 0 if the header does not specify it (WFDB-x: C assumed
 %   250 Hz; see docs/DIVERGENCES.md).  F = wfdbx.sampfreq([]) returns the
 %   sampling frequency of the currently open record (as modified by
 %   setgvmode/setsampfreq).
@@ -22,7 +22,7 @@ function f = sampfreq(record)
 % code.
 %
 % Changes from the original: it returns 0 when the header gives no sampling
-% frequency (the C library assumed 250 Hz). Each change is marked "wfdb-x:"
+% frequency (the C library assumed 250 Hz). Each change is marked "WFDB-x:"
 % in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.

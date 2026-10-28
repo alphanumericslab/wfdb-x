@@ -13,7 +13,7 @@
 # assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 # millivolts); the -f and -t times are converted at the -F frequency; --legacy,
 # as the first argument, restores the original behavior. Each change is marked
-# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1983-2007 George B. Moody.
@@ -69,15 +69,15 @@ app_ad2m <- function(args = character(0)) {
   t <- 0
   start_time <- 0
   end_time <- 0
-  fstr <- tstr <- NULL                      # wfdb-x: -f and -t, converted once -F is known
-  Ffreq <- 0                                # wfdb-x: -F, -G, -R and -U
+  fstr <- tstr <- NULL                      # WFDB-x: -f and -t, converted once -F is known
+  Ffreq <- 0                                # WFDB-x: -F, -G, -R and -U
   Ggain <- NULL
   Rres <- 0
   Uunits <- NULL
   opt <- function() if (i <= argc) argv[i] else NULL
   legacy <- wfdbx_get_legacy()
   if (legacy) {
-    # wfdb-x: in legacy mode, the parameters of the AHA database, set by the C
+    # WFDB-x: in legacy mode, the parameters of the AHA database, set by the C
     # program (250 Hz, 400 adu/mV, 12 bits, and no units, i.e., millivolts);
     # -F, -G, -R and -U are not options then.
     Ffreq <- 250
@@ -98,7 +98,7 @@ app_ad2m <- function(args = character(0)) {
           ceprintf("%s: start time must follow -f\n", pname)
           cexit(1)
         }
-        if (legacy) start_time <- strtim(argv[i])   # wfdb-x: as in the C program
+        if (legacy) start_time <- strtim(argv[i])   # WFDB-x: as in the C program
         else fstr <- argv[i]
       } else if (c == "h") {
         .ad2m_help(pname)
@@ -123,7 +123,7 @@ app_ad2m <- function(args = character(0)) {
           ceprintf("%s: end time must follow -t\n", pname)
           cexit(1)
         }
-        if (legacy) end_time <- strtim(argv[i])     # wfdb-x: as in the C program
+        if (legacy) end_time <- strtim(argv[i])     # WFDB-x: as in the C program
         else tstr <- argv[i]
       } else if (c == "F" && !legacy) {     # sampling frequency (WFDB-x)
         i <- i + 1L
@@ -151,7 +151,7 @@ app_ad2m <- function(args = character(0)) {
     .ad2m_help(pname)
     cexit(1)
   }
-  # wfdb-x: the signal parameters must be given explicitly; the C program
+  # WFDB-x: the signal parameters must be given explicitly; the C program
   # assumed those of the AHA database (250 Hz, 400 adu/mV, 12 bits, and no
   # units, i.e., millivolts), as legacy mode does (the values set above for
   # legacy mode pass these checks, and no units are required then).

@@ -10,7 +10,7 @@ behavior of the original program, but it is new code, not the original C code.
 Changes from the original: no built-in sampling frequency: the new option -F
 FREQ gives it when the record has no header or its header gives none, and is
 then required (the original assumed 250 Hz); --legacy, as the first argument,
-restores the original behavior. Each change is marked "wfdb-x:" in the code;
+restores the original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/rdann.c, WFDB Software Package 10.7.0.
@@ -50,7 +50,7 @@ HELP = [
     "* Only one of -e and -x can be used.",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {
     " -F FREQ             sampling frequency, if the record header does not":
     None,
@@ -189,7 +189,7 @@ def _main(argv, out):
     if record is None or ainame is None:
         help(pname)
         raise Exit(1)
-    # wfdb-x: no default sampling frequency (C assumed 250 Hz if the record
+    # WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
     # had no header); -F specifies one.
     # Legacy mode: as in the C program.
     if legacy():

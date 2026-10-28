@@ -19,7 +19,7 @@
 //
 // Changes from the original: no built-in sampling frequency: the record must
 // give it (the original assumed 250 Hz); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2wav.c, WFDB Software Package 10.7.0.
@@ -74,7 +74,7 @@ fn help(pname: &[u8]) {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut nrec: Option<Vec<u8>> = None;
@@ -159,7 +159,7 @@ fn main() {
         cstd::exit(3);
     }
     if !legacy && wfdbx::sampfreq(NULL) <= 0.0 {
-        // wfdb-x: no default sampling frequency (except in legacy mode)
+        // WFDB-x: no default sampling frequency (except in legacy mode)
         ceprintf!(
             b"%s: sampling frequency of record %s is not specified\n",
             pname,

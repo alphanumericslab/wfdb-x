@@ -12,7 +12,7 @@
 // then required for the -f and -t times (the original assumed 250 Hz); an
 // out-of-order annotation at time 0 (num 0, chan 0) is no longer lost, nor are
 // those inserted after it; --legacy, as the first argument, restores the
-// original behavior. Each change is marked "wfdb-x:" in the code;
+// original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/sortann.c, WFDB Software Package 10.7.0.
@@ -70,7 +70,7 @@ static const char *help_strings[] = {
     nullptr
 };
 
-// wfdb-x: the help text of the original program, printed in legacy mode
+// WFDB-x: the help text of the original program, printed in legacy mode
 static const char *legacy_help_strings[] = {
     "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n",
     "where RECORD and ANNOTATOR specify the input, and OPTIONS may include:",
@@ -85,7 +85,7 @@ static const char *legacy_help_strings[] = {
 
 static void help()
 {
-    // wfdb-x: the original help text in legacy mode
+    // WFDB-x: the original help text in legacy mode
     const char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;
 
     std::fprintf(stderr, hs[0], pname);
@@ -93,7 +93,7 @@ static void help()
         std::fprintf(stderr, "%s\n", hs[i]);
 }
 
-// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
+// Exit after reporting an unrecognized option (WFDB-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -103,7 +103,7 @@ static void help()
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -117,9 +117,9 @@ int main(int argc, char **argv)
 
     pname = prog_name(argv[0]);
 
-    // The annotation list (insert_ann of the C version; wfdb-x: shared with
+    // The annotation list (insert_ann of the C version; WFDB-x: shared with
     // the library, which sorts out-of-order output annotation files in the
-    // same way).  wfdb-x: an out-of-order annotation at time 0 (num 0, chan
+    // same way).  WFDB-x: an out-of-order annotation at time 0 (num 0, chan
     // 0) is no longer lost; legacy mode: the original insertion, which loses
     // it.
     detail::AnnSortList annlist(wfdbx_get_legacy() != 0);
@@ -144,7 +144,7 @@ int main(int argc, char **argv)
                 from = i;   // to be converted to sample intervals below
                 break;
             case 'F':   // sampling frequency follows (WFDB-x)
-                if (wfdbx_get_legacy())   // wfdb-x: not in the original
+                if (wfdbx_get_legacy())   // WFDB-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ffreq) != 1 ||
                     Ffreq <= 0.) {
@@ -221,7 +221,7 @@ int main(int argc, char **argv)
     setenv("WFDBANNSORT", "0", 1);
 #endif
 
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the record had no header); -F specifies one.  It is needed only to
     // convert the -f and -t times.  Legacy mode: as in the C program.
     if (wfdbx_get_legacy()) {
@@ -261,7 +261,7 @@ int main(int argc, char **argv)
                                           sps + 0.5);
             to = static_cast<WFDB_Time>(static_cast<double>(to) * tps / sps +
                                         0.5);
-        } else if (from || to) {    // wfdb-x: no default sampling frequency
+        } else if (from || to) {    // WFDB-x: no default sampling frequency
             std::fprintf(stderr,
                          "%s: sampling frequency of record %s is not specified "
                          "(use -F)\n", pname, record);

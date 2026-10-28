@@ -15,7 +15,7 @@
 // a gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"),
 // and unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
 // millivolts); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
@@ -100,7 +100,7 @@ fun Wfdb.wfdbdescMain(argv0: Array<ByteArray>): Int {
         }
         printf("=====\n")
     }
-    // wfdb-x: if the sampling frequency is not specified, times are not
+    // WFDB-x: if the sampling frequency is not specified, times are not
     // shown (the C program assumed 250 Hz). In legacy mode, the output is
     // that of the C program.
     val freq = sampfreq(null)
@@ -166,15 +166,15 @@ fun Wfdb.wfdbdescMain(argv0: Array<ByteArray>): Int {
         printf(" Description: %s\n", nstr(x.desc))
         printf(" Gain: ")
         if (legacy) {
-            // wfdb-x: as in the C program (legacy mode)
+            // WFDB-x: as in the C program (legacy mode)
             if (x.gain == 0.0) printf("uncalibrated; assume %g", WFDB_DEFGAIN)
             else printf("%.12g", x.gain)
             printf(" adu/%s\n", x.units?.let { cstr(it) } ?: "mV".latin1())
         } else if (x.gain == 0.0) {
-            // wfdb-x: no default gain (C: "uncalibrated; assume 200")
+            // WFDB-x: no default gain (C: "uncalibrated; assume 200")
             printf("uncalibrated\n")
         } else {
-            // wfdb-x: unspecified units are shown as "nd" (C: mV)
+            // WFDB-x: unspecified units are shown as "nd" (C: mV)
             printf("%.12g adu/%s\n", x.gain, x.units?.let { cstr(it) } ?: "nd".latin1())
         }
         printf(" Initial value: %d\n", x.initval)
@@ -187,7 +187,7 @@ fun Wfdb.wfdbdescMain(argv0: Array<ByteArray>): Int {
         if (x.adcres > 0 || legacy) {
             printf(" ADC resolution: %d bits\n", x.adcres)
         } else {
-            // wfdb-x: no default resolution
+            // WFDB-x: no default resolution
             printf(" ADC resolution: not specified\n")
         }
         printf(" ADC zero: %d\n", x.adczero)

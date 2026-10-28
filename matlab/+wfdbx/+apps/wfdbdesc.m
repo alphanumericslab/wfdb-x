@@ -11,7 +11,7 @@ function status = wfdbdesc(args)
 %   and the specifications of each signal are printed.  With -readable,
 %   only the signals whose files can be read are described.
 %
-%   wfdb-x: if the header does not specify the sampling frequency, it is
+%   WFDB-x: if the header does not specify the sampling frequency, it is
 %   printed as "not specified" and lengths are given in sample intervals
 %   only; an uncalibrated signal's gain is printed as "uncalibrated",
 %   unspecified units as "nd" and an unspecified ADC resolution as "not
@@ -44,7 +44,7 @@ function status = wfdbdesc(args)
 % gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"), and
 % unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
 % millivolts); --legacy, as the first argument, restores the original behavior.
-% Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
@@ -109,11 +109,11 @@ if ischar(info)
     end
     out(sprintf('=====\n'));
 end
-% wfdb-x: if the sampling frequency is not specified, times are not shown
+% WFDB-x: if the sampling frequency is not specified, times are not shown
 % (the C program assumed 250 Hz).
 freq = wfdbx.sampfreq([]);
 legacy = wfdbx.wfdbx_get_legacy();
-% wfdb-x: times are shown only if the frequency is known (legacy mode: in
+% WFDB-x: times are shown only if the frequency is known (legacy mode: in
 % any case, as in the C program)
 showtimes = freq > 0 || legacy;
 if showtimes
@@ -214,7 +214,7 @@ for i = 1:nsig
     end
     out(sprintf(' Description: %s\n', cstr(si.desc)));
     out(' Gain: ');
-    if legacy               % wfdb-x: legacy mode: as in the C program
+    if legacy               % WFDB-x: legacy mode: as in the C program
         if si.gain == 0
             out(['uncalibrated; assume ' csp('%g', 200)]);   % WFDB_DEFGAIN
         else
@@ -225,12 +225,12 @@ for i = 1:nsig
         else
             out(sprintf(' adu/mV\n'));
         end
-    elseif si.gain == 0     % wfdb-x: no default gain
+    elseif si.gain == 0     % WFDB-x: no default gain
         out(sprintf('uncalibrated\n'));
     elseif ischar(si.units)
         out([csp('%.12g', si.gain) sprintf(' adu/%s\n', si.units)]);
     else
-        % wfdb-x: unspecified units are shown as "nd" (C assumed mV)
+        % WFDB-x: unspecified units are shown as "nd" (C assumed mV)
         out([csp('%.12g', si.gain) sprintf(' adu/nd\n')]);
     end
     out(sprintf(' Initial value: %d\n', si.initval));
@@ -251,7 +251,7 @@ for i = 1:nsig
     end
     if si.adcres > 0 || legacy
         out(sprintf(' ADC resolution: %d bits\n', si.adcres));
-    else                    % wfdb-x: no default resolution
+    else                    % WFDB-x: no default resolution
         out(sprintf(' ADC resolution: not specified\n'));
     end
     out(sprintf(' ADC zero: %d\n', si.adczero));

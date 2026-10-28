@@ -20,7 +20,7 @@
 // output (-X), and the gain of each selected signal for physical units (-p,
 // -P) (the original assumed 250 Hz and 200 adu/mV); unspecified units are
 // shown as "nd" (the original showed "mV"); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rdsamp.c, WFDB Software Package 10.7.0.
@@ -106,7 +106,7 @@ private fun escapify(s: ByteArray): ByteArray {
 }
 
 /** Output buffer (written to the standard output in large pieces). */
-private class RdOut {
+internal class RdOut {
     val buf = ByteVec(LIMIT + 1024) // (+ a line or so)
     private val tmp = ByteArray(20) // a sign and the 19 digits of a long
 
@@ -149,6 +149,82 @@ private class RdOut {
         if (lead != 0) buf.add(lead)
         for (k in len until width) buf.add(' '.code)
         buf.addAll(tmp, p, len)
+    }
+
+    /**
+     * printf("<lead>%<width>d", vbuf[off + s]) for each s in [sig], then a
+     * newline (one line of samples).
+     */
+    fun samples(lead: Int, vbuf: IntArray, off: Int, sig: IntArray, width: Int) {
+        // (at most 11 characters per number: a sign and 10 digits)
+        var o = buf.extend(sig.size * (1 + maxOf(width, 11)) + 1)
+        val b = buf.bytes
+        for (s in sig) {
+            val v = vbuf[off + s]
+            var q = if (v < 0) -v.toLong() else v.toLong()
+            var nd = 1
+            var t = q
+            while (t >= 10) {
+                t = (t * 0xCCCCCCCDL) ushr 35 // (t / 10, for t < 2^32)
+                nd++
+            }
+            val len = nd + (if (v < 0) 1 else 0)
+            b[o++] = lead.toByte()
+            for (k in len until width) b[o++] = ' '.code.toByte()
+            if (v < 0) b[o++] = '-'.code.toByte()
+            var p = o + nd
+            o = p
+            do {
+                val d = (q * 0xCCCCCCCDL) ushr 35
+                b[--p] = ('0'.code + (q - d * 10).toInt()).toByte()
+                q = d
+            } while (q != 0L)
+        }
+        b[o++] = '\n'.code.toByte()
+        buf.truncate(o)
+    }
+
+    // The digits of the last sample number written by [sampleNumber]
+    // (cnt[cntStart until 20]), and its value (-1: none).
+    private val cnt = ByteArray(20)
+    private var cntStart = cnt.size
+    private var cntValue = -1L
+
+    /** printf("%<width>ld", v), for successive sample numbers (each the last plus 1 is found by incrementing its digits). */
+    fun sampleNumber(v: Long, width: Int) {
+        if (v < 0) {
+            integer(0, v, width)
+            return
+        }
+        if (cntValue >= 0 && v == cntValue + 1) {
+            var i = cnt.size - 1
+            while (true) {
+                if (cnt[i] != '9'.code.toByte()) {
+                    cnt[i]++
+                    break
+                }
+                cnt[i] = '0'.code.toByte()
+                if (--i < cntStart) {
+                    cnt[--cntStart] = '1'.code.toByte()
+                    break
+                }
+            }
+        } else {
+            var p = cnt.size
+            var q = v
+            do {
+                cnt[--p] = ('0'.code + (q % 10).toInt()).toByte()
+                q /= 10
+            } while (q != 0L)
+            cntStart = p
+        }
+        cntValue = v
+        val len = cnt.size - cntStart
+        val pad = if (width > len) width - len else 0
+        var o = buf.extend(pad + len)
+        val b = buf.bytes
+        for (k in 0 until pad) b[o++] = ' '.code.toByte()
+        cnt.copyInto(b, o, cntStart, cnt.size)
     }
 
     companion object {
@@ -282,12 +358,12 @@ fun Wfdb.rdsampMain(argv0: Array<ByteArray>): Int {
     nsig = isigopen(record, si, nsig)
     if (nsig <= 0) exit(2)
     if (legacy) {
-        // wfdb-x: the C program's default gain (legacy mode)
+        // WFDB-x: the C program's default gain (legacy mode)
         for (k in 0 until nsig) if (si[k].gain == 0.0) si[k].gain = WFDB_DEFGAIN
     }
     if (highres != 0) setgvmode(WFDB_HIGHRES)
     var freq = sampfreq(null)
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the header did not specify one, as legacy mode does).
     fun needsFreq(k: Long) = k > 0 && wfdbx_time_needs_freq(argv[k.toInt()]) != 0
     if (!legacy && freq <= 0.0 &&
@@ -323,7 +399,7 @@ fun Wfdb.rdsampMain(argv0: Array<ByteArray>): Int {
         IntArray(nsig) { it }
     }
 
-    // wfdb-x: no default gain (the C program assumed 200 adu/mV for
+    // WFDB-x: no default gain (the C program assumed 200 adu/mV for
     // uncalibrated signals, as legacy mode does).
     if (pflag != 0 && !legacy) {
         for (s in sig) {
@@ -479,7 +555,7 @@ fun Wfdb.rdsampMain(argv0: Array<ByteArray>): Int {
             if (xflag != 0) out.puts("<units>")
             out.puts(tufmt)
             for (s in sig) {
-                // wfdb-x: unspecified units are shown as "nd" (C, legacy mode: mV)
+                // WFDB-x: unspecified units are shown as "nd" (C, legacy mode: mV)
                 val u = cstr(si[s].units ?: (if (legacy) "mV" else "nd").latin1())
                 if (cflag == 0) {
                     // The units, in parentheses, fill the column.
@@ -541,7 +617,7 @@ fun Wfdb.rdsampMain(argv0: Array<ByteArray>): Int {
                             val t = if (from == 0L) "0:00.000".latin1() else mstimstr(from)
                             out.printf("%15s", t)
                         }
-                        SAMPLES -> out.integer(0, from, TWIDTH)
+                        SAMPLES -> out.sampleNumber(from, TWIDTH)
                         else -> out.fixed(0, from.toDouble() / freq, twidth, tprec, tfmt)
                     }
                 } else {
@@ -552,7 +628,7 @@ fun Wfdb.rdsampMain(argv0: Array<ByteArray>): Int {
                             if (from == 0L) out.puts("'0:00.000'")
                             else out.printf("'%s'", skipSpaces(mstimstr(from)))
                         }
-                        SAMPLES -> out.integer(0, from, 0)
+                        SAMPLES -> out.sampleNumber(from, 0)
                         else -> out.fixed(0, from.toDouble() / freq, twidth, tprec, tfmt)
                     }
                 }
@@ -583,10 +659,9 @@ fun Wfdb.rdsampMain(argv0: Array<ByteArray>): Int {
             val m = getvecs(vbuf, k)
             for (f in 0 until maxOf(m, 0L).toInt()) {
                 val off = f * nvec
-                out.integer(0, from, twidth)
+                out.sampleNumber(from, twidth)
                 from++
-                for (s in sig) out.integer(vlead, vbuf[off + s].toLong(), vwidth)
-                out.buf.add('\n'.code)
+                out.samples(vlead, vbuf, off, sig, vwidth)
             }
             out.maybeFlush()
             if (m < k) break

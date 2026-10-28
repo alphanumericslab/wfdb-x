@@ -12,7 +12,7 @@
 // location of files by name, the remote file reader, the in-process sorting of
 // annotation files, and what the high-level functions and check_record use);
 // the stream functions read and write without locking the stream. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdblib.h, WFDB Software Package 10.7.0.
 //   Copyright (C) 1989-2012 George B. Moody; revised 2017-2022 by Benjamin
@@ -46,7 +46,7 @@
 #define WFDBX_PUTC(c, f) putc_unlocked(c, f)
 #endif
 
-// wfdb-x: ferror and feof without locking the stream (putvec tests the
+// WFDB-x: ferror and feof without locking the stream (putvec tests the
 // error indicator after every sample, getann the end-of-file indicator after
 // every annotation word).  ferror_unlocked and feof_unlocked are found by the
 // build (CMakeLists.txt: WFDBX_HAVE_FERROR_UNLOCKED, WFDBX_HAVE_FEOF_UNLOCKED;
@@ -74,7 +74,7 @@ constexpr int DEFWFDBGVMODE = WFDB_LOWRES;
 // Path component types
 constexpr int WFDB_LOCAL = 0;   // a local file
 constexpr int WFDB_NET = 1;     // a remote file read via libwww (not used by WFDB-x)
-constexpr int WFDB_FETCHED = 2; // wfdb-x: a remote file, fetched in full and
+constexpr int WFDB_FETCHED = 2; // WFDB-x: a remote file, fetched in full and
                                 // read from a temporary copy (see wfdbio.cpp)
 
 namespace detail {
@@ -122,11 +122,11 @@ public:
     int eof() { return WFDBX_FEOF(fp_); }
     int error() { return WFDBX_FERROR(fp_); }
     void clearerr() { std::clearerr(fp_); }
-    // wfdb-x: the number of bytes between the current position and the end
+    // WFDB-x: the number of bytes between the current position and the end
     // of the file, if the file is a regular file (-1 otherwise, or if it
     // cannot be determined).  Used by the bulk reader of getvecs.
     long long bytes_left();
-    // Close the file (standard streams are flushed, not closed).  wfdb-x:
+    // Close the file (standard streams are flushed, not closed).  WFDB-x:
     // an output file that could not be written, flushed or closed counts as
     // a write error (see wfdbx_write_errors).
     int close();
@@ -159,7 +159,7 @@ private:
     std::FILE *fp_;
     bool is_std_;
     int type_;
-    bool out_;      // wfdb-x: an output file (opened for writing or appending)
+    bool out_;      // WFDB-x: an output file (opened for writing or appending)
 };
 
 using FilePtr = std::unique_ptr<WFDBFile>;
@@ -178,7 +178,7 @@ int wfdb_parse_path(const char *wfdb_path);
 void wfdb_addtopath(const char *pathname);
 // Name of the file most recently opened by wfdb_open
 const std::string &wfdb_filename();
-// wfdb-x: open, for reading, a file named in the header of record `record` (a
+// WFDB-x: open, for reading, a file named in the header of record `record` (a
 // signal file, or a segment of a multi-segment record, of type `type`):
 // `name`, in the directory `dir` of that header (as wfdbx_dirname() returns
 // it; nullopt if unknown, for a header read from the standard input: `name`
@@ -187,56 +187,56 @@ const std::string &wfdb_filename();
 // (the standard input) is also accepted.
 FilePtr wfdbx_open_in(const std::optional<std::string> &dir, const char *type,
                       const char *name, const char *record);
-// wfdb-x: the file that wfdb_open(name, nullptr, WFDB_WRITE) creates in
+// WFDB-x: the file that wfdb_open(name, nullptr, WFDB_WRITE) creates in
 // normal mode (under the output directory, if one is set); nullopt for "",
 // "-" (the standard output) or a URL.
 std::optional<std::string> wfdbx_output_file(const char *name);
-// wfdb-x: true if a file name found in a header names a file in the header's
+// WFDB-x: true if a file name found in a header names a file in the header's
 // directory or below it (see wfdbx_open_in).
 bool wfdbx_in_header_dir(const std::string &name);
-// wfdb-x: the directory part of a file name or URL, including its final
+// WFDB-x: the directory part of a file name or URL, including its final
 // separator ("" if it has none).
 std::string wfdbx_dirname(const std::string &path);
-// wfdb-x: install the exit check of the tools (see wfdbio.cpp), once;
+// WFDB-x: install the exit check of the tools (see wfdbio.cpp), once;
 // `argv0` gives the program name.  Called by wfdbx_legacy_args.
 void wfdbx_exit_check_init(const char *argv0);
-// wfdb-x: an argument of a command line, quoted as the MS-Windows C runtime
+// WFDB-x: an argument of a command line, quoted as the MS-Windows C runtime
 // parses it (_spawnvp joins its arguments with spaces, without quoting them).
 std::string wfdbx_quote_arg(const std::string &a);
-// wfdb-x: the command line that fetches `url` with curl (program name first,
+// WFDB-x: the command line that fetches `url` with curl (program name first,
 // the URL last), the URL quoted with wfdbx_quote_arg if `quote` (as on
 // MS-Windows).
 std::vector<std::string> wfdbx_curl_args(const std::string &url, bool quote);
 
 // signal.cpp
 void wfdb_sampquit();
-// wfdb-x: while on, getvec's message for a checksum error is recorded (see
+// WFDB-x: while on, getvec's message for a checksum error is recorded (see
 // wfdberror) but not printed (used by the high-level read_record, which
 // reports a checksum error itself).  Returns the previous setting.
 bool wfdbx_set_checksum_quiet(bool on);
-// wfdb-x: the bulk reader of getvecs (on by default); off, getvecs reads
+// WFDB-x: the bulk reader of getvecs (on by default); off, getvecs reads
 // frame by frame (for the unit tests, which compare the two).  Returns the
 // previous setting.
 bool wfdbx_set_bulk_read(bool on);
-// wfdb-x: the number of sample vectors read by the bulk reader so far, and
+// WFDB-x: the number of sample vectors read by the bulk reader so far, and
 // the state of the input signals as text (istime, gvc, and each signal's
 // last sample, checksum and remaining samples), for the unit tests.
 long long wfdbx_bulk_vectors();
 std::string wfdbx_input_state();
-// wfdb-x: the number of samples per signal given by the header of the
+// WFDB-x: the number of samples per signal given by the header of the
 // record opened last (that of the whole record for a multi-segment record;
 // 0 if not given), its base time (btime, in milliseconds after midnight) and
 // its base date (bdate, a Julian date; 0 if none), for the high-level
 // readers.
 void wfdbx_header_values(WFDB_Time *nsamp, long *btime, WFDB_Date *bdate);
-// wfdb-x: the year, month and day of a Julian date, computed as datstr()
+// WFDB-x: the year, month and day of a Julian date, computed as datstr()
 // does.
 void wfdbx_julian_ymd(WFDB_Date date, int *y, int *m, int *d);
-// wfdb-x: for check_record.  The number of samples per signal of the header
+// WFDB-x: for check_record.  The number of samples per signal of the header
 // read last (master: that of the multi-segment record, msnsamples; otherwise
 // that of the header read last, nsamples; 0 if not given).
 WFDB_Time wfdbx_header_nsamples(bool master);
-// wfdb-x: for check_record: true if the open input record is an EDF file;
+// WFDB-x: for check_record: true if the open input record is an EDF file;
 // the number of open input signal groups; the checksum accumulator of input
 // signal s (the header's checksum less the samples read so far); the size
 // of the local file of input group g (-1 if it is not a local file).
@@ -249,12 +249,12 @@ void wfdb_osflush();
 int wfdb_oinfoclose();
 
 // annot.cpp
-// wfdb-x: whether oannclose sorts an out-of-order output annotation file:
+// WFDB-x: whether oannclose sorts an out-of-order output annotation file:
 // -1 (the default): as WFDBANNSORT says; 0: not sorted; 1: sorted (for the
 // `sort` option of the high-level write_annotations).  Returns the previous
 // setting.
 int wfdbx_set_annsort(int mode);
-// wfdb-x: a copy of the annotation mnemonics and descriptions (and the flags
+// WFDB-x: a copy of the annotation mnemonics and descriptions (and the flags
 // of the modified types), and their restoration from such a copy (for
 // check_record: annopen reads an annotation file's definitions into them).
 std::shared_ptr<void> wfdbx_save_anndefs();
@@ -262,7 +262,7 @@ void wfdbx_restore_anndefs(const std::shared_ptr<void> &saved);
 void wfdb_anclose();
 void wfdb_oaflush();
 
-// wfdb-x: the list of annotations built by the sortann program (insert_ann
+// WFDB-x: the list of annotations built by the sortann program (insert_ann
 // in app/sortann.c), used by the sortann tool and by the in-process sorting
 // of oannclose.  Annotations are kept in the canonical order (time, then
 // num, then chan); one with the same time, num and chan as an annotation
@@ -271,7 +271,7 @@ void wfdb_oaflush();
 // of annotations: C also compared the list head (time, num and chan 0) with
 // the new annotation, so that an out-of-order annotation with time, num and
 // chan 0 "replaced" the head and was detached from the list, with any
-// annotation later inserted after it.  wfdb-x: the head is not compared (such
+// annotation later inserted after it.  WFDB-x: the head is not compared (such
 // an annotation is inserted at the beginning); with `legacy`, it is, as in C
 // (the sortann tool in legacy mode).
 class AnnSortList {

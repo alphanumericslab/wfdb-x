@@ -2,8 +2,8 @@
 //!
 //! The `wfdbx` crate reads and writes physiological signal records in the
 //! WFDB format used by [PhysioNet](https://physionet.org). It is a complete
-//! Rust implementation of the WFDB Software Package 10.7.0: the library and
-//! all of its command-line tools. It reads and writes the same files as the
+//! Rust implementation of the WFDB Software Package: the library and all of
+//! its command-line tools. It reads and writes the same files as the
 //! original C library, and its tools print the same output.
 //!
 //! You can use it in three ways:

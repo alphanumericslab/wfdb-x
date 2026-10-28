@@ -1288,7 +1288,7 @@ csprintf_v <- function(fmt, ...) {
   invisible()
 }
 
-# wfdb-x: the standard output is opened for each write and closed after it,
+# WFDB-x: the standard output is opened for each write and closed after it,
 # since R's flush() does not report a failed write and close() does.  A
 # failed write or close is noted (.stdout_error); the output is then
 # dropped.  A broken pipe raises R's error "ignoring SIGPIPE signal".
@@ -1322,7 +1322,7 @@ csprintf_v <- function(fmt, ...) {
   ok
 }
 
-# wfdb-x: note that the standard output could not be written; what is left
+# WFDB-x: note that the standard output could not be written; what is left
 # of the output is dropped (see app_run).
 .stdout_error <- function() {
   .cstd$stdout_failed <- TRUE
@@ -1342,8 +1342,11 @@ cout <- function(s) {
       st$out_parts <- vector("list", 1024L)
       st$out_n <- 0L
       st$out_bytes <- 0
-      .write_std(1L, unlist(lapply(parts, function(p) if (is.raw(p)) p else charToRaw(p)),
-                            use.names = FALSE))
+      .write_std(1L, if (length(parts) == 1L) {
+        if (is.raw(parts[[1L]])) parts[[1L]] else charToRaw(parts[[1L]])
+      } else {
+        unlist(lapply(parts, function(p) if (is.raw(p)) p else charToRaw(p)), use.names = FALSE)
+      })
     }
     return(invisible())
   }
@@ -1457,7 +1460,7 @@ cexit <- function(status = 0) {
 #' the first argument is handled by wfdbx_legacy_args() (legacy mode is
 #' turned on for the run, and restored to its previous setting afterwards).
 #'
-#' wfdb-x: at the end, in normal mode, a standard output that could not be
+#' WFDB-x: at the end, in normal mode, a standard output that could not be
 #' written is reported ("PROGRAM: write error on standard output"), and the
 #' exit status 0 becomes 1 if the standard output or another output file
 #' could not be written (see wfdbx_write_errors), as for the standard

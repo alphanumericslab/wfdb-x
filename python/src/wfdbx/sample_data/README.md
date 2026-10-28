@@ -7,5 +7,5 @@ reference beat annotations (annotator `atr`). It is included so that the
 examples and notebooks run without a network connection.
 
 The MIT-BIH Arrhythmia Database is available from PhysioNet
-(https://physionet.org/content/mitdb/); please cite it as described there
-when you use it.
+(https://physionet.org/content/mitdb/); work that uses it should cite it as
+described there.

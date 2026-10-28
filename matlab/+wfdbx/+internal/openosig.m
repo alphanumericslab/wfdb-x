@@ -18,7 +18,7 @@ function [nsig, si_out] = openosig(func, si_in, nsig)
 % Changes from the original: outside legacy mode, an output signal file that
 % is one of the files of the open input record is refused ("output file NAME
 % is also an input file"), so that it is neither created nor truncated. Each
-% change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -96,7 +96,7 @@ for s = 1:nsig
             end
         end
         if os.info.fmt ~= 0
-            % wfdb-x: never one of the input files (see is_input_file)
+            % WFDB-x: never one of the input files (see is_input_file)
             if ~S.legacy_mode && wfdbx.internal.is_input_file(os.info.fname)
                 wfdbx.internal.wfdb_error( ...
                     '%s: output file %s is also an input file\n', func, ...

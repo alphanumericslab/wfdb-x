@@ -14,7 +14,7 @@
 # unless the input gives the units (the original assumed 250 Hz, 200 adu/mV, a
 # resolution based on the format, and millivolts); -G 0 declares the signals
 # uncalibrated; -G, -R and -U take one value per signal; --legacy, as the first
-# argument, restores the original behavior. Each change is marked "wfdb-x:" in
+# argument, restores the original behavior. Each change is marked "WFDB-x:" in
 # the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
@@ -77,7 +77,7 @@ app_wrsamp <- function(args = character(0)) {
     "",
     "If no COLUMN is specified, all fields are copied in order; column 0 can be",
     "omitted in this case by using the '-z' option.")
-  if (wfdbx_get_legacy())          # wfdb-x: legacy mode (the original help)
+  if (wfdbx_get_legacy())          # WFDB-x: legacy mode (the original help)
     h <- c(h[1:5],
            " -F FREQ     specify frequency to be written to header file (default: 250)",
            " -G GAIN     specify gain(s) to be written to header file (default: 200)",
@@ -179,7 +179,7 @@ app_wrsamp <- function(args = character(0)) {
   tokens
 }
 
-# wfdb-x: legacy mode (original behavior): the ADC resolution inferred from
+# WFDB-x: legacy mode (original behavior): the ADC resolution inferred from
 # the format.
 .wrsamp_adcres <- function(fmt) {
   if (fmt %in% c(508, 80)) return(8)
@@ -290,15 +290,15 @@ app_wrsamp <- function(args = character(0)) {
   argc <- length(argv)
   arg <- function(i) argv[i + 1L]
   gain <- ""
-  res <- ""                       # wfdb-x: -R
-  uopt <- NULL                    # wfdb-x: -U
+  res <- ""                       # WFDB-x: -R
+  uopt <- NULL                    # WFDB-x: -U
   scale <- ""
   record <- NULL
   rsep <- as.raw(10L)
   sflag <- 0
   xflag <- 0; zflag <- 0; dflag <- 0
   legacy <- wfdbx_get_legacy()
-  # wfdb-x: no default frequency (legacy mode: that of the C program)
+  # WFDB-x: no default frequency (legacy mode: that of the C program)
   freq <- if (legacy) WFDB_DEFFREQ else 0
   fmt <- 16
   t0 <- 0; t1 <- 0
@@ -337,14 +337,14 @@ app_wrsamp <- function(args = character(0)) {
     } else if (c == "h") {
       .wrsamp_help(pname)
       cexit(1)
-    } else if (c == "R" && !legacy) {     # wfdb-x: ADC resolution(s) in bits
+    } else if (c == "R" && !legacy) {     # WFDB-x: ADC resolution(s) in bits
       i <- i + 1
       if (i >= argc) {
         ceprintf("%s: ADC resolution(s) must follow -R\n", pname)
         cexit(1)
       }
       res <- arg(i)
-    } else if (c == "U" && !legacy) {     # wfdb-x: units
+    } else if (c == "U" && !legacy) {     # WFDB-x: units
       i <- i + 1
       if (i >= argc) {
         ceprintf("%s: units must follow -U\n", pname)
@@ -424,7 +424,7 @@ app_wrsamp <- function(args = character(0)) {
     }
     i <- i + 1
   }
-  # wfdb-x: the sampling frequency, the gains, the ADC resolutions, and the
+  # WFDB-x: the sampling frequency, the gains, the ADC resolutions, and the
   # units (of calibrated signals) must be specified when a header is written
   # (the C program assumed 250 Hz, 200 adu/mV, a resolution based on the
   # format, and millivolts), as legacy mode does.
@@ -579,7 +579,7 @@ app_wrsamp <- function(args = character(0)) {
       s["desc"] <- list(.f("col %d", f))
     }
     if (!is.null(us)) {
-      # wfdb-x: -U (the last one applies to the rest)
+      # WFDB-x: -U (the last one applies to the rest)
       us <- lstrip_b(us)
       if (length(us)) {
         w <- skip_word(us)
@@ -597,7 +597,7 @@ app_wrsamp <- function(args = character(0)) {
     s$fmt <- fmt
     s$spf <- 1
     s$bsize <- 0
-    # wfdb-x: the ADC resolutions are given by -R (the last one applies to
+    # WFDB-x: the ADC resolutions are given by -R (the last one applies to
     # the remaining signals); the C program inferred them from the format or
     # assumed WFDB_DEFRES, as legacy mode does.
     if (legacy) {
@@ -621,13 +621,13 @@ app_wrsamp <- function(args = character(0)) {
     gs <- lstrip_b(gs)
     v <- .scan_lf(gs)
     if (is.null(v)) {
-      # (wfdb-x: the C program, and legacy mode: WFDB_DEFGAIN)
+      # (WFDB-x: the C program, and legacy mode: WFDB_DEFGAIN)
       s$gain <- if (k > 1) si[[k - 1]]$gain else if (legacy) WFDB_DEFGAIN else 0
     } else {
       s$gain <- v
       gs <- skip_word(gs)
     }
-    # wfdb-x: the units of a calibrated signal must be specified, by -U or by
+    # WFDB-x: the units of a calibrated signal must be specified, by -U or by
     # the input (the C program left them out: millivolts).
     if (check && s$gain != 0 && !nzchar(s$units)) {
       ceprintf("%s: the units must be specified (-U)\n", pname)

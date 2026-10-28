@@ -12,7 +12,7 @@
 # then required for the -f and -t times (the original assumed 250 Hz); an
 # out-of-order annotation at time 0 (num 0, chan 0) is no longer lost, nor are
 # those inserted after it; --legacy, as the first argument, restores the
-# original behavior. Each change is marked "wfdb-x:" in the code;
+# original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/sortann.c, WFDB Software Package 10.7.0.
@@ -126,11 +126,11 @@ app_sortann <- function(args = character(0)) {
     cexit(1)
   }
   Sys.setenv(WFDBANNSORT = "0")
-  # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+  # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
   # the record had no header); -F specifies one.  It is needed only to
   # convert the -f and -t times.
   sps <- sampfreq(record)
-  if (wfdbx_get_legacy()) {              # wfdb-x: legacy mode (original behavior)
+  if (wfdbx_get_legacy()) {              # WFDB-x: legacy mode (original behavior)
     if (sps < 0) setsampfreq(sps <- WFDB_DEFFREQ)
   } else if (sps <= 0 && Ffreq > 0) {
     setsampfreq(sps <- Ffreq)
@@ -155,7 +155,7 @@ app_sortann <- function(args = character(0)) {
     if (wfdbx_get_legacy() || sps > 0) {
       from <- trunc(from * tps / sps + 0.5)
       to <- trunc(to * tps / sps + 0.5)
-    } else if (from || to) {           # wfdb-x: no default sampling frequency
+    } else if (from || to) {           # WFDB-x: no default sampling frequency
       .app_nofreq(pname, record, 1, useF = TRUE)
     }
   }
@@ -163,7 +163,7 @@ app_sortann <- function(args = character(0)) {
   keep <- !(A$time < from | (to > 0 & A$time >= to))
   idx <- which(keep)
   so <- .ann_sort_order(A$time[idx], A$num[idx], A$chan[idx],
-                        legacy = wfdbx_get_legacy())   # (wfdb-x: no annotation lost)
+                        legacy = wfdbx_get_legacy())   # (WFDB-x: no annotation lost)
   iannclose(0)
   if (so$in_order && is.null(out_name)) {
     ceprintf("%s: input is already ordered -- no output written\n", pname)

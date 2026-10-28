@@ -52,7 +52,7 @@ function tools()
     sort!(v)
 end
 
-# wfdb-x: the help text of an original tool (printed in legacy mode): the
+# WFDB-x: the help text of an original tool (printed in legacy mode): the
 # lines of `help` except those (indices) that document WFDB-x options.
 _help_without(help::Tuple, lines) = Tuple(_help_without(collect(help), lines))
 _help_without(help::Vector{String}, lines) = String[help[k] for k in eachindex(help) if !(k in lines)]
@@ -60,7 +60,7 @@ _help_without(help::Vector{String}, lines) = String[help[k] for k in eachindex(h
 # Run a tool's main function: returns its exit status. CExit (C's exit) ends
 # it; other exceptions are reported on the standard error (status 1). The
 # open files and the standard output are then flushed, as C's exit does.
-# wfdb-x: then, in normal mode, a standard output that could not be written
+# WFDB-x: then, in normal mode, a standard output that could not be written
 # is reported ("PNAME: write error on standard output"), and the exit status
 # 0 becomes 1 if the standard output or another output file could not be
 # written (see wfdbx_write_errors), as for the standard Unix tools. Legacy
@@ -106,16 +106,21 @@ end
 
 The entry point of the command-line driver `bin/wfdbx.jl TOOL ARGS...`:
 run the tool `args[1]` with the arguments `args[2:end]`, writing to the
-process's standard output and error, and return its exit status. With no
-arguments or an unknown tool name, print a message on the standard error
-and return 1.
+process's standard output and error, and return its exit status. With
+`--version`, print the version of WFDB-x (such as "WFDB-x 1.1.0") and
+return 0. With no arguments or an unknown tool name, print a message on the
+standard error and return 1.
 
 Part of WFDB-x; not in the original WFDB package.
 """
 function main_cli(args::Vector{String})
     if isempty(args)
-        cerr_write("usage: wfdbx.jl TOOL [ARGUMENTS ...]\n")
+        cerr_write("usage: wfdbx.jl TOOL [ARGUMENTS ...]\n       wfdbx.jl --version\n")
         return 1
+    end
+    if args[1] == "--version"
+        cout_write(string("WFDB-x ", pkgversion(@__MODULE__), "\n"))
+        return cflush() == 0 ? 0 : 1
     end
     f = tool_function(args[1])
     if f === nothing
@@ -126,7 +131,7 @@ function main_cli(args::Vector{String})
 end
 
 const _WFDB_ENV = ("WFDB", "WFDBCAL", "WFDBANNSORT", "WFDBGVMODE",
-                   "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR", "WFDBX_NETWORK")   # (wfdb-x: the last 3)
+                   "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR", "WFDBX_NETWORK")   # (WFDB-x: the last 3)
 
 """
     run_tool(tool, args; stdin=UInt8[], dir=nothing, env=nothing)

@@ -13,8 +13,9 @@ the C sources. Where the documentation and the C code disagree, WFDB-x
 follows the code.
 
 The deliberate exceptions (no built-in signal parameters, files found only
-where they are named, and in-process annotation sorting that loses nothing)
-are described in [`DIVERGENCES.md`](DIVERGENCES.md).
+where they are named, in-process annotation sorting that loses nothing, no
+output file over an input file, and exit status 1 after a write error) are
+described in [`DIVERGENCES.md`](DIVERGENCES.md).
 
 A few C behaviors are *undefined* (crashes, infinite loops, reads of
 uninitialized memory). WFDB-x cannot reproduce those; for each one, the
@@ -25,7 +26,7 @@ The reference platform is x86-64 Linux with glibc: `char` is signed,
 `long` is 64 bits, and the library is built with `-DWFDB_LARGETIME`
 (so `WFDB_Time` is 64 bits).
 
-### Behaviors that depend on the platform
+## Behaviors that depend on the platform
 
 The stored reference results were produced on that platform. These C
 behaviors can differ elsewhere, and WFDB-x reproduces the reference
@@ -245,7 +246,7 @@ marked *bug* are almost certainly unintended by the C authors.
   `can't open` message.
 - **`parsescp`** reads the encoding type of sections 5 and 6 from byte 4
   of the section data (the high byte of the sample interval) instead of
-  byte 5, so a 2000 us interval gives "Encoding type: 7", treated as second
+  byte 5, so a 2000 µs interval gives "Encoding type: 7", treated as second
   differences, and it reads the section 6 compression type from byte 5
   (which holds the encoding type in the SCP-ECG layout), so second-difference
   data give "Compression type: 2", treated as bimodal. *Bug* (harmless for

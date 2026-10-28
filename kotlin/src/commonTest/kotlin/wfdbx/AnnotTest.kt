@@ -494,7 +494,7 @@ class AnnotTest {
     }
 
     // -----------------------------------------------------------------------
-    // wfdb-x: in-process sorting of out-of-order output annotation files
+    // WFDB-x: in-process sorting of out-of-order output annotation files
 
     private class Tr(val time: Long, val anntyp: Int, val num: Int, val chan: Int, val aux: String?)
 
@@ -639,7 +639,7 @@ class AnnotTest {
         d.remove()
     }
 
-    /** wfdb-x: the list no longer loses an out-of-order annotation at time 0 (num and chan 0) and those inserted after it; the original insertion (legacy) does. */
+    /** WFDB-x: the list no longer loses an out-of-order annotation at time 0 (num and chan 0) and those inserted after it; the original insertion (legacy) does. */
     @Test
     fun annListTime0() {
         fun list(legacy: Boolean, anns: List<Pair<Long, Int>>): List<Pair<Long, Int>> {
@@ -662,7 +662,7 @@ class AnnotTest {
         assertEquals(0, AnnList().toList().size)
     }
 
-    /** wfdb-x: the library sort keeps time-0 annotations. */
+    /** WFDB-x: the library sort keeps time-0 annotations. */
     @Test
     fun sortTime0() = withSortEnv {
         val d = DataDir("sort0")

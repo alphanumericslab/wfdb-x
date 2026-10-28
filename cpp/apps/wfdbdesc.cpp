@@ -13,7 +13,7 @@
 // a gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"),
 // and unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
 // millivolts); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
@@ -67,7 +67,7 @@ static const char *str(const std::optional<std::string> &s)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -119,7 +119,7 @@ int main(int argc, char **argv)
         } while ((info = getinfo(nullptr)));
         std::printf("=====\n");
     }
-    // wfdb-x: if the sampling frequency is not specified, times are not
+    // WFDB-x: if the sampling frequency is not specified, times are not
     // shown (the C program assumed 250 Hz).  In legacy mode, the output is
     // that of the C program.
     WFDB_Frequency freq = sampfreq(nullptr);
@@ -201,16 +201,16 @@ int main(int argc, char **argv)
         std::printf(" File: %s\n", s[i].fmt ? str(s[i].fname) : "[none]");
         std::printf(" Description: %s\n", str(s[i].desc));
         std::printf(" Gain: ");
-        if (wfdbx_get_legacy()) {   // wfdb-x: as in the C program
+        if (wfdbx_get_legacy()) {   // WFDB-x: as in the C program
             if (s[i].gain == 0.)
                 std::printf("uncalibrated; assume %g", WFDB_DEFGAIN);
             else
                 std::printf("%.12g", s[i].gain);
             std::printf(" adu/%s\n", s[i].units ? s[i].units->c_str() : "mV");
-        } else if (s[i].gain == 0.)    // wfdb-x: no default gain
+        } else if (s[i].gain == 0.)    // WFDB-x: no default gain
             std::printf("uncalibrated\n");
         else
-            // wfdb-x: unspecified units are shown as "nd" (C assumed mV)
+            // WFDB-x: unspecified units are shown as "nd" (C assumed mV)
             std::printf("%.12g adu/%s\n", s[i].gain,
                         s[i].units ? s[i].units->c_str() : "nd");
         std::printf(" Initial value: %d\n", s[i].initval);
@@ -224,7 +224,7 @@ int main(int argc, char **argv)
             std::printf("%d-byte blocks\n", s[i].bsize);
         if (s[i].adcres > 0 || wfdbx_get_legacy())
             std::printf(" ADC resolution: %d bits\n", s[i].adcres);
-        else    // wfdb-x: no default resolution
+        else    // WFDB-x: no default resolution
             std::printf(" ADC resolution: not specified\n");
         std::printf(" ADC zero: %d\n", s[i].adczero);
         std::printf(" Baseline: %d\n", s[i].baseline);

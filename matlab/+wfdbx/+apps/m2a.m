@@ -13,7 +13,7 @@ function status = m2a(args)
 %       -s TIME   shift annotation times backwards by TIME, and convert
 %                 them to milliseconds
 %
-%   wfdb-x: no sampling frequency is assumed (the C program assumed 250 Hz
+%   WFDB-x: no sampling frequency is assumed (the C program assumed 250 Hz
 %   if the record header did not specify one); with -s, a header giving it
 %   or -F is required.  See docs/DIVERGENCES.md.
 %
@@ -41,7 +41,7 @@ function status = m2a(args)
 % Changes from the original: no built-in sampling frequency: the new option -F
 % FREQ gives it when the record header gives none, and is then required for -s
 % (the original assumed 250 Hz); --legacy, as the first argument, restores the
-% original behavior. Each change is marked "wfdb-x:" in the code;
+% original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/m2a.c, WFDB Software Package 10.7.0.
@@ -67,7 +67,7 @@ h = {'where RECORD is the record name, MIT-ANNOTATOR is the annotator name', ...
     ' -h        print this usage summary', ...
     ' -s TIME   shift annotation times backwards by the specified TIME,', ...
     '            and convert them to milliseconds'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h(4) = [];                  % (without -F)
 end
 wfdbx.internal.ceprintf( ...
@@ -96,7 +96,7 @@ while i < argc
         else
             c = '';
         end
-        if legacy && strcmp(c, 'F')   % wfdb-x: legacy mode: not an option of
+        if legacy && strcmp(c, 'F')   % WFDB-x: legacy mode: not an option of
             c = '';                     % the original (unrecognized)
         end
         switch c
@@ -168,7 +168,7 @@ if ~ischar(shift)
         wfdbx.putann(0, annot);
     end
 else
-    % wfdb-x: no default sampling frequency (the C program assumed 250 Hz
+    % WFDB-x: no default sampling frequency (the C program assumed 250 Hz
     % if the record header did not specify one); -F specifies one.
     if wfdbx.sampfreq(record) <= 0
         if legacy   % (as in the C program)

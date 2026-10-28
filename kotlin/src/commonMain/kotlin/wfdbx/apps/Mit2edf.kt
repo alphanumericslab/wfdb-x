@@ -23,7 +23,7 @@
 // and guessed the resolution from the storage format); unspecified units are
 // written as "nd" (the original wrote "mV"); an EDF file that cannot be
 // written is reported, and the exit status is then 1; --legacy, as the first
-// argument, restores the original behavior. Each change is marked "wfdb-x:" in
+// argument, restores the original behavior. Each change is marked "WFDB-x:" in
 // the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
@@ -168,7 +168,7 @@ fun Wfdb.mit2edfMain(argv0: Array<ByteArray>): Int {
     nsig = isigopen(record, si, nsig)
     if (nsig <= 0) exit(3)
 
-    // wfdb-x: the sampling frequency, the gains and the ADC resolutions must be
+    // WFDB-x: the sampling frequency, the gains and the ADC resolutions must be
     // specified (the C program assumed 250 Hz, 200 adu/mV and a resolution based
     // on the format, as legacy mode does).
     if (!legacy && sampfreq(null as ByteArray?) <= 0.0) {
@@ -258,7 +258,7 @@ fun Wfdb.mit2edfMain(argv0: Array<ByteArray>): Int {
 
     for (k in 0 until ns) {
         val s = si[k]
-        // wfdb-x: legacy mode: the resolution of the C program, based on the format
+        // WFDB-x: legacy mode: the resolution of the C program, based on the format
         if (legacy && s.adcres < 1) s.adcres = guessAdcres(s.fmt)
         val half = 1 shl ((s.adcres - 1) and 31)
         dmax[k] = s.adczero + half - 1
@@ -318,7 +318,7 @@ fun Wfdb.mit2edfMain(argv0: Array<ByteArray>): Int {
         hd.pos += 80
     }
     for (s in si) {
-        // wfdb-x: unspecified units are written as "nd" (C, legacy mode: mV)
+        // WFDB-x: unspecified units are written as "nd" (C, legacy mode: mV)
         var u = s.units ?: (if (legacy) "mV" else "nd").latin1()
         if (u.size > 8) u = u.copyOf(8)
         s.units = u

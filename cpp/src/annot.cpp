@@ -13,7 +13,7 @@
 // annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
 // option of the high-level write_annotations decides, for its call, whether
 // the file is sorted; legacy mode (wfdbx_set_legacy) restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -112,7 +112,7 @@ struct OAData {
     WFDB_Frequency afreq = 0;   // time resolution, in ticks/second
     int seqno = 0;              // annotation serial number (AHA only)
     std::string rname;          // record with which annotator is associated
-    std::string fname;          // wfdb-x: name of the file (as created)
+    std::string fname;          // WFDB-x: name of the file (as created)
     char out_of_order = 0;      // if > 0, annotations are not in order
     char table_written = 0;     // if > 0, table has been written
 };
@@ -229,7 +229,7 @@ const char *const default_descriptions[ACMAX + 1] = {
     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
 };
 
-// wfdb-x: a table of annotation type definitions (mnemonics, descriptions,
+// WFDB-x: a table of annotation type definitions (mnemonics, descriptions,
 // and flags marking the modified types), initially the default one.  The
 // library has one (tables().defs); sort_ann_file uses one of its own.
 struct AnnDefs {
@@ -265,7 +265,7 @@ bool same_string(const std::optional<std::string> &a, const char *s)
     return a && *a == s;
 }
 
-// wfdb-x: the body of setannstr and setanndesc, for a string table (of
+// WFDB-x: the body of setannstr and setanndesc, for a string table (of
 // mnemonics or descriptions) and the modification flags (mod) of a definition
 // table.  Returns 0, or -1 if code is illegal.
 template <class Str>
@@ -290,7 +290,7 @@ int getann_ia(IAData *ia, WFDB_Annotation *annot);
 void ungetann_ia(IAData *ia, const WFDB_Annotation *annot);
 int put_ann_word(OAData *oa, WFDB_Annotator n, const WFDB_Annotation *annot);
 
-// wfdb-x: read_ann_table is the body of get_ann_table, for the input
+// WFDB-x: read_ann_table is the body of get_ann_table, for the input
 // annotator ia and the definition table defs (the library's, or that of
 // sort_ann_file).
 int read_ann_table(IAData *ia, AnnDefs &defs)
@@ -342,7 +342,7 @@ int get_ann_table(WFDB_Annotator i)
     return 0;
 }
 
-// wfdb-x: put_ann_table writes the table to the output annotator oa (number
+// WFDB-x: put_ann_table writes the table to the output annotator oa (number
 // n, in messages), with the time resolution freq and the definition table
 // defs (the C library used oad[n], oafreq, and the library's table).
 int put_ann_table(OAData *oa, WFDB_Annotator n, WFDB_Frequency freq,
@@ -395,7 +395,7 @@ int put_ann_table(OAData *oa, WFDB_Annotator n, WFDB_Frequency freq,
 
 // Read the first word of the input annotation file of ia and return its
 // format: WFDB_READ (MIT format; any initial null annotations are then read
-// as well) or WFDB_AHA_READ.  (wfdb-x: this was part of annopen.)
+// as well) or WFDB_AHA_READ.  (WFDB-x: this was part of annopen.)
 int ann_file_format(IAData *ia)
 {
     // AHA-format files begin with a null byte and an ASCII character which
@@ -593,7 +593,7 @@ int annopen(const char *record_arg, const WFDB_Anninfo *aiarray, unsigned nann)
             }
             oa->info.name = aiarray[i].name;
             oa->rname = record;
-            oa->fname = wfdb_filename();    // wfdb-x: for sort_ann_file
+            oa->fname = wfdb_filename();    // WFDB-x: for sort_ann_file
             oa->ann.time = 0;
             oa->info.stat = aiarray[i].stat;
             oa->out_of_order = 0;
@@ -729,7 +729,7 @@ int getann(WFDB_Annotator n, WFDB_Annotation *annot)
 namespace detail {
 namespace {
 
-// wfdb-x: getann_ia is the body of getann, for the input annotator ia.
+// WFDB-x: getann_ia is the body of getann, for the input annotator ia.
 int getann_ia(IAData *ia, WFDB_Annotation *annot)
 {
     if (ia->pann.anntyp) {      // an annotation was pushed back
@@ -761,7 +761,7 @@ int getann_ia(IAData *ia, WFDB_Annotation *annot)
     return 0;
 }
 
-// wfdb-x: ungetann_ia is the body of ungetann (after the checks), for the
+// WFDB-x: ungetann_ia is the body of ungetann (after the checks), for the
 // input annotator ia, whose pushback buffer is empty.
 void ungetann_ia(IAData *ia, const WFDB_Annotation *annot)
 {
@@ -815,7 +815,7 @@ int putann(WFDB_Annotator n, const WFDB_Annotation *annot)
 namespace detail {
 namespace {
 
-// wfdb-x: put_ann_word is the body of putann (after the table), for the
+// WFDB-x: put_ann_word is the body of putann (after the table), for the
 // output annotator oa (number n, in messages).
 int put_ann_word(OAData *oa, WFDB_Annotator n, const WFDB_Annotation *annot)
 {
@@ -1095,7 +1095,7 @@ void iannclose(WFDB_Annotator n)
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: in-process sorting of an output annotation file
+// WFDB-x: in-process sorting of an output annotation file
 
 namespace detail {
 
@@ -1135,7 +1135,7 @@ void AnnSortList::insert(const WFDB_Annotation &pa)
     // backwards from the end of the list.
     long ap = last_;
     while (ap != -1) {
-        // wfdb-x: the list head is not an annotation; C compared it, and took
+        // WFDB-x: the list head is not an annotation; C compared it, and took
         // an annotation at time 0 (num 0, chan 0) for a duplicate of it
         // (losing it).  Legacy mode: as in C.
         if (ap == 0 && !legacy_) {
@@ -1279,13 +1279,13 @@ void oannclose(WFDB_Annotator n)
             const char *p = std::getenv("WFDBANNSORT");
 
             if (p) dosort = static_cast<int>(std::strtol(p, nullptr, 10));
-            // wfdb-x: the `sort` option of the high-level write_annotations
+            // WFDB-x: the `sort` option of the high-level write_annotations
             // decides instead of WFDBANNSORT, if given
             if (annsort_mode >= 0) dosort = annsort_mode;
             if (dosort) {
                 wfdb_error("Rearranging annotations for output annotator %s ...",
                            oa->info.name.c_str());
-                // wfdb-x: the file is sorted in this process
+                // WFDB-x: the file is sorted in this process
                 // (sort_ann_file); the C library ran the sortann program, as
                 // legacy mode does.
                 // (The program runs in the output directory, if one is set,
@@ -1302,7 +1302,7 @@ void oannclose(WFDB_Annotator n)
                 if (st.annclose_error == 0) st.annclose_error = -6;
             }
         }
-        // wfdb-x: no advice to run sortann when the caller chose not to sort
+        // WFDB-x: no advice to run sortann when the caller chose not to sort
         // (write_annotations with sort = false); WFDBANNSORT=0 still gives it.
         if (oa->out_of_order && annsort_mode != 0) {
             wfdb_error("Use the command:\n  sortann -r %s -a %s\n",

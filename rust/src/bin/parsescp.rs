@@ -40,7 +40,7 @@
 // read as absent or as zeros (undefined behavior in the original); an output
 // file that cannot be written is reported, and the exit status is then 1;
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -737,7 +737,7 @@ impl Scp {
         let mut v = [0i32; 12];
         let order = self.order();
 
-        // wfdb-x: the sampling frequency is the one given in the SCP file (the
+        // WFDB-x: the sampling frequency is the one given in the SCP file (the
         // C program always wrote 500 Hz, as legacy mode does); without one,
         // no record is written.
         let legacy = wfdbx::wfdbx_get_legacy() != 0;
@@ -766,7 +766,7 @@ impl Scp {
                 desc: Some(name.to_vec()),
                 units: Some(b"mV".to_vec()),
                 fmt: 16,
-                // wfdb-x: exact, not assumed: the samples have been rescaled
+                // WFDB-x: exact, not assumed: the samples have been rescaled
                 // to units of 5000 nV (see gref and gres), i.e., 200 adu/mV
                 gain: 200.0,
                 adcres: 16, // FIXME: we should calculate this!
@@ -2097,11 +2097,11 @@ impl Scp {
             // code in main()
             self.sfreq = 1.0e6 / sampint as f64;
         } else if wfdbx::wfdbx_get_legacy() != 0 {
-            // wfdb-x: as in the C program (legacy mode)
+            // WFDB-x: as in the C program (legacy mode)
             cprintf!(b"Error: sampling frequency not specified;  assuming 500 Hz\n");
             self.sfreq = 500.0;
         } else {
-            // wfdb-x: the C program assumed 500 Hz
+            // WFDB-x: the C program assumed 500 Hz
             cprintf!(b"Error: sampling frequency not specified\n");
         }
         // (the encoding type is read from the high byte of the sample
@@ -2630,7 +2630,7 @@ fn c_atoi(s: &[u8]) -> i32 {
 
 fn main() {
     let mut argv = cstd::args();
-    wfdbx::wfdbx_legacy_args(&mut argv); // wfdb-x: --legacy (original behavior)
+    wfdbx::wfdbx_legacy_args(&mut argv); // WFDB-x: --legacy (original behavior)
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut s = Scp::new(pname.clone());
@@ -2969,7 +2969,7 @@ fn main() {
         }
     }
 
-    // wfdb-x: signals that could not be allocated (undefined behavior in C)
+    // WFDB-x: signals that could not be allocated (undefined behavior in C)
     // are read as zeros, and so are samples beyond the end of a signal
     // shorter than lead 0.
     let mut n0: u64 = 0;

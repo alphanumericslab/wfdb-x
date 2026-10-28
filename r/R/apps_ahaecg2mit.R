@@ -15,7 +15,7 @@
 # millivolts); the options precede the input files, in any order; the
 # short-format part of a long-format file (skipped by -s) is located from -F;
 # --legacy, as the first argument, restores the original behavior. Each change
-# is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 #   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source has
@@ -37,7 +37,7 @@ app_ahaecg2mit <- function(args = character(0)) {
 }
 
 # A long-format AHA record begins with 145 minutes that are not part of the
-# short-format (35-minute) record (-s skips them; wfdb-x: their length in
+# short-format (35-minute) record (-s skips them; WFDB-x: their length in
 # samples is computed from -F, where the C program assumed 250 Hz).
 .AHA_SKIP_MINUTES <- 145
 .AHA_ECG_RECLEN <- 5L          # bytes per sample in .ecg files
@@ -47,7 +47,7 @@ app_ahaecg2mit <- function(args = character(0)) {
   argc <- length(argv)
   legacy <- wfdbx_get_legacy()
   if (argc < 2L || argv[2L] == "-h") {
-    if (legacy) {                           # wfdb-x: the usage of the C program
+    if (legacy) {                           # WFDB-x: the usage of the C program
       ceprintf("usage: %s [-s] RECORD.XXX [RECORD.XXX]...\n", argv[1L])
     } else {
       ceprintf("usage: %s [-s] -F FREQ -G GAIN -R BITS -U UNITS RECORD.XXX [RECORD.XXX]...\n",
@@ -70,7 +70,7 @@ app_ahaecg2mit <- function(args = character(0)) {
     }
     cexit(1)
   }
-  # wfdb-x: options (-s and the signal parameters -F, -G, -R and -U) precede
+  # WFDB-x: options (-s and the signal parameters -F, -G, -R and -U) precede
   # the input files, in any order; the C program assumed the parameters of
   # the AHA database (250 Hz, 400 adu/mV, 12 bits, millivolts).
   pname <- argv[1L]
@@ -82,7 +82,7 @@ app_ahaecg2mit <- function(args = character(0)) {
   opt <- function() if (i <= argc) argv[i] else NULL
   i <- 2L
   if (legacy) {
-    # wfdb-x: in legacy mode, the option of the C program (-s only, as the
+    # WFDB-x: in legacy mode, the option of the C program (-s only, as the
     # first argument), and the parameters of the AHA database that it set
     # (250 Hz, 400 adu/mV, 12 bits, millivolts).
     if (argv[2L] == "-s") {
@@ -155,7 +155,7 @@ app_ahaecg2mit <- function(args = character(0)) {
 # Write record `record`: the samples v (two columns) and the annotations a,
 # with the signal parameters par (freq, gain, res, units: -F, -G, -R, -U).
 .aha_process <- function(record, v, a, par) {
-  setsampfreq(par$freq)                     # wfdb-x: -F (the C program set 250 Hz)
+  setsampfreq(par$freq)                     # WFDB-x: -F (the C program set 250 Hz)
   si <- lapply(c("ECG0", "ECG1"), function(desc) {
     siginfo(fname = paste0(record, ".dat"), desc = desc, units = par$units,
             gain = par$gain, fmt = 212, adcres = par$res, spf = 0)

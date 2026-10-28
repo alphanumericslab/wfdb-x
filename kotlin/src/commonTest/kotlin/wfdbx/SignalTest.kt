@@ -263,7 +263,7 @@ class SignalTest {
         assertEquals(-185, w.adumuv(0, -37))
         assertEquals(5, w.adumuv(1, 1))
         assertEquals(-5, w.adumuv(0, -1))
-        assertEquals(WFDB_INVALID_SAMPLE, w.adumuv(7, 100)) // wfdb-x: invalid signal
+        assertEquals(WFDB_INVALID_SAMPLE, w.adumuv(7, 100)) // WFDB-x: invalid signal
         assertEquals(200, w.muvadu(0, 1000))
         assertEquals(-67, w.muvadu(0, -333))
         assertEquals(0, w.muvadu(1, 2))
@@ -410,7 +410,7 @@ class SignalTest {
     @Test
     fun uncalibratedSignals() = withData("uncal") { _, w ->
         w.wfdbquiet()
-        isig(w, "null") // gain 0: wfdb-x: no default gain
+        isig(w, "null") // gain 0: WFDB-x: no default gain
         assertEquals(WFDB_INVALID_SAMPLE, w.adumuv(0, 100))
         assertEquals(WFDB_INVALID_SAMPLE, w.muvadu(1, 100))
         assertTrue(w.aduphys(0, 100).isNaN())
@@ -778,7 +778,7 @@ class SignalTest {
     }
 
     // -----------------------------------------------------------------------
-    // wfdb-x: no default sampling frequency, gain, ADC resolution or units
+    // WFDB-x: no default sampling frequency, gain, ADC resolution or units
     // (t_nodefaults in tests/reference/api_expect.c; see docs/DIVERGENCES.md)
 
     /** A header without a sampling frequency (as written by t_nodefaults). */
@@ -874,7 +874,7 @@ class SignalTest {
     }
 
     // -----------------------------------------------------------------------
-    // wfdb-x: legacy mode, the behavior of the original package (t_legacy in
+    // WFDB-x: legacy mode, the behavior of the original package (t_legacy in
     // tests/reference/api_expect.c; see docs/DIVERGENCES.md)
 
     private fun approx(x: Double, y: Double) = kotlin.math.abs(x - y) < 1e-12
@@ -953,7 +953,7 @@ class SignalTest {
     }
 
     // -----------------------------------------------------------------------
-    // wfdb-x: getvec's checksum error; an output signal file is never one of
+    // WFDB-x: getvec's checksum error; an output signal file is never one of
     // the input files
 
     @Test
@@ -1034,7 +1034,7 @@ class SignalTest {
     }
 
     // -----------------------------------------------------------------------
-    // wfdb-x: record names with directories (only the last component is
+    // WFDB-x: record names with directories (only the last component is
     // checked when writing; the header names files relative to its
     // directory)
 

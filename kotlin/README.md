@@ -1,9 +1,17 @@
 # WFDB-x for Kotlin
 
+> **WFDB-x** is the WFDB Software Package (the library and its 33
+> command-line tools) reimplemented in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
+> the original C package and to each other. This is the Kotlin
+> implementation.
+> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
+> · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+
 `wfdbx` reads and writes physiological signal records in the WFDB format used
 by [PhysioNet](https://physionet.org). It is a complete Kotlin implementation
-of the WFDB Software Package 10.7.0: the library and all of its command-line
-tools. It reads and writes the same files as the original C library, and its
+of the WFDB Software Package: the library and all of its command-line tools. It reads and writes the same files as the original C library, and its
 tools print the same output.
 
 The Kotlin implementation exists for mobile application developers and JVM
@@ -15,47 +23,61 @@ its own language: no native libraries to build for each platform, no JNI,
 and no other runtime (such as Python) to embed. Server and desktop programs
 in Kotlin or Java get the same library from Maven coordinates.
 
-You can use it in three ways:
-
-* **High-level functions** that read and write whole records and annotation
-  files in one call: `readRecord`, `readHeader`, `readAnnotations`,
-  `writeRecord`, `writeAnnotations`, and `checkRecord`, which checks a
-  record.
-* **Command-line tools** such as `rdsamp`, `rdann` and `wrsamp`, run on the
-  JVM through the `bin/wfdbx` launcher.
-* **The WFDB library functions** under their C names (`isigopen`, `getvec`,
-  `getann`, ...), for programs written against the C library.
-
 The library is written in common Kotlin code (Kotlin 2.1). Its only
 dependency is the Kotlin standard library. The JVM artifact is compiled for
 Java 11, so it runs on every current JVM and on Android (API level 26 or
 later); the iOS targets (`iosArm64`, `iosSimulatorArm64`, `iosX64`) are
 declared in the same project (see [Notes](#notes)).
 
-WFDB-x is part of a project that provides the same package in seven
-languages with identical behavior; see the
-[project README](https://github.com/alphanumericslab/wfdb-x#readme).
+## Three ways to use WFDB-x
+
+All three are written in Kotlin; none of them calls the C library.
+
+1. **The high-level functions (recommended).** `readRecord`, `readHeader`,
+   `readAnnotations`, `writeRecord`, `writeAnnotations` and `checkRecord`
+   read and write whole records and annotation files in one call, with
+   named arguments: the samples are an `IntArray` (and a `DoubleArray` in
+   physical units), frame by frame, and errors throw a `WfdbException`.
+   They read signal files in large blocks, so they are the fastest way to
+   read a record. They are an addition of WFDB-x: the C package has no
+   equivalent. Use them for new code, apps and analysis.
+2. **The WFDB library functions** under their C names (`isigopen`,
+   `getvec`, `getann`, `putann`, ...), with the C behavior: frame by
+   frame and annotation by annotation, with errors reported by return
+   values. Use them to port a program written against the C library, or for
+   the exact C semantics.
+3. **The command-line tools** (`rdsamp`, `rdann`, `wrsamp`, `xform`, and
+   29 others), with the options, output and exit status of the C tools, run
+   on the JVM through the `bin/wfdbx` launcher (`kotlin/bin/wfdbx rdsamp -r
+   100s`). Use them in shell scripts and pipelines, or to reproduce work
+   done with the original tools.
+
+The high-level functions return exactly the samples and annotations that
+the library functions (and the C library) give.
 
 ## Installation
 
-The library's Gradle coordinates are `io.github.alphanumericslab:wfdbx:1.0.0`.
-In a Gradle project (an Android app, a JVM program, or the common source set
-of a Kotlin Multiplatform project), add it to the dependencies:
+The library is built from a copy of the repository and installed in the
+local Maven repository (below); its Gradle coordinates are
+`io.github.alphanumericslab:wfdbx:1.1.0`. In a Gradle project (an Android
+app, a JVM program, or the common source set of a Kotlin Multiplatform
+project) that lists `mavenLocal()` among its repositories, add it to the
+dependencies:
 
 ```kotlin
 dependencies {
-    implementation("io.github.alphanumericslab:wfdbx:1.0.0")
+    implementation("io.github.alphanumericslab:wfdbx:1.1.0")
 }
 ```
 
-To build it from a copy of the repository and install it in your local Maven
+To build it from a copy of the repository and install it in the local Maven
 repository (`~/.m2`), run, in the `kotlin` directory:
 
 ```sh
 ./gradlew publishToMavenLocal
 ```
 
-and add `mavenLocal()` to the repositories of your project. The build uses
+and add `mavenLocal()` to the repositories of the project. The build uses
 the Gradle wrapper of the repository (Gradle 8.14, which downloads itself),
 and needs a JDK 11 or later.
 
@@ -224,15 +246,15 @@ writeRecord("rand", x, nsig = 2, fs = 360.0, fmt = 16, gains = doubleArrayOf(100
             adcres = intArrayOf(16), units = listOf("mV"), names = listOf("A", "B"))
 ```
 
-This writes the header `rand.hea` and the signal file `rand.dat`. You must
-give the sampling frequency, the gain and ADC resolution of each signal, and
-the units of each calibrated signal; there are no defaults. The samples are
-given frame by frame, as `Record.samples`: an `IntArray` of ADC units, or a
-`DoubleArray` of physical units, converted to ADC units as
+This writes the header `rand.hea` and the signal file `rand.dat`. The
+sampling frequency, the gain and ADC resolution of each signal, and the
+units of each calibrated signal are required; there are no defaults. The
+samples are given frame by frame, as `Record.samples`: an `IntArray` of ADC
+units, or a `DoubleArray` of physical units, converted to ADC units as
 `round(x * gain) + baseline` (NaN becomes an invalid sample). A gain of 0
 marks a signal as uncalibrated, which is only allowed for samples in ADC
-units. Per-signal arguments take one value for all signals, or one value
-per signal.
+units. Per-signal arguments take one value for all signals, or one value per
+signal.
 
 | Argument | Meaning |
 |---|---|
@@ -254,9 +276,9 @@ writeAnnotations("rand", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N"
 
 Give the annotation types as `symbols` or as `codes`. `subtypes`, `chans`,
 `nums` and `aux` are optional. An `Annotations` object can also be written
-as it is: `writeAnnotations("rand", "atr2", ann)`. If the annotations are not
-in time order, the file is sorted when it is written. `sort = false` keeps
-the order you gave (without the library's advice to run `sortann`) and
+as it is: `writeAnnotations("rand", "atr2", ann)`. If the annotations are
+not in time order, the file is sorted when it is written. `sort = false`
+keeps the given order (without the library's advice to run `sortann`) and
 `sort = true` always sorts, for that call only. Without `sort`, the
 `WFDBANNSORT` environment variable decides (sorting is on unless it is `0`).
 
@@ -305,8 +327,8 @@ println(report)
 
 `checkRecord(record, annotators)` checks the header of a record, its signal
 specifications, every sample of its signal files, and the annotation files
-you name. It reports each problem it finds. It never throws an exception for
-a problem in the record. It checks for problems similar to those found by
+named. It reports each problem it finds. It never throws an exception for a
+problem in the record. It checks for problems similar to those found by
 Benjamin Moody's [wfdbcheck](https://github.com/bemoody/wfdbcheck).
 
 The result is a `CheckReport`. `report.ok` is `true` if there is no error.
@@ -370,27 +392,27 @@ WFDB-x, under the naming conventions of each:
 | `from`, `to` (`TimeSpec`) | `sampfrom`, `sampto` (Python, R, MATLAB); `from`, `to` (C++, Rust, Julia) |
 | `inputDir`, `checksumWarning`, `sampsPerFrame`, `baseTime` | `input_dir`, `checksum_warning`, `samps_per_frame`, `base_time` |
 | `Record.checksumOk`, `baseTimeMs`, `baseDate` | `checksum_ok`, `base_time_ms`, `base_date` |
-| `WfdbException` | `IOError`/`ValueError` (Python), `wfdbx::Error` (C++, Rust), `WfdbError` (Julia), an R error, a MATLAB error |
+| `WfdbException` | `IOError`/`ValueError` (Python), `wfdbx::Error` (C++), `wfdbx::record::Error` (Rust), `WfdbError` (Julia), an R error, a MATLAB error |
 
 The WFDB library functions (`isigopen`, `getvec`, ...) have their C names in
 every language, Kotlin included.
 
 ## Where files are read and written
 
-WFDB-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where they are named, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
 | a full path: `/data/mitdb/100` | that path | that path |
-| a home path: `~/data/100` | your home directory | your home directory |
+| a home path: `~/data/100` | the user's home directory | the user's home directory |
 | a URL: `https://.../100` | that URL, if network access is on | (URLs cannot be written) |
 | anything else: `100`, `mitdb/100`, `../data/100` | the **input directory** | the **output directory** |
 
 In this table, `/data/mitdb` stands for a local copy of the MIT-BIH
 Arrhythmia Database, and `100` for its record 100.
 
-The input and output directories are both the current directory unless you
-set them:
+The input and output directories are both the current directory unless they
+are set:
 
 | Setting | Function | Option of the high-level functions | Environment variable |
 |---|---|---|---|
@@ -457,10 +479,10 @@ Android app needs the `INTERNET` permission); on iOS, with `NSURLSession`.
 ## Signal parameters
 
 WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
-that a record does not give. Where one is needed, you must give it: in
-`writeRecord`, as the `fs` argument of `readAnnotations`, or as an option
-of the tools (see below). A record whose header gives no frequency has
-`fs = 0`. See
+that a record does not give. Where one is needed, it must be given: in
+`writeRecord`, as the `fs` argument of `readAnnotations`, or as an option of
+the tools (see below). A record whose header gives no frequency has `fs =
+0`. See
 [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md)
 for the reasons.
 
@@ -468,9 +490,10 @@ for the reasons.
 
 The tools run on the JVM, through the launcher `bin/wfdbx` (a POSIX shell
 script that runs `java -cp build/libs/wfdbx-all.jar wfdbx.cli.MainKt TOOL
-...`; build the jar first with `./gradlew fatJar`). A link to `bin/wfdbx`
-named after a tool runs that tool. These examples, run in the `kotlin`
-directory, read the sample record:
+...`; build the jar first with `./gradlew fatJar`, which also makes
+`build/libs/wfdbx-all.jsa`, a class data sharing archive with which the JVM
+starts faster). A link to `bin/wfdbx` named after a tool runs that tool.
+These examples, run in the `kotlin` directory, read the sample record:
 
 ```sh
 export WFDBX_INPUT_DIR=../tests/data
@@ -521,7 +544,7 @@ high-level functions or the library functions in an app.
 Every function of the WFDB library is available under its C name, with the
 same arguments and return values, so programs and documentation written for
 the C library carry over directly. Where a C function fills an array, the
-Kotlin function fills an array that you pass:
+Kotlin function fills an array passed by the caller:
 
 ```kotlin
 import wfdbx.*
@@ -551,7 +574,7 @@ Differences from C that come from the language:
   (`w.isigopen(...)`). Every function is also a top-level function with the
   same name and arguments, such as `isigopen(...)`, which uses a default
   `Wfdb`, one per thread. Separate `Wfdb` objects do not share any state,
-  so you can open several records at once, in one thread or in several; a
+  so several records can be open at once, in one thread or in several; a
   `Wfdb` object must be used by one thread at a time.
 * Strings are bytes (`ByteArray`), as in C: WFDB files are not UTF-8. Most
   functions also take a `String` (one character per byte, ISO-8859-1);
@@ -623,8 +646,14 @@ describes what changes in legacy mode.
   differ from those of libFLAC.
 * **Threads.** The top-level functions use one `Wfdb` per thread. Use
   separate `Wfdb` objects to work on several records in parallel.
-* **Speed.** On the JVM, `readRecord` reads 8 million samples in a few
-  hundredths of a second, close to the C++ and Rust implementations.
+* **Speed.** `readRecord` and `writeRecord` work on whole blocks of
+  samples, and are the fastest way to read and write a record. For code
+  that processes a record as a stream, `getvecs` reads many frames per
+  call, and is faster than a `getvec` loop. On the JVM, the first call in a
+  process is slower than the next ones, which run code compiled by the JIT
+  compiler.
+  [BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+  compares the seven languages and wfdb-python.
 
 ## Testing
 
@@ -655,6 +684,8 @@ python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy   # legacy
 organized, for developers of WFDB-x.
 
 ## Authors and license
+
+WFDB-x implements version 10.7.0 of the WFDB Software Package.
 
 The WFDB library and tools were written by George B. Moody, with revisions by
 Benjamin Moody and contributions from many others; `parsescp` was written by

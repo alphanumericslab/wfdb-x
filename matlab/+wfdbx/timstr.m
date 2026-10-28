@@ -6,7 +6,7 @@ function s = timstr(t)
 %   after the base time) otherwise.  The sampling frequency is that of
 %   the open record (or the one set by setifreq/setsampfreq).  If no
 %   sampling frequency is specified, an error is reported and T is returned
-%   as a sample number, 'sN' with N = |T| (wfdb-x: C used 1 sample per
+%   as a sample number, 'sN' with N = |T| (WFDB-x: C used 1 sample per
 %   second, as legacy mode does: see docs/DIVERGENCES.md and
 %   wfdbx.wfdbx_set_legacy).
 %
@@ -27,7 +27,7 @@ function s = timstr(t)
 %
 % Changes from the original: no sampling frequency is assumed (the C library
 % used 1 sample per second): without one, an error is reported and the time
-% is returned as a sample number. Each change is marked "wfdb-x:" in the
+% is returned as a sample number. Each change is marked "WFDB-x:" in the
 % code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -46,9 +46,9 @@ if S.ifreq > 0
 elseif S.sfreq > 0
     f = S.sfreq;
 elseif S.legacy_mode
-    f = 1;      % wfdb-x: legacy mode (original behavior)
+    f = 1;      % WFDB-x: legacy mode (original behavior)
 else
-    % wfdb-x: no default sampling frequency (C used 1 sample per second)
+    % WFDB-x: no default sampling frequency (C used 1 sample per second)
     wfdbx.internal.wfdb_error('timstr: sampling frequency is not specified\n');
     s = sprintf('s%d', abs(t));
     return;

@@ -1,4 +1,4 @@
-"""wfdb-x: read and write WFDB records in Python.
+"""WFDB-x: read and write WFDB records in Python.
 
 ``wfdbx`` reads and writes physiological signal records in the WFDB format
 used by PhysioNet. It is a complete Python implementation of the WFDB
@@ -50,7 +50,7 @@ Foundation, either version 3 of the License, or (at your option) any later
 version. See LICENSE.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from ._wfdbio import (
     WFDB_READ, WFDB_WRITE, WFDB_AHA_READ, WFDB_AHA_WRITE, WFDB_APPEND,

@@ -26,7 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include <wfdbx/wfdb.hpp>   // wfdb-x: for wfdbx_legacy_args
+#include <wfdbx/wfdb.hpp>   // WFDB-x: for wfdbx_legacy_args
 
 static int g16(std::FILE *fp)
 {
@@ -39,7 +39,7 @@ static int g16(std::FILE *fp)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx::wfdbx_legacy_args(argc, argv);
 

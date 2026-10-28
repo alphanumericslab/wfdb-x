@@ -13,20 +13,19 @@ the high-level API.
 * Gradle 8.14.3 (wrapper committed: `./gradlew`), Kotlin 2.1.21, Kotlin
   Multiplatform plugin. No dependencies besides the Kotlin standard library
   (and `kotlin-test` for the tests): files, the environment and processes
-  go through a small platform layer of our own (`cstd/Platform.kt`).
+  go through a small platform layer of WFDB-x (`cstd/Platform.kt`).
 * Targets: `jvm()` (bytecode for Java 11, so it runs on Android API 26+ and
   every current JVM), `iosArm64()`, `iosSimulatorArm64()`, `iosX64()`
   (declared; they can only be built on macOS), and `linuxX64()` when
   `-Pwfdbx.linux=true` is given (it needs the Kotlin/Native toolchain,
-  downloaded from `download.jetbrains.com` on first use; it is blocked in
-  the container where this port was written, so the native code has not
-  been compiled yet: see "Native code" below).
+  downloaded from `download.jetbrains.com` on first use; the native code has
+  not been compiled: see "Native code" below).
 * Repositories: Maven Central, or the repository named by the Gradle
   property `mavenMirror` (`-PmavenMirror=URL`, or `mavenMirror=URL` in
   `~/.gradle/gradle.properties`), for plugins and dependencies alike.
-* Coordinates: `io.github.alphanumericslab:wfdbx:1.0.0`; Kotlin package
+* Coordinates: `io.github.alphanumericslab:wfdbx:1.1.0`; Kotlin package
   `wfdbx` (`wfdbx.cstd` for the C standard library emulation; `wfdbx.apps`
-  for the tools and `wfdbx.cli` for the launcher's `main`, phase 3).
+  for the tools and `wfdbx.cli` for the launcher's `main`).
 
 ```sh
 cd kotlin
@@ -60,10 +59,9 @@ The code must build without warnings.
 | `src/commonMain/kotlin/wfdbx/apps/` | the 33 tools, one file per tool (`Rdsamp.kt`, ...), and `Common.kt` (see "Tools") |
 | `src/jvmMain/kotlin/wfdbx/cli/Main.kt` | `wfdbx.cli.MainKt`: the command-line driver (`TOOL ARGS...`, `--list`, `--version`) |
 | `bin/wfdbx` | the launcher (POSIX shell): `java -cp build/libs/wfdbx-all.jar wfdbx.cli.MainKt TOOL ARGS...` |
-
 | `src/commonMain/kotlin/wfdbx/Record.kt` | the high-level API (port of `python/src/wfdbx/highlevel.py`, through `rust/src/record.rs`): `readRecord`, `readHeader`, `readAnnotations`, `writeRecord`, `writeAnnotations`, `Record`, `Header`, `Annotations`, `TimeSpec`, `WfdbException`, `wfdbxSetInputDir`, ... |
 | `src/commonMain/kotlin/wfdbx/Check.kt` | `checkRecord` (port of `python/src/wfdbx/check.py`, through `rust/src/check.rs`), `CheckReport`, `Issue`, `Severity` |
-| `benchmarks/` | the benchmark programs (Kotlin `src/Bench.kt`, `cpp/bench.cpp`, `rust/`, `bench.py`) and `run.sh` (see [Performance](#performance)) |
+| `../benchmarks/kotlin/Bench.kt` | the benchmark driver, compiled by the `bench` compilation into `build/libs/wfdbx-bench.jar` (`./gradlew benchJar`; see [Performance](#performance)) |
 
 ## The library object and the C-style API
 
@@ -135,8 +133,8 @@ the wrong instance):
   parameters where a `null` argument would be ambiguous (`f(null)` must
   resolve to the `ByteArray?` version; write `null as ByteArray?` where both
   exist). `ByteArray` has identity equality: compare with `beq`,
-  `contentEquals`, `startsWith(...)`, and copy what you store (C's static
-  buffers are copied when returned).
+  `contentEquals`, `startsWith(...)`, and copy arrays before storing them
+  (C's static buffers are copied when returned).
 * **Structures** (`Siginfo`, `Calinfo`, `Anninfo`, `Annotation`,
   `Seginfo`) are mutable classes with the C field names and C's zero values
   by default; `copy()` is C's structure assignment, `set(o)` copies into an
@@ -213,7 +211,7 @@ settings apply), `localFopen` for a local file that must not depend on the
 settings, and `wfdbx_open_in(headerDir, type, name, record)` for files
 named in a header (containment check). `pathId(name)` and the internal
 `WfdbFile.fileId()` give file identities (device and inode) for the
-"output file is an input file" check of phase 2.
+"output file is an input file" check.
 
 ## Platform layer
 
@@ -226,29 +224,24 @@ nameBytes, nameString), plus `withGlobalLock`
 and the per-thread default instances. Keep platform code minimal; add a
 declaration there rather than platform code elsewhere.
 
-* JVM: names, arguments and environment values are converted between
-  bytes and Java strings with the file name encoding
-  (`sun.jnu.encoding`; `jnuString`/`jnuBytes`). Network access:
-  `HttpURLConnection`, redirects followed by hand (also across http/https),
-  30 s to connect, `readTimeout` 30 s (no data for 30 s), no total limit,
-  status >= 400 is a failure. `runSortann` starts `java -cp
-  <java.class.path> wfdbx.cli.MainKt sortann --legacy -r. REC -a ANN` in
-  the output directory: **phase 3 must provide `wfdbx.cli.MainKt` taking
-  the tool name as its first argument** (until then, legacy sorting reports
-  that the annotations still need to be rearranged, as when `sortann` is
-  not found).
+* JVM: names, arguments and environment values are converted between bytes
+  and Java strings with the file name encoding (`sun.jnu.encoding`;
+  `jnuString`/`jnuBytes`). Network access: `HttpURLConnection`, redirects
+  followed by hand (also across http/https), 30 s to connect, `readTimeout`
+  30 s (no data for 30 s), no total limit, status >= 400 is a failure.
+  `runSortann` starts `java -cp <java.class.path> wfdbx.cli.MainKt sortann
+  --legacy -r. REC -a ANN` in the output directory (`wfdbx.cli.MainKt` takes
+  the tool name as its first argument).
 * Native: POSIX file descriptors; Linux runs `curl` and `sortann` with
   `posix_spawnp` (no shell; `env -C DIR` for a working directory); iOS uses
   `NSURLSession` and cannot run `sortann`.
 
 ### Native code
 
-The Kotlin/Native toolchain could not be downloaded where phases 1 and 2
-were written (`download.jetbrains.com` is blocked), so `nativeMain`,
-`linuxMain`, `iosMain` and `nativeTest` have **not been compiled**. Where
-the toolchain is available, build with `-Pwfdbx.linux=true` and fix what
-the compiler reports (likely: cinterop type conversions of `struct stat`
-fields and of `posix_spawn` arguments; phase 2 added only
+`nativeMain`, `linuxMain`, `iosMain` and `nativeTest` have **not been
+compiled**. Where the Kotlin/Native toolchain is available, build with
+`-Pwfdbx.linux=true` and fix what the compiler reports (likely: cinterop
+type conversions of `struct stat` fields and of `posix_spawn` arguments, and
 `Platform.timeNow()`, `platform.posix.time(null)`).
 
 ## Signals (`Signal.kt`, `SignalTime.kt`, `Flac.kt`)
@@ -274,27 +267,29 @@ The C-style signatures, where C's types do not map directly:
 | `timstr`, `mstimstr`, `datstr`, `getinfo` | return a new `ByteArray` (a copy of C's static buffer); `getinfo` returns `null` at the end |
 | `sample(s, t)`, `tnextvec(s, t)`, `isgsettime(g, t)` | `Int` signal or group, `Long` time |
 
-WFDB-x additions, not in C: `getvecs(out, n): Long` and
-`getvecs_status(out, n): GetvecsResult(count, status)` (n vectors at
-once, as n `getvec` calls; the bulk path decodes the complete frames
-already in the input buffers in one pass: about 10 times faster than a
-`getvec` loop on the JVM, with identical results, which
-`BulkTest` verifies against the per-frame path); `wfdbx_bulk_read(on)`
-(turns the bulk path off, for tests); `wfdbx_time_needs_freq`. The bulk
-path (`bulkFrames`) handles formats 8, 16, 24, 32, 61, 80, 160, 212, 310
-and 311 (one format per signal group), and null signals (format 0) of
-known length, without deskewing or resampling: records of several
-sampling frequencies, in low-resolution mode (averaging the oversampled
-signals with `meansamp`) and in high-resolution mode (from the start of a
-frame), and the segments of multi-segment records, of fixed or variable
-layout (mapped with `sigmap`), null segments included. A frame that
-crosses the end of an input buffer, the frame at which checksums are
-verified or a null signal ends, the change from one segment to the next
-and everything else go through `getvec`, so the files are read in the
-same blocks, and the statuses, messages and state (samples, checksums,
-counts, `gvc`, `tvector`, `ovec`) are those of frame-by-frame reading
-(`wfdbxBulkVectors` and `wfdbxInputState` are for the tests). Internal
-accessors for the high-level API and `check_record` (phase 4):
+WFDB-x additions, not in C: `getvecs(out, n): Long` and `getvecs_status(out,
+n): GetvecsResult(count, status)` (n vectors at once, as n `getvec` calls;
+the bulk path decodes the complete frames already in the input buffers in
+one pass, with identical results, which `BulkTest` verifies against the
+per-frame path); `wfdbx_bulk_read(on)` (turns the bulk path off, for tests);
+`wfdbx_time_needs_freq`. The bulk path (`bulkFrames`) handles formats 8, 16,
+24, 32, 61, 80, 160, 212, 310 and 311 (one format per signal group), and
+null signals (format 0) of known length, without deskewing or resampling:
+records of several sampling frequencies, in low-resolution mode (averaging
+the oversampled signals with `meansamp`) and in high-resolution mode (from
+the start of a frame), and the segments of multi-segment records, of fixed
+or variable layout (mapped with `sigmap`), null segments included. Each
+group is decoded in tiles of 1024 frames (into `bulkRaw`, which stays in the
+cache), then turned into samples signal by signal (invalid samples, format 8
+differences, the last sample and the checksum of the signal), as C++'s
+`bulk_frames` does; in low-resolution mode the vectors are then made signal
+by signal too. A frame that crosses the end of an input buffer, the frame at
+which checksums are verified or a null signal ends, the change from one
+segment to the next and everything else go through `getvec`, so the files
+are read in the same blocks, and the statuses, messages and state (samples,
+checksums, counts, `gvc`, `tvector`, `ovec`) are those of frame-by-frame
+reading (`wfdbxBulkVectors` and `wfdbxInputState` are for the tests).
+Internal accessors for the high-level API and `check_record`:
 `wfdbxHeaderNsamples`, `wfdbxRecordNsamples`, `wfdbxIsEdf`,
 `wfdbxCksumResiduals`, `wfdbxGroupFileSizes`, `wfdbxBaseTimeDate`,
 `wfdbxSetCksumQuiet` (getvec's checksum message recorded, not printed).
@@ -349,7 +344,14 @@ bin/wfdbx rdsamp -r 100s -t 5        # bin/wfdbx --list, bin/wfdbx --version
 `build/libs/wfdbx-all.jar`; it moves `JAVA_TOOL_OPTIONS` to the command line
 (the JVM would otherwise report it on the standard error) and starts the
 JVM with options for a short start-up (`-XX:TieredStopAtLevel=1
--XX:+UseSerialGC`). A link to `bin/wfdbx` named after a tool runs that tool.
+-XX:+UseSerialGC`, and the class data sharing archive `wfdbx-all.jsa` next
+to the jar if there is one: `./gradlew fatJar` makes it, by running
+`rdsamp` once with `-XX:ArchiveClassesAtExit`, task `cdsArchive`; a JVM
+that cannot use it ignores it silently, `-Xlog:cds=off`). A link to
+`bin/wfdbx` named after a tool runs that tool. `rdsamp` formats its
+numbers without printf or divisions (`RdOut`: digits by multiplication,
+sample numbers by incrementing the digits of the last one), with output
+identical to printf's (`FastPathTest`).
 In legacy mode, the library runs `sortann` as `java -cp <class path>
 wfdbx.cli.MainKt sortann --legacy ...`.
 
@@ -376,6 +378,18 @@ python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy [TOOL|CASE
   `getvecsStatusAt` (getvecs into an offset of one growing array: no copy
   per block), in blocks of whole frames, a multiple of 6 of them, so that
   formats 212, 310 and 311 end each block on a whole packed unit. The
+  array is allocated for the length the header gives; once it is full, the
+  next block is read into a separate array, and the array grows only if
+  that block is not empty. Physical units are computed in pieces of 512
+  frames, with the baseline and the gain of each value of a piece in two
+  arrays (a loop the JIT vectorizes), then NaN for the invalid samples.
+  `readAnnotations` reads with `getannAll` (`Annot.kt`): getann for each
+  annotation, in a function called once per annotation (which the JIT
+  compiles after a few hundred annotations; a loop in a function called
+  once per file would run in the interpreter much longer), taking the aux
+  string from the aux buffer and the mnemonics from a table of the codes
+  seen, into arrays sized from the size of the file. `FastPathTest`
+  compares both with `getvec` and `getann`. The
   signal descriptions it returns (and those of `readHeader`) have no white
   space at either end, and a channel given by name is looked up among them
   first, then with `findsig`.
@@ -388,10 +402,11 @@ python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy [TOOL|CASE
   and `wfdberror()` returns it (as in C++ and Rust).
 * Bulk writing: `putframes` (`Signal.kt`) encodes the frames of formats 16,
   61, 80, 160, 212, 310, 311, 24 and 32 in one loop with the `OgData`
-  writers putvec uses (it halved the time of `writeRecord`); other formats
+  writers putvec uses; other formats
   (8, FLAC, several signal files) call putvec for each frame. `putanns`
   (`Annot.kt`) encodes MIT-format annotations into one buffer, byte for
-  byte as `putann` (an AHA-format annotator uses putann). The tests compare
+  byte as `putann` (an AHA-format annotator uses putann), one annotation
+  per call of `AnnEncoder.encode`. The tests compare
   both with the per-frame paths (`bulkPutOff`, random annotations).
 * `checkRecord` needs `Platform.currentDir()` (the directory of a
   multi-segment record's header given by a relative name), and
@@ -437,36 +452,23 @@ and compared, line by line, with `rust/target/release/rdsamp` and
 
 ## Performance
 
-`benchmarks/run.sh` runs the same operations with the Kotlin, C++
-and Rust implementations (and the Python high-level API, for context) on
-the same input, and checks that their outputs are identical. The input is a
-record of 4 signals of 2,000,000 frames in format 16 (16 MB). The library
-operations are timed inside one process, as the best of 5 runs after one
-untimed run (which lets the JVM compile the code); `rdsamp` is timed as a
-whole process (the tool printing the whole record to a file, 2,000,000
-lines), best of 3, and so includes the start-up of the JVM. Times in
-milliseconds:
-
-| Operation | Kotlin (JVM) | C++ | Rust | Python |
-|---|---:|---:|---:|---:|
-| `readRecord` (8 million samples) | 41 | 34 | 33 | 157 |
-| `writeRecord` (the same samples, format 16) | 48 | 38 | 44 | 69 |
-| `writeAnnotations` (200,000 annotations) | 6.4 | 3.0 | 2.7 | 37 |
-| `isigopen` + `getvec` loop (2,000,000 frames) | 105 | 50 | 72 | |
-| `rdsamp -r big` (the tool, a new process) | 689 | 142 | 174 | |
-
-The samples read were identical in all implementations (the same digest),
-and the files written (`big.hea`, `big.dat` and the annotation file) and
-the output of `rdsamp` were byte-identical. Machine: Intel Xeon (2.1 GHz,
-4 cores), 15 GB of memory, Linux 6.18; OpenJDK 21.0.12, GCC 13.3 (`-O2`,
-the C++ library built in Release mode), Rust 1.97 (release), Python 3.13
-with NumPy 2.5.
+The benchmarks of WFDB-x are in `benchmarks/` at the root of the
+repository: `benchmarks/run.py` runs the same operations in the seven
+languages (and wfdb-python and the original C tools) on the same records,
+and [docs/BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+reports the results. The Kotlin driver is `benchmarks/kotlin/Bench.kt`
+(package `wfdbx.bench`); the `bench` compilation of `build.gradle.kts`
+compiles it from `../benchmarks/kotlin`, and `./gradlew benchJar` builds
+`build/libs/wfdbx-bench.jar`, which `run.py` runs as
+`java -jar kotlin/build/libs/wfdbx-bench.jar OP DATADIR REPS` (see
+`benchmarks/README.md`).
 
 `readRecord` and `writeRecord` decode and encode the samples in bulk
 (`writeRecord` encodes the frames of the common formats in one loop, byte
 for byte as `putvec`; `writeAnnotations` encodes the annotations into one
 buffer, byte for byte as `putann`); both are tested against the per-frame
-paths. Of the 689 ms of `rdsamp`, about 150 ms are the start-up of the JVM;
-the launcher also limits the JVM to its first compiler, for a fast start of
-the short runs that are typical of the tools (without that limit, the same
-`rdsamp` takes about 400 ms).
+paths. The first call of a function in a JVM process is slower than the
+next ones, which run code compiled by the JIT compiler; the benchmarks
+report both. A tool run (`bin/wfdbx rdsamp ...`) includes the start-up of
+the JVM; the launcher limits the JVM to its first compiler, for a fast start
+of the short runs that are typical of the tools.

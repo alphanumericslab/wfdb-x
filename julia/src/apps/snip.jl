@@ -11,7 +11,7 @@
 # must give it, for the header of the excerpt (the original assumed 250 Hz); a
 # master header that cannot be written is reported (wfdbx_fclose_output);
 # --legacy, as the first argument, restores the original behavior. Each change
-# is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/snip.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -266,7 +266,7 @@ function _snip_copy_info(sn::_SnipState, irec::Vector{UInt8}, startp)
 end
 
 function snip_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -379,7 +379,7 @@ function snip_main(args::Vector{String})
         ceprintf("%s: error reading input header\n", pname)
         cexit(2)
     end
-    # wfdb-x: the output header needs the sampling frequency (the C program
+    # WFDB-x: the output header needs the sampling frequency (the C program
     # assumed 250 Hz if the input header did not specify one, as legacy mode
     # does).
     if !legacy && sampfreq(nothing) <= 0.0

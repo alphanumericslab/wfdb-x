@@ -30,7 +30,7 @@ function n = wfdbx_write_errors()
 % Software Foundation, either version 3 of the License, or (at your option)
 % any later version. See LICENSE.
 
-% wfdb-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not
+% WFDB-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not
 % report success when its output was not written.
 st = wfdbx.internal.io_state();
 n = st.write_errors;

@@ -17,7 +17,7 @@
 // Changes from the original: no built-in sampling frequency: the new option -F
 // FREQ gives it when the record header gives none, and is then required for -s
 // (the original assumed 250 Hz); --legacy, as the first argument, restores the
-// original behavior. Each change is marked "wfdb-x:" in the code;
+// original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/m2a.c, WFDB Software Package 10.7.0.
@@ -45,7 +45,7 @@ private val M2A_HELP = arrayOf(
     "            and convert them to milliseconds",
 )
 
-/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
+/** WFDB-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val M2A_WFDBX_HELP = setOf(
     " -F FREQ   sampling frequency, if the record header does not specify one",
 )
@@ -141,7 +141,7 @@ fun Wfdb.m2aMain(argv0: Array<ByteArray>): Int {
         // copy annotations to end of data
         while (getann(0, annot) >= 0) putann(0, annot)
     } else {
-        // wfdb-x: no default sampling frequency (the C program assumed
+        // WFDB-x: no default sampling frequency (the C program assumed
         // 250 Hz if the record header did not specify one, as legacy mode
         // does); -F specifies one.
         if (sampfreq(record) <= 0.0) {

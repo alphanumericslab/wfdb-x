@@ -14,7 +14,7 @@
 #
 # Changes from the original: WFDB_DEFFREQ, WFDB_DEFGAIN and WFDB_DEFRES remain
 # defined but are used only in legacy mode, and missing units are never taken
-# to be millivolts. Each change is marked "wfdb-x:" in the code;
+# to be millivolts. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C code: lib/wfdb.h, WFDB Software Package 10.7.0.
@@ -116,17 +116,17 @@ const WFDB_FMT_LIST = Int32[0, 8, 16, 61, 80, 160, 212, 310, 311, 24, 32, 508, 5
 const WFDB_NFMTS = Int32(14)
 
 """
-C's default sampling frequency (Hz). wfdb-x: kept for compatibility but used only in legacy mode: no sampling frequency is otherwise assumed (see `docs/DIVERGENCES.md`).
+C's default sampling frequency (Hz). WFDB-x: kept for compatibility but used only in legacy mode: no sampling frequency is otherwise assumed (see `docs/DIVERGENCES.md`).
 """
 const WFDB_DEFFREQ = 250.0
 """
-C's default gain (ADC units per physical unit). wfdb-x: kept for
+C's default gain (ADC units per physical unit). WFDB-x: kept for
 compatibility but used only in legacy mode: no gain is otherwise assumed (see
 `docs/DIVERGENCES.md`).
 """
 const WFDB_DEFGAIN = 200.0
 """
-C's default ADC resolution (bits). wfdb-x: kept for compatibility but used only in legacy mode: no ADC resolution is otherwise assumed (see `docs/DIVERGENCES.md`).
+C's default ADC resolution (bits). WFDB-x: kept for compatibility but used only in legacy mode: no ADC resolution is otherwise assumed (see `docs/DIVERGENCES.md`).
 """
 const WFDB_DEFRES = Int32(12)
 
@@ -183,7 +183,7 @@ The description of a signal (C `WFDB_Siginfo`), as read from a header by
 # Fields
 - `fname`: the name of the signal file.
 - `desc`: the signal description (e.g. `"MLII"`).
-- `units`: the physical units (`nothing`: not specified; wfdb-x: never
+- `units`: the physical units (`nothing`: not specified; WFDB-x: never
   assumed to be millivolts).
 - `gain`: ADC units per physical unit (0: uncalibrated).
 - `initval`: the value of the first sample.

@@ -11,7 +11,7 @@ classdef OutputFile < handle
 %     ST = F.close()      fclose: 0, or -1 if the file could not be flushed
 %                         or closed
 %
-%   wfdb-x: in normal mode, close() prints "PNAME: write error on NAME" and
+%   WFDB-x: in normal mode, close() prints "PNAME: write error on NAME" and
 %   counts a write error (wfdbx.wfdbx_note_write_error) if a write, the
 %   final flush or the close failed (as C's wfdbx_fclose_output).  Legacy
 %   mode: silent.

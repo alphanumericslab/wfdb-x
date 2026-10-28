@@ -24,7 +24,7 @@
 # wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
 # wfdbx_write_errors and wfdbx_note_write_error; legacy mode (wfdbx_set_legacy) restores the original
 # behavior (the WFDB path, without network access). Each change is marked
-# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
@@ -78,7 +78,7 @@ wfdbio_reset <- function() {
   st$stdin_file <- NULL
   st$stdout_file <- NULL
   st$driver <- NULL            # path of inst/bin/wfdbx.R (set by the driver)
-  # wfdb-x: the settings that locate files (see wfdbx_set_input_dir,
+  # WFDB-x: the settings that locate files (see wfdbx_set_input_dir,
   # wfdbx_set_output_dir and wfdbx_set_network); each is read from its
   # environment variable when first needed
   st$input_dir <- NULL
@@ -102,7 +102,7 @@ wfdbio_reset()
 # WFDB path
 
 #' Restore the WFDB path to the value returned by the first getwfdb().
-#' wfdb-x: in normal mode, restore the input directory set by the last
+#' WFDB-x: in normal mode, restore the input directory set by the last
 #' setwfdb(), if any (wfdbquit() does not call resetwfdb in normal mode).
 resetwfdb <- function() {
   st <- .wfdb_io
@@ -114,7 +114,7 @@ resetwfdb <- function() {
   invisible()
 }
 
-#' The input directory, or "." if none is set (wfdb-x: files are not
+#' The input directory, or "." if none is set (WFDB-x: files are not
 #' searched for; see wfdbx_set_input_dir).  In legacy mode, the WFDB path
 #' (from $WFDB, or DEFWFDB if it is not set).
 getwfdb <- function() {
@@ -135,7 +135,7 @@ getwfdb <- function() {
 }
 
 #' Set the input directory (a C-compatible form of wfdbx_set_input_dir).
-#' wfdb-x: p is split into components as the WFDB path is (at spaces,
+#' WFDB-x: p is split into components as the WFDB path is (at spaces,
 #' semicolons, and colons other than in URLs); it must contain at most one
 #' non-empty component, which becomes the input directory (none, e.g. "" or
 #' ";", or NULL: the default).  With more than one, an error is reported
@@ -183,12 +183,12 @@ getiwfdb <- function(p) {
   p
 }
 
-# wfdb-x: setwfdb in normal mode (0, or -1 for more than one directory).
+# WFDB-x: setwfdb in normal mode (0, or -1 for more than one directory).
 .setwfdb_normal <- function(p) {
   dirs <- .path_components(if (is.null(p)) "" else p)$prefix
   dirs <- dirs[nzchar(dirs)]
   if (length(dirs) > 1L) {
-    wfdb_error(paste0("setwfdb: wfdb-x reads from a single input directory; use ",
+    wfdb_error(paste0("setwfdb: WFDB-x reads from a single input directory; use ",
                       "wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n"))
     return(-1)
   }
@@ -356,7 +356,7 @@ wfdbdefwfdb <- function() DEFWFDB
 wfdbdefwfdbcal <- function() DEFWFDBCAL
 
 #' The pathname (or URL) of a WFDB file of type s for a record (NULL if not
-#' found), looked up as by wfdb_open (wfdb-x: under the input directory, for
+#' found), looked up as by wfdb_open (WFDB-x: under the input directory, for
 #' a relative name; in legacy mode, in the WFDB path); wfdbfile(NULL, NULL)
 #' returns the last file name tried.
 wfdbfile <- function(s, record) {
@@ -374,14 +374,14 @@ wfdbfile <- function(s, record) {
 # ---------------------------------------------------------------------------
 # Opening files
 
-# wfdb-x: TRUE if s is an http:// or https:// URL.
+# WFDB-x: TRUE if s is an http:// or https:// URL.
 .is_url <- function(s) startsWith(s, "http://") || startsWith(s, "https://")
 
-# wfdb-x: TRUE for the bytes (integer codes) that are directory separators
+# WFDB-x: TRUE for the bytes (integer codes) that are directory separators
 # ('/', and on MS-Windows '\\').
 .is_dsep <- function(c) c == 47L | (.Platform$OS.type == "windows" & c == 92L)
 
-# wfdb-x: TRUE if s is an absolute local path: on POSIX systems, one that
+# WFDB-x: TRUE if s is an absolute local path: on POSIX systems, one that
 # begins with '/'; on MS-Windows, one that begins with 'X:\', 'X:/', '\\'
 # or '/'.
 .is_absolute_path <- function(s) {
@@ -408,7 +408,7 @@ wfdbfile <- function(s, record) {
     st$wfdb_warned <- TRUE
     w <- cgetenv("WFDB")
     if (!is.null(w) && nzchar(w))
-      wfdb_error(paste0("wfdb-x: the WFDB environment variable is ignored; set ",
+      wfdb_error(paste0("WFDB-x: the WFDB environment variable is ignored; set ",
                         "WFDBX_INPUT_DIR instead (or use legacy mode)\n"))
   }
   invisible()
@@ -514,7 +514,7 @@ wfdbx_get_network <- function() {
   if (st$network) 1 else 0
 }
 
-# wfdb-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not
+# WFDB-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not
 # report success when its output was not written.
 
 #' The number of write errors since the program started: the output files
@@ -531,7 +531,7 @@ wfdbx_note_write_error <- function() {
   invisible()
 }
 
-# wfdb-x: name with a leading "~" or "~/" replaced by the home directory
+# WFDB-x: name with a leading "~" or "~/" replaced by the home directory
 # ($HOME, or that of the current user if HOME is not set; on MS-Windows,
 # %USERPROFILE%), and, on POSIX systems, "~user" by the home directory of
 # that user (unchanged if there is no such user).
@@ -570,7 +570,7 @@ wfdbx_note_write_error <- function() {
   if (length(f) && length(f[[1L]]) >= 6L) f[[1L]][6L] else NULL
 }
 
-# wfdb-x: d + sep + name, with exactly one separator ('/' in a URL).
+# WFDB-x: d + sep + name, with exactly one separator ('/' in a URL).
 .join <- function(d, name, sep) {
   if (.is_url(d)) sep <- "/"
   if (!nzchar(d)) return(name)
@@ -579,7 +579,7 @@ wfdbx_note_write_error <- function() {
   if (last == utf8ToInt(sep) || .is_dsep(last)) paste0(d, name) else paste0(d, sep, name)
 }
 
-# wfdb-x: the location of the file named name (normal mode): an absolute
+# WFDB-x: the location of the file named name (normal mode): an absolute
 # name or a URL as given, a ~ name expanded, and a relative name under the
 # input directory (for reading) or the output directory (for writing), if
 # one is set.
@@ -597,7 +597,7 @@ wfdbx_note_write_error <- function() {
   .join(.expand_home(d), name, "/")
 }
 
-# wfdb-x: TRUE if a file name found in a header names a file in the
+# WFDB-x: TRUE if a file name found in a header names a file in the
 # header's directory or below it: a relative name that does not begin with
 # '~' and has no ".." component (on MS-Windows, no drive letter either).
 .in_header_dir <- function(name) {
@@ -609,7 +609,7 @@ wfdbx_note_write_error <- function() {
   !(".." %in% strsplit(name, "/", fixed = TRUE)[[1L]])
 }
 
-# wfdb-x: the directory part of a file name or URL, including its final
+# WFDB-x: the directory part of a file name or URL, including its final
 # separator ("" if it has none).
 .dirname <- function(name) {
   b <- as.integer(charToRaw(name))
@@ -618,7 +618,7 @@ wfdbx_note_write_error <- function() {
   if (i == 0L) "" else rawToChar(as.raw(b[seq_len(i)]))
 }
 
-# wfdb-x: open the file at location p for reading, trying both forms of its
+# WFDB-x: open the file at location p for reading, trying both forms of its
 # name (.spr1 and .spr2) there.
 .open_at <- function(p, s) {
   if (is.null(s)) s <- ""
@@ -632,7 +632,7 @@ wfdbx_note_write_error <- function() {
   NULL
 }
 
-# wfdb-x: open, for reading, a file named in the header of a record (a
+# WFDB-x: open, for reading, a file named in the header of a record (a
 # signal file, or a segment of type s): name, in the directory d of that
 # header (as given by .dirname; NULL if unknown, for a header read from the
 # standard input: then name is resolved as any relative name).  The name
@@ -706,7 +706,7 @@ wfdbx_note_write_error <- function() {
   r
 }
 
-# wfdb-x: the name of the local file that wfdb_open(name, NULL, WFDB_WRITE)
+# WFDB-x: the name of the local file that wfdb_open(name, NULL, WFDB_WRITE)
 # creates in normal mode, or NULL if it creates none (the standard output,
 # or a URL).
 .output_file <- function(name) {
@@ -719,7 +719,7 @@ wfdbx_note_write_error <- function() {
 #' Open the WFDB file of type s (e.g. "hea", or "" for a file named by
 #' record) for a record; mode WFDB_READ, WFDB_WRITE or WFDB_APPEND.  The
 #' file name is the record name and the type, joined by a '.'.  The record
-#' "-" is the standard input (reading) or output (writing).  wfdb-x: a
+#' "-" is the standard input (reading) or output (writing).  WFDB-x: a
 #' relative name is read under the input directory (wfdbx_set_input_dir)
 #' and written under the output directory (wfdbx_set_output_dir); an
 #' absolute name, a ~ name or a URL is used as given (a URL can only be
@@ -761,16 +761,16 @@ wfdb_open <- function(s, record, mode) {
     st$wfdb_filename <- .spr1(r, s)
     .init_output_dir()
     if (!wfdbx_get_legacy()) {
-      # wfdb-x: a relative name in the output directory, if one is set; a
+      # WFDB-x: a relative name in the output directory, if one is set; a
       # URL cannot be written
       if (.is_url(st$wfdb_filename)) return(NULL)
       st$wfdb_filename <- .resolve(st$wfdb_filename, TRUE)
-    } else if (!is.null(st$output_dir)) {   # wfdb-x: legacy mode: any name
+    } else if (!is.null(st$output_dir)) {   # WFDB-x: legacy mode: any name
       st$wfdb_filename <- paste0(st$output_dir, "/", st$wfdb_filename)
     }
     return(wfdb_fopen(st$wfdb_filename, if (mode == WFDB_WRITE) "wb" else "ab"))
   }
-  # wfdb-x: the one location that the name designates
+  # WFDB-x: the one location that the name designates
   if (!wfdbx_get_legacy()) return(.open_at(.resolve(r, FALSE), s))
   if (length(st$path_prefix) == 0L) getwfdb()
   if (startsWith(r, "http://") || startsWith(r, "https://")) {
@@ -813,7 +813,7 @@ wfdb_open <- function(s, record, mode) {
   if (fname %in% c("stdin", "clipboard") || startsWith(fname, "~")) paste0("./", fname) else fname
 }
 
-# wfdb-x: read a remote file in full (once per process; failures are
+# WFDB-x: read a remote file in full (once per process; failures are
 # remembered too): its contents (raw), or NULL.  As in WFDB-x's other
 # implementations, the system program curl reads it, following redirects,
 # failing for an HTTP status >= 400, and giving up if connecting takes
@@ -863,14 +863,14 @@ wfdb_open <- function(s, record, mode) {
   tryCatch(suppressWarnings(readall()), error = function(e) NULL)
 }
 
-# wfdb-x: open a remote file for reading (normal mode), if network access is
+# WFDB-x: open a remote file for reading (normal mode), if network access is
 # allowed; the first time it is not, print a message.
 .fetch_open <- function(u) {
   st <- .wfdb_io
   if (!wfdbx_get_network()) {
     if (!st$network_warned) {
       st$network_warned <- TRUE
-      wfdb_error(paste0("wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or ",
+      wfdb_error(paste0("WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or ",
                         "call wfdbx_set_network(1) to open %s\n"), u)
     }
     return(NULL)
@@ -932,7 +932,7 @@ wfdb_fopen <- function(fname, mode) {
 #' record name, outside legacy mode, only the last component is checked.
 wfdb_checkname <- function(p, s) {
   b <- if (is.null(p)) integer(0) else as.integer(charToRaw(p))
-  # wfdb-x: a record name may be a path; outside legacy mode only its last
+  # WFDB-x: a record name may be a path; outside legacy mode only its last
   # component (the record's own name) is checked, so that directories with
   # other characters (such as "my.data/rec") can be written.
   if (s == "record" && !wfdbx_get_legacy()) {

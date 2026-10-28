@@ -23,7 +23,7 @@
 # assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 # millivolts); the -f and -t times are converted at the -F frequency; --legacy,
 # as the first argument, restores the original behavior. Each change is marked
-# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1983-2007 George B. Moody.
@@ -53,7 +53,7 @@ const _AD2M_HELP = (
     "             starting time if RECORD=x2xx or x3xx, 3 hours if",
     "             RECORD=x0xx or x1xx, or the end of the input file)",
     " -U UNITS   physical units (required unless the gain is 0; AHA: mV)")
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _AD2M_LEGACY_HELP = _help_without(_AD2M_HELP, [8, 9, 12, 16])
 
 const _AD2M_EODF = Int32(0o100000)  # AHA data file end-of-data marker
@@ -103,7 +103,7 @@ function _ad2m_getcvec(c::_Ad2mCmp, v::Vector{Int32})
 end
 
 function ad2m_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -113,7 +113,7 @@ function ad2m_main(args::Vector{String})
     cflag = false
     v = zeros(Int32, 2)
     t = start_time = end_time = Int64(0)
-    # wfdb-x: the signal parameters (-F, -G, -R, -U), and the -f and -t
+    # WFDB-x: the signal parameters (-F, -G, -R, -U), and the -f and -t
     # arguments (converted once -F is known)
     fstr = tstr = uunits = nothing
     ffreq = Ref{Float64}(0.0)
@@ -121,7 +121,7 @@ function ad2m_main(args::Vector{String})
     rres = Ref{Int32}(0)
     gset = false
     if legacy
-        # wfdb-x: in legacy mode, the parameters of the AHA database, set by
+        # WFDB-x: in legacy mode, the parameters of the AHA database, set by
         # the C program (250 Hz, 400 adu/mV, 12 bits, and no units, i.e.,
         # millivolts); -F, -G, -R and -U are not options then.
         ffreq[] = _AD2M_AHA_FREQ
@@ -144,7 +144,7 @@ function ad2m_main(args::Vector{String})
                     ceprintf("%s: start time must follow -f\n", pname)
                     cexit(1)
                 end
-                if legacy               # wfdb-x: as in the C program
+                if legacy               # WFDB-x: as in the C program
                     start_time = strtim(argv[i])
                 else
                     fstr = argv[i]      # converted once -F is known (WFDB-x)
@@ -172,7 +172,7 @@ function ad2m_main(args::Vector{String})
                     ceprintf("%s: end time must follow -t\n", pname)
                     cexit(1)
                 end
-                if legacy               # wfdb-x: as in the C program
+                if legacy               # WFDB-x: as in the C program
                     end_time = strtim(argv[i])
                 else
                     tstr = argv[i]      # converted once -F is known (WFDB-x)
@@ -217,7 +217,7 @@ function ad2m_main(args::Vector{String})
         _annapp_help(pname, legacy ? _AD2M_LEGACY_HELP : _AD2M_HELP)
         cexit(1)
     end
-    # wfdb-x: the signal parameters must be given explicitly; the C program
+    # WFDB-x: the signal parameters must be given explicitly; the C program
     # assumed those of the AHA database (250 Hz, 400 adu/mV, 12 bits, and no
     # units, i.e., millivolts), as legacy mode does (the values set above for
     # legacy mode pass these checks, and no units are required then).
@@ -342,7 +342,7 @@ register_workload("ad2m") do
         workload_tool("ad2m", "-h")
         workload_tool("ad2m", "-q")
         workload_tool("ad2m", "x")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("ad2m", "--legacy", "-i", "100s.aha.dat", "-r", "adm", "-f", "10", "-t", "20")
         workload_tool("ad2m", "--legacy", "-i", "1201.CMP", "-r", "adm", "-f", "s100")
         workload_tool("ad2m", "--legacy", "-i", "100s.aha.dat", "-r", "adm", "-F", "250")

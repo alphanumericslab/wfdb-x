@@ -113,7 +113,7 @@ impl OutLock {
     /// with status 141, as a C program killed by `SIGPIPE` appears to the
     /// shell.
     ///
-    /// wfdb-x: after a write error, the output is discarded (as if the
+    /// WFDB-x: after a write error, the output is discarded (as if the
     /// standard output were the null device), so that later writes and
     /// flushes do nothing; [`error`](OutLock::error) stays true.
     pub fn flush(&mut self) -> i32 {
@@ -194,7 +194,7 @@ pub fn eprintf(fmt: &[u8], args: &[Arg]) -> i32 {
 /// [`exit_check_init`]).
 static EXIT_PNAME: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
-/// wfdb-x: enable the check of write errors at [`exit`] (called by
+/// WFDB-x: enable the check of write errors at [`exit`] (called by
 /// `wfdbx_legacy_args`, as the tools call it first); `argv0` gives the
 /// program name of its message. Only the first call counts.
 pub(crate) fn exit_check_init(argv0: &[u8]) {
@@ -206,7 +206,7 @@ pub(crate) fn exit_check_init(argv0: &[u8]) {
     }
 }
 
-/// wfdb-x: the exit status of the tools. In normal mode (of the default
+/// WFDB-x: the exit status of the tools. In normal mode (of the default
 /// instance), the standard output is flushed; if it could not be written,
 /// `PROGRAM: write error on standard output` is printed. Then, if `status`
 /// is 0 and the standard output or another output file could not be
@@ -245,7 +245,7 @@ fn exit_check(status: i32) -> i32 {
 /// instance (as C's `exit` flushes every open stream, without closing
 /// records or annotators), then the standard output, and exits.
 ///
-/// wfdb-x: after `wfdbx_legacy_args`, in normal mode, a standard output
+/// WFDB-x: after `wfdbx_legacy_args`, in normal mode, a standard output
 /// that could not be written is reported (`PROGRAM: write error on
 /// standard output`), and the status 0 becomes 1 if the standard output or
 /// another output file could not be written (see

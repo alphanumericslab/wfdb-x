@@ -14,7 +14,7 @@
 //
 // Changes from the original: WFDB_DEFFREQ, WFDB_DEFGAIN and WFDB_DEFRES remain
 // defined but are used only in legacy mode, and missing units are never taken
-// to be millivolts. Each change is marked "wfdb-x:" in the code;
+// to be millivolts. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdb.h, WFDB Software Package 10.7.0.
@@ -94,13 +94,13 @@ val WFDB_FMT_LIST: IntArray = intArrayOf(0, 8, 16, 61, 80, 160, 212, 310, 311, 2
 /** Number of signal storage formats. */
 const val WFDB_NFMTS: Int = 14
 
-/** Default sampling frequency (Hz) of the C library; wfdb-x: used only in legacy mode. */
+/** Default sampling frequency (Hz) of the C library; WFDB-x: used only in legacy mode. */
 const val WFDB_DEFFREQ: Double = 250.0
 
-/** Default gain (adu/physical unit) of the C library; wfdb-x: used only in legacy mode. */
+/** Default gain (adu/physical unit) of the C library; WFDB-x: used only in legacy mode. */
 const val WFDB_DEFGAIN: Double = 200.0
 
-/** Default ADC resolution (bits) of the C library; wfdb-x: used only in legacy mode. */
+/** Default ADC resolution (bits) of the C library; WFDB-x: used only in legacy mode. */
 const val WFDB_DEFRES: Int = 12
 
 /** getvec mode: one sample per signal per frame. */
@@ -163,7 +163,7 @@ class Siginfo(
     var fname: ByteArray? = null,
     /** Signal description. */
     var desc: ByteArray? = null,
-    /** Physical units (null: not specified; wfdb-x: never assumed to be mV). */
+    /** Physical units (null: not specified; WFDB-x: never assumed to be mV). */
     var units: ByteArray? = null,
     /** Gain (adu/physical unit; 0: uncalibrated). */
     var gain: Double = 0.0,

@@ -16,7 +16,7 @@
 // millivolts); the options precede the input files, in any order; the
 // short-format part of a long-format file (skipped by -s) is located from -F;
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 //   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source
@@ -44,7 +44,7 @@
 #include <wfdbx/ecgmap.hpp>
 #include <wfdbx/wfdb.hpp>
 
-// wfdb-x: getc without locking the stream (the input is read a byte at a
+// WFDB-x: getc without locking the stream (the input is read a byte at a
 // time).
 #if defined(_WIN32)
 #define WFDBX_APP_GETC(f) _getc_nolock(f)
@@ -54,7 +54,7 @@
 
 using namespace wfdbx;
 
-// wfdb-x: the signal parameters (-F, -G, -R, -U); the C program assumed those
+// WFDB-x: the signal parameters (-F, -G, -R, -U); the C program assumed those
 // of the AHA database (250 Hz, 400 adu/mV, 12 bits, millivolts).
 static const char *pname, *Uunits;
 static double Ffreq, Ggain;
@@ -130,7 +130,7 @@ static void process(const char *record)
     static WFDB_Siginfo si[2];
     static WFDB_Anninfo ai;
 
-    setsampfreq(Ffreq); // wfdb-x: -F (the C program set 250 Hz)
+    setsampfreq(Ffreq); // WFDB-x: -F (the C program set 250 Hz)
     ofname = std::string(record) + ".dat";
     si[0].fname = ofname;
     si[0].desc = "ECG0";
@@ -174,7 +174,7 @@ static void process(const char *record)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -183,7 +183,7 @@ int main(int argc, char **argv)
     int i, sflag = 0;
 
     if (argc < 2 || std::strcmp(argv[1], "-h") == 0) {
-        if (wfdbx_get_legacy())     // wfdb-x: the usage of the C program
+        if (wfdbx_get_legacy())     // WFDB-x: the usage of the C program
             std::fprintf(stderr,
                          "usage: %s [-s] RECORD.XXX [RECORD.XXX]...\n",
                          argv[0]);
@@ -212,11 +212,11 @@ int main(int argc, char **argv)
                 " -R 12 -U mV.\n");
         std::exit(1);
     }
-    // wfdb-x: options (-s and the signal parameters) precede the input
+    // WFDB-x: options (-s and the signal parameters) precede the input
     // files, in any order.
     pname = argv[0];
     if (wfdbx_get_legacy()) {
-        // wfdb-x: in legacy mode, the option of the C program (-s only, as
+        // WFDB-x: in legacy mode, the option of the C program (-s only, as
         // the first argument), and the parameters of the AHA database that
         // it set (250 Hz, 400 adu/mV, 12 bits, millivolts).
         if (std::strcmp(argv[i = 1], "-s") == 0) {
@@ -269,7 +269,7 @@ int main(int argc, char **argv)
             Uunits = argv[i];
             break;
         }
-    // wfdb-x: the signal parameters must be given explicitly (see
+    // WFDB-x: the signal parameters must be given explicitly (see
     // docs/DIVERGENCES.md); in legacy mode, these checks pass.
     if (Ffreq <= 0.) {
         std::fprintf(stderr,
@@ -318,7 +318,7 @@ int main(int argc, char **argv)
         v[0] = v[1] = 0;
         a = WFDB_Annotation();
         if (sflag) { // skip first 145 minutes if making a short-format record
-            // (wfdb-x: 145 minutes at -F; the C program assumed 250 Hz)
+            // (WFDB-x: 145 minutes at -F; the C program assumed 250 Hz)
             long nskip = static_cast<long>(SKIPMIN * 60L * Ffreq); // samples
 
             if (format == 1)

@@ -10,7 +10,7 @@
 // Changes from the original: wfdbquit leaves the input and output directories
 // as they are (the original restored the WFDB path); legacy mode
 // (wfdbx_set_legacy) restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbinit.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2012 George B. Moody; revised 2012-2019 by
@@ -51,7 +51,7 @@ impl Wfdb {
     }
 
     /// C `wfdbquit()`: close all annotators, signals and the info file,
-    /// restore the WFDB path (legacy mode only; wfdb-x: the input directory
+    /// restore the WFDB path (legacy mode only; WFDB-x: the input directory
     /// is kept), and release the library's buffers.
     ///
     /// Translation of the C function wfdbquit() (lib/wfdbinit.c, WFDB 10.7.0):
@@ -62,7 +62,7 @@ impl Wfdb {
         self.wfdb_anclose(); // close annotation files, reset variables
         self.wfdb_oinfoclose(); // close info file
         self.wfdb_sigclose(); // close signals, reset variables
-                              // wfdb-x: in normal mode, the input directory is left as it is (in
+                              // WFDB-x: in normal mode, the input directory is left as it is (in
                               // the C library, resetwfdb restored the string returned by getwfdb,
                               // but not the list of directories searched)
         if self.wfdbx_get_legacy() != 0 {

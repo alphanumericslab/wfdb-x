@@ -108,7 +108,7 @@ pub struct Wfdb {
 
 impl Wfdb {
     /// Creates a new library state, as at the start of a C program (no open
-    /// records; the settings that locate files, wfdb-x: `WFDBX_INPUT_DIR`,
+    /// records; the settings that locate files, WFDB-x: `WFDBX_INPUT_DIR`,
     /// `WFDBX_OUTPUT_DIR`, `WFDBX_NETWORK`, or in legacy mode the WFDB path,
     /// are read from the environment on first use).
     ///

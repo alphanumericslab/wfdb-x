@@ -24,7 +24,7 @@ use wfdbx::{ceprintf, cprintf, cstd, NULL};
 
 fn main() {
     let mut argv = cstd::args();
-    wfdbx::wfdbx_legacy_args(&mut argv); // wfdb-x: --legacy (original behavior)
+    wfdbx::wfdbx_legacy_args(&mut argv); // WFDB-x: --legacy (original behavior)
     let argc = argv.len();
 
     if argc == 4 && argv[1] == b"-r" {

@@ -52,7 +52,7 @@ private:
     int prev_;
 };
 
-// wfdb-x: getvec's checksum message not printed for the lifetime of the
+// WFDB-x: getvec's checksum message not printed for the lifetime of the
 // object (read_record reports a checksum error itself).
 class ChecksumQuietScope {
 public:
@@ -64,7 +64,7 @@ private:
     bool prev_;
 };
 
-// wfdb-x: the library's input directory and network access (see
+// WFDB-x: the library's input directory and network access (see
 // InputOptions) set for the lifetime of the object, for the options that are
 // set (restoring the previous settings afterwards, also when an exception is
 // thrown); no change otherwise.
@@ -91,7 +91,7 @@ private:
     int prev_net_ = 0;
 };
 
-// wfdb-x: the library's output directory (wfdbx_set_output_dir) set to
+// WFDB-x: the library's output directory (wfdbx_set_output_dir) set to
 // `dir` for the lifetime of the object, if `dir` is not empty (restoring the
 // previous one afterwards, also when an exception is thrown); no change
 // otherwise.  Throws Error if `record` contains a directory or if `dir` does
@@ -135,10 +135,10 @@ T per_signal(const std::vector<T> &v, size_t k, T dflt)
 }
 
 // The gain of signal k: the single value, or the k-th one.  Throws Error if
-// it is not given (wfdb-x: no default gain; C assumed WFDB_DEFGAIN).
+// it is not given (WFDB-x: no default gain; C assumed WFDB_DEFGAIN).
 WFDB_Gain gain_of(const WriteOptions &opt, int k)
 {
-    // wfdb-x: legacy mode (original behavior): WFDB_DEFGAIN by default
+    // WFDB-x: legacy mode (original behavior): WFDB_DEFGAIN by default
     if (opt.legacy) return per_signal<WFDB_Gain>(opt.gains, k, WFDB_DEFGAIN);
     if (opt.gains.size() == 1) return opt.gains[0];
     if (static_cast<size_t>(k) < opt.gains.size()) return opt.gains[k];
@@ -170,11 +170,11 @@ int legacy_adcres(int fmt)
 }
 
 // The ADC resolution of signal k: the single value, or the k-th one.  Throws
-// Error if it is not given or < 1 (wfdb-x: no default resolution; C inferred
+// Error if it is not given or < 1 (WFDB-x: no default resolution; C inferred
 // it from the format).
 int adcres_of(const WriteOptions &opt, int k)
 {
-    // wfdb-x: legacy mode (original behavior): inferred from the format
+    // WFDB-x: legacy mode (original behavior): inferred from the format
     if (opt.legacy)
         return per_signal<int>(opt.adcres, k, legacy_adcres(opt.fmt));
     int r = per_signal<int>(opt.adcres, k, 0);
@@ -212,7 +212,7 @@ void base_time_fields(bool has_time, std::optional<std::string> &text,
     }
 }
 
-// wfdb-x: the sorting of out-of-order output annotation files decided by
+// WFDB-x: the sorting of out-of-order output annotation files decided by
 // `sort` for the lifetime of the object, if it is given (see
 // write_annotations; restored afterwards, also when an exception is
 // thrown); no change otherwise.
@@ -240,7 +240,7 @@ std::string strip_space(const std::string &s)
     return s.substr(a, s.find_last_not_of(SPACE) - a + 1);
 }
 
-// wfdb-x: the high-level readers give the signal descriptions without the
+// WFDB-x: the high-level readers give the signal descriptions without the
 // white space that some headers end them with (C keeps it, as the C-style
 // functions do).
 void strip_desc(std::vector<WFDB_Siginfo> &si)
@@ -272,9 +272,9 @@ double Record::physical(size_t i, int s) const
     if (v == WFDB_INVALID_SAMPLE)
         return std::numeric_limits<double>::quiet_NaN();
     double g = siginfo[s].gain;
-    if (g == 0 && legacy)   // wfdb-x: legacy mode (original behavior)
+    if (g == 0 && legacy)   // WFDB-x: legacy mode (original behavior)
         g = WFDB_DEFGAIN;
-    if (g == 0) {   // wfdb-x: no default gain (C assumed WFDB_DEFGAIN)
+    if (g == 0) {   // WFDB-x: no default gain (C assumed WFDB_DEFGAIN)
         int n = static_cast<size_t>(s) < signals.size() ? signals[s] : s;
         throw Error("signal " + std::to_string(n) + " of record " + name +
                     " is uncalibrated");
@@ -340,7 +340,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
     rec.name = record;
     rec.legacy = opt.legacy;
     rec.fs = sampfreq(nullptr);
-    // wfdb-x: no default sampling frequency (C assumed 250 Hz).
+    // WFDB-x: no default sampling frequency (C assumed 250 Hz).
     if (!opt.legacy && rec.fs <= 0 &&
         (opt.from.needs_freq() || opt.to.needs_freq()))
         fail("sampling frequency of record " + record + " is not specified");
@@ -405,7 +405,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
             int stat = 0;
             long long got = getvecs(all.data() + used, n, &stat);
             if (got < 0) got = 0;
-            // wfdb-x: status -4 (checksum error) is returned with valid
+            // WFDB-x: status -4 (checksum error) is returned with valid
             // samples: for the frame at which the checksums are verified
             // (in high-resolution mode, for each of its sample vectors).
             // The vector is kept, reading continues, and the error is
@@ -419,7 +419,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
             if (remaining) *remaining -= got;
             if (mismatch) continue;
             if (got < n) {
-                // wfdb-x: another status below -1 (e.g. -3, unexpected EOF: a
+                // WFDB-x: another status below -1 (e.g. -3, unexpected EOF: a
                 // signal file shorter than its header says, or a decoder or
                 // I/O error) is an error, not the end of the data (-1).
                 if (stat < -1)
@@ -430,7 +430,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
         }
     }
     if (checksum_error && opt.checksum_warning)
-        wfdb_error("wfdb-x: checksum error in record %s: the signal data do "
+        wfdb_error("WFDB-x: checksum error in record %s: the signal data do "
                    "not match the checksums in its header\n", record.c_str());
     rec.checksum_ok = !checksum_error;
 
@@ -467,11 +467,11 @@ Annotations read_annotations(const std::string &record,
     LegacyScope scope(legacy);
     InputScope input_scope(input);
     wfdbquit();
-    // wfdb-x: no default sampling frequency (C assumed 250 Hz if the record
+    // WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
     // had no header); `fs` gives one, as rdann -F does.
     WFDB_Frequency f = sampfreq(record.c_str());
     if (f <= 0 && fs) setsampfreq(*fs);
-    else if (legacy && f < 0)   // wfdb-x: legacy mode (original behavior)
+    else if (legacy && f < 0)   // WFDB-x: legacy mode (original behavior)
         setsampfreq(WFDB_DEFFREQ);
     WFDB_Anninfo ai;
     ai.name = annotator;
@@ -508,7 +508,7 @@ Annotations read_annotations(const std::string &record,
         } else
             res.aux.push_back(std::nullopt);
     }
-    // wfdb-x: a status other than 0 and -1 (end of file), such as -3
+    // WFDB-x: a status other than 0 and -1 (end of file), such as -3
     // (unexpected end of file) or an I/O error, is an error.
     if (stat != 0 && stat != -1)
         fail("can't read annotation file " + annotator + " of record " +
@@ -537,7 +537,7 @@ void write_adc(const std::string &record,
     const WriteOptions opt = with_library_legacy(options);
     check_samps_per_frame(opt);
     if (nsig <= 0) throw Error("write_record: no signals");
-    // wfdb-x: no default sampling frequency, gain, ADC resolution or units
+    // WFDB-x: no default sampling frequency, gain, ADC resolution or units
     // (C: 250 Hz, 200 adu/mV, a resolution based on the format, mV).
     if (!opt.legacy && !(fs > 0))
         throw Error("write_record: the sampling frequency must be > 0");
@@ -609,9 +609,9 @@ void write_record_physical(const std::string &record,
         throw Error("write_record: the sampling frequency must be > 0");
     for (int k = 0; k < nsig; k++) {
         double gain = gain_of(opt, k);
-        if (gain == 0 && opt.legacy)    // wfdb-x: legacy mode (original)
+        if (gain == 0 && opt.legacy)    // WFDB-x: legacy mode (original)
             gain = WFDB_DEFGAIN;
-        if (gain == 0)  // wfdb-x: no default gain (C assumed WFDB_DEFGAIN)
+        if (gain == 0)  // WFDB-x: no default gain (C assumed WFDB_DEFGAIN)
             throw Error("write_record: signal " + std::to_string(k) +
                         " is uncalibrated");
         int zero = per_signal<int>(opt.adczeros, k, 0);

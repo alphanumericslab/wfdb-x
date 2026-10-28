@@ -56,13 +56,11 @@ and any exit after a write error has status 1. The unit tests call
 
 ## Performance
 
-Best of 7 runs on Linux x86-64, GCC, Release build, for `big`, a
-two-signal, 648,000-frame format 212 record generated for the benchmark:
-
-| Command | C | C++ |
-|---|---|---|
-| `rdsamp -r big` | 0.18 s | 0.05 s |
-| `rdsamp -r big -p` | 0.41 s | 0.17 s |
+`benchmarks/cpp/` holds the benchmark driver of the C++ implementation
+(`wfdbx_bench`, built and run by `benchmarks/run.py`, with the library
+added by `add_subdirectory`, without tools or tests).
+[docs/BENCHMARKS.md](../docs/BENCHMARKS.md) gives the results, including
+the tools `rdsamp` and `wfdbdesc` against the original C programs.
 
 ## Testing
 

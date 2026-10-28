@@ -73,7 +73,7 @@ if argc == 1
     return;
 end
 if argc == 2
-    % wfdb-x: 0 if the header gives no sampling frequency (C: 250)
+    % WFDB-x: 0 if the header gives no sampling frequency (C: 250)
     wfdbx.internal.cprintf('%g\n', wfdbx.sampfreq(argv{2}));
     return;
 end

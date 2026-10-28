@@ -12,7 +12,7 @@
 // FREQ gives it when the record has no header or its header gives none, and is
 // then required for time arguments and for intervals and times in units of
 // time (the original assumed 250 Hz); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/ann2rr.c, WFDB Software Package 10.7.0.
@@ -68,7 +68,7 @@ const MAXDIGITS: i32 = 15;
 /// Lines of the usage summary shown before each "--More--" prompt.
 const PAGELINES: usize = 23;
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
+/// WFDB-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] =
     &[b" -F FREQ sampling frequency, if the record header does not specify one"];
@@ -98,7 +98,7 @@ fn flagged(table: &[bool], a: i32) -> bool {
     (0..=ACMAX).contains(&a) && table[a as usize]
 }
 
-/// wfdb-x: whether output format `c` (of -i, -v or -V) is a unit of time,
+/// WFDB-x: whether output format `c` (of -i, -v or -V) is a unit of time,
 /// which needs the sampling frequency.
 fn time_format_needs_freq(c: u8) -> bool {
     matches!(c, b'h' | b'm' | b's' | b't' | b'T')
@@ -110,7 +110,7 @@ fn isann(code: i32) -> bool {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let c0 = |i: usize| -> u8 { argv[i].first().copied().unwrap_or(0) };
@@ -273,12 +273,12 @@ fn main() {
         cstd::exit(1);
     };
 
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the record had no header); -F specifies one. It is needed for times
     // and intervals in units of time.
     let mut sps = wfdbx::sampfreq(record);
     if legacy {
-        // wfdb-x: legacy mode (original behavior)
+        // WFDB-x: legacy mode (original behavior)
         if sps < 0.0 {
             sps = WFDB_DEFFREQ;
             wfdbx::setsampfreq(sps);

@@ -14,11 +14,11 @@ function [order, in_order] = ann_sortlist(t, num, chan, legacy)
 %   annotation) takes part in the comparisons: an out-of-order annotation
 %   at time 0 (num 0, chan 0) then "replaces" the head and is never
 %   output, and neither is anything inserted after it (input times 5, 0, 3
-%   give 5 only; see docs/KNOWN_C_BEHAVIORS.md).  wfdb-x: by default (and
+%   give 5 only; see docs/KNOWN_C_BEHAVIORS.md).  WFDB-x: by default (and
 %   for LEGACY false), the head is never compared, so that such an
 %   annotation is inserted at the beginning (5, 0, 3 give 0, 3, 5); the
 %   sortann tool uses the original insertion in legacy mode only.
-%   (wfdb-x: moved from the sortann tool into the library, as in the C
+%   (WFDB-x: moved from the sortann tool into the library, as in the C
 %   reference, for wfdbx.internal.ann_sortfile.)
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
@@ -34,7 +34,7 @@ function [order, in_order] = ann_sortlist(t, num, chan, legacy)
 % Changes from the original: moved from the sortann program into the
 % library; outside legacy mode the list head is never compared as an
 % annotation, so that an out-of-order annotation at time 0 is no longer
-% lost. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+% lost. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 % gives the reasons.
 %
 % Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -89,7 +89,7 @@ for x = f+2:n+1
     end
     ap = la;
     while ap ~= 0
-        if ap == 1 && ~legacy   % wfdb-x: the head is not an annotation
+        if ap == 1 && ~legacy   % WFDB-x: the head is not an annotation
             ap = 0;
             break;
         end

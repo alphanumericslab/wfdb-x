@@ -20,7 +20,7 @@
 //
 // Changes from the original: no built-in sampling frequency: the record must
 // give it (the original assumed 250 Hz); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2wav.c, WFDB Software Package 10.7.0.
@@ -142,7 +142,7 @@ fun Wfdb.mit2wavMain(argv0: Array<ByteArray>): Int {
     val s = Array(nsig) { Siginfo() }
     nsig = isigopen(record, s, nsig)
     if (nsig <= 0) exit(3)
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz, as
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz, as
     // legacy mode does).
     if (!legacy && sampfreq(null as ByteArray?) <= 0.0) {
         eprintf("%s: sampling frequency of record %s is not specified\n", pname, record)

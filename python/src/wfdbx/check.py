@@ -818,7 +818,7 @@ def check_record(record, annotators=(), *, input_dir=None, network=None):
                   string
       ValueError  if record is empty
 
-    Example (100s is the sample record included with wfdb-x: the first
+    Example (100s is the sample record included with WFDB-x: the first
     minute of record 100 of the MIT-BIH Arrhythmia Database, in the
     directory wfdbx.sample_data_dir())::
 

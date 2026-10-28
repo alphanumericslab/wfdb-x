@@ -30,7 +30,7 @@ end
 if ~st.wfdb_warned && ~wfdbx.wfdbx_get_legacy()
     st.wfdb_warned = true;
     if ischar(wfdbx.internal.cgetenv('WFDB'))
-        wfdbx.internal.wfdb_error(['wfdb-x: the WFDB environment variable ' ...
+        wfdbx.internal.wfdb_error(['WFDB-x: the WFDB environment variable ' ...
             'is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n']);
     end
 end

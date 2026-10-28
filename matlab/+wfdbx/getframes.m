@@ -80,8 +80,8 @@ vec = zeros(1, max(nsig, 1));
 acc = zeros(0, nsig);
 nrows = 0;
 while got < n
-    % (read in blocks of at most 2^20 frames, so that N may be Inf)
-    [blk, ok] = wfdbx.internal.bulk_frames(min(n - got, 2^20), minstat);
+    % (read in blocks of at most 2^22 frames, so that N may be Inf)
+    [blk, ok] = wfdbx.internal.bulk_frames(min(n - got, 4194304), minstat);
     if ok && ~isempty(blk)
         if nrows > 0
             parts{end + 1} = acc(1:nrows, :); %#ok<AGROW>
@@ -114,6 +114,8 @@ if nrows > 0
 end
 if isempty(parts)
     v = zeros(0, nsig);
+elseif numel(parts) == 1
+    v = parts{1};
 else
     v = vertcat(parts{:});
 end

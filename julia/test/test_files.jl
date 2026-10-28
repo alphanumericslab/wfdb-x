@@ -21,8 +21,8 @@ using Sockets
 const SR_HEA = "sr 2 360 21600\n" *
                "sr.dat 212 200 11 1024 995 21537 0 MLII\n" *
                "sr.dat 212 200 11 1024 1011 -3962 0 V5\n"
-const NET_OFF = "wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open "
-const WFDB_IGNORED = "wfdb-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n"
+const NET_OFF = "WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open "
+const WFDB_IGNORED = "WFDB-x: the WFDB environment variable is ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n"
 const FILES_ENV = ("WFDB", "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR", "WFDBX_NETWORK")
 
 putfile(name, data) = (mkpath(dirname(abspath(name))); write(name, data))
@@ -217,7 +217,7 @@ end
         for p in ("a b", "a;b", "a:b", ". http://h/x", "http://h/x:/y")
             W.setwfdb(w, p)
             @test W.wfdbx_get_input_dir(w) == b"keep"
-            @test startswith(String(W.wfdberror(w)), "setwfdb: wfdb-x reads from a single input directory; use wfdbx_set_input_dir")
+            @test startswith(String(W.wfdberror(w)), "setwfdb: WFDB-x reads from a single input directory; use wfdbx_set_input_dir")
         end
         # resetwfdb restores the setting of the last setwfdb; wfdbquit does
         # not call it
@@ -579,7 +579,7 @@ end
 end
 
 
-# wfdb-x: only the last component of a record name is checked when writing
+# WFDB-x: only the last component of a record name is checked when writing
 # (outside legacy mode), and headers name the record, its signal files and
 # its segments relative to the header's directory.
 @testset "record names with dotted directories" begin

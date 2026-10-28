@@ -1,12 +1,13 @@
-# WFDB-X
-## The WFDB Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically
+# WFDB-x
+## A fast, lightweight implementation of the WFDB library and command-line tools, with identical behavior across seven programming languages
 
 The [WFDB Software Package](https://physionet.org/content/wfdb/) (by George
 B. Moody and contributors) is the reference C library and set of
 command-line tools for reading, writing and converting physiologic signal
 and annotation files, such as the PhysioNet databases. WFDB-x is a faithful
-reimplementation of its version 10.7.0 in seven languages, so that you can use
-the same files, the same functions and the same tools without the C library.
+reimplementation of its version 10.7.0 in C++, Python, MATLAB/Octave, Rust,
+Julia, R and Kotlin, so that developers can use the same files, the same
+functions and the same tools without the C library.
 
 WFDB-x is an independent project. It is not part of the
 [WFDB project](https://wfdb.io/) or of PhysioNet, and is not endorsed by
@@ -32,6 +33,12 @@ Each implementation:
 The original C sources are kept, unmodified, in
 [`third_party/wfdb-main.zip`](third_party/), and serve as the reference
 implementation for testing.
+
+## WFDB-x at a glance
+
+[![WFDB-x at a glance: everything the WFDB package does, in seven languages; how to install it and run it in each; how its results are checked against the original C programs; and what it adds](docs/overview.svg)](docs/overview.svg)
+
+(Also as a PNG image: [`docs/overview.png`](docs/overview.png).)
 
 ## Why WFDB-x
 
@@ -66,8 +73,8 @@ everything else:
 * **Files are read and written only where they are named.** A full path,
   a `~` path or a URL is used as given. Any other name is read from the
   input directory and written to the output directory, which are both the
-  current directory unless you set them. Nothing is searched.
-* **Network access is off unless you turn it on.** To read from
+  current directory unless they are set. Nothing is searched.
+* **Network access is off unless it is turned on.** To read from
   PhysioNet, set the input directory to the database's URL and turn
   network access on. For example, to print the first 10 seconds of record
   100 of the MIT-BIH Arrhythmia Database:
@@ -138,21 +145,52 @@ All seven implement the complete library and all 33 tools (see
 has a README with installation instructions, usage examples and
 requirements.
 
-| Language | Directory and README | Install (from a copy of this repository) |
-|---|---|---|
-| Python | [`python/`](python/README.md) | `pip install wfdb-x` (PyPI), or `pip install ./python` |
-| C++ | [`cpp/`](cpp/README.md) | `cmake -S cpp -B cpp/build && cmake --build cpp/build` |
-| MATLAB / GNU Octave | [`matlab/`](matlab/README.md) | `addpath('/path/to/wfdb-x/matlab')` (tested with GNU Octave; MATLAB untested) |
-| Rust | [`rust/`](rust/README.md) | `cargo install --path rust` |
-| Julia | [`julia/`](julia/README.md) | `using Pkg; Pkg.develop(path="/path/to/wfdb-x/julia")` |
-| R | [`r/`](r/README.md) | `R CMD INSTALL r` |
-| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `implementation("io.github.alphanumericslab:wfdbx:1.0.0")` (Gradle), or `cd kotlin && ./gradlew publishToMavenLocal` |
+| Language | Directory and README | Install (from a copy of this repository) | Run a tool |
+|---|---|---|---|
+| Python | [`python/`](python/README.md) | `pip install wfdb-x` (PyPI), or `pip install ./python` | `wfdbx rdsamp -r 100s` |
+| C++ | [`cpp/`](cpp/README.md) | `cmake -S cpp -B cpp/build && cmake --build cpp/build` | `rdsamp -r 100s` |
+| MATLAB / GNU Octave | [`matlab/`](matlab/README.md) | `addpath('/path/to/wfdb-x/matlab')` (tested with GNU Octave; MATLAB untested) | `wfdbx rdsamp -r 100s` |
+| Rust | [`rust/`](rust/README.md) | `cargo install --path rust` | `rdsamp -r 100s` |
+| Julia | [`julia/`](julia/README.md) | `using Pkg; Pkg.develop(path="/path/to/wfdb-x/julia")` | `wfdbx rdsamp -r 100s` |
+| R | [`r/`](r/README.md) | `R CMD INSTALL r` | `wfdbx rdsamp -r 100s` |
+| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.1.0")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
 
-The Python package is distributed on PyPI as `wfdb-x`, with example
+In Julia, R and MATLAB/Octave, `wfdbx` is a short alias for the language's
+own launcher of the tools; each README shows how to set it up. The Python
+package is distributed on PyPI as `wfdb-x`, with example
 notebooks and a sample record (`wfdbx --examples` copies the notebooks). In
 code, the packages are named
 `wfdbx` (Python, MATLAB, Rust, R, Kotlin, and the C++ namespace) or
 `WFDBX` (Julia).
+
+## Three ways to use WFDB-x
+
+Every language offers the same three ways in. They are written natively in
+the language, and none of them calls the C library or another language.
+
+| | What it is | Use it for |
+|---|---|---|
+| **1. The high-level API** (recommended) | A few functions in the idiom of the language: `read_record`, `read_header`, `read_annotations`, `write_record`, `write_annotations` and `check_record` (`readRecord`, ... in Kotlin). One call reads a whole record or annotation file into arrays (NumPy, `Vector`, `matrix`, ...), with named options, errors reported as exceptions or error values, and fast block reads. | New code, analysis, notebooks, machine learning: anything that wants a record as arrays. It has no counterpart in the C package. |
+| **2. The WFDB library functions** | The C library API under its C names (`isigopen`, `getvec`, `getann`, `putann`, `strtim`, ...), with the C behavior, frame by frame and annotation by annotation. | Porting a program written against the C library, or processing a record as a stream with the exact C semantics. |
+| **3. The command-line tools** | The 33 tools (`rdsamp`, `rdann`, `wrsamp`, `xform`, ...) with the options, output, messages and exit status of the C tools, implemented in each language. | Shell scripts and pipelines, and reproducing work done with the original tools, without installing the C package. |
+
+The high-level API is built on the library functions, and returns exactly
+the samples and annotations that they (and the C library) give. The tools
+are built on the library functions too. Each language's README shows all
+three; see the table under [Implementations](#implementations) for how each
+language runs the tools.
+
+## Performance
+
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) compares the speed and memory use
+of the seven implementations (and of wfdb-python and the original C tools)
+on the same records and the same machine, and explains how to get the most
+speed from WFDB-x in application code. In short, C++, Rust and Julia are the
+fastest (an hour of a two-signal ECG is read in 7 to 10 ms); Kotlin is 1.1
+to 2.5 times slower than C++; Python reads records about as fast as
+wfdb-python, and writes them 8 times faster; R and MATLAB/Octave take 0.07
+to 0.12 s for that hour, fast enough for most records. Version 1.1.0 is up
+to 5.6 times faster than 1.0.0, with identical results.
 
 ## Command-line tools
 
@@ -175,6 +213,10 @@ of `psd/` are outside the scope of this project.
   function, with its status in each language
 * [`docs/conformance.md`](docs/conformance.md): the conformance suite, and
   how to run it for any implementation
+* [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md): speed and memory use in each
+  language, and how to read records fastest
+* [`docs/RELEASING.md`](docs/RELEASING.md): how to release the Python
+  package on PyPI (accounts, API tokens, TestPyPI, PyPI)
 * [`docs/KNOWN_C_BEHAVIORS.md`](docs/KNOWN_C_BEHAVIORS.md): reproduced C
   behaviors, and the handling of undefined ones
 * [`docs/porting-guide.md`](docs/porting-guide.md): architecture, and the C
@@ -212,8 +254,8 @@ issues.
 ## Versions
 
 WFDB-x has its own version numbers, shared by the seven implementations and
-following [semantic versioning](https://semver.org): 1.0.0 is the first
-release. They are independent of the version of the WFDB Software Package
+following [semantic versioning](https://semver.org); the current version is
+1.1.0. They are independent of the version of the WFDB Software Package
 that WFDB-x implements, 10.7.0, which the library still reports as in C
 (`wfdbversion()` returns `"10.7.0"`, and `wfdberror()` names it).
 

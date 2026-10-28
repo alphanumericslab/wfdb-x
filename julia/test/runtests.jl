@@ -709,6 +709,12 @@ end
     @test all(t -> W.tool_function(t) isa Function, W.tools())
     @test W.tool_function("nosuch") === nothing
     @test W.tool_function("_run") === nothing
+    # The driver's --version.
+    driver = joinpath(dirname(@__DIR__), "bin", "wfdbx.jl")
+    out = read(`$(Base.julia_cmd()) --startup-file=no --project=$(dirname(@__DIR__)) $driver --version`,
+               String)
+    @test out == "WFDB-x $(pkgversion(W))\n"
+    @test occursin(r"^WFDB-x \d+\.\d+\.\d+\n$", out)
 end
 
 include("signals.jl")

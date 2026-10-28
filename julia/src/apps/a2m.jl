@@ -39,7 +39,7 @@
 # header); annotation times given in milliseconds (AHA file types 1 to 3) are
 # converted at the record's sampling frequency (the original assumed 4 ms per
 # sample); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: convert/a2m.c, WFDB Software Package 10.7.0.
@@ -72,7 +72,7 @@ const _A2M_HELP = (
     "                3 for compressed files from AHA DB CD-ROMs or diskettes",
     "                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)")
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _A2M_LEGACY_HELP = _help_without(_A2M_HELP, 5:6)
 
 const _A2M_CMP_SIZE = 6         # bytes per compressed (.ANO) annotation
@@ -109,12 +109,12 @@ end
 # A time in milliseconds in sample intervals at the sampling frequency in
 # use (C `(WFDB_Time)(t * sampfreq(NULL) / 1000.)`).
 _a2m_ms2samp(t::Int64) = unsafe_trunc(Int64, t * sampfreq(nothing) / 1000.0)
-# wfdb-x: legacy mode (original behavior): 4 msec/sample, whatever the
+# WFDB-x: legacy mode (original behavior): 4 msec/sample, whatever the
 # record's frequency.
 _a2m_ms2samp(t::Int64, legacy::Bool) = legacy ? t >> 2 : _a2m_ms2samp(t)
 
 function a2m_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -126,7 +126,7 @@ function a2m_main(args::Vector{String})
     ftype = Int32(-1)
     offset_arg = 0
     annot = Annotation()
-    ffreq = Ref{Float64}(0.0)       # wfdb-x: -F
+    ffreq = Ref{Float64}(0.0)       # WFDB-x: -F
 
     # Read and interpret command-line arguments.
     i = 1
@@ -220,7 +220,7 @@ function a2m_main(args::Vector{String})
     annopen(record, afarray, length(afarray)) < 0 && cexit(2)
 
     # Set the time shift.
-    # wfdb-x: if the record header does not give the sampling frequency, -F
+    # WFDB-x: if the record header does not give the sampling frequency, -F
     # must give it. (The C program assumed the rate of the AHA database,
     # 250 Hz, if a header without a frequency existed, and 1 sample per
     # second if there was no header, as legacy mode does.)
@@ -292,7 +292,7 @@ register_workload("a2m") do
         workload_tool("a2m", "-i", "1201.ANO", "-r", "1001", "-a", "x", "-s", "10", "-F", "250")
         workload_tool("a2m", "-i", "1201.ANO", "-F", "0")
         workload_tool("a2m", "-i", "1201.ANO", "-F", "500")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("a2m", "--legacy", "-i", "1201.ANO", "-r", "1001", "-a", "x", "-s", "10")
         workload_tool("a2m", "--legacy", "-i", "100s.aha", "-r", "100s", "-a", "cpy", "-t", "1")
         workload_tool("a2m", "--legacy", "-i", "1201.ANO", "-F", "500")

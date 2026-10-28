@@ -13,7 +13,7 @@
 # uncalibrated signals stay uncalibrated in the output header (the original
 # wrote 200 adu/mV), and unspecified units are written as "nd" (the original
 # wrote "mV"); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: convert/wfdb2mat.c, WFDB Software Package 10.7.0.
@@ -164,7 +164,7 @@ app_wfdb2mat <- function(args = character(0)) {
   nisig <- r$nsig
   si <- r$si
   if (nisig <= 0) cexit(2)
-  # wfdb-x: uncalibrated signals remain uncalibrated in the output (the C
+  # WFDB-x: uncalibrated signals remain uncalibrated in the output (the C
   # program assumed 200 adu/mV), and the output header needs the sampling
   # frequency (the C program assumed 250 Hz).  Legacy mode: as in the C
   # program.
@@ -292,7 +292,7 @@ app_wfdb2mat <- function(args = character(0)) {
     o$adczero <- 0
     o$baseline <- o$baseline - adczero[k]
     if (is.null(o$units)) {
-      o$units <- if (legacy) "mV" else "nd"   # wfdb-x: not assumed to be mV (but in legacy mode)
+      o$units <- if (legacy) "mV" else "nd"   # WFDB-x: not assumed to be mV (but in legacy mode)
     } else if (!nzchar(o$units)) {
       o$units <- "nd"
     }

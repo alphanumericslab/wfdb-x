@@ -23,7 +23,7 @@ function stat = setifreq(f)
 %
 % Changes from the original: it fails, with its own message, when the
 % sampling frequency of the open record is not specified. Each change is
-% marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
@@ -39,7 +39,7 @@ S = wfdbx.internal.sig_state();
 g = S.sfreq;
 if g <= 0
     S.ifreq = 0;
-    if S.nisig > 0 && ~S.legacy_mode    % wfdb-x: the frequency is unspecified
+    if S.nisig > 0 && ~S.legacy_mode    % WFDB-x: the frequency is unspecified
         wfdbx.internal.wfdb_error( ...
             'setifreq: sampling frequency is not specified\n');
     else

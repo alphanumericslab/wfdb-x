@@ -59,23 +59,23 @@ version. See LICENSE.
 """
 
 # Developer notes (moved from the module docstring).
-# wfdb-x: no built-in sampling frequency, gain, ADC resolution or units.
+# WFDB-x: no built-in sampling frequency, gain, ADC resolution or units.
 # Values that the record or the user does not give are never assumed (the
 # original package assumed 250 Hz, 200 adu/mV, 12 bits and millivolts),
 # because a silently assumed value corrupts every result derived from it. See
 # docs/DIVERGENCES.md. The original behavior remains available with --legacy.
-# wfdb-x: files are found by explicit names (the input directory, the output
+# WFDB-x: files are found by explicit names (the input directory, the output
 # directory, or a full path or URL), not by a search of the WFDB path, and
 # PhysioNet (or any server) is accessed only if asked for (network=True): a
 # search can silently open the wrong file, fails in ways nobody notices, and
 # sent local paths and record names to physionet.org. The original behavior
 # remains available with --legacy.
-# wfdb-x: the writers take a dir argument (the files are created in that
+# WFDB-x: the writers take a dir argument (the files are created in that
 # directory, and the record opens from there under its plain name), and
 # write_record encodes the samples of the common formats with NumPy, byte for
 # byte as putvec (calling putvec once per frame was 10-30 times slower than
 # reading).
-# wfdb-x: a checksum error (getvec status -4: the samples are complete, their
+# WFDB-x: a checksum error (getvec status -4: the samples are complete, their
 # sum does not match the header's checksums) is not an error of read_record
 # but a RuntimeWarning (checksum_warning=False: none); the data are returned.
 # Legacy mode (legacy=True): the library's legacy mode (wfdbx_set_legacy)
@@ -101,7 +101,7 @@ __all__ = ["Record", "Header", "Annotations", "read_record",
 
 _CHUNK_SAMPLES = 1 << 21    # samples (frames x signals) read per chunk
 _MAXAUX = 255           # maximum length of an aux string (one length byte)
-# wfdb-x: legacy mode only: the ADC resolution (bits) that write_record
+# WFDB-x: legacy mode only: the ADC resolution (bits) that write_record
 # wrote when adcres was not given (the sample width of the format, or 16).
 _LEGACY_DEFRES = {80: 8, 508: 8, 212: 12, 310: 10, 311: 10, 24: 24, 524: 24,
                   32: 32}
@@ -314,7 +314,7 @@ _SPACE = " \t\n\v\f\r"      # white space (C isspace)
 
 def _strip_desc(si):
     """The Siginfo objects si with the white space at both ends of each
-    description removed.  wfdb-x: the high-level readers give the signal
+    description removed.  WFDB-x: the high-level readers give the signal
     names without the spaces that some headers end them with (C keeps
     them, as the C-style functions do)."""
     for s in si:
@@ -325,7 +325,7 @@ def _strip_desc(si):
 
 def _check_time_freq(record, *times):
     """Raise ValueError if the sampling frequency is not specified and one
-    of the time strings needs it (wfdb-x: no default sampling frequency;
+    of the time strings needs it (WFDB-x: no default sampling frequency;
     C assumed 250 Hz).  Closes the record first.  Legacy mode: no check."""
     if _legacy() or sig.sampfreq(None) > 0.0:
         return
@@ -387,7 +387,7 @@ def read_header(record, *, input_dir=None, network=None, legacy=False):
     Raises:
       IOError    if the header cannot be found or read
 
-    Example (100s is the sample record included with wfdb-x: the first
+    Example (100s is the sample record included with WFDB-x: the first
     minute of record 100 of the MIT-BIH Arrhythmia Database, in the
     directory wfdbx.sample_data_dir())::
 
@@ -479,7 +479,7 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
       RuntimeWarning  "checksum error in record REC: the signal data do not
                   match the checksums in its header" (see checksum_warning)
 
-    Example (100s is the sample record included with wfdb-x: the first
+    Example (100s is the sample record included with WFDB-x: the first
     minute of record 100 of the MIT-BIH Arrhythmia Database, in the
     directory wfdbx.sample_data_dir())::
 
@@ -527,7 +527,7 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                 raise ValueError("record %s has no signal %r" % (record, c))
             cols.append(k)
     if physical and not _legacy():
-        # wfdb-x: no default gain (C, legacy mode: 200 adu/mV)
+        # WFDB-x: no default gain (C, legacy mode: 200 adu/mV)
         for k in cols:
             if si[k].gain == 0.0:
                 init.wfdbquit()
@@ -580,7 +580,7 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                     bigger[nread] = probe[0]
                     data = bigger
             nread += m
-            # wfdb-x: -4, a checksum error: the samples are valid, only
+            # WFDB-x: -4, a checksum error: the samples are valid, only
             # their sum does not match the header: a warning (see below),
             # not an error. In high-resolution mode getvec returns -4 for
             # each sample vector of the last frame, so reading continues
@@ -589,7 +589,7 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                 cksum_error = True
                 continue
             if m < n:
-                # wfdb-x: a status below -1 (e.g. -3, unexpected EOF: the
+                # WFDB-x: a status below -1 (e.g. -3, unexpected EOF: the
                 # signal file is shorter than its header says, or a decoder
                 # or I/O error) is an error, not the end of the data (-1)
                 if stat < -1:
@@ -613,8 +613,12 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
         g = np.array([s.gain if s.gain != 0 or not _legacy() else
                       sig.WFDB_DEFGAIN for s in sel])
         b = np.array([float(s.baseline) for s in sel])
-        out = (data.astype(np.float64) - b) / g
-        out[data == sig.WFDB_INVALID_SAMPLE] = np.nan
+        # (in place: (data - b) / g without temporary arrays)
+        out = np.subtract(data, b, dtype=np.float64)
+        np.divide(out, g, out=out)
+        inv = data == sig.WFDB_INVALID_SAMPLE
+        if inv.any():
+            out[inv] = np.nan
         data = out
     rec = Record(name=record, fs=fs, signals=data, siginfo=sel,
                  names=[s.desc for s in sel], units=[s.units for s in sel],
@@ -661,7 +665,7 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
       ValueError  if fs is given and is not > 0, or if a time string needs
                   the sampling frequency and none is known
 
-    Example (100s is the sample record included with wfdb-x: the first
+    Example (100s is the sample record included with WFDB-x: the first
     minute of record 100 of the MIT-BIH Arrhythmia Database, in the
     directory wfdbx.sample_data_dir())::
 
@@ -676,7 +680,7 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
     if fs is not None and not fs > 0:
         raise ValueError("fs must be > 0")
     init.wfdbquit()
-    # wfdb-x: no default sampling frequency (C assumed 250 Hz if the record
+    # WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
     # had no header); the fs argument specifies one.
     sps = sig.sampfreq(record)
     if sps <= 0 and fs is not None:
@@ -707,7 +711,7 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
         ch.append(a.chan)
         nm.append(a.num)
         aux.append(a.aux_string())
-    # wfdb-x: a status other than 0 and -1 (e.g. -3, unexpected EOF: the
+    # WFDB-x: a status other than 0 and -1 (e.g. -3, unexpected EOF: the
     # file is truncated) is an error, not the end of the file
     if stat not in (0, -1):
         init.wfdbquit()
@@ -826,7 +830,7 @@ def write_record(record, signals, fs, fmt=16, gains=None,
             return list(v)
         return [v] * nsig
 
-    # wfdb-x: the gains, the ADC resolutions, the units of calibrated
+    # WFDB-x: the gains, the ADC resolutions, the units of calibrated
     # signals and the sampling frequency must be specified (no defaults; C
     # assumed 200 adu/mV, a resolution based on the format, millivolts and
     # 250 Hz, as legacy mode does).

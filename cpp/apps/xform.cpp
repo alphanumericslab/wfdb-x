@@ -18,7 +18,7 @@
 // adu/mV, a resolution based on the format, and millivolts); when an output
 // signal file would be one of the input files, the message says so; --legacy,
 // as the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/xform.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2010 George B. Moody; revised 2017-2020 by
@@ -80,7 +80,7 @@ static char *script_fgets(char *buffer, size_t length, std::FILE *f)
     return (buffer);
 }
 
-// wfdb-x: legacy mode (original behavior).  The ADC resolution the C program
+// WFDB-x: legacy mode (original behavior).  The ADC resolution the C program
 // offered for an output signal in format fmt, given the resolution res of
 // the input (or previous output) signal.
 static int legacy_output_adcres(int fmt, int res)
@@ -107,7 +107,7 @@ static int legacy_output_adcres(int fmt, int res)
     }
 }
 
-// wfdb-x: legacy mode (original behavior).  The C program's guess of an
+// WFDB-x: legacy mode (original behavior).  The C program's guess of an
 // unspecified input ADC resolution, from the format.
 static int legacy_input_adcres(int fmt)
 {
@@ -138,7 +138,7 @@ static int legacy_input_adcres(int fmt)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -373,7 +373,7 @@ int main(int argc, char **argv)
     else if (Hflag)
         setgvmode(WFDB_HIGHRES);
     ifreq = sampfreq(nullptr);
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the input header did not specify one, as legacy mode does).
     if (ifreq <= 0. && !wfdbx_get_legacy()) {
         std::fprintf(stderr,
@@ -402,7 +402,7 @@ int main(int argc, char **argv)
 
         // Determine the output sampling frequency.
         if (orec) ofreq = sampfreq(orec);
-        // wfdb-x: no default sampling frequency (except in legacy mode)
+        // WFDB-x: no default sampling frequency (except in legacy mode)
         if (ofreq == 0. && !wfdbx_get_legacy()) {
             std::fprintf(stderr,
                          "%s: sampling frequency of record %s is not "
@@ -473,8 +473,8 @@ int main(int argc, char **argv)
             (void)std::sscanf(answer, "%lf", &ofreq);
         } while (ofreq < 0);
         if (ofreq == 0 && wfdbx_get_legacy())
-            ofreq = WFDB_DEFFREQ;   // wfdb-x: as in the C program
-        else if (ofreq == 0) {  // wfdb-x: the C program assumed 250 Hz
+            ofreq = WFDB_DEFFREQ;   // WFDB-x: as in the C program
+        else if (ofreq == 0) {  // WFDB-x: the C program assumed 250 Hz
             std::fprintf(stderr,
                          "%s: the output sampling frequency must be > 0\n",
                          pname);
@@ -574,10 +574,10 @@ int main(int argc, char **argv)
             std::fprintf(stderr, " Signal %d gain (adu/%s) [%g]: ",
                          i, dfout[i].units ? dfout[i].units->c_str()
                          : wfdbx_get_legacy() ? "mV" : "nd",
-                         dfout[i].gain);   // wfdb-x: C showed "mV"
+                         dfout[i].gain);   // WFDB-x: C showed "mV"
             script_fgets(answer, sizeof(answer), ttyin);
             std::sscanf(answer, "%lf", &dfout[i].gain);
-            // wfdb-x: a resolution is offered only if it comes from the input
+            // WFDB-x: a resolution is offered only if it comes from the input
             // (or the previous output signal) and suits the output format;
             // the C program otherwise offered one based on the format (12 bits
             // for 16-bit formats).  Without one, the user must give it.
@@ -743,7 +743,7 @@ int main(int argc, char **argv)
     wfdbquiet();
     if (orec && (osigopen(orec, dfout.data(), static_cast<unsigned>(nosig))
                  != nosig)) {
-        // wfdb-x: say why if an output file is one of the input files (the
+        // WFDB-x: say why if an output file is one of the input files (the
         // library's message, quieted above, is the last error)
         std::string e = wfdberror();
         const std::string head = "osigopen: output file ",
@@ -809,14 +809,14 @@ int main(int argc, char **argv)
         //     the appropriate number of bits will be dropped from or added
         //     to each signal.
         // 2.  If the output gain has been specified, the signal is scaled by
-        //     the ratio of the output and input gains.  (wfdb-x: if the input
+        //     the ratio of the output and input gains.  (WFDB-x: if the input
         //     signal is uncalibrated, this is an error; the C program assumed
         //     an input gain of WFDB_DEFGAIN.)
         // These rules differ from those used by earlier versions of xform,
         // although the default behavior remains the same in most cases.
 
         if (dfout[i].gain == 0.) {      // output gain not specified
-            // wfdb-x: rescaling by ADC resolution needs both resolutions (the
+            // WFDB-x: rescaling by ADC resolution needs both resolutions (the
             // C program guessed an unspecified input resolution from the
             // format, assuming WFDB_DEFRES for 16-bit formats, as legacy
             // mode does).
@@ -837,7 +837,7 @@ int main(int argc, char **argv)
                       (double)(1LL << dfin[j].adcres);
         } else if (dfin[j].gain == 0.) {    // output gain specified, but
                                             // input gain not specified
-            if (wfdbx_get_legacy())     // wfdb-x: as in the C program
+            if (wfdbx_get_legacy())     // WFDB-x: as in the C program
                 gain[i] = dfout[i].gain / WFDB_DEFGAIN;
             else {
                 std::fprintf(stderr,

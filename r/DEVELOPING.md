@@ -13,7 +13,8 @@ identically (the conformance suite checks this).
 
 * R 4.1 or later, **base R only** (no package dependencies; `utils`,
   `stats`, `tools` are part of base R and may be used if useful).
-* Linux, macOS, Windows.
+* Linux and macOS; on Windows the tools lose NUL bytes in their output (see
+  the README, Notes).
 
 ## Layout
 
@@ -40,7 +41,9 @@ the sourced and byte-compiled functions (`saveRDS` of the environment, in
 `R/*.R`; `WFDBX_NO_CACHE=1` disables it; `~` is the home directory of the
 user from the password database, not `$HOME`, which the conformance
 harness sets to a directory of its own for each case; `$XDG_CACHE_HOME`
-replaces `~/.cache` if set). Consequences for the sources:
+replaces `~/.cache` if set). The benchmark driver `benchmarks/r/bench.R`
+loads the sources in the same way, with the same cache: keep the two in
+step. Consequences for the sources:
 
 * **Top-level code must not depend on the environment** (environment
   variables, current directory, time, files): it runs once when the cache
@@ -58,12 +61,11 @@ replaces `~/.cache` if set). Consequences for the sources:
 
 The driver sets `LC_CTYPE` and `LC_COLLATE` to `C` (byte semantics for
 strings, C sort order), sets `options(warn = -1)` (an R warning on the
-standard error output would break the conformance tests), and quits with
-the tool's status. Startup (foundation only, idle machine): about 0.18 s
-per tool invocation with the cache, about the time of `Rscript -e 0`
-itself (0.17 s); 0.23 s without the cache. Sourcing grows with the code,
-the cache does not much. Tool functions are named `app_<tool>`; `app_run`
-is the runner, not a tool.
+standard error output would break the conformance tests), and quits with the
+tool's status. The cache shortens the start-up of every tool run
+([`docs/BENCHMARKS.md`](../docs/BENCHMARKS.md) gives the start-up time of
+the tools). Tool functions are named `app_<tool>`; `app_run` is the runner,
+not a tool.
 
 ## File headers and help pages
 
@@ -175,7 +177,7 @@ standard error through `cerr(x)` (unbuffered). `cprintf(fmt, ...)` and
 (R's `stdout()` connection is text-only); tools never call `cat`, `print`
 or `message`.
 
-Write errors (wfdb-x: `wfdbx_write_errors`, and the exit status of the
+Write errors (WFDB-x: `wfdbx_write_errors`, and the exit status of the
 tools) need care in R: `writeBin` reports a failed write only as a warning,
 and only when the data do not fit in the connection's stdio buffer, and
 `flush()` and `seek()` ignore a failure to write the buffer; only `close()`
@@ -197,7 +199,24 @@ files are read with `readBin` into raw buffers and decoded with vector
 operations (`getframes(n)`, as in the Python and MATLAB ports, exactly
 equivalent to `n` calls of `getvec`); output of large tables (`rdsamp`)
 is formatted with vectorized `sprintf`/`csprintf_v`; annotation files are
-decoded in bulk.
+decoded in bulk.  `rdsamp` formats each block of samples through tables:
+each sample column through a table of the formatted values over its range
+(`.rdsamp_formatter`, kept between blocks), sample numbers as their
+thousands and last three digits (`.rdsamp_samplenum`), times in seconds
+as integer part and decimals (`.rdsamp_fixedpoint`; a block with a time
+near a tie of the rounding is formatted by `csprintf_v`), time strings
+through the tables of `.fmstimstr_v0`; the lines of a block are assembled
+as one raw matrix (one column per line, shorter strings padded with NUL
+bytes, which are then removed) and written at once (`.rdsamp_put`).
+
+On large vectors, the cost is mostly that of the memory allocated and
+written (a fresh vector costs about as much as a pass over it), and every
+subset of a matrix (`m[1L, ]`, `m[, j]`) or vector (`x[a:b]`) also
+allocates an integer index of its length: the block paths keep samples as
+integers until the result is assembled (one conversion to double, by
+`rbind` when there are several blocks), avoid copies (`dim<-` instead of
+`matrix()`, `as.vector` only of unshared objects, no `c()` of a single
+part), and transpose with `t()` (no index) rather than extract rows.
 
 Orders of magnitude (R 4.3, byte-compiled): a simple statement or builtin
 call 0.1-0.5 us, a closure call about 1 us, `csprintf` 6-10 us (fast path;
@@ -210,7 +229,7 @@ Idioms that matter:
 
 * **No class attribute on environments used on hot paths**: `$` on an
   object with a class is dispatched (S3), which makes every field access
-  several times slower (`wf_getc` went from 5 us to 1 us without it).
+  several times slower.
 * **Modifying a vector held in an environment copies it** (`e$v[i] <- x`
   costs O(length)). Unbind it while modifying:
   `v <- e$v; e$v <- NULL; v[i] <- x; e$v <- v` (O(1)), or keep it in a
@@ -290,32 +309,31 @@ from `/proc/self/fd/0`), not if it is a pipe (or `WFDBX_STDIN`).  Writes to
 the standard output (`"-"` for writing) go to `cout`.
 
 `wfdbio.R` — state `.wfdb_io` (`wfdbpath`, `path_prefix`, `path_type`,
-`error_print`, `error_flag`, `error_message` (raw), `wfdb_filename`,
-`irec`, `stdin_file`, `stdout_file`, `driver`, and (WFDB-x) the settings
+`error_print`, `error_flag`, `error_message` (raw), `wfdb_filename`, `irec`,
+`stdin_file`, `stdout_file`, `driver`, and (WFDB-x) the settings
 `input_dir`, `output_dir`, `network` with their environment values and
 flags, `fetched` (the cache of remote files, by URL); `wfdbio_reset()`):
-`wfdb_error(fmt, ...)`, `wfdb_open(s, record, mode)`,
-`wfdb_fopen(fname, mode)` (`"rb"`, `"wb"`, `"ab"`), `wfdb_parse_path(p)`,
-`wfdb_addtopath(s)`, `getiwfdb(p)`, `wfdb_checkname(p, what)`,
-`wfdb_setirec(p)`, `wfdb_getirec()`, `wfdb_striphea(p)`,
-`.is_absolute_path(s)`, `.is_url(s)`, `.expand_home(name)`,
-`.resolve(name, output)` (the one location of a name, normal mode),
-`.open_at(p, s)` (both spellings of a name at one location),
+`wfdb_error(fmt, ...)`, `wfdb_open(s, record, mode)`, `wfdb_fopen(fname,
+mode)` (`"rb"`, `"wb"`, `"ab"`), `wfdb_parse_path(p)`, `wfdb_addtopath(s)`,
+`getiwfdb(p)`, `wfdb_checkname(p, what)`, `wfdb_setirec(p)`,
+`wfdb_getirec()`, `wfdb_striphea(p)`, `.is_absolute_path(s)`, `.is_url(s)`,
+`.expand_home(name)`, `.resolve(name, output)` (the one location of a name,
+normal mode), `.open_at(p, s)` (both spellings of a name at one location),
 `.open_in(dir, s, name, record)` (a file named in a header, with the
-containment check), `.in_header_dir(name)`, `.dirname(name)`,
-`.fetch(url)`, `.fetch_open(url)`, `tool_command(tool)`, `shell_quote(s)`;
-constants
-`WFDB_LOCAL`, `WFDB_NET`, `WFDB_READ`, ..., `WFDB_APPEND`, `DEFWFDB`, `DEFWFDBCAL`,
-`WFDB_MAXRNL`, `WFDB_VERSION`. Public: `getwfdb`, `setwfdb`, `resetwfdb`,
-`wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdbfile`, `wfdbmemerr`,
-`wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
+containment check), `.in_header_dir(name)`, `.dirname(name)`, `.fetch(url)`,
+`.fetch_open(url)`, `tool_command(tool)`, `shell_quote(s)`; constants
+`WFDB_LOCAL`, `WFDB_NET`, `WFDB_READ`, ..., `WFDB_APPEND`, `DEFWFDB`,
+`DEFWFDBCAL`, `WFDB_MAXRNL`, `WFDB_VERSION`. Public: `getwfdb`, `setwfdb`,
+`resetwfdb`, `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdbfile`,
+`wfdbmemerr`, `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
 `wfdbdefwfdbcal`, `wfdbx_set_input_dir`, `wfdbx_get_input_dir`,
 `wfdbx_set_output_dir`, `wfdbx_get_output_dir`, `wfdbx_set_network`,
-`wfdbx_get_network`, `wfdbx_write_errors`, `wfdbx_note_write_error`.  The resolution rules and the settings are those of
-the C reference and the Python port (docs/DIVERGENCES.md); `signal.R`
-opens headers with `.open_header` (noting `hdr_dir`, the directory of the
-header, and `msrec_dir`/`msrec_name` for the segments of a multi-segment
-record) and signal files with `.open_in(hdr_dir, ...)`.
+`wfdbx_get_network`, `wfdbx_write_errors`, `wfdbx_note_write_error`.  The
+resolution rules and the settings are those of the C reference and the
+Python port (docs/DIVERGENCES.md); `signal.R` opens headers with
+`.open_header` (noting `hdr_dir`, the directory of the header, and
+`msrec_dir`/`msrec_name` for the segments of a multi-segment record) and
+signal files with `.open_in(hdr_dir, ...)`.
 
 `ecgcodes.R` — the code constants (`NORMAL`, ..., `ACMAX`, `APUNDEF`, ...;
 `ecgcodes()` returns them as a list); the vectorized mapping functions
@@ -379,20 +397,41 @@ Public API conventions (beyond the C names):
   vector of the `getvec` call that fails).  FLAC samples are taken only
   once the number of frames available in every group is known, so that
   none is lost when another group is shorter.  The layout of the open
-  signals (groups, formats, sample masks) is computed once per `isigopen`
+  signals (groups, formats) is computed once per `isigopen`
   (`.bulk_layout`, cached in `.sig$bulk_layout`), which keeps the fixed
   cost of a call small (tools such as `sigamp` make many small reads).
+  `.decode_frames(fmt, data, n, ng)` decodes the frames of a group as an
+  integer matrix (one row per frame; formats 8 and 32: double): readBin of
+  16-bit words for formats 16, 61, 160, of bytes for 80, of 32-bit words
+  rebuilt from the bytes for 24; format 212 as 16-bit words made from the
+  bytes of each pair of samples (a low byte, and the high nibble with its
+  sign extended through a byte table); 310 and 311 with integer bit
+  operations on 16-bit words.  When a frame is one packing unit (212 with
+  2 samples per frame, 310 and 311 with 3), the units are decoded directly
+  as the rows of the matrix.  A group without invalid samples (and not in
+  format 8) needs no further work: its checksums and last samples are
+  column sums and the last row, and with one group of single-frequency
+  signals its matrix is the block.  `.bulk_frames(n, int = TRUE)` (used by
+  `getframes`) may return an integer matrix; `getframes` converts once.
+  Low resolution averages the samples of each frame with `.meansamp_rows`.
 * `.getframes_full(n)` (internal) is `n` calls of `getframe` (complete
   frames, `tspf` columns; `.bulk_frames(n, full = TRUE)`), used by
   `mit2edf` and `rdedfann`.
 * `putframes(m)` = `putvec` on each row of `m`, vectorized (format 8 slew
-  clipping and the packing state of bit-packed formats included).
+  clipping and the packing state of bit-packed formats included): the
+  columns of each group's signals are encoded together (the transpose of
+  those columns is the samples in file order; 16-bit words in range are
+  written from integers directly), and whole blocks of bytes go to the
+  file without copies.
 * `.setheader()` also returns the caller's `siarray` as C leaves it (C's
   `setheader` cuts `units` and `desc` at their first token).
 * `sample()` is exported as `wfdb_sample()` (so as not to mask
   `base::sample`); the internal name is `sample`.
 * `.fmstimstr_v(t, f)` and `.ftimstr_v(t, f)` are vectorized `mstimstr` and
-  `timstr` (used by `rdsamp`, `sigamp`, `rdann` and `ann2rr`).
+  `timstr` (used by `rdsamp`, `sigamp`, `rdann` and `ann2rr`); the fields
+  are formatted through tables of their distinct values (`.cfmt_tab`), and
+  `.fmstimstr_v0(t, f, pieces = TRUE)` gives the strings as those tables
+  (for `rdsamp`).
 
 Used by the annotation module: `sampfreq(NULL)`, `getspf()`, `getifreq()`,
 `strtim()`, `timstr()`, `mstimstr()`, `setsampfreq()`, `wfdbquit()`. The
@@ -451,19 +490,19 @@ annotation), `ann`, `ann_tt`, `pann` (pushback), `buf`, `index`,
 * Out-of-order output files are sorted when closed (WFDB-x) in the same
   process by `.ann_sort_file(fname, aname)`: it reads the very file just
   written (`oa$fname`, the name `wfdb_open` created, including any output
-  directory) into a private input annotator (`.ann_new_ia`; the
-  definitions go to a private table with the default mnemonics,
-  `.ann_read_table(ia, defs)`), orders the annotations with
-  `.ann_sort_order` (the `insert_ann` list of `sortann.c`, shared with the
-  `sortann` tool; wfdb-x: its head is never compared with an annotation,
-  so that an out-of-order time-0 annotation is not lost, unless `legacy =
-  TRUE`, which the tool passes in legacy mode), and rewrites the file with a private output annotator
-  (`.ann_new_oa`, `.ann_put_table(oa, n, freq, defs)`,
-  `.putann_bulk(..., oa = )`), byte for byte as `sortann` does; the
-  library's annotators and tables are not touched.  In legacy mode,
-  `.ann_run_sortann` runs `tool_command("sortann") --legacy -r. RECORD -a
-  ANNOTATOR` with `system()`, as the C library does (prefixed with
-  `cd 'OUTDIR' &&` when an output directory is set).
+  directory) into a private input annotator (`.ann_new_ia`; the definitions
+  go to a private table with the default mnemonics, `.ann_read_table(ia,
+  defs)`), orders the annotations with `.ann_sort_order` (the `insert_ann`
+  list of `sortann.c`, shared with the `sortann` tool; WFDB-x: its head is
+  never compared with an annotation, so that an out-of-order time-0
+  annotation is not lost, unless `legacy = TRUE`, which the tool passes in
+  legacy mode), and rewrites the file with a private output annotator
+  (`.ann_new_oa`, `.ann_put_table(oa, n, freq, defs)`, `.putann_bulk(..., oa
+  = )`), byte for byte as `sortann` does; the library's annotators and
+  tables are not touched.  In legacy mode, `.ann_run_sortann` runs
+  `tool_command("sortann") --legacy -r. RECORD -a ANNOTATOR` with
+  `system()`, as the C library does (prefixed with `cd 'OUTDIR' &&` when an
+  output directory is set).
 * `calib.R`: the calibration list (`calopen`, `getcal` returning
   `list(stat, cal)`, `putcal`, `newcal`, `flushcal`).
 * `highlevel_annot.R`: `read_annotations` (a data frame with attributes
@@ -472,24 +511,16 @@ annotation), `ann`, `ann_tt`, `pann` (pushback), `buf`, `index`,
   the `wfdbquit()` that closes the annotators opened before it;
   `oannclose` uses it instead of `WFDBANNSORT` when it is not `NULL`).
 
-Timings (R 4.3, a file of 400,000 annotations of which 57,000 have aux
-strings, `Rscript` command line including startup): `rdann` 4.4 s (17.8 MB
-of output; the C tool 0.2 s, Python 2.1 s), `ann2rr` 1.2 s, `ann2rr -i s
--V T -v` 5.7 s, `sortann` 2.8 s, `wrann` 3.3 s (Python 7.0 s), `rr2ann`
-1.0 s; in a session `read_annotations` 2.5 s and `write_annotations`
-1.3 s.  The emulation of the aux ring buffer (one R call per aux string)
-is about a quarter of the reading time of such a file.
-
 ## FLAC signal groups (`flac.R`)
 
 `flac.R` is a FLAC decoder and encoder in R (no libFLAC): the decoder
 handles all of FLAC (Rice codes decoded with vector operations, LPC
 restoration one sample at a time); the encoder writes exactly the bytes of
 the Python encoder (fixed predictors, Rice partitions; MD5 signature in
-STREAMINFO, `md5_raw` in R, or `tools::md5sum` for inputs of 4 KiB or
-more).  `flac_decode(raw)` decodes a whole stream.  The signal module uses it through these functions (same
-arguments as in the Python and MATLAB ports), on its input and output
-group environments:
+STREAMINFO, `md5_raw` in R, or `tools::md5sum` for inputs of 4 KiB or more).
+`flac_decode(raw)` decodes a whole stream.  The signal module uses it
+through these functions (same arguments as in the Python and MATLAB ports),
+on its input and output group environments:
 
 | Function | Contract |
 |---|---|
@@ -537,16 +568,6 @@ The README leaves out these details, which matter when changing the code.
   failures included.
 * **`write_annotations(sort = TRUE)` in legacy mode** runs the `sortann`
   tool, as the library's legacy sorting does.
-* **Timings** (R 4.3, `Rscript` command line including start-up): `rdsamp`
-  prints a 650,000-sample, 2-signal format 212 record in about 2 s, and
-  `rdann` 400,000 annotations in about 4.5 s. A `getframes` call has a
-  fixed cost of about 0.05 ms (`sigamp -w 0.01` makes 6,000 measurements
-  of a 1-minute record in about 1.7 s). `write_record` writes 216,000
-  frames of 2 signals in about 0.03-0.08 s, and `read_record` reads them
-  back in about 0.02-0.06 s.  Three segments of MIMIC record 039 (225,000
-  frames of 4 format 212 signals, one at 4 samples per frame) are read in
-  about 0.15 s (high resolution: 0.17 s), also with a variable layout
-  (0.19 s; frame by frame: 31 s).
 
 ## Testing
 
@@ -574,19 +595,26 @@ subnormals, overflow, hexadecimal floats, `inf`/`nan`, trailing garbage;
 values and end positions). The generator programs are not part of the
 repository; the unit tests keep representative cases.
 
-`test_annotations.R` ports the annotation, calibration and mnemonic
-tests of the Python implementation (C-derived values) and checks the
-vectorized paths against direct references: the MIT decoder against a
-port of `getann`'s word-by-word reading loop on random and truncated
-files, `.getann_bulk` against repeated `getann` (random block sizes,
-random files with aux strings: the ring buffer), `.putann_bulk` against
-repeated `putann`, `wrann`'s vectorized parser against its line-by-line
-parser.  `test_flac.R` decodes the FLAC records of `tests/data`
-(digests of the samples from the Python decoder), checks that the
-encoder's output is identical to the Python encoder's (sizes and MD5 of
-the streams for several signals, formats and frame sizes), MD5 (RFC 1321
-test suite) and the signal-group functions.  `test_bulk.R` compares `read_record`
-and `getframes` with the block path on and off (`.bulk_frames` replaced
-by a function returning NULL) on multi-frequency and multi-segment
-records and every record of `tests/data`.  The data-dependent tests are
-skipped when `tests/data` is not available (installed package).
+`test_annotations.R` ports the annotation, calibration and mnemonic tests of
+the Python implementation (C-derived values) and checks the vectorized paths
+against direct references: the MIT decoder against a port of `getann`'s
+word-by-word reading loop on random and truncated files, `.getann_bulk`
+against repeated `getann` (random block sizes, random files with aux
+strings: the ring buffer), `.putann_bulk` against repeated `putann`,
+`wrann`'s vectorized parser against its line-by-line parser.  `test_flac.R`
+decodes the FLAC records of `tests/data` (digests of the samples from the
+Python decoder), checks that the encoder's output is identical to the Python
+encoder's (sizes and MD5 of the streams for several signals, formats and
+frame sizes), MD5 (RFC 1321 test suite) and the signal-group functions.
+`test_bulk.R` compares `read_record` and `getframes` with the block path on
+and off (`.bulk_frames` replaced by a function returning NULL) on
+multi-frequency, single-frequency (1 to 4 signals in one group, every
+format, with and without invalid samples; two groups) and multi-segment
+records and every record of `tests/data`, the library state after
+`getframes` mixed with `getvec`, `.getframes_full`, and the physical units.
+`test_signals.R` compares `putframes` with `putvec` (all formats; several
+groups, several samples per frame, frames written in several calls).
+`test_rdsamp.R` compares `rdsamp`'s block formatting with direct
+`csprintf_v` formatting, and the time strings given as tables with those
+given as strings.  The data-dependent tests are skipped when `tests/data` is
+not available (installed package).

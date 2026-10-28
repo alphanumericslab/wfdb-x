@@ -28,7 +28,7 @@ use wfdbx::{ceprintf, cprintf, NULL};
 
 fn main() {
     let mut argv = cstd::args();
-    wfdbx::wfdbx_legacy_args(&mut argv); // wfdb-x: --legacy (original behavior)
+    wfdbx::wfdbx_legacy_args(&mut argv); // WFDB-x: --legacy (original behavior)
     let mut argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut status = 0;

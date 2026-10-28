@@ -22,7 +22,7 @@
 // wfdbx_set_network, wfdbx_get_network, wfdbx_write_errors and
 // wfdbx_note_write_error; legacy mode (wfdbx_set_legacy) restores the original
 // behavior (the WFDB path, without network access). Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
@@ -106,7 +106,7 @@ struct IOState {
     std::string filename;       // name of the file most recently opened
     std::string irec;           // current record name (for %r)
     int mem_behavior = 1;
-    // wfdb-x: the settings that locate files in normal mode (see
+    // WFDB-x: the settings that locate files in normal mode (see
     // wfdbx_set_input_dir, wfdbx_set_output_dir, wfdbx_set_network).  Each
     // is read from its environment variable when it is first needed.
     std::optional<std::string> input_dir, env_input_dir;
@@ -117,7 +117,7 @@ struct IOState {
     bool output_dir_init = false;
     int network = -1;           // -1 until first needed
     int env_network = 0;
-    // wfdb-x: the URLs fetched (contents, or nullopt for a failure)
+    // WFDB-x: the URLs fetched (contents, or nullopt for a failure)
     std::map<std::string, std::optional<std::string>> fetched;
     bool network_warned = false, curl_warned = false;
 };
@@ -190,7 +190,7 @@ bool is_directory(const char *name)
     return stat(name, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR;
 }
 
-// wfdb-x: true if s is an absolute local path: on POSIX systems, a path
+// WFDB-x: true if s is an absolute local path: on POSIX systems, a path
 // beginning with '/'; on MS-Windows, one beginning with 'X:\', 'X:/', '\\'
 // or '/'.
 bool is_absolute_path(const std::string &s)
@@ -205,13 +205,13 @@ bool is_absolute_path(const std::string &s)
     return !s.empty() && s[0] == '/';
 }
 
-// wfdb-x: true if s is an http:// or https:// URL.
+// WFDB-x: true if s is an http:// or https:// URL.
 bool is_url(const std::string &s)
 {
     return s.compare(0, 7, "http://") == 0 || s.compare(0, 8, "https://") == 0;
 }
 
-// wfdb-x: true if c is a directory separator ('/', and on MS-Windows '\').
+// WFDB-x: true if c is a directory separator ('/', and on MS-Windows '\').
 bool is_dsep(char c)
 {
 #if defined(_WIN32)
@@ -223,7 +223,7 @@ bool is_dsep(char c)
 // The next component of the path string s, from position q (after any
 // whitespace): its beginning is stored in start and its type (WFDB_LOCAL or
 // WFDB_NET) in type, and the position of its end (the character that follows
-// it) is returned.  (wfdb-x: used by wfdb_parse_path, and by setwfdb in
+// it) is returned.  (WFDB-x: used by wfdb_parse_path, and by setwfdb in
 // normal mode.)
 size_t path_component(const std::string &s, size_t q, size_t &start, int &type)
 {
@@ -260,7 +260,7 @@ void init_input_dir()
         st.wfdb_warned = true;
         const char *p = std::getenv("WFDB");
         if (p && *p)
-            wfdb_error("wfdb-x: the WFDB environment variable is ignored; set "
+            wfdb_error("WFDB-x: the WFDB environment variable is ignored; set "
                        "WFDBX_INPUT_DIR instead (or use legacy mode)\n");
     }
 }
@@ -306,7 +306,7 @@ void setwfdb_normal(const char *p)
         if (q < s.size()) q++;
     }
     if (n > 1) {
-        wfdb_error("setwfdb: wfdb-x reads from a single input directory; use "
+        wfdb_error("setwfdb: WFDB-x reads from a single input directory; use "
                    "wfdbx_set_input_dir (or legacy mode for the WFDB search "
                    "path)\n");
         return;
@@ -317,7 +317,7 @@ void setwfdb_normal(const char *p)
     st.setwfdb_called = true;
 }
 
-// wfdb-x: the name s, with a leading "~" or "~/" replaced by the home
+// WFDB-x: the name s, with a leading "~" or "~/" replaced by the home
 // directory ($HOME, or the home directory of the current user if HOME is not
 // set; on MS-Windows, %USERPROFILE%), and, on POSIX systems, "~user" by the
 // home directory of that user (if there is no such user, s is unchanged), as
@@ -348,7 +348,7 @@ std::string expand_home(const std::string &s)
     return r.empty() ? "/" : r;
 }
 
-// wfdb-x: dir + sep + name, with exactly one separator between them ('/' in
+// WFDB-x: dir + sep + name, with exactly one separator between them ('/' in
 // a URL, otherwise sep).
 std::string join(const std::string &dir, const std::string &name, char sep)
 {
@@ -358,7 +358,7 @@ std::string join(const std::string &dir, const std::string &name, char sep)
     return dir + sep + name;
 }
 
-// wfdb-x: the location of the file named name in normal mode: an absolute
+// WFDB-x: the location of the file named name in normal mode: an absolute
 // name or a URL as given, a ~ name expanded, and a relative name under the
 // input directory (for reading) or the output directory (for writing), if
 // one is set.
@@ -376,7 +376,7 @@ std::string resolve(const std::string &name, bool output)
     return join(expand_home(*dir), name, output ? DSEP : '/');
 }
 
-// wfdb-x: true if a file name found in a header names a file in the header's
+// WFDB-x: true if a file name found in a header names a file in the header's
 // directory or below it: a relative name that does not begin with '~' and
 // contains no ".." component (on MS-Windows, no drive letter either).
 bool in_header_dir(const std::string &name)
@@ -513,7 +513,7 @@ char *WFDBFile::fgets(char *s, int size)
 const std::string &wfdb_filename() { return io().filename; }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: remote files.  In normal mode, a URL (http:// or https://) is opened
+// WFDB-x: remote files.  In normal mode, a URL (http:// or https://) is opened
 // only if network access is allowed (see wfdbx_set_network).  It is then read
 // in full (no range requests) by the system program curl, run without a
 // shell as
@@ -642,7 +642,7 @@ FilePtr fetch_open(const std::string &url)
     if (!wfdbx_get_network()) {
         if (!st.network_warned) {
             st.network_warned = true;
-            wfdb_error("wfdb-x: network access is disabled; set "
+            wfdb_error("WFDB-x: network access is disabled; set "
                        "WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open "
                        "%s\n", url.c_str());
         }
@@ -654,7 +654,7 @@ FilePtr fetch_open(const std::string &url)
         int stat = run_curl(url, data);
         if (stat < 0 && !st.curl_warned) {
             st.curl_warned = true;
-            wfdb_error("wfdb-x: network access needs the curl program, which "
+            wfdb_error("WFDB-x: network access needs the curl program, which "
                        "was not found\n");
         }
         it = st.fetched.emplace(url, stat > 0 ? std::optional<std::string>(
@@ -684,7 +684,7 @@ FilePtr wfdb_fopen(const char *fname, const char *mode)
         // ".." or "://" are refused.
         if (std::strstr(fname, "..") || std::strstr(fname, "://"))
             return nullptr;
-    } else if (is_url(fname))   // wfdb-x: ".." is accepted; a URL is fetched
+    } else if (is_url(fname))   // WFDB-x: ".." is accepted; a URL is fetched
         return mode[0] == 'r' ? fetch_open(fname) : nullptr;
     if (mode[0] == 'r' && is_directory(fname)) return nullptr;
     bool out = mode[0] != 'r';
@@ -718,7 +718,7 @@ FilePtr std_stream(bool read)
 }
 
 // If the record name ends with '/', append the last component of the
-// directory name (e.g. "foo/bar/" becomes "foo/bar/bar").  (wfdb-x: this was
+// directory name (e.g. "foo/bar/" becomes "foo/bar/bar").  (WFDB-x: this was
 // part of wfdb_open.)
 std::string expand_record(const std::string &record)
 {
@@ -738,7 +738,7 @@ std::string expand_record(const std::string &record)
     return r;
 }
 
-// wfdb-x: open the file at location p (as resolved by resolve, or in the
+// WFDB-x: open the file at location p (as resolved by resolve, or in the
 // directory of a header) for reading, trying the two forms of the name (see
 // spr1 and spr2) there.
 FilePtr open_at(const std::string &p, const char *s)
@@ -769,24 +769,24 @@ FilePtr wfdb_open(const char *s, const char *record, int mode)
     }
     if (std::strcmp(record, "-") == 0) return std_stream(mode == WFDB_READ);
 
-    std::string r = expand_record(record);  // (wfdb-x: moved there)
+    std::string r = expand_record(record);  // (WFDB-x: moved there)
 
     if (mode == WFDB_WRITE || mode == WFDB_APPEND) {
         st.filename = spr1(r, s);
         init_output_dir();
         if (!wfdbx_get_legacy()) {
-            // wfdb-x: a relative name in the output directory, if one is set;
+            // WFDB-x: a relative name in the output directory, if one is set;
             // a URL cannot be written
             if (is_url(st.filename)) return nullptr;
             st.filename = resolve(st.filename, true);
         }
-        // wfdb-x: legacy mode: any name in the output directory, if set
+        // WFDB-x: legacy mode: any name in the output directory, if set
         else if (st.output_dir)
             st.filename = *st.output_dir + DSEP + st.filename;
         return wfdb_fopen(st.filename.c_str(), mode == WFDB_WRITE ? "wb" : "ab");
     }
 
-    // wfdb-x: in normal mode, the file is opened at the one location that its
+    // WFDB-x: in normal mode, the file is opened at the one location that its
     // name designates (see resolve); nothing is searched.
     if (!wfdbx_get_legacy()) return open_at(resolve(r, false), s);
 
@@ -876,7 +876,7 @@ std::string wfdbx_dirname(const std::string &path)
 int wfdb_checkname(const char *p, const char *s)
 {
     if (p == nullptr) p = "";
-    // wfdb-x: a record name may be a path; outside legacy mode only its last
+    // WFDB-x: a record name may be a path; outside legacy mode only its last
     // component (the record's own name) is checked, so that directories with
     // other characters (such as "my.data/rec") can be written.
     if (std::strcmp(s, "record") == 0 && !wfdbx_get_legacy()) {
@@ -1056,7 +1056,7 @@ int run_sortann(const std::string &record, const std::string &annotator,
         struct stat sb;
         if (stat(candidate.c_str(), &sb) == 0) prog = candidate;
     }
-    // wfdb-x: the arguments are passed directly (the C library ran the
+    // WFDB-x: the arguments are passed directly (the C library ran the
     // command "sortann -r. RECORD -a ANNOTATOR" through the shell), with
     // --legacy first, so that the program also behaves as the original.
     return run_program(prog, {prog, "--legacy", "-r.", record, "-a", annotator},
@@ -1070,7 +1070,7 @@ using namespace detail;
 // ---------------------------------------------------------------------------
 // Public functions
 
-// wfdb-x: in normal mode, setwfdb, getwfdb and resetwfdb set and return the
+// WFDB-x: in normal mode, setwfdb, getwfdb and resetwfdb set and return the
 // input directory (see wfdbx_set_input_dir) instead of the WFDB path.
 // setwfdb(p): p, split into components as the WFDB path is, must contain at
 // most one non-empty component, which becomes the input directory (none: the
@@ -1083,7 +1083,7 @@ using namespace detail;
 void resetwfdb()
 {
     IOState &st = io();
-    // wfdb-x: the input directory set by the last setwfdb, if any
+    // WFDB-x: the input directory set by the last setwfdb, if any
     if (!wfdbx_get_legacy()) {
         if (st.setwfdb_called)
             put_input_dir(st.setwfdb_input_dir ? st.setwfdb_input_dir->c_str()
@@ -1098,7 +1098,7 @@ void resetwfdb()
 std::string getwfdb()
 {
     IOState &st = io();
-    // wfdb-x: the input directory, or "." if none is set
+    // WFDB-x: the input directory, or "." if none is set
     if (!wfdbx_get_legacy()) {
         init_input_dir();
         return st.input_dir.value_or(".");
@@ -1117,7 +1117,7 @@ std::string getwfdb()
 void setwfdb(const char *p)
 {
     IOState &st = io();
-    // wfdb-x: the path names a single input directory
+    // WFDB-x: the path names a single input directory
     if (!wfdbx_get_legacy()) {
         setwfdb_normal(p);
         return;
@@ -1219,7 +1219,7 @@ int wfdbx_get_network()
     return st.network;
 }
 
-// wfdb-x: write errors.  wfdbx_write_errors returns the number of write
+// WFDB-x: write errors.  wfdbx_write_errors returns the number of write
 // errors since the program started: the output files that the library could
 // not write, flush or close (found when they are closed), and the errors that
 // applications report with wfdbx_note_write_error (for the files that they
@@ -1235,7 +1235,7 @@ int wfdbx_write_errors() { return nwrite_errors; }
 
 void wfdbx_note_write_error() { nwrite_errors++; }
 
-// wfdb-x: the exit status of the tools.  In normal mode, at exit, the
+// WFDB-x: the exit status of the tools.  In normal mode, at exit, the
 // standard output is flushed; if it could not be written, the message
 // "PROGRAM: write error on standard output" is printed.  Then, if the exit
 // status is 0 and the standard output or another output file could not be

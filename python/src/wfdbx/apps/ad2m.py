@@ -12,7 +12,7 @@ FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
 resolution and units, and are required (-U unless the gain is 0; the original
 assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and millivolts);
 the -f and -t times are converted at the -F frequency; --legacy, as the first
-argument, restores the original behavior. Each change is marked "wfdb-x:" in
+argument, restores the original behavior. Each change is marked "WFDB-x:" in
 the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
@@ -53,7 +53,7 @@ HELP = [
     " -U UNITS   physical units (required unless the gain is 0; AHA: mV)",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {
     " -F FREQ    sampling frequency in Hz (required; AHA database: 250)": None,
     " -G GAIN    gain in adu per physical unit (required; AHA database: 400)":
@@ -125,13 +125,13 @@ def _main(argv):
     pname = argv[0]
     argc = len(argv)
     cflag = 0
-    # wfdb-x: -F, -G, -R and -U (C assumed 250 Hz, 400 adu/mV, 12 bits and
+    # WFDB-x: -F, -G, -R and -U (C assumed 250 Hz, 400 adu/mV, 12 bits and
     # millivolts); -f and -t are converted once -F is known.
     uunits = fstr = tstr = None
     ffreq = ggain = 0.0
     gset = rres = 0
     if legacy():
-        # wfdb-x: in legacy mode, the parameters of the AHA database, set by
+        # WFDB-x: in legacy mode, the parameters of the AHA database, set by
         # the C program (250 Hz, 400 adu/mV, 12 bits, and no units, i.e.,
         # millivolts); -F, -G, -R and -U are not options then.
         ffreq, ggain, gset, rres = 250.0, 400.0, 1, 12
@@ -150,7 +150,7 @@ def _main(argv):
                 if i >= argc:
                     eprintf("%s: start time must follow -f\n", pname)
                     raise Exit(1)
-                if legacy():    # wfdb-x: as in the C program
+                if legacy():    # WFDB-x: as in the C program
                     start_time = w.strtim(argv[i])
                 else:
                     fstr = argv[i]  # converted once -F is known
@@ -175,7 +175,7 @@ def _main(argv):
                 if i >= argc:
                     eprintf("%s: end time must follow -t\n", pname)
                     raise Exit(1)
-                if legacy():    # wfdb-x: as in the C program
+                if legacy():    # WFDB-x: as in the C program
                     end_time = w.strtim(argv[i])
                 else:
                     tstr = argv[i]  # converted once -F is known
@@ -219,7 +219,7 @@ def _main(argv):
     if ifname is None:
         help(pname)
         raise Exit(1)
-    # wfdb-x: the signal parameters must be given explicitly; C assumed
+    # WFDB-x: the signal parameters must be given explicitly; C assumed
     # those of the AHA database (250 Hz, 400 adu/mV, 12 bits, and no units,
     # i.e., millivolts), as legacy mode does (the values set above for legacy
     # mode pass these checks, and no units are required then).

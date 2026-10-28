@@ -40,7 +40,7 @@
 // read as absent or as zeros (undefined behavior in the original); an output
 // file that cannot be written is reported, and the exit status is then 1;
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -460,7 +460,7 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
         val v = IntArray(12)
         val ord = order()
         val legacy = wf.wfdbx_get_legacy() != 0
-        // wfdb-x: the record is written at the sampling frequency of the SCP file,
+        // WFDB-x: the record is written at the sampling frequency of the SCP file,
         // and not written if the file gives none (the C program always wrote 500 Hz,
         // as legacy mode does).
         if (!legacy) {
@@ -1329,7 +1329,7 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
             }
             sfreq = 1.0e6 / sampint.toDouble()
         } else if (wf.wfdbx_get_legacy() != 0) {
-            // wfdb-x: no assumed sampling frequency (C, legacy mode: 500 Hz)
+            // WFDB-x: no assumed sampling frequency (C, legacy mode: 500 Hz)
             printf("Error: sampling frequency not specified;  assuming 500 Hz\n")
             sfreq = 500.0
         } else {

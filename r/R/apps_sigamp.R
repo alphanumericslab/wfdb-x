@@ -11,7 +11,7 @@
 # must give the sampling frequency (the measurement windows are in seconds),
 # and with -p the gain of each signal (the original assumed 250 Hz and 200
 # adu/mV); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: app/sigamp.c, WFDB Software Package 10.7.0.
@@ -172,19 +172,19 @@ app_sigamp <- function(args = character(0)) {
   r <- isigopen(record, nsig)
   if (r$nsig != nsig) cexit(2)
   gain <- vapply(r$si, function(s) s$gain, 0)
-  # wfdb-x: no default gain (the C program assumed 200 adu/mV for
+  # WFDB-x: no default gain (the C program assumed 200 adu/mV for
   # uncalibrated signals).
-  if (wfdbx_get_legacy()) {          # wfdb-x: legacy mode (original behavior)
+  if (wfdbx_get_legacy()) {          # WFDB-x: legacy mode (original behavior)
     gain[gain == 0] <- WFDB_DEFGAIN
   } else if (pflag && any(gain == 0)) {
     .app_uncalibrated(pname, which(gain == 0)[1L] - 1, record, 2)
   }
   amp <- matrix(0, nsig, nmax)              # amp[, k]: measurement k
-  # wfdb-x: no default sampling frequency (the C program assumed 250 Hz); the
+  # WFDB-x: no default sampling frequency (the C program assumed 250 Hz); the
   # measurement windows are defined in seconds.
   sfreq <- sampfreq(NULL)
   if (sfreq <= 0) {
-    if (wfdbx_get_legacy()) sfreq <- WFDB_DEFFREQ     # wfdb-x: legacy mode
+    if (wfdbx_get_legacy()) sfreq <- WFDB_DEFFREQ     # WFDB-x: legacy mode
     else .app_nofreq(pname, record, 2)
   }
 

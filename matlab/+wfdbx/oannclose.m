@@ -30,7 +30,7 @@ function oannclose(an)
 % Changes from the original: an out-of-order output annotation file is
 % rearranged in this process (the C library ran the sortann program through
 % the shell); write_annotations' 'sort' option can decide for one call. Each
-% change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -73,7 +73,7 @@ if oa.out_of_order
     dosort = 1;                         % DEFWFDBANNSORT
     p = wfdbx.internal.cgetenv('WFDBANNSORT');
     if ~isempty(st.sort_override)
-        % wfdb-x: write_annotations' 'sort' option decides (this call only)
+        % WFDB-x: write_annotations' 'sort' option decides (this call only)
         dosort = st.sort_override;
     elseif ischar(p)
         dosort = wfdbx.internal.strtol(p);
@@ -81,11 +81,11 @@ if oa.out_of_order
     if dosort
         wfdbx.internal.wfdb_error( ...
             'Rearranging annotations for output annotator %s ...', oa.name);
-        % wfdb-x: the file is sorted in this process; the C library ran
+        % WFDB-x: the file is sorted in this process; the C library ran
         % the sortann program, as legacy mode does.
         if wfdbx.wfdbx_get_legacy()
             wfdbx.internal.cout();
-            % wfdb-x: the child runs with --legacy (as the original), and
+            % WFDB-x: the child runs with --legacy (as the original), and
             % in the output directory if one is set (where the file is)
             q = @wfdbx.internal.shell_quote;
             cmd = [wfdbx.internal.tool_command('sortann') ' --legacy -r. ' ...
@@ -120,7 +120,7 @@ if oa.out_of_order
         end
     end
 end
-% wfdb-x: no advice to run sortann when the caller chose not to sort
+% WFDB-x: no advice to run sortann when the caller chose not to sort
 % (write_annotations with 'sort' false); WFDBANNSORT=0 still gives it.
 if oa.out_of_order && (isempty(st.sort_override) || st.sort_override)
     wfdbx.internal.wfdb_error( ...

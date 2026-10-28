@@ -24,7 +24,7 @@
 // original assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 // millivolts); the -f and -t times are converted at the -F frequency;
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2007 George B. Moody.
@@ -62,7 +62,7 @@ private val AD2M_HELP = arrayOf(
     " -U UNITS   physical units (required unless the gain is 0; AHA: mV)",
 )
 
-/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
+/** WFDB-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val AD2M_WFDBX_HELP = setOf(
     " -F FREQ    sampling frequency in Hz (required; AHA database: 250)",
     " -G GAIN    gain in adu per physical unit (required; AHA database: 400)",
@@ -143,7 +143,7 @@ fun Wfdb.ad2mMain(argv0: Array<ByteArray>): Int {
     var t = 0L
     var startTime = 0L
     var endTime = 0L
-    // wfdb-x: the signal parameters (-F, -G, -R, -U), and the -f and -t
+    // WFDB-x: the signal parameters (-F, -G, -R, -U), and the -f and -t
     // arguments (converted once -F is known)
     var uunits: ByteArray? = null
     var fstr: ByteArray? = null
@@ -153,7 +153,7 @@ fun Wfdb.ad2mMain(argv0: Array<ByteArray>): Int {
     var gset = false
     val rres = CInt(0)
     if (legacy) {
-        // wfdb-x: in legacy mode, the parameters of the AHA database, set by
+        // WFDB-x: in legacy mode, the parameters of the AHA database, set by
         // the C program (250 Hz, 400 adu/mV, 12 bits, and no units, i.e.,
         // millivolts); -F, -G, -R and -U are not options then.
         ffreq.v = AD2M_AHA_FREQ
@@ -263,7 +263,7 @@ fun Wfdb.ad2mMain(argv0: Array<ByteArray>): Int {
         ad2mHelp(pname)
         exit(1)
     }
-    // wfdb-x: the signal parameters must be given explicitly; the C program
+    // WFDB-x: the signal parameters must be given explicitly; the C program
     // assumed those of the AHA database (250 Hz, 400 adu/mV, 12 bits, and no
     // units, i.e., millivolts), as legacy mode does (the values set above
     // for legacy mode pass these checks, and no units are required then).

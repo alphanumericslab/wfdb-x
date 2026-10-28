@@ -16,7 +16,7 @@
 // a gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"),
 // and unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
 // millivolts); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
@@ -59,7 +59,7 @@ fn regular_file_size(name: &[u8]) -> Option<i64> {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut msrec = false;
@@ -114,7 +114,7 @@ fn main() {
         }
         cprintf!(b"=====\n");
     }
-    // wfdb-x: if the sampling frequency is not specified, times are not
+    // WFDB-x: if the sampling frequency is not specified, times are not
     // shown (the C program assumed 250 Hz). In legacy mode, the output is
     // that of the C program.
     let freq = wfdbx::sampfreq(NULL);
@@ -214,7 +214,7 @@ fn main() {
         cprintf!(b" Description: %s\n", str(&x.desc));
         cprintf!(b" Gain: ");
         if legacy {
-            // wfdb-x: as in the C program (legacy mode)
+            // WFDB-x: as in the C program (legacy mode)
             if x.gain == 0.0 {
                 cprintf!(b"uncalibrated; assume %g", WFDB_DEFGAIN);
             } else {
@@ -225,7 +225,7 @@ fn main() {
                 x.units.as_deref().map_or(&b"mV"[..], cstd::cstr)
             );
         } else if x.gain == 0.0 {
-            // wfdb-x: no default gain (C: "uncalibrated; assume 200")
+            // WFDB-x: no default gain (C: "uncalibrated; assume 200")
             cprintf!(b"uncalibrated\n");
         } else {
             cprintf!(
@@ -233,7 +233,7 @@ fn main() {
                 x.gain,
                 match &x.units {
                     Some(u) => cstd::cstr(u),
-                    // wfdb-x: unspecified units are shown as "nd" (C: mV)
+                    // WFDB-x: unspecified units are shown as "nd" (C: mV)
                     None => b"nd",
                 }
             );
@@ -257,7 +257,7 @@ fn main() {
         if x.adcres > 0 || legacy {
             cprintf!(b" ADC resolution: %d bits\n", x.adcres);
         } else {
-            // wfdb-x: no default resolution
+            // WFDB-x: no default resolution
             cprintf!(b" ADC resolution: not specified\n");
         }
         cprintf!(b" ADC zero: %d\n", x.adczero);

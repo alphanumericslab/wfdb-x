@@ -32,7 +32,7 @@ function setwfdb(p)
 %
 % Changes from the original: it sets a single input directory; files are not
 % searched for (the WFDB path only in legacy mode). Each change is marked
-% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
@@ -47,11 +47,11 @@ function setwfdb(p)
 if isa(p, 'string')   % MATLAB string
     p = char(p);
 end
-if ~wfdbx.wfdbx_get_legacy()    % wfdb-x: a single input directory
+if ~wfdbx.wfdbx_get_legacy()    % WFDB-x: a single input directory
     c = wfdbx.internal.path_components(p);
     c = c(~cellfun('isempty', c));
     if numel(c) > 1
-        wfdbx.internal.wfdb_error(['setwfdb: wfdb-x reads from a single ' ...
+        wfdbx.internal.wfdb_error(['setwfdb: WFDB-x reads from a single ' ...
             'input directory; use wfdbx_set_input_dir (or legacy mode for ' ...
             'the WFDB search path)\n']);
         return;

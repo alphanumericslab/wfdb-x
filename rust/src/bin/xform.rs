@@ -23,7 +23,7 @@
 // adu/mV, a resolution based on the format, and millivolts); when an output
 // signal file would be one of the input files, the message says so; --legacy,
 // as the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/xform.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2010 George B. Moody; revised 2017-2020 by
@@ -181,7 +181,7 @@ fn format_res(fmt: i32) -> (i32, i32) {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let pname = &pname[..];
@@ -452,7 +452,7 @@ fn main() {
         wfdbx::setgvmode(WFDB_HIGHRES);
     }
     let ifreq = wfdbx::sampfreq(NULL);
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the input header did not specify one, as legacy mode does).
     if ifreq <= 0.0 && !legacy {
         ceprintf!(
@@ -491,7 +491,7 @@ fn main() {
         // Determine the output sampling frequency.
         ofreq = wfdbx::sampfreq(orec);
         if ofreq == 0.0 && !legacy {
-            // wfdb-x: no default sampling frequency
+            // WFDB-x: no default sampling frequency
             ceprintf!(
                 b"%s: sampling frequency of record %s is not specified\n",
                 pname,
@@ -577,9 +577,9 @@ fn main() {
             }
         }
         if ofreq == 0.0 && legacy {
-            ofreq = WFDB_DEFFREQ; // wfdb-x: as in the C program (legacy mode)
+            ofreq = WFDB_DEFFREQ; // WFDB-x: as in the C program (legacy mode)
         } else if ofreq == 0.0 {
-            // wfdb-x: the C program assumed 250 Hz
+            // WFDB-x: the C program assumed 250 Hz
             ceprintf!(b"%s: the output sampling frequency must be > 0\n", pname);
             wfdbx::wfdbquit();
             cstd::exit(1);
@@ -683,7 +683,7 @@ fn main() {
                 i as i32,
                 match &dfout[i].units {
                     Some(u) => cstd::cstr(u).to_vec(),
-                    // wfdb-x: C (legacy mode) showed "mV"
+                    // WFDB-x: C (legacy mode) showed "mV"
                     None if legacy => b"mV".to_vec(),
                     None => b"nd".to_vec(),
                 },
@@ -691,7 +691,7 @@ fn main() {
             );
             answer = sfgets(ANSLEN);
             let _ = csscanf!(&answer, b"%lf", &mut dfout[i].gain);
-            // wfdb-x: a resolution is offered only if it comes from the input
+            // WFDB-x: a resolution is offered only if it comes from the input
             // (or the previous output signal) and suits the output format;
             // the C program otherwise offered one based on the format (12
             // bits for 16-bit formats).  Without one, the user must give it.
@@ -703,7 +703,7 @@ fn main() {
                 let d = &mut dfout[i];
                 let (maxres, legacy_res) = format_res(d.fmt);
                 if legacy && (d.adcres < 8 || d.adcres > maxres) {
-                    d.adcres = legacy_res; // wfdb-x: legacy mode
+                    d.adcres = legacy_res; // WFDB-x: legacy mode
                 }
                 if d.adcres >= 8 && d.adcres <= maxres {
                     ceprintf!(
@@ -879,7 +879,7 @@ fn main() {
     wfdbx::wfdbquiet();
     if let Some(orec) = orec {
         if wfdbx::osigopen(orec, &mut dfout[..nosig_u], nosig as u32) != nosig {
-            // wfdb-x: say why if an output file is one of the input files
+            // WFDB-x: say why if an output file is one of the input files
             // (the library's message, quieted above, is the last error)
             let e = wfdbx::wfdberror();
             const TAIL: &[u8] = b" is also an input file\n";
@@ -955,14 +955,14 @@ fn main() {
         //     the appropriate number of bits will be dropped from or added
         //     to each signal.
         // 2.  If the output gain has been specified, the signal is scaled by
-        //     the ratio of the output and input gains.  (wfdb-x: if the input
+        //     the ratio of the output and input gains.  (WFDB-x: if the input
         //     signal is uncalibrated, this is an error; the C program, and
         //     legacy mode, assumed an input gain of WFDB_DEFGAIN.)
         // These rules differ from those used by earlier versions of xform,
         // although the default behavior remains the same in most cases.
         if dfout[i].gain == 0.0 {
             // output gain not specified
-            // wfdb-x: rescaling by ADC resolution needs both resolutions
+            // WFDB-x: rescaling by ADC resolution needs both resolutions
             // (the C program guessed an unspecified input resolution from
             // the format, assuming WFDB_DEFRES for 16-bit formats, as legacy
             // mode does).
@@ -996,7 +996,7 @@ fn main() {
         } else if dfin[j].gain == 0.0 {
             // output gain specified, but input gain not specified
             if legacy {
-                // wfdb-x: as in the C program (legacy mode)
+                // WFDB-x: as in the C program (legacy mode)
                 gain[i] = dfout[i].gain / WFDB_DEFGAIN;
             } else {
                 ceprintf!(

@@ -5,7 +5,7 @@ function istat = ann_format(D)
 %   format) or 2 (WFDB_AHA_READ), guessed as annopen does from the first
 %   16-bit word (read as C's 16-bit getc() pair: a missing byte reads as
 %   EOF, 0xff): an AHA file starts with a null byte followed by an AHA code
-%   other than '[' or ']'.  (wfdb-x: this was part of annopen; the sorting
+%   other than '[' or ']'.  (WFDB-x: this was part of annopen; the sorting
 %   of output files, wfdbx.internal.ann_sortfile, uses it too.)
 %
 %   Part of the translation of lib/annot.c (WFDB 10.7.0).
@@ -19,7 +19,7 @@ function istat = ann_format(D)
 % code.
 %
 % Changes from the original: taken out of annopen() so that ann_sortfile can
-% use it. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+% use it. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 % gives the reasons.
 %
 % Original C code: lib/annot.c, WFDB Software Package 10.7.0.

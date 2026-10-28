@@ -2,7 +2,7 @@ function r = expand_record(record)
 %EXPAND_RECORD The record name as wfdb_open uses it.
 %   R = wfdbx.internal.expand_record(RECORD) returns RECORD, except that a
 %   name ending with '/' gets another copy of its final element
-%   ('abc/123/' -> 'abc/123/123').  (wfdb-x: moved out of wfdb_open, for
+%   ('abc/123/' -> 'abc/123/123').  (WFDB-x: moved out of wfdb_open, for
 %   wfdbx.internal.output_file.)
 %
 %   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
@@ -16,7 +16,7 @@ function r = expand_record(record)
 % code.
 %
 % Changes from the original: taken out of wfdb_open() so that output_file
-% can use it. Each change is marked "wfdb-x:" in the code;
+% can use it. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.

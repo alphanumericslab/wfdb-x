@@ -3,7 +3,7 @@ function st = wfdb_checkname(p, s)
 %   ST = wfdbx.internal.wfdb_checkname(P, S) returns 0 if P contains only
 %   letters, digits, '_', '~', '-' and '/', or -1 after reporting the first
 %   illegal character ("init: illegal character N in S name"; N is the
-%   signed char code, 0 for an empty name).  wfdb-x: for a record name
+%   signed char code, 0 for an empty name).  WFDB-x: for a record name
 %   (S = 'record'), outside legacy mode, only its last component (after
 %   the last '/') is checked.
 %
@@ -20,7 +20,7 @@ function st = wfdb_checkname(p, s)
 %
 % Changes from the original: for a record name, outside legacy mode, only
 % its last component is checked, so that records can be written in
-% directories with other characters. Each change is marked "wfdb-x:" in the
+% directories with other characters. Each change is marked "WFDB-x:" in the
 % code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -34,7 +34,7 @@ function st = wfdb_checkname(p, s)
 % any later version. See LICENSE.
 
 st = 0;
-% wfdb-x: a record name may be a path; outside legacy mode only its last
+% WFDB-x: a record name may be a path; outside legacy mode only its last
 % component (the record's own name) is checked, so that directories with
 % other characters (such as 'my.data/rec') can be written.
 if ischar(p) && strcmp(s, 'record') && ~wfdbx.wfdbx_get_legacy()

@@ -30,7 +30,7 @@ function status = wrsamp(args)
 %   -G, -R and -U take a quoted list of values, one per output signal
 %   (the last one applies to the remaining signals).
 %
-%   wfdb-x: -F, -G and -R are required with -o, and -U for calibrated
+%   WFDB-x: -F, -G and -R are required with -o, and -U for calibrated
 %   signals unless the input gives their units (the C program assumed
 %   250 Hz, 200 adu/mV, a resolution based on the format, and
 %   millivolts); see docs/DIVERGENCES.md.  To reproduce the C program's
@@ -61,7 +61,7 @@ function status = wrsamp(args)
 % unless the input gives the units (the original assumed 250 Hz, 200 adu/mV, a
 % resolution based on the format, and millivolts); -G 0 declares the signals
 % uncalibrated; -G, -R and -U take one value per signal; --legacy, as the first
-% argument, restores the original behavior. Each change is marked "wfdb-x:" in
+% argument, restores the original behavior. Each change is marked "WFDB-x:" in
 % the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
@@ -122,7 +122,7 @@ h = {'where COLUMN selects a field to be copied (leftmost field is column 0),', 
     '', ...
     'If no COLUMN is specified, all fields are copied in order; column 0 can be', ...
     'omitted in this case by using the ''-z'' option.'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h([17 21 22]) = [];         % (without -R and -U)
     h = [h(1:5), ...
         {' -F FREQ     specify frequency to be written to header file (default: 250)', ...
@@ -231,7 +231,7 @@ end
 end
 
 function r = legacy_adcres(fmt)
-% wfdb-x: legacy mode: the ADC resolution that the C program inferred from
+% WFDB-x: legacy mode: the ADC resolution that the C program inferred from
 % the format
 switch fmt
     case {508, 80}
@@ -293,16 +293,16 @@ pname = argv{1};
 argc = numel(argv);
 gain = '';
 scale = '';
-res = '';       % wfdb-x: -R
-uopt = [];      % wfdb-x: -U
+res = '';       % WFDB-x: -R
+uopt = [];      % WFDB-x: -U
 record = [];
 rsep = char(10);
 sflag = 0;
 xflag = 0; zflag = 0; dflag = 0;
-freq = 0;       % wfdb-x: no default frequency (C: WFDB_DEFFREQ)
+freq = 0;       % WFDB-x: no default frequency (C: WFDB_DEFFREQ)
 legacy = wfdbx.wfdbx_get_legacy();
 if legacy
-    freq = 250;     % WFDB_DEFFREQ (wfdb-x: legacy mode)
+    freq = 250;     % WFDB_DEFFREQ (WFDB-x: legacy mode)
 end
 fmt = 16;
 t0 = 0; t1 = 0;
@@ -318,7 +318,7 @@ while i < argc && strncmp(argv{i + 1}, '-', 1)
     else
         c = char(0);
     end
-    if legacy && any(c == 'RU')     % wfdb-x: legacy mode: not options of
+    if legacy && any(c == 'RU')     % WFDB-x: legacy mode: not options of
         c = char(0);                % the original (unrecognized)
     end
     switch c
@@ -358,7 +358,7 @@ while i < argc && strncmp(argv{i + 1}, '-', 1)
             help(pname);
             status = 1;
             return;
-        case 'R'    % wfdb-x: ADC resolution(s) in bits
+        case 'R'    % WFDB-x: ADC resolution(s) in bits
             i = i + 1;
             if i >= argc
                 wfdbx.internal.ceprintf('%s: ADC resolution(s) must follow -R\n', pname);
@@ -366,7 +366,7 @@ while i < argc && strncmp(argv{i + 1}, '-', 1)
                 return;
             end
             res = argv{i + 1};
-        case 'U'    % wfdb-x: units
+        case 'U'    % WFDB-x: units
             i = i + 1;
             if i >= argc
                 wfdbx.internal.ceprintf('%s: units must follow -U\n', pname);
@@ -465,7 +465,7 @@ while i < argc && strncmp(argv{i + 1}, '-', 1)
     end
     i = i + 1;
 end
-% wfdb-x: the sampling frequency, the gains, the ADC resolutions, and the
+% WFDB-x: the sampling frequency, the gains, the ADC resolutions, and the
 % units (of calibrated signals) must be specified when a header is written
 % (the C program assumed 250 Hz, 200 adu/mV, a resolution based on the
 % format, and millivolts).
@@ -630,7 +630,7 @@ for k = 1:nosig
     else
         si(k).desc = sprintf('col %d', fv(k));
     end
-    if ischar(uopt)     % wfdb-x: -U (the last one applies to the rest)
+    if ischar(uopt)     % WFDB-x: -U (the last one applies to the rest)
         uopt = lstrip(uopt);
         if ~isempty(uopt)
             j = find(uopt == ' ', 1);
@@ -659,12 +659,12 @@ for k = 1:nosig
     si(k).fmt = fmt;
     si(k).spf = 1;
     si(k).bsize = 0;
-    % wfdb-x: the ADC resolutions are given by -R (the last one applies to
+    % WFDB-x: the ADC resolutions are given by -R (the last one applies to
     % the remaining signals); the C program inferred them from the format
     % or assumed WFDB_DEFRES.
     res = lstrip(res);
     [n, v] = wfdbx.internal.csscanf(res, '%d');
-    if legacy       % wfdb-x: legacy mode: as in the C program
+    if legacy       % WFDB-x: legacy mode: as in the C program
         si(k).adcres = legacy_adcres(fmt);
     elseif n < 1
         if k == 1
@@ -693,9 +693,9 @@ for k = 1:nosig
     [n, v] = wfdbx.internal.csscanf(gain, '%lf');
     if n < 1
         if k == 1
-            si(k).gain = 0;       % wfdb-x: no default (C: WFDB_DEFGAIN)
+            si(k).gain = 0;       % WFDB-x: no default (C: WFDB_DEFGAIN)
             if legacy
-                si(k).gain = 200;     % WFDB_DEFGAIN (wfdb-x: legacy mode)
+                si(k).gain = 200;     % WFDB_DEFGAIN (WFDB-x: legacy mode)
             end
         else
             si(k).gain = si(k - 1).gain;
@@ -709,7 +709,7 @@ for k = 1:nosig
             gain = gain(j:end);
         end
     end
-    % wfdb-x: the units of a calibrated signal must be specified, by -U or
+    % WFDB-x: the units of a calibrated signal must be specified, by -U or
     % by the input (the C program left them out: millivolts).
     if ischar(record) && ~legacy && si(k).gain ~= 0 && isempty(si(k).units)
         wfdbx.internal.ceprintf('%s: the units must be specified (-U)\n', pname);

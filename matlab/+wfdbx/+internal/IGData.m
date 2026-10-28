@@ -15,7 +15,7 @@ classdef IGData < handle
 %                   end of file, -2 for a decoding error
 %     flac          the state of the FLAC decoder (formats 508, 516, 524),
 %                   [] otherwise
-%     ahead         wfdb-x: blocks read from fp by the bulk reader
+%     ahead         WFDB-x: blocks read from fp by the bulk reader
 %                   (wfdbx.internal.bulk_frames) but not yet reached
 %                   (uint8 row); the next refill of buf takes its block
 %                   from them first
@@ -35,7 +35,7 @@ classdef IGData < handle
 % code.
 %
 % Changes from the original: the blocks read ahead by the bulk reader are
-% kept (ahead). Each change is marked "wfdb-x:" in the code;
+% kept (ahead). Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.

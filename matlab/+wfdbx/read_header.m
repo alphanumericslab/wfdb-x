@@ -57,7 +57,7 @@ record = wfdbx.internal.strarg(record);
 opt = wfdbx.internal.hl_options(struct('input_dir', [], 'network', [], ...
     'legacy', false), varargin, 'read_header');
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_header'); %#ok<NASGU>
-% wfdb-x: the input directory and network access for this call
+% WFDB-x: the input directory and network access for this call
 restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, 'read_header'); %#ok<NASGU>
 n = wfdbx.isigopen(record, 0);
 if n < 0
@@ -78,7 +78,7 @@ else
     hdr.nsamples = double(S.nsamples);
 end
 hdr.nsig = n;
-% wfdb-x: the signal names without the white space at their ends
+% WFDB-x: the signal names without the white space at their ends
 hdr.siginfo = wfdbx.internal.strip_desc(si);
 [hdr.base_time, hdr.base_time_ms, hdr.base_date] = ...
     wfdbx.internal.hl_basetime(hdr.fs);

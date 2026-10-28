@@ -30,7 +30,7 @@
 // annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
 // option of the high-level write_annotations decides, for its call, whether
 // the file is sorted; legacy mode (wfdbx_set_legacy) restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -51,6 +51,7 @@ import wfdbx.cstd.cformat
 import wfdbx.cstd.cstr
 import wfdbx.cstd.getenv
 import wfdbx.cstd.latin1
+import wfdbx.cstd.latin1String
 import wfdbx.cstd.SEEK_SET
 import wfdbx.cstd.sscanf
 import wfdbx.cstd.startsWith
@@ -142,7 +143,7 @@ internal class OaData(
     val info: Anninfo,
     /** Record with which the annotator is associated. */
     val rname: ByteArray,
-    /** wfdb-x: name of the file (as created), for sortAnnFile. */
+    /** WFDB-x: name of the file (as created), for sortAnnFile. */
     val fname: ByteArray,
 ) {
     /** Most recent annotation written by putann. */
@@ -221,7 +222,7 @@ private val DEFAULT_DESCRIPTIONS: Array<String?> = arrayOf(
 )
 
 /**
- * wfdb-x: a table of annotation type definitions: mnemonics, descriptions,
+ * WFDB-x: a table of annotation type definitions: mnemonics, descriptions,
  * and flags marking the modified types. [AnnState] holds that of the
  * library; sortAnnFile uses one of its own.
  */
@@ -287,7 +288,7 @@ internal class AnnState {
     var defs = AnnDefs()
 
     /**
-     * wfdb-x: whether oannclose sorts an out-of-order file (non-null),
+     * WFDB-x: whether oannclose sorts an out-of-order file (non-null),
      * whatever WFDBANNSORT says; null: as WFDBANNSORT says. Set by the
      * high-level writeAnnotations for the duration of a call (its sort
      * option).
@@ -418,7 +419,7 @@ private fun getannNext(ia: IaData): ByteArray? {
 /**
  * Reads the first word of the input annotation file of [ia] and returns its
  * format: [WFDB_READ] (MIT format; any initial null annotations are then
- * read as well) or [WFDB_AHA_READ]. (wfdb-x: this was part of annopen.)
+ * read as well) or [WFDB_AHA_READ]. (WFDB-x: this was part of annopen.)
  */
 private fun annFileFormat(ia: IaData): Int {
     // Try to figure out what format the file is in. AHA-format files begin
@@ -522,7 +523,7 @@ private fun readAnnTable(ia: IaData, defs: AnnDefs, msgs: Msgs): Int {
 }
 
 /**
- * put_ann_table (wfdb-x: for the output annotator [oa], number [n], with
+ * put_ann_table (WFDB-x: for the output annotator [oa], number [n], with
  * the time resolution [freq] and the definition table [defs]): writes the
  * modification labels. Error messages are added to [msgs].
  */
@@ -767,7 +768,7 @@ fun Wfdb.annopen(record0: ByteArray?, aiarray: Array<Anninfo>, nann0: Int): Int 
                 wfdb_error(cformat("annopen: can't write annotator %s for record %s\n", name, record))
                 return -4
             }
-            // wfdb-x: the name of the file, for sortAnnFile
+            // WFDB-x: the name of the file, for sortAnnFile
             ann.oad.add(OaData(file, Anninfo(ai.name, ai.stat), record, wfdb_filename().copyOf()))
         }
     }
@@ -804,6 +805,140 @@ fun Wfdb.getann(n: Int, annot: Annotation): Int {
     val status = getannIa(ia, annot, msgs)
     report(msgs)
     return status
+}
+
+/**
+ * WFDB-x: the annotations read by [getannAll], field by field (the aux
+ * strings as text, the mnemonics from annstr), and the status of the last
+ * getann.
+ */
+internal class AnnArrays(
+    val times: LongArray, val codes: IntArray, val symbols: List<String>, val subtypes: IntArray,
+    val chans: IntArray, val nums: IntArray, val aux: List<String?>, val status: Int,
+)
+
+/**
+ * WFDB-x: the annotations collected by [getannAll], until time [t1] (if
+ * not null), in arrays of [cap] elements at first.
+ */
+private class AnnCollector(val t1: Long?, cap: Int) {
+    val times = LongList(cap)
+    val codes = IntList(cap)
+    val subs = IntList(cap)
+    val chans = IntList(cap)
+    val nums = IntList(cap)
+    val aux = ArrayList<String?>(cap)
+    val symbols = ArrayList<String>(cap)
+    val a = Annotation()
+    val msgs: Msgs = ArrayList()
+
+    /** The mnemonics found so far, by code (C chars: -128..127). */
+    val cache = arrayOfNulls<String>(256)
+
+    fun result(stat: Int) = AnnArrays(
+        times.toArray(), codes.toArray(), symbols, subs.toArray(), chans.toArray(), nums.toArray(), aux, stat,
+    )
+}
+
+/**
+ * WFDB-x: reads the annotations of input annotator [n] as successive
+ * getann calls do, until getann returns a status other than 0 or (if [t1]
+ * is not null) reads an annotation at or after [t1], which is not kept.
+ * The aux strings are the text after the length byte (at most that many
+ * bytes, up to a null; null if there is none). For readAnnotations.
+ */
+internal fun Wfdb.getannAll(n: Int, t1: Long?): AnnArrays {
+    val ia = ann.iaAt(n)
+    // (an annotation takes 2 bytes at least)
+    val size = ia?.file?.localSize() ?: -1L
+    val c = AnnCollector(t1, if (size > 0) minOf(size / 2 + 1, 1L shl 16).toInt() else 1024)
+    if (ia == null) {
+        wfdb_error(cformat("getann: can't read annotator %d\n", n))
+        return c.result(-2)
+    }
+    // (one annotation per call of getannInto, which the JIT compiles early)
+    while (true) {
+        val stat = getannInto(ia, c)
+        if (stat != 0) return c.result(if (stat == 1) 0 else stat)
+    }
+}
+
+/**
+ * WFDB-x: reads the next annotation of [ia] as getann does, and adds it to
+ * [c]. Returns 0, 1 if the annotation is at or after c.t1 (not added), or
+ * the status of getann if it is not 0.
+ */
+private fun Wfdb.getannInto(ia: IaData, c: AnnCollector): Int {
+    val a = c.a
+    val msgs = c.msgs
+    val stat: Int
+    val text: String?
+    if (ia.pann.anntyp != 0 || ia.ateof != 0) {
+        stat = getannIa(ia, a, msgs)
+        val x = a.aux
+        text = if (x == null || x.isEmpty()) {
+            null
+        } else {
+            val len = x[0].toInt() and 0xff
+            cstr(x.copyOfRange(1, minOf(1 + len, x.size))).latin1()
+        }
+    } else {
+        // getannIa, with the aux string taken from the buffer
+        a.set(ia.ann)
+        ia.prevTime = a.time
+        ia.prevTt = ia.annTt
+        val retpos = ia.auxpos
+        val msg = getannNext(ia)
+        if (msg != null) msgs.add(msg)
+        stat = 0
+        text = if (retpos >= 0) {
+            val b = ia.auxstr
+            val end = minOf(retpos + 1 + (b[retpos].toInt() and 0xff), AUXBUFLEN)
+            var e = retpos + 1
+            while (e < end && b[e] != 0.toByte()) e++
+            latin1String(b, retpos + 1, e - retpos - 1)
+        } else {
+            null
+        }
+    }
+    if (msgs.isNotEmpty()) {
+        report(msgs)
+        msgs.clear()
+    }
+    if (stat != 0) return stat
+    val t1 = c.t1
+    if (t1 != null && a.time >= t1) return 1
+    c.times.add(a.time)
+    val code = a.anntyp
+    c.codes.add(code)
+    c.symbols.add(c.cache[code and 0xff] ?: annstr(code).latin1().also { c.cache[code and 0xff] = it })
+    c.subs.add(a.subtyp)
+    c.chans.add(a.chan)
+    c.nums.add(a.num)
+    c.aux.add(text)
+    return 0
+}
+
+/** A growable array of Long. */
+private class LongList(cap: Int) {
+    var a = LongArray(maxOf(cap, 16))
+    var n = 0
+    fun add(x: Long) {
+        if (n == a.size) a = a.copyOf(2 * n)
+        a[n++] = x
+    }
+    fun toArray(): LongArray = if (n == a.size) a else a.copyOf(n)
+}
+
+/** A growable array of Int. */
+private class IntList(cap: Int) {
+    var a = IntArray(maxOf(cap, 16))
+    var n = 0
+    fun add(x: Int) {
+        if (n == a.size) a = a.copyOf(2 * n)
+        a[n++] = x
+    }
+    fun toArray(): IntArray = if (n == a.size) a else a.copyOf(n)
 }
 
 /**
@@ -854,7 +989,75 @@ fun Wfdb.putann(n: Int, annot: Annotation): Int {
 }
 
 /**
- * wfdb-x: [putann] for each of [count] annotations given by columns (for
+ * WFDB-x: encodes annotations for [putanns] into [buf], as putann writes
+ * them, from the previous annotation written (time [pt], chan [pchan],
+ * num [pnum]: all that the encoding uses).
+ */
+private class AnnEncoder(var pt: Long, var pchan: Int, var pnum: Int, var outOfOrder: Boolean) {
+    val buf = ByteVec(65536 + 1024)
+
+    private fun p16(x: Int) {
+        buf.add(x)
+        buf.add(x shr 8)
+    }
+
+    private fun p32(x: Long) {
+        p16((x shr 16).toInt())
+        p16(x.toInt())
+    }
+
+    /** Encodes one annotation; false (nothing written) if its time is WFDB_TIME_MIN or WFDB_TIME_MAX. */
+    fun encode(t: Long, anntyp0: Int, subtyp0: Int, chan: Int, num: Int, aux: ByteArray?): Boolean {
+        val anntyp = anntyp0.toByte().toInt()
+        val subtyp = subtyp0.toByte().toInt()
+        val achan = chan and 0xff
+        val anum = num.toByte().toInt()
+        if (!(achan > pchan || anum > pnum || t > pt || (t == 0L && pt == 0L))) outOfOrder = true
+        if (t == WFDB_TIME_MIN || t == WFDB_TIME_MAX) return false
+        var delta: ULong = t.toULong() - pt.toULong()
+        if (t > pt) {
+            while (delta > MAXSKIP.toULong()) {
+                p16(SKIP)
+                p32(MAXSKIP)
+                delta -= MAXSKIP.toULong()
+            }
+        } else {
+            while ((0UL - delta) > (-MINSKIP).toULong()) {
+                p16(SKIP)
+                p32(MINSKIP)
+                delta -= MINSKIP.toULong()
+            }
+        }
+        if (anntyp == 0) {
+            p16(SKIP)
+            p32((delta - 1UL).toLong())
+            delta = 1UL
+        } else if (delta > MAXRR.toULong()) {
+            p16(SKIP)
+            p32(delta.toLong())
+            delta = 0UL
+        }
+        p16(delta.toInt() + (anntyp shl CS))
+        if (subtyp != 0) p16(SUB + (DATA and subtyp))
+        if (achan != pchan) p16(CHN + (DATA and achan))
+        if (anum != pnum) p16(NUM + (DATA and anum))
+        val auxlen = if (aux != null && aux.isNotEmpty()) aux[0].toInt() and 0xff else 0
+        if (auxlen != 0) {
+            p16(AUX + auxlen)
+            val avail = minOf(auxlen, aux!!.size - 1)
+            buf.addAll(aux, 1, avail)
+            // (zero padding to the stated length, and to an even length)
+            buf.fill(0, auxlen - avail + (auxlen and 1))
+        }
+        pt = t
+        pchan = achan
+        pnum = anum
+        return true
+    }
+}
+
+/**
+ * WFDB-x: [putann] for each of [count] annotations given by columns (for
  * writeAnnotations): annotation k has time `times[k]`, type `anntyps[k]`,
  * subtype `subtyps[k]`, channel `chans[k]`, number `nums[k]` (converted to
  * their C types as by the [Annotation] setters) and aux `auxes[k]` (null,
@@ -894,80 +1097,24 @@ internal fun Wfdb.putanns(
         }
     }
     val f = oa.file
-    val buf = ByteVec(65536 + 1024)
-    fun p16(x: Int) {
-        buf.add(x)
-        buf.add(x shr 8)
-    }
-    fun p32(x: Long) {
-        p16((x shr 16).toInt())
-        p16(x.toInt())
-    }
-    // The previous annotation written: time, chan (unsigned char) and num
-    // (signed char) are all that the encoding uses.
-    var pt = oa.ann.time
-    var pchan = oa.ann.chan
-    var pnum = oa.ann.num
+    val e = AnnEncoder(oa.ann.time, oa.ann.chan, oa.ann.num, oa.outOfOrder)
+    val buf = e.buf
     var last = -1
-    var outOfOrder = oa.outOfOrder
     var stat = 0
+    // (one annotation per call of encode, which the JIT compiles early)
     for (k in 0 until count) {
-        val t = times[k]
-        val anntyp = anntyps[k].toByte().toInt()
-        val subtyp = subtyps[k].toByte().toInt()
-        val achan = chans[k] and 0xff
-        val anum = nums[k].toByte().toInt()
-        if (!(achan > pchan || anum > pnum || t > pt || (t == 0L && pt == 0L))) outOfOrder = true
-        if (t == WFDB_TIME_MIN || t == WFDB_TIME_MAX) {
+        if (!e.encode(times[k], anntyps[k], subtyps[k], chans[k], nums[k], auxes[k])) {
             msgs.add(cformat("putann: time overflow in annotation file %d\n", n))
             stat = -1
             continue
         }
-        var delta: ULong = t.toULong() - pt.toULong()
-        if (t > pt) {
-            while (delta > MAXSKIP.toULong()) {
-                p16(SKIP)
-                p32(MAXSKIP)
-                delta -= MAXSKIP.toULong()
-            }
-        } else {
-            while ((0UL - delta) > (-MINSKIP).toULong()) {
-                p16(SKIP)
-                p32(MINSKIP)
-                delta -= MINSKIP.toULong()
-            }
-        }
-        if (anntyp == 0) {
-            p16(SKIP)
-            p32((delta - 1UL).toLong())
-            delta = 1UL
-        } else if (delta > MAXRR.toULong()) {
-            p16(SKIP)
-            p32(delta.toLong())
-            delta = 0UL
-        }
-        p16(delta.toInt() + (anntyp shl CS))
-        if (subtyp != 0) p16(SUB + (DATA and subtyp))
-        if (achan != pchan) p16(CHN + (DATA and achan))
-        if (anum != pnum) p16(NUM + (DATA and anum))
-        val aux = auxes[k]
-        val auxlen = if (aux != null && aux.isNotEmpty()) aux[0].toInt() and 0xff else 0
-        if (auxlen != 0) {
-            p16(AUX + auxlen)
-            val avail = minOf(auxlen, aux!!.size - 1)
-            buf.addAll(aux, 1, avail)
-            // (zero padding to the stated length, and to an even length)
-            buf.fill(0, auxlen - avail + (auxlen and 1))
-        }
-        pt = t
-        pchan = achan
-        pnum = anum
         last = k
         if (buf.size >= 65536) {
             f.write(buf.bytes, 0, buf.size)
             buf.clear()
         }
     }
+    val outOfOrder = e.outOfOrder
     if (buf.size > 0) f.write(buf.bytes, 0, buf.size)
     oa.outOfOrder = outOfOrder
     if (f.error()) {
@@ -1233,7 +1380,7 @@ fun Wfdb.iannclose(n: Int) {
 /**
  * C `oannclose(n)`: closes output annotator [n], writing its end mark. If
  * its annotations were not written in canonical order, the file is
- * rearranged (unless the environment variable WFDBANNSORT is 0): wfdb-x: in
+ * rearranged (unless the environment variable WFDBANNSORT is 0): WFDB-x: in
  * this process, with the result of the sortann program (see [AnnList]); in
  * legacy mode, as in C, by running sortann ([run_sortann]).
  *
@@ -1267,14 +1414,14 @@ fun Wfdb.oannclose(n: Int) {
     }
     var outOfOrder = oa.outOfOrder
     if (outOfOrder) {
-        // wfdb-x: the sort option of writeAnnotations, if given, decides
+        // WFDB-x: the sort option of writeAnnotations, if given, decides
         // instead of WFDBANNSORT.
         val so = ann.sortOverride
         val env = getenv("WFDBANNSORT")
         val dosort = if (so != null) (if (so) 1 else 0) else if (env != null) strtol(env, 10).value.toInt() else DEFWFDBANNSORT
         if (dosort != 0) {
             wfdb_error(cformat("Rearranging annotations for output annotator %s ...", name))
-            // wfdb-x: the file is sorted in this process (sortAnnFile); the
+            // WFDB-x: the file is sorted in this process (sortAnnFile); the
             // C library ran the sortann program, as legacy mode does.
             val sorted = if (legacy) {
                 run_sortann(oa.rname, name, wfdbx_get_output_dir()) == 0
@@ -1290,7 +1437,7 @@ fun Wfdb.oannclose(n: Int) {
             if (ann.annclose_error == 0) ann.annclose_error = -6
         }
     }
-    // wfdb-x: no advice to run sortann when the caller of writeAnnotations
+    // WFDB-x: no advice to run sortann when the caller of writeAnnotations
     // chose not to sort.
     if (outOfOrder && ann.sortOverride != false) {
         wfdb_error(cformat("Use the command:\n  sortann -r %s -a %s\n", oa.rname, name))
@@ -1317,7 +1464,7 @@ private fun after(a: Annotation, b: Annotation, orSame: Boolean): Boolean =
  * replaces it (but only when the duplicate is found while repairing
  * out-of-order input).
  *
- * wfdb-x: the (all-zero) list head is never compared as an annotation: an
+ * WFDB-x: the (all-zero) list head is never compared as an annotation: an
  * out-of-order annotation that precedes all entries is inserted at the
  * beginning of the list. In C, and with [legacy] true, an annotation at
  * time 0 with num and chan 0 that precedes all entries "replaces" the head,
@@ -1382,7 +1529,7 @@ class AnnList(private val legacy: Boolean = false) {
         var ap = last
         while (ap >= 0) {
             if (ap == 0 && !legacy) {
-                // wfdb-x: the head is not an annotation (C compared it, and
+                // WFDB-x: the head is not an annotation (C compared it, and
                 // took a (0, 0, 0) annotation for its duplicate)
                 ap = -1
                 break
@@ -1426,7 +1573,7 @@ class AnnList(private val legacy: Boolean = false) {
 }
 
 /**
- * wfdb-x: rearranges the annotations of the (closed) annotation file
+ * WFDB-x: rearranges the annotations of the (closed) annotation file
  * [fname] of annotator [aname] in canonical order, with a result identical,
  * byte for byte, to that of the sortann program as the C library ran it
  * (sortann -r. RECORD -a ANNOTATOR, see oannclose), but without looking up

@@ -50,7 +50,7 @@ cli_main <- function(args) {
       return(0)
     }
     if (tool == "--version") {
-      cout(paste0("wfdb-x (WFDB ", wfdbversion(), ")\n"))
+      cout("WFDB-x 1.1.0\n")
       cout()
       return(0)
     }
@@ -171,7 +171,7 @@ cli_main <- function(args) {
   invisible(NULL)
 }
 
-# wfdb-x: legacy mode (original behavior): the help text h of a tool without
+# WFDB-x: legacy mode (original behavior): the help text h of a tool without
 # its lines `added` (those added by WFDB-x), as the original tool prints it.
 .app_help_text <- function(h, added) if (wfdbx_get_legacy()) h[!(h %in% added)] else h
 
@@ -180,7 +180,7 @@ cli_main <- function(args) {
 
 # Create the file `name` for writing, as C's fopen(name, "wb") (NULL if it
 # cannot be created); pname is the program name for .app_fclose.  A failed
-# write is remembered; wfdb-x: in normal mode, .app_fclose() then prints
+# write is remembered; WFDB-x: in normal mode, .app_fclose() then prints
 # "PNAME: write error on NAME" and counts a write error (see
 # wfdbx_write_errors).
 .app_fopen <- function(name, pname) {

@@ -16,7 +16,7 @@ function ig_skip(ig, nb)
 % code.
 %
 % Changes from the original: a refill takes the blocks read ahead by the
-% bulk reader first. Each change is marked "wfdb-x:" in the code;
+% bulk reader first. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -41,7 +41,7 @@ while nb > 0 && stat > 0
             n = S.ibsize;
         end
         if ~isempty(ig.ahead)
-            % wfdb-x: the next block read ahead by the bulk reader
+            % WFDB-x: the next block read ahead by the bulk reader
             m = min(n, numel(ig.ahead));
             b = ig.ahead(1:m);
             ig.ahead = ig.ahead(m + 1:end);

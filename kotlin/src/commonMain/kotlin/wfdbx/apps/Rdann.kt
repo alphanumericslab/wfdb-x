@@ -15,7 +15,7 @@
 // Changes from the original: no built-in sampling frequency: the new option -F
 // FREQ gives it when the record has no header or its header gives none, and is
 // then required (the original assumed 250 Hz); --legacy, as the first
-// argument, restores the original behavior. Each change is marked "wfdb-x:" in
+// argument, restores the original behavior. Each change is marked "WFDB-x:" in
 // the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rdann.c, WFDB Software Package 10.7.0.
@@ -51,7 +51,7 @@ private val RDANN_HELP = arrayOf(
     "* Only one of -e and -x can be used.",
 )
 
-/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
+/** WFDB-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val RDANN_WFDBX_HELP = setOf(
     " -F FREQ             sampling frequency, if the record header does not",
     "                      specify one",
@@ -247,7 +247,7 @@ fun Wfdb.rdannMain(argv0: Array<ByteArray>): Int {
         exit(1)
     }
 
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the record had no header); -F specifies one.
     var sps = sampfreq(record)
     if (legacy) {

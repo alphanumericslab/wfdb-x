@@ -14,7 +14,7 @@
 # Changes from the original: no built-in sampling frequency: the new option -F
 # FREQ gives it when the record has no header or its header gives none, and is
 # then required (the original assumed 250 Hz); --legacy, as the first argument,
-# restores the original behavior. Each change is marked "wfdb-x:" in the code;
+# restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/rdann.c, WFDB Software Package 10.7.0.
@@ -43,7 +43,7 @@ const _RDANN_HELP = (
     " -v                  print column headings",
     " -x                  * use alternate time format (seconds, minutes, hours)",
     "* Only one of -e and -x can be used.")
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _RDANN_LEGACY_HELP = _help_without(_RDANN_HELP, 6:7)
 
 # Helpers shared by the annotation tools (rdann, wrann, sortann, ann2rr,
@@ -65,7 +65,7 @@ _annapp_c1(a::String) = _annapp_c1(codeunits(a))
 _annapp_tail(a::AbstractVector{UInt8}) = length(a) < 2 ? UInt8[] : a[2:end]
 _annapp_tail(a::String) = _annapp_tail(codeunits(a))
 
-# wfdb-x: the -F option of rdann, ann2rr, sortann and m2a (the sampling
+# WFDB-x: the -F option of rdann, ann2rr, sortann and m2a (the sampling
 # frequency to use if the record header does not specify one; the C tools
 # assumed 250 Hz). argv[i] is the argument after -F (i >= argc if none).
 function _annapp_ffreq(pname::String, argv::Vector{Vector{UInt8}}, i::Int, argc::Int)
@@ -77,7 +77,7 @@ function _annapp_ffreq(pname::String, argv::Vector{Vector{UInt8}}, i::Int, argc:
     f[]
 end
 
-# wfdb-x: the error of the annotation tools when the sampling frequency is
+# WFDB-x: the error of the annotation tools when the sampling frequency is
 # needed but not specified.
 function _annapp_nofreq(pname::String, record)
     ceprintf("%s: sampling frequency of record %s is not specified (use -F)\n", pname, record)
@@ -85,13 +85,13 @@ function _annapp_nofreq(pname::String, record)
 end
 
 # The sampling frequency of the record of rdann, ann2rr and sortann (set
-# with setsampfreq if it comes from -F). wfdb-x: no default sampling
+# with setsampfreq if it comes from -F). WFDB-x: no default sampling
 # frequency (the C programs assumed 250 Hz if the record had no header, as
 # legacy mode does); -F (ffreq > 0) specifies one. Without one, it is an
 # error if the tool needs it (`needed`).
 function _annapp_sampfreq(pname::String, record, ffreq::Float64, legacy::Bool, needed::Bool)
     sps = sampfreq(record)
-    if legacy           # wfdb-x: legacy mode (original behavior)
+    if legacy           # WFDB-x: legacy mode (original behavior)
         if sps < 0.0
             sps = WFDB_DEFFREQ
             setsampfreq(sps)
@@ -107,7 +107,7 @@ function _annapp_sampfreq(pname::String, record, ffreq::Float64, legacy::Bool, n
 end
 
 function rdann_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -256,7 +256,7 @@ function rdann_main(args::Vector{String})
         cexit(1)
     end
 
-    # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     # the record had no header); -F specifies one.
     sps = _annapp_sampfreq(pname, record, ffreq, legacy, true)
 
@@ -412,7 +412,7 @@ register_workload("rdann") do
         workload_tool("rdann", "-r", "nh", "-a", "atr")
         workload_tool("rdann", "-r", "nh", "-a", "atr", "-F", "360", "-t", "s2000")
         workload_tool("rdann", "-r", "nh", "-a", "atr", "-F", "x")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("rdann", "--legacy", "-r", "nh", "-a", "atr", "-e")
         workload_tool("rdann", "--legacy", "-r", "nf", "-a", "atr", "-x", "-t", "0:5")
         workload_tool("rdann", "--legacy", "-r", "nh", "-a", "atr", "-F", "360")

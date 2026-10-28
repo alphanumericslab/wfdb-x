@@ -14,7 +14,7 @@
 #
 # Changes from the original: no built-in ADC resolution: a missing resolution
 # stays unspecified (the original assumed 12 bits); --legacy, as the first
-# argument, restores the original behavior. Each change is marked "wfdb-x:" in
+# argument, restores the original behavior. Each change is marked "WFDB-x:" in
 # the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/revise.c, WFDB Software Package 10.7.0.
@@ -141,7 +141,7 @@ function _revise_readoldheader(record::Vector{UInt8}, siarray::Vector{Siginfo})
 
         # Determine the ADC resolution.
         p = strtok(tk, _REVISE_SEP)
-        # wfdb-x: C (and legacy mode) assumed WFDB_DEFRES
+        # WFDB-x: C (and legacy mode) assumed WFDB_DEFRES
         si.adcres = p !== nothing ? atoi(p) : wfdbx_get_legacy() != 0 ? WFDB_DEFRES : Int32(0)
 
         # Determine the ADC zero.
@@ -202,7 +202,7 @@ function _revise_readoldheader(record::Vector{UInt8}, siarray::Vector{Siginfo})
 end
 
 function revise_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     wfdbx_legacy_args(args)
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -240,7 +240,7 @@ register_workload("revise") do
         workload_tool("revise", "100s")
         workload_tool("revise", "nosuch")
         workload_tool("revise")
-        for rec in ("old", "o2g", "o33")    # wfdb-x: legacy mode (original behavior)
+        for rec in ("old", "o2g", "o33")    # WFDB-x: legacy mode (original behavior)
             workload_tool("revise", "--legacy", rec)
         end
     end

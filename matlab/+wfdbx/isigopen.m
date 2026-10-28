@@ -45,7 +45,7 @@ function [nsig, si] = isigopen(record, nsig)
 % code.
 %
 % Changes from the original: the signal files are read from the directory of
-% the header, not searched for. Each change is marked "wfdb-x:" in the code;
+% the header, not searched for. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -157,7 +157,7 @@ while si_ < navail && s < nsig
     else
         if S.legacy_mode
             ig.fp = wfdbx.internal.wfdb_open(hs.info.fname, [], 0); % WFDB_READ
-        else    % wfdb-x: in the directory of the header
+        else    % WFDB-x: in the directory of the header
             ig.fp = wfdbx.internal.open_in(S.hdr_dir, [], hs.info.fname, ...
                 record);
         end

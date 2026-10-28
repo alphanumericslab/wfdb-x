@@ -12,7 +12,7 @@ frequency is required for time arguments, time columns and XML output (-X), and
 the gain of each selected signal for physical units (-p, -P) (the original
 assumed 250 Hz and 200 adu/mV); unspecified units are shown as "nd" (the
 original showed "mV"); --legacy, as the first argument, restores the original
-behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 gives the reasons.
 
 Original C program: app/rdsamp.c, WFDB Software Package 10.7.0.
@@ -176,12 +176,12 @@ def _main(argv, out):
     nsig = w.isigopen(record, si, nsig)
     if nsig <= 0:
         raise Exit(2)
-    if legacy():    # wfdb-x: the C program's default gain
+    if legacy():    # WFDB-x: the C program's default gain
         legacy_gains(si)
     if highres:
         w.setgvmode(w.WFDB_HIGHRES)
     freq = w.sampfreq(None)
-    # wfdb-x: no default sampling frequency (C assumed 250 Hz if the header
+    # WFDB-x: no default sampling frequency (C assumed 250 Hz if the header
     # did not specify one, as legacy mode does).
     if not legacy() and freq <= 0.0 and (
             (from_i > 0 and w.wfdbx_time_needs_freq(argv[from_i])) or
@@ -215,7 +215,7 @@ def _main(argv, out):
         nsig = nosig
     else:
         sig = list(range(nsig))
-    # wfdb-x: no default gain (C assumed 200 adu/mV for uncalibrated
+    # WFDB-x: no default gain (C assumed 200 adu/mV for uncalibrated
     # signals, as legacy mode does).
     if pflag and not legacy():
         for k in range(nsig):
@@ -346,7 +346,7 @@ def _main(argv, out):
             out.write(tufmt)
             for k in range(nsig):
                 p = si[sig[k]].units
-                if p is None:   # wfdb-x: shown as "nd" (C, legacy mode: mV)
+                if p is None:   # WFDB-x: shown as "nd" (C, legacy mode: mV)
                     p = "mV" if legacy() else "nd"
                 if cflag == 0:  # "(units)" must fit the column
                     ln = len(p)

@@ -12,7 +12,7 @@
 // FREQ gives it when the record has no header or its header gives none, and is
 // then required for time arguments and for intervals and times in units of
 // time (the original assumed 250 Hz); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/ann2rr.c, WFDB Software Package 10.7.0.
@@ -67,7 +67,7 @@ private const val ANN2RR_MAXDIGITS = 15
 // Lines of the usage summary shown before each "--More--" prompt.
 private const val ANN2RR_PAGELINES = 23
 
-/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
+/** WFDB-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val ANN2RR_WFDBX_HELP = setOf(
     " -F FREQ sampling frequency, if the record header does not specify one",
 )
@@ -92,7 +92,7 @@ private fun Wfdb.ann2rrHelp(pname: ByteArray) {
     }
 }
 
-/** wfdb-x: whether output format [c] (of -i, -v or -V) is a unit of time, which needs the sampling frequency. */
+/** WFDB-x: whether output format [c] (of -i, -v or -V) is a unit of time, which needs the sampling frequency. */
 private fun ann2rrTimeFormatNeedsFreq(c: Int): Boolean =
     c == 'h'.code || c == 'm'.code || c == 's'.code || c == 't'.code || c == 'T'.code
 
@@ -259,7 +259,7 @@ fun Wfdb.ann2rrMain(argv0: Array<ByteArray>): Int {
         exit(1)
     }
 
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the record had no header); -F specifies one. It is needed for times
     // and intervals in units of time.
     var sps = sampfreq(record)

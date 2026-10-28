@@ -57,7 +57,7 @@ def test_mnemonics():
     assert w.map1(w.APC) == w.NORMAL and w.map2(w.APC) == w.SVPB
 
 
-# wfdb-x: no default sampling frequency (see docs/DIVERGENCES.md)
+# WFDB-x: no default sampling frequency (see docs/DIVERGENCES.md)
 
 def test_read_without_frequency(datadir):
     import shutil
@@ -97,7 +97,7 @@ def test_read_legacy(datadir):
 
 
 # ---------------------------------------------------------------------------
-# Out-of-order output annotations: sorted when the file is closed (wfdb-x: in
+# Out-of-order output annotations: sorted when the file is closed (WFDB-x: in
 # the same process; in legacy mode, by running sortann, as the C library)
 
 # ties in time, num and chan, duplicates (the last one is kept), NOTQRS
@@ -178,7 +178,7 @@ def test_sort_in_process(datadir, monkeypatch, capfd):
             (150, w.NOISE, 3, -1), (150, w.NOISE, 3, 0),
             (200, w.RHYTHM, 0, 0), (5000, w.NORMAL, 0, 0)]
     assert legacy_got == rest
-    # wfdb-x: nothing is lost
+    # WFDB-x: nothing is lost
     assert modern_got == [(0, w.NORMAL, 0, 0), (5, w.NORMAL, 1, 0)] + rest
 
 

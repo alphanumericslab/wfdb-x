@@ -203,7 +203,7 @@ class RecordTest {
         assertTrue(text.endsWith("#c1\r\n"), text)
     }
 
-    // wfdb-x: no default sampling frequency, gain, ADC resolution or units
+    // WFDB-x: no default sampling frequency, gain, ADC resolution or units
     // (see docs/DIVERGENCES.md)
 
     @Test
@@ -318,7 +318,7 @@ class RecordTest {
         fails("signal 1 of record nf is uncalibrated") { a.physicalSignal(1) }
     }
 
-    // wfdb-x: legacy mode (the original package's defaults, on request)
+    // WFDB-x: legacy mode (the original package's defaults, on request)
 
     @Test
     fun writeRecordLegacy() = withData("lgw") { d, w ->
@@ -593,11 +593,11 @@ class RecordTest {
                 assertFalse(r.checksumOk)
                 if (phys) assertTrue(near(0.09, r.physical!![2]))
             }
-            // the default: "wfdb-x: " + the message, as a library message
+            // the default: "WFDB-x: " + the message, as a library message
             // (printed unless wfdbquiet was called)
             w.wfdbquiet()
             w.readRecord("ck", legacy = legacy)
-            assertEquals("wfdb-x: $cksumMsg\n", str(w.wfdberror()))
+            assertEquals("WFDB-x: $cksumMsg\n", str(w.wfdberror()))
             w.wfdbverbose()
             // checksumWarning = false: no warning; checksumOk false either way
             val none = ArrayList<String>()

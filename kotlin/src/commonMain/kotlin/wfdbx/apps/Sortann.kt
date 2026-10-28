@@ -24,7 +24,7 @@
 // then required for the -f and -t times (the original assumed 250 Hz); an
 // out-of-order annotation at time 0 (num 0, chan 0) is no longer lost, nor are
 // those inserted after it; --legacy, as the first argument, restores the
-// original behavior. Each change is marked "wfdb-x:" in the code;
+// original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/sortann.c, WFDB Software Package 10.7.0.
@@ -54,7 +54,7 @@ private val SORTANN_HELP = arrayOf(
     "the current directory, and the input is not already sorted.",
 )
 
-/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
+/** WFDB-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val SORTANN_WFDBX_HELP = setOf(
     " -F FREQ    sampling frequency, if the record header does not specify one",
 )
@@ -179,7 +179,7 @@ fun Wfdb.sortannMain(argv0: Array<ByteArray>): Int {
     // program recursively if something goes wrong.
     setenv("WFDBANNSORT", "0", true)
 
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the record had no header); -F specifies one. It is needed only to
     // convert the -f and -t times.
     var sps = sampfreq(record)
@@ -217,13 +217,13 @@ fun Wfdb.sortannMain(argv0: Array<ByteArray>): Int {
             from = d2l(from.toDouble() * tps / sps + 0.5)
             to = d2l(to.toDouble() * tps / sps + 0.5)
         } else if (from != 0L || to != 0L) {
-            // wfdb-x: no default sampling frequency
+            // WFDB-x: no default sampling frequency
             eprintf("%s: sampling frequency of record %s is not specified (use -F)\n", pname, record)
             exit(1)
         }
     }
 
-    // Build a linked list of annotations in memory (wfdbx.AnnList; wfdb-x:
+    // Build a linked list of annotations in memory (wfdbx.AnnList; WFDB-x:
     // it no longer loses annotations at time 0, except in legacy mode).
     val list = AnnList(legacy)
     while (getann(0, annot) == 0) {

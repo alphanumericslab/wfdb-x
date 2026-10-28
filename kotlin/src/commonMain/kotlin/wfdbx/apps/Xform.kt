@@ -23,7 +23,7 @@
 // adu/mV, a resolution based on the format, and millivolts); when an output
 // signal file would be one of the input files, the message says so; --legacy,
 // as the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/xform.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2010 George B. Moody; revised 2017-2020 by
@@ -383,7 +383,7 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
     if (mflag) setgvmode(WFDB_LOWRES)
     else if (hflag) setgvmode(WFDB_HIGHRES)
     val ifreq = sampfreq(null)
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the input header did not specify one, as legacy mode does).
     if (ifreq <= 0.0 && !legacy) {
         eprintf("%s: sampling frequency of record %s is not specified\n", pname, irec)
@@ -416,7 +416,7 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
         // Determine the output sampling frequency.
         ofreq = sampfreq(orecV)
         if (ofreq == 0.0 && !legacy) {
-            // wfdb-x: no default sampling frequency
+            // WFDB-x: no default sampling frequency
             eprintf("%s: sampling frequency of record %s is not specified\n", pname, orecV)
             wfdbquit()
             exit(2)
@@ -476,9 +476,9 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
             }
         }
         if (ofreq == 0.0 && legacy) {
-            ofreq = WFDB_DEFFREQ // wfdb-x: as in the C program (legacy mode)
+            ofreq = WFDB_DEFFREQ // WFDB-x: as in the C program (legacy mode)
         } else if (ofreq == 0.0) {
-            // wfdb-x: the C program assumed 250 Hz
+            // WFDB-x: the C program assumed 250 Hz
             eprintf("%s: the output sampling frequency must be > 0\n", pname)
             wfdbquit()
             exit(1)
@@ -564,7 +564,7 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
                 }
                 dfout[k].units = if (units.isEmpty()) null else units
             }
-            // wfdb-x: C (legacy mode) showed "mV"
+            // WFDB-x: C (legacy mode) showed "mV"
             val ushow = dfout[k].units?.let { cstr(it) } ?: (if (legacy) "mV" else "nd").latin1()
             eprintf(" Signal %d gain (adu/%s) [%g]: ", k, ushow, dfout[k].gain)
             answer = sfgets(anslen)
@@ -573,7 +573,7 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
                 sscanf(answer, "%lf", d)
                 dfout[k].gain = d.v
             }
-            // wfdb-x: a resolution is offered only if it comes from the input
+            // WFDB-x: a resolution is offered only if it comes from the input
             // (or the previous output signal) and suits the output format;
             // the C program otherwise offered one based on the format (12 bits
             // for 16-bit formats). Without one, the user must give it. Legacy
@@ -582,7 +582,7 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
                 if (k > 0) dfout[k].adcres = dfout[k - 1].adcres
                 val d = dfout[k]
                 val (maxres, legacyRes) = formatRes(d.fmt)
-                if (legacy && (d.adcres < 8 || d.adcres > maxres)) d.adcres = legacyRes // wfdb-x: legacy mode
+                if (legacy && (d.adcres < 8 || d.adcres > maxres)) d.adcres = legacyRes // WFDB-x: legacy mode
                 if (d.adcres >= 8 && d.adcres <= maxres) {
                     eprintf(" Signal %d ADC resolution in bits (8-32) [%d]: ", k, d.adcres)
                 } else {
@@ -715,7 +715,7 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
     wfdbquiet()
     if (orecV != null) {
         if (osigopen(orecV, dfout, nosig) != nosig) {
-            // wfdb-x: say why if an output file is one of the input files
+            // WFDB-x: say why if an output file is one of the input files
             // (the library's message, quieted above, is the last error)
             val e = cstr(wfdberror())
             val tail = " is also an input file\n"
@@ -776,14 +776,14 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
         //    appropriate number of bits will be dropped from or added to each
         //    signal.
         // 2. If the output gain has been specified, the signal is scaled by
-        //    the ratio of the output and input gains. (wfdb-x: if the input
+        //    the ratio of the output and input gains. (WFDB-x: if the input
         //    signal is uncalibrated, this is an error; the C program, and
         //    legacy mode, assumed an input gain of WFDB_DEFGAIN.)
         // These rules differ from those used by earlier versions of xform,
         // although the default behavior remains the same in most cases.
         if (dfout[k].gain == 0.0) {
             // output gain not specified
-            // wfdb-x: rescaling by ADC resolution needs both resolutions (the
+            // WFDB-x: rescaling by ADC resolution needs both resolutions (the
             // C program guessed an unspecified input resolution from the
             // format, assuming WFDB_DEFRES for 16-bit formats, as legacy mode
             // does).
@@ -807,7 +807,7 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
         } else if (dfin[j].gain == 0.0) {
             // output gain specified, but input gain not specified
             if (legacy) {
-                // wfdb-x: as in the C program (legacy mode)
+                // WFDB-x: as in the C program (legacy mode)
                 gain[k] = dfout[k].gain / WFDB_DEFGAIN
             } else {
                 eprintf(

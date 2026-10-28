@@ -17,7 +17,7 @@
 # Changes from the original: no built-in sampling frequency: the new option -F
 # FREQ gives it when the record header gives none, and is then required for -s
 # (the original assumed 250 Hz); --legacy, as the first argument, restores the
-# original behavior. Each change is marked "wfdb-x:" in the code;
+# original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/m2a.c, WFDB Software Package 10.7.0.
@@ -38,13 +38,13 @@ const _M2A_HELP = (
     " -h        print this usage summary",
     " -s TIME   shift annotation times backwards by the specified TIME,",
     "            and convert them to milliseconds")
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _M2A_LEGACY_HELP = _help_without(_M2A_HELP, 5)
 
 const _M2A_MS_PER_S = 1000.0    # milliseconds per second
 
 function m2a_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -110,7 +110,7 @@ function m2a_main(args::Vector{String})
             putann(0, annot)
         end
     else
-        # wfdb-x: no default sampling frequency (the C program assumed 250 Hz
+        # WFDB-x: no default sampling frequency (the C program assumed 250 Hz
         # if the record header did not specify one, as legacy mode does); -F
         # specifies one.
         if sampfreq(record) <= 0.0
@@ -151,7 +151,7 @@ register_workload("m2a") do
         workload_tool("m2a", "-r", "nh", "-a", "atr", "aha", "-s", "1")
         workload_tool("m2a", "-r", "nh", "-a", "atr", "aha", "-s", "1", "-F", "250")
         workload_tool("m2a", "-r", "nh", "-a", "atr", "aha", "-F", "-1")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("m2a", "--legacy", "-r", "nh", "-a", "atr", "aha", "-s", "1")
         workload_tool("m2a", "--legacy", "-r", "nh", "-a", "atr", "aha", "-F", "250")
         workload_tool("m2a", "--legacy", "-h")

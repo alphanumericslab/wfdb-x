@@ -8,7 +8,7 @@ function status = revise(args)
 %       revise RECORD
 %   reads the old-style header of RECORD and writes RECORD.hea.
 %
-%   wfdb-x: a missing ADC resolution stays unspecified (0; the C program
+%   WFDB-x: a missing ADC resolution stays unspecified (0; the C program
 %   assumed WFDB_DEFRES, 12 bits); see docs/DIVERGENCES.md.
 %
 %   Example (old stands for a record with an obsolete-format header,
@@ -31,7 +31,7 @@ function status = revise(args)
 %
 % Changes from the original: no built-in ADC resolution: a missing resolution
 % stays unspecified (the original assumed 12 bits); --legacy, as the first
-% argument, restores the original behavior. Each change is marked "wfdb-x:" in
+% argument, restores the original behavior. Each change is marked "WFDB-x:" in
 % the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/revise.c, WFDB Software Package 10.7.0.
@@ -161,7 +161,7 @@ while g < ng
     if ischar(p)
         cur.adcres = wfdbx.internal.atoi(p);
     else
-        cur.adcres = 0;     % wfdb-x: C (and legacy mode) assumed WFDB_DEFRES
+        cur.adcres = 0;     % WFDB-x: C (and legacy mode) assumed WFDB_DEFRES
         if wfdbx.wfdbx_get_legacy()
             cur.adcres = 12;    % WFDB_DEFRES
         end

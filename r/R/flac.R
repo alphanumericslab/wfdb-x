@@ -14,7 +14,7 @@
 #
 # Changes from the original: FLAC streams are decoded and encoded by WFDB-x's
 # own codec instead of libFLAC; the files written decode to the same samples,
-# but their bytes differ from libFLAC's. Each change is marked "wfdb-x:" in the
+# but their bytes differ from libFLAC's. Each change is marked "WFDB-x:" in the
 # code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C code: lib/signal.c (FLAC support), WFDB Software Package 10.7.0.

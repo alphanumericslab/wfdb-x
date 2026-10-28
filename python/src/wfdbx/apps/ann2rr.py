@@ -11,7 +11,7 @@ Changes from the original: no built-in sampling frequency: the new option -F
 FREQ gives it when the record has no header or its header gives none, and is
 then required for time arguments and for intervals and times in units of time
 (the original assumed 250 Hz); --legacy, as the first argument, restores the
-original behavior. Each change is marked "wfdb-x:" in the code;
+original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/ann2rr.c, WFDB Software Package 10.7.0.
@@ -68,7 +68,7 @@ HELP = [
     "in seconds with 8 decimal places, use '-i s8'.",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {
     " -F FREQ sampling frequency, if the record header does not specify one":
     None})
@@ -98,7 +98,7 @@ def _flag(table, a):
 
 
 def _time_format_needs_freq(c):
-    """wfdb-x: return True if output format c (for -i, -v or -V) is a unit
+    """WFDB-x: return True if output format c (for -i, -v or -V) is a unit
     of time, which needs the sampling frequency."""
     return c in ("h", "m", "s", "t", "T")
 
@@ -210,7 +210,7 @@ def _main(argv, out):
     if record is None or ainame is None:
         help(pname)
         raise Exit(1)
-    # wfdb-x: no default sampling frequency (C assumed 250 Hz if the record
+    # WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
     # had no header); -F specifies one.  It is needed for times and
     # intervals in units of time.
     # Legacy mode: as in the C program.

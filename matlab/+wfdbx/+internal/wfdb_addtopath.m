@@ -4,7 +4,7 @@ function wfdb_addtopath(s)
 %   the file name S to the beginning of the WFDB path (after '.', if '.' is
 %   the first component), so that the other files of a record found there
 %   are found in the same place.  Called by wfdb_open for every file found
-%   in legacy mode (wfdb-x: nothing is searched otherwise).
+%   in legacy mode (WFDB-x: nothing is searched otherwise).
 %
 %   Translation of the C function wfdb_addtopath() (lib/wfdbio.c, WFDB
 %   10.7.0).
@@ -18,7 +18,7 @@ function wfdb_addtopath(s)
 % code.
 %
 % Changes from the original: called only in legacy mode, since nothing is
-% searched otherwise. Each change is marked "wfdb-x:" in the code;
+% searched otherwise. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.

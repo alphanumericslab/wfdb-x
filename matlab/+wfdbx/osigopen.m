@@ -7,7 +7,7 @@ function [nsig, si] = osigopen(record, nsig)
 %   begins with '+'.  N is NSIG, or a negative value on error; SI
 %   describes the signals opened.
 %
-%   wfdb-x: an output signal file is never one of the input files.  In
+%   WFDB-x: an output signal file is never one of the input files.  In
 %   normal mode, if a signal file to be created is the same file as a
 %   signal file of the open input record (one open for input, or one of
 %   any segment of the open multi-segment record; the files are compared,
@@ -32,7 +32,7 @@ function [nsig, si] = osigopen(record, nsig)
 % code.
 %
 % Changes from the original: an output signal file that is one of the files
-% of the open input record is refused. Each change is marked "wfdb-x:" in
+% of the open input record is refused. Each change is marked "WFDB-x:" in
 % the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.

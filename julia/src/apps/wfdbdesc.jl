@@ -16,7 +16,7 @@
 # gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"), and
 # unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
 # millivolts); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
@@ -45,7 +45,7 @@ function _wfdbdesc_file_size(name::Vector{UInt8})
 end
 
 function wfdbdesc_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -97,7 +97,7 @@ function wfdbdesc_main(args::Vector{String})
         end
         cprintf("=====\n")
     end
-    # wfdb-x: if the sampling frequency is not specified, times are not
+    # WFDB-x: if the sampling frequency is not specified, times are not
     # shown (the C program assumed 250 Hz). In legacy mode, the output is
     # that of the C program.
     freq = sampfreq(nothing)
@@ -161,17 +161,17 @@ function wfdbdesc_main(args::Vector{String})
         cprintf(" File: %s\n", x.fmt != 0 ? x.fname : "[none]")
         cprintf(" Description: %s\n", x.desc)
         cprintf(" Gain: ")
-        if legacy                   # wfdb-x: as in the C program
+        if legacy                   # WFDB-x: as in the C program
             if x.gain == 0.0
                 cprintf("uncalibrated; assume %g", WFDB_DEFGAIN)
             else
                 cprintf("%.12g", x.gain)
             end
             cprintf(" adu/%s\n", x.units === nothing ? "mV" : x.units)
-        elseif x.gain == 0.0        # wfdb-x: no default gain
+        elseif x.gain == 0.0        # WFDB-x: no default gain
             cprintf("uncalibrated\n")
         else
-            # wfdb-x: unspecified units are shown as "nd" (C assumed mV)
+            # WFDB-x: unspecified units are shown as "nd" (C assumed mV)
             cprintf("%.12g adu/%s\n", x.gain, x.units === nothing ? "nd" : x.units)
         end
         cprintf(" Initial value: %d\n", x.initval)
@@ -186,7 +186,7 @@ function wfdbdesc_main(args::Vector{String})
         end
         if x.adcres > 0 || legacy
             cprintf(" ADC resolution: %d bits\n", x.adcres)
-        else                        # wfdb-x: no default resolution
+        else                        # WFDB-x: no default resolution
             cprintf(" ADC resolution: not specified\n")
         end
         cprintf(" ADC zero: %d\n", x.adczero)
@@ -208,7 +208,7 @@ register_workload("wfdbdesc") do
                                    Dict{String,Any}("nfz.hea" => "nfz 1\n100s.dat 212 0 11\n"))) do dir
         for rec in ("nf", "uc", "nfz", "nr")
             workload_tool("wfdbdesc", rec)
-            workload_tool("wfdbdesc", "--legacy", rec)     # wfdb-x: legacy mode
+            workload_tool("wfdbdesc", "--legacy", rec)     # WFDB-x: legacy mode
         end
     end
 end

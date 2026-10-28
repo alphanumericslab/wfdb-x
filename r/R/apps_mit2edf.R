@@ -13,7 +13,7 @@
 # resolution of every signal (the original assumed 250 Hz and 200 adu/mV, and
 # guessed the resolution from the storage format); unspecified units are
 # written as "nd" (the original wrote "mV"); --legacy, as the first argument,
-# restores the original behavior. Each change is marked "wfdb-x:" in the code;
+# restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
@@ -45,7 +45,7 @@ app_mit2edf <- function(args = character(0)) {
   for (s in h) ceprintf("%s\n", s)
 }
 
-# wfdb-x: legacy mode (original behavior): the ADC resolution guessed from
+# WFDB-x: legacy mode (original behavior): the ADC resolution guessed from
 # the signal file format.
 .mit2edf_adcres <- function(fmt) {
   if (fmt %in% c(524, 24)) return(24)
@@ -152,14 +152,14 @@ app_mit2edf <- function(args = character(0)) {
   nsig <- r$nsig
   si <- r$si
   if (nsig <= 0) cexit(3)
-  # wfdb-x: an EDF file needs the sampling frequency and the gain of each
+  # WFDB-x: an EDF file needs the sampling frequency and the gain of each
   # signal (the C program assumed 250 Hz and 200 adu/mV if the header did
   # not specify them, as legacy mode does).
   legacy <- wfdbx_get_legacy()
   if (!legacy && sampfreq(NULL) <= 0) .app_nofreq(pname, record, 3)
   for (k in seq_len(if (legacy) 0 else nsig)) {
     if (si[[k]]$gain == 0) .app_uncalibrated(pname, k - 1, record, 3)
-    # wfdb-x: the EDF digital range needs the ADC resolution (the C program
+    # WFDB-x: the EDF digital range needs the ADC resolution (the C program
     # guessed it from the storage format).
     if (si[[k]]$adcres < 1) .app_noadcres(pname, k - 1, record, 3)
   }
@@ -270,7 +270,7 @@ app_mit2edf <- function(args = character(0)) {
   }
   for (k in seq_len(nsig)) put("transducer type not recorded", 80)
   for (k in seq_len(nsig)) {
-    # (wfdb-x: unspecified units are shown as "nd"; C, legacy mode: mV)
+    # (WFDB-x: unspecified units are shown as "nd"; C, legacy mode: mV)
     si[[k]]$units <- if (!is.null(si[[k]]$units)) cut(si[[k]]$units, 8) else if (legacy) "mV" else "nd"
     put(si[[k]]$units, 8)
   }
@@ -318,7 +318,7 @@ app_mit2edf <- function(args = character(0)) {
     .app_fwrite(ofile, as.integer(cint16(blk)), size = 2L, endian = "little")
     b0 <- b0 + nb
   }
-  .app_fclose(ofile)            # wfdb-x: reports a write error
+  .app_fclose(ofile)            # WFDB-x: reports a write error
   if (vflag) {
     nbs <- seq_len(nblocks)
     dots <- character(nblocks)

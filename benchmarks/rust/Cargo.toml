@@ -1,0 +1,25 @@
+[package]
+name = "wfdbx_bench"
+version = "1.1.0"
+edition = "2021"
+description = "Benchmark driver for the Rust implementation of WFDB-x (see benchmarks/README.md)"
+license = "GPL-3.0-or-later"
+publish = false
+
+[[bin]]
+name = "wfdbx_bench"
+path = "src/main.rs"
+
+[dependencies]
+wfdbx = { path = "../../rust" }
+
+# A package of its own, outside the workspace of any parent directory.
+[workspace]
+
+# As in rust/Cargo.toml.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+panic = "unwind"
+debug = false

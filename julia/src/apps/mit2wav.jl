@@ -18,7 +18,7 @@
 #
 # Changes from the original: no built-in sampling frequency: the record must
 # give it (the original assumed 250 Hz); --legacy, as the first argument,
-# restores the original behavior. Each change is marked "wfdb-x:" in the code;
+# restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/mit2wav.c, WFDB Software Package 10.7.0.
@@ -51,7 +51,7 @@ _mit2wav_out32(b::Vector{UInt8}, x::Integer) =
     (push!(b, x % UInt8, (x >> 8) % UInt8, (x >> 16) % UInt8, (x >> 24) % UInt8); b)
 
 function mit2wav_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -123,7 +123,7 @@ function mit2wav_main(args::Vector{String})
     s = [Siginfo() for _ in 1:nsig]
     nsig = isigopen(record, s, nsig)
     nsig <= 0 && cexit(3)
-    # wfdb-x: no default frequency (except in legacy mode)
+    # WFDB-x: no default frequency (except in legacy mode)
     if !legacy && sampfreq(nothing) <= 0.0
         ceprintf("%s: sampling frequency of record %s is not specified\n", pname, record)
         cexit(3)

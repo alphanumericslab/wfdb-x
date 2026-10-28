@@ -13,7 +13,7 @@ resolution and units, and are required (-U unless the gain is 0; the original
 assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and millivolts);
 the options precede the input files, in any order; the short-format part of a
 long-format file (skipped by -s) is located from -F; --legacy, as the first
-argument, restores the original behavior. Each change is marked "wfdb-x:" in
+argument, restores the original behavior. Each change is marked "WFDB-x:" in
 the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
@@ -46,7 +46,7 @@ class _Conv:
 
     def __init__(self, f, fmt, params):
         self.f = f
-        # wfdb-x: the signal parameters (-F, -G, -R, -U); C assumed those of
+        # WFDB-x: the signal parameters (-F, -G, -R, -U); C assumed those of
         # the AHA database (250 Hz, 400 adu/mV, 12 bits, millivolts).
         self.freq, self.gain, self.res, self.units = params
         self.format = fmt
@@ -102,7 +102,7 @@ class _Conv:
         return 2
 
     def process(self, record):
-        w.setsampfreq(self.freq)        # wfdb-x: -F (C set 250 Hz)
+        w.setsampfreq(self.freq)        # WFDB-x: -F (C set 250 Hz)
         ofname = "%s.dat" % record
         si0 = w.Siginfo(fname=ofname, desc="ECG0", units=self.units,
                         gain=self.gain, fmt=212, adcres=self.res, spf=0)
@@ -142,7 +142,7 @@ def _main(argv):
     argv = list(argv)       # the C version modifies its arguments in place
     argc = len(argv)
     if argc < 2 or argv[1] == "-h":
-        if legacy():    # wfdb-x: the usage of the C program
+        if legacy():    # WFDB-x: the usage of the C program
             eprintf("usage: %s [-s] RECORD.XXX [RECORD.XXX]...\n", argv[0])
         else:
             eprintf("usage: %s [-s] -F FREQ -G GAIN -R BITS -U UNITS"
@@ -165,7 +165,7 @@ def _main(argv):
                     " units of the signals; for the AHA DVD\n files, use -F"
                     " 250 -G 400 -R 12 -U mV.\n")
         raise Exit(1)
-    # wfdb-x: options (-s and the signal parameters) precede the input
+    # WFDB-x: options (-s and the signal parameters) precede the input
     # files, in any order.
     pname = argv[0]
     sflag = 0
@@ -174,7 +174,7 @@ def _main(argv):
     uunits = None
     i = 1
     if legacy():
-        # wfdb-x: in legacy mode, the option of the C program (-s only, as
+        # WFDB-x: in legacy mode, the option of the C program (-s only, as
         # the first argument), and the parameters of the AHA database that it
         # set (250 Hz, 400 adu/mV, 12 bits, millivolts).
         if argv[1] == "-s":
@@ -217,7 +217,7 @@ def _main(argv):
                 raise Exit(1)
             uunits = argv[i]
         i += 1
-    # wfdb-x: the signal parameters must be given explicitly (see
+    # WFDB-x: the signal parameters must be given explicitly (see
     # docs/DIVERGENCES.md); in legacy mode, these checks pass.
     if ffreq <= 0.0:
         eprintf("%s: the sampling frequency must be specified (-F)\n", pname)

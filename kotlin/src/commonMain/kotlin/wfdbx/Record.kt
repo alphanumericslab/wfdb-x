@@ -198,7 +198,7 @@ data class Record(
 
     private fun calibratedGain(s: Int): Double {
         val g = siginfo[s].gain
-        if (g == 0.0 && legacy) return WFDB_DEFGAIN // wfdb-x: legacy mode (original behavior)
+        if (g == 0.0 && legacy) return WFDB_DEFGAIN // WFDB-x: legacy mode (original behavior)
         if (g == 0.0) {
             throw WfdbException("signal ${signalNumbers.getOrElse(s) { s }} of record $name is uncalibrated")
         }
@@ -425,7 +425,7 @@ private fun Wfdb.needsFreq(t: TimeSpec?): Boolean = t is TimeSpec.Text && wfdbx_
 
 /**
  * Throws if the sampling frequency is not specified and [from] or [to]
- * needs it (wfdb-x: no default sampling frequency; C assumed 250 Hz).
+ * needs it (WFDB-x: no default sampling frequency; C assumed 250 Hz).
  * Legacy mode: no check.
  */
 private fun Wfdb.checkTimeFreq(record: String, from: TimeSpec?, to: TimeSpec?) {
@@ -467,7 +467,7 @@ private fun strOrNull(b: ByteArray?): String? = b?.let { cstr(it).latin1() }
 private const val SPACE = " \t\n\u000b\u000c\r"
 
 /**
- * wfdb-x: the high-level readers give the signal descriptions without the
+ * WFDB-x: the high-level readers give the signal descriptions without the
  * white space that some headers end them with (C keeps it, as the C-style
  * functions do).
  */
@@ -574,8 +574,8 @@ private const val CHUNK_FRAMES = 1L shl 20
  * @param checksumWarning warn when the data do not match the header's
  *   checksums (the data are returned either way, and [Record.checksumOk]
  *   is false)
- * @param onWarning receives the warning (without the "wfdb-x: " prefix and
- *   the newline); null: the library prints "wfdb-x: " + the warning on
+ * @param onWarning receives the warning (without the "WFDB-x: " prefix and
+ *   the newline); null: the library prints "WFDB-x: " + the warning on
  *   the standard error, unless [wfdbquiet] was called
  * @param inputDir input directory for this call only (null: the current
  *   setting)
@@ -656,7 +656,7 @@ private fun Wfdb.readRecordImpl(
         }
     }
     if (physical && !legacy) {
-        // wfdb-x: no default gain (C, legacy mode: 200 adu/mV)
+        // WFDB-x: no default gain (C, legacy mode: 200 adu/mV)
         for (k in cols) if (si[k].gain == 0.0) fail("signal $k of record $record is uncalibrated")
     }
     val b = baseTimeFields()
@@ -689,13 +689,15 @@ private fun Wfdb.readRecordImpl(
             }
             val need = used.toLong() + n * nsig
             if (need > Int.MAX_VALUE - 8) fail("record $record is too long to be read at once")
-            if (need > all.size) all = all.copyOf(maxOf(need, minOf(2L * all.size, Int.MAX_VALUE - 8L)).toInt())
-            val r = getvecsStatusAt(all, used, n)
+            // (if they do not fit, the vectors are read into a separate
+            // array first, so that `all` grows only if there are more)
+            val probe = if (need > all.size) IntArray((n * nsig).toInt()) else null
+            val r = if (probe == null) getvecsStatusAt(all, used, n) else getvecsStatusAt(probe, 0, n)
             val stat = r.status
             var got = maxOf(r.count, 0L)
             if (remaining != null) remaining -= got
             if (stat == -4) {
-                // wfdb-x: a checksum error: the vector read last holds valid
+                // WFDB-x: a checksum error: the vector read last holds valid
                 // data and is kept; reading continues (in high-resolution
                 // mode, each vector of the last frame returns -4), and a
                 // warning follows.
@@ -703,10 +705,14 @@ private fun Wfdb.readRecordImpl(
                 checksumError = true
                 if (remaining != null) remaining -= 1
             }
+            if (probe != null && got > 0) {
+                all = all.copyOf(maxOf(need, minOf(2L * all.size, Int.MAX_VALUE - 8L)).toInt())
+                probe.copyInto(all, used, 0, (got * nsig).toInt())
+            }
             used += (got * nsig).toInt()
             if (stat == -4) continue
             if (got < n) {
-                // wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a
+                // WFDB-x: a status below -1 (e.g. -3, unexpected EOF: a
                 // signal file shorter than its header says, or a decoder or
                 // I/O error) is an error, not the end of the data (-1).
                 if (stat < -1) fail("can't read signal data of record $record (getvec status $stat)")
@@ -718,7 +724,7 @@ private fun Wfdb.readRecordImpl(
     }
     if (checksumError && checksumWarning) {
         val msg = "checksum error in record $record: the signal data do not match the checksums in its header"
-        if (onWarning != null) onWarning(msg) else wfdb_error("wfdb-x: $msg\n")
+        if (onWarning != null) onWarning(msg) else wfdb_error("WFDB-x: $msg\n")
     }
     val nframes = used / nsig
     val nout = cols.size
@@ -739,12 +745,7 @@ private fun Wfdb.readRecordImpl(
         // (legacy mode: the default gain for uncalibrated signals)
         val g = DoubleArray(nout) { if (sel[it].gain != 0.0 || !legacy) sel[it].gain else WFDB_DEFGAIN }
         val bl = DoubleArray(nout) { sel[it].baseline.toDouble() }
-        phys = DoubleArray(samples.size)
-        for (i in samples.indices) {
-            val c = i % nout
-            val v = samples[i]
-            phys[i] = if (v == WFDB_INVALID_SAMPLE) Double.NaN else (v.toDouble() - bl[c]) / g[c]
-        }
+        phys = toPhysical(samples, nout, bl, g)
     }
     val comments = infoStrings(rec)
     val result = Record(
@@ -756,6 +757,30 @@ private fun Wfdb.readRecordImpl(
     )
     wfdbquit()
     return result
+}
+
+/**
+ * (v - baseline) / gain for each value v of [samples] (frames of [nout]
+ * values; the baselines and gains of the signals in [bl] and [g]), NaN
+ * for an invalid sample.
+ */
+private fun toPhysical(samples: IntArray, nout: Int, bl: DoubleArray, g: DoubleArray): DoubleArray {
+    val phys = DoubleArray(samples.size)
+    if (nout == 0) return phys
+    // (in pieces of 512 frames, with the baseline and the gain of each value
+    // of a piece in bt and gt: a loop that the JIT compiles to vector
+    // instructions; then the invalid samples)
+    val tl = nout * 512
+    val bt = DoubleArray(tl) { bl[it % nout] }
+    val gt = DoubleArray(tl) { g[it % nout] }
+    var i = 0
+    while (i < samples.size) {
+        val e = minOf(tl, samples.size - i)
+        for (j in 0 until e) phys[i + j] = (samples[i + j].toDouble() - bt[j]) / gt[j]
+        i += e
+    }
+    for (k in samples.indices) if (samples[k] == WFDB_INVALID_SAMPLE) phys[k] = Double.NaN
+    return phys
 }
 
 /**
@@ -810,7 +835,7 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
     val rec = fname(record)
     val an = fname(annotator)
     wfdbquit()
-    // wfdb-x: no default sampling frequency (C assumed 250 Hz if the record
+    // WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
     // had no header, as legacy mode does); fs gives one, as rdann -F does.
     val sps = sampfreq(rec)
     if (sps <= 0.0 && fs != null) {
@@ -823,68 +848,17 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
     val t0 = resolve(from) ?: 0L
     val t1 = resolve(to)
     if (t0 != 0L && iannsettime(t0) < 0) fail("can't seek in annotator $annotator")
-    val times = LongList()
-    val codes = IntList()
-    val subs = IntList()
-    val chans = IntList()
-    val nums = IntList()
-    val aux = ArrayList<String?>()
-    val a = Annotation()
-    var stat: Int
-    while (true) {
-        stat = getann(0, a)
-        if (stat != 0) break
-        if (t1 != null && a.time >= t1) break
-        times.add(a.time)
-        codes.add(a.anntyp)
-        subs.add(a.subtyp)
-        chans.add(a.chan)
-        nums.add(a.num)
-        val x = a.aux
-        aux.add(
-            if (x == null || x.isEmpty()) {
-                null
-            } else {
-                val len = x[0].toInt() and 0xff
-                cstr(x.copyOfRange(1, minOf(1 + len, x.size))).latin1()
-            },
-        )
-    }
-    // wfdb-x: a status other than 0 and -1 (e.g. -3, unexpected EOF: the
+    val r = getannAll(0, t1)
+    val stat = r.status
+    // WFDB-x: a status other than 0 and -1 (e.g. -3, unexpected EOF: the
     // file is truncated) is an error, not the end of the file.
     if (stat != 0 && stat != -1) fail("can't read annotation file $annotator of record $record (getann status $stat)")
-    val c = codes.toArray()
-    val symbols = ArrayList<String>(c.size)
-    val cache = HashMap<Int, String>()
-    for (code in c) symbols.add(cache.getOrPut(code) { annstr(code).latin1() })
     val res = Annotations(
-        record = record, annotator = annotator, fs = getiafreq(0), samples = times.toArray(), codes = c,
-        symbols = symbols, subtypes = subs.toArray(), chans = chans.toArray(), nums = nums.toArray(), aux = aux,
+        record = record, annotator = annotator, fs = getiafreq(0), samples = r.times, codes = r.codes,
+        symbols = r.symbols, subtypes = r.subtypes, chans = r.chans, nums = r.nums, aux = r.aux,
     )
     wfdbquit()
     return res
-}
-
-/** A growable array of Long. */
-private class LongList {
-    var a = LongArray(1024)
-    var n = 0
-    fun add(x: Long) {
-        if (n == a.size) a = a.copyOf(2 * n)
-        a[n++] = x
-    }
-    fun toArray(): LongArray = a.copyOf(n)
-}
-
-/** A growable array of Int. */
-private class IntList {
-    var a = IntArray(1024)
-    var n = 0
-    fun add(x: Int) {
-        if (n == a.size) a = a.copyOf(2 * n)
-        a[n++] = x
-    }
-    fun toArray(): IntArray = a.copyOf(n)
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,9 +992,9 @@ fun Wfdb.writeRecord(
             for (k in 0 until nsig) {
                 var gain = gainOf(spec.gains, k, leg)
                 if (gain == 0.0 && leg) {
-                    gain = WFDB_DEFGAIN // wfdb-x: legacy mode (original behavior)
+                    gain = WFDB_DEFGAIN // WFDB-x: legacy mode (original behavior)
                 } else if (gain == 0.0) {
-                    throw WfdbException("writeRecord: signal $k is uncalibrated") // wfdb-x: no default gain
+                    throw WfdbException("writeRecord: signal $k is uncalibrated") // WFDB-x: no default gain
                 }
                 val zero = perSignal(spec.adczeros, k) ?: 0
                 val base = perSignal(spec.baselines, k) ?: zero
@@ -1051,14 +1025,14 @@ private class WriteSpec(
     val comments: List<String>?, val sampsPerFrame: IntArray?,
 )
 
-/** The gain of signal [k] (wfdb-x: no default gain; C assumed WFDB_DEFGAIN, as legacy mode does). */
+/** The gain of signal [k] (WFDB-x: no default gain; C assumed WFDB_DEFGAIN, as legacy mode does). */
 private fun gainOf(gains: DoubleArray?, k: Int, legacy: Boolean): Double {
     val g = perSignal(gains, k)
     if (legacy) return g ?: WFDB_DEFGAIN
     return g ?: throw WfdbException("writeRecord: gains must be specified")
 }
 
-/** The ADC resolution of signal [k] (wfdb-x: no default; C inferred it from the format, as legacy mode does). */
+/** The ADC resolution of signal [k] (WFDB-x: no default; C inferred it from the format, as legacy mode does). */
 private fun adcresOf(adcres: IntArray?, k: Int, fmt: Int, legacy: Boolean): Int {
     val r = perSignal(adcres, k)
     if (legacy) return r ?: legacyAdcres(fmt)
@@ -1071,7 +1045,7 @@ private fun checkWriteSpf(spf: IntArray?) {
     if (spf != null && spf.any { it < 1 }) throw WfdbException("writeRecord: sampsPerFrame must hold integers >= 1")
 }
 
-/** Checks the sampling frequency (wfdb-x: no default; not checked in legacy mode, as in the original package). */
+/** Checks the sampling frequency (WFDB-x: no default; not checked in legacy mode, as in the original package). */
 private fun checkWriteFreq(fs: Double, legacy: Boolean) {
     if (!(fs > 0.0) && !legacy) throw WfdbException("writeRecord: the sampling frequency must be > 0")
 }
@@ -1089,7 +1063,7 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
         s.desc = (perSignal(spec.names, k) ?: "").latin1()
         s.gain = gainOf(spec.gains, k, legacy)
         val u = perSignal(spec.units, k)
-        // wfdb-x: there are no default units (C left them out: millivolts)
+        // WFDB-x: there are no default units (C left them out: millivolts)
         if (!legacy && s.gain != 0.0 && u.isNullOrEmpty()) throw WfdbException("writeRecord: units must be specified")
         s.units = if (u.isNullOrEmpty()) null else u.latin1()
         s.fmt = spec.fmt
@@ -1194,18 +1168,7 @@ fun Wfdb.writeAnnotations(
             }
             val zeros = IntArray(n)
             val auxes = arrayOfNulls<ByteArray>(n)
-            if (aux != null) {
-                for (k in 0 until n) {
-                    val x = aux[k] ?: continue
-                    if (x.isEmpty()) continue
-                    val b = x.latin1()
-                    val m = minOf(b.size, 255) // (one length byte)
-                    val v = ByteArray(m + 1)
-                    v[0] = m.toByte()
-                    b.copyInto(v, 1, 0, m)
-                    auxes[k] = v
-                }
-            }
+            if (aux != null) for (k in 0 until n) auxes[k] = auxField(aux[k])
             val rec = fname(record)
             wfdbquit()
             val errors = wfdbx_write_errors()
@@ -1229,6 +1192,16 @@ fun Wfdb.writeAnnotations(
             if (wfdbx_write_errors() > errors) throw WfdbException("write error on annotator $annotator for record $record")
         }
     }
+}
+
+/** The aux field (length byte first) of an aux string: its first 255 characters (null for null or ""). */
+private fun auxField(x: String?): ByteArray? {
+    if (x == null || x.isEmpty()) return null
+    val m = minOf(x.length, 255) // (one length byte)
+    val v = ByteArray(m + 1)
+    v[0] = m.toByte()
+    for (i in 0 until m) v[i + 1] = x[i].code.toByte()
+    return v
 }
 
 /**

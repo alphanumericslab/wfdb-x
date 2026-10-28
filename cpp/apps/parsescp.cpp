@@ -14,7 +14,7 @@
 // allocated, and samples beyond the end of a signal shorter than lead 0, are
 // read as absent or as zeros (undefined behavior in the original); --legacy,
 // as the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -73,7 +73,7 @@ constexpr int MAXAGE = 90;         // greater ages are censored (-a) or shown
                                    // as this value
 // Output signals: the samples are rescaled to units of NV_PER_ADU (5000)
 // nanovolts, so the gain SCP_GAIN (200 adu/mV) is exact, not assumed.
-// (wfdb-x: the sampling frequency is the one given in the SCP file; the C
+// (WFDB-x: the sampling frequency is the one given in the SCP file; the C
 // program always wrote SCP_FREQ, 500 Hz, as legacy mode does.)
 constexpr double SCP_GAIN = 200;
 constexpr double SCP_FREQ = 500.;
@@ -562,7 +562,7 @@ static int write_wfdb_record()
                             V1, V2, V3, V4, V5, V6 };
     char info[64];
 
-    // wfdb-x: the sampling frequency is the one given in the SCP file (the C
+    // WFDB-x: the sampling frequency is the one given in the SCP file (the C
     // program always wrote 500 Hz, as legacy mode does); without one, no
     // record is written.
     if (!wfdbx_get_legacy()) {
@@ -584,7 +584,7 @@ static int write_wfdb_record()
         s[i].desc = wleadname[i];
         s[i].units = "mV";
         s[i].fmt = 16;
-        s[i].gain = SCP_GAIN;  // wfdb-x: exact, not assumed (see SCP_GAIN)
+        s[i].gain = SCP_GAIN;  // WFDB-x: exact, not assumed (see SCP_GAIN)
         s[i].adcres = 16; // FIXME: we should calculate this!
     }
     if (osigfopen(s, NLEADS) < NLEADS)
@@ -1557,11 +1557,11 @@ static int Huffdecode(long long p, long long len, int section)
         // FIXME: If this ever happens, we need to redo the reconstruction
         // code in main()
         sfreq = 1.0e6 / sampint;
-    } else if (wfdbx_get_legacy()) {    // wfdb-x: as in the C program
+    } else if (wfdbx_get_legacy()) {    // WFDB-x: as in the C program
         std::printf("Error: sampling frequency not specified;  assuming"
                     " 500 Hz\n");
         sfreq = SCP_FREQ;
-    } else  // wfdb-x: the C program assumed 500 Hz
+    } else  // WFDB-x: the C program assumed 500 Hz
         std::printf("Error: sampling frequency not specified\n");
     // (the encoding type is read from the high byte of the sample interval)
     if (vflag) std::printf("  Encoding type: %d ", (int)b(p + 3));
@@ -1961,7 +1961,7 @@ static int c_atoi(const char *s)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -2271,7 +2271,7 @@ int main(int argc, char **argv)
         }
     }
 
-    // wfdb-x: signals that could not be allocated (undefined behavior in C)
+    // WFDB-x: signals that could not be allocated (undefined behavior in C)
     // are read as zeros, and so are samples beyond the end of a signal
     // shorter than lead 0.
     uint64_t n0 = 0;

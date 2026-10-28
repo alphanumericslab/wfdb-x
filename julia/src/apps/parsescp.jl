@@ -44,7 +44,7 @@
 # read as absent or as zeros (undefined behavior in the original); an output
 # file that cannot be written is reported (wfdbx_fclose_output); --legacy, as
 # the first argument, restores the original behavior. Each change is marked
-# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -92,7 +92,7 @@ const _SCP_ZLIMIT = 2000            # larger zero-mean samples are invalid (-z)
 const _SCP_WFDB_GAIN = 200.0
 const _SCP_WFDB_FMT = Int32(16)     # signal format of the WFDB record
 const _SCP_WFDB_ADCRES = Int32(16)  # ADC resolution of the WFDB record
-# wfdb-x: legacy mode (original behavior): the sampling frequency that the C
+# WFDB-x: legacy mode (original behavior): the sampling frequency that the C
 # program always wrote, and assumed when no sample interval was given
 const _SCP_LEGACY_FREQ = 500.0
 const _SCP_US_PER_S = 1.0e6         # microseconds per second
@@ -520,7 +520,7 @@ function _scp_write_wfdb_record(s::_Scp)
     v = zeros(Int32, nsig)
     order = _scp_order(s)
 
-    # wfdb-x: the sampling frequency is the one given in the SCP file (the C
+    # WFDB-x: the sampling frequency is the one given in the SCP file (the C
     # program always wrote 500 Hz, as legacy mode does); without one, no
     # record is written.
     legacy = wfdbx_get_legacy() != 0
@@ -536,7 +536,7 @@ function _scp_write_wfdb_record(s::_Scp)
     legacy && setsampfreq(_SCP_LEGACY_FREQ)     # FIXME: we should calculate this!
     si = [Siginfo(fname=copy(filename), desc=Vector{UInt8}(name), units=Vector{UInt8}(b"mV"),
                   fmt=_SCP_WFDB_FMT,
-                  gain=_SCP_WFDB_GAIN,          # wfdb-x: exact (see _SCP_WFDB_GAIN)
+                  gain=_SCP_WFDB_GAIN,          # WFDB-x: exact (see _SCP_WFDB_GAIN)
                   adcres=_SCP_WFDB_ADCRES)      # FIXME: we should calculate this!
           for name in _SCP_WLEADNAME]
     osigfopen(si, nsig) < nsig && return 0
@@ -1390,10 +1390,10 @@ function _scp_huffdecode(s::_Scp, p::Int64, len::Int64, section::Int)
         # FIXME: If this ever happens, we need to redo the reconstruction
         # code in main()
         s.sfreq = _SCP_US_PER_S / Float64(sampint)
-    elseif wfdbx_get_legacy() != 0  # wfdb-x: as in the C program
+    elseif wfdbx_get_legacy() != 0  # WFDB-x: as in the C program
         cprintf("Error: sampling frequency not specified;  assuming 500 Hz\n")
         s.sfreq = _SCP_LEGACY_FREQ
-    else                            # wfdb-x: the C program assumed 500 Hz
+    else                            # WFDB-x: the C program assumed 500 Hz
         cprintf("Error: sampling frequency not specified\n")
     end
     # (the encoding type is read from the high byte of the sample interval:
@@ -2021,7 +2021,7 @@ end
 const _SCP_READ_CHUNK = 1 << 16     # bytes read from the input at a time
 
 function parsescp_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     wfdbx_legacy_args(args)
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -2181,7 +2181,7 @@ function parsescp_main(args::Vector{String})
     _scp_filter_residuals(s)
     s.bflag == 0 && _scp_add_refbeats(s)    # true unless -b debugging option was given
 
-    # wfdb-x: signals that could not be allocated (undefined behavior in C)
+    # WFDB-x: signals that could not be allocated (undefined behavior in C)
     # are read as zeros, and so are samples beyond the end of a signal
     # shorter than lead 0.
     n0 = UInt64(0)
@@ -2242,7 +2242,7 @@ register_workload("parsescp") do
         workload_tool("parsescp", "-h")
         workload_tool("parsescp", "-q")
         workload_tool("parsescp", "extra")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("parsescp", "--legacy", "-w", "-o", "ex"; stdin=scp)
         workload_tool("parsescp", "--legacy", "-f", "-v", "-o", "x"; stdin=bad)
         g = GlibcRand(2)

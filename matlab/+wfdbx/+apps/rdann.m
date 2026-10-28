@@ -21,7 +21,7 @@ function status = rdann(args)
 %       -x                  use alternate time format (seconds, minutes,
 %                           hours)
 %
-%   wfdb-x: no sampling frequency is assumed (the C program assumed 250 Hz
+%   WFDB-x: no sampling frequency is assumed (the C program assumed 250 Hz
 %   if the record had no header); without a header giving one, -F is
 %   required.  See docs/DIVERGENCES.md.
 %
@@ -48,7 +48,7 @@ function status = rdann(args)
 % Changes from the original: no built-in sampling frequency: the new option -F
 % FREQ gives it when the record has no header or its header gives none, and is
 % then required (the original assumed 250 Hz); --legacy, as the first argument,
-% restores the original behavior. Each change is marked "wfdb-x:" in the code;
+% restores the original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/rdann.c, WFDB Software Package 10.7.0.
@@ -82,7 +82,7 @@ h = {'where RECORD and ANNOTATOR specify the input, and OPTIONS may include:', .
     ' -v                  print column headings', ...
     ' -x                  * use alternate time format (seconds, minutes, hours)', ...
     '* Only one of -e and -x can be used.'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h(5:6) = [];                % (without -F)
 end
 wfdbx.internal.ceprintf('usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n', pname);
@@ -142,7 +142,7 @@ while i < argc
         else
             c = '';
         end
-        if legacy && strcmp(c, 'F')   % wfdb-x: legacy mode: not an option of
+        if legacy && strcmp(c, 'F')   % WFDB-x: legacy mode: not an option of
             c = '';                     % the original (unrecognized)
         end
         switch c
@@ -265,11 +265,11 @@ if ~ischar(record) || ~ischar(ainame)
     status = 1;
     return;
 end
-% wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+% WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
 % the record had no header); -F specifies one.
 sps = wfdbx.sampfreq(record);
 if legacy
-    if sps < 0      % wfdb-x: legacy mode (original behavior)
+    if sps < 0      % WFDB-x: legacy mode (original behavior)
         sps = wfdbx.WFDB_DEFFREQ();
         wfdbx.setsampfreq(sps);
     end

@@ -24,7 +24,7 @@
 // GAIN (required) and -U UNITS (required unless the gain is 0) give them (the
 // original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
 // millivolts); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
@@ -87,7 +87,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b" -U UNITS   physical units (required unless the gain is 0)",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
+/// WFDB-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] = &[
     b" -G GAIN    gain in adu per physical unit (required; 0: uncalibrated)",
@@ -112,13 +112,13 @@ fn check_tag(ifile: &mut WfdbFile, tag: &[u8; 4]) -> bool {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut ifname: Option<Vec<u8>> = None;
     let mut record: Option<Vec<u8>> = None;
-    let mut uunits: Option<Vec<u8>> = None; // wfdb-x: -U
-    let mut ggain = 0.0; // wfdb-x: -G
+    let mut uunits: Option<Vec<u8>> = None; // WFDB-x: -U
+    let mut ggain = 0.0; // WFDB-x: -G
     let mut gset = false;
 
     // Interpret the command line.
@@ -186,7 +186,7 @@ fn main() {
         help(&pname);
         cstd::exit(1);
     };
-    // wfdb-x: the gain and units must be given explicitly; the C program
+    // WFDB-x: the gain and units must be given explicitly; the C program
     // wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, with no
     // units (millivolts).  (The sampling frequency and the resolution are
     // those given in the file.)  Legacy mode: as in the C program.

@@ -30,7 +30,7 @@ const BUFSIZE: usize = 1024; // bytes read at a time
 
 fn main() {
     let mut argv = cstd::args();
-    wfdbx::wfdbx_legacy_args(&mut argv); // wfdb-x: --legacy (original behavior)
+    wfdbx::wfdbx_legacy_args(&mut argv); // WFDB-x: --legacy (original behavior)
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut buf = [0u8; BUFSIZE];

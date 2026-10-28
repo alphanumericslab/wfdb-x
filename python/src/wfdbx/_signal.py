@@ -29,7 +29,7 @@ directory; FLAC signal files are read and written with WFDB-x's own codec
 (_flac.py) instead of libFLAC; additions: wfdbx_set_legacy, wfdbx_get_legacy,
 wfdbx_legacy_args, wfdbx_time_needs_freq, getframes, and the readers and
 writers used by the high-level functions; legacy mode (wfdbx_set_legacy)
-restores the original behavior. Each change is marked "wfdb-x:" in the code;
+restores the original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C code: lib/signal.c, lib/wfdb.h and lib/wfdblib.h, WFDB Software
@@ -245,7 +245,7 @@ class _IGData:
         self.initial_skip = 0
         self.stat = 0
         self.flac = None
-        # wfdb-x: blocks read from fp by the bulk reader (_bulk_read) but
+        # WFDB-x: blocks read from fp by the bulk reader (_bulk_read) but
         # not yet reached; fill() takes its next block from them first
         self.ahead = b""
 
@@ -498,7 +498,7 @@ class _SigState:
         # header data
         self.hsd = []
         self.hheader = None
-        # wfdb-x: the directory of the header read last (see wio._dirname;
+        # WFDB-x: the directory of the header read last (see wio._dirname;
         # None if unknown: the standard input), and the directory and name
         # of the header of the current multi-segment record (msrec_name is
         # None if there is none); user_segments while setmsheader reads the
@@ -565,7 +565,7 @@ class _SigState:
         self.info_i = 0
         # variable-layout (sigmap)
         self.need_sigmap = 0
-        # wfdb-x: 1 while a high-level reader reads (getvec's checksum
+        # WFDB-x: 1 while a high-level reader reads (getvec's checksum
         # message is then not printed: the reader warns instead)
         self.cksum_quiet = 0
         self.nvsig = 0
@@ -592,7 +592,7 @@ class _SigState:
 
 _s = _SigState()
 
-# wfdb-x: legacy mode.  By default, the library has no built-in signal
+# WFDB-x: legacy mode.  By default, the library has no built-in signal
 # parameters (see docs/DIVERGENCES.md).  In legacy mode (wfdbx_set_legacy(1),
 # or --legacy as the first argument of an application, see wfdbx_legacy_args),
 # it behaves exactly as the original WFDB library 10.7.0, with its built-in
@@ -983,7 +983,7 @@ def _edfparse(ifile):
 def _open_header(s, record):
     """Open the header (of type s: "hea", or None for a file name) of a
     record, or of a segment named in the header of the current multi-segment
-    record (wfdb-x: in that header's directory), and note its directory."""
+    record (WFDB-x: in that header's directory), and note its directory."""
     s_ = _s
     if wfdbx_get_legacy():
         return wfdb_open(s, record, WFDB_READ)
@@ -1115,10 +1115,10 @@ def _readheader(record):
             wfdb_error(" from that of previously opened record\n")
         else:
             s_.ffreq = f
-    # wfdb-x: no default sampling frequency (C assumed WFDB_DEFFREQ, 250 Hz):
+    # WFDB-x: no default sampling frequency (C assumed WFDB_DEFFREQ, 250 Hz):
     # if neither the header nor setsampfreq() gives one, it remains 0.
     elif _legacy_mode and s_.ffreq == 0.0:
-        s_.ffreq = WFDB_DEFFREQ     # wfdb-x: legacy mode (original behavior)
+        s_.ffreq = WFDB_DEFFREQ     # WFDB-x: legacy mode (original behavior)
     s_.sfreq = s_.ffreq
     s_.cfreq = s_.bcount = 0.0
     if p is not None:
@@ -1152,7 +1152,7 @@ def _readheader(record):
         return -2
     # master header of a multi-segment record
     if s_.segments and not s_.in_msrec:
-        if not wfdbx_get_legacy():   # wfdb-x: the segments are next to it
+        if not wfdbx_get_legacy():   # WFDB-x: the segments are next to it
             s_.msrec_dir = s_.hdr_dir
             s_.msrec_name = record
         s_.msbtime = s_.btime
@@ -1298,7 +1298,7 @@ def _readheader(record):
         if p is not None:
             i = strtol(p)[0] & 0xFFFFFFFF
         else:
-            # wfdb-x: a missing ADC resolution is unspecified (0); the C
+            # WFDB-x: a missing ADC resolution is unspecified (0); the C
             # library inferred it from the format or assumed WFDB_DEFRES, as
             # legacy mode does.
             i = _legacy_adcres(hs.info.fmt) if _legacy_mode else 0
@@ -1559,7 +1559,7 @@ def _isgsetframe(g, t):
         nb = cdiv(tt, d) + ig.start
         i = ig.bsize if ig.bsize != 0 else s_.ibsize
         tt = cdiv(nb, i)
-        ig.ahead = b""      # (wfdb-x: the bulk reader's blocks)
+        ig.ahead = b""      # (WFDB-x: the bulk reader's blocks)
         if ig.fp is None or ig.fp.seek(tt * i, 0):
             wfdb_error("isigsettime: improper seek on signal group %d\n", g)
             return -1
@@ -1726,7 +1726,7 @@ def _getskewedframe(vector, vstart=0):
             # The checksum in the header is the low 16 bits of the sum.
             if info.nsamp == 0 and (info.cksum & 0xFFFF) and \
                     not s_.in_msrec and not s_.isedf and fmt != 0:
-                # wfdb-x: not printed during a high-level read (which
+                # WFDB-x: not printed during a high-level read (which
                 # warns instead), but recorded for wfdberror
                 pr = wio._io.error_print
                 if s_.cksum_quiet:
@@ -1896,7 +1896,7 @@ def isigopen(record, siarray=None, nsig=0):
         if hs.info.fmt == 0:
             ig.fp = None
         else:
-            # wfdb-x: in the directory of the header
+            # WFDB-x: in the directory of the header
             ig.fp = wfdb_open(hs.info.fname, None, WFDB_READ) \
                 if wfdbx_get_legacy() else \
                 wio._open_in(s_.hdr_dir, None, hs.info.fname, record)
@@ -1976,7 +1976,7 @@ def isigopen(record, siarray=None, nsig=0):
     return s
 
 
-# wfdb-x: an output signal file is never one of the input files.  In normal
+# WFDB-x: an output signal file is never one of the input files.  In normal
 # mode, _openosig refuses to create (and so to truncate) an output signal
 # file that is the same file as a signal file of the open input record: a
 # signal file open for input, or a signal file of any segment of the open
@@ -2111,7 +2111,7 @@ def _openosig(func, si_out, si_in, nsig):
                 else:
                     os_.info.fmt = 16
             if os_.info.fmt != 0:
-                # wfdb-x: never an input file (see _is_input_file)
+                # WFDB-x: never an input file (see _is_input_file)
                 if not _legacy_mode and _is_input_file(os_.info.fname):
                     wfdb_error("%s: output file %s is also an input file\n",
                                func, os_.info.fname)
@@ -2306,7 +2306,7 @@ def setifreq(f):
     g = s_.sfreq
     if g <= 0.0:
         s_.ifreq = 0.0
-        if s_.nisig > 0 and not _legacy_mode:   # wfdb-x: no frequency
+        if s_.nisig > 0 and not _legacy_mode:   # WFDB-x: no frequency
             wfdb_error("setifreq: sampling frequency is not specified\n")
         else:
             wfdb_error("setifreq: no open input record\n")
@@ -2529,7 +2529,7 @@ def putvec(vector):
     return stat
 
 
-# wfdb-x: a vectorized putvec, for write_record.  For each format below: the
+# WFDB-x: a vectorized putvec, for write_record.  For each format below: the
 # range of the samples (after an invalid sample is replaced by the invalid
 # value of the format, as putvec does), and the number of samples encoded
 # together (2 for format 212, 3 for formats 310 and 311).
@@ -2838,7 +2838,7 @@ def setobsize(n):
 def _hea_name(record, name):
     """A name as written into the header of record.
 
-    wfdb-x: outside legacy mode, names are written relative to the header's
+    WFDB-x: outside legacy mode, names are written relative to the header's
     directory (where the reader looks for them): the directory part of
     record is removed from name when name begins with it.
     """
@@ -3021,7 +3021,7 @@ def setmsheader(record, segment_name, nsegments=None):
             return -2
         s_.in_msrec = 1
         s_.nsamples = 0
-        s_.user_segments = True     # wfdb-x: names given by the caller
+        s_.user_segments = True     # WFDB-x: names given by the caller
         n = _readheader(segment_name[i])
         s_.user_segments = False
         s_.in_msrec = old_in_msrec
@@ -3295,7 +3295,7 @@ def sampfreq(record):
     signal).  Otherwise the header of ``record`` is read; the result is
     negative (-1: header cannot be read, -2: incorrect header format) on
     failure.
-    wfdb-x: the result is 0 if the header does not specify the sampling
+    WFDB-x: the result is 0 if the header does not specify the sampling
     frequency (C assumed 250 Hz).
 
     Translation of the C function sampfreq() (lib/signal.c, WFDB 10.7.0): same
@@ -3380,7 +3380,7 @@ def _ftimstr(t, f):
     return p
 
 
-# wfdb-x: the time conversion functions need a sampling frequency; the C
+# WFDB-x: the time conversion functions need a sampling frequency; the C
 # library used 1 sample per second when none was specified.  Without one,
 # timstr and mstimstr report an error and return the time as a sample number
 # ("s" followed by the number, a valid strtim argument), and strtim reports
@@ -3417,7 +3417,7 @@ def timstr(t):
     and converted to the time of day, "[hh:mm:ss dd/mm/yyyy]" (the date
     only if defined).  The time is truncated to whole seconds.
 
-    wfdb-x: if no sampling frequency is specified, reports an error and
+    WFDB-x: if no sampling frequency is specified, reports an error and
     returns the time as a sample number, "s" followed by |t| (C used 1
     sample per second); see docs/DIVERGENCES.md.
 
@@ -3432,7 +3432,7 @@ def timstr(t):
     elif s_.sfreq > 0.0:
         f = s_.sfreq
     elif _legacy_mode:
-        f = 1.0     # wfdb-x: legacy mode (original behavior)
+        f = 1.0     # WFDB-x: legacy mode (original behavior)
     else:
         return _nofreq_timstr("timstr", t)
     return _ftimstr(t, f)
@@ -3491,7 +3491,7 @@ def mstimstr(t):
     Like timstr(), but the result includes milliseconds ("hh:mm:ss.sss",
     or "[hh:mm:ss.sss dd/mm/yyyy]" for a time of day).
 
-    wfdb-x: without a sampling frequency, behaves as timstr() does.
+    WFDB-x: without a sampling frequency, behaves as timstr() does.
 
     Translation of the C function mstimstr() (lib/signal.c, WFDB 10.7.0): same
     arguments and results. Differences: if the sampling frequency is not
@@ -3504,7 +3504,7 @@ def mstimstr(t):
     elif s_.sfreq > 0.0:
         f = s_.sfreq
     elif _legacy_mode:
-        f = 1.0     # wfdb-x: legacy mode (original behavior)
+        f = 1.0     # WFDB-x: legacy mode (original behavior)
     else:
         return _nofreq_timstr("mstimstr", t)
     return _fmstimstr(t, f)
@@ -3618,7 +3618,7 @@ def strtim(string):
     negated elapsed time from the start of the record for a time of day,
     or 0 (which is also the error value for an unrecognized string).
 
-    wfdb-x: if no sampling frequency is specified and the string needs one
+    WFDB-x: if no sampling frequency is specified and the string needs one
     (see wfdbx_time_needs_freq), reports an error and returns 0 (C used 1
     sample per second).
 
@@ -3647,7 +3647,7 @@ def strtim(string):
 
 def _julian_ymd(date):
     """The (year, month, day) of a Julian date, computed as datstr() does
-    (wfdb-x: for the high-level readers' base_date)."""
+    (WFDB-x: for the high-level readers' base_date)."""
     if date >= 2299161:     # Gregorian calendar correction
         gcorr = int(((date - 1867216) - 0.25) / 36524.25)
         date += 1 + gcorr - int(0.25 * gcorr)
@@ -3717,7 +3717,7 @@ def strdat(string):
     return date
 
 
-# wfdb-x: the unit conversion functions need the gain of the signal; the C
+# WFDB-x: the unit conversion functions need the gain of the signal; the C
 # library assumed WFDB_DEFGAIN (200 adu per physical unit) for uncalibrated
 # signals (gain 0) and invalid signal numbers (with a baseline of 0), as
 # legacy mode does.  Otherwise they report an error and return
@@ -3745,7 +3745,7 @@ def _conversion_baseline(s):
 def adumuv(s, a):
     """Convert a from ADC units to microvolts, with the gain of signal s.
 
-    wfdb-x: returns WFDB_INVALID_SAMPLE (and reports an error) if s is not
+    WFDB-x: returns WFDB_INVALID_SAMPLE (and reports an error) if s is not
     an input signal or is uncalibrated (C assumed a gain of 200).
 
     Translation of the C function adumuv() (lib/signal.c, WFDB 10.7.0): same
@@ -3763,7 +3763,7 @@ def adumuv(s, a):
 def muvadu(s, v):
     """Convert v from microvolts to ADC units, with the gain of signal s.
 
-    wfdb-x: returns WFDB_INVALID_SAMPLE (and reports an error) if s is not
+    WFDB-x: returns WFDB_INVALID_SAMPLE (and reports an error) if s is not
     an input signal or is uncalibrated (C assumed a gain of 200).
 
     Translation of the C function muvadu() (lib/signal.c, WFDB 10.7.0): same
@@ -3781,7 +3781,7 @@ def muvadu(s, v):
 def aduphys(s, a):
     """Convert a from ADC units to physical units: (a - baseline) / gain.
 
-    The baseline and gain are those of input signal s.  wfdb-x: returns
+    The baseline and gain are those of input signal s.  WFDB-x: returns
     NaN (and reports an error) if s is not an input signal or is
     uncalibrated (C assumed a gain of 200).
 
@@ -3800,7 +3800,7 @@ def physadu(s, v):
     """Convert v from physical units to ADC units (rounded to an integer).
 
     This is the inverse of aduphys(), with the baseline and gain of input
-    signal s.  wfdb-x: returns WFDB_INVALID_SAMPLE (and reports an error)
+    signal s.  WFDB-x: returns WFDB_INVALID_SAMPLE (and reports an error)
     if s is not an input signal or is uncalibrated.
 
     Translation of the C function physadu() (lib/signal.c, WFDB 10.7.0): same
@@ -4209,8 +4209,12 @@ def _bulk_meansamp(x):
     n = x.shape[1]
     if n == 1:
         return x[:, 0]
-    inv = (x == WFDB_INVALID_SAMPLE).any(axis=1)
-    total = x.sum(axis=1) + n // 2
+    # (column by column: much faster than any(axis=1) and sum(axis=1))
+    inv = x[:, 0] == WFDB_INVALID_SAMPLE
+    total = x[:, 0] + n // 2
+    for j in range(1, n):
+        inv |= x[:, j] == WFDB_INVALID_SAMPLE
+        total += x[:, j]
 
     def cdiv(a, b):             # C division (truncation toward zero)
         return np.where(a >= 0, a // b, -((-a) // b))
@@ -4293,6 +4297,7 @@ def _bulk_frames(n, out, row=0, cols=None):
         for s in range(nisig):
             isd[s].samp = isd[s].info.initval
     sigs = [None] * nisig
+    whole = None        # (the raw values, if they are the frames as they are)
     for g, sl in groups.items():
         ig = s_.igd[g]
         data, have = bufs[g]
@@ -4307,6 +4312,20 @@ def _bulk_frames(n, out, row=0, cols=None):
         if nf == 0:
             continue
         k = 0
+        if fmt != 8 and not (raw == _INVALID_BY_FMT[fmt]).any():
+            # (no invalid samples: the raw values are the samples)
+            # (column by column: much faster than sum(axis=0))
+            sums = [int(raw[:, j].sum(dtype=np.int64)) for j in range(gfl)]
+            for s in sl:
+                spf = isd[s].info.spf
+                info = isd[s].info
+                info.cksum = int32(info.cksum - sum(sums[k:k + spf]))
+                isd[s].samp = int(raw[-1, k + spf - 1])
+                sigs[s] = raw[:, k:k + spf]
+                k += spf
+            if sl == list(range(nisig)):
+                whole = raw     # (one group holds all the signals, in order)
+            continue
         for s in sl:
             spf = isd[s].info.spf
             sigs[s] = _bulk_samples(isd[s], raw[:, k:k + spf], pad)
@@ -4324,7 +4343,12 @@ def _bulk_frames(n, out, row=0, cols=None):
     # The frames as getframe() gives them: the samples of the signals in
     # order, mapped to the layout of a variable-layout record, and padded
     # with invalid samples to the size of the layout's frame.
-    frames = np.concatenate(sigs, axis=1) if nisig > 1 else sigs[0]
+    if whole is not None:
+        frames = whole
+    else:
+        frames = np.concatenate(sigs, axis=1) if nisig > 1 else sigs[0]
+    if s_.need_sigmap or s_.ispfmax > 1 or s_.framelen != s_.tspf:
+        frames = frames.astype(np.int64, copy=False)
     if s_.need_sigmap:
         frames = _bulk_sigmap(frames)
     elif s_.framelen != s_.tspf:

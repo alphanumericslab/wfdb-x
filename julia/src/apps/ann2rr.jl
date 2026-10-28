@@ -11,7 +11,7 @@
 # FREQ gives it when the record has no header or its header gives none, and is
 # then required for time arguments and for intervals and times in units of time
 # (the original assumed 250 Hz); --legacy, as the first argument, restores the
-# original behavior. Each change is marked "wfdb-x:" in the code;
+# original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/ann2rr.c, WFDB Software Package 10.7.0.
@@ -51,7 +51,7 @@ const _ANN2RR_HELP = (
     "'h', 'm', and 's' may be followed by a number between 0 and 15, specifying",
     "the number of decimal places (default: 3).  For example, to obtain intervals",
     "in seconds with 8 decimal places, use '-i s8'.")
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _ANN2RR_LEGACY_HELP = _help_without(_ANN2RR_HELP, 7)
 
 const _ANN2RR_PAGE = 23         # lines of help per screen
@@ -75,7 +75,7 @@ function _ann2rr_help(pname, legacy::Bool)
     end
 end
 
-# wfdb-x: is output format c (for -i, -v, or -V) a unit of time, which
+# WFDB-x: is output format c (for -i, -v, or -V) a unit of time, which
 # needs the sampling frequency?
 _ann2rr_time_format(c::UInt8) =
     c == UInt8('h') || c == UInt8('m') || c == UInt8('s') || c == UInt8('t') || c == UInt8('T')
@@ -118,7 +118,7 @@ function _ann2rr_rrout(rrfstr::Vector{UInt8}, rr::Int64, div::Float64)
 end
 
 function ann2rr_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -249,7 +249,7 @@ function ann2rr_main(args::Vector{String})
         cexit(1)
     end
 
-    # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     # the record had no header); -F specifies one. It is needed for times
     # and intervals in units of time.
     needed = (from_i != 0 && wfdbx_time_needs_freq(argv[from_i]) != 0) ||
@@ -367,7 +367,7 @@ register_workload("ann2rr") do
         for opts in ("-t s3000", "-i s", "-F 360 -i s -t s3000", "-V s", "-F 0")
             workload_tool("ann2rr", "-r", "nh", "-a", "atr", split(opts)...)
         end
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         for opts in ("-i s -V t", "-F 360", "-f 0:10 -t 0:20 -v T")
             workload_tool("ann2rr", "--legacy", "-r", "nh", "-a", "atr", split(opts)...)
         end

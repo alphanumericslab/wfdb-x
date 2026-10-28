@@ -162,7 +162,7 @@ class BulkTest {
     private fun check(w: Wfdb, rng: Rng, name: String, nframes: Long) {
         val modes = intArrayOf(WFDB_LOWRES, WFDB_LOWRES or WFDB_GVPAD)
         for (mode in modes) {
-            for (ibsize in intArrayOf(0, 7, 100, 1000)) {
+            for (ibsize in intArrayOf(0, 7, 100, 1000, 1 shl 16)) {
                 val chunkSets = listOf(
                     longArrayOf(nframes + 10),
                     longArrayOf(nframes),

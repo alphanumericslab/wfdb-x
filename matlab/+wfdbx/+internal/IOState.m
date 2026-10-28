@@ -14,7 +14,7 @@ classdef IOState < handle
 %     mem_behavior   the argument of the last wfdbmemerr() call
 %     stdin_file     the WFDBFile of the standard input, once opened
 %     stdout_file    the WFDBFile of the standard output, once opened
-%   wfdb-x: the settings that locate files (each is read from its
+%   WFDB-x: the settings that locate files (each is read from its
 %   environment variable when first needed; see wfdbx.wfdbx_set_input_dir,
 %   wfdbx.wfdbx_set_output_dir, wfdbx.wfdbx_set_network):
 %     input_dir      the input directory ([]: none)
@@ -32,7 +32,7 @@ classdef IOState < handle
 %                    was printed
 %     fetched_urls, fetched_data   the URLs fetched (cell row) and their
 %                    contents (uint8 rows; [] for a failure)
-%   wfdb-x: write errors (see wfdbx.wfdbx_write_errors):
+%   WFDB-x: write errors (see wfdbx.wfdbx_write_errors):
 %     write_errors   the number of write errors since the program started
 %     stdout_failed  true once the standard output could not be written
 %                    (see wfdbx.internal.cout)
@@ -49,7 +49,7 @@ classdef IOState < handle
 %
 % Changes from the original: fields hold the settings that locate files
 % (input directory, output directory, network access), the remote files
-% fetched, and the write errors. Each change is marked "wfdb-x:" in the
+% fetched, and the write errors. Each change is marked "WFDB-x:" in the
 % code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.

@@ -25,7 +25,7 @@
 # millivolts); the options precede the input files, in any order; the
 # short-format part of a long-format file (skipped by -s) is located from -F;
 # --legacy, as the first argument, restores the original behavior. Each change
-# is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 #   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source has
@@ -45,7 +45,7 @@ const _AHAECG_NAMELEN = 4           # AHA record names are 4 (ASCII) digits
 # short-format (35-minute) record (skipped by -s).
 const _AHAECG_SKIP_MINUTES = 145
 
-# wfdb-x: the signal parameters (-F, -G, -R, -U); the C program assumed those
+# WFDB-x: the signal parameters (-F, -G, -R, -U); the C program assumed those
 # of the AHA database (250 Hz, 400 adu/mV, 12 bits, millivolts).
 struct _AhaecgParams
     freq::Float64
@@ -122,7 +122,7 @@ end
 function _ahaecg_process(st::_AhaecgState, record::Vector{UInt8}, par::_AhaecgParams)
     t = Int64(-1)
 
-    setsampfreq(par.freq)           # wfdb-x: -F (the C program set 250 Hz)
+    setsampfreq(par.freq)           # WFDB-x: -F (the C program set 250 Hz)
     ofname = append!(copy(record), b".dat")
     un() = par.units === nothing ? nothing : copy(par.units)
     si = [Siginfo(fname=ofname, desc=Vector{UInt8}(b"ECG0"), units=un(),
@@ -162,7 +162,7 @@ function _ahaecg_process(st::_AhaecgState, record::Vector{UInt8}, par::_AhaecgPa
     nothing
 end
 
-# wfdb-x: the options of ahaecg2mit (-s and the signal parameters, which
+# WFDB-x: the options of ahaecg2mit (-s and the signal parameters, which
 # precede the input files, in any order): returns the index of the first
 # input file, the -s flag, and the signal parameters.
 function _ahaecg_options(pname::String, argv::Vector{Vector{UInt8}}, argc::Int)
@@ -207,7 +207,7 @@ function _ahaecg_options(pname::String, argv::Vector{Vector{UInt8}}, argc::Int)
         end
         i += 1
     end
-    # wfdb-x: the signal parameters must be given explicitly (see
+    # WFDB-x: the signal parameters must be given explicitly (see
     # docs/DIVERGENCES.md).
     if ffreq[] <= 0.0
         ceprintf("%s: the sampling frequency must be specified (-F)\n", pname)
@@ -229,7 +229,7 @@ function _ahaecg_options(pname::String, argv::Vector{Vector{UInt8}}, argc::Int)
 end
 
 function ahaecg2mit_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -238,7 +238,7 @@ function ahaecg2mit_main(args::Vector{String})
     sflag = false
 
     if argc < 2 || argv[1] == b"-h"
-        if legacy                   # wfdb-x: the usage of the C program
+        if legacy                   # WFDB-x: the usage of the C program
             ceprintf("usage: %s [-s] RECORD.XXX [RECORD.XXX]...\n", pname)
         else
             ceprintf("usage: %s [-s] -F FREQ -G GAIN -R BITS -U UNITS RECORD.XXX [RECORD.XXX]...\n",
@@ -260,7 +260,7 @@ function ahaecg2mit_main(args::Vector{String})
     end
     i = 1
     if legacy
-        # wfdb-x: in legacy mode, the option of the C program (-s only, as the
+        # WFDB-x: in legacy mode, the option of the C program (-s only, as the
         # first argument), and the parameters of the AHA database that it set
         # (250 Hz, 400 adu/mV, 12 bits, millivolts).
         if argv[1] == b"-s"
@@ -334,7 +334,7 @@ register_workload("ahaecg2mit") do
         workload_tool("ahaecg2mit", "-R", "40")
         workload_tool("ahaecg2mit", "-h")
         workload_tool("ahaecg2mit")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("ahaecg2mit", "--legacy", "1001.ecg")
         workload_tool("ahaecg2mit", "--legacy", "-s", "1002.txt")
         workload_tool("ahaecg2mit", "--legacy", "-F", "250", "1001.ecg")

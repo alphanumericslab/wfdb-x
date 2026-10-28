@@ -271,7 +271,7 @@ fn amplitude_conversion() {
     assert_eq!(w.adumuv(0, -37), -185);
     assert_eq!(w.adumuv(1, 1), 5);
     assert_eq!(w.adumuv(0, -1), -5);
-    assert_eq!(w.adumuv(7, 100), WFDB_INVALID_SAMPLE); // wfdb-x: invalid signal
+    assert_eq!(w.adumuv(7, 100), WFDB_INVALID_SAMPLE); // WFDB-x: invalid signal
     assert_eq!(w.muvadu(0, 1000), 200);
     assert_eq!(w.muvadu(0, -333), -67);
     assert_eq!(w.muvadu(1, 2), 0);
@@ -443,7 +443,7 @@ fn uncalibrated_signals() {
     let mut d = DataDir::new();
     let w = &mut d.w;
     w.wfdbquiet();
-    isig(w, "null"); // gain 0: wfdb-x: no default gain
+    isig(w, "null"); // gain 0: WFDB-x: no default gain
     assert_eq!(w.adumuv(0, 100), WFDB_INVALID_SAMPLE);
     assert_eq!(w.muvadu(1, 100), WFDB_INVALID_SAMPLE);
     assert!(w.aduphys(0, 100).is_nan());
@@ -986,7 +986,7 @@ fn flac_failed_seek() {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: no default sampling frequency, gain, ADC resolution or units
+// WFDB-x: no default sampling frequency, gain, ADC resolution or units
 // (t_nodefaults in
 // tests/reference/api_expect.c; see docs/DIVERGENCES.md)
 
@@ -1332,7 +1332,7 @@ fn nodefaults_read_annotations() {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: legacy mode, the behavior of the original package (t_legacy in
+// WFDB-x: legacy mode, the behavior of the original package (t_legacy in
 // tests/reference/api_expect.c; see docs/DIVERGENCES.md)
 
 fn approx(x: f64, y: f64) -> bool {
@@ -1551,7 +1551,7 @@ fn legacy_high_level() {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: output directory of the writers, absolute record names
+// WFDB-x: output directory of the writers, absolute record names
 
 #[test]
 fn write_record_dir() {
@@ -1691,7 +1691,7 @@ fn absolute_record_names() {
     w.wfdbx_set_legacy(0);
 }
 
-/// wfdb-x: in legacy mode, the sortann program is run in the output
+/// WFDB-x: in legacy mode, the sortann program is run in the output
 /// directory, and sorts the file in place there, with the modern result.
 #[test]
 fn legacy_sort_in_output_dir() {
@@ -1744,7 +1744,7 @@ fn legacy_sort_in_output_dir() {
     }
 }
 
-/// wfdb-x: with dir, the dir checks come before any other check.
+/// WFDB-x: with dir, the dir checks come before any other check.
 #[test]
 fn dir_checks_first() {
     let mut d = DataDir::new();
@@ -1775,10 +1775,10 @@ fn dir_checks_first() {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: a checksum error is a warning in read_record; an output signal
+// WFDB-x: a checksum error is a warning in read_record; an output signal
 // file is never one of the input files
 
-const CKSUM_WARNING: &[u8] = b"wfdb-x: checksum error in record ck: the signal data do not match the checksums in its header\n";
+const CKSUM_WARNING: &[u8] = b"WFDB-x: checksum error in record ck: the signal data do not match the checksums in its header\n";
 
 /// Writes record `name` (2 signals, 4 frames, format 16).
 fn write_ck(w: &mut Wfdb, name: &str, x: &[i32]) {
@@ -2094,7 +2094,7 @@ fn write_annotations_sort_option() {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: a checksum error in a high-resolution read keeps every sample
+// WFDB-x: a checksum error in a high-resolution read keeps every sample
 
 /// Writes record `name` in format 16 with the samples per frame `spf` and
 /// the raw (file order) samples `x`.
@@ -2181,7 +2181,7 @@ fn read_record_highres_checksum() {
                         if warn {
                             assert_eq!(
                                 msg,
-                                b"wfdb-x: checksum error in record mf: the signal data do not match the checksums in its header\n",
+                                b"WFDB-x: checksum error in record mf: the signal data do not match the checksums in its header\n",
                                 "{what}"
                             );
                         } else {
@@ -2206,7 +2206,7 @@ fn read_record_highres_checksum() {
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: record names with directories (only the last component is
+// WFDB-x: record names with directories (only the last component is
 // checked when writing; the header names files relative to its directory)
 
 #[test]

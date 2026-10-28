@@ -39,7 +39,7 @@ function stat = annopen(record, aiarray, nann)
 %
 % Changes from the original: the name of an output annotation file is kept,
 % so that the file can be sorted when it is closed. Each change is marked
-% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/annot.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2015-2020 by Benjamin
@@ -143,7 +143,7 @@ for i = 1:nann
         end
         oa = wfdbx.internal.ann_oadata(f, ai.name, ai.stat);
         oa.rname = record;
-        oa.fname = wfdbx.wfdbfile([], []);  % wfdb-x: the file, for sorting
+        oa.fname = wfdbx.wfdbfile([], []);  % WFDB-x: the file, for sorting
         st.oad{end+1} = oa;
     end
 end

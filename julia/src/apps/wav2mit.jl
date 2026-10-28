@@ -22,7 +22,7 @@
 # (required) and -U UNITS (required unless the gain is 0) give them (the
 # original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
 # millivolts); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
@@ -42,7 +42,7 @@ const _WAV_FMT_CHUNK_LEN = 16
 const _WAV_FORMAT_PCM = 1
 "Bytes added to the RIFF chunk length to give the file length."
 const _WAV_RIFF_EXTRA = 8
-# wfdb-x: the gains (adu/mV) that the C program gave to 8-bit and 16-bit
+# WFDB-x: the gains (adu/mV) that the C program gave to 8-bit and 16-bit
 # .wav samples (legacy mode).
 const _WAV2MIT_LEGACY_GAIN8 = 12.5
 const _WAV2MIT_LEGACY_GAIN16 = 6400.0
@@ -57,7 +57,7 @@ const _WAV2MIT_HELP = (
     " -h         print this usage summary",
     " -r RECORD  create RECORD.hea (default: FILE.hea)",
     " -U UNITS   physical units (required unless the gain is 0)")
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _WAV2MIT_LEGACY_HELP = _help_without(_WAV2MIT_HELP, [4, 7])
 
 # Does the C string s end with ".wav" (and have at least 5 characters)?
@@ -90,7 +90,7 @@ function _wav2mit_tag(f::WfdbFile, tag)
 end
 
 function wav2mit_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -98,8 +98,8 @@ function wav2mit_main(args::Vector{String})
     pname = "wav2mit"
     ifname = nothing
     record = nothing
-    uunits = nothing                # wfdb-x: -U
-    ggain = Ref{Float64}(0.0)       # wfdb-x: -G
+    uunits = nothing                # WFDB-x: -U
+    ggain = Ref{Float64}(0.0)       # WFDB-x: -G
     gset = false
 
     # Interpret the command line.
@@ -159,7 +159,7 @@ function wav2mit_main(args::Vector{String})
         _convert_help(pname, legacy ? _WAV2MIT_LEGACY_HELP : _WAV2MIT_HELP)
         cexit(1)
     end
-    # wfdb-x: the gain and units must be given explicitly; the C program
+    # WFDB-x: the gain and units must be given explicitly; the C program
     # wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, with no
     # units (millivolts). (The sampling frequency and the resolution are
     # those given in the file.) Legacy mode: as in the C program.
@@ -221,10 +221,10 @@ function wav2mit_main(args::Vector{String})
     bitspersample = Int32(_wav2mit_in16(ifile))
     if bitspersample <= 8
         wres = Int32(8)
-        legacy && (ggain[] = _WAV2MIT_LEGACY_GAIN8)     # wfdb-x: the C program's gain
+        legacy && (ggain[] = _WAV2MIT_LEGACY_GAIN8)     # WFDB-x: the C program's gain
     elseif bitspersample <= 16
         wres = Int32(16)
-        legacy && (ggain[] = _WAV2MIT_LEGACY_GAIN16)    # wfdb-x: the C program's gain
+        legacy && (ggain[] = _WAV2MIT_LEGACY_GAIN16)    # WFDB-x: the C program's gain
     else
         ceprintf("%s: unsupported resolution (%d bits/sample) in %s\n", pname, bitspersample, ifname)
         cexit(3)
@@ -288,7 +288,7 @@ register_workload("wav2mit") do
         workload_tool("wav2mit", "-i", "nosuch.wav", "-r", "w8", "-G", "0")
         workload_tool("wav2mit", "-i", "fake.wav", "-r", "w8", "-G", "0")
         workload_tool("wav2mit", "-h")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("wav2mit", "--legacy", "-i", "t16.wav", "-r", "w16")
         workload_tool("wav2mit", "--legacy", "-i", "t8.wav")
         workload_tool("wav2mit", "--legacy", "-i", "t8.wav", "-G", "1")

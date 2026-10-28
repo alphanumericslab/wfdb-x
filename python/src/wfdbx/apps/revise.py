@@ -9,7 +9,7 @@ the original program, but it is new code, not the original C code.
 
 Changes from the original: no built-in ADC resolution: a missing resolution
 stays unspecified (the original assumed 12 bits); --legacy, as the first
-argument, restores the original behavior. Each change is marked "wfdb-x:" in
+argument, restores the original behavior. Each change is marked "WFDB-x:" in
 the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/revise.c, WFDB Software Package 10.7.0.
@@ -120,7 +120,7 @@ def readoldheader(record, si):
             cur.fmt = i
             cur.bsize = 0
         p = t.next(sep)
-        # wfdb-x: C (and legacy mode) assumed WFDB_DEFRES
+        # WFDB-x: C (and legacy mode) assumed WFDB_DEFRES
         cur.adcres = atoi(p) if p is not None else \
             (w.WFDB_DEFRES if legacy() else 0)
         p = t.next(sep)

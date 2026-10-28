@@ -22,9 +22,9 @@
 
 Read and write physiological signal records in the WFDB format used by
 PhysioNet. `WFDBX` is a complete Julia implementation of the WFDB Software
-Package 10.7.0: the library and all of its command-line tools. It reads and
-writes the same files as the original C library, and its tools print the
-same output.
+Package: the library and all of its command-line tools. It reads and writes
+the same files as the original C library, and its tools print the same
+output.
 
 You can use it in three ways:
 

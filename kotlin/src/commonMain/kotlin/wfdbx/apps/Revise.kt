@@ -16,7 +16,7 @@
 //
 // Changes from the original: no built-in ADC resolution: a missing resolution
 // stays unspecified (the original assumed 12 bits); --legacy, as the first
-// argument, restores the original behavior. Each change is marked "wfdb-x:" in
+// argument, restores the original behavior. Each change is marked "WFDB-x:" in
 // the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/revise.c, WFDB Software Package 10.7.0.
@@ -138,7 +138,7 @@ private fun Wfdb.readoldheader(record: ByteArray, siarray: Array<Siginfo>, ihead
         }
 
         // Determine the ADC resolution.
-        // wfdb-x: unspecified (0) if missing; C (and legacy mode) assumed
+        // WFDB-x: unspecified (0) if missing; C (and legacy mode) assumed
         // WFDB_DEFRES
         val dflt = if (wfdbx_get_legacy() != 0) WFDB_DEFRES else 0
         siarray[s].adcres = tk.next(REVISE_SEP)?.let { atoi(it) } ?: dflt

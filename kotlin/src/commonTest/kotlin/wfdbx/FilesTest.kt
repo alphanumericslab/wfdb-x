@@ -1,4 +1,4 @@
-// wfdb-x: files named in headers (normal mode: in the header's directory,
+// WFDB-x: files named in headers (normal mode: in the header's directory,
 // and their containment), multi-segment records, legacy mode unchanged
 // (the signal parts of rust/tests/files.rs, written with the C-style
 // functions; the other parts are in WfdbioTest.kt).

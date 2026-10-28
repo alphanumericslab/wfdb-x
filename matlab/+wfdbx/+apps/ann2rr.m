@@ -26,7 +26,7 @@ function status = ann2rr(args)
 %       -w      print annotations that end intervals
 %       -W      print annotations that begin intervals
 %
-%   wfdb-x: no sampling frequency is assumed (the C program assumed 250 Hz
+%   WFDB-x: no sampling frequency is assumed (the C program assumed 250 Hz
 %   if the record had no header); without a header giving one, -F is
 %   required for time arguments and for intervals and times in units of
 %   time (formats h, m, s, t, T).  See docs/DIVERGENCES.md.
@@ -55,7 +55,7 @@ function status = ann2rr(args)
 % FREQ gives it when the record has no header or its header gives none, and is
 % then required for time arguments and for intervals and times in units of time
 % (the original assumed 250 Hz); --legacy, as the first argument, restores the
-% original behavior. Each change is marked "wfdb-x:" in the code;
+% original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/ann2rr.c, WFDB Software Package 10.7.0.
@@ -75,7 +75,7 @@ status = wfdbx.internal.app_run(@main, [{'ann2rr'}, args]);
 end
 
 function r = time_format_needs_freq(c)
-% wfdb-x: true if output format C (for -i, -v, or -V) is a unit of time,
+% WFDB-x: true if output format C (for -i, -v, or -V) is a unit of time,
 % which needs the sampling frequency.
 r = ~isempty(c) && any(c(1) == 'hmstT');
 end
@@ -106,7 +106,7 @@ h = {'where RECORD and ANNOTATOR specify the input, and OPTIONS may include:', .
     '''h'', ''m'', and ''s'' may be followed by a number between 0 and 15, specifying', ...
     'the number of decimal places (default: 3).  For example, to obtain intervals', ...
     'in seconds with 8 decimal places, use ''-i s8''.'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h(6) = [];                  % (without -F)
 end
 wfdbx.internal.ceprintf('usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n', pname);
@@ -158,7 +158,7 @@ while i < argc
         else
             c = '';
         end
-        if legacy && strcmp(c, 'F')   % wfdb-x: legacy mode: not an option of
+        if legacy && strcmp(c, 'F')   % WFDB-x: legacy mode: not an option of
             c = '';                     % the original (unrecognized)
         end
         switch c
@@ -295,7 +295,7 @@ if ~ischar(record) || ~ischar(ainame)
     status = 1;
     return;
 end
-% wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+% WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
 % the record had no header); -F specifies one.  It is needed for times and
 % intervals in units of time.  Legacy mode: as in the C program.
 sps = wfdbx.sampfreq(record);

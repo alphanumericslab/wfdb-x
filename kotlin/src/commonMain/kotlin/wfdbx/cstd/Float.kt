@@ -314,8 +314,10 @@ fun fixedFast(buf: ByteVec, x: Double, width: Int, prec: Int): Boolean {
     var n = 0
     val p = prec
     while (true) {
-        tmp[n++] = ('0'.code + (q % 10).toInt()).toByte()
-        q /= 10
+        // (q < 2^32: q / 10 is (q * 0xCCCCCCCD) >>> 35, without a division)
+        val d = if (q < 0x100000000L) (q * 0xCCCCCCCDL) ushr 35 else q / 10
+        tmp[n++] = ('0'.code + (q - d * 10).toInt()).toByte()
+        q = d
         if (n == p) tmp[n++] = '.'.code.toByte()
         if (q == 0L && n > p + (if (p > 0) 1 else 0)) break
     }

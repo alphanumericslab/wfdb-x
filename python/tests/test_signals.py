@@ -22,7 +22,7 @@ import wfdbx as w
 RANGES = {8: 1000, 16: 32767, 61: 32767, 80: 127, 160: 32767, 212: 2047,
           310: 511, 311: 511, 24: 8388607, 32: 2147483647, 508: 127,
           516: 32767, 524: 8388607}
-# ADC resolutions written with each format (wfdb-x: write_record requires
+# ADC resolutions written with each format (WFDB-x: write_record requires
 # them)
 RES = {8: 12, 16: 16, 61: 16, 80: 8, 160: 16, 212: 12, 310: 10, 311: 10,
        24: 24, 32: 32, 508: 8, 516: 16, 524: 24}
@@ -101,7 +101,7 @@ def test_header_writing(datadir):
     assert text.endswith(b"#c1\r\n")
 
 
-# wfdb-x: no default sampling frequency, gain, ADC resolution or units (see
+# WFDB-x: no default sampling frequency, gain, ADC resolution or units (see
 # docs/DIVERGENCES.md)
 
 def test_write_record_requires_gains_and_frequency(datadir):
@@ -179,7 +179,7 @@ def test_read_record_uncalibrated(datadir):
     assert w.read_record("nf", sampto=3).gains == [200, 0]
 
 
-# wfdb-x: legacy mode (the original package's defaults, on request; see
+# WFDB-x: legacy mode (the original package's defaults, on request; see
 # docs/DIVERGENCES.md)
 
 def test_write_record_legacy(datadir):

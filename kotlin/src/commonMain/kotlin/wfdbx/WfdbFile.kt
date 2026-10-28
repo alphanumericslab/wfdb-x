@@ -12,7 +12,7 @@
 // Changes from the original: a remote file is read into memory (type WFDB_NET)
 // by WFDB-x's own code; the HTTP and FTP code of the original (NETFILES) is
 // not translated; an output file of the library that cannot be written counts
-// as a write error (see wfdbx_write_errors). Each change is marked "wfdb-x:"
+// as a write error (see wfdbx_write_errors). Each change is marked "WFDB-x:"
 // in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -91,10 +91,10 @@ class WfdbFile private constructor(private val kind: Kind, private var raw: RawF
     private var append = false
     private var closed = false
 
-    /** wfdb-x: a remote file (a URL fetched in full, read from memory). */
+    /** WFDB-x: a remote file (a URL fetched in full, read from memory). */
     internal var remote = false
 
-    /** wfdb-x: an output file of the library (see [wfdbx_write_errors]). */
+    /** WFDB-x: an output file of the library (see [wfdbx_write_errors]). */
     internal var out = false
 
     private val exitHook = object : ExitFlush {
@@ -170,16 +170,16 @@ class WfdbFile private constructor(private val kind: Kind, private var raw: RawF
     /** Whether this is the standard input, output, or error. */
     fun isStd(): Boolean = kind == Kind.STDIN || kind == Kind.STDOUT || kind == Kind.STDERR
 
-    /** wfdb-x: whether this is a remote file (a URL, fetched in full). */
+    /** WFDB-x: whether this is a remote file (a URL, fetched in full). */
     fun isRemote(): Boolean = remote
 
-    /** wfdb-x: the identity of an open local file (null for the standard streams, memory and remote files). */
+    /** WFDB-x: the identity of an open local file (null for the standard streams, memory and remote files). */
     internal fun fileId(): FileId? = if (kind == Kind.FILE && !remote) raw?.fileId() else null
 
-    /** wfdb-x: the size in bytes of an open local file (-1 for the standard streams, memory and remote files). */
+    /** WFDB-x: the size in bytes of an open local file (-1 for the standard streams, memory and remote files). */
     internal fun localSize(): Long = if (kind == Kind.FILE && !remote) raw?.size() ?: -1 else -1
 
-    /** The type of the file: [WFDB_NET] for a remote file (wfdb-x: a URL, fetched in full), otherwise [WFDB_LOCAL]. */
+    /** The type of the file: [WFDB_NET] for a remote file (WFDB-x: a URL, fetched in full), otherwise [WFDB_LOCAL]. */
     fun fileType(): Int = if (remote) WFDB_NET else WFDB_LOCAL
 
     /** Sets the buffer size (C setvbuf, before any I/O). */
@@ -596,7 +596,7 @@ class WfdbFile private constructor(private val kind: Kind, private var raw: RawF
      * C `fclose` (the standard streams are flushed, not closed): returns 0,
      * or EOF if an error occurred (including earlier write errors).
      *
-     * wfdb-x: an output file opened by the library (wfdb_open, wfdb_fopen)
+     * WFDB-x: an output file opened by the library (wfdb_open, wfdb_fopen)
      * that could not be written, flushed or closed counts as a write error
      * (see [wfdbx_write_errors]).
      */

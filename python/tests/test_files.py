@@ -36,9 +36,9 @@ SRC = os.path.join(os.path.dirname(HERE), "src")
 SR_HEA = ("sr 2 360 21600\n"
           "sr.dat 212 200 11 1024 995 21537 0 MLII\n"
           "sr.dat 212 200 11 1024 1011 -3962 0 V5\n")
-NET_OFF = ("wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call "
+NET_OFF = ("WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or call "
            "wfdbx_set_network(1) to open %s\n")
-WFDB_IGNORED = ("wfdb-x: the WFDB environment variable is ignored; set "
+WFDB_IGNORED = ("WFDB-x: the WFDB environment variable is ignored; set "
                 "WFDBX_INPUT_DIR instead (or use legacy mode)\n")
 
 
@@ -205,7 +205,7 @@ def test_setwfdb_getwfdb(settings):
     for p in ("a b", "a;b", "a:b", ". http://h/x", "http://h/x:/y"):
         w.setwfdb(p)
         assert w.wfdbx_get_input_dir() == "keep"
-        assert w.wfdberror().startswith("setwfdb: wfdb-x reads from a single")
+        assert w.wfdberror().startswith("setwfdb: WFDB-x reads from a single")
     # resetwfdb restores the setting of the last setwfdb
     w.wfdbx_set_input_dir("other")
     w.resetwfdb()

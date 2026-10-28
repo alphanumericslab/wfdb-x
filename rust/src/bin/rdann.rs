@@ -14,7 +14,7 @@
 // Changes from the original: no built-in sampling frequency: the new option -F
 // FREQ gives it when the record has no header or its header gives none, and is
 // then required (the original assumed 250 Hz); --legacy, as the first
-// argument, restores the original behavior. Each change is marked "wfdb-x:" in
+// argument, restores the original behavior. Each change is marked "WFDB-x:" in
 // the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rdann.c, WFDB Software Package 10.7.0.
@@ -48,7 +48,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b"* Only one of -e and -x can be used.",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
+/// WFDB-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] = &[
     b" -F FREQ             sampling frequency, if the record header does not",
@@ -71,7 +71,7 @@ fn isann(code: i32) -> bool {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let arg = |i: usize| -> &[u8] { &argv[i] };
@@ -262,11 +262,11 @@ fn main() {
         cstd::exit(1);
     };
 
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the record had no header); -F specifies one.
     let mut sps = wfdbx::sampfreq(record);
     if legacy {
-        // wfdb-x: legacy mode (original behavior)
+        // WFDB-x: legacy mode (original behavior)
         if sps < 0.0 {
             sps = WFDB_DEFFREQ;
             wfdbx::setsampfreq(sps);

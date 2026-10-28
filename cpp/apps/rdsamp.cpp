@@ -12,7 +12,7 @@
 // output (-X), and the gain of each selected signal for physical units (-p,
 // -P) (the original assumed 250 Hz and 200 adu/mV); unspecified units are
 // shown as "nd" (the original showed "mV"); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rdsamp.c, WFDB Software Package 10.7.0.
@@ -246,7 +246,7 @@ static void help()
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -363,12 +363,12 @@ int main(int argc, char **argv)
     int navail = nsig;
     si.resize(nsig);
     if ((nsig = isigopen(record, si.data(), nsig)) <= 0) std::exit(2);
-    if (wfdbx_get_legacy())     // wfdb-x: legacy mode (original behavior)
+    if (wfdbx_get_legacy())     // WFDB-x: legacy mode (original behavior)
         for (i = 0; i < nsig; i++)
             if (si[i].gain == 0.0) si[i].gain = WFDB_DEFGAIN;
     if (highres) setgvmode(WFDB_HIGHRES);
     freq = sampfreq(nullptr);
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     // the header did not specify one, as legacy mode does).
     if (!wfdbx_get_legacy() && freq <= 0. &&
         ((from > 0L && wfdbx_time_needs_freq(argv[from])) ||
@@ -401,7 +401,7 @@ int main(int argc, char **argv)
         for (i = 0; i < nsig; i++) sig[i] = i;
     }
 
-    // wfdb-x: no default gain (the C program assumed 200 adu/mV for
+    // WFDB-x: no default gain (the C program assumed 200 adu/mV for
     // uncalibrated signals, as legacy mode does).
     if (pflag && !wfdbx_get_legacy())
         for (i = 0; i < nsig; i++)
@@ -586,7 +586,7 @@ int main(int argc, char **argv)
             out.printf("%s", tufmt);
 
             for (i = 0; i < nsig; i++) {
-                // wfdb-x: unspecified units are shown as "nd" (C, legacy
+                // WFDB-x: unspecified units are shown as "nd" (C, legacy
                 // mode: mV)
                 std::string u = si[sig[i]].units ? *si[sig[i]].units
                                 : wfdbx_get_legacy() ? "mV" : "nd";

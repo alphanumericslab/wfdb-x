@@ -11,7 +11,7 @@
 #
 # Changes from the original: a remote file is read into memory (type WFDB_NET)
 # by WFDB-x's own code; the HTTP/FTP code of the original (libcurl) is not
-# translated. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# translated. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 # gives the reasons.
 #
 # Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -251,7 +251,7 @@ wf_getline <- function(f) {
 # Write the pending output to the connection.
 .wf_wflush <- function(f) {
   if (f$wn > 0L) {
-    b <- unlist(f$wparts[seq_len(f$wn)], use.names = FALSE)
+    b <- if (f$wn == 1L) f$wparts[[1L]] else unlist(f$wparts[seq_len(f$wn)], use.names = FALSE)
     f$wparts <- vector("list", 64L)
     f$wn <- 0L
     f$wbytes <- 0
@@ -269,7 +269,7 @@ wf_getline <- function(f) {
   invisible()
 }
 
-# wfdb-x: fflush of an output file.  R's flush() and seek() do not report a
+# WFDB-x: fflush of an output file.  R's flush() and seek() do not report a
 # failed write of the data in the connection's buffer, close() does: the
 # connection is closed (a failure sets the error flag, as in C) and opened
 # again at the same position.
@@ -448,7 +448,7 @@ wf_clearerr <- function(f) {
   invisible()
 }
 
-# wfdb-x: an output file (or the standard output) that could not be
+# WFDB-x: an output file (or the standard output) that could not be
 # written, flushed or closed counts as a write error (see
 # wfdbx_write_errors).
 wf_close <- function(f) {

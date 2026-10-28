@@ -13,7 +13,7 @@
 //
 // Changes from the original: WFDB_DEFFREQ, WFDB_DEFGAIN and WFDB_DEFRES remain
 // defined but are used only in legacy mode, and missing units are never taken
-// to be millivolts. Each change is marked "wfdb-x:" in the code;
+// to be millivolts. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdb.h, WFDB Software Package 10.7.0.
@@ -94,17 +94,17 @@ pub const WFDB_NFMTS: i32 = 14;
 
 /// Default sampling frequency (Hz) of the C library.
 ///
-/// wfdb-x: used only in legacy mode (see `Wfdb::wfdbx_set_legacy`): there
+/// WFDB-x: used only in legacy mode (see `Wfdb::wfdbx_set_legacy`): there
 /// is no default sampling frequency (see `docs/DIVERGENCES.md`).
 pub const WFDB_DEFFREQ: f64 = 250.0;
 /// Default gain (adu/physical unit) of the C library.
 ///
-/// wfdb-x: used only in legacy mode (see `Wfdb::wfdbx_set_legacy`): there
+/// WFDB-x: used only in legacy mode (see `Wfdb::wfdbx_set_legacy`): there
 /// is no default gain (see `docs/DIVERGENCES.md`).
 pub const WFDB_DEFGAIN: f64 = 200.0;
 /// Default ADC resolution (bits) of the C library.
 ///
-/// wfdb-x: used only in legacy mode (see `Wfdb::wfdbx_set_legacy`): there
+/// WFDB-x: used only in legacy mode (see `Wfdb::wfdbx_set_legacy`): there
 /// is no default ADC resolution (see `docs/DIVERGENCES.md`).
 pub const WFDB_DEFRES: i32 = 12;
 
@@ -153,7 +153,7 @@ pub struct Siginfo {
     pub fname: Option<Vec<u8>>,
     /// Signal description.
     pub desc: Option<Vec<u8>>,
-    /// Physical units (`None`: not specified; wfdb-x: never assumed to be
+    /// Physical units (`None`: not specified; WFDB-x: never assumed to be
     /// mV).
     pub units: Option<Vec<u8>>,
     /// Gain (adu/physical unit; 0: uncalibrated).

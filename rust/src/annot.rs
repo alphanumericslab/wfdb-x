@@ -30,7 +30,7 @@
 // annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
 // option of the high-level write_annotations decides, for its call, whether
 // the file is sorted; legacy mode (wfdbx_set_legacy) restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -131,7 +131,7 @@ struct OaData {
     seqno: i32,
     /// Record with which the annotator is associated.
     rname: Vec<u8>,
-    /// wfdb-x: name of the file (as created), for `sort_ann_file`.
+    /// WFDB-x: name of the file (as created), for `sort_ann_file`.
     fname: Vec<u8>,
     /// If true, annotations are not in order.
     out_of_order: bool,
@@ -248,7 +248,7 @@ impl OaData {
     }
 }
 
-/// wfdb-x: a table of annotation type definitions: mnemonics, descriptions,
+/// WFDB-x: a table of annotation type definitions: mnemonics, descriptions,
 /// and flags marking the modified types. [`AnnState`] holds that of the
 /// library; `sort_ann_file` uses one of its own.
 #[derive(Clone, Debug)]
@@ -330,7 +330,7 @@ pub struct AnnState {
     cstring: Vec<Vec<u8>>,
     /// Annotation type definitions (mnemonics and descriptions).
     defs: AnnDefs,
-    /// wfdb-x: whether `oannclose` sorts an out-of-order file (`Some`),
+    /// WFDB-x: whether `oannclose` sorts an out-of-order file (`Some`),
     /// whatever `WFDBANNSORT` says; `None`: as `WFDBANNSORT` says. Set by
     /// `write_annotations` for the duration of a call (its `sort` option).
     pub(crate) sort_override: Option<bool>,
@@ -506,7 +506,7 @@ fn getann_next(ia: &mut IaData) -> Option<Vec<u8>> {
 
 /// Reads the first word of the input annotation file of `ia` and returns its
 /// format: [`WFDB_READ`] (MIT format; any initial null annotations are then
-/// read as well) or [`WFDB_AHA_READ`]. (wfdb-x: this was part of annopen.)
+/// read as well) or [`WFDB_AHA_READ`]. (WFDB-x: this was part of annopen.)
 fn ann_file_format(ia: &mut IaData) -> i32 {
     // Try to figure out what format the file is in. AHA-format files begin
     // with a null byte and an ASCII character which is one of the legal AHA
@@ -639,7 +639,7 @@ fn read_ann_table(ia: &mut IaData, defs: &mut AnnDefs, msgs: &mut Msgs) -> i32 {
     0
 }
 
-/// put_ann_table (wfdb-x: for the output annotator `oa`, number `n`, with
+/// put_ann_table (WFDB-x: for the output annotator `oa`, number `n`, with
 /// the time resolution `freq` and the definition table `defs`; the C
 /// library used `oad[n]`, `oafreq`, and the library's table): writes the
 /// modification labels. Error messages are added to `msgs`.
@@ -862,7 +862,7 @@ impl Wfdb {
     /// these numbers are the `n` arguments of `getann`, `putann`, ...
     /// Unless `record` begins with `+`, previously opened annotators are
     /// closed first. Files are found as [`Wfdb::wfdb_open`] finds them
-    /// (wfdb-x: input files under the input directory, output files under
+    /// (WFDB-x: input files under the input directory, output files under
     /// the output directory, or as named; legacy mode: input files in the
     /// WFDB path, output files in the current directory or the output
     /// directory).
@@ -1010,7 +1010,7 @@ impl Wfdb {
                         name: ai.name.clone(),
                         stat: ai.stat,
                     };
-                    // wfdb-x: the name of the file, for sort_ann_file
+                    // WFDB-x: the name of the file, for sort_ann_file
                     let fname = self.wfdb_filename().to_vec();
                     self.ann
                         .oad
@@ -1395,7 +1395,7 @@ impl Wfdb {
     /// C `oannclose(n)`: close output annotator `n`, writing its end mark.
     /// If its annotations were not written in canonical order, the file is
     /// rearranged (unless the environment variable `WFDBANNSORT` is 0):
-    /// wfdb-x: in this process, with the result of the `sortann` program
+    /// WFDB-x: in this process, with the result of the `sortann` program
     /// (see [`AnnList`]); in legacy mode, as in C, by running `sortann`
     /// ([`run_sortann`]).
     ///
@@ -1437,7 +1437,7 @@ impl Wfdb {
         }
         let mut out_of_order = oa.out_of_order;
         if out_of_order {
-            // wfdb-x: the sort option of write_annotations, if given,
+            // WFDB-x: the sort option of write_annotations, if given,
             // decides instead of WFDBANNSORT.
             let dosort = match (self.ann.sort_override, cstd::getenv("WFDBANNSORT")) {
                 (Some(on), _) => i32::from(on),
@@ -1449,7 +1449,7 @@ impl Wfdb {
                     b"Rearranging annotations for output annotator %s ...",
                     name
                 ));
-                // wfdb-x: the file is sorted in this process (sort_ann_file);
+                // WFDB-x: the file is sorted in this process (sort_ann_file);
                 // the C library ran the sortann program, as legacy mode does.
                 let sorted = if self.wfdbx_get_legacy() != 0 {
                     let dir = self.wfdbx_get_output_dir();
@@ -1468,7 +1468,7 @@ impl Wfdb {
                 }
             }
         }
-        // wfdb-x: no advice to run sortann when the caller of
+        // WFDB-x: no advice to run sortann when the caller of
         // write_annotations chose not to sort.
         if out_of_order && self.ann.sort_override != Some(false) {
             self.wfdb_error(cformat!(
@@ -1496,7 +1496,7 @@ impl Wfdb {
 /// already in the list replaces it (but only when the duplicate is found
 /// while repairing out-of-order input).
 ///
-/// wfdb-x: the (all-zero) list head is never compared as an annotation: an
+/// WFDB-x: the (all-zero) list head is never compared as an annotation: an
 /// out-of-order annotation that precedes all entries is inserted at the
 /// beginning of the list. In C, and with [`AnnList::with_legacy`]`(true)`,
 /// an annotation at time 0 with `num` and `chan` 0 that precedes all
@@ -1602,7 +1602,7 @@ impl AnnList {
         let mut ap = Some(lastp);
         while let Some(a) = ap {
             if a == 0 && !self.legacy {
-                // wfdb-x: the head is not an annotation (C compared it, and
+                // WFDB-x: the head is not an annotation (C compared it, and
                 // took a (0, 0, 0) annotation for its duplicate)
                 ap = None;
                 break;
@@ -1662,7 +1662,7 @@ impl AnnList {
 }
 
 impl Wfdb {
-    /// wfdb-x: rearranges the annotations of the (closed) annotation file
+    /// WFDB-x: rearranges the annotations of the (closed) annotation file
     /// `fname` of annotator `aname` in canonical order, with a result
     /// identical, byte for byte, to that of the sortann program as the C
     /// library ran it (`sortann -r. RECORD -a ANNOTATOR`, see `oannclose`),

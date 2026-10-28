@@ -25,7 +25,7 @@ function status = parsescp(args)
 %
 %   The output files are RECORD.des (description), RECORD.ecg (samples),
 %   RECORD.key (patient data), RECORD.txt (with -v) and, with -w, the
-%   WFDB record RECORD (RECORD.hea, RECORD.dat).  wfdb-x: the record's
+%   WFDB record RECORD (RECORD.hea, RECORD.dat).  WFDB-x: the record's
 %   sampling frequency is the one given in SCPFILE, and no record is
 %   written if SCPFILE does not give one (the C program always wrote
 %   500 Hz); see docs/DIVERGENCES.md.
@@ -50,7 +50,7 @@ function status = parsescp(args)
 % allocated, and samples beyond the end of a signal shorter than lead 0, are
 % read as absent or as zeros (undefined behavior in the original); --legacy, as
 % the first argument, restores the original behavior. Each change is marked
-% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -559,7 +559,7 @@ fwr(dfile, 'P axis: %d\n', P.Paxis);
 fwr(dfile, 'QRS axis: %d\n', P.QRSaxis);
 fwr(dfile, 'T axis: %d\n', P.Taxis);
 dfile.write(uint8(precgmeas(P)));
-dfile.close();          % wfdb-x: reports a write error
+dfile.close();          % WFDB-x: reports a write error
 
 % Generate the key file.
 fwr(kfile, [c.VERSION_STRING ' key\n']);
@@ -658,7 +658,7 @@ recname = P.recname;
 filename = [recname '.dat'];
 leadname = {'I', 'II', 'III', 'aVR', 'aVF', 'aVL', 'V1', 'V2', 'V3', ...
     'V4', 'V5', 'V6'};
-% wfdb-x: the sampling frequency is the one given in the SCP file (the C
+% WFDB-x: the sampling frequency is the one given in the SCP file (the C
 % program always wrote 500 Hz, as legacy mode does); without one, no
 % record is written.
 legacy = wfdbx.wfdbx_get_legacy();
@@ -682,7 +682,7 @@ for i = 1:12
     s(i).desc = leadname{i};
     s(i).units = 'mV';
     s(i).fmt = 16;
-    % wfdb-x: exact, not assumed: the samples have been rescaled to units
+    % WFDB-x: exact, not assumed: the samples have been rescaled to units
     % of NVPERADU (5000) nV (see gref and gres), i.e., 200 adu/mV
     s(i).gain = 1e6 / c.NVPERADU;   % adu/mV
     s(i).adcres = 16;
@@ -1526,10 +1526,10 @@ if sampint > 0
         pr('Warning: section 5 and 6 sample intervals don''t match');
     end
     P.sfreq = 1.0e6 / sampint;
-elseif wfdbx.wfdbx_get_legacy()    % wfdb-x: as in the C program
+elseif wfdbx.wfdbx_get_legacy()    % WFDB-x: as in the C program
     pr('Error: sampling frequency not specified;  assuming 500 Hz\n');
     P.sfreq = 500;
-else    % wfdb-x: the C program assumed 500 Hz
+else    % WFDB-x: the C program assumed 500 Hz
     pr('Error: sampling frequency not specified\n');
 end
 c = bt(P, p + 3);
@@ -2284,7 +2284,7 @@ if P.bflag == 0 && nqrs > 0 && P.has_subz && nleads > 0
         end
         for i = 0:nleads - 1
             s = P.ecg{i + 1};
-            % wfdb-x: a reference beat that was not allocated (e.g. section
+            % WFDB-x: a reference beat that was not allocated (e.g. section
             % 3 follows section 5 and gives more leads) is absent
             if i < numel(P.refbeat)
                 ref = P.refbeat{i + 1};
@@ -2311,7 +2311,7 @@ if P.bflag == 0 && nqrs > 0 && P.has_subz && nleads > 0
     end
 end
 
-% wfdb-x: signals that could not be allocated (undefined behavior in C)
+% WFDB-x: signals that could not be allocated (undefined behavior in C)
 % are read as zeros, and so are samples beyond the end of a signal shorter
 % than lead 0.
 n0 = 0;

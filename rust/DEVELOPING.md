@@ -270,8 +270,12 @@ checksums are verified or a null signal ends, the change from one segment
 to the next and everything the bulk path does not decode go through
 `getvec`, so the files are read in the same blocks, and the statuses,
 messages and state (samples, checksums, counts, `gvc`) are those of
-frame-by-frame reading. `wfdbx_bulk_read(false)` turns it off;
-`tests/bulk.rs` compares both paths.
+frame-by-frame reading. The frames are decoded in tiles of up to 1024
+(`BULK_TILE`, whole packed units): a group's raw samples into a small
+buffer (`bulk_decode`), then signal by signal into the frames
+(`bulk_signal`: invalid samples, the last sample and the checksum, as
+`getskewedframe` handles each sample). `wfdbx_bulk_read(false)` turns it
+off; `tests/bulk.rs` compares both paths.
 
 ## The high-level API (`record.rs`)
 
@@ -287,7 +291,10 @@ frame-by-frame reading. `wfdbx_bulk_read(false)` turns it off;
   for the call; the environment (`WFDBANNSORT`) is not changed.
 * `read_record` reads blocks of vectors with `getvecs_status`: whole
   frames, and a multiple of 6 of them, so that formats 212, 310 and 311 end
-  each block on a whole packed unit. The signal descriptions it returns
+  each block on a whole packed unit. Its vector is allocated for the
+  number of vectors expected and one such block of 6 frames more: once
+  that number is read, the end of the data is found by reading 6 frames,
+  without enlarging the vector. The signal descriptions it returns
   (and those of `read_header`) have no white space at either end, and a
   channel given by name is looked up among them first, then with `findsig`.
   A status
@@ -296,7 +303,7 @@ frame-by-frame reading. `wfdbx_bulk_read(false)` turns it off;
   counterpart; `getvec`, `getvecs` and the tools are unchanged. A checksum
   error (status -4) is not an error: the last, complete frame is kept,
   `getvec`'s own message is suppressed during the read
-  (`SigState::cksum_quiet`), and the warning `wfdb-x: checksum error in
+  (`SigState::cksum_quiet`), and the warning `WFDB-x: checksum error in
   record REC: ...` goes through `wfdb_error`, so `wfdbquiet` silences it.
   Checksums are verified only when a read reaches the end of the record.
 * An output signal file that is one of the signal files of the open input
@@ -331,6 +338,4 @@ library functions are checked against the C reference
 
 The code must build without warnings (`cargo build`, `cargo clippy`).
 
-While several people (or agents) work on different tools at the same time,
-build one tool with `cargo build --release --bin <tool>` so that another
-tool's unfinished source does not stop the build.
+To build a single tool, use `cargo build --release --bin <tool>`.

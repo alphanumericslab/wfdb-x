@@ -16,7 +16,7 @@ classdef SigState < handle
 %   siginfo.group) is igd{g+1}.  segarray is a wfdbx.seginfo struct array
 %   ([] if none) and segp the 0-based index of the current segment.
 %   hheader, oheader and outinfo are WFDBFile objects or [].
-%   wfdb-x: hdr_dir is the directory of the header read last
+%   WFDB-x: hdr_dir is the directory of the header read last
 %   (wfdbx.internal.wfdb_dirname; [] if unknown: the standard input);
 %   msrec_dir and msrec_name are the directory and name of the header of
 %   the current multi-segment record (msrec_name [] if there is none);
@@ -40,7 +40,7 @@ classdef SigState < handle
 % read, the directory and name of the current multi-segment record, the
 % legacy-mode setting, whether checksum messages are quieted during a
 % high-level read, and the switch and counter of the bulk reader. Each
-% change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -61,7 +61,7 @@ classdef SigState < handle
         msrec_dir = []
         msrec_name = []
         user_segments = false
-        cksum_quiet = false     % wfdb-x: true during a high-level read
+        cksum_quiet = false     % WFDB-x: true during a high-level read
         % timing
         ffreq = 0
         ifreq = 0
@@ -145,12 +145,13 @@ classdef SigState < handle
         date_string = ''
         time_string = ''
         pdays = -1
-        % wfdb-x: legacy mode (wfdbx.wfdbx_set_legacy; not reset by wfdbquit)
+        % WFDB-x: legacy mode (wfdbx.wfdbx_set_legacy; not reset by wfdbquit)
         legacy_mode = 0
-        % wfdb-x: the bulk reader (wfdbx.internal.bulk_frames): off when
+        % WFDB-x: the bulk reader (wfdbx.internal.bulk_frames): off when
         % false (for the tests), and the number of vectors it has read
-        % (neither is reset by wfdbquit)
+        % (neither is reset by wfdbquit); the samples it decodes at a time
         bulk_read = true
         bulk_vectors = 0
+        bulk_block = 65536
     end
 end

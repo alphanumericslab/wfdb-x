@@ -110,7 +110,7 @@ WriteOptions options()
 }
 
 const std::string checksum_warning =
-    "wfdb-x: checksum error in record ck: the signal data do not match the "
+    "WFDB-x: checksum error in record ck: the signal data do not match the "
     "checksums in its header\n";
 
 // Record ck: 4 frames of 2 signals, whose .dat is changed after writing

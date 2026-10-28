@@ -20,7 +20,7 @@ function status = a2m(args)
 %                     3: compressed file from AHA DB CD-ROMs or diskettes;
 %                     default 3 if AHAFILE ends in .ANO or .ano, else 0)
 %
-%   wfdb-x: if the record header does not give the sampling frequency, -F
+%   WFDB-x: if the record header does not give the sampling frequency, -F
 %   must give it (the C program assumed the rate of the AHA database,
 %   250 Hz, if a header without a frequency existed, and 1 sample per
 %   second if there was no header).  Annotation times in milliseconds (types
@@ -59,7 +59,7 @@ function status = a2m(args)
 % header); annotation times given in milliseconds (AHA file types 1 to 3) are
 % converted at the record's sampling frequency (the original assumed 4 ms per
 % sample); --legacy, as the first argument, restores the original behavior.
-% Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C program: convert/a2m.c, WFDB Software Package 10.7.0.
@@ -96,7 +96,7 @@ h = {'where AHAFILE is the name of the AHA-format input annotation file,', ...
     '                2 for long-format tape files, or', ...
     '                3 for compressed files from AHA DB CD-ROMs or diskettes', ...
     '                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h(4:5) = [];                % (without -F)
 end
 wfdbx.internal.ceprintf('usage: %s -i AHAFILE [ OPTIONS ... ]\n', pname);
@@ -114,7 +114,7 @@ record = [];
 oann = 'atr';
 typ = -1;
 offset = 0;
-Ffreq = 0;      % wfdb-x: -F
+Ffreq = 0;      % WFDB-x: -F
 legacy = wfdbx.wfdbx_get_legacy();
 i = 1;
 while i < argc
@@ -125,7 +125,7 @@ while i < argc
         else
             c = '';
         end
-        if legacy && strcmp(c, 'F')   % wfdb-x: legacy mode: not an option of
+        if legacy && strcmp(c, 'F')   % WFDB-x: legacy mode: not an option of
             c = '';                     % the original (unrecognized)
         end
         switch c
@@ -222,7 +222,7 @@ if wfdbx.annopen(record, ai, numel(ai)) < 0
     status = 2;
     return;
 end
-% wfdb-x: if the record header does not give the sampling frequency, -F
+% WFDB-x: if the record header does not give the sampling frequency, -F
 % must give it.  (The C program assumed the rate of the AHA database,
 % 250 Hz, if a header without a frequency existed, and 1 sample per second
 % if there was no header.)
@@ -282,7 +282,7 @@ elseif typ == 1 || typ == 2
         if st < 0
             break;
         end
-        if legacy   % wfdb-x: legacy mode: 4 msec/sample
+        if legacy   % WFDB-x: legacy mode: 4 msec/sample
             annot.time = floor(annot.time / 4) + offset;
         else
             annot.time = fix(annot.time * fs / 1000) + offset;   % (WFDB_Time)
@@ -315,7 +315,7 @@ else
             annot.subtyp = 0;
         end
         t = buf(2) * 65536 + buf(3) * 256 + buf(4);
-        if legacy   % wfdb-x: legacy mode: 4 msec/sample
+        if legacy   % WFDB-x: legacy mode: 4 msec/sample
             annot.time = floor(t / 4) + offset;
         else
             annot.time = fix(t * fs / 1000) + offset;   % (WFDB_Time)

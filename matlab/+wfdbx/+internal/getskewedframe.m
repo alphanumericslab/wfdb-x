@@ -21,7 +21,7 @@ function [stat, vector] = getskewedframe(S, vector)
 %
 % Changes from the original: a checksum error is not printed during a
 % high-level read (which warns instead), but recorded for wfdberror. Each
-% change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -166,7 +166,7 @@ for s = 1:nisig
         info.nsamp = info.nsamp - 1;
         if info.nsamp == 0 && mod(cks, 65536) ~= 0 && ~in_msrec && ...
                 ~isedf && fmt ~= 0
-            % wfdb-x: not printed during a high-level read (which warns
+            % WFDB-x: not printed during a high-level read (which warns
             % instead), but recorded for wfdberror
             io = wfdbx.internal.io_state();
             pr = io.error_print;

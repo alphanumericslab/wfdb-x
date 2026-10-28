@@ -196,7 +196,7 @@ class WfdbioTest {
         assertEquals(-1, w.wfdb_checkname(b("a.b"), "record"))
         assertEquals("init: illegal character 46 in record name\n", str(w.wfdberror()))
         assertEquals(-1, w.wfdb_checkname(b(""), "record"))
-        // wfdb-x: only the last component of a record name is checked (outside legacy mode)
+        // WFDB-x: only the last component of a record name is checked (outside legacy mode)
         assertEquals(0, w.wfdb_checkname(b("my.data/rec"), "record"))
         assertEquals(0, w.wfdb_checkname(b("/a.b/c d/rec"), "record"))
         assertEquals(-1, w.wfdb_checkname(b("my.data/"), "record"))
@@ -342,7 +342,7 @@ class WfdbioTest {
         removeTree(d)
     }
 
-    /** wfdb-x: the output directory (wfdbx_set_output_dir). */
+    /** WFDB-x: the output directory (wfdbx_set_output_dir). */
     @Test
     fun outputDir() = withCleanEnv {
         val d = makeTempDir("outdir")
@@ -451,7 +451,7 @@ class WfdbioTest {
         for (p in listOf("a b", "a;b", "a:b", ". http://127.0.0.1/x")) {
             w.setwfdb(p)
             assertEquals(
-                "setwfdb: wfdb-x reads from a single input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n",
+                "setwfdb: WFDB-x reads from a single input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n",
                 str(w.wfdberror()),
             )
             assertEquals("one", str(w.getwfdb()), p)
@@ -522,7 +522,7 @@ class WfdbioTest {
         removeTree(d)
     }
 
-    /** wfdb-x: an absolute path is used as given; in legacy mode only the WFDB path is searched. */
+    /** WFDB-x: an absolute path is used as given; in legacy mode only the WFDB path is searched. */
     @Test
     fun absolutePaths() = withCleanEnv {
         val d = makeTempDir("abs")

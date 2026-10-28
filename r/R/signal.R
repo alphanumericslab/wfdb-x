@@ -23,7 +23,7 @@
 # written with WFDB-x's own codec (flac.R) instead of libFLAC; additions:
 # wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq,
 # getframes and putframes; legacy mode (wfdbx_set_legacy) restores the original
-# behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 # gives the reasons.
 #
 # Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -63,7 +63,7 @@ WFDB_TIME_MIN <- -2^63
 WFDB_MAXUSL <- 50
 WFDB_MAXDSL <- 100
 WFDB_FMT_LIST <- c(0, 8, 16, 61, 80, 160, 212, 310, 311, 24, 32, 508, 516, 524)
-# wfdb-x: WFDB_DEFFREQ, WFDB_DEFGAIN and WFDB_DEFRES remain defined for
+# WFDB-x: WFDB_DEFFREQ, WFDB_DEFGAIN and WFDB_DEFRES remain defined for
 # compatibility, but are not used: WFDB-x never assumes a sampling frequency,
 # a gain or an ADC resolution (see docs/DIVERGENCES.md).
 WFDB_DEFFREQ <- 250
@@ -95,7 +95,7 @@ sig_reset <- function() {
   st$prolog_bytes <- 0
   st$segments <- 0
   st$in_msrec <- 0
-  # wfdb-x: the directory of the header read last (see .dirname; NULL if
+  # WFDB-x: the directory of the header read last (see .dirname; NULL if
   # unknown: the standard input), and the directory and name of the header
   # of the current multi-segment record (msrec_name is NULL if there is
   # none); user_segments while setmsheader reads the headers it was given
@@ -103,7 +103,7 @@ sig_reset <- function() {
   st$msrec_dir <- NULL
   st$msrec_name <- NULL
   st$user_segments <- FALSE
-  # wfdb-x: TRUE while a high-level reader reads (getvec's checksum message
+  # WFDB-x: TRUE while a high-level reader reads (getvec's checksum message
   # is then not printed: the reader warns instead)
   st$cksum_quiet <- FALSE
   st$msbtime <- 0
@@ -172,7 +172,7 @@ sig_reset <- function() {
 sig_reset()
 
 # ---------------------------------------------------------------------------
-# wfdb-x: legacy mode.  By default, the library has no built-in signal
+# WFDB-x: legacy mode.  By default, the library has no built-in signal
 # parameters (see docs/DIVERGENCES.md).  In legacy mode (wfdbx_set_legacy(TRUE),
 # or --legacy as the first argument of a tool, see wfdbx_legacy_args), it
 # behaves exactly as the original WFDB library 10.7.0, with its built-in
@@ -435,7 +435,8 @@ wfdbx_legacy_args <- function(argv) {
     if (nb == 0 && n - pos >= len) {
       # whole blocks: written directly
       k <- ((n - pos) %/% len) * len
-      if (!is.null(og$fp)) wf_write(og$fp, b[pos + seq_len(k)])
+      if (!is.null(og$fp))
+        wf_write(og$fp, if (k == n) b else if (pos == 0) readBin(b, "raw", k) else b[pos + seq_len(k)])
       pos <- pos + k
       next
     }
@@ -859,7 +860,7 @@ wfdbx_legacy_args <- function(argv) {
 
 # Open the header (of type s: "hea", or NULL for a file name) of a record,
 # or of a segment named in the header of the current multi-segment record
-# (wfdb-x: in that header's directory), and note its directory.
+# (WFDB-x: in that header's directory), and note its directory.
 .open_header <- function(s, record) {
   st <- .sig
   if (wfdbx_get_legacy()) return(wfdb_open(s, record, WFDB_READ))
@@ -1003,7 +1004,7 @@ wfdbx_legacy_args <- function(argv) {
   } else if (st$legacy && st$ffreq == 0) {
     st$ffreq <- WFDB_DEFFREQ
   }
-  # wfdb-x: if the header does not specify the sampling frequency (and the
+  # WFDB-x: if the header does not specify the sampling frequency (and the
   # caller has not set one with setsampfreq), it remains unspecified (0); the C
   # library assumed WFDB_DEFFREQ (250 Hz), as legacy mode does.
   st$sfreq <- st$ffreq
@@ -1041,7 +1042,7 @@ wfdbx_legacy_args <- function(argv) {
   if (!is.null(p) && st$btime == 0 && setbasetime(p) < 0) return(-2)
   # master header of a multi-segment record
   if (st$segments && !st$in_msrec) {
-    if (!wfdbx_get_legacy()) {        # wfdb-x: the segments are next to it
+    if (!wfdbx_get_legacy()) {        # WFDB-x: the segments are next to it
       st$msrec_dir <- st$hdr_dir
       st$msrec_name <- record
     }
@@ -1192,12 +1193,12 @@ wfdbx_legacy_args <- function(argv) {
     if (!is.null(p)) {
       i <- cint32(strtol(p)[1L])
     } else if (st$legacy) {
-      # wfdb-x: legacy mode (original behavior): inferred from the format, or
+      # WFDB-x: legacy mode (original behavior): inferred from the format, or
       # WFDB_DEFRES
       i <- switch(as.character(info$fmt), "80" = 8, "160" = 16, "212" = 12,
                   "310" = 10, "311" = 10, WFDB_DEFRES)
     } else {
-      # wfdb-x: a missing ADC resolution is unspecified (0); the C library
+      # WFDB-x: a missing ADC resolution is unspecified (0); the C library
       # inferred it from the format or assumed WFDB_DEFRES (12 bits).
       i <- 0
     }
@@ -1612,7 +1613,7 @@ wfdbx_legacy_args <- function(argv) {
       info$nsamp <- info$nsamp - 1
       if (info$nsamp == 0 && (info$cksum %% 65536) != 0 && !st$in_msrec &&
           !st$isedf && fmt != 0) {
-        # wfdb-x: not printed during a high-level read (which warns
+        # WFDB-x: not printed during a high-level read (which warns
         # instead), but recorded for wfdberror
         pr <- .wfdb_io$error_print
         if (st$cksum_quiet) .wfdb_io$error_print <- FALSE
@@ -1812,7 +1813,7 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
     if (hs$info$fmt == 0) {
       ig$fp <- NULL
     } else {
-      # wfdb-x: in the directory of the header
+      # WFDB-x: in the directory of the header
       ig$fp <- if (wfdbx_get_legacy()) wfdb_open(hs$info$fname, NULL, WFDB_READ) else
         .open_in(st$hdr_dir, NULL, hs$info$fname, record)
       if (is.null(ig$fp)) {
@@ -1897,7 +1898,7 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
   list(nsig = s, si = sio)
 }
 
-# wfdb-x: an output signal file is never one of the input files.  In normal
+# WFDB-x: an output signal file is never one of the input files.  In normal
 # mode, .openosig refuses to create (and so to truncate) an output signal
 # file that is the same file as a signal file of the open input record: a
 # signal file open for input, or a signal file of any segment of the open
@@ -2052,7 +2053,7 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
         }
       }
       if (os$info$fmt != 0) {
-        # wfdb-x: never an input file (see .is_input_file)
+        # WFDB-x: never an input file (see .is_input_file)
         if (!wfdbx_get_legacy() && .is_input_file(os$info$fname)) {
           wfdb_error("%s: output file %s is also an input file\n", func, os$info$fname)
           .osigclose()
@@ -2186,7 +2187,7 @@ setifreq <- function(f) {
   g <- st$sfreq
   if (g <= 0) {
     st$ifreq <- 0
-    if (st$nisig > 0 && !st$legacy)   # wfdb-x: the frequency is unspecified
+    if (st$nisig > 0 && !st$legacy)   # WFDB-x: the frequency is unspecified
       wfdb_error("setifreq: sampling frequency is not specified\n")
     else
       wfdb_error("setifreq: no open input record\n")
@@ -2529,7 +2530,7 @@ newheader <- function(record) {
 #' lists.  Returns 0 or -1.  (setheader in C modifies the units and desc
 #' strings of the caller's siarray, cutting them at their first token;
 #' .setheader() returns the modified array as $si.)
-# A name as written into the header of record.  wfdb-x: outside legacy
+# A name as written into the header of record.  WFDB-x: outside legacy
 # mode, names are written relative to the header's directory (where the
 # reader looks for them): the directory part of record (up to and including
 # its last '/') is removed from name when name begins with it.
@@ -2653,7 +2654,7 @@ setmsheader <- function(record, segment_name, nsegments = length(segment_name)) 
     }
     st$in_msrec <- 1
     st$nsamples <- 0
-    st$user_segments <- TRUE          # wfdb-x: names given by the caller
+    st$user_segments <- TRUE          # WFDB-x: names given by the caller
     n <- .readheader(sn)
     st$user_segments <- FALSE
     st$in_msrec <- old_in_msrec
@@ -2951,7 +2952,7 @@ setbasetime <- function(string) {
   if (st$ifreq > 0) st$ifreq else if (st$sfreq > 0) st$sfreq else if (st$legacy) 1 else 0
 }
 
-# wfdb-x: the time conversion functions need a sampling frequency; the C
+# WFDB-x: the time conversion functions need a sampling frequency; the C
 # library used 1 sample per second when none was specified.  Without one,
 # timstr and mstimstr report an error and return the time as a sample number
 # ("s" followed by the number, a valid strtim argument), and strtim reports an
@@ -3120,7 +3121,7 @@ setbasecount <- function(counter) {
 strtim <- function(string) {
   f <- .tfreq()
   if (f <= 0) {
-    if (wfdbx_time_needs_freq(string)) {     # wfdb-x: no default frequency
+    if (wfdbx_time_needs_freq(string)) {     # WFDB-x: no default frequency
       wfdb_error("strtim: sampling frequency is not specified\n")
       return(0)
     }
@@ -3144,7 +3145,7 @@ datstr <- function(date) {
 }
 
 # The calendar date c(year, month, day) of a Julian date, as datstr()
-# converts it (wfdb-x: datstr's conversion, shared with the base_date of
+# converts it (WFDB-x: datstr's conversion, shared with the base_date of
 # the high-level readers).
 .julian_ymd <- function(date) {
   if (date >= 2299161) {                    # Gregorian calendar correction
@@ -3196,7 +3197,7 @@ strdat <- function(string) {
 # ---------------------------------------------------------------------------
 # Unit conversion
 
-# wfdb-x: the unit conversion functions need the gain of the signal; the C
+# WFDB-x: the unit conversion functions need the gain of the signal; the C
 # library assumed WFDB_DEFGAIN (200 adu per physical unit) for uncalibrated
 # signals (gain 0) and invalid signal numbers (with a baseline of 0), as
 # legacy mode does.  Otherwise they report an error and return
@@ -3204,7 +3205,7 @@ strdat <- function(string) {
 # 0 means that the conversion is impossible.
 .conversion_gain <- function(fn, s) {
   st <- .sig
-  if (st$legacy) {         # wfdb-x: legacy mode (original behavior)
+  if (st$legacy) {         # WFDB-x: legacy mode (original behavior)
     if (s < 0 || s >= st$nvsig) return(c(WFDB_DEFGAIN, 0))
     info <- st$vsd[[s + 1]]$info
     return(c(if (info$gain == 0) WFDB_DEFGAIN else info$gain, info$baseline))
@@ -3417,7 +3418,8 @@ wfdb_freeinfo <- function() {
 # setifreq resampling, an unskipped prolog, non-seekable input); getframes()
 # then uses getvec for the next vector.  With full = TRUE, it decodes up to
 # n complete frames instead, as n calls of getframe would (one row per
-# frame, tspf columns; used by .getframes_full).
+# frame, tspf columns; used by .getframes_full).  The result is a double
+# matrix; with int = TRUE, it may be an integer matrix (of the same values).
 
 .BULK_FMTS <- c(8, 80, 16, 61, 160, 24, 32, 212, 310, 311, 508, 516, 524)
 .BULK_MAXFRAMES <- 1048576     # largest block of vectors decoded at once
@@ -3471,17 +3473,7 @@ wfdb_freeinfo <- function() {
     if (!is.null(sl)) {
       isflac <- fmt %in% c(508, 516, 524)
       isnull <- fmt == 0
-      # mask[[s]]: the samples of signal s among the nn samples of a frame
-      # of its group (a logical index, recycled over the frames)
-      mask <- vector("list", nisig)
-      for (g in seq_len(ng)) {
-        off <- 0
-        for (s in sl[[g]]) {
-          mask[[s]] <- seq_len(nn[g]) > off & seq_len(nn[g]) <= off + spfs[s]
-          off <- off + spfs[s]
-        }
-      }
-      value <- list(isd = isd, igd = igd, spfs = spfs, sl = sl, mask = mask, fmt = fmt,
+      value <- list(isd = isd, igd = igd, spfs = spfs, sl = sl, fmt = fmt,
                     inval = vapply(fmt, .invalid_of, 0), nn = nn, nbytes = nbytes,
                     nsamp = nsamp, isflac = isflac, isnull = isnull, flacg = which(isflac),
                     nullg = which(isnull), fileg = which(!isflac & !isnull),
@@ -3492,80 +3484,107 @@ wfdb_freeinfo <- function() {
   value
 }
 
-# Decode nsamp samples of format fmt from the raw vector data (aligned).
-# (Logical indices such as c(TRUE, FALSE, FALSE) are recycled: they select
-# every third byte, and so on.)
-.decode_stream <- function(fmt, data, nsamp) {
-  switch(as.character(fmt),
-    "16" = as.numeric(readBin(data, "integer", n = nsamp, size = 2L, signed = TRUE,
-                              endian = "little")),
-    "61" = as.numeric(readBin(data, "integer", n = nsamp, size = 2L, signed = TRUE,
-                              endian = "big")),
-    "80" = as.integer(data[seq_len(nsamp)]) - 128,
-    "160" = as.numeric(readBin(data, "integer", n = nsamp, size = 2L, signed = FALSE,
-                               endian = "little")) - 32768,
-    "8" = as.numeric(readBin(data, "integer", n = nsamp, size = 1L, signed = TRUE)),
+# Decode the samples of n frames of ng samples each, of format fmt, from the
+# raw vector data (aligned): a matrix with one row per frame, integer
+# (formats 8 and 32: double).  When a frame is one packing unit (format 212
+# with 2 samples per frame, 310 and 311 with 3), the units are decoded
+# directly as the rows of that matrix; otherwise the samples are decoded in
+# order and then arranged in frames.
+.decode_frames <- function(fmt, data, n, ng) {
+  nsamp <- n * ng
+  k <- 1L
+  v <- switch(as.character(fmt),
+    "16" = readBin(data, "integer", n = nsamp, size = 2L, signed = TRUE, endian = "little"),
+    "61" = readBin(data, "integer", n = nsamp, size = 2L, signed = TRUE, endian = "big"),
+    "80" = as.integer(readBin(data, "raw", n = nsamp)) - 128L,
+    "160" = readBin(data, "integer", n = nsamp, size = 2L, signed = FALSE,
+                    endian = "little") - 32768L,
+    "8" = readBin(data, "integer", n = nsamp, size = 1L, signed = TRUE),
     "32" = {
       v <- as.numeric(readBin(data, "integer", n = nsamp, size = 4L, endian = "little"))
       v[is.na(v)] <- -2147483648            # (readBin's NA_integer_ is INT_MIN)
       v
     },
     "24" = {
-      b <- as.integer(data[seq_len(3 * nsamp)])
-      v <- b[c(TRUE, FALSE, FALSE)] + 256 * b[c(FALSE, TRUE, FALSE)] +
-        65536 * b[c(FALSE, FALSE, TRUE)]
-      v - 16777216 * (v >= 8388608)
+      # each sample as a 32-bit word: its 3 bytes and the sign byte
+      b <- readBin(data, "raw", n = 3 * nsamp)
+      dim(b) <- c(3L, nsamp)
+      readBin(rbind(b, .SIGN8[as.integer(b[3L, ]) + 1L]), "integer", n = nsamp,
+              size = 4L, endian = "little")
     },
     "212" = {
-      # two 12-bit samples in 3 bytes: the second byte holds the high nibbles
-      npair <- (nsamp + 1) %/% 2
-      b <- as.integer(data[seq_len(3 * npair)])
-      b1 <- b[c(FALSE, TRUE, FALSE)]
-      h <- b1 %% 16
-      v <- numeric(2 * npair)
-      v[c(TRUE, FALSE)] <- b[c(TRUE, FALSE, FALSE)] + 256 * h
-      v[c(FALSE, TRUE)] <- b[c(FALSE, FALSE, TRUE)] + 16 * (b1 - h)
-      if (nsamp < 2 * npair) v <- v[seq_len(nsamp)]
-      v - 4096 * (v >= 2048)
-    },
-    {   # 310, 311: three 10-bit samples in 4 bytes
-      ntrip <- (nsamp + 2) %/% 3
-      b <- as.integer(data[seq_len(4 * ntrip)])
-      b0 <- b[c(TRUE, FALSE, FALSE, FALSE)]
-      b2 <- b[c(FALSE, FALSE, TRUE, FALSE)]
-      b3 <- b[c(FALSE, FALSE, FALSE, TRUE)]
-      w0 <- b0 + 256 * b[c(FALSE, TRUE, FALSE, FALSE)]
-      v <- numeric(3 * ntrip)
-      if (fmt == 310) {
-        w1 <- b2 + 256 * b3
-        v[c(TRUE, FALSE, FALSE)] <- (w0 %/% 2) %% 1024
-        v[c(FALSE, TRUE, FALSE)] <- (w1 %/% 2) %% 1024
-        v[c(FALSE, FALSE, TRUE)] <- w0 %/% 2048 + 32 * (w1 %/% 2048)
-      } else {
-        v[c(TRUE, FALSE, FALSE)] <- w0 %% 1024
-        v[c(FALSE, TRUE, FALSE)] <- w0 %/% 1024 + 64 * (b2 %% 16)
-        v[c(FALSE, FALSE, TRUE)] <- ((b2 + 256 * b3) %/% 16) %% 1024
+      # two 12-bit samples in 3 bytes, the second byte holding the high
+      # nibbles: as 16-bit words, the low byte of each sample, then its
+      # high nibble with the sign extended (in order, or with 2 samples per
+      # frame, all first samples, then all second samples)
+      nu <- (nsamp + 1) %/% 2
+      b <- if (length(data) == 3 * nu) data else readBin(data, "raw", n = 3 * nu)
+      dim(b) <- c(3L, nu)
+      h <- as.integer(b[2L, ]) + 1L
+      w <- if (ng == 2) c(rbind(b[1L, ], .LO4[h]), rbind(b[3L, ], .HI4[h])) else
+        rbind(b[1L, ], .LO4[h], b[3L, ], .HI4[h])
+      v <- readBin(w, "integer", n = nsamp, size = 2L, endian = "little")
+      if (ng == 2) {
+        k <- 2L
+        dim(v) <- c(nu, 2L)
       }
-      if (nsamp < 3 * ntrip) v <- v[seq_len(nsamp)]
-      v - 1024 * (v >= 512)
+      v
+    },
+    {   # 310, 311: three 10-bit samples in two 16-bit words
+      nu <- (nsamp + 2) %/% 3
+      w <- readBin(data, "integer", n = 2 * nu, size = 2L, signed = FALSE,
+                   endian = "little")
+      dim(w) <- c(2L, nu)
+      w <- t(w)
+      w0 <- w[, 1L]
+      w1 <- w[, 2L]
+      if (fmt == 310) {
+        s0 <- bitwAnd(bitwShiftR(w0, 1L), 1023L)
+        s1 <- bitwAnd(bitwShiftR(w1, 1L), 1023L)
+        s2 <- bitwOr(bitwShiftR(w0, 11L), bitwShiftL(bitwShiftR(w1, 11L), 5L))
+      } else {
+        s0 <- bitwAnd(w0, 1023L)
+        s1 <- bitwOr(bitwShiftR(w0, 10L), bitwShiftL(bitwAnd(w1, 15L), 6L))
+        s2 <- bitwAnd(bitwShiftR(w1, 4L), 1023L)
+      }
+      if (ng == 3) {
+        k <- 3L
+        v <- c(s0, s1, s2)
+        dim(v) <- c(nu, 3L)
+      } else {
+        v <- rbind(s0, s1, s2)
+        dim(v) <- NULL
+        if (length(v) > nsamp) v <- v[seq_len(nsamp)]
+      }
+      v - bitwShiftL(bitwAnd(v, 512L), 1L)
     })
+  if (k > 1L) return(v)
+  if (ng > 1) {
+    dim(v) <- c(ng, n)
+    t(v)
+  } else {
+    dim(v) <- c(n, 1L)
+    v
+  }
 }
+
+# Byte tables for .decode_frames (indexed by the byte + 1): the sign byte
+# of a byte (.SIGN8), and the low (.LO4) and high (.HI4) nibble of a byte
+# with its sign extended to 8 bits.
+.SIGN8 <- as.raw(ifelse(0:255 >= 128, 255, 0))
+.LO4 <- as.raw(bitwAnd(0:255, 15L) + ifelse(bitwAnd(0:255, 8L) > 0, 240L, 0L))
+.HI4 <- as.raw(bitwShiftR(0:255, 4L) + ifelse(0:255 >= 128, 240L, 0L))
 
 # meansamp() for each row of the matrix sv (n samples per row).
 .meansamp_rows <- function(sv, n) {
-  bad <- rowSums(sv == WFDB_INVALID_SAMPLE) > 0
   total <- n %/% 2 + rowSums(sv)
   if (bitwAnd(n, n - 1) != 0) {
     neg <- as.numeric(total < 0)
     total <- trunc((total + neg) / n) - neg
   } else {
-    repeat {
-      n <- n %/% 2
-      if (n == 0) break
-      total <- trunc((total - (total < 0)) / 2)
-    }
+    total <- floor(total / n)     # (repeated halving, rounding down)
   }
-  total[bad] <- WFDB_INVALID_SAMPLE
+  if (min(sv) <= WFDB_INVALID_SAMPLE) total[rowSums(sv == WFDB_INVALID_SAMPLE) > 0] <- WFDB_INVALID_SAMPLE
   total
 }
 
@@ -3640,7 +3659,7 @@ wfdb_freeinfo <- function() {
   idx
 }
 
-.bulk_frames <- function(n, full = FALSE) {
+.bulk_frames <- function(n, full = FALSE, int = FALSE) {
   st <- .sig
   nisig <- st$nisig
   nvsig <- st$nvsig
@@ -3720,6 +3739,11 @@ wfdb_freeinfo <- function() {
   pad <- bitwAnd(st$gvmode, WFDB_GVPAD) != 0
   spfs <- lay$spfs
   frames <- vector("list", nisig)
+  # (whole: the decoded frames of a single group holding all the signals,
+  # none of them invalid, are the result)
+  whole_ok <- ispfmax == 1 && !need_sigmap && length(igd) == 1L &&
+    !(full && st$framelen < st$tspf)
+  whole <- NULL
   for (g in seq_along(igd)) {
     ig <- igd[[g]]
     if (!isflac[g] && !isnull[g])
@@ -3727,17 +3751,42 @@ wfdb_freeinfo <- function() {
     if (n == 0) next
     fmt <- lay$fmt[g]
     ng <- nn[g]
-    if (!isnull[g])
-      raws <- if (isflac[g]) flac_getsamps(ig, n * ng)$v else .decode_stream(fmt, bufs[[g]], n * ng)
     inval <- lay$inval[g]
+    clean <- FALSE
+    if (!isnull[g]) {
+      # (one row per frame, one column per sample of a frame)
+      if (isflac[g]) {
+        raws <- flac_getsamps(ig, n * ng)$v
+        dim(raws) <- c(ng, n)
+        raws <- t(raws)
+      } else {
+        raws <- .decode_frames(fmt, bufs[[g]], n, ng)
+      }
+      # (clean: no invalid sample, and no first differences: the samples
+      # are the decoded values)
+      clean <- fmt != 8 && (min(raws) > inval || !any(raws == inval))
+      if (clean) {
+        csum <- colSums(raws)
+        last <- as.numeric(raws[n, ])
+        if (whole_ok) whole <- raws
+      }
+    }
+    off <- 0
     for (s in lay$sl[[g]]) {
       is <- isd[[s]]
+      sf <- spfs[s]
       if (isnull[g]) {
         # (a null signal: its last sample with WFDB_GVPAD, else invalid)
-        v <- rep(if (pad) is$samp else WFDB_INVALID_SAMPLE, n * spfs[s])
+        v <- rep(if (pad) is$samp else WFDB_INVALID_SAMPLE, n * sf)
         cks <- sum(v)
+        fr <- v
+      } else if (clean) {
+        cks <- sum(csum[off + seq_len(sf)])
+        is$samp <- last[off + sf]
+        fr <- if (!is.null(whole)) NULL else if (ng == 1) raws else
+          raws[, off + seq_len(sf), drop = sf == 1]
       } else {
-        col <- if (ng == 1) raws else raws[lay$mask[[s]]]
+        col <- as.numeric(if (sf == 1) raws[, off + 1] else t(raws[, off + seq_len(sf)]))
         if (fmt == 8) {
           v <- cint32(cumsum(col) + is$samp)  # first differences
           is$samp <- v[length(v)]
@@ -3765,8 +3814,10 @@ wfdb_freeinfo <- function() {
             is$samp <- col[length(col)]
           }
         }
+        fr <- if (sf == 1) v else matrix(v, n, sf, byrow = TRUE)
       }
-      frames[[s]] <- if (ispfmax == 1 && spfs[s] == 1) v else matrix(v, n, spfs[s], byrow = TRUE)
+      if (!is.null(fr) && is.null(dim(fr)) && (ispfmax > 1 || sf > 1)) dim(fr) <- c(n, sf)
+      frames[s] <- list(fr)
       info <- is$info
       info$cksum <- cint32(info$cksum - cks)
       if (info$nsamp > 0) {
@@ -3775,6 +3826,7 @@ wfdb_freeinfo <- function() {
         info$nsamp <- -1
       }
       is$info <- info
+      off <- off + sf
     }
   }
   st$istime <- st$istime + n
@@ -3782,7 +3834,7 @@ wfdb_freeinfo <- function() {
   if (need_sigmap) {
     # the frames of the layout (getframe), split into its signals
     raw <- do.call(cbind, frames)
-    st$ovec <- raw[n, ]
+    st$ovec <- as.numeric(raw[n, ])
     fr <- .bulk_sigmap(raw)
     if (full || ispfmax == 1) return(fr[, seq_len(ncols), drop = FALSE])
     spfs <- vapply(st$vsd[seq_len(nvsig)], function(vs) vs$info$spf, 0)
@@ -3793,13 +3845,18 @@ wfdb_freeinfo <- function() {
     fr <- do.call(cbind, frames)
     if (st$framelen < st$tspf)
       fr <- cbind(fr, matrix(WFDB_INVALID_SAMPLE, n, st$tspf - st$framelen))
+    if (!int && is.integer(fr)) storage.mode(fr) <- "double"
     return(fr)
   } else if (ispfmax > 1) {
-    st$tvector <- unlist(lapply(frames, function(f) f[n, ]), use.names = FALSE)
+    st$tvector <- as.numeric(unlist(lapply(frames, function(f) f[n, ]), use.names = FALSE))
   }
   if (ispfmax == 1) {
-    out <- unlist(frames, use.names = FALSE)     # (dim<-: no copy)
-    dim(out) <- c(n, nisig)
+    out <- whole
+    if (is.null(out)) {
+      out <- unlist(frames, use.names = FALSE)     # (dim<-: no copy)
+      dim(out) <- c(n, nisig)
+    }
+    if (!int && is.integer(out)) storage.mode(out) <- "double"
     if (deskew) {
       # the ring buffer holds raw frames k .. k+L-1 (L = skewmax + 1), the
       # oldest in slot dsbi; output frame k+j takes signal s from raw frame
@@ -3828,7 +3885,9 @@ wfdb_freeinfo <- function() {
     st$rgetvec_stat <- nisig
   } else {
     out <- matrix(0, n, nvsig)
-    for (s in seq_len(nvsig)) out[, s] <- .meansamp_rows(frames[[s]], spfs[s])
+    # (the mean of one sample is that sample)
+    for (s in seq_len(nvsig))
+      out[, s] <- if (spfs[s] == 1) frames[[s]] else .meansamp_rows(frames[[s]], spfs[s])
     st$rgetvec_stat <- nisig
   }
   out
@@ -3864,8 +3923,12 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
   # each block on a whole packed unit)
   per <- if (st$ispfmax > 1 && bitwAnd(st$gvmode, WFDB_HIGHRES) == WFDB_HIGHRES) st$ispfmax else 1
   maxv <- .BULK_MAXFRAMES - .BULK_MAXFRAMES %% (6 * per)
-  blk <- .bulk_frames(min(n, maxv))
-  if (!is.null(blk) && nrow(blk) >= n) return(list(v = blk, stat = nsig))
+  # (integer blocks: converted once, by rbind if there are several)
+  blk <- .bulk_frames(min(n, maxv), int = TRUE)
+  if (!is.null(blk) && nrow(blk) >= n) {
+    if (is.integer(blk)) storage.mode(blk) <- "double"
+    return(list(v = blk, stat = nsig))
+  }
   # Otherwise: blocks decoded by .bulk_frames, and vectors read by getvec
   # (collected in acc) where it declines.
   parts <- list()
@@ -3903,7 +3966,7 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
       got <- got + 1
     }
     if (got >= n) break
-    blk <- .bulk_frames(min(n - got, maxv))
+    blk <- .bulk_frames(min(n - got, maxv), int = TRUE)
   }
   if (nrows > 0) parts[[length(parts) + 1L]] <- acc[seq_len(nrows), , drop = FALSE]
   v <- if (length(parts) == 1L) parts[[1L]] else if (length(parts)) {
@@ -3911,6 +3974,7 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
   } else {
     matrix(0, 0, nsig)
   }
+  if (is.integer(v)) storage.mode(v) <- "double"
   if (cksum_err && stat >= -1) stat <- -4
   list(v = v, stat = stat)
 }
@@ -4003,7 +4067,10 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
     x <- x %% 65536
     as.integer(x - 65536 * (x >= 32768))
   }
-  w16 <- function(x, endian = "little") writeBin(i16(x), raw(), size = 2L, endian = endian)
+  w16 <- function(x, endian = "little") {
+    x <- if (isTRUE(min(x) >= -32768) && isTRUE(max(x) <= 32767)) as.integer(x) else i16(x)
+    writeBin(x, raw(), size = 2L, endian = endian)
+  }
   switch(as.character(fmt),
     "8" = as.raw(v),
     "16" = w16(v),
@@ -4078,7 +4145,7 @@ putframes <- function(m) {
     st$ostime <- st$ostime + nrows
     return(stat)
   }
-  storage.mode(m) <- "double"
+  if (!is.double(m)) storage.mode(m) <- "double"
   osd <- st$osd
   vi <- 0
   s <- 1
@@ -4088,35 +4155,69 @@ putframes <- function(m) {
     while (s2 < nosig && osd[[s2 + 1]]$info$group == g) s2 <- s2 + 1
     og <- st$ogd[[g + 1]]
     fmt <- osd[[s]]$info$fmt
-    gs <- vector("list", s2 - s + 1)
-    for (k in s:s2) {
-      os <- osd[[k]]
-      info <- os$info
-      spf <- info$spf
-      x <- t(m[, vi + seq_len(spf), drop = FALSE])   # spf x nrows, time order
-      if (info$nsamp == 0) {
-        info$initval <- m[1L, vi + 1]
-        os$samp <- m[1L, vi + 1]
-      }
-      vi <- vi + spf
-      info$nsamp <- info$nsamp + nrows
-      inv <- x == WFDB_INVALID_SAMPLE
-      if (any(inv)) x[inv] <- .invalid_of(info$fmt)
-      if (fmt == 8) {
+    if (fmt == 8) {
+      gs <- vector("list", s2 - s + 1)
+      for (k in s:s2) {
+        os <- osd[[k]]
+        info <- os$info
+        spf <- info$spf
+        x <- t(m[, vi + seq_len(spf), drop = FALSE])   # spf x nrows, time order
+        if (info$nsamp == 0) {
+          info$initval <- m[1L, vi + 1]
+          os$samp <- m[1L, vi + 1]
+        }
+        vi <- vi + spf
+        info$nsamp <- info$nsamp + nrows
+        inv <- x == WFDB_INVALID_SAMPLE
+        if (any(inv)) x[inv] <- .invalid_of(info$fmt)
         r <- .fmt8_diffs(as.vector(x), os$samp)
         x <- matrix(r$d, spf, nrows)
         if (r$clipped) stat <- min(stat, 0)
-        cks <- sum(r$osamp)
+        info$cksum <- cint32(info$cksum + sum(r$osamp))
         os$samp <- r$osamp[length(r$osamp)]
-      } else {
-        cks <- sum(x)
-        os$samp <- x[length(x)]
+        os$info <- info
+        gs[[k - s + 1]] <- x
       }
-      info$cksum <- cint32(info$cksum + cks)
-      os$info <- info
-      gs[[k - s + 1]] <- x
+      seq <- if (s2 == s) as.vector(gs[[1L]]) else as.vector(do.call(rbind, gs))
+    } else {
+      # the columns of the group's signals, frame by frame (invalid samples
+      # replaced by the invalid value of each signal's format)
+      spfs <- vapply(osd[s:s2], function(os) os$info$spf, 0)
+      cols <- vi + seq_len(sum(spfs))
+      x <- if (length(cols) == ncol(m) && vi == 0) m else m[, cols, drop = FALSE]
+      off <- 0
+      for (k in s:s2) {
+        ival <- .invalid_of(osd[[k]]$info$fmt)
+        ck <- off + seq_len(spfs[k - s + 1])
+        off <- off + length(ck)
+        if (ival == WFDB_INVALID_SAMPLE) next
+        xk <- x[, ck]
+        inv <- xk == WFDB_INVALID_SAMPLE
+        if (any(inv)) {
+          xk[inv] <- ival
+          x[, ck] <- xk
+        }
+      }
+      csum <- colSums(x)
+      off <- 0
+      for (k in s:s2) {
+        os <- osd[[k]]
+        info <- os$info
+        spf <- spfs[k - s + 1]
+        if (info$nsamp == 0) {
+          info$initval <- m[1L, vi + off + 1]
+          os$samp <- m[1L, vi + off + 1]
+        }
+        info$nsamp <- info$nsamp + nrows
+        info$cksum <- cint32(info$cksum + sum(csum[off + seq_len(spf)]))
+        os$samp <- x[nrows, off + spf]
+        os$info <- info
+        off <- off + spf
+      }
+      vi <- vi + off
+      seq <- if (ncol(x) == 1L) x else t(x)
+      dim(seq) <- NULL
     }
-    seq <- if (s2 == s) as.vector(gs[[1L]]) else as.vector(do.call(rbind, gs))
     bytes <- raw(0)
     if (fmt %in% c(508, 516, 524)) {
       if (flac_putsamps(seq, fmt, og) < 0) stat <- -1
@@ -4142,14 +4243,32 @@ putframes <- function(m) {
 # Vectorized time strings (for tools printing many times): the results of
 # mstimstr()/timstr() with frequency f for each element of t.  The module
 # state (time and date strings) is left as the last call would leave it.
+# The fields are formatted through tables of their distinct values
+# (.cfmt_tab).
 
-.fmstimstr_v0 <- function(t, f) {
+# csprintf_v(fmt, x) as a table of the strings of the distinct values of x
+# and the index of each element of x in it: list(tab, i).  (With key, x is
+# the vector of the key's distinct values, in the order of unique(key), for
+# each of which fn(x) gives the string.)
+.cfmt_tab <- function(fmt, x, key = x, fn = function(u) csprintf_v(fmt, u)) {
+  u <- unique(key)
+  list(tab = fn(u), i = match(key, u))
+}
+
+# The time strings of t (list(s, d): the strings, and the date string of
+# each).  With pieces = TRUE, if all the strings are elapsed times, or all
+# absolute times, s is NULL and p gives them as pieces to be pasted: a list
+# of tables (.cfmt_tab), of the minutes (with the hours), seconds and
+# milliseconds (and, for absolute times, the date and the closing bracket).
+.fmstimstr_v0 <- function(t, f, pieces = FALSE) {
   st <- .sig
   n <- length(t)
   out <- character(n)
   dstr <- rep(st$date_string, n)
   if (n == 0L) return(list(s = out, d = dstr))
   el <- t > 0 | (st$btime == 0 & st$bdate == 0)
+  pieces <- pieces && (all(el) || !any(el))
+  p <- NULL
   if (any(el)) {
     x <- abs(t[el])
     sec <- trunc(x / f)
@@ -4159,12 +4278,13 @@ putframes <- function(m) {
     sec[k] <- sec[k] + 1
     seconds <- sec %% 60
     m <- sec %/% 60
-    minutes <- m %% 60
-    hours <- m %/% 60
-    r <- csprintf_v("   %2d:%02d.%03d", minutes, seconds, msec)
-    h <- hours > 0
-    if (any(h)) r[h] <- csprintf_v("%2d:%02d:%02d.%03d", hours[h], minutes[h], seconds[h], msec[h])
-    out[el] <- r
+    # ("   %2d:%02d.%03d" of minutes, seconds, msec, or "%2d:%02d:%02d.%03d"
+    # with the hours)
+    p <- list(.cfmt_tab(key = m, fn = function(u) {
+      h <- u %/% 60
+      ifelse(h > 0, csprintf_v("%2d:%02d:", h, u %% 60), csprintf_v("   %2d:", u %% 60))
+    }), .cfmt_tab("%02d.", seconds), .cfmt_tab("%03d", msec))
+    if (!pieces) out[el] <- do.call(paste0, lapply(p, function(q) q$tab[q$i]))
   }
   if (any(!el)) {
     tms <- st$btime - (t[!el] * 1000 / f)
@@ -4174,23 +4294,24 @@ putframes <- function(m) {
     msec[k] <- 0
     sec[k] <- sec[k] + 1
     seconds <- cmod(sec, 60)
-    x <- cdiv(sec, 60)
-    minutes <- cmod(x, 60)
-    x <- cdiv(x, 60)
-    hours <- cmod(x, 24)
-    days <- cdiv(x, 24)
+    m <- cdiv(sec, 60)
+    days <- cdiv(cdiv(m, 60), 24)
     ud <- unique(days)
     ds <- vapply(ud, function(d) {
       if (d == st$pdays) st$date_string else if (st$bdate > 0) datstr(d + st$bdate) else
         if (d == 0) "" else .f(" %d", d)
     }, "")
-    dd <- ds[match(days, ud)]
-    dstr[!el] <- dd
-    out[!el] <- paste0(csprintf_v("[%02d:%02d:%02d.%03d", hours, minutes, seconds, msec),
-                       dd, "]")
+    di <- match(days, ud)
+    dstr[!el] <- ds[di]
+    # ("[%02d:%02d:%02d.%03d" of hours, minutes, seconds, msec, the date, "]")
+    p <- list(.cfmt_tab(key = m, fn = function(u)
+      csprintf_v("[%02d:%02d:", cmod(cdiv(u, 60), 24), cmod(u, 60))),
+      .cfmt_tab("%02d.", seconds), .cfmt_tab("%03d", msec), list(tab = ds, i = di),
+      list(tab = "]", i = rep(1L, length(di))))
+    if (!pieces) out[!el] <- do.call(paste0, lapply(p, function(q) q$tab[q$i]))
   }
   .fmstimstr(t[n], f)       # (the state after the last one)
-  list(s = out, d = dstr)
+  if (pieces) list(s = NULL, d = dstr, p = p) else list(s = out, d = dstr)
 }
 
 .fmstimstr_v <- function(t, f) .fmstimstr_v0(t, f)$s

@@ -46,7 +46,7 @@ fn p32(x: i64) {
 
 fn main() {
     let mut argv = cstd::args();
-    wfdbx::wfdbx_legacy_args(&mut argv); // wfdb-x: --legacy (original behavior)
+    wfdbx::wfdbx_legacy_args(&mut argv); // WFDB-x: --legacy (original behavior)
     let nulls = [0u8; NOTICE_LEN];
     if argv.len() < 3 {
         ceprintf!(b"usage: %s annotator record\n", argv[0]);

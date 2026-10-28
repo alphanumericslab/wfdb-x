@@ -1,24 +1,24 @@
 # Deliberate divergences from the C implementation
 
 WFDB-x reproduces the WFDB Software Package 10.7.0 exactly, with the
-exceptions described here: **it has no built-in signal parameters**, it
+exceptions described here: **it has no built-in signal parameters**; it
 **finds files only where they are named** (no search path, and no network
-access unless the user asks for it), it **sorts out-of-order annotation
-files itself** instead of running a separate program, and its sorting
-**does not lose annotations** as the original `sortann` does, it **never
-writes over a file it is reading**, and its tools **report write errors in
-their exit status**. They are deliberate,
-the same in all seven implementations, and tested like everything else: the
-reference results of the conformance suite come from the C package with
+access unless the user asks for it); it **sorts out-of-order annotation
+files itself**, instead of running a separate program, and **without losing
+annotations** as the original `sortann` does; it **never writes over a file
+it is reading**; and its tools **report write errors in their exit status**.
+They are deliberate, the same in all seven implementations, and tested like
+everything else: the reference results of the conformance suite come from
+the C package with
 [`tests/reference/divergences.patch`](../tests/reference/divergences.patch)
-applied (see [`tests/reference/build_reference.sh`](../tests/reference/build_reference.sh)).
+applied (see
+[`tests/reference/build_reference.sh`](../tests/reference/build_reference.sh)).
 The patch is the precise definition of the divergences; this page explains
 them. The original behavior remains available in all cases, on request (see
 [Legacy mode](#legacy-mode)).
 
-These design decisions were made by Reza Sameni in 2026 (the last
-five after code reviews), for the reasons below. Each source file affected
-by them says so in its header.
+These design decisions were made by Reza Sameni in 2026, for the reasons
+below. Each source file affected by them says so in its header.
 
 ## No built-in sampling frequency, gain, ADC resolution or units
 
@@ -280,7 +280,7 @@ The tools use the environment variables.
 
 ### The cost: PhysioNet is chosen explicitly
 
-Reading PhysioNet records now has to be asked for, by setting the input
+Reading PhysioNet records has to be asked for explicitly, by setting the input
 directory to the database's URL and turning network access on. For example,
 for record 100 of the MIT-BIH Arrhythmia Database:
 
@@ -382,17 +382,17 @@ WFDB-x refuses to create an output signal file that is the same file as a
 signal file of the record open for reading (the same file, not the same
 name: links and different spellings of a path are recognized; files are
 compared by device and inode number, by file ID on Windows, through
-`java.nio.file.Files.isSameFile` in MATLAB/Octave, and in R, which has no
-access to inode numbers, by normalized path and, for files of the same size
-and modification time, by the device and inode numbers that the `stat`
-program reports), with the
+`java.nio.file.Files.isSameFile` in MATLAB (Octave uses the device and inode
+numbers that `stat` gives), and in R, which has no access to inode numbers,
+by normalized path and, for files of the same size and modification time, by
+the device and inode numbers that the `stat` program reports), with the
 message `osigfopen: output file NAME is also an input file` (`osigopen:`
 when the file is opened by `osigopen`); nothing is written. The check is in
-the library, so every tool and every program using the library functions
-is protected, and the behavior is identical in all seven implementations (it
-is part of the conformance suite). The high-level `write_record` reads
-nothing: it closes any open record first, so it simply replaces existing
-files of the same name. Legacy mode does not check, as the original.
+the library, so every tool and every program using the library functions is
+protected, and the behavior is identical in all seven implementations (it is
+part of the conformance suite). The high-level `write_record` reads nothing:
+it closes any open record first, so it simply replaces existing files of the
+same name. Legacy mode does not check, as the original.
 
 ## Write errors give a nonzero exit status
 
@@ -556,7 +556,7 @@ described above.
 
 Legacy mode reproduces the original package exactly, and it is tested
 against its results: the legacy suite of the conformance tests
-([`tests/conformance/legacy`](../tests/conformance/legacy), 877 cases, run
+([`tests/conformance/legacy`](../tests/conformance/README.md), 877 cases, run
 with `harness.py check --legacy`) runs the original package's cases with
 `--legacy` and compares them with results produced by the unmodified C
 package, and the library's legacy values are checked in

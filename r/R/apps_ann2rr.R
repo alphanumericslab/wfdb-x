@@ -12,7 +12,7 @@
 # FREQ gives it when the record has no header or its header gives none, and is
 # then required for time arguments and for intervals and times in units of time
 # (the original assumed 250 Hz); --legacy, as the first argument, restores the
-# original behavior. Each change is marked "wfdb-x:" in the code;
+# original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/ann2rr.c, WFDB Software Package 10.7.0.
@@ -83,7 +83,7 @@ app_ann2rr <- function(args = character(0)) {
   if (all(abs(x) < .Machine$integer.max)) sprintf("%d", as.integer(x)) else csprintf_v("%lld", x)
 }
 
-# wfdb-x: whether output format f (of -i, -v or -V) is a unit of time, which
+# WFDB-x: whether output format f (of -i, -v or -V) is a unit of time, which
 # needs the sampling frequency.
 .ann2rr_time_format <- function(f) f %in% c("h", "m", "s", "t", "T")
 
@@ -201,11 +201,11 @@ app_ann2rr <- function(args = character(0)) {
     .ann2rr_help(pname)
     cexit(1)
   }
-  # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+  # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
   # the record had no header); -F specifies one.  It is needed for times and
   # intervals in units of time.
   sps <- sampfreq(record)
-  if (wfdbx_get_legacy()) {              # wfdb-x: legacy mode (original behavior)
+  if (wfdbx_get_legacy()) {              # WFDB-x: legacy mode (original behavior)
     if (sps < 0) setsampfreq(sps <- WFDB_DEFFREQ)
   } else if (sps <= 0 && Ffreq > 0) {
     setsampfreq(sps <- Ffreq)

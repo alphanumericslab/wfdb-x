@@ -82,13 +82,13 @@ function write_record(record, signals, fs, varargin)
 % any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
-% wfdb-x: the gains are required (C's default was WFDB_DEFGAIN)
+% WFDB-x: the gains are required (C's default was WFDB_DEFGAIN)
 opt = struct('fmt', 16, 'gains', [], 'baselines', [], 'adczeros', 0, ...
     'adcres', [], 'units', [], 'names', [], 'base_time', [], ...
     'comments', [], 'physical', false, 'samps_per_frame', [], ...
     'dir', [], 'legacy', false);
 opt = wfdbx.internal.hl_options(opt, varargin, 'write_record');
-% wfdb-x: the 'dir' option (the library's output directory, for this
+% WFDB-x: the 'dir' option (the library's output directory, for this
 % call), checked before the other arguments
 restore_dir = wfdbx.internal.hl_outdir(opt.dir, record, 'write_record'); %#ok<NASGU>
 restore = wfdbx.internal.hl_legacy(opt.legacy, 'write_record'); %#ok<NASGU>
@@ -116,9 +116,9 @@ if isempty(opt.gains)
     if ~legacy
         error('wfdbx:write_record', 'gains must be specified');
     end
-    opt.gains = 200;        % WFDB_DEFGAIN (wfdb-x: legacy mode)
+    opt.gains = 200;        % WFDB_DEFGAIN (WFDB-x: legacy mode)
 end
-% wfdb-x: no default sampling frequency (C assumed 250 Hz)
+% WFDB-x: no default sampling frequency (C assumed 250 Hz)
 if ~legacy && (~isnumeric(fs) || ~isscalar(fs) || ~(fs > 0))
     error('wfdbx:write_record', 'the sampling frequency (fs) must be > 0');
 end
@@ -130,9 +130,9 @@ if isempty(opt.baselines)
 else
     bases = per(opt.baselines, nsig, 'baselines');
 end
-% wfdb-x: the ADC resolutions are required (C inferred them from the format)
+% WFDB-x: the ADC resolutions are required (C inferred them from the format)
 if isempty(opt.adcres) && legacy
-    res = legacy_adcres(fmts);  % wfdb-x: legacy mode
+    res = legacy_adcres(fmts);  % WFDB-x: legacy mode
 else
     if isempty(opt.adcres)
         error('wfdbx:write_record', 'ADC resolution(s) must be specified');
@@ -144,7 +144,7 @@ else
 end
 units = per_str(opt.units, nsig, 'units');
 names = per_str(opt.names, nsig, 'names');
-% wfdb-x: the units of calibrated signals are required (C assumed mV)
+% WFDB-x: the units of calibrated signals are required (C assumed mV)
 for k = 1:nsig
     if ~legacy && gains(k) ~= 0 && (~ischar(units{k}) || isempty(units{k}))
         error('wfdbx:write_record', 'units must be specified');
@@ -159,7 +159,7 @@ if opt.physical
     for k = 1:nsig
         g = gains(k);
         if g == 0
-            g = 200;        % WFDB_DEFGAIN (wfdb-x: legacy mode)
+            g = 200;        % WFDB_DEFGAIN (WFDB-x: legacy mode)
         end
         for j = 1:spf(k)
             c = c + 1;
@@ -248,7 +248,7 @@ end
 end
 
 function res = legacy_adcres(fmts)
-% wfdb-x: legacy mode: the ADC resolution that write_record infers from
+% WFDB-x: legacy mode: the ADC resolution that write_record infers from
 % the format
 res = 16 * ones(size(fmts));
 res(fmts == 80 | fmts == 508) = 8;

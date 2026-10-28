@@ -11,7 +11,7 @@ Changes from the original: no built-in gain or units: the new options -G GAIN
 (required) and -U UNITS (required unless the gain is 0) give them (the original
 wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in millivolts);
 --legacy, as the first argument, restores the original behavior. Each change is
-marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
   Copyright (C) 2003-2004 George B. Moody.
@@ -41,7 +41,7 @@ HELP = [
     " -U UNITS   physical units (required unless the gain is 0)",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {
     " -G GAIN    gain in adu per physical unit (required; 0: uncalibrated)":
     None,
@@ -76,8 +76,8 @@ def _main(argv):
     pname = argv[0]
     argc = len(argv)
     ifname = record = None
-    uunits = None       # wfdb-x: -U
-    ggain = 0.0         # wfdb-x: -G
+    uunits = None       # WFDB-x: -U
+    ggain = 0.0         # WFDB-x: -G
     gset = 0
     i = 1
     while i < argc:
@@ -128,7 +128,7 @@ def _main(argv):
     if ifname is None:
         help(pname)
         raise Exit(1)
-    # wfdb-x: the gain and units must be given explicitly; C wrote 12.5
+    # WFDB-x: the gain and units must be given explicitly; C wrote 12.5
     # adu/mV for 8-bit and 6400 adu/mV for 16-bit files, with no units
     # (millivolts).  (The sampling frequency and the resolution are those
     # given in the file.)  Legacy mode: as in the C program.
@@ -176,11 +176,11 @@ def _main(argv):
     if bitspersample <= 8:
         wres = 8
         if legacy():
-            ggain = 12.5    # wfdb-x: the C program's gain
+            ggain = 12.5    # WFDB-x: the C program's gain
     elif bitspersample <= 16:
         wres = 16
         if legacy():
-            ggain = 6400.0  # wfdb-x: the C program's gain
+            ggain = 6400.0  # WFDB-x: the C program's gain
     else:
         eprintf("%s: unsupported resolution (%d bits/sample) in %s\n",
                 pname, bitspersample, ifname)

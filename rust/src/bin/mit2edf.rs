@@ -23,7 +23,7 @@
 // and guessed the resolution from the storage format); unspecified units are
 // written as "nd" (the original wrote "mV"); an EDF file that cannot be
 // written is reported, and the exit status is then 1; --legacy, as the first
-// argument, restores the original behavior. Each change is marked "wfdb-x:" in
+// argument, restores the original behavior. Each change is marked "WFDB-x:" in
 // the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
@@ -112,7 +112,7 @@ fn guess_adcres(fmt: i32) -> i32 {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = argv[0].clone();
     let mut ofname: Option<Vec<u8>> = None;
@@ -205,7 +205,7 @@ fn main() {
         cstd::exit(3);
     }
 
-    // wfdb-x: an EDF file needs the sampling frequency, and the gain and ADC
+    // WFDB-x: an EDF file needs the sampling frequency, and the gain and ADC
     // resolution of each signal (the C program assumed 250 Hz and 200 adu/mV
     // if the header did not specify them, and guessed the resolution from
     // the format), as legacy mode does.
@@ -228,7 +228,7 @@ fn main() {
             cstd::exit(3);
         }
         if s.adcres < 1 {
-            // the EDF digital range needs it (wfdb-x: no default resolution)
+            // the EDF digital range needs it (WFDB-x: no default resolution)
             ceprintf!(
                 b"%s: ADC resolution of signal %d of record %s is not specified\n",
                 pname,
@@ -353,7 +353,7 @@ fn main() {
     // Calculate physical and digital extrema.
     for i in 0..ns {
         let s = &mut si[i];
-        // (wfdb-x: the ADC resolution was checked above; the C program
+        // (WFDB-x: the ADC resolution was checked above; the C program
         // guessed it from the storage format if the header did not give it,
         // as legacy mode does.)
         if legacy && s.adcres < 1 {
@@ -460,7 +460,7 @@ fn main() {
 
     // Physical dimension (e.g., uV or degreeC).
     for s in &mut si {
-        // wfdb-x: unspecified units are shown as "nd" (C, legacy mode: mV)
+        // WFDB-x: unspecified units are shown as "nd" (C, legacy mode: mV)
         let u = s.units.get_or_insert_with(|| {
             if legacy {
                 b"mV".to_vec()

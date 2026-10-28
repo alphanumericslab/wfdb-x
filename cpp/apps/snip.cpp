@@ -10,7 +10,7 @@
 // Changes from the original: no built-in sampling frequency: the input record
 // must give it, for the header of the excerpt (the original assumed 250 Hz);
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/snip.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -49,7 +49,7 @@ static void help();
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -168,7 +168,7 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "%s: error reading input header\n", pname);
         std::exit(2);
     }
-    // wfdb-x: the output header needs the sampling frequency (the C program
+    // WFDB-x: the output header needs the sampling frequency (the C program
     // assumed 250 Hz if the input header did not specify one, as legacy mode
     // does).
     if (!wfdbx_get_legacy() && sampfreq(nullptr) <= 0.) {

@@ -5,7 +5,7 @@ function f = wfdb_fopen(fname, mode)
 %   wfdbx.internal.WFDBFile, or [] (NULL) if it cannot be opened.  As in C,
 %   when an output file cannot be created, the directories in its name are
 %   created and the file is tried again.  Directories cannot be opened for
-%   reading.  wfdb-x: an http:// or https:// URL can only be read, if
+%   reading.  WFDB-x: an http:// or https:// URL can only be read, if
 %   network access is allowed (wfdbx.internal.fetch_open); names
 %   containing '..' are accepted.  In legacy mode, names containing '..'
 %   or '://' are refused (as by the reference C library, built without
@@ -24,7 +24,7 @@ function f = wfdb_fopen(fname, mode)
 % Changes from the original: an http:// or https:// URL is read only if
 % network access is allowed, and names containing '..' are accepted (refused
 % in legacy mode, as by the C library built without NETFILES). Each change
-% is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
@@ -40,7 +40,7 @@ f = [];
 if ~ischar(fname)
     return;
 end
-if wfdbx.wfdbx_get_legacy()     % wfdb-x: legacy mode (the original)
+if wfdbx.wfdbx_get_legacy()     % WFDB-x: legacy mode (the original)
     if ~isempty(strfind(fname, '..')) || ~isempty(strfind(fname, '://'))
         return;
     end

@@ -25,7 +25,7 @@
 // millivolts); the options precede the input files, in any order; the
 // short-format part of a long-format file (skipped by -s) is located from -F;
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 //   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source
@@ -40,7 +40,7 @@
 use wfdbx::cstd::{self, EOF, SEEK_SET};
 use wfdbx::{ceprintf, csscanf, Anninfo, Annotation, Siginfo, WfdbFile, WFDB_WRITE};
 
-/// The signal parameters (-F, -G, -R, -U); wfdb-x: the C program assumed
+/// The signal parameters (-F, -G, -R, -U); WFDB-x: the C program assumed
 /// those of the AHA database (250 Hz, 400 adu/mV, 12 bits, millivolts).
 struct Params {
     freq: f64,
@@ -137,7 +137,7 @@ impl State {
     fn process(&mut self, record: &[u8], par: &Params) {
         let mut t: i64 = -1;
 
-        wfdbx::setsampfreq(par.freq); // wfdb-x: -F (the C program set 250 Hz)
+        wfdbx::setsampfreq(par.freq); // WFDB-x: -F (the C program set 250 Hz)
         let mut ofname = record.to_vec();
         ofname.extend_from_slice(b".dat");
         let s0 = Siginfo {
@@ -202,13 +202,13 @@ fn main() {
     // (C strips the extension of each argument in place, which shows in a
     // later "can't open" message that names argv[1].)
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let mut sflag = false;
 
     if argc < 2 || cstd::cstr(&argv[1]) == b"-h" {
         if legacy {
-            // wfdb-x: the usage of the C program
+            // WFDB-x: the usage of the C program
             ceprintf!(b"usage: %s [-s] RECORD.XXX [RECORD.XXX]...\n", argv[0]);
         } else {
             ceprintf!(
@@ -226,7 +226,7 @@ fn main() {
         }
         cstd::exit(1);
     }
-    // wfdb-x: options (-s and the signal parameters) precede the input
+    // WFDB-x: options (-s and the signal parameters) precede the input
     // files, in any order.
     let pname = argv[0].clone();
     let mut par = Params {
@@ -238,7 +238,7 @@ fn main() {
     let mut gset = false;
     let mut i = 1;
     if legacy {
-        // wfdb-x: in legacy mode, the option of the C program (-s only, as
+        // WFDB-x: in legacy mode, the option of the C program (-s only, as
         // the first argument), and the parameters of the AHA database that it
         // set (250 Hz, 400 adu/mV, 12 bits, millivolts).
         if cstd::cstr(&argv[1]) == b"-s" {
@@ -300,7 +300,7 @@ fn main() {
         }
         i += 1;
     }
-    // wfdb-x: the signal parameters must be given explicitly (see
+    // WFDB-x: the signal parameters must be given explicitly (see
     // docs/DIVERGENCES.md); in legacy mode, these checks pass.
     if par.freq <= 0.0 {
         ceprintf!(

@@ -3,7 +3,7 @@ function a = muvadu(s, v)
 %   A = wfdbx.muvadu(S, V) converts V microvolts to ADC units of input
 %   signal S, rounded to an integer.  If S is not a valid signal number or
 %   the signal is uncalibrated (gain 0), an error is reported and
-%   WFDB_INVALID_SAMPLE is returned (wfdb-x: C assumed a gain of 200; see
+%   WFDB_INVALID_SAMPLE is returned (WFDB-x: C assumed a gain of 200; see
 %   docs/DIVERGENCES.md; in legacy mode, see wfdbx.wfdbx_set_legacy, a
 %   gain of 200 is used, as in C).
 %
@@ -24,7 +24,7 @@ function a = muvadu(s, v)
 %
 % Changes from the original: an uncalibrated signal or an invalid signal
 % number is an error, and WFDB_INVALID_SAMPLE is returned (the C library
-% assumed a gain of 200). Each change is marked "wfdb-x:" in the code;
+% assumed a gain of 200). Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.

@@ -40,7 +40,7 @@ const BLOCK_SIZE: usize = 512;
 
 fn main() {
     let mut argv = cstd::args();
-    wfdbx::wfdbx_legacy_args(&mut argv); // wfdb-x: --legacy (original behavior)
+    wfdbx::wfdbx_legacy_args(&mut argv); // WFDB-x: --legacy (original behavior)
     if argv.len() < 3 {
         ceprintf!(b"usage: %s data-block-size annot-block-size\n", argv[0]);
         cstd::exit(1);

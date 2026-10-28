@@ -24,7 +24,7 @@ function wfdbquit()
 %
 % Changes from the original: the input and output directories are left as
 % they are (resetwfdb is called only in legacy mode). Each change is marked
-% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbinit.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1983-2012 George B. Moody; revised 2012-2019 by Benjamin
@@ -41,7 +41,7 @@ if wfdbx.internal.pkg_has('internal.wfdb_anclose')
 end
 wfdbx.internal.wfdb_oinfoclose();
 wfdbx.internal.wfdb_sigclose();
-if wfdbx.wfdbx_get_legacy()     % wfdb-x: only in legacy mode
+if wfdbx.wfdbx_get_legacy()     % WFDB-x: only in legacy mode
     wfdbx.resetwfdb();
 end
 wfdbx.internal.wfdb_sampquit();

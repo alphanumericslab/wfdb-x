@@ -11,7 +11,7 @@
 // record must give the sampling frequency (the measurement windows are in
 // seconds), and with -p the gain of each signal (the original assumed 250 Hz
 // and 200 adu/mV); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: app/sigamp.c, WFDB Software Package 10.7.0.
@@ -76,7 +76,7 @@ static void help();
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -206,7 +206,7 @@ int main(int argc, char **argv)
     vsum.resize(nsig);
     if (isigopen(record, si.data(), nsig) != nsig) std::exit(2);
     for (i = 0; i < nsig; i++) {
-        // wfdb-x: no default gain (the C program assumed 200 adu/mV for
+        // WFDB-x: no default gain (the C program assumed 200 adu/mV for
         // uncalibrated signals, as legacy mode does).
         if (wfdbx_get_legacy()) {
             if (si[i].gain == 0.0) si[i].gain = WFDB_DEFGAIN;
@@ -217,7 +217,7 @@ int main(int argc, char **argv)
         }
         amp[i].resize(nmax);
     }
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz,
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz,
     // as legacy mode does); the measurement windows are defined in seconds.
     if ((sfreq = sampfreq(nullptr)) <= 0.0 && wfdbx_get_legacy())
         sfreq = WFDB_DEFFREQ;

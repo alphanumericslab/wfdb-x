@@ -312,7 +312,7 @@ fn test_dir(tag: &str) -> PathBuf {
 
 /// Writes the random multi-frequency record `name` in `dir` (`spf`: samples
 /// per frame of each signal; `n` frames), with about 1% invalid samples
-/// (also at the start; format 8: a random walk).
+/// (also at the start and at the end; format 8: a random walk).
 #[allow(clippy::too_many_arguments)]
 fn mf_record(
     w: &mut Wfdb,
@@ -346,6 +346,7 @@ fn mf_record(
         }
         x[0] = WFDB_INVALID_SAMPLE;
         x[cols] = WFDB_INVALID_SAMPLE;
+        x[n * cols - 1] = WFDB_INVALID_SAMPLE;
     }
     let opt = WriteOptions {
         fmt,
@@ -488,6 +489,189 @@ fn bulk_read_multifrequency() {
             let mx = *spf.iter().max().unwrap() as i64;
             mostly_bulk(&mut w, "m", true, mx);
             mostly_bulk(&mut w, "m", false, 1);
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Large input buffers (many tiles of frames decoded at once by the bulk
+/// path) and lengths that are not multiples of the tile: the same samples
+/// as frame by frame, in every mode.
+#[test]
+fn bulk_read_tiles() {
+    let dir = test_dir("tl");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.setwfdb(dir.to_str().unwrap());
+    let spfs: [&[i32]; 4] = [&[1], &[1, 1, 1], &[2, 3], &[4, 1, 1, 1]];
+    for fmt in FORMATS {
+        let mut rng = Rng(fmt as u64 + 100);
+        for spf in spfs {
+            for n in [1023, 1024, 2049, rng.range(5000, 9000) as usize] {
+                mf_record(&mut w, &dir, "t", &mut rng, fmt, spf, n, &[200.0], &[]);
+                for ibsize in [0, 1 << 16, 1 << 20] {
+                    w.setibsize(ibsize);
+                    for m in &mf_modes() {
+                        same_read(&mut w, "t", m);
+                    }
+                    mostly_bulk(&mut w, "t", false, 1);
+                }
+                w.setibsize(0);
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// read_record gives what getvec gives, vector by vector (the vector of
+/// status -4 kept, reading stopped by another negative status or at `to`).
+fn getvec_reference(w: &mut Wfdb, rec: &str, opt: &ReadOptions) -> (Vec<i32>, i32) {
+    let nsig = w.isigopen(rec, &mut [], 0);
+    let mut si = vec![Siginfo::default(); nsig as usize];
+    assert_eq!(w.isigopen(rec, &mut si, nsig), nsig);
+    w.setgvmode(if opt.highres {
+        WFDB_HIGHRES
+    } else {
+        WFDB_LOWRES
+    });
+    let from = match &opt.from {
+        Some(t) => t.resolve(w),
+        None => 0,
+    };
+    let to = opt.to.as_ref().map(|t| t.resolve(w));
+    assert!(w.isigsettime(from) >= 0);
+    let mut v = vec![0i32; nsig as usize];
+    let mut x = Vec::new();
+    let mut k = from;
+    let stat = loop {
+        if to.is_some_and(|t| k >= t) {
+            break 0;
+        }
+        let r = w.getvec(&mut v);
+        if r < 0 && r != -4 {
+            break r;
+        }
+        x.extend_from_slice(&v);
+        k += 1;
+    };
+    w.wfdbquit();
+    (x, stat)
+}
+
+/// The end of the data in read_record: files as long as their header
+/// says, longer, shorter, and headers without a length.
+#[test]
+fn read_record_end() {
+    let dir = test_dir("end");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.setwfdb(dir.to_str().unwrap());
+    let mut rng = Rng(77);
+    for (fmt, spf) in [
+        (212, &[1, 1][..]),
+        (16, &[4, 1, 1, 1][..]),
+        (311, &[1, 2][..]),
+    ] {
+        let n = 10000;
+        mf_record(&mut w, &dir, "e", &mut rng, fmt, spf, n, &[200.0], &[]);
+        let hea = std::fs::read_to_string(dir.join("e.hea")).unwrap();
+        let first = hea.lines().next().unwrap().to_string();
+        let nsig = spf.len();
+        // header lengths: as the file, shorter (by a few vectors and by more
+        // than a block), longer, none
+        for len in [
+            Some(n),
+            Some(n - 1),
+            Some(n - 7),
+            Some(n - 7000),
+            Some(n + 5),
+            None,
+        ] {
+            let line = match len {
+                Some(l) => format!("e {nsig} 250 {l}"),
+                None => format!("e {nsig} 250"),
+            };
+            std::fs::write(dir.join("e.hea"), hea.replacen(&first, &line, 1)).unwrap();
+            for highres in [false, true] {
+                for (from, to) in [(None, None), (Some(3), None), (Some(0), Some(n as i64 - 2))] {
+                    let opt = ReadOptions {
+                        highres,
+                        from: from.map(|t: i64| t.into()),
+                        to: to.map(|t: i64| t.into()),
+                        checksum_warning: false,
+                        ..Default::default()
+                    };
+                    let (want, stat) = getvec_reference(&mut w, "e", &opt);
+                    let got = w.read_record("e", &opt);
+                    let what = format!("fmt {fmt} len {len:?} highres {highres} {from:?}-{to:?}");
+                    if stat < -1 && stat != -4 {
+                        assert!(got.is_err(), "{what}");
+                    } else {
+                        assert_eq!(got.unwrap().samples, want, "{what}");
+                    }
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// physical_signal gives what physical gives, sample by sample (NaN for
+/// invalid samples), and the same errors.
+#[test]
+fn physical_signal_per_sample() {
+    let dir = test_dir("ph");
+    let mut w = Wfdb::new();
+    w.wfdbquiet();
+    w.setwfdb(dir.to_str().unwrap());
+    // (the WFDB path of legacy mode)
+    w.wfdbx_set_legacy(1);
+    w.setwfdb(dir.to_str().unwrap());
+    w.wfdbx_set_legacy(0);
+    let mut rng = Rng(3);
+    mf_record(
+        &mut w,
+        &dir,
+        "p",
+        &mut rng,
+        16,
+        &[1, 1, 1],
+        3001,
+        &[200.0, 0.0, 12.5],
+        &[],
+    );
+    let hea = std::fs::read_to_string(dir.join("p.hea")).unwrap();
+    // (a baseline other than 0)
+    std::fs::write(
+        dir.join("p.hea"),
+        hea.replacen("12.5/mV", "12.5(-300)/mV", 1),
+    )
+    .unwrap();
+    for legacy in [false, true] {
+        for channels in [vec![], vec!["2".to_string(), "0".to_string()]] {
+            let opt = ReadOptions {
+                legacy,
+                channels,
+                ..Default::default()
+            };
+            let r = w.read_record("p", &opt).unwrap();
+            assert!(r.siginfo.iter().any(|s| s.baseline == -300));
+            assert_eq!(r.siginfo.iter().any(|s| s.gain == 0.0), r.nsig == 3);
+            assert!(r.samples.contains(&WFDB_INVALID_SAMPLE));
+            for s in 0..r.nsig {
+                let per: Result<Vec<u64>, String> = (0..r.nsamples())
+                    .map(|i| {
+                        r.physical(i, s)
+                            .map(f64::to_bits)
+                            .map_err(|e| e.to_string())
+                    })
+                    .collect();
+                let all = r
+                    .physical_signal(s)
+                    .map(|v| v.iter().map(|x| x.to_bits()).collect::<Vec<u64>>())
+                    .map_err(|e| e.to_string());
+                assert_eq!(all, per, "legacy {legacy} signal {s}");
+            }
         }
     }
     let _ = std::fs::remove_dir_all(dir);

@@ -16,7 +16,7 @@ function status = sortann(args)
 %   The sorted output replaces the input if -o is omitted, the input is in
 %   the current directory, and the input is not already sorted.
 %
-%   wfdb-x: no sampling frequency is assumed (the C program assumed 250 Hz
+%   WFDB-x: no sampling frequency is assumed (the C program assumed 250 Hz
 %   if the record had no header); without a header giving one, -F is
 %   required to convert the -f and -t times.  See docs/DIVERGENCES.md.
 %
@@ -46,7 +46,7 @@ function status = sortann(args)
 % then required for the -f and -t times (the original assumed 250 Hz); an
 % out-of-order annotation at time 0 (num 0, chan 0) is no longer lost, nor are
 % those inserted after it; --legacy, as the first argument, restores the
-% original behavior. Each change is marked "wfdb-x:" in the code;
+% original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/sortann.c, WFDB Software Package 10.7.0.
@@ -74,7 +74,7 @@ h = {'where RECORD and ANNOTATOR specify the input, and OPTIONS may include:', .
     ' -t TIME    stop at specified TIME', ...
     'The sorted output replaces the input if -o is omitted, the input is in', ...
     'the current directory, and the input is not already sorted.'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h(3) = [];                  % (without -F)
 end
 wfdbx.internal.ceprintf('usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...]\n', pname);
@@ -103,7 +103,7 @@ while i < argc
         else
             c = '';
         end
-        if legacy && strcmp(c, 'F')   % wfdb-x: legacy mode: not an option of
+        if legacy && strcmp(c, 'F')   % WFDB-x: legacy mode: not an option of
             c = '';                     % the original (unrecognized)
         end
         switch c
@@ -188,11 +188,11 @@ if ischar(out_name) && strcmp(in_name, out_name)
     return;
 end
 setenv('WFDBANNSORT', '0');
-% wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+% WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
 % the record had no header); -F specifies one.  It is needed only to
 % convert the -f and -t times.
 sps = wfdbx.sampfreq(record);
-if legacy           % wfdb-x: legacy mode (original behavior)
+if legacy           % WFDB-x: legacy mode (original behavior)
     if sps < 0
         sps = wfdbx.WFDB_DEFFREQ();
         wfdbx.setsampfreq(sps);
@@ -231,7 +231,7 @@ if tps > 0
     if legacy || sps > 0
         from = fix(from * tps / sps + 0.5);
         to = fix(to * tps / sps + 0.5);
-    elseif from || to   % wfdb-x: no default sampling frequency
+    elseif from || to   % WFDB-x: no default sampling frequency
         ep('%s: sampling frequency of record %s is not specified (use -F)\n', ...
             pname, record);
         status = 1;
@@ -241,7 +241,7 @@ end
 [~, A] = wfdbx.internal.getann_bulk(0, inf);
 keep = ~(A.time < from | (to > 0 & A.time >= to));
 A = sel(A, keep);
-% wfdb-x: the original insertion (which loses an out-of-order annotation
+% WFDB-x: the original insertion (which loses an out-of-order annotation
 % at time 0) in legacy mode only
 [order, in_order] = wfdbx.internal.ann_sortlist(A.time, A.num, A.chan, ...
     legacy);

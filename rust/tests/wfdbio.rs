@@ -213,7 +213,7 @@ fn default_instance() {
     assert_eq!(wfdbx::with_default(wfdbx::Wfdb::getwfdb), b".");
 }
 
-/// wfdb-x: the output directory (`wfdbx_set_output_dir`).
+/// WFDB-x: the output directory (`wfdbx_set_output_dir`).
 #[test]
 fn output_dir() {
     let _env = env_lock();
@@ -254,7 +254,7 @@ fn output_dir() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// wfdb-x: an absolute path is used as given (whatever the input
+/// WFDB-x: an absolute path is used as given (whatever the input
 /// directory); in legacy mode, as in C, only the WFDB path is searched,
 /// where an empty component (`setwfdb(";")`) uses names as given.
 #[test]

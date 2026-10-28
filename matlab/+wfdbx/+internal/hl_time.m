@@ -8,7 +8,7 @@ function [t, ok] = hl_time(t, fs)
 %   frequency in use (wfdbx.getifreq()), returns OK = false (and T = [])
 %   without calling strtim if FS <= 0 and T is a time string that needs a
 %   sampling frequency (wfdbx.wfdbx_time_needs_freq); the caller then
-%   reports the error.  wfdb-x: there is no default sampling frequency
+%   reports the error.  WFDB-x: there is no default sampling frequency
 %   (see docs/DIVERGENCES.md); in legacy mode (wfdbx.wfdbx_get_legacy),
 %   strtim is always called, as before.
 %

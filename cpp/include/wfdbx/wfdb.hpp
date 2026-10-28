@@ -10,12 +10,12 @@
 // Changes from the original: WFDB_DEFFREQ, WFDB_DEFGAIN and WFDB_DEFRES remain
 // defined but are used only in legacy mode, and missing units are never taken
 // to be millivolts; the functions whose behavior differs say so in their
-// descriptions; it also declares the additions of wfdb-x: wfdbx_set_legacy,
+// descriptions; it also declares the additions of WFDB-x: wfdbx_set_legacy,
 // wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq, getvecs, the
 // input and output directories and network access (wfdbx_set_input_dir,
 // wfdbx_set_output_dir, wfdbx_set_network, ...), and the count of write
 // errors (wfdbx_write_errors, wfdbx_note_write_error). Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdb.h, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2013 George B. Moody; revised 2010-2020 by
@@ -233,7 +233,7 @@ using Seginfo = WFDB_Seginfo;
 // ---------------------------------------------------------------------------
 // Functions
 //
-// wfdb-x: files are found by explicit names (nothing is searched).  A file of
+// WFDB-x: files are found by explicit names (nothing is searched).  A file of
 // a record is named "<record>.<type>" (e.g. "100s.hea", "100s.atr").  A
 // relative name is read under the input directory (wfdbx_set_input_dir(); a
 // local directory or a URL) and written under the output directory
@@ -313,7 +313,7 @@ int wfdbinit(const char *record, const WFDB_Anninfo *aiarray, unsigned nann,
 /// Close all open files (flushing buffered output and terminating output
 /// annotation files), release the library's buffers and reset the state of
 /// the open record; in legacy mode, the WFDB path is restored (see
-/// resetwfdb(); wfdb-x: the input directory is left as it is).  Headers
+/// resetwfdb(); WFDB-x: the input directory is left as it is).  Headers
 /// are not written: call newheader() or setheader() first.  Call wfdbquit()
 /// before exiting after writing files.
 ///
@@ -471,7 +471,7 @@ void iannclose(WFDB_Annotator a);
 /// Close output annotator `a`; the following output annotators are
 /// renumbered.  If annotations were written out of order, the file is
 /// sorted (unless the WFDBANNSORT environment variable is 0), with the result
-/// of `sortann -r. RECORD -a ANNOTATOR`.  wfdb-x: the file is sorted in this
+/// of `sortann -r. RECORD -a ANNOTATOR`.  WFDB-x: the file is sorted in this
 /// process; the C library (and legacy mode) runs the sortann program.
 ///
 /// Translation of the C function oannclose() (lib/annot.c, WFDB 10.7.0): same
@@ -555,7 +555,7 @@ int wfdb_setannpos(int code, int newval);
 
 /// @name Time and date conversion
 /// Times are converted using the sampling frequency of the open record (or
-/// that set by setifreq()).  wfdb-x: if no sampling frequency is specified
+/// that set by setifreq()).  WFDB-x: if no sampling frequency is specified
 /// (C assumed 1 sample per second), timstr() and mstimstr() report an error
 /// and return the time as a sample number ("s" followed by |t|), and strtim()
 /// reports an error and returns 0 for strings that need the frequency (see
@@ -685,7 +685,7 @@ std::optional<std::string> wfdbx_get_input_dir();
 /// URLs are read with the curl program, which must be installed.  Each URL
 /// is read at most once while the program runs.  A download gives up when
 /// it cannot connect, or receives nothing, for 30 seconds.  With network
-/// access forbidden, opening a URL fails with the error "wfdb-x: network
+/// access forbidden, opening a URL fails with the error "WFDB-x: network
 /// access is disabled; ...".
 ///
 ///     wfdbx_set_network(1);
@@ -709,7 +709,7 @@ WFDB_Date strdat(const char *date_string);
 /// @}
 
 /// @name Amplitude conversion (input signal `s`)
-/// The gain and baseline of the open input signal `s` are used.  wfdb-x: if
+/// The gain and baseline of the open input signal `s` are used.  WFDB-x: if
 /// `s` is not open or is uncalibrated (gain 0), these functions report an
 /// error and return WFDB_INVALID_SAMPLE (aduphys(): NaN); C assumed the
 /// gain WFDB_DEFGAIN (see docs/DIVERGENCES.md).
@@ -973,7 +973,7 @@ void wfdb_error(const char *format, ...)
 /// (lib/wfdbio.c, WFDB 10.7.0): same arguments and results.
 int wfdb_me_fatal();
 void wfdbmemerr(int exit_on_error);
-/// wfdb-x: in normal mode, set the input directory (see
+/// WFDB-x: in normal mode, set the input directory (see
 /// wfdbx_set_input_dir()): `database_path`, split into components as the
 /// WFDB path is (at spaces, ';', and ':' outside URLs), must have at most one
 /// non-empty component, which becomes the input directory (none, as in ""
@@ -988,14 +988,14 @@ void wfdbmemerr(int exit_on_error);
 /// arguments and results. Differences: it sets a single input directory (the
 /// WFDB path in legacy mode); see docs/DIVERGENCES.md.
 void setwfdb(const char *database_path);
-/// wfdb-x: in normal mode, the input directory, or "." if none is set.
+/// WFDB-x: in normal mode, the input directory, or "." if none is set.
 /// Legacy mode: the current WFDB path.
 ///
 /// Translation of the C function getwfdb() (lib/wfdbio.c, WFDB 10.7.0): same
 /// arguments and results. Differences: it returns the input directory (the
 /// WFDB path in legacy mode); see docs/DIVERGENCES.md.
 std::string getwfdb();
-/// wfdb-x: in normal mode, restore the input directory set by the last
+/// WFDB-x: in normal mode, restore the input directory set by the last
 /// setwfdb(), if any.  Legacy mode: restore the initial WFDB path (from $WFDB
 /// or the default), if the path had been read before it was changed by
 /// setwfdb().
@@ -1013,7 +1013,7 @@ void resetwfdb();
 int setibsize(int input_buffer_size);
 int setobsize(int output_buffer_size);
 /// The path name (or URL) of the file of `record` with type (suffix)
-/// `file_type`, or nullopt if it cannot be opened.  wfdb-x: the file is at
+/// `file_type`, or nullopt if it cannot be opened.  WFDB-x: the file is at
 /// the one location its name designates (see "Opening and closing records");
 /// legacy mode: as found in the WFDB path.
 ///

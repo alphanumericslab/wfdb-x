@@ -18,7 +18,7 @@
 # uncalibrated signals stay uncalibrated in the output header (the original
 # wrote 200 adu/mV), and unspecified units are written as "nd" (the original
 # wrote "mV"); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: convert/wfdb2mat.c, WFDB Software Package 10.7.0.
@@ -105,7 +105,7 @@ function _wfdb2mat_orec(r::Vector{UInt8})
 end
 
 function wfdb2mat_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -194,7 +194,7 @@ function wfdb2mat_main(args::Vector{String})
     vi = zeros(Int32, nisig)
     nisig = isigopen(record, si, nisig)
     nisig <= 0 && cexit(2)
-    # wfdb-x: uncalibrated signals remain uncalibrated in the output (the C
+    # WFDB-x: uncalibrated signals remain uncalibrated in the output (the C
     # program assumed 200 adu/mV), and the output header needs the sampling
     # frequency (the C program assumed 250 Hz). Legacy mode: as in the C
     # program.
@@ -330,7 +330,7 @@ function wfdb2mat_main(args::Vector{String})
         o.baseline -= si[k].adczero
         # handle possibly missing units strings
         if o.units === nothing
-            # wfdb-x: missing units are not assumed to be millivolts (except
+            # WFDB-x: missing units are not assumed to be millivolts (except
             # in legacy mode: "in a .hea file, missing units can be assumed
             # to be millivolts")
             o.units = Vector{UInt8}(legacy ? b"mV" : b"nd")
@@ -507,7 +507,7 @@ register_workload("wfdb2mat") do
         workload_tool("wfdb2mat", "-r", "nf")
         workload_tool("wfdb2mat", "-r", "uc", "-t", "s10")
         workload_tool("wfdb2mat", "-r", "nr", "-t", "s10")
-        for rec in ("nf", "uc", "nr")       # wfdb-x: legacy mode (original behavior)
+        for rec in ("nf", "uc", "nr")       # WFDB-x: legacy mode (original behavior)
             workload_tool("wfdb2mat", "--legacy", "-r", rec, "-t", "s10")
         end
     end

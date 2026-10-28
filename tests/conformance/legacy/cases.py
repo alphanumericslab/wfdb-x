@@ -695,7 +695,7 @@ case("rdsamp", "-r {cwd}/sub/sr -t s5", cid="abspath-rdsamp-wfdb-empty",
 
 # ---------------------------------------------------------------------------
 # Out-of-order annotations written by wrann, rearranged when the file is
-# closed (wfdb-x: in the same process; the C library ran sortann): ties in
+# closed (WFDB-x: in the same process; the C library ran sortann): ties in
 # time, num and chan, duplicates (the last one is kept), aux strings, an
 # unknown mnemonic (a NOTE), the time resolution of the record (360 Hz for
 # 100s; 1000.5 Hz for hr; none without a header), and a record in a

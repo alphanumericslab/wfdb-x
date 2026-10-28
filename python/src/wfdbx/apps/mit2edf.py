@@ -12,7 +12,7 @@ resolution: the record must give the sampling frequency, and the gain and ADC
 resolution of every signal (the original assumed 250 Hz and 200 adu/mV, and
 guessed the resolution from the storage format); unspecified units are written
 as "nd" (the original wrote "mV"); --legacy, as the first argument, restores
-the original behavior. Each change is marked "wfdb-x:" in the code;
+the original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
@@ -55,7 +55,7 @@ def help(pname):
 
 
 def _legacy_adcres(f):
-    """wfdb-x: legacy mode (original behavior): the ADC resolution guessed
+    """WFDB-x: legacy mode (original behavior): the ADC resolution guessed
     from the storage format f."""
     if f in (524, 24):
         return 24
@@ -124,7 +124,7 @@ def _main(argv, out):
     nsig = w.isigopen(record, si, nsig)
     if nsig <= 0:
         raise Exit(3)
-    # wfdb-x: an EDF file needs the sampling frequency, and the gain and ADC
+    # WFDB-x: an EDF file needs the sampling frequency, and the gain and ADC
     # resolution of each signal (C assumed 250 Hz and 200 adu/mV if the
     # header did not specify them, and guessed the resolution from the
     # format), as legacy mode does.
@@ -193,7 +193,7 @@ def _main(argv, out):
     pmin = []
     for k in range(nsig):
         s = si[k]
-        # (wfdb-x: the ADC resolution was checked above; the C program
+        # (WFDB-x: the ADC resolution was checked above; the C program
         # guessed it from the storage format if the header did not give it,
         # as legacy mode does.)
         if legacy() and s.adcres < 1:
@@ -245,7 +245,7 @@ def _main(argv, out):
     for k in range(nsig):
         put("transducer type not recorded", 80)
     for k in range(nsig):
-        if si[k].units is None:     # wfdb-x: "nd" (C, legacy mode: mV)
+        if si[k].units is None:     # WFDB-x: "nd" (C, legacy mode: mV)
             si[k].units = "mV" if legacy() else "nd"
         elif len(si[k].units) > 8:
             si[k].units = si[k].units[:8]

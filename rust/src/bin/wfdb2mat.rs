@@ -19,7 +19,7 @@
 // uncalibrated signals stay uncalibrated in the output header (the original
 // wrote 200 adu/mV), and unspecified units are written as "nd" (the original
 // wrote "mV"); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: convert/wfdb2mat.c, WFDB Software Package 10.7.0.
@@ -73,7 +73,7 @@ fn put32(p: &mut [u8], at: usize, x: u64) {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut record: Option<Vec<u8>> = None;
@@ -196,7 +196,7 @@ fn main() {
     if nisig <= 0 {
         cstd::exit(2);
     }
-    // wfdb-x: uncalibrated signals remain uncalibrated in the output (the C
+    // WFDB-x: uncalibrated signals remain uncalibrated in the output (the C
     // program assumed 200 adu/mV), and the output header needs the sampling
     // frequency (the C program assumed 250 Hz).  Legacy mode: as in the C
     // program.
@@ -392,7 +392,7 @@ fn main() {
         o.baseline = o.baseline.wrapping_sub(s.adczero);
         // handle possibly missing units strings
         match &o.units {
-            // wfdb-x: missing units are not assumed to be millivolts (except
+            // WFDB-x: missing units are not assumed to be millivolts (except
             // in legacy mode: "in a .hea file, missing units can be assumed
             // to be millivolts")
             None if legacy => o.units = Some(b"mV".to_vec()),

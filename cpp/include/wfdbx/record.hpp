@@ -190,7 +190,7 @@ struct ReadOptions : InputOptions {
     /// Replace invalid samples by the previous valid sample.
     bool pad = false;
     /// When the signal data do not match the checksums of the header, all
-    /// the data are returned.  If this is true, the warning "wfdb-x: checksum
+    /// the data are returned.  If this is true, the warning "WFDB-x: checksum
     /// error in record REC: the signal data do not match the checksums in
     /// its header" is also printed on stderr (wfdbquiet() silences it).
     bool checksum_warning = true;

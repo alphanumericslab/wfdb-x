@@ -117,7 +117,7 @@
 }
 
 # The siginfo lists si with the white space (C isspace) at both ends of
-# each description removed.  wfdb-x: the high-level readers give the
+# each description removed.  WFDB-x: the high-level readers give the
 # signal names without the spaces that some headers end them with (the
 # C-style functions keep them, as C does).
 .HL_SPACE <- as.raw(c(32, 9, 10, 11, 12, 13))
@@ -211,7 +211,7 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' multi-frequency records; pad: WFDB_GVPAD mode (invalid samples replaced
 #' by the previous valid sample).
 #'
-#' wfdb-x: no built-in sampling frequency, gain, ADC resolution or units
+#' WFDB-x: no built-in sampling frequency, gain, ADC resolution or units
 #' (see docs/DIVERGENCES.md): a time string that needs the sampling
 #' frequency (wfdbx_time_needs_freq) is an error for a record whose header
 #' does not specify it, and so is physical = TRUE for a selected signal that
@@ -265,7 +265,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
   }
   setgvmode(bitwOr(if (highres) WFDB_HIGHRES else WFDB_LOWRES, if (pad) WFDB_GVPAD else 0))
   fs <- sampfreq(NULL)
-  # wfdb-x: no default sampling frequency (C, legacy mode: 250 Hz)
+  # WFDB-x: no default sampling frequency (C, legacy mode: 250 Hz)
   if (fs <= 0 && !legacy) {
     for (t in list(sampfrom, sampto)) {
       if (is.character(t) && wfdbx_time_needs_freq(t)) {
@@ -294,7 +294,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
       k
     }, 0)
   }
-  # wfdb-x: no default gain (C, legacy mode: 200 adu/mV for uncalibrated
+  # WFDB-x: no default gain (C, legacy mode: 200 adu/mV for uncalibrated
   # signals)
   if (physical && !legacy) {
     for (k in cols) {
@@ -304,7 +304,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
       }
     }
   }
-  # base_time is NULL if the header gives none (wfdb-x: always the case
+  # base_time is NULL if the header gives none (WFDB-x: always the case
   # without a sampling frequency; timstr is then not called)
   base <- .hl_base_fields(fs, legacy)
   if (isigsettime(from) < 0) {
@@ -316,7 +316,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
   .sig$cksum_quiet <- TRUE
   g <- tryCatch(.getframes(n, keep_checksum_frame = TRUE),
                 finally = .sig$cksum_quiet <- FALSE)
-  # wfdb-x: -4, a checksum error: the frames are complete (the last one
+  # WFDB-x: -4, a checksum error: the frames are complete (the last one
   # included), only their sum does not match the header: a warning, not an
   # error.  Any other status below -1 (e.g. -3, unexpected EOF: a signal
   # file shorter than its header says, or a decoder or I/O error) is an
@@ -340,12 +340,15 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
     # (legacy mode: the default gain for uncalibrated signals)
     gn <- vapply(sel, function(s) if (s$gain == 0 && legacy) WFDB_DEFGAIN else s$gain, 0)
     b <- vapply(sel, function(s) s$baseline, 0)
-    for (k in seq_along(sel)) {
-      x <- data[, k]
-      y <- (x - b[k]) / gn[k]
-      y[x == WFDB_INVALID_SAMPLE] <- NA
-      data[, k] <- y
+    inv <- if (length(data) && min(data) <= WFDB_INVALID_SAMPLE) which(data == WFDB_INVALID_SAMPLE)
+    # (the whole matrix at once if all the signals have the same gain and
+    # baseline)
+    if (length(gn) && all(gn == gn[1L]) && all(b == b[1L])) {
+      data <- (data - b[1L]) / gn[1L]
+    } else {
+      for (k in seq_along(sel)) data[, k] <- (data[, k] - b[k]) / gn[k]
     }
+    if (length(inv)) data[inv] <- NA
   }
   rec <- list(name = record, fs = fs, signals = data, siginfo = sel,
               names = vapply(sel, function(s) s$desc %||% "", ""),
@@ -369,7 +372,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' which is allowed only when the samples are given in ADC units (physical
 #' = FALSE).  adcres (required): ADC resolutions in bits (>= 1).  units
 #' (required for every signal whose gain is not 0): physical units, e.g.
-#' "mV".  (wfdb-x: there is no default frequency, gain, ADC resolution or
+#' "mV".  (WFDB-x: there is no default frequency, gain, ADC resolution or
 #' units; see docs/DIVERGENCES.md.)  Scalar arguments apply to all signals;
 #' vectors (or lists, for units and names) give per-signal values.
 #' samps_per_frame (per signal) writes a multi-frequency record:
@@ -402,7 +405,7 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          legacy = FALSE) .hl_legacy(legacy, .hl_output_dir(record, dir, {
   x <- signals
   if (is.null(dim(x))) x <- matrix(x, ncol = 1L)
-  x <- matrix(as.numeric(x), nrow(x), ncol(x))
+  if (!is.double(x) || !is.matrix(x)) x <- matrix(as.numeric(x), nrow(x), ncol(x))
   spf <- if (is.null(samps_per_frame)) rep(1, ncol(x)) else
     suppressWarnings(as.numeric(samps_per_frame))
   nsig <- length(spf)
@@ -413,7 +416,7 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   if (ncol(x) != sum(spf))
     stop(sprintf("signals has %d columns, but samps_per_frame adds up to %.0f", ncol(x), sum(spf)))
   legacy <- wfdbx_get_legacy()
-  # wfdb-x: no default sampling frequency, gain, ADC resolution or units
+  # WFDB-x: no default sampling frequency, gain, ADC resolution or units
   # (C: 250 Hz, 200 adu/mV, a resolution based on the format, millivolts;
   # legacy mode: as the original package, no checks, default gain 200)
   if (legacy) {
@@ -437,7 +440,7 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   zeros <- unlist(per(adczeros, 0))
   bases <- per(baselines)
   bases <- vapply(seq_len(nsig), function(k) if (is.null(bases[[k]])) zeros[k] else bases[[k]], 0)
-  if (legacy) {          # wfdb-x: legacy mode (original behavior)
+  if (legacy) {          # WFDB-x: legacy mode (original behavior)
     defres <- function(f) {
       switch(as.character(f), "80" = , "508" = 8, "212" = 12, "310" = , "311" = 10,
              "24" = , "524" = 24, "32" = 32, 16)

@@ -93,7 +93,7 @@ aux_string(aux)
 
   Annotations must be written in time order.  If they are not, the file
   is sorted when it is closed, unless the environment variable
-  \env{WFDBANNSORT} is \code{0}: wfdb-x: in the same R process, with a
+  \env{WFDBANNSORT} is \code{0}: WFDB-x: in the same R process, with a
   result identical to that of the \command{sortann} tool (the time
   resolution and the annotation type definitions of the file are kept,
   \code{NOTQRS} annotations are dropped, and of several annotations with

@@ -6,7 +6,7 @@ function [stat, oa] = ann_putbulk(oa, n, A, idx)
 %   A; see wfdbx.internal.putann_bulk), for the output annotator structure
 %   OA (number N, in messages), whose annotation table has been written.
 %   STAT is the status of the last annotation (0 on success), or the
-%   first negative status.  (wfdb-x: the body of putann_bulk, which
+%   first negative status.  (WFDB-x: the body of putann_bulk, which
 %   wfdbx.internal.ann_sortfile also uses.)
 %
 %   MIT-format output is encoded with vector operations; AHA-format output
@@ -24,7 +24,7 @@ function [stat, oa] = ann_putbulk(oa, n, A, idx)
 % code.
 %
 % Changes from the original: the body of putann_bulk, which ann_sortfile
-% also uses. Each change is marked "wfdb-x:" in the code;
+% also uses. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/annot.c, WFDB Software Package 10.7.0.

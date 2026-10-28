@@ -12,7 +12,7 @@ function status = wav2mit(args)
 %       -r RECORD  create RECORD.hea (default: FILE.hea)
 %       -U UNITS   physical units (required unless the gain is 0)
 %
-%   wfdb-x: -G and -U are new and required (the C program wrote 12.5 adu/mV
+%   WFDB-x: -G and -U are new and required (the C program wrote 12.5 adu/mV
 %   for 8-bit and 6400 adu/mV for 16-bit files, with no units, i.e.,
 %   millivolts; give -G 12.5 -U mV or -G 6400 -U mV to reproduce it).  The
 %   sampling frequency and the resolution are those given in the WAV file;
@@ -40,7 +40,7 @@ function status = wav2mit(args)
 % (required) and -U UNITS (required unless the gain is 0) give them (the
 % original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
 % millivolts); --legacy, as the first argument, restores the original behavior.
-% Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
@@ -65,7 +65,7 @@ h = {'where FILE.wav is the name of the wav-format input signal file,', ...
     ' -h         print this usage summary', ...
     ' -r RECORD  create RECORD.hea (default: FILE.hea)', ...
     ' -U UNITS   physical units (required unless the gain is 0)'};
-if wfdbx.wfdbx_get_legacy()  % wfdb-x: legacy mode: the original help text
+if wfdbx.wfdbx_get_legacy()  % WFDB-x: legacy mode: the original help text
     h([3 6]) = [];              % (without -G and -U)
 end
 wfdbx.internal.ceprintf('usage: %s -i FILE.wav -r RECORD [ OPTIONS ... ]\n', pname);
@@ -106,7 +106,7 @@ pname = argv{1};
 argc = numel(argv);
 ifname = [];
 record = [];
-P = wfdbx.internal.sigparams();     % wfdb-x: -G and -U
+P = wfdbx.internal.sigparams();     % WFDB-x: -G and -U
 legacy = wfdbx.wfdbx_get_legacy();
 i = 1;
 while i < argc
@@ -117,7 +117,7 @@ while i < argc
         else
             c = char(0);
         end
-        if legacy && any(c == 'GU')     % wfdb-x: legacy mode: not options of
+        if legacy && any(c == 'GU')     % WFDB-x: legacy mode: not options of
             c = char(0);                % the original (unrecognized)
         end
         switch c
@@ -169,7 +169,7 @@ if ~ischar(ifname)
     status = 1;
     return;
 end
-% wfdb-x: the gain and units must be given explicitly; the C program wrote
+% WFDB-x: the gain and units must be given explicitly; the C program wrote
 % 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, with no units
 % (millivolts).  (The sampling frequency and the resolution are those given
 % in the file.)
@@ -236,12 +236,12 @@ end
 if bitspersample <= 8
     wres = 8;
     if legacy
-        P.G = 12.5;     % wfdb-x: the C program's gain (legacy mode)
+        P.G = 12.5;     % WFDB-x: the C program's gain (legacy mode)
     end
 elseif bitspersample <= 16
     wres = 16;
     if legacy
-        P.G = 6400;     % wfdb-x: the C program's gain (legacy mode)
+        P.G = 6400;     % WFDB-x: the C program's gain (legacy mode)
     end
 else
     wfdbx.internal.ceprintf('%s: unsupported resolution (%d bits/sample) in %s\n', ...

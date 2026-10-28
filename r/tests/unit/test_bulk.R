@@ -49,11 +49,11 @@ if (.mode == "source") {
   }, add = TRUE)
   wfdbquit()
   rebind(".BULK_MAXFRAMES", 1229)
-  bulk_off <- function(n, full = FALSE) NULL
+  bulk_off <- function(n, full = FALSE, int = FALSE) NULL
   # (rows read by .bulk_frames)
   bulk_count <- 0
-  bulk_counted <- function(n, full = FALSE) {
-    r <- bulk_orig(n, full)
+  bulk_counted <- function(n, full = FALSE, int = FALSE) {
+    r <- bulk_orig(n, full, int)
     if (!is.null(r)) bulk_count <<- bulk_count + nrow(r)
     r
   }
@@ -202,6 +202,128 @@ if (.mode == "source") {
     }
     check(ok && identical(out[[1L]], out[[2L]]),
           paste("getframes mixed with getvec, highres", hr))
+  }
+
+  # ---- single-frequency records, one group of 1 to 4 signals, every
+  # format: the frames as decoded (formats 212 with 2 signals, 310 and 311
+  # with 3: a frame is one packing unit), clean (no invalid sample) or with
+  # invalid samples (also first and last), lengths that are not a multiple
+  # of the block or of the packing unit
+  sf_record <- function(name, fmt, nsig, n, clean, gains = 200, baselines = 0) {
+    hi <- c(ranges, "508" = 127, "516" = 32767, "524" = 8388607)[[as.character(fmt)]]
+    if (fmt == 8) {
+      x <- apply(matrix(sample.int(121, n * nsig, replace = TRUE) - 61, n, nsig), 2, cumsum)
+      x <- matrix(x, n, nsig)
+    } else {
+      x <- matrix(floor(runif(n * nsig, -hi + 1, hi + 1)), n, nsig)
+      x[1L, ] <- -hi + 1
+      x[2L, ] <- hi
+      if (!clean) {
+        x[runif(n * nsig) < 0.01] <- WFDB_INVALID_SAMPLE
+        x[1L, 1L] <- WFDB_INVALID_SAMPLE
+        x[n, nsig] <- WFDB_INVALID_SAMPLE
+      }
+    }
+    write_record(name, x, 250, fmt = fmt, gains = gains, baselines = baselines,
+                 adcres = 16, units = "mV")
+    x
+  }
+  sf_modes <- list(list(), list(pad = TRUE), list(sampfrom = 7, sampto = 1301))
+  for (fmt in c(as.numeric(names(ranges)), 508, 516, 524)) {
+    set.seed(fmt + 3)
+    for (nsig in 1:4) {
+      for (clean in c(TRUE, FALSE)) {
+        n <- 1300 + sample.int(400, 1)
+        x <- sf_record("sf", fmt, nsig, n, clean)
+        lab <- sprintf("single frequency fmt %d nsig %d clean %s", fmt, nsig, clean)
+        ms <- if (nsig == 3) c(sf_modes, list(list(physical = TRUE), list(channels = c(2, 0)))) else sf_modes
+        for (a in ms) check(read_both("sf", a), paste(lab, argstr(a)))
+        if (clean && fmt != 8) {
+          # (a final partial packing unit of formats 310 and 311 reads as
+          # one more frame)
+          y <- read_record("sf")$signals
+          check(nrow(y) - n <= 1 && identical(y[seq_len(n), , drop = FALSE], x),
+                paste(lab, "samples"))
+        }
+        rb <- bulk_rows("sf")
+        check(rb[1] - rb[2] <= 6, paste(lab, "read in blocks"))
+      }
+    }
+  }
+  # two groups (signal files) of different formats
+  set.seed(21)
+  xa <- sf_record("ga", 212, 2, 2001, TRUE)
+  xb <- sf_record("gb", 16, 1, 2001, FALSE)
+  h <- c(readLines("ga.hea"), readLines("gb.hea")[-1L])
+  h[1L] <- sub("^ga 2", "g2 3", h[1L])
+  writeLines(h, "g2.hea")
+  for (a in c(sf_modes, list(list(physical = TRUE))))
+    check(read_both("g2", a), paste("two groups", argstr(a)))
+  check(identical(read_record("g2")$signals, cbind(xa, xb)), "two groups: samples")
+
+  # getframes mixed with getvec and isigsettime on single-frequency
+  # records: the same vectors, statuses and library state (samples, as
+  # doubles; checksums; lengths) as getvec alone
+  for (fmt in c(16, 212, 311, 24, 32)) {
+    for (nsig in c(2, 3)) {
+      set.seed(fmt + nsig)
+      sf_record("sfm", fmt, nsig, 20001, clean = nsig == 2)
+      out <- list()
+      for (bulk in c(TRUE, FALSE)) {
+        if (!bulk) rebind(".bulk_frames", bulk_off)
+        got <- list()
+        isigopen("sfm", nsig)
+        setgvmode(if (nsig == 3) WFDB_GVPAD else WFDB_LOWRES)
+        for (st in steps) {
+          k <- as.numeric(st[2])
+          got[[length(got) + 1L]] <- switch(st[1],
+            f = getframes(k),
+            v = lapply(seq_len(k), function(i) getvec()),
+            t = isigsettime(k))
+          got[[length(got) + 1L]] <- state()
+        }
+        wfdbquit()
+        rebind(".bulk_frames", bulk_orig)
+        out[[length(out) + 1L]] <- got
+      }
+      check(identical(out[[1L]], out[[2L]]),
+            sprintf("getframes mixed with getvec, single frequency fmt %d nsig %d", fmt, nsig))
+    }
+  }
+
+  # .getframes_full (getframe for each frame) with the block path on and
+  # off: the frames, and the library state before the end of the record
+  # (reading to the end, only the frames: at the end, the frame-by-frame
+  # path reads further in the groups that are not yet at their end)
+  full_both <- function(record, n) {
+    out <- list()
+    for (bulk in c(TRUE, FALSE)) {
+      if (!bulk) rebind(".bulk_frames", bulk_off)
+      wfdbquit()
+      isigopen(record, isigopen(record, 0)$nsig)
+      r <- .getframes_full(n)
+      out[[length(out) + 1L]] <- if (is.finite(n)) list(r, state()) else r
+      wfdbquit()
+      rebind(".bulk_frames", bulk_orig)
+    }
+    identical(out[[1L]], out[[2L]])
+  }
+  for (rec in c("m", "sf", "g2", "sfm"))
+    for (n in c(1000, Inf))
+      check(full_both(rec, n), paste(".getframes_full, record", rec, n, "frames"))
+
+  # physical units: (sample - baseline) / gain, NA for invalid samples, with
+  # the same and with different gains and baselines
+  set.seed(23)
+  for (gb in list(list(200, 0), list(c(200, 100, 3.5), c(0, 7, -20)), list(400, -3))) {
+    x <- sf_record("ph", 212, 3, 1501, FALSE, gains = gb[[1L]], baselines = gb[[2L]])
+    y <- read_record("ph", physical = TRUE)$signals
+    g <- rep_len(gb[[1L]], 3)
+    b <- rep_len(gb[[2L]], 3)
+    ref <- x
+    for (k in 1:3) ref[, k] <- (x[, k] - b[k]) / g[k]
+    ref[x == WFDB_INVALID_SAMPLE] <- NA
+    check(identical(y, ref), paste("physical units, gains", paste(g, collapse = ",")))
   }
 
   # ---- signal names without white space (python test_names_without_spaces)

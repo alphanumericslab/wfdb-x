@@ -153,11 +153,15 @@ for k = 1:ng
     end
     period = lcm(period, nsv(k) / gcd(nnv(k), nsv(k)));
 end
-% Do not include a frame at which a checksum would be verified, or after
-% which a null signal ends.
+% Stop at the frame at which a checksum is verified (it is included only
+% if the checksums are found correct below; with FLAC or format 8 groups,
+% not at all).
 k = nsamp > 0 & n >= nsamp;
 if any(k)
-    n = min(nsamp(k)) - 1;
+    n = min(nsamp(k));
+    if any(fmts(~isnull) == 8) || any(cellfun(@(g) ~isempty(g.flac), igd(fgrp + 1)))
+        n = n - 1;
+    end
 end
 n = n - mod(n, period);
 if n <= 0
@@ -184,69 +188,133 @@ for k = 1:ng
         n = avail;
     end
 end
-frames = cell(1, nisig);    % samples of each signal: n-by-spf
+% Decode the frames of each group (C: n-by-nn; the sums and invalid
+% samples of its columns).
+Cs = cell(1, ng);
+csums = cell(1, ng);
+cinvs = cell(1, ng);
+for k = 1:ng
+    if n == 0
+        break;
+    end
+    ig = igd{fgrp(k) + 1};
+    fmt = fmts(find(grp == fgrp(k), 1));
+    inval = -2^(wfdbx.internal.fmt_bits(fmt) - 1);   % the invalid value
+    if isempty(ig.flac)
+        [Cs{k}, csums{k}, cinvs{k}] = decode_frames(fmt, bufs{k}, nnv(k), n, ...
+            period, inval, S.bulk_block);
+    else
+        C = reshape(wfdbx.internal.flac_getsamps(ig, n * nnv(k)), nnv(k), n).';
+        Cs{k} = C;
+        csums{k} = mod(sum(C, 1), 4294967296);
+        cinvs{k} = any(C == inval, 1);
+    end
+end
+% At the frame at which they are verified, the checksums must be correct
+% (else getvec gives that frame, with an error).
+chk = nsamp == n & ~isnull & fmts ~= 8;
+if n > 0 && any(chk) && ~S.in_msrec && ~S.isedf
+    bad = false;
+    for k = 1:ng
+        sl = find(grp == fgrp(k));
+        off = 0;
+        for s = sl
+            cols = off + 1:off + spfs(s);
+            off = off + spfs(s);
+            if chk(s)
+                c = cks_wrap(isd(s).info.cksum - sum(csums{k}(cols)));
+                bad = bad || mod(c, 65536) ~= 0;
+            end
+        end
+    end
+    if bad
+        m = n - 1;
+        m = m - mod(m, period);
+        for k = 1:ng
+            C = Cs{k};
+            csums{k} = mod(csums{k} - sum(C(m + 1:n, :), 1), 4294967296);
+            C = C(1:m, :);
+            Cs{k} = C;
+            cinvs{k} = any(C == -2^(wfdbx.internal.fmt_bits(fmts(find(grp == fgrp(k), 1))) - 1), 1);
+        end
+        n = m;
+    end
+end
 pad = bitand(S.gvmode, 2) ~= 0;      % WFDB_GVPAD
 if S.istime == 0
     for s = 1:nisig
         isd(s).samp = isd(s).info.initval;
     end
 end
+% F: the frames (n-by-sum(spfs)); a single group's frames when it has
+% every signal
+coff = cumsum([0, spfs]);
+whole = ng == 1 && ~any(isnull);
+if ~whole
+    F = zeros(n, coff(end));
+end
 for k = 1:ng
     ig = igd{fgrp(k) + 1};
-    data = bufs{k};
     sl = find(grp == fgrp(k));
     fmt = fmts(sl(1));
     nn = nnv(k);
     if isempty(ig.flac)
         % (leave the unused bytes buffered, as the C library would)
-        bulk_consume(S, ig, data, haves(k), n * nn * nbv(k) / nsv(k));
+        bulk_consume(S, ig, bufs{k}, haves(k), n * nn * nbv(k) / nsv(k));
     end
     if n == 0
         continue;
     end
-    if isempty(ig.flac)
-        raw = reshape(decode(fmt, data, n * nn), nn, n);
-    else
-        raw = reshape(wfdbx.internal.flac_getsamps(ig, n * nn), nn, n);
-    end
+    inval = -2^(wfdbx.internal.fmt_bits(fmt) - 1);
+    C = Cs{k};
+    Cs{k} = [];
+    csum = csums{k};
+    cinv = cinvs{k};
     off = 0;
     for kk = 1:numel(sl)
         s = sl(kk);
         spf = spfs(s);
-        % the samples of signal s in time order
-        col = reshape(raw(off + 1:off + spf, :), [], 1);
+        cols = off + 1:off + spf;
         off = off + spf;
+        if fmt ~= 8
+            isd(s).info.cksum = cks_wrap(isd(s).info.cksum - sum(csum(cols)));
+            if ~any(cinv(cols))
+                isd(s).samp = C(n, cols(end));
+                continue;
+            end
+        end
+        % the samples of signal s in time order
+        col = reshape(C(:, cols).', [], 1);
         if fmt == 8
+            % (the differences)
             v = cumsum(col) + isd(s).samp;
             v = v - 4294967296 * floor((v + 2147483648) / 4294967296);
             isd(s).samp = v(end);
             isd(s).info.cksum = cks_sub(isd(s).info.cksum, v);
         else
-            inval = -2^(wfdbx.internal.fmt_bits(fmt) - 1);   % the invalid value
             inv = col == inval;
-            isd(s).info.cksum = cks_sub(isd(s).info.cksum, col);
-            if any(inv)
-                if pad
-                    idx = (1:numel(col))';
-                    idx(inv) = 0;
-                    idx = cummax(idx);
-                    v = zeros(numel(col), 1) + isd(s).samp;
-                    m = idx > 0;
-                    v(m) = col(idx(m));
-                else
-                    v = col;
-                    v(inv) = -32768;
-                end
-                valid = find(~inv, 1, 'last');
-                if ~isempty(valid)
-                    isd(s).samp = col(valid);
-                end
+            if pad
+                idx = (1:numel(col))';
+                idx(inv) = 0;
+                idx = cummax(idx);
+                v = zeros(numel(col), 1) + isd(s).samp;
+                m = idx > 0;
+                v(m) = col(idx(m));
             else
                 v = col;
-                isd(s).samp = col(end);
+                v(inv) = -32768;
+            end
+            valid = find(~inv, 1, 'last');
+            if ~isempty(valid)
+                isd(s).samp = col(valid);
             end
         end
-        frames{s} = reshape(v, spf, n).';
+        C(:, cols) = reshape(v, spf, n).';
+    end
+    if whole
+        F = C;
+    else
+        F(:, coff(sl(1)) + 1:coff(sl(end) + 1)) = C;
     end
 end
 if n == 0
@@ -262,7 +330,7 @@ for s = 1:nisig
         else
             v = -32768;
         end
-        frames{s} = zeros(n, spfs(s)) + v;
+        F(:, coff(s) + 1:coff(s + 1)) = v;
         isd(s).info.cksum = cks_null(isd(s).info.cksum, v, n * spfs(s));
     end
     if isd(s).info.nsamp > 0
@@ -275,7 +343,6 @@ S.isd = isd;
 S.istime = S.istime + n;
 % The frames as getframe gives them: mapped to the layout of a
 % variable-layout record, or padded with invalid samples.
-F = [frames{:}];
 tspf = S.tspf;
 if need_sigmap
     ov = S.ovec;
@@ -400,6 +467,11 @@ c = c - t;
 c = c - 4294967296 * floor((c + 2147483648) / 4294967296);     % (int)
 end
 
+function c = cks_wrap(c)
+% C wrapped to int
+c = c - 4294967296 * floor((c + 2147483648) / 4294967296);
+end
+
 function c = cks_null(c, v, cnt)
 % The checksum C minus CNT times the sample V, wrapped to int.
 u = mod(v, 4294967296);
@@ -454,52 +526,144 @@ end
 total(bad) = -32768;
 end
 
-function v = decode(fmt, data, nsamp)
-% Decode NSAMP samples of format FMT from the bytes DATA (aligned).
+function [C, csum, cinv] = decode_frames(fmt, data, nn, n, period, inval, block)
+% The N frames of NN samples each of a group in format FMT, at the start of
+% the bytes DATA: an N-by-NN matrix (N is a multiple of PERIOD frames,
+% which fill whole packed units).  CSUM: the sums of the columns modulo
+% 2^32; CINV: true for the columns holding the invalid value INVAL.  The
+% frames are decoded in blocks of about BLOCK samples (whose temporary
+% arrays stay in the processor's cache), except those of formats 16 and 61.
+if fmt == 16 || fmt == 61
+    % (at once: the statistics from the 16-bit values; -32768, the invalid
+    % value, is their minimum)
+    X = reshape(typecast(data(1:2 * nn * n), 'int16'), nn, n);
+    if fmt == 61
+        X = swapbytes(X);
+    end
+    csum = mod(sum(X, 2, 'double'), 4294967296).';
+    cinv = (min(X, [], 2) == inval).';
+    C = double(X.');
+    return;
+end
+[nb, ns] = fmt_unit(fmt);
+ch = max(1, floor(block / (nn * period))) * period;
+C = zeros(n, nn);
+csum = zeros(1, nn);
+cinv = false(1, nn);
+for f = 0:ch:n - 1
+    m = min(ch, n - f);
+    b = f * nn * nb / ns;
+    X = decode_block(fmt, data(b + 1:b + m * nn * nb / ns), nn, m);
+    C(f + 1:f + m, :) = X;
+    csum = mod(csum + sum(X, 1), 4294967296);
+    cinv = cinv | any(X == inval, 1);
+end
+end
+
+function [nb, ns] = fmt_unit(fmt)
+% NB bytes per NS samples of format FMT (FLAC: samples, not bytes)
+switch fmt
+    case {16, 61, 160}
+        nb = 2; ns = 1;
+    case 24
+        nb = 3; ns = 1;
+    case 32
+        nb = 4; ns = 1;
+    case 212
+        nb = 3; ns = 2;
+    case {310, 311}
+        nb = 4; ns = 3;
+    otherwise   % 8, 80, FLAC
+        nb = 1; ns = 1;
+end
+end
+
+function C = decode_block(fmt, data, nn, n)
+% The N-by-NN frames of format FMT in the bytes DATA (whole packed units).
+ns = nn * n;
 switch fmt
     case 16
-        v = double(typecast(data(1:2 * nsamp), 'int16'));
+        X = typecast(data, 'int16');
     case 61
-        b = reshape(data(1:2 * nsamp), 2, nsamp);
-        v = double(typecast(reshape(b([2 1], :), 1, []), 'int16'));
+        X = swapbytes(typecast(data, 'int16'));
     case 80
-        v = double(data(1:nsamp)) - 128;
+        C = double(reshape(data, nn, n).') - 128;
+        return;
     case 160
-        v = double(typecast(data(1:2 * nsamp), 'uint16')) - 32768;
+        C = double(reshape(typecast(data, 'uint16'), nn, n).') - 32768;
+        return;
     case 8
-        v = double(typecast(data(1:nsamp), 'int8'));
+        X = typecast(data, 'int8');
     case 32
-        v = double(typecast(data(1:4 * nsamp), 'int32'));
+        X = typecast(data, 'int32');
     case 24
-        b = double(reshape(data(1:3 * nsamp), 3, nsamp));
-        v = b(1, :) + 256 * b(2, :) + 65536 * b(3, :);
-        v = v - 16777216 * (v >= 8388608);
+        b = reshape(data, 3, ns);
+        x = 0:255;
+        v = double(b(1, :)) + 256 * double(b(2, :)) + ...
+            lut(65536 * (x - 256 * (x >= 128)), b(3, :));
+        C = reshape(v, nn, n).';
+        return;
     case 212
-        npair = ceil(nsamp / 2);
-        b = double(reshape(data(1:3 * npair), 3, npair));
-        v = zeros(1, 2 * npair);
-        h = mod(b(2, :), 16);
-        v(1:2:end) = b(1, :) + 256 * h;
-        v(2:2:end) = b(3, :) + 16 * (b(2, :) - h);
-        v = v(1:nsamp);
-        v = v - 4096 * (v >= 2048);
-    otherwise   % 310, 311
-        ntrip = ceil(nsamp / 3);
-        b = double(reshape(data(1:4 * ntrip), 4, ntrip));
-        v = zeros(1, 3 * ntrip);
-        w0 = b(1, :) + 256 * b(2, :);
+        % two samples in 3 bytes: the low byte of each, and the high
+        % nibbles in the middle byte (tables give the signed values)
+        b = reshape(data, 3, ns / 2);
+        x = 0:255;
+        lo = mod(x, 16);
+        hi = (x - lo) / 16;
+        b2 = double(b(2, :)) + 1;
+        L = 256 * lo - 4096 * (lo >= 8);
+        H = 256 * hi - 4096 * (hi >= 8);
+        C = lanes_frames({double(b(1, :)) + L(b2), double(b(3, :)) + H(b2)}, ...
+            nn, n);
+        return;
+    otherwise   % 310, 311: three samples in 4 bytes
+        b = reshape(data, 4, ns / 3);
+        x = 0:255;
         if fmt == 310
-            w1 = b(3, :) + 256 * b(4, :);
-            v(1:3:end) = mod(floor(w0 / 2), 1024);
-            v(2:3:end) = mod(floor(w1 / 2), 1024);
-            v(3:3:end) = floor(w0 / 2048) + 32 * floor(w1 / 2048);
+            % bits 1-10 of each 16-bit word, then bits 11-15 of both
+            m8 = mod(x, 8);
+            L1 = floor(x / 2);
+            L2 = 128 * m8 - 1024 * (m8 >= 4);
+            P = {lut(L1, b(1, :)) + lut(L2, b(2, :)), ...
+                lut(L1, b(3, :)) + lut(L2, b(4, :)), ...
+                lut(floor(x / 8), b(2, :)) + ...
+                lut(32 * floor(x / 8) - 1024 * (x >= 128), b(4, :))};
         else
-            v(1:3:end) = mod(w0, 1024);
-            v(2:3:end) = floor(w0 / 1024) + 64 * mod(b(3, :), 16);
-            v(3:3:end) = mod(floor((b(3, :) + 256 * b(4, :)) / 16), 1024);
+            % bits 0-9, 10-19, 20-29 of the 32-bit word
+            m4 = mod(x, 4);
+            m16 = mod(x, 16);
+            m64 = mod(x, 64);
+            P = {double(b(1, :)) + lut(256 * m4 - 1024 * (m4 >= 2), b(2, :)), ...
+                lut(floor(x / 4), b(2, :)) + ...
+                lut(64 * m16 - 1024 * (m16 >= 8), b(3, :)), ...
+                lut(floor(x / 16), b(3, :)) + ...
+                lut(16 * m64 - 1024 * (m64 >= 32), b(4, :))};
         end
-        v = v(1:nsamp);
-        v = v - 1024 * (v >= 512);
+        C = lanes_frames(P, nn, n);
+        return;
 end
-v = reshape(v, 1, []);
+C = double(reshape(X, nn, n).');
+end
+
+function v = lut(T, b)
+% T(b + 1) for the bytes b
+v = T(double(b) + 1);
+end
+
+function C = lanes_frames(P, nn, n)
+% The N-by-NN frames of a bit-packed format of K = numel(P) samples per
+% unit: sample j (from 0) of the frames is P{mod(j, K) + 1}(floor(j / K) + 1).
+k = numel(P);
+if nn == k
+    C = zeros(n, nn);
+    for j = 1:k
+        C(:, j) = P{j};
+    end
+    return;
+end
+V = zeros(k, numel(P{1}));
+for j = 1:k
+    V(j, :) = P{j};
+end
+C = reshape(V, nn, n).';
 end

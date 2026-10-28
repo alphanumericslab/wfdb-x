@@ -61,6 +61,14 @@ class ByteVec(capacity: Int = 16) {
         for (c in s) bytes[size++] = c.code.toByte()
     }
 
+    /** Appends [n] bytes, to be set by the caller in [bytes] from the index returned. */
+    fun extend(n: Int): Int {
+        grow(size + n)
+        val o = size
+        size += n
+        return o
+    }
+
     /** Appends [n] copies of [b]. */
     fun fill(b: Int, n: Int) {
         if (n <= 0) return

@@ -2,12 +2,12 @@
 \alias{wfdbx-package}
 \alias{wfdbx}
 \docType{package}
-\title{wfdb-x: The WFDB Software Package in Pure R}
+\title{WFDB-x: The WFDB Software Package in Pure R}
 \description{
   The \pkg{wfdbx} package reads and writes physiological signal records
   in the WFDB format used by PhysioNet.  It is a complete R
-  implementation of the WFDB Software Package 10.7.0: the library and all
-  of its command-line tools.  It reads and writes the same files as the
+  implementation of the WFDB Software Package: the library and all of
+  its command-line tools.  It reads and writes the same files as the
   original C library, and its tools print the same output.  It is written
   in base R only.
 
@@ -20,7 +20,7 @@
 \details{
   You can use the package in three ways.
 
-  \strong{High-level functions.}  \code{\link{read_record}},
+  \strong{High-level functions (recommended).}  \code{\link{read_record}},
   \code{\link{read_header}} and \code{\link{write_record}} read and write
   whole records, with the signals as a matrix.
   \code{\link{read_annotations}} and \code{\link{write_annotations}} read

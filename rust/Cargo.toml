@@ -1,12 +1,14 @@
 [package]
 name = "wfdbx"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 rust-version = "1.70"
-description = "wfdb-x: the WFDB Software Package (10.7.0) reimplemented in Rust, with byte-identical files and tool output"
+description = "The WFDB Software Package (library and command-line tools) in Rust, part of WFDB-x: the same package in seven languages"
 license = "GPL-3.0-or-later"
 readme = "README.md"
+homepage = "https://github.com/alphanumericslab/wfdb-x"
 repository = "https://github.com/alphanumericslab/wfdb-x"
+documentation = "https://github.com/alphanumericslab/wfdb-x/tree/main/rust#readme"
 keywords = ["wfdb", "physionet", "ecg", "physiological-signals", "biosignals"]
 categories = ["science", "parser-implementations", "command-line-utilities"]
 autobins = true

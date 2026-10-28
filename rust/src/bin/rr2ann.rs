@@ -17,7 +17,7 @@
 // Changes from the original: no built-in sampling frequency: -F FREQ is
 // required when the record has no header or its header gives none (the
 // original assumed 250 Hz); --legacy, as the first argument, restores the
-// original behavior. Each change is marked "wfdb-x:" in the code;
+// original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rr2ann.c, WFDB Software Package 10.7.0.
@@ -58,7 +58,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b"already) a text header file (RECORD.hea).",
 ];
 
-/// wfdb-x: the -F line of the help text of the original program (printed
+/// WFDB-x: the -F line of the help text of the original program (printed
 /// in legacy mode in place of `HELP_STRINGS[2]`).
 const LEGACY_HELP_F: &[u8] = b" -F FREQ     use FREQ as the sampling frequency (effective only if no               header file exists;  default: 250)";
 
@@ -72,7 +72,7 @@ fn help(pname: &[u8]) {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut annot = Annotation::default();
@@ -154,13 +154,13 @@ fn main() {
     // sampfreq is likely to fail, since the header probably doesn't exist.
     // Suppress its error message.
     wfdbx::wfdbquiet();
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz);
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz);
     // -F specifies one if the record header does not.
     let f = wfdbx::sampfreq(record);
     if f <= 0.0 {
         wfdbx::wfdbverbose(); // re-enable error reporting
         if sps == 0.0 && legacy {
-            sps = WFDB_DEFFREQ; // wfdb-x: legacy mode (original behavior)
+            sps = WFDB_DEFFREQ; // WFDB-x: legacy mode (original behavior)
         } else if sps == 0.0 {
             ceprintf!(
                 b"%s: sampling frequency of record %s is not specified (use -F)\n",

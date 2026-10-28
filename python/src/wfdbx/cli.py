@@ -45,9 +45,8 @@ def main(argv=None):
             sys.stdout.write(path + "\n")
         return 0
     if argv[0] == "--version":
-        from . import __version__, wfdbversion
-        sys.stdout.write("wfdb-x %s (WFDB %s)\n" % (__version__,
-                                                    wfdbversion()))
+        from . import __version__
+        sys.stdout.write("WFDB-x %s\n" % __version__)
         return 0
     tool = argv[0]
     if tool not in TOOLS:

@@ -18,7 +18,7 @@ original ran through the shell; the sort does not lose an out-of-order
 annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
 option of the high-level write_annotations decides, for its call, whether the
 file is sorted; legacy mode (wfdbx_set_legacy) restores the original behavior.
-Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 reasons.
 
 Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -185,7 +185,7 @@ class _OAData:
         self.afreq = 0.0
         self.seqno = 0
         self.rname = None
-        self.fname = None       # wfdb-x: the name of the file (as created)
+        self.fname = None       # WFDB-x: the name of the file (as created)
         self.out_of_order = 0
         self.table_written = 0
 
@@ -197,7 +197,7 @@ class _AnnState:
         self.oafreq = 0.0
         self.annclose_error = 0
         self.modified = [0] * (ACMAX + 1)
-        # wfdb-x: if not None, whether oannclose sorts an out-of-order file
+        # WFDB-x: if not None, whether oannclose sorts an out-of-order file
         # (instead of WFDBANNSORT); set by write_annotations(sort=...)
         self.sort_override = None
 
@@ -294,7 +294,7 @@ def _get_ann_table(i):
 
 def _put_ann_table(oa, n, freq, defs):
     """Write the table to the output annotator oa (number n), with the time
-    resolution freq and the definition table defs (wfdb-x: the C library
+    resolution freq and the definition table defs (WFDB-x: the C library
     used oad[n], oafreq, and the library's table)."""
     flag = 0
     annot = Annotation(0, NOTE, 0, 0, 0, None)
@@ -341,7 +341,7 @@ def _put_ann_table(oa, n, freq, defs):
 def _ann_file_format(ia):
     """Read the first word of the input annotation file of ia, and return
     its format: WFDB_READ (MIT format; any initial null annotations are then
-    read as well) or WFDB_AHA_READ.  (wfdb-x: this was part of annopen.)"""
+    read as well) or WFDB_AHA_READ.  (WFDB-x: this was part of annopen.)"""
     # AHA-format files begin with a null byte and an ASCII character which
     # is one of the legal AHA annotation codes other than '[' or ']'.
     ia.word = ia.file.g16() & 0xFFFFFFFF
@@ -437,7 +437,7 @@ def annopen(record, aiarray, nann=None):
                 return -4
             oa.info.name = ai.name
             oa.rname = record
-            oa.fname = wio.wfdbfile(None, None)     # wfdb-x: for sorting
+            oa.fname = wio.wfdbfile(None, None)     # WFDB-x: for sorting
             oa.ann.time = 0
             oa.info.stat = ai.stat
             oa.out_of_order = 0
@@ -712,7 +712,7 @@ def _putanns(n, times, anntyps, subtyps, chans, nums, auxes,
              packed_aux=False):
     """putann(n, annot) for each annotation given by the sequences times,
     anntyps, subtyps, chans, nums and auxes (aux: None, or bytes as in
-    Annotation.aux), in order (wfdb-x: for write_annotations).  An
+    Annotation.aux), in order (WFDB-x: for write_annotations).  An
     annotation that putann rejects (time overflow) is skipped, with
     putann's message.  Returns 0, -1 on a write error, or -2 if n is not
     an open output annotator.  With packed_aux=True, auxes is a pair
@@ -1219,7 +1219,7 @@ _tstring = [
     "R-on-T premature ventricular contraction",
     None, None, None, None, None, None, None, None,
 ]
-_DEFAULT_DESCRIPTIONS = tuple(_tstring)     # wfdb-x: for _sort_ann_file
+_DEFAULT_DESCRIPTIONS = tuple(_tstring)     # WFDB-x: for _sort_ann_file
 _lib_defs = _AnnDefs(_astring, _tstring, _a.modified)
 
 
@@ -1461,7 +1461,7 @@ def iannclose(n):
 
 
 def _run_sortann(rname, aname):
-    # wfdb-x: the child runs with --legacy (as the original program), and,
+    # WFDB-x: the child runs with --legacy (as the original program), and,
     # with an output directory, in that directory (where the file is)
     cmd = [sys.executable, "-m", "wfdbx.apps.sortann", "--legacy", "-r.",
            rname, "-a", aname]
@@ -1483,7 +1483,7 @@ def _run_sortann(rname, aname):
 
 
 # ---------------------------------------------------------------------------
-# wfdb-x: in-process sorting of an output annotation file
+# WFDB-x: in-process sorting of an output annotation file
 
 class _Node:
     __slots__ = ("next", "prev", "ann")
@@ -1498,7 +1498,7 @@ class _AnnList:
     """The doubly-linked annotation list of sortann.c (same algorithm; used
     by the sortann tool and by _sort_ann_file).
 
-    wfdb-x: unless legacy is true, the head is never compared with an
+    WFDB-x: unless legacy is true, the head is never compared with an
     annotation: sortann.c compared it, and took an out-of-order annotation
     at time 0 (num 0, chan 0) for a duplicate of it, linking it where the
     output never reaches it (losing it, and the annotations later inserted
@@ -1675,12 +1675,12 @@ def oannclose(n):
         p = os.environ.get("WFDBANNSORT")
         if p is not None:
             dosort = strtol(p)[0]
-        if _a.sort_override is not None:    # wfdb-x: write_annotations(sort)
+        if _a.sort_override is not None:    # WFDB-x: write_annotations(sort)
             dosort = 1 if _a.sort_override else 0
         if dosort:
             wfdb_error("Rearranging annotations for output annotator %s ...",
                        oa.info.name)
-            # wfdb-x: the file is sorted in this process; the C library ran
+            # WFDB-x: the file is sorted in this process; the C library ran
             # the sortann program, as legacy mode does.
             from ._signal import wfdbx_get_legacy
             if wfdbx_get_legacy():
@@ -1694,7 +1694,7 @@ def oannclose(n):
                 wfdb_error("\nAnnotations still need to be rearranged.\n")
             if _a.annclose_error == 0:
                 _a.annclose_error = -6
-    # wfdb-x: no advice to run sortann when the caller chose not to sort
+    # WFDB-x: no advice to run sortann when the caller chose not to sort
     # (write_annotations(sort=False)); WFDBANNSORT=0 still gives it.
     if oa.out_of_order and _a.sort_override is not False:
         wfdb_error("Use the command:\n  sortann -r %s -a %s\n",

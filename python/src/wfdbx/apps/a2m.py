@@ -13,7 +13,7 @@ then required (the original assumed 250 Hz, or 1 sample per second without a
 header); annotation times given in milliseconds (AHA file types 1 to 3) are
 converted at the record's sampling frequency (the original assumed 4 ms per
 sample); --legacy, as the first argument, restores the original behavior. Each
-change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/a2m.c, WFDB Software Package 10.7.0.
   Copyright (C) 1983-2010 George B. Moody.
@@ -55,7 +55,7 @@ HELP = [
     "                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {
     " -F FREQ       sampling frequency, if the record header does not specify":
     None,
@@ -116,7 +116,7 @@ def _main(argv):
     oann = "atr"
     typ = -1
     offset = 0
-    ffreq = 0.0     # wfdb-x: -F
+    ffreq = 0.0     # WFDB-x: -F
     i = 1
     while i < argc:
         a = argv[i]
@@ -191,7 +191,7 @@ def _main(argv):
         ai.append(w.Anninfo("-", w.WFDB_AHA_READ))
     if w.annopen(record, ai, len(ai)) < 0:
         raise Exit(2)
-    # wfdb-x: if the record header does not give the sampling frequency, -F
+    # WFDB-x: if the record header does not give the sampling frequency, -F
     # must give it.  (C assumed the rate of the AHA database, 250 Hz, if a
     # header without a frequency existed, and 1 sample per second if there
     # was no header, as legacy mode does.)

@@ -13,7 +13,7 @@
 // ADC resolution of every signal (the original assumed 250 Hz and 200 adu/mV,
 // and guessed the resolution from the storage format); unspecified units are
 // written as "nd" (the original wrote "mV"); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
@@ -53,7 +53,7 @@ static const char *pname;
 
 static void help();
 
-// wfdb-x: legacy mode (original behavior).  The C program's guess of the
+// WFDB-x: legacy mode (original behavior).  The C program's guess of the
 // ADC resolution of a signal, based on its format.
 static int legacy_adcres(int fmt)
 {
@@ -80,7 +80,7 @@ static int legacy_adcres(int fmt)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -167,7 +167,7 @@ int main(int argc, char **argv)
     if ((nsig = isigopen(record.c_str(), si.data(), nsig)) <= 0)
         std::exit(3);
 
-    // wfdb-x: an EDF file needs the sampling frequency, and the gain and the
+    // WFDB-x: an EDF file needs the sampling frequency, and the gain and the
     // ADC resolution of each signal (the C program assumed 250 Hz and
     // 200 adu/mV, and guessed the resolution from the format, if the header
     // did not specify them, as legacy mode does).
@@ -275,7 +275,7 @@ int main(int argc, char **argv)
 
     // Calculate physical and digital extrema.
     for (i = 0; i < nsig; i++) {
-        // (wfdb-x: the ADC resolution was checked above; the C program
+        // (WFDB-x: the ADC resolution was checked above; the C program
         // guessed it from the storage format if the header did not give it,
         // as legacy mode does.)
         if (wfdbx_get_legacy() && si[i].adcres < 1) // invalid in .hea file
@@ -381,7 +381,7 @@ int main(int argc, char **argv)
 
     // Physical dimension (e.g., uV or degreeC).
     for (i = 0; i < nsig; i++, pos += 8) {
-        // wfdb-x: unspecified units are shown as "nd" (C, legacy mode: mV)
+        // WFDB-x: unspecified units are shown as "nd" (C, legacy mode: mV)
         if (!si[i].units)
             si[i].units = std::string(wfdbx_get_legacy() ? "mV" : "nd");
         else if (si[i].units->size() > 8) si[i].units->resize(8);

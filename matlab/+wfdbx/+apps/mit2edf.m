@@ -12,7 +12,7 @@ function status = mit2edf(args)
 %       -p          write the output as an EDF+ file
 %       -v          select verbose mode
 %
-%   wfdb-x: the record must specify its sampling frequency, and the gain
+%   WFDB-x: the record must specify its sampling frequency, and the gain
 %   and the ADC resolution of each signal (the C program assumed 250 Hz
 %   and 200 adu/mV, and guessed the resolution from the format);
 %   unspecified units are written as "nd" (C: "mV"); see
@@ -43,7 +43,7 @@ function status = mit2edf(args)
 % resolution of every signal (the original assumed 250 Hz and 200 adu/mV, and
 % guessed the resolution from the storage format); unspecified units are
 % written as "nd" (the original wrote "mV"); --legacy, as the first argument,
-% restores the original behavior. Each change is marked "wfdb-x:" in the code;
+% restores the original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
@@ -231,7 +231,7 @@ if nsig <= 0
     status = 3;
     return;
 end
-% wfdb-x: an EDF file needs the sampling frequency, and the gain and the ADC
+% WFDB-x: an EDF file needs the sampling frequency, and the gain and the ADC
 % resolution of each signal (the C program assumed 250 Hz and 200 adu/mV if
 % the header did not specify them, and guessed the resolution from the
 % format).
@@ -326,7 +326,7 @@ dmin = zeros(1, nsig);
 pmax = zeros(1, nsig);
 pmin = zeros(1, nsig);
 for k = 1:nsig
-    % (wfdb-x: the ADC resolution was checked above; the C program guessed
+    % (WFDB-x: the ADC resolution was checked above; the C program guessed
     % it from the storage format if the header did not give it, as legacy
     % mode does.)
     if legacy && si(k).adcres < 1
@@ -380,7 +380,7 @@ for k = 1:nsig
 end
 for k = 1:nsig
     if ~ischar(si(k).units)
-        % wfdb-x: unspecified units are shown as "nd" (C, legacy mode: mV)
+        % WFDB-x: unspecified units are shown as "nd" (C, legacy mode: mV)
         if legacy
             si(k).units = 'mV';
         else
@@ -465,7 +465,7 @@ if nblocks > 0 && frames_per_block > 0
     % the low 16 bits of each sample, in little-endian byte order
     ofile.write(mod(vertcat(parts{:}), 65536), 'uint16', 0, 'ieee-le');
 end
-ofile.close();          % wfdb-x: reports a write error
+ofile.close();          % WFDB-x: reports a write error
 if vflag
     dots = cell(1, nblocks);
     for nb = 1:nblocks
@@ -499,7 +499,7 @@ status = 0;
 end
 
 function r = legacy_adcres(f)
-% wfdb-x: legacy mode: the C program's guess of the ADC resolution from the
+% WFDB-x: legacy mode: the C program's guess of the ADC resolution from the
 % storage format
 switch f
     case {524, 24}

@@ -4,7 +4,7 @@ function [prefix, ptype] = path_components(p)
 %   library splits the WFDB path (components separated by white space or
 %   ';', or by ':' other than in URLs) and returns the components (a cell
 %   row of char, empty ones included) and their types (0 = WFDB_LOCAL, 1 =
-%   WFDB_NET).  (wfdb-x: the scanner of wfdb_parse_path, which setwfdb
+%   WFDB_NET).  (WFDB-x: the scanner of wfdb_parse_path, which setwfdb
 %   uses too.)
 %
 %   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
@@ -18,7 +18,7 @@ function [prefix, ptype] = path_components(p)
 % code.
 %
 % Changes from the original: the scanner of wfdb_parse_path(), taken out so
-% that setwfdb can use it. Each change is marked "wfdb-x:" in the code;
+% that setwfdb can use it. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.

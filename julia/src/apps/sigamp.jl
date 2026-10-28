@@ -17,7 +17,7 @@
 # must give the sampling frequency (the measurement windows are in seconds),
 # and with -p the gain of each signal (the original assumed 250 Hz and 200
 # adu/mV); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: app/sigamp.c, WFDB Software Package 10.7.0.
@@ -191,7 +191,7 @@ function _sigamp_strtim_neg(p::Vector{UInt8})
 end
 
 function sigamp_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -309,7 +309,7 @@ function sigamp_main(args::Vector{String})
     nsig <= 0 && cexit(2)
     si = [Siginfo() for _ in 1:nsig]
     isigopen(record, si, nsig) != nsig && cexit(2)
-    # wfdb-x: no default gain (the C program assumed 200 adu/mV for
+    # WFDB-x: no default gain (the C program assumed 200 adu/mV for
     # uncalibrated signals, as legacy mode does).
     for k in 1:nsig
         if legacy
@@ -319,7 +319,7 @@ function sigamp_main(args::Vector{String})
             cexit(2)
         end
     end
-    # wfdb-x: no default sampling frequency (the C program assumed 250 Hz,
+    # WFDB-x: no default sampling frequency (the C program assumed 250 Hz,
     # as legacy mode does); the measurement windows are defined in seconds.
     sfreq = sampfreq(nothing)
     if sfreq <= 0.0 && legacy
@@ -444,7 +444,7 @@ register_workload("sigamp") do
         workload_tool("sigamp", "-r", "nf")
         workload_tool("sigamp", "-r", "uc", "-t", "2")
         workload_tool("sigamp", "-r", "uc", "-t", "2", "-p")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("sigamp", "--legacy", "-r", "nf", "-t", "2", "-p")
         workload_tool("sigamp", "--legacy", "-r", "uc", "-t", "2", "-p", "-v")
     end

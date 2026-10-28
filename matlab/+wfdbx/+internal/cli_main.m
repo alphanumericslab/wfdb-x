@@ -47,7 +47,7 @@ try
         return;
     end
     if strcmp(tool, '--version')
-        wfdbx.internal.cout(sprintf('wfdb-x (WFDB %s)\n', wfdbx.wfdbversion()));
+        wfdbx.internal.cout(sprintf('WFDB-x 1.1.0\n'));
         wfdbx.internal.cout();
         status = 0;
         return;

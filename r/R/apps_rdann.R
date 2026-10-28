@@ -11,7 +11,7 @@
 # Changes from the original: no built-in sampling frequency: the new option -F
 # FREQ gives it when the record has no header or its header gives none, and is
 # then required (the original assumed 250 Hz); --legacy, as the first argument,
-# restores the original behavior. Each change is marked "wfdb-x:" in the code;
+# restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/rdann.c, WFDB Software Package 10.7.0.
@@ -191,10 +191,10 @@ app_rdann <- function(args = character(0)) {
     .rdann_help(pname)
     cexit(1)
   }
-  # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+  # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
   # the record had no header); -F specifies one.
   sps <- sampfreq(record)
-  if (wfdbx_get_legacy()) {              # wfdb-x: legacy mode (original behavior)
+  if (wfdbx_get_legacy()) {              # WFDB-x: legacy mode (original behavior)
     if (sps < 0) setsampfreq(sps <- WFDB_DEFFREQ)
   } else {
     if (sps <= 0 && Ffreq > 0) setsampfreq(sps <- Ffreq)

@@ -289,8 +289,19 @@ impl Record {
     ///
     /// If the signal is uncalibrated (gain 0).
     pub fn physical_signal(&self, s: usize) -> Result<Vec<f64>, Error> {
-        self.calibrated_gain(s)?;
-        (0..self.nsamples()).map(|i| self.physical(i, s)).collect()
+        let g = self.calibrated_gain(s)?;
+        let b = self.siginfo[s].baseline as f64;
+        let (x, k) = (&self.samples, self.nsig);
+        Ok((0..self.nsamples())
+            .map(|i| {
+                let v = x[i * k + s];
+                if v == WFDB_INVALID_SAMPLE {
+                    f64::NAN
+                } else {
+                    (v as f64 - b) / g
+                }
+            })
+            .collect())
     }
 
     /// The gain of returned signal `s`, or an error if it is uncalibrated
@@ -298,7 +309,7 @@ impl Record {
     fn calibrated_gain(&self, s: usize) -> Result<f64, Error> {
         let g = self.siginfo[s].gain;
         if g == 0.0 && self.legacy {
-            return Ok(WFDB_DEFGAIN); // wfdb-x: legacy mode (original behavior)
+            return Ok(WFDB_DEFGAIN); // WFDB-x: legacy mode (original behavior)
         }
         if g == 0.0 {
             let n = self.signals.get(s).copied().unwrap_or(s);
@@ -540,7 +551,7 @@ fn strip_space(s: &[u8]) -> &[u8] {
     &s[a..b]
 }
 
-/// wfdb-x: the high-level readers give the signal descriptions without the
+/// WFDB-x: the high-level readers give the signal descriptions without the
 /// white space that some headers end them with (C keeps it, as the C-style
 /// functions do).
 fn strip_desc(si: &mut [Siginfo]) {
@@ -579,7 +590,7 @@ fn legacy_adcres(fmt: i32) -> i32 {
 
 /// The gain of signal `k`: the single value of `gains`, or its `k`-th one.
 ///
-/// wfdb-x: there is no default gain (C assumed `WFDB_DEFGAIN`, as legacy
+/// WFDB-x: there is no default gain (C assumed `WFDB_DEFGAIN`, as legacy
 /// mode does).
 fn gain_of(gains: &[f64], k: usize, legacy: bool) -> Result<f64, Error> {
     if legacy {
@@ -607,7 +618,7 @@ fn check_write_spf(opt: &WriteOptions) -> Result<(), Error> {
 /// Checks the sampling frequency given to `write_record` (not checked in
 /// legacy mode, as in the original package).
 fn check_write_freq(fs: f64, legacy: bool) -> Result<(), Error> {
-    // wfdb-x: no default sampling frequency (C assumed 250 Hz).
+    // WFDB-x: no default sampling frequency (C assumed 250 Hz).
     if fs > 0.0 || legacy {
         Ok(())
     } else {
@@ -620,7 +631,7 @@ fn check_write_freq(fs: f64, legacy: bool) -> Result<(), Error> {
 /// The ADC resolution (bits) of signal `k`: the single value of `adcres`,
 /// or its `k`-th one.
 ///
-/// wfdb-x: there is no default ADC resolution (C inferred it from the
+/// WFDB-x: there is no default ADC resolution (C inferred it from the
 /// format, or assumed `WFDB_DEFRES`, 12 bits; legacy mode infers it from
 /// the format).
 fn adcres_of(adcres: &[i32], k: usize, fmt: i32, legacy: bool) -> Result<i32, Error> {
@@ -644,7 +655,7 @@ fn adcres_of(adcres: &[i32], k: usize, fmt: i32, legacy: bool) -> Result<i32, Er
 /// The units of signal `k`: the single value of `units`, or its `k`-th one;
 /// required if the signal is calibrated (`gain` is not 0).
 ///
-/// wfdb-x: there are no default units (C left them out: millivolts; legacy
+/// WFDB-x: there are no default units (C left them out: millivolts; legacy
 /// mode does not require them).
 fn units_of(
     units: &[Option<Vec<u8>>],
@@ -891,7 +902,7 @@ impl Wfdb {
             legacy: self.wfdbx_get_legacy() != 0,
             ..Default::default()
         };
-        // wfdb-x: no default sampling frequency (C assumed 250 Hz).
+        // WFDB-x: no default sampling frequency (C assumed 250 Hz).
         if rec.fs <= 0.0 && !rec.legacy && self.times_need_freq(&opt.from, &opt.to) {
             return self.hl_fail(format!(
                 "sampling frequency of record {rname} is not specified"
@@ -938,8 +949,6 @@ impl Wfdb {
             Some(t) => (t - from).max(0),
             None => (self.wfdbx_header_nsamples() - from).max(0),
         };
-        let mut all: Vec<i32> = Vec::new();
-        all.reserve_exact((expected as usize).saturating_mul(nsig).min(1 << 26));
         // Vectors read per getvecs call at most: whole frames, and a
         // multiple of 6 of them, so that formats 212, 310 and 311 end each
         // call on a whole packed unit (the frames are then read in blocks).
@@ -948,6 +957,13 @@ impl Wfdb {
         } else {
             1
         };
+        // (and `unit` vectors more, read to find the end of the data)
+        let mut all: Vec<i32> = Vec::new();
+        all.reserve_exact(
+            ((expected + unit) as usize)
+                .saturating_mul(nsig)
+                .min(1 << 26),
+        );
         let block = (1 << 20) - (1 << 20) % unit;
         let mut remaining = to.map(|t| if t > from { t - from } else { 0 });
         let mut checksum_error = false;
@@ -959,6 +975,7 @@ impl Wfdb {
                 None if expected > all.len() as i64 / nsig as i64 => {
                     (expected - all.len() as i64 / nsig as i64).min(block)
                 }
+                None if expected == all.len() as i64 / nsig as i64 => unit,
                 None => 65536 - 65536 % unit,
             };
             let len = all.len();
@@ -970,7 +987,7 @@ impl Wfdb {
             }
             let mut keep = got as usize;
             if stat == -4 {
-                // wfdb-x: a checksum error: the vector read last holds valid
+                // WFDB-x: a checksum error: the vector read last holds valid
                 // data and is returned; reading continues (in high-resolution
                 // mode, each vector of the last frame returns -4), and a
                 // warning follows.
@@ -985,7 +1002,7 @@ impl Wfdb {
                 continue;
             }
             if got < n {
-                // wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a
+                // WFDB-x: a status below -1 (e.g. -3, unexpected EOF: a
                 // signal file shorter than its header says, or a decoder or
                 // I/O error) is an error, not the end of the data (-1).
                 if stat < -1 {
@@ -1000,7 +1017,7 @@ impl Wfdb {
         self.sig.cksum_quiet = false;
         if checksum_error && opt.checksum_warning {
             self.wfdb_error(format!(
-                "wfdb-x: checksum error in record {rname}: the signal data do not match the checksums in its header\n"
+                "WFDB-x: checksum error in record {rname}: the signal data do not match the checksums in its header\n"
             ));
         }
         rec.checksum_ok = !checksum_error;
@@ -1090,7 +1107,7 @@ impl Wfdb {
             return Err(Error::new("fs must be > 0"));
         }
         self.wfdbquit();
-        // wfdb-x: no default sampling frequency (C assumed 250 Hz if the
+        // WFDB-x: no default sampling frequency (C assumed 250 Hz if the
         // record had no header, as legacy mode does); `fs` gives one, as
         // rdann -F does.
         let f = self.sampfreq(record);
@@ -1098,7 +1115,7 @@ impl Wfdb {
             if let Some(f) = fs {
                 self.setsampfreq(f);
             } else if legacy {
-                self.setsampfreq(WFDB_DEFFREQ); // wfdb-x: legacy mode
+                self.setsampfreq(WFDB_DEFFREQ); // WFDB-x: legacy mode
             }
         }
         let ai = Anninfo {
@@ -1135,7 +1152,7 @@ impl Wfdb {
         loop {
             let stat = self.getann(0, &mut a);
             if stat != 0 {
-                // wfdb-x: -1 is the end of the file; any other status (e.g.
+                // WFDB-x: -1 is the end of the file; any other status (e.g.
                 // -3, unexpected EOF, or an I/O error) is an error.
                 if stat != -1 {
                     return self.hl_fail(format!(
@@ -1311,9 +1328,9 @@ impl Wfdb {
         for k in 0..nsig {
             let mut gain = gain_of(&opt.gains, k, legacy)?;
             if gain == 0.0 && legacy {
-                gain = WFDB_DEFGAIN; // wfdb-x: legacy mode (original behavior)
+                gain = WFDB_DEFGAIN; // WFDB-x: legacy mode (original behavior)
             } else if gain == 0.0 {
-                // wfdb-x: no default gain (C assumed WFDB_DEFGAIN)
+                // WFDB-x: no default gain (C assumed WFDB_DEFGAIN)
                 return Err(Error::new(format!(
                     "write_record: signal {k} is uncalibrated"
                 )));

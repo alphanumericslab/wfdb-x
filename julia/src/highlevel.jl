@@ -31,7 +31,7 @@
 # wfdbx_set_output_dir and wfdbx_set_network. The signal files of a record
 # are in the directory of its header.
 #
-# wfdb-x: no sampling frequency, gain, ADC resolution or units are ever
+# WFDB-x: no sampling frequency, gain, ADC resolution or units are ever
 # assumed (the C library assumed 250 Hz, 200 adu/mV, 12 bits or a resolution
 # based on the format, and millivolts): see docs/DIVERGENCES.md. Each
 # function has a `legacy=false` keyword argument: with `legacy=true`, it
@@ -232,7 +232,7 @@ function physical(rec::Record; legacy::Bool=false)
         g = si.gain
         if g == 0.0
             legacy || throw(WfdbError("signal $(rec.channels[s]) of record $(rec.name) is uncalibrated"))
-            g = WFDB_DEFGAIN    # wfdb-x: legacy mode (original behavior)
+            g = WFDB_DEFGAIN    # WFDB-x: legacy mode (original behavior)
         end
         b = Float64(si.baseline)
         for i in 1:size(rec.samples, 1)
@@ -301,7 +301,7 @@ function _hl_fail(w::Wfdb, msg::String)
     throw(WfdbError(msg))
 end
 
-# wfdb-x: legacy mode (original behavior). A high-level call behaves as the
+# WFDB-x: legacy mode (original behavior). A high-level call behaves as the
 # original package if it asks for it (legacy=true) or if the library is in
 # legacy mode (wfdbx_set_legacy).
 _legacy(w::Wfdb, legacy::Bool) = legacy || wfdbx_get_legacy(w) != 0
@@ -319,7 +319,7 @@ function _with_legacy(f::Function, w::Wfdb, legacy::Bool)
     end
 end
 
-# wfdb-x: the dir keyword argument of the writers. With a directory, run f()
+# WFDB-x: the dir keyword argument of the writers. With a directory, run f()
 # with the library's output directory (wfdbx_set_output_dir) set to it,
 # restoring the previous one afterwards, also on errors; the record name must
 # not contain a directory, and the directory must exist (both checked before
@@ -339,7 +339,7 @@ function _with_output_dir(f::Function, w::Wfdb, record::ByteStr, dir)
     end
 end
 
-# wfdb-x: the input_dir and network keyword arguments of the readers: if
+# WFDB-x: the input_dir and network keyword arguments of the readers: if
 # given (not nothing), the library's input directory (wfdbx_set_input_dir)
 # and network permission (wfdbx_set_network) are set for the duration of
 # f(), and the previous values restored afterwards (also on errors).
@@ -374,7 +374,7 @@ const _LEGACY_DOC = """
 
 # A time: a sample number, or a WFDB time string ("0:10", "s1000",
 # "[12:00:00]", "e" for the end of the record; see strtim), converted for
-# the record open in w (times of day give their absolute value). wfdb-x: a
+# the record open in w (times of day give their absolute value). WFDB-x: a
 # time string that needs the sampling frequency is an error if the record
 # does not specify one (rname: the record name, for the message).
 _resolve_time(w::Wfdb, t::Integer, rname::String) = Int64(t)
@@ -462,7 +462,7 @@ function _strip_space(d::AbstractVector{UInt8})
 end
 
 # The Siginfo objects si with the white space at both ends of each
-# description removed. wfdb-x: the high-level readers give the signal names
+# description removed. WFDB-x: the high-level readers give the signal names
 # without the spaces that some headers end them with (C keeps them, as the
 # C-style functions do).
 function _strip_desc!(si::Vector{Siginfo})
@@ -596,9 +596,10 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     isigsettime(w, t0) < 0 && _hl_fail(w, "can't seek to sample $t0 of record $rname")
 
     # getvec returns one value per signal in either mode. The frames are
-    # read straight into `all` (one column per frame), allocated once for
-    # the number of frames to read if it is known (to, or the length of the
-    # record), and grown only if more are read.
+    # read a block at a time into `buf`, and their samples copied into
+    # `samples` (one column per signal), allocated once for the number of
+    # frames to read if it is known (to, or the length of the record), and
+    # grown only if more are read.
     st = w.sig
     remaining = t1 === nothing ? nothing : max(t1 - t0, Int64(0))
     rlen = (st.in_msrec != 0 ? st.msnsamples : st.nsamples) *
@@ -607,25 +608,29 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     expect = remaining !== nothing && rlen > t0 ? min(expect, rlen - t0) : expect
     # (not more than about 1 GiB at first: a header may overstate the length)
     expect = clamp(expect, Int64(1), max(Int64(1), (Int64(1) << 28) ÷ nsig))
-    all = Vector{Int32}(undef, expect * nsig)
+    samples = Matrix{Int32}(undef, expect, length(cols))
     # (a multiple of 6 frames per call, so that formats 212, 310 and 311
     # end each call on a whole packed unit: the frames are then read in
     # bulk)
     unit = 6 * (highres ? max(Int64(st.ispfmax), 1) : Int64(1))
-    block = Int64(READ_BLOCK) - Int64(READ_BLOCK) % unit
-    nframes = Int64(0)
+    block = max(Int64(READ_BLOCK) - Int64(READ_BLOCK) % unit, unit)
+    buf = Vector{Int32}(undef, block * nsig)
+    nframes = 0
     cksum_error = false
     st.cksum_quiet = true
     try
         while remaining === nothing || remaining > 0
             n = remaining === nothing ? block : min(remaining, block)
-            nframes + n > length(all) ÷ nsig &&
-                resize!(all, max(2 * length(all), (nframes + n) * nsig))
-            got, stat = _getvecs_into(w, all, Int(nframes * nsig), n, true)
-            got = max(got, Int64(0))
+            got, stat = _getvecs_into(w, buf, 0, n, true)
+            got = Int(max(got, Int64(0)))
+            if got > 0
+                nframes + got > size(samples, 1) &&
+                    (samples = _grow_rows(samples, nframes, max(2 * size(samples, 1), nframes + got)))
+                _block_to_samples!(samples, nframes, buf, nsig, got, cols)
+            end
             nframes += got
             remaining === nothing || (remaining -= got)
-            # wfdb-x: -4, a checksum error: the vector is complete, only the
+            # WFDB-x: -4, a checksum error: the vector is complete, only the
             # sum of the samples does not match the header: a warning (see
             # below), not an error. In high-resolution mode each of the spf
             # vectors of the checksum frame has status -4: read on until -1
@@ -636,7 +641,7 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
                 break
             end
             if got < n
-                # wfdb-x: a status below -1 (e.g. -3, unexpected EOF: a
+                # WFDB-x: a status below -1 (e.g. -3, unexpected EOF: a
                 # signal file shorter than its header says, or a decoder or
                 # I/O error) is an error, not the end of the data (-1).
                 stat < -1 && _hl_fail(w, "can't read signal data of record $rname (getvec status $stat)")
@@ -648,25 +653,33 @@ function _read_record(w::Wfdb, record::ByteStr, channels, from, to, highres::Boo
     end
     (cksum_error && checksum_warning) &&
         @warn "checksum error in record $rname: the signal data do not match the checksums in its header"
-    samples = _frames_to_samples(all, nsig, Int(nframes), cols)
+    nframes < size(samples, 1) && (samples = samples[1:nframes, :])
     comments = _comments(w, record)
     wfdbquit(w)
     Record(rname, fs, samples, Siginfo[si[k] for k in cols], base_time, base_time_ms,
            base_date, t0, comments, Int[k - 1 for k in cols], !cksum_error)
 end
 
-# The samples matrix (one row per frame, one column per element of cols)
-# of the first nframes frames stored in v (nsig values per frame).
-function _frames_to_samples(v::Vector{Int32}, nsig::Int, nframes::Int, cols::Vector{Int})
-    frames = reshape(view(v, 1:nsig*nframes), nsig, nframes)
-    cols == 1:nsig && return permutedims(frames)
-    samples = Matrix{Int32}(undef, nframes, length(cols))
+# Copy the samples of the selected signals cols of the nf frames in buf
+# (nsig values per frame) into the rows i0+1:i0+nf of samples.
+function _block_to_samples!(samples::Matrix{Int32}, i0::Int, buf::Vector{Int32}, nsig::Int,
+                            nf::Int, cols::Vector{Int})
     for (j, c) in enumerate(cols)
-        @inbounds for i in 1:nframes
-            samples[i, j] = frames[c, i]
+        q = (j - 1) * size(samples, 1) + i0
+        @inbounds for i in 1:nf
+            samples[q+i] = buf[(i-1)*nsig+c]
         end
     end
-    samples
+    nothing
+end
+
+# A matrix of rows rows holding the first n rows of x.
+function _grow_rows(x::Matrix{Int32}, n::Int, rows::Int)
+    y = Matrix{Int32}(undef, rows, size(x, 2))
+    for j in 1:size(x, 2)
+        copyto!(y, (j - 1) * rows + 1, x, (j - 1) * size(x, 1) + 1, n)
+    end
+    y
 end
 read_record(record::ByteStr; kw...) = read_record(lib(), record; kw...)
 
@@ -733,12 +746,12 @@ function _read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, from, t
                            fs::Union{Nothing,Real}, legacy::Bool)
     rname = _lossy(record)
     wfdbquit(w)
-    # wfdb-x: no default sampling frequency (C tools assumed 250 Hz).
+    # WFDB-x: no default sampling frequency (C tools assumed 250 Hz).
     sf = sampfreq(w, record)
     if sf <= 0.0 && fs !== nothing
         setsampfreq(w, fs)
     elseif sf < 0.0 && legacy
-        setsampfreq(w, WFDB_DEFFREQ)    # wfdb-x: legacy mode (original behavior)
+        setsampfreq(w, WFDB_DEFFREQ)    # WFDB-x: legacy mode (original behavior)
     end
     ai = [Anninfo(annotator, WFDB_READ)]
     if annopen(w, record, ai, 1) < 0
@@ -769,7 +782,7 @@ function _read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, from, t
             push!(res.aux, nothing)
         end
     end
-    # wfdb-x: a status other than 0 and -1 (e.g. -3, unexpected EOF, or an
+    # WFDB-x: a status other than 0 and -1 (e.g. -3, unexpected EOF, or an
     # I/O error) is an error, not the end of the file.
     (stat == 0 || stat == -1) ||
         _hl_fail(w, "can't read annotation file $(_lossy(annotator)) of record $rname (getann status $stat)")
@@ -791,7 +804,7 @@ end
 
 _optbytes(x) = x === nothing ? nothing : copy(cstr(bytes(x)))
 
-# wfdb-x: the gain of signal k (0-based k-1 in messages) is required (the C
+# WFDB-x: the gain of signal k (0-based k-1 in messages) is required (the C
 # tools assumed WFDB_DEFGAIN, 200 adu/mV, as legacy mode does); 0 means
 # uncalibrated.
 function _gain(gains, k::Int, legacy::Bool)
@@ -808,7 +821,7 @@ _legacy_write_adcres(fmt::Integer) =
     (fmt == 310 || fmt == 311) ? Int32(10) : (fmt == 24 || fmt == 524) ? Int32(24) :
     fmt == 32 ? Int32(32) : Int32(16)
 
-# wfdb-x: the ADC resolution of signal k is required (the C tools inferred
+# WFDB-x: the ADC resolution of signal k is required (the C tools inferred
 # it from the format or assumed WFDB_DEFRES, 12 bits, as legacy mode does);
 # it must be >= 1.
 function _adcres(adcres, k::Int, fmt::Integer, legacy::Bool)
@@ -819,7 +832,7 @@ function _adcres(adcres, k::Int, fmt::Integer, legacy::Bool)
     Int32(r)
 end
 
-# wfdb-x: the units of a calibrated signal (gain != 0) are required (the C
+# WFDB-x: the units of a calibrated signal (gain != 0) are required (the C
 # tools left them out, and readers assumed millivolts; legacy mode does not
 # require them).
 function _units(units, k::Int, gain::Float64, legacy::Bool)
@@ -886,11 +899,18 @@ function _write_adc(w::Wfdb, record::ByteStr, frames::AbstractMatrix{<:Integer},
     setbasecount(w, 0.0)
     base_time === nothing || setbasetime(w, base_time)
     v = zeros(Int32, framesize)
-    for i in 1:size(frames, 1)
+    nf = size(frames, 1)
+    i = 0
+    while i < nf
+        # (in bulk where possible, else one frame with putvec)
+        k = _putframes!(w, frames, i, nf)
+        i += k
+        k > 0 && continue
         for j in 1:framesize
-            v[j] = frames[i, j] % Int32
+            v[j] = frames[i+1, j] % Int32
         end
         putvec(w, v)
+        i += 1
     end
     newheader(w, rec) < 0 && _hl_fail(w, "can't create header for record $(_lossy(rec))")
     for c in comments
@@ -1025,7 +1045,7 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
                                dir=nothing, legacy::Bool=false)
     _check_samps_per_frame(samples, samps_per_frame)
     legacy = _legacy(w, legacy)
-    # wfdb-x: the dir checks come first (after those of samps_per_frame)
+    # WFDB-x: the dir checks come first (after those of samps_per_frame)
     _with_output_dir(w, record, dir) do
         nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
         # Gain and baseline of each column of a frame
@@ -1035,7 +1055,7 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
             gain = _gain(gains, k, legacy)
             if gain == 0.0
                 legacy || throw(WfdbError("write_record: signal $(k - 1) is uncalibrated"))
-                gain = WFDB_DEFGAIN     # wfdb-x: legacy mode (original behavior)
+                gain = WFDB_DEFGAIN     # WFDB-x: legacy mode (original behavior)
             end
             zero_ = Int32(_per_signal(adczeros, k, 0))
             base = Int32(_per_signal(baselines, k, zero_))
@@ -1116,7 +1136,7 @@ function write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::An
                            legacy::Bool=false)
     _with_legacy(w, legacy) do
         _with_output_dir(w, record, dir) do
-            # wfdb-x: the sort option, read by oannclose (see AnnState)
+            # WFDB-x: the sort option, read by oannclose (see AnnState)
             previous = w.ann.sort_override
             w.ann.sort_override = sort
             try
@@ -1195,7 +1215,32 @@ register_workload("highlevel") do
         read_annotations(w, "100s", "atr"; from="0:1", to="0:2")
         _workload_hl_error(() -> read_record(w, "nosuch"))
     end
-    # wfdb-x: the paths without a default sampling frequency or gain
+    # The default library, with options as commonly given
+    with_workload_data() do dir
+        wfdbx_set_input_dir(dir)
+        rec = read_record("100s")
+        read_record("100s"; to=360); read_record("100s"; from="0:1", to="0:2")
+        read_record("100s"; channels=[1]); read_record("100s"; channels=["V5"], to="0:1")
+        read_record("mfreq"; highres=true); read_record("100s"; pad=true)
+        x = physical(rec)
+        read_header("100s")
+        g = [s.gain for s in rec.siginfo]
+        u = [Vector{UInt8}("mV") for _ in rec.siginfo]
+        write_record("w1", rec.samples, rec.fs; fmt=16, gains=g, adcres=16, units=u, dir=dir)
+        write_record("w2", rec.samples, rec.fs; fmt=212, gains=200.0, adcres=12, units="mV",
+                     dir=dir)
+        write_record("w3", rec.samples, rec.fs; gains=g, adcres=12, units="mV")
+        write_record_physical("w4", x, rec.fs; gains=200.0, adcres=12, units="mV", dir=dir)
+        write_record_physical("w5", x, rec.fs; gains=g, adcres=16, units=u)
+        a = read_annotations("100s", "atr")
+        read_annotations("100s", "atr"; from="0:1", to="0:2")
+        write_annotations("100s", "w6", a; dir=dir)
+        write_annotations("100s", "w7", Annotations(samples=a.samples, codes=a.codes, aux=a.aux);
+                          dir=dir)
+        write_annotations("100s", "w8", Annotations(samples=a.samples, symbols=a.symbols))
+        wfdbx_set_input_dir(nothing)
+    end
+    # WFDB-x: the paths without a default sampling frequency or gain
     with_workload_data(files=NODEFAULTS_FILES) do dir
         w = Wfdb()
         wfdbquiet(w)
@@ -1223,7 +1268,7 @@ register_workload("highlevel") do
         read_annotations(w, "nh", "atr"; fs=360.0)
         _workload_hl_error(() -> read_annotations(w, "nh", "atr"; to="0:10"))
         _workload_hl_error(() -> read_annotations(w, "nh", "atr"; fs=0))
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         read_header(w, "nr"; legacy=true)
         r = read_record(w, "nf"; to="0:1", legacy=true)
         physical(read_record(w, "uc"; to=3, legacy=true); legacy=true)

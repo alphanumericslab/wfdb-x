@@ -10,7 +10,7 @@
 #
 # Changes from the original: no built-in ADC resolution: a missing resolution
 # stays unspecified (the original assumed 12 bits); --legacy, as the first
-# argument, restores the original behavior. Each change is marked "wfdb-x:" in
+# argument, restores the original behavior. Each change is marked "WFDB-x:" in
 # the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/revise.c, WFDB Software Package 10.7.0.
@@ -114,7 +114,7 @@ app_revise <- function(args = character(0)) {
       cur$bsize <- 0
     }
     p <- strtok_next(t, sep)
-    # (wfdb-x: the C program, and legacy mode, assumed WFDB_DEFRES)
+    # (WFDB-x: the C program, and legacy mode, assumed WFDB_DEFRES)
     cur$adcres <- if (!is.null(p)) atoi(p) else if (wfdbx_get_legacy()) WFDB_DEFRES else 0
     p <- strtok_next(t, sep)
     cur$adczero <- if (!is.null(p)) atoi(p) else 0

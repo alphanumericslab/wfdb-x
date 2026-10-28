@@ -28,7 +28,7 @@
 # annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
 # option of the high-level write_annotations decides, for its call, whether the
 # file is sorted; legacy mode (wfdbx_set_legacy) restores the original
-# behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 # gives the reasons.
 #
 # Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -100,7 +100,7 @@ mutable struct _OaData
     afreq::Float64          # time resolution, in ticks/second
     seqno::Int32            # annotation serial number (AHA only)
     rname::Vector{UInt8}    # record with which the annotator is associated
-    fname::Vector{UInt8}    # wfdb-x: the name of the file (as created), for sorting
+    fname::Vector{UInt8}    # WFDB-x: the name of the file (as created), for sorting
     out_of_order::Bool      # if true, annotations are not in order
     table_written::Bool     # if true, the table has been written
 end
@@ -175,7 +175,7 @@ mutable struct AnnState
     cstring::Vector{Vector{UInt8}}              # ECG mnemonics for each code
     astring::Vector{Vector{UInt8}}              # mnemonic strings for each code
     tstring::Vector{Union{Nothing,Vector{UInt8}}}   # descriptions for each code
-    # wfdb-x: whether an out-of-order output annotation file is sorted when
+    # WFDB-x: whether an out-of-order output annotation file is sorted when
     # it is closed, set by write_annotations(sort=...) for its call only:
     # nothing (WFDBANNSORT decides), true or false
     sort_override::Union{Nothing,Bool}
@@ -379,7 +379,7 @@ _is_blank(c::UInt8) = c == UInt8(' ') || c == UInt8('\t')
 
 # Read the modification labels at the beginning of the input annotator ia
 # into the definition table defs (the library's, or that of _sort_ann_file),
-# and its time resolution (wfdb-x: the body of get_ann_table).
+# and its time resolution (WFDB-x: the body of get_ann_table).
 function _read_ann_table(w::Wfdb, ia::_IaData, defs::_AnnDefs)
     ia.tmul = 1.0
     ia.afreq = 0.0
@@ -444,7 +444,7 @@ end
 
 # Write the modification labels at the beginning of the output annotator oa
 # (number n, for messages), with the time resolution freq and the definition
-# table defs (wfdb-x: the C library used oad[n], oafreq and the library's
+# table defs (WFDB-x: the C library used oad[n], oafreq and the library's
 # table).
 function _put_ann_table(w::Wfdb, oa::_OaData, n::Int, freq::Float64, defs::_AnnDefs)
     flag = 0
@@ -483,7 +483,7 @@ end
 
 # Read the first word of the input annotation file of ia, and return its
 # format: WFDB_READ (MIT format; any initial null annotations are then read
-# as well) or WFDB_AHA_READ. (wfdb-x: this was part of annopen.)
+# as well) or WFDB_AHA_READ. (WFDB-x: this was part of annopen.)
 function _ann_file_format(ia::_IaData)
     # AHA-format files begin with a null byte and an ASCII character which
     # is one of the legal AHA annotation codes other than '[' or ']'. MIT
@@ -1119,7 +1119,7 @@ function iannclose(w::Wfdb, n::Integer)
 end
 
 # ---------------------------------------------------------------------------
-# wfdb-x: in-process sorting of an output annotation file
+# WFDB-x: in-process sorting of an output annotation file
 
 # The doubly-linked annotation list of sortann.c (insert_ann; used by the
 # sortann tool and by _sort_ann_file). Node 0 is the list head (annlist),
@@ -1127,7 +1127,7 @@ end
 # as in sortann.c only if legacy; -1 is a null link. Node k is stored at
 # index k+1.
 #
-# wfdb-x: unless legacy is true, the head is never compared with an
+# WFDB-x: unless legacy is true, the head is never compared with an
 # annotation: sortann.c compared it, and took an out-of-order annotation at
 # time 0 (num 0, chan 0) for a duplicate of it, linking it where the output
 # never reaches it (losing it, and the annotations later inserted after it);
@@ -1166,7 +1166,7 @@ function _sortann_insert!(l::_SortList, pa::Annotation)
     # is linear, beginning at the end of the list.
     ap = lastp
     while ap != -1
-        if ap == 0 && !l.legacy     # wfdb-x: the head is not an annotation
+        if ap == 0 && !l.legacy     # WFDB-x: the head is not an annotation
             ap = -1
             break
         end
@@ -1266,7 +1266,7 @@ end
 C `oannclose`: close output annotator `n`, writing its end mark. If its
 annotations were not written in canonical order, the file is sorted, as
 `sortann` does (unless the environment variable `WFDBANNSORT` is 0):
-wfdb-x: in this process; in legacy mode, as in C, by running `sortann`.
+WFDB-x: in this process; in legacy mode, as in C, by running `sortann`.
 
 Translation of the C function oannclose() (lib/annot.c, WFDB 10.7.0): same
 arguments and results. Differences: an out-of-order file is sorted in this
@@ -1295,14 +1295,14 @@ function oannclose(w::Wfdb, n::Integer)
     end
     out_of_order = oa.out_of_order
     if out_of_order
-        # wfdb-x: write_annotations(sort=true/false) decides for its call
+        # WFDB-x: write_annotations(sort=true/false) decides for its call
         so = w.ann.sort_override
         p = so === nothing ? cgetenv("WFDBANNSORT") : nothing
         dosort = so !== nothing ? Int32(so) :
                  p === nothing ? DEFWFDBANNSORT : strtol(p, 10)[1] % Int32
         if dosort != 0
             wfdb_error(w, "Rearranging annotations for output annotator %s ...", name)
-            # wfdb-x: the file is sorted in this process; the C library ran
+            # WFDB-x: the file is sorted in this process; the C library ran
             # the sortann program, as legacy mode does.
             sorted = wfdbx_get_legacy(w) != 0 ?
                      run_sortann(oa.rname, name; dir=wfdbx_get_output_dir(w)) :
@@ -1317,7 +1317,7 @@ function oannclose(w::Wfdb, n::Integer)
         end
     end
     if out_of_order
-        # wfdb-x: no advice to run sortann when the caller chose not to sort
+        # WFDB-x: no advice to run sortann when the caller chose not to sort
         # (write_annotations(sort=false)); WFDBANNSORT=0 still gives it.
         if w.ann.sort_override !== false
             wfdb_error(w, "Use the command:\n  sortann -r %s -a %s\n", oa.rname, name)

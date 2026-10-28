@@ -76,7 +76,7 @@ assert_eq(wfdbx.wfdberror(), ...
 end
 
 function t_path()
-% wfdb-x: setwfdb sets the single input directory (more than one is an
+% WFDB-x: setwfdb sets the single input directory (more than one is an
 % error), getwfdb returns it ('.' if none), resetwfdb restores the value
 % of the last setwfdb, and wfdbquit leaves it (t_path of api_expect.c)
 wfdbx.setwfdb([]);
@@ -84,7 +84,7 @@ assert_eq(wfdbx.getwfdb(), '.', 'getwfdb initial');
 wfdbx.wfdbquiet();
 wfdbx.setwfdb('a b');
 wfdbx.wfdbverbose();
-assert_eq(wfdbx.wfdberror(), sprintf(['setwfdb: wfdb-x reads from a single ' ...
+assert_eq(wfdbx.wfdberror(), sprintf(['setwfdb: WFDB-x reads from a single ' ...
     'input directory; use wfdbx_set_input_dir (or legacy mode for the WFDB ' ...
     'search path)\n']), 'setwfdb with two directories');
 assert_eq(wfdbx.getwfdb(), '.', 'getwfdb');
@@ -176,7 +176,7 @@ r = [stat v(1:n)];
 end
 
 function t_amplitude()
-wfdbx.wfdbquiet();     % (wfdb-x: invalid signal numbers are reported)
+wfdbx.wfdbquiet();     % (WFDB-x: invalid signal numbers are reported)
 q = onCleanup(@() quiet_end()); %#ok<NASGU>
 wfdbx.isigopen('100s', 8);     % gain 200, baseline 1024
 assert_eq([wfdbx.adumuv(0, 200) wfdbx.adumuv(0, -37) wfdbx.adumuv(1, 1) ...
@@ -743,7 +743,7 @@ function t_extra()
 q = onCleanup(@() wfdbx.flushcal()); %#ok<NASGU>
 assert_eq(wfdbx.calopen([]), 0, 'calopen NULL');
 assert_eq(cal('Resp', []), {0, 0, 0, 1, 0, 'Resp', 'l'}, 'getcal Resp');
-% uncalibrated signals (gain 0; wfdb-x: reported as errors)
+% uncalibrated signals (gain 0; WFDB-x: reported as errors)
 wfdbx.isigopen('null', 8);
 wfdbx.wfdbquiet();
 q2 = onCleanup(@() quiet_end()); %#ok<NASGU>
@@ -785,7 +785,7 @@ assert_eq(vec(2), [2 969 996], 'multi getvec');
 end
 
 function t_outdir()
-% wfdb-x: the output directory (wfdbx_set_output_dir), and the in-process
+% WFDB-x: the output directory (wfdbx_set_output_dir), and the in-process
 % sorting of an annotation file written there (t_outdir of api_expect.c)
 st = wfdbx.internal.ann_state();
 saved = {st.astring, st.tstring, st.modified};
@@ -923,7 +923,7 @@ strings_end(saved);
 end
 
 function t_abspath()
-% wfdb-x: a record named by an absolute path is opened directly (in legacy
+% WFDB-x: a record named by an absolute path is opened directly (in legacy
 % mode, it is searched for in the WFDB path, as in C)
 rec = [pwd() '/100s'];
 wfdbx.wfdbquiet();
@@ -1013,7 +1013,7 @@ end
 
 function t_strtim_range()
 % Frame numbers without a record and times out of the range of WFDB_Time:
-% the C conversion of the double gives LONG_MIN on x86-64.  (wfdb-x:
+% the C conversion of the double gives LONG_MIN on x86-64.  (WFDB-x:
 % without a sampling frequency, strtim reports an error and returns 0.)
 wfdbx.wfdbquiet();
 q = onCleanup(@() strtim_range_end()); %#ok<NASGU>
@@ -1031,7 +1031,7 @@ wfdbx.wfdbverbose();
 end
 
 function t_nodefaults()
-% wfdb-x: no default sampling frequency or gain (docs/DIVERGENCES.md)
+% WFDB-x: no default sampling frequency or gain (docs/DIVERGENCES.md)
 ts = {'s10', 'e', 'i', 'o', 'c10', 'f3', '10', '1:0', '[10:00:00]', ...
     ' s5', ''};
 wfdbx.setcfreq(500);        % (as left by t_counter in api_expect.c)

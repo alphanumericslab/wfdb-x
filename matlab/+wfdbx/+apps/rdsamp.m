@@ -21,7 +21,7 @@ function status = rdsamp(args)
 %       -v          print column headings
 %       -X          output in WFDB-XML format
 %
-%   wfdb-x: no sampling frequency or gain is assumed (C: 250 Hz, 200
+%   WFDB-x: no sampling frequency or gain is assumed (C: 250 Hz, 200
 %   adu/mV).  The sampling frequency is needed for time arguments (other
 %   than sample numbers 'sN'), time columns and -X, and the gains of the
 %   selected signals for -p/-P.  Unspecified units are shown as "nd" in
@@ -52,7 +52,7 @@ function status = rdsamp(args)
 % output (-X), and the gain of each selected signal for physical units (-p, -P)
 % (the original assumed 250 Hz and 200 adu/mV); unspecified units are shown as
 % "nd" (the original showed "mV"); --legacy, as the first argument, restores
-% the original behavior. Each change is marked "wfdb-x:" in the code;
+% the original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/rdsamp.c, WFDB Software Package 10.7.0.
@@ -247,7 +247,7 @@ if nsig <= 0
     return;
 end
 legacy = wfdbx.wfdbx_get_legacy();
-if legacy       % wfdb-x: legacy mode: the C program's default gain
+if legacy       % WFDB-x: legacy mode: the C program's default gain
     for k = 1:nsig
         if si(k).gain == 0
             si(k).gain = 200;     % WFDB_DEFGAIN
@@ -258,7 +258,7 @@ if highres
     wfdbx.setgvmode(1);   % WFDB_HIGHRES
 end
 freq = wfdbx.sampfreq([]);
-% wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+% WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
 % the header did not specify one, as legacy mode does).
 if ~legacy && freq <= 0 && ...
         ((from_i > 0 && wfdbx.wfdbx_time_needs_freq(argv{from_i + 1})) || ...
@@ -304,7 +304,7 @@ if nosig
 else
     sig = 0:nsig - 1;
 end
-% wfdb-x: no default gain (the C program assumed 200 adu/mV for
+% WFDB-x: no default gain (the C program assumed 200 adu/mV for
 % uncalibrated signals).
 if pflag && ~legacy
     for k = 1:nsig
@@ -470,7 +470,7 @@ if pflag
         out(tufmt);
         for k = 1:nsig
             p = si(sig(k) + 1).units;
-            if ~ischar(p)   % wfdb-x: unspecified units are shown as "nd"
+            if ~ischar(p)   % WFDB-x: unspecified units are shown as "nd"
                 if legacy   % (C, legacy mode: mV)
                     p = 'mV';
                 else
@@ -529,6 +529,9 @@ if pflag
         end
     end
     nanstr = sprintf(vfmt, NaN);
+    if tsf == 0
+        [lpre, lwidth, lprec] = line_spec(tfmt, vfmt, nsig);
+    end
     while to == 0 || from < to
         if to == 0
             k = CHUNK;
@@ -548,6 +551,16 @@ if pflag
                     tv = (from:from + m - 1)';
                 else
                     tv = (from:from + m - 1)' / freq;
+                end
+                txt = wfdbx.internal.format_rows([tv phys], lpre, lwidth, ...
+                    lprec, [false(m, 1) inv]);
+                if ischar(txt)
+                    out(txt);
+                    from = from + m;
+                    if m < k
+                        break;
+                    end
+                    continue;
                 end
                 txt = sprintf([tfmt repmat(vfmt, 1, nsig) '\n'], [tv phys]');
             else
@@ -573,6 +586,7 @@ else
         out(sprintf('<samplevectors>\n'));
     end
     lfmt = [tfmt repmat(vfmt, 1, nsig) '\n'];
+    [lpre, lwidth, lprec] = line_spec(tfmt, vfmt, nsig);
     while to == 0 || from < to
         if to == 0
             k = CHUNK;
@@ -582,7 +596,12 @@ else
         arr = wfdbx.getframes(k);
         m = size(arr, 1);
         if m
-            out(sprintf(lfmt, [(from:from + m - 1)' arr(:, sig + 1)]'));
+            v = [(from:from + m - 1)' arr(:, sig + 1)];
+            txt = wfdbx.internal.format_rows(v, lpre, lwidth, lprec);
+            if ~ischar(txt)
+                txt = sprintf(lfmt, v');
+            end
+            out(txt);
             from = from + m;
         end
         if m < k
@@ -595,6 +614,32 @@ if xflag
 end
 wfdbx.wfdbquit();
 status = 0;
+end
+
+function [pre, width, prec] = line_spec(tfmt, vfmt, nsig)
+% The text, width and precision of each conversion of the line format
+% (wfdbx.internal.format_rows); the time format is a single conversion
+% (%Wd, %W.Pf), the value format text and a conversion.
+fmts = [{tfmt}, repmat({vfmt}, 1, nsig)];
+pre = cell(1, nsig + 1);
+width = zeros(1, nsig + 1);
+prec = zeros(1, nsig + 1);
+for k = 1:nsig + 1
+    f = fmts{k};
+    j = find(f == '%', 1);
+    pre{k} = sprintf(f(1:j - 1));
+    c = f(j + 1:end - 1);        % width, then a point and the precision
+    d = find(c == '.', 1);
+    if isempty(d)
+        d = numel(c) + 1;
+    end
+    width(k) = str2double(['0' c(1:d - 1)]);
+    if f(end) == 'd'
+        prec(k) = -1;
+    else
+        prec(k) = str2double(c(d + 1:end));
+    end
+end
 end
 
 function s = timestring(kind, t, cflag, TIMSTR, HHMMSS)

@@ -17,7 +17,7 @@
 // Changes from the original: no built-in sampling frequency: -F FREQ is
 // required when the record has no header or its header gives none (the
 // original assumed 250 Hz); --legacy, as the first argument, restores the
-// original behavior. Each change is marked "wfdb-x:" in the code;
+// original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rr2ann.c, WFDB Software Package 10.7.0.
@@ -57,7 +57,7 @@ private val RR2ANN_HELP = arrayOf(
     "already) a text header file (RECORD.hea).",
 )
 
-/** wfdb-x: the -F line of the original help text (printed in legacy mode in place of RR2ANN_HELP[2]). */
+/** WFDB-x: the -F line of the original help text (printed in legacy mode in place of RR2ANN_HELP[2]). */
 private const val RR2ANN_LEGACY_HELP_F =
     " -F FREQ     use FREQ as the sampling frequency (effective only if no               header file exists;  default: 250)"
 
@@ -148,13 +148,13 @@ fun Wfdb.rr2annMain(argv0: Array<ByteArray>): Int {
     // sampfreq is likely to fail, since the header probably doesn't exist.
     // Suppress its error message.
     wfdbquiet()
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz);
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz);
     // -F specifies one if the record header does not.
     val f = sampfreq(record)
     if (f <= 0.0) {
         wfdbverbose() // re-enable error reporting
         if (sps == 0.0 && legacy) {
-            sps = WFDB_DEFFREQ // wfdb-x: legacy mode (original behavior)
+            sps = WFDB_DEFFREQ // WFDB-x: legacy mode (original behavior)
         } else if (sps == 0.0) {
             eprintf("%s: sampling frequency of record %s is not specified (use -F)\n", pname, record)
             exit(1)

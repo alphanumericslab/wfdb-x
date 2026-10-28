@@ -20,7 +20,7 @@ function status = sigamp(args)
 %       -v          verbose mode: print measurements and trimmed means
 %       -w DTW      RMS amplitude measurement window (default: 1 second)
 %
-%   wfdb-x: the record must specify its sampling frequency, and with -p
+%   WFDB-x: the record must specify its sampling frequency, and with -p
 %   the gains of its signals (the C program assumed 250 Hz and 200
 %   adu/mV); see docs/DIVERGENCES.md.
 %
@@ -48,7 +48,7 @@ function status = sigamp(args)
 % must give the sampling frequency (the measurement windows are in seconds),
 % and with -p the gain of each signal (the original assumed 250 Hz and 200
 % adu/mV); --legacy, as the first argument, restores the original behavior.
-% Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C program: app/sigamp.c, WFDB Software Package 10.7.0.
@@ -244,7 +244,7 @@ if n ~= nsig
     return;
 end
 gain = [si.gain];
-% wfdb-x: no default gain (the C program assumed 200 adu/mV for
+% WFDB-x: no default gain (the C program assumed 200 adu/mV for
 % uncalibrated signals, as legacy mode does).
 legacy = wfdbx.wfdbx_get_legacy();
 k = find(gain == 0, 1);
@@ -257,7 +257,7 @@ elseif pflag && ~isempty(k)
     return;
 end
 amp = zeros(nsig, nmax);
-% wfdb-x: no default sampling frequency (the C program assumed 250 Hz); the
+% WFDB-x: no default sampling frequency (the C program assumed 250 Hz); the
 % measurement windows are defined in seconds.  Legacy mode: as in C.
 sfreq = wfdbx.sampfreq([]);
 if sfreq <= 0 && legacy

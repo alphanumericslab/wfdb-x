@@ -10,7 +10,7 @@ original program, but it is new code, not the original C code.
 Changes from the original: no built-in sampling frequency: the input record
 must give it, for the header of the excerpt (the original assumed 250 Hz);
 --legacy, as the first argument, restores the original behavior. Each change is
-marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/snip.c, WFDB Software Package 10.7.0.
   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by Benjamin Moody.
@@ -336,7 +336,7 @@ def _main(argv):
     if nsig < 0:
         eprintf("%s: error reading input header\n", pname)
         raise Exit(2)
-    # wfdb-x: the output header needs the sampling frequency (C assumed
+    # WFDB-x: the output header needs the sampling frequency (C assumed
     # 250 Hz if the input header did not specify one; legacy mode: no check).
     if not legacy() and w.sampfreq(None) <= 0.0:
         eprintf("%s: sampling frequency of record %s is not specified\n",

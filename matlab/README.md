@@ -1,30 +1,54 @@
 # WFDB-x for MATLAB and GNU Octave
 
+> **WFDB-x** is the WFDB Software Package (the library and its 33
+> command-line tools) reimplemented in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
+> the original C package and to each other. This is the MATLAB/Octave
+> implementation.
+> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
+> · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+
 `wfdbx` reads and writes physiological signal records in the WFDB format used
 by [PhysioNet](https://physionet.org). It is a complete MATLAB and Octave
-implementation of the WFDB Software Package 10.7.0: the library and all of
-its command-line tools. It reads and writes the same files as the original C
+implementation of the WFDB Software Package: the library and all of its
+command-line tools. It reads and writes the same files as the original C
 library, and its tools print the same output.
-
-You can use it in three ways:
-
-* **High-level functions** that read and write whole records and annotation
-  files as matrices and structures: `wfdbx.read_record`, `wfdbx.read_header`,
-  `wfdbx.read_annotations`, `wfdbx.write_record`, `wfdbx.write_annotations`,
-  and `wfdbx.check_record`, which checks a record.
-* **Command-line tools** such as `rdsamp`, `rdann` and `wrsamp`, run from the
-  shell through the scripts in `bin/`, or from MATLAB and Octave as
-  `wfdbx.apps.rdsamp(...)`.
-* **The WFDB library functions** under their C names (`wfdbx.isigopen`,
-  `wfdbx.getvec`, `wfdbx.getann`, ...), for programs written against the C
-  library.
 
 The package is plain MATLAB code. It needs GNU Octave 6 or later, or MATLAB
 R2019b or later, and no toolboxes.
 
-WFDB-x is part of a project that provides the same package in seven languages
-with identical behavior; see the
-[project README](https://github.com/alphanumericslab/wfdb-x#readme).
+## Three ways to use WFDB-x
+
+All three are written in MATLAB; none of them calls the C library. The same
+code runs in MATLAB and in Octave.
+
+1. **The high-level functions (recommended).** `wfdbx.read_record`,
+   `wfdbx.read_header`, `wfdbx.read_annotations`, `wfdbx.write_record`,
+   `wfdbx.write_annotations` and `wfdbx.check_record` read and write whole
+   records and annotation files as matrices of doubles and structures, in
+   one call, with name-value options, and throw MATLAB errors (with an
+   identifier such as `wfdbx:read_record`) on failure. They read signal
+   files in large blocks, so they are the fastest way to read a record.
+   They are an addition of WFDB-x: the C package has no equivalent. Use
+   them for new code and analysis.
+2. **The WFDB library functions** under their C names (`wfdbx.isigopen`,
+   `wfdbx.getvec`, `wfdbx.getann`, `wfdbx.putann`, ...), with the C
+   behavior: sample by sample and annotation by annotation, with errors
+   reported by return values. Use them to port a program written against
+   the C library, or for the exact C semantics.
+3. **The command-line tools** (`rdsamp`, `rdann`, `wrsamp`, `xform`, and
+   29 others), with the options, output and exit status of the C tools, run
+   from the shell as `wfdbx rdsamp -r 100s`, where `wfdbx` is an alias of
+   the Octave script `bin/wfdbx_cli.m` (see
+   [Command-line tools](#command-line-tools); `bin/wfdbx_matlab.sh` runs
+   them with MATLAB), or inside MATLAB and Octave as functions
+   (`wfdbx.apps.rdsamp({'-r', '100s'})`). Use them in shell
+   scripts and pipelines, or to reproduce work done with the original
+   tools.
+
+The high-level functions return exactly the samples and annotations that
+the library functions (and the C library) give.
 
 ## Installation
 
@@ -177,8 +201,8 @@ wfdbx.write_record('rand', x, 360, 'fmt', 16, 'physical', true, ...
 ```
 
 This writes the header `rand.hea` and the signal file `rand.dat`. The third
-argument is the sampling frequency. You must also give the gain and ADC
-resolution of each signal, and the units of each calibrated signal; there
+argument is the sampling frequency. The gain and ADC resolution of each
+signal, and the units of each calibrated signal, are also required; there
 are no defaults. A gain of 0 marks a signal as uncalibrated, which is only
 allowed for samples given in ADC units. Per-signal options take one value
 for all signals, or a vector or cell array with one value per signal.
@@ -207,7 +231,7 @@ above, in the current folder.
 Give the annotation types as `'symbols'` or as `'codes'`. `'subtypes'`,
 `'chans'`, `'nums'`, `'aux'`, `'fs'` and `'dir'` are optional. If the
 annotations are not in time order, the file is sorted when it is written.
-`'sort', false` keeps the order you gave (without the library's advice to run
+`'sort', false` keeps the given order (without the library's advice to run
 `sortann`) and `'sort', true` always sorts, for that call only. Without
 `'sort'`, the `WFDBANNSORT` environment variable decides (sorting is on
 unless it is `0`).
@@ -261,7 +285,7 @@ report = wfdbx.check_record('100s', 'annotators', {'atr'})
 
 `wfdbx.check_record(record, 'annotators', {...})` checks the header of a
 record, its signal specifications, every sample of its signal files, and the
-annotation files you name (a cell array, or one name as a char vector). It
+annotation files named (a cell array, or one name as a char vector). It
 reports each problem it finds. It never throws an error for a problem in the
 record. It checks for problems similar to those found by Benjamin Moody's
 [wfdbcheck](https://github.com/bemoody/wfdbcheck). It takes the options
@@ -308,20 +332,20 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-WFDB-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where they are named, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
 | a full path: `/data/mitdb/100`, `C:\data\100` | that path | that path |
-| a home path: `~/data/100` | your home folder | your home folder |
+| a home path: `~/data/100` | the user's home folder | the user's home folder |
 | a URL: `https://.../100` | that URL, if network access is on | (URLs cannot be written) |
 | anything else: `100`, `mitdb/100`, `../data/100` | the **input directory** | the **output directory** |
 
 In this table, `/data/mitdb` stands for a local copy of the MIT-BIH
 Arrhythmia Database, and `100` for its record 100.
 
-The input and output directories are both the current folder unless you set
-them:
+The input and output directories are both the current folder unless they are
+set:
 
 | Setting | Function | Option of the high-level functions | Environment variable |
 |---|---|---|---|
@@ -378,10 +402,10 @@ gives up when it cannot connect, or receives nothing, for 30 seconds.
 ## Signal parameters
 
 WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
-that a record does not give. Where one is needed, you must give it: in
+that a record does not give. Where one is needed, it must be given: in
 `write_record`, as the `'fs'` option of `read_annotations`, or as an option
-of the tools (see below). A record whose header gives no frequency has
-`fs = 0`. See
+of the tools (see below). A record whose header gives no frequency has `fs =
+0`. See
 [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md)
 for the reasons.
 
@@ -403,7 +427,7 @@ wfdbx --list                       # list the tools
 
 With MATLAB, run a tool through the shell script `bin/wfdbx_matlab.sh`,
 which starts `matlab -batch`. Set `WFDBX_MATLAB` to the MATLAB command if
-`matlab` is not on your `PATH`:
+`matlab` is not on the `PATH`:
 
 ```sh
 export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data   # the sample record 100s
@@ -458,8 +482,9 @@ writes the record `rec` there.
 Every function of the WFDB library is available under its C name in the
 package `wfdbx`, with the same arguments and return values, so programs and
 documentation written for the C library carry over directly. Where a C
-function fills an array that you pass, the MATLAB function returns it as an
-extra output. The example reads the sample record `100s` from `tests/data`:
+function fills an array passed by the caller, the MATLAB function returns it
+as an extra output. The example reads the sample record `100s` from
+`tests/data`:
 
 ```matlab
 wfdbx.wfdbx_set_input_dir('/path/to/wfdb-x/tests/data');
@@ -515,10 +540,11 @@ Legacy mode reproduces the original WFDB package exactly, including its
 assumed signal parameters and its search for files. Use it only to reproduce
 old results:
 
-* tools: `--legacy` as the first argument, as in `wfdbx rdsamp --legacy -r 100s`,
-  run in the directory of the sample record `100s` (`tests/data` in a copy
-  of the repository). Legacy mode finds files through the WFDB path, which begins with the
-  current directory, and does not use the input directory;
+* tools: `--legacy` as the first argument, as in `wfdbx rdsamp --legacy -r
+  100s`, run in the directory of the sample record `100s` (`tests/data` in a
+  copy of the repository). Legacy mode finds files through the WFDB path,
+  which begins with the current directory, and does not use the input
+  directory;
 * high-level functions: `'legacy', true`;
 * the whole library: `wfdbx.wfdbx_set_legacy(1)`.
 
@@ -535,8 +561,8 @@ describes what changes in legacy mode.
 * **Starting the tools.** Octave starts in a fraction of a second, so the
   Octave script suits everyday use. MATLAB starts slowly, so
   `wfdbx_matlab.sh` is mainly useful for testing. It reads all of its
-  standard input before it starts MATLAB. When you run it from a script
-  whose standard input stays open, add `< /dev/null`.
+  standard input before it starts MATLAB. When it runs from a script whose
+  standard input stays open, add `< /dev/null`.
 * **Network access.** Remote files are downloaded with the `curl` program
   when it is installed. Otherwise WFDB-x uses `webread` in Octave and
   `websave` in MATLAB.
@@ -544,11 +570,15 @@ describes what changes in legacy mode.
   written without any external library. The C library reads files written
   by WFDB-x with identical sample values, although the compressed bytes
   differ from those of libFLAC.
-* **Speed.** The high-level functions and `wfdbx.getframes` work on whole
-  blocks of samples, including multi-frequency and multi-segment records:
-  in Octave, `read_record` reads 200,000 frames of a two-signal record in
-  under a tenth of a second. Calling `wfdbx.getvec`
-  sample by sample is much slower.
+* **Speed.** `wfdbx.read_record` and `wfdbx.write_record` work on whole
+  blocks of samples, including multi-frequency and multi-segment records,
+  so they are the fastest way to read and write a record (read in chunks,
+  with `'sampfrom'` and `'sampto'`, records too large for memory). Code
+  that processes a record as a stream should read it with the block
+  reader `wfdbx.getframes`. Calling `wfdbx.getvec` sample by sample is much
+  slower in MATLAB and Octave; avoid it where speed matters.
+  [BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+  compares the seven languages and wfdb-python.
 
 ## Testing
 
@@ -569,6 +599,8 @@ python3 tests/conformance/harness.py check --impl octave -j8
 [DEVELOPING.md](DEVELOPING.md) describes the organization of the code.
 
 ## Authors and license
+
+WFDB-x implements version 10.7.0 of the WFDB Software Package.
 
 The WFDB library and tools were written by George B. Moody, with revisions by
 Benjamin Moody and contributions from many others; `parsescp` was written by

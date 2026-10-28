@@ -7,7 +7,7 @@ function status = wfdbtime(args)
 %   Usage (as for the C program):
 %       wfdbtime [ -r RECORD [ TIME ... ] ]
 %   For each TIME, the sample number, the elapsed time and the absolute
-%   time (if known) are printed.  wfdb-x: the record must specify its
+%   time (if known) are printed.  WFDB-x: the record must specify its
 %   sampling frequency (the C program assumed 250 Hz); see
 %   docs/DIVERGENCES.md.
 %
@@ -33,7 +33,7 @@ function status = wfdbtime(args)
 %
 % Changes from the original: no built-in sampling frequency: the record must
 % give it (the original assumed 250 Hz); --legacy, as the first argument,
-% restores the original behavior. Each change is marked "wfdb-x:" in the code;
+% restores the original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/wfdbtime.c, WFDB Software Package 10.7.0.
@@ -69,7 +69,7 @@ while i < argc
             status = 2;
             return;
         end
-        % wfdb-x: no default frequency (except in legacy mode)
+        % WFDB-x: no default frequency (except in legacy mode)
         if ~wfdbx.wfdbx_get_legacy() && wfdbx.sampfreq([]) <= 0
             wfdbx.internal.ceprintf( ...
                 '%s: sampling frequency of record %s is not specified\n', ...

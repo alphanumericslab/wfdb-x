@@ -23,7 +23,7 @@
 # then required for the -f and -t times (the original assumed 250 Hz); an
 # out-of-order annotation at time 0 (num 0, chan 0) is no longer lost, nor are
 # those inserted after it; --legacy, as the first argument, restores the
-# original behavior. Each change is marked "wfdb-x:" in the code;
+# original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/sortann.c, WFDB Software Package 10.7.0.
@@ -46,14 +46,14 @@ const _SORTANN_HELP = (
     " -t TIME    stop at specified TIME",
     "The sorted output replaces the input if -o is omitted, the input is in",
     "the current directory, and the input is not already sorted.")
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _SORTANN_LEGACY_HELP = _help_without(_SORTANN_HELP, 4)
 
 # The annotation list (_SortList, _sortann_insert!) is defined in annot.jl
-# (wfdb-x: oannclose uses it too).
+# (WFDB-x: oannclose uses it too).
 
 function sortann_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -146,7 +146,7 @@ function sortann_main(args::Vector{String})
     # program recursively if something goes wrong.
     csetenv("WFDBANNSORT", "0", true)
 
-    # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     # the record had no header); -F specifies one. It is needed only to
     # convert the -f and -t times.
     needed = (from_i != 0 && wfdbx_time_needs_freq(argv[from_i]) != 0) ||
@@ -174,13 +174,13 @@ function sortann_main(args::Vector{String})
         if legacy || sps > 0.0
             from = d2l(from * tps / sps + 0.5)
             to = d2l(to * tps / sps + 0.5)
-        elseif from != 0 || to != 0     # wfdb-x: no default sampling frequency
+        elseif from != 0 || to != 0     # WFDB-x: no default sampling frequency
             _annapp_nofreq(pname, record)
         end
     end
 
     # Build a linked list of annotations in memory.
-    list = _SortList(legacy)       # (wfdb-x: no annotation lost)
+    list = _SortList(legacy)       # (WFDB-x: no annotation lost)
     while getann(0, annot) == 0
         (annot.time < from || (to > 0 && annot.time >= to)) && continue
         _sortann_insert!(list, annot)
@@ -228,7 +228,7 @@ register_workload("sortann") do
         for opts in ("", "-t 5", "-F 360 -t 5", "-t s100", "-F")
             workload_tool("sortann", "-r", "nh", "-a", "atr", "-o", "srt", split(opts)...)
         end
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         for opts in ("-t 5", "-F 360", "-f 0:1 -t 0:20")
             workload_tool("sortann", "--legacy", "-r", "nh", "-a", "atr", "-o", "srt",
                           split(opts)...)

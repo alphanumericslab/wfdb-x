@@ -12,7 +12,7 @@ function status = mit2wav(args)
 %       -n NEWREC  create a header file for the output signal file, so it
 %                  may be read as record NEWREC
 %
-%   wfdb-x: the record must specify its sampling frequency (the C program
+%   WFDB-x: the record must specify its sampling frequency (the C program
 %   assumed 250 Hz); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
@@ -37,7 +37,7 @@ function status = mit2wav(args)
 %
 % Changes from the original: no built-in sampling frequency: the record must
 % give it (the original assumed 250 Hz); --legacy, as the first argument,
-% restores the original behavior. Each change is marked "wfdb-x:" in the code;
+% restores the original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/mit2wav.c, WFDB Software Package 10.7.0.
@@ -158,7 +158,7 @@ if nsig <= 0
     status = 3;
     return;
 end
-% wfdb-x: no default frequency (except in legacy mode)
+% WFDB-x: no default frequency (except in legacy mode)
 if ~wfdbx.wfdbx_get_legacy() && wfdbx.sampfreq([]) <= 0
     wfdbx.internal.ceprintf( ...
         '%s: sampling frequency of record %s is not specified\n', pname, record);

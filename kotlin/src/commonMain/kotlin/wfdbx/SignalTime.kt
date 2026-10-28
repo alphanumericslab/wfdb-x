@@ -16,7 +16,7 @@
 // frequency), and the amplitudes of uncalibrated signals are not converted
 // (the original assumed 200 adu per physical unit); additions:
 // wfdbx_time_needs_freq; legacy mode (wfdbx_set_legacy) restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -339,13 +339,13 @@ private fun Wfdb.fstrtim(string0: ByteArray, f: Double): Long {
 
 /**
  * The frequency used by timstr, mstimstr and strtim, or 0 if none is
- * specified. wfdb-x: no default sampling frequency (C used 1 sample per
+ * specified. WFDB-x: no default sampling frequency (C used 1 sample per
  * second, as legacy mode does).
  */
 private fun Wfdb.tfreq(): Double = if (sig.ifreq > 0.0) sig.ifreq else if (sig.sfreq > 0.0) sig.sfreq else if (legacy) 1.0 else 0.0
 
 /**
- * wfdb-x: the result of timstr and mstimstr (named func in the error
+ * WFDB-x: the result of timstr and mstimstr (named func in the error
  * message) when no sampling frequency is specified: the time as a sample
  * number ("s" followed by |t|, a valid strtim argument).
  */
@@ -386,7 +386,7 @@ fun Wfdb.wfdbx_time_needs_freq(string: String): Int = wfdbx_time_needs_freq(stri
  * C `timstr(t)`: a time string ("hh:mm:ss", or "[hh:mm:ss dd/mm/yyyy]" for
  * a time of day: t <= 0 when the base time is defined).
  *
- * wfdb-x: if no sampling frequency is specified, reports an error and
+ * WFDB-x: if no sampling frequency is specified, reports an error and
  * returns the time as a sample number ("s" followed by |t|).
  *
  * Translation of the C function timstr() (lib/signal.c, WFDB 10.7.0): same
@@ -403,7 +403,7 @@ fun Wfdb.timstr(t: Long): ByteArray {
 /**
  * C `mstimstr(t)`: as timstr, with milliseconds.
  *
- * wfdb-x: if no sampling frequency is specified, reports an error and
+ * WFDB-x: if no sampling frequency is specified, reports an error and
  * returns the time as a sample number ("s" followed by |t|).
  *
  * Translation of the C function mstimstr() (lib/signal.c, WFDB 10.7.0): same
@@ -461,7 +461,7 @@ fun Wfdb.setbasecount(counter: Double) {
  * elapsed time from the start of the record for a time of day; 0 for the
  * base time, or for an incorrectly formatted string.
  *
- * wfdb-x: if no sampling frequency is specified and the string needs one
+ * WFDB-x: if no sampling frequency is specified and the string needs one
  * (see [wfdbx_time_needs_freq]), reports an error and returns 0.
  *
  * Translation of the C function strtim() (lib/signal.c, WFDB 10.7.0): same
@@ -472,7 +472,7 @@ fun Wfdb.setbasecount(counter: Double) {
 fun Wfdb.strtim(string: ByteArray): Long {
     var f = tfreq()
     if (f <= 0.0) {
-        // wfdb-x: no default sampling frequency (C used 1 sample per second)
+        // WFDB-x: no default sampling frequency (C used 1 sample per second)
         if (wfdbx_time_needs_freq(string) != 0) {
             wfdb_error("strtim: sampling frequency is not specified\n")
             return 0
@@ -540,7 +540,7 @@ fun Wfdb.strdat(string: String): Long = strdat(string.latin1())
 // Amplitude conversion
 
 /**
- * wfdb-x: the gain of signal s for the unit conversion functions (named
+ * WFDB-x: the gain of signal s for the unit conversion functions (named
  * func in error messages), or 0 after reporting an error if s is not a valid
  * signal number or the signal is uncalibrated. The C library assumed
  * WFDB_DEFGAIN (200 adu per physical unit) instead. In legacy mode, as in C:
@@ -549,7 +549,7 @@ fun Wfdb.strdat(string: String): Long = strdat(string.latin1())
  */
 private fun Wfdb.conversionGain(func: String, s: Int): Double {
     if (legacy) {
-        // wfdb-x: legacy mode (original behavior)
+        // WFDB-x: legacy mode (original behavior)
         val g = baselineGainGain(s)
         return if (g == 0.0) WFDB_DEFGAIN else g
     }
@@ -574,7 +574,7 @@ private fun Wfdb.baselineGainGain(s: Int): Double = if (validSignal(s)) sig.vsd[
 /**
  * C `adumuv(s, a)`: converts ADC units to microvolts.
  *
- * wfdb-x: returns WFDB_INVALID_SAMPLE (after reporting an error) if s is
+ * WFDB-x: returns WFDB_INVALID_SAMPLE (after reporting an error) if s is
  * invalid or the signal is uncalibrated.
  *
  * Translation of the C function adumuv() (lib/signal.c, WFDB 10.7.0): same
@@ -592,7 +592,7 @@ fun Wfdb.adumuv(s: Int, a: Int): Int {
 /**
  * C `muvadu(s, v)`: converts microvolts to ADC units.
  *
- * wfdb-x: returns WFDB_INVALID_SAMPLE (after reporting an error) if s is
+ * WFDB-x: returns WFDB_INVALID_SAMPLE (after reporting an error) if s is
  * invalid or the signal is uncalibrated.
  *
  * Translation of the C function muvadu() (lib/signal.c, WFDB 10.7.0): same
@@ -610,7 +610,7 @@ fun Wfdb.muvadu(s: Int, v: Int): Int {
 /**
  * C `aduphys(s, a)`: converts ADC units to physical units.
  *
- * wfdb-x: returns NaN (after reporting an error) if s is invalid or the
+ * WFDB-x: returns NaN (after reporting an error) if s is invalid or the
  * signal is uncalibrated.
  *
  * Translation of the C function aduphys() (lib/signal.c, WFDB 10.7.0): same
@@ -628,7 +628,7 @@ fun Wfdb.aduphys(s: Int, a: Int): Double {
 /**
  * C `physadu(s, v)`: converts physical units to ADC units.
  *
- * wfdb-x: returns WFDB_INVALID_SAMPLE (after reporting an error) if s is
+ * WFDB-x: returns WFDB_INVALID_SAMPLE (after reporting an error) if s is
  * invalid or the signal is uncalibrated.
  *
  * Translation of the C function physadu() (lib/signal.c, WFDB 10.7.0): same

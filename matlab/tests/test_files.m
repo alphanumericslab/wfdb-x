@@ -142,7 +142,7 @@ end
 end
 
 function r = net_off(url)
-r = sprintf(['wfdb-x: network access is disabled; set WFDBX_NETWORK=1 ' ...
+r = sprintf(['WFDB-x: network access is disabled; set WFDBX_NETWORK=1 ' ...
     'or call wfdbx_set_network(1) to open %s\n'], url);
 end
 
@@ -210,7 +210,7 @@ for k = 1:numel(bad)
     wfdbx.setwfdb(bad{k});
     assert_eq(wfdbx.wfdbx_get_input_dir(), 'keep', ['setwfdb ' bad{k}]);
     assert_true(strncmp(wfdbx.wfdberror(), ...
-        'setwfdb: wfdb-x reads from a single', 35), ['message ' bad{k}]);
+        'setwfdb: WFDB-x reads from a single', 35), ['message ' bad{k}]);
 end
 % resetwfdb restores the setting of the last setwfdb
 wfdbx.wfdbx_set_input_dir('other');
@@ -481,7 +481,7 @@ assert_eq({out, err}, {sprintf('1\n'), sprintf(['wfdbx_set_output_dir: ' ...
     'WFDBX_OUTPUT_DIR URL');
 % WFDB is ignored (said once), not needed for an absolute name, and the
 % WFDB path in legacy mode
-wfdb_ignored = sprintf(['wfdb-x: the WFDB environment variable is ' ...
+wfdb_ignored = sprintf(['WFDB-x: the WFDB environment variable is ' ...
     'ignored; set WFDBX_INPUT_DIR instead (or use legacy mode)\n']);
 [out, err] = run1('WFDB=sub', ['p(wfdbx.isigopen(''100s'', 2)); ' ...
     'wfdbx.wfdbquit(); p(wfdbx.isigopen(''100s'', 2))']);

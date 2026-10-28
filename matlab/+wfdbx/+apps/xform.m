@@ -27,7 +27,7 @@ function status = xform(args)
 %   Without -o, the output specifications are asked for (on /dev/tty, or
 %   the standard input, or read from SCRIPT).
 %
-%   wfdb-x: the input and output records must specify their sampling
+%   WFDB-x: the input and output records must specify their sampling
 %   frequencies, an uncalibrated input signal cannot be rescaled to a
 %   specified gain, and rescaling by ADC resolution (no output gain) needs
 %   the input and output resolutions (the C program assumed 250 Hz and
@@ -68,7 +68,7 @@ function status = xform(args)
 % are shown as "nd" (the original assumed 250 Hz, 200 adu/mV, a resolution
 % based on the format, and millivolts); when an output signal file would be one
 % of the input files, the message says so; --legacy, as the first argument,
-% restores the original behavior. Each change is marked "wfdb-x:" in the code;
+% restores the original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/xform.c, WFDB Software Package 10.7.0.
@@ -518,7 +518,7 @@ elseif Hflag
     wfdbx.setgvmode(1);     % WFDB_HIGHRES
 end
 ifreq = wfdbx.sampfreq([]);
-% wfdb-x: no default sampling frequency (the C program assumed 250 Hz if the
+% WFDB-x: no default sampling frequency (the C program assumed 250 Hz if the
 % input header did not specify one, as legacy mode does).
 legacy = wfdbx.wfdbx_get_legacy();
 if ifreq <= 0 && ~legacy
@@ -543,7 +543,7 @@ if ischar(orec)
         return;
     end
     ofreq = wfdbx.sampfreq(orec);
-    if ofreq == 0 && ~legacy    % wfdb-x: no default sampling frequency
+    if ofreq == 0 && ~legacy    % WFDB-x: no default sampling frequency
         wfdbx.internal.ceprintf( ...
             '%s: sampling frequency of record %s is not specified\n', ...
             pname, orec);
@@ -630,8 +630,8 @@ else
         end
     end
     if ofreq == 0 && legacy
-        ofreq = 250;    % WFDB_DEFFREQ (wfdb-x: legacy mode, as in C)
-    elseif ofreq == 0   % wfdb-x: the C program assumed 250 Hz
+        ofreq = 250;    % WFDB_DEFFREQ (WFDB-x: legacy mode, as in C)
+    elseif ofreq == 0   % WFDB-x: the C program assumed 250 Hz
         wfdbx.internal.ceprintf( ...
             '%s: the output sampling frequency must be > 0\n', pname);
         if R.fid >= 0
@@ -726,7 +726,7 @@ else
         if ischar(d.units)
             u = d.units;
         else
-            u = 'nd';   % wfdb-x: C (and legacy mode) showed "mV"
+            u = 'nd';   % WFDB-x: C (and legacy mode) showed "mV"
             if legacy
                 u = 'mV';
             end
@@ -737,7 +737,7 @@ else
         if n == 1
             d.gain = v{1};
         end
-        % wfdb-x: a resolution is offered only if it comes from the input
+        % WFDB-x: a resolution is offered only if it comes from the input
         % (or the previous output signal) and suits the output format; the C
         % program otherwise offered one based on the format (12 bits for
         % 16-bit formats).  Without one, the user must give it.
@@ -759,7 +759,7 @@ else
                 otherwise
                     maxres = 16;
             end
-            if legacy   % wfdb-x: legacy mode: as in the C program
+            if legacy   % WFDB-x: legacy mode: as in the C program
                 if maxres == 8
                     d.adcres = 8;
                 elseif d.adcres < 8 || d.adcres > maxres
@@ -925,7 +925,7 @@ wfdbx.wfdbquiet();
 if ischar(orec)
     [n, dfout] = wfdbx.osigopen(orec, nosig);
     if n ~= nosig
-        % wfdb-x: say why if an output file is one of the input files (the
+        % WFDB-x: say why if an output file is one of the input files (the
         % library's message, quieted above, is the last error)
         e = wfdbx.wfdberror();
         tail = ' is also an input file';
@@ -976,11 +976,11 @@ for k = 1:nosig
     di = dfin(j);
     dk = dfout(k);
     if dk.gain == 0
-        % wfdb-x: rescaling by ADC resolution needs both resolutions (the C
+        % WFDB-x: rescaling by ADC resolution needs both resolutions (the C
         % program guessed an unspecified input resolution from the format,
         % assuming WFDB_DEFRES for 16-bit formats).
         if legacy
-            if di.adcres == 0   % wfdb-x: legacy mode: the C program's guess
+            if di.adcres == 0   % WFDB-x: legacy mode: the C program's guess
                 di.adcres = legacy_inres(di.fmt);
                 dfin(j) = di;
             end
@@ -1005,10 +1005,10 @@ for k = 1:nosig
         end
         gain(k) = 2^dk.adcres / 2^di.adcres;
     elseif di.gain == 0 && legacy
-        gain(k) = dk.gain / 200;        % WFDB_DEFGAIN (wfdb-x: legacy mode)
+        gain(k) = dk.gain / 200;        % WFDB_DEFGAIN (WFDB-x: legacy mode)
     elseif di.gain == 0
         % output gain specified, but the input signal is uncalibrated
-        % (wfdb-x: the C program assumed an input gain of WFDB_DEFGAIN)
+        % (WFDB-x: the C program assumed an input gain of WFDB_DEFGAIN)
         wfdbx.internal.ceprintf(['%s: signal %d of record %s is ' ...
             'uncalibrated; it cannot be rescaled to the specified gain\n'], ...
             pname, j - 1, irec);
@@ -1292,7 +1292,7 @@ end
 end
 
 function r = legacy_inres(fmt)
-% wfdb-x: legacy mode: the C program's guess of an unspecified input ADC
+% WFDB-x: legacy mode: the C program's guess of an unspecified input ADC
 % resolution (WFDB_DEFRES for 16-bit formats, for historical compatibility)
 switch fmt
     case {80, 508}

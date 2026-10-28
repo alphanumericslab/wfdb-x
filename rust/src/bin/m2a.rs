@@ -17,7 +17,7 @@
 // Changes from the original: no built-in sampling frequency: the new option -F
 // FREQ gives it when the record header gives none, and is then required for -s
 // (the original assumed 250 Hz); --legacy, as the first argument, restores the
-// original behavior. Each change is marked "wfdb-x:" in the code;
+// original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/m2a.c, WFDB Software Package 10.7.0.
@@ -43,7 +43,7 @@ const HELP_STRINGS: &[&[u8]] = &[
     b"            and convert them to milliseconds",
 ];
 
-/// wfdb-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
+/// WFDB-x: the lines of `HELP_STRINGS` added by WFDB-x, left out of the
 /// help text of the original program (printed in legacy mode).
 const WFDBX_HELP_LINES: &[&[u8]] =
     &[b" -F FREQ   sampling frequency, if the record header does not specify one"];
@@ -60,7 +60,7 @@ fn help(pname: &[u8]) {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut ianame: Option<&[u8]> = None;
@@ -158,7 +158,7 @@ fn main() {
             }
         }
         Some(shift) => {
-            // wfdb-x: no default sampling frequency (the C program assumed
+            // WFDB-x: no default sampling frequency (the C program assumed
             // 250 Hz if the record header did not specify one, as legacy
             // mode does); -F specifies one.
             if wfdbx::sampfreq(record) <= 0.0 {

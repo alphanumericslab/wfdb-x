@@ -13,7 +13,7 @@ required, and the new option -U UNITS for calibrated signals unless the input
 gives the units (the original assumed 250 Hz, 200 adu/mV, a resolution based on
 the format, and millivolts); -G 0 declares the signals uncalibrated; -G, -R and
 -U take one value per signal; --legacy, as the first argument, restores the
-original behavior. Each change is marked "wfdb-x:" in the code;
+original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
@@ -88,7 +88,7 @@ HELP = [
     "omitted in this case by using the '-z' option.",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {
     " -F FREQ     specify frequency to be written to header file (required":
     " -F FREQ     specify frequency to be written to header file (default: "
@@ -197,7 +197,7 @@ def parseline(line, delim, esc="\\"):
 
 
 def _legacy_adcres(fmt):
-    """wfdb-x: legacy mode (original behavior): the ADC resolution (bits)
+    """WFDB-x: legacy mode (original behavior): the ADC resolution (bits)
     for samples written in format fmt."""
     if fmt in (508, 80):
         return 8
@@ -222,13 +222,13 @@ def _main(argv):
     argc = len(argv)
     gain = ""
     scale = ""
-    res = ""        # wfdb-x: -R
-    uopt = None     # wfdb-x: -U
+    res = ""        # WFDB-x: -R
+    uopt = None     # WFDB-x: -U
     record = None
     rsep = "\n"
     sflag = 0
     xflag = zflag = dflag = 0
-    # wfdb-x: no default frequency (C, legacy mode: 250 Hz)
+    # WFDB-x: no default frequency (C, legacy mode: 250 Hz)
     freq = w.WFDB_DEFFREQ if legacy() else 0.0
     fmt = 16
     t0 = t1 = 0
@@ -266,13 +266,13 @@ def _main(argv):
         elif c == "h":
             help(pname)
             raise Exit(1)
-        elif c == "R" and not legacy():    # wfdb-x: ADC resolution(s)
+        elif c == "R" and not legacy():    # WFDB-x: ADC resolution(s)
             i += 1
             if i >= argc:
                 eprintf("%s: ADC resolution(s) must follow -R\n", pname)
                 raise Exit(1)
             res = argv[i]
-        elif c == "U" and not legacy():    # wfdb-x: units
+        elif c == "U" and not legacy():    # WFDB-x: units
             i += 1
             if i >= argc:
                 eprintf("%s: units must follow -U\n", pname)
@@ -341,7 +341,7 @@ def _main(argv):
             eprintf("%s: unrecognized option %s\n", pname, argv[i])
             raise Exit(1)
         i += 1
-    # wfdb-x: the sampling frequency, the gains, the ADC resolutions, and the
+    # WFDB-x: the sampling frequency, the gains, the ADC resolutions, and the
     # units (of calibrated signals) must be specified when a header is
     # written (C assumed 250 Hz, 200 adu/mV, a resolution based on the
     # format, and millivolts), as legacy mode does.
@@ -456,7 +456,7 @@ def _main(argv):
             s.desc = dstrings[fv[k]] if fv[k] < len(dstrings) else ""
         else:
             s.desc = "col %d" % fv[k]
-        if uopt is not None:    # wfdb-x: -U (the last one applies to the rest)
+        if uopt is not None:    # WFDB-x: -U (the last one applies to the rest)
             uopt = uopt.lstrip(" ")
             if uopt:
                 j = uopt.find(" ")
@@ -474,7 +474,7 @@ def _main(argv):
         s.fmt = fmt
         s.spf = 1
         s.bsize = 0
-        # wfdb-x: the ADC resolutions are given by -R (the last one applies
+        # WFDB-x: the ADC resolutions are given by -R (the last one applies
         # to the remaining signals); C (and legacy mode) inferred them from
         # the format or assumed WFDB_DEFRES.
         if legacy():
@@ -499,7 +499,7 @@ def _main(argv):
         gain = gain.lstrip(" ")
         n, v = sscanf(gain, "%lf")
         if n < 1:
-            # wfdb-x: C (legacy mode): WFDB_DEFGAIN
+            # WFDB-x: C (legacy mode): WFDB_DEFGAIN
             if k > 0:
                 s.gain = si[k - 1].gain
             else:
@@ -510,7 +510,7 @@ def _main(argv):
             while j < len(gain) and gain[j] != " ":
                 j += 1
             gain = gain[j:]
-        # wfdb-x: the units of a calibrated signal must be specified, by -U
+        # WFDB-x: the units of a calibrated signal must be specified, by -U
         # or by the input (C left them out: millivolts).
         if (record is not None and not legacy() and s.gain != 0.0 and
                 not s.units):

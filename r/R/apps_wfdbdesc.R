@@ -13,7 +13,7 @@
 # gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"), and
 # unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
 # millivolts); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
@@ -73,7 +73,7 @@ app_wfdbdesc <- function(args = character(0)) {
     }
     cout("=====\n")
   }
-  # wfdb-x: if the sampling frequency is not specified, times are not shown
+  # WFDB-x: if the sampling frequency is not specified, times are not shown
   # (the C program assumed 250 Hz).  In legacy mode, the output is that of the
   # C program.
   legacy <- wfdbx_get_legacy()
@@ -151,14 +151,14 @@ app_wfdbdesc <- function(args = character(0)) {
     cprintf(" File: %s\n", if (si$fmt) si$fname else "[none]")
     cprintf(" Description: %s\n", si$desc)
     cout(" Gain: ")
-    if (legacy) {                             # wfdb-x: as in the C program
+    if (legacy) {                             # WFDB-x: as in the C program
       if (si$gain == 0) cprintf("uncalibrated; assume %g", WFDB_DEFGAIN)
       else cprintf("%.12g", si$gain)
       cprintf(" adu/%s\n", if (!is.null(si$units)) si$units else "mV")
-    } else if (si$gain == 0) {                # wfdb-x: no default gain
+    } else if (si$gain == 0) {                # WFDB-x: no default gain
       cout("uncalibrated\n")
     } else {
-      cprintf("%.12g adu/%s\n", si$gain, if (!is.null(si$units)) si$units else "nd")  # wfdb-x: C: mV
+      cprintf("%.12g adu/%s\n", si$gain, if (!is.null(si$units)) si$units else "nd")  # WFDB-x: C: mV
     }
     cprintf(" Initial value: %d\n", si$initval)
     if (si$fmt != 0) cprintf(" Storage format: %d", si$fmt)
@@ -172,7 +172,7 @@ app_wfdbdesc <- function(args = character(0)) {
     }
     if (si$adcres > 0 || legacy) {
       cprintf(" ADC resolution: %d bits\n", si$adcres)
-    } else {                                  # wfdb-x: no default resolution
+    } else {                                  # WFDB-x: no default resolution
       cout(" ADC resolution: not specified\n")
     }
     cprintf(" ADC zero: %d\n", si$adczero)

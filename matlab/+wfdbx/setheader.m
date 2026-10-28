@@ -27,7 +27,7 @@ function [stat, si] = setheader(record, si, nsig)
 % code.
 %
 % Changes from the original: the names written into the header are relative
-% to the header's directory. Each change is marked "wfdb-x:" in the code;
+% to the header's directory. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -67,7 +67,7 @@ if isempty(S.oheader)
     return;
 end
 g12 = @(x) wfdbx.internal.csprintf('%.12g', x);
-% wfdb-x: names relative to the header's directory (hea_name)
+% WFDB-x: names relative to the header's directory (hea_name)
 out = sprintf('%s %d %s', wfdbx.internal.hea_name(record, record), nsig, g12(S.ffreq));
 if (S.cfreq > 0 && S.cfreq ~= S.ffreq) || S.bcount ~= 0
     out = [out '/' g12(S.cfreq)];

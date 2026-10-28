@@ -10,7 +10,7 @@
 # Changes from the original: no built-in sampling frequency: the new option -F
 # FREQ gives it when the record header gives none, and is then required for -s
 # (the original assumed 250 Hz); --legacy, as the first argument, restores the
-# original behavior. Each change is marked "wfdb-x:" in the code;
+# original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/m2a.c, WFDB Software Package 10.7.0.
@@ -101,10 +101,10 @@ app_m2a <- function(args = character(0)) {
   if (is.null(shift)) {
     A <- .getann_bulk(0, Inf)
   } else {
-    # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     # the record header did not specify one); -F specifies one.
     if (sampfreq(record) <= 0) {
-      if (wfdbx_get_legacy()) setsampfreq(WFDB_DEFFREQ)    # wfdb-x: legacy mode
+      if (wfdbx_get_legacy()) setsampfreq(WFDB_DEFFREQ)    # WFDB-x: legacy mode
       else if (Ffreq > 0) setsampfreq(Ffreq)
       else .app_nofreq(pname, record, 1, useF = TRUE)
     }

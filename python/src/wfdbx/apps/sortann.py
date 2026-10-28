@@ -12,7 +12,7 @@ FREQ gives it when the record has no header or its header gives none, and is
 then required for the -f and -t times (the original assumed 250 Hz); an
 out-of-order annotation at time 0 (num 0, chan 0) is no longer lost, nor are
 those inserted after it; --legacy, as the first argument, restores the original
-behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 gives the reasons.
 
 Original C program: app/sortann.c, WFDB Software Package 10.7.0.
@@ -45,7 +45,7 @@ HELP = [
     "the current directory, and the input is not already sorted.",
 ]
 
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 LEGACY_HELP = legacy_help(HELP, {HELP[3]: None})     # (-F)
 
 
@@ -124,7 +124,7 @@ def _main(argv):
                 "-o\n", pname)
         raise Exit(1)
     os.environ["WFDBANNSORT"] = "0"
-    # wfdb-x: no default sampling frequency (C assumed 250 Hz if the record
+    # WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
     # had no header); -F specifies one.  It is needed only to convert the -f
     # and -t times.
     # Legacy mode: as in the C program.
@@ -157,10 +157,10 @@ def _main(argv):
         if legacy() or sps > 0.0:
             frm = int(frm * tps / sps + 0.5)
             to = int(to * tps / sps + 0.5)
-        elif frm or to:     # wfdb-x: no default sampling frequency
+        elif frm or to:     # WFDB-x: no default sampling frequency
             freq_not_specified(pname, record, use_f=True)
             raise Exit(1)
-    alist = _AnnList(legacy())     # (wfdb-x: no annotation lost)
+    alist = _AnnList(legacy())     # (WFDB-x: no annotation lost)
     annot = w.Annotation()
     while w.getann(0, annot) == 0:
         if annot.time < frm or (to > 0 and annot.time >= to):

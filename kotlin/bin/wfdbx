@@ -43,8 +43,15 @@ opts=${JAVA_TOOL_OPTIONS-}
 unset JAVA_TOOL_OPTIONS
 name=${0##*/}
 if [ "$name" != wfdbx ]; then
-    # shellcheck disable=SC2086
-    exec "${JAVA:-java}" $opts -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xshare:auto -cp "$JAR" wfdbx.cli.MainKt "$name" "$@"
+    set -- "$name" "$@"
+fi
+set -- -cp "$JAR" wfdbx.cli.MainKt "$@"
+# The class data sharing archive made with the jar (by `./gradlew fatJar`),
+# if there is one: the JVM starts faster. A JVM that cannot use it ignores
+# it (silently: -Xlog:cds=off).
+JSA=${JAR%.jar}.jsa
+if [ -f "$JSA" ]; then
+    set -- "-XX:SharedArchiveFile=$JSA" -Xlog:cds=off "$@"
 fi
 # shellcheck disable=SC2086
-exec "${JAVA:-java}" $opts -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xshare:auto -cp "$JAR" wfdbx.cli.MainKt "$@"
+exec "${JAVA:-java}" $opts -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xshare:auto "$@"

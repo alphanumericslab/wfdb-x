@@ -12,7 +12,7 @@
 // record must give the sampling frequency (the measurement windows are in
 // seconds), and with -p the gain of each signal (the original assumed 250 Hz
 // and 200 adu/mV); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: app/sigamp.c, WFDB Software Package 10.7.0.
@@ -294,7 +294,7 @@ fun Wfdb.sigampMain(argv0: Array<ByteArray>): Int {
     if (nsig <= 0) exit(2)
     val si = Array(nsig) { Siginfo() }
     if (isigopen(record, si, nsig) != nsig) exit(2)
-    // wfdb-x: no default gain (the C program assumed 200 adu/mV for
+    // WFDB-x: no default gain (the C program assumed 200 adu/mV for
     // uncalibrated signals, as legacy mode does).
     if (legacy) {
         for (s in si) if (s.gain == 0.0) s.gain = WFDB_DEFGAIN
@@ -305,7 +305,7 @@ fun Wfdb.sigampMain(argv0: Array<ByteArray>): Int {
             exit(2)
         }
     }
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz,
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz,
     // as legacy mode does); the measurement windows are defined in seconds.
     var sfreq = sampfreq(null)
     if (sfreq <= 0.0 && legacy) {

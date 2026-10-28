@@ -26,7 +26,7 @@
 // millivolts); the options precede the input files, in any order; the
 // short-format part of a long-format file (skipped by -s) is located from -F;
 // --legacy, as the first argument, restores the original behavior. Each change
-// is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 //   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source
@@ -167,7 +167,7 @@ fun Wfdb.ahaecg2mitMain(argv0: Array<ByteArray>): Int {
     var par = AhaParams(0.0, 0.0, 0, null)
     var gset = false
     var i = 1
-    // wfdb-x: the signal parameters are given by -F, -G, -R and -U (required);
+    // WFDB-x: the signal parameters are given by -F, -G, -R and -U (required);
     // in legacy mode, those that the C program set (the AHA database: 250 Hz,
     // 400 adu/mV, 12 bits, millivolts).
     if (legacy) {

@@ -16,7 +16,7 @@
 # annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
 # option of the high-level write_annotations decides, for its call, whether the
 # file is sorted; legacy mode (wfdbx_set_legacy) restores the original
-# behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+# behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 # gives the reasons.
 #
 # Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -147,7 +147,7 @@ annot_reset <- function(tables = TRUE) {
     a$modified <- logical(50)    # (ACMAX + 1: ecgcodes.R is sourced later)
   }
   a$annclose_error <- 0
-  a$sort_override <- NULL      # wfdb-x: see oannclose
+  a$sort_override <- NULL      # WFDB-x: see oannclose
   invisible()
 }
 annot_reset()
@@ -853,7 +853,7 @@ iannsettime <- function(t) {
 
 # Write the modification labels at the start of the output annotator oa
 # (number n, in messages), with the time resolution freq and the definition
-# table defs (see .ann_read_table).  (wfdb-x: the C library used oad[n],
+# table defs (see .ann_read_table).  (WFDB-x: the C library used oad[n],
 # oafreq and the library's table.)
 .ann_put_table <- function(oa, n, freq, defs) {
   flag <- 0
@@ -891,7 +891,7 @@ iannsettime <- function(t) {
 }
 
 # The format of an annotation file whose bytes are D (raw): WFDB_READ (MIT)
-# or WFDB_AHA_READ, from its first word.  (wfdb-x: this was part of
+# or WFDB_AHA_READ, from its first word.  (WFDB-x: this was part of
 # annopen.)  AHA-format files begin with a null byte and an ASCII character
 # which is one of the legal AHA annotation codes other than '[' or ']'.
 .ann_file_format <- function(D) {
@@ -1004,7 +1004,7 @@ annopen <- function(record, aiarray, nann = NULL) {
         wfdb_error("annopen: can't write annotator %s for record %s\n", ai$name, record)
         return(-4)
       }
-      # (wfdb-x: the name of the file as created, for .ann_sort_file)
+      # (WFDB-x: the name of the file as created, for .ann_sort_file)
       oa <- .ann_new_oa(f, ai$name, ai$stat, record, wfdbfile(NULL, NULL))
       oad <- .ann$oad
       oad[[length(oad) + 1L]] <- oa
@@ -1038,7 +1038,7 @@ iannclose <- function(n) {
 #' WFDBANNSORT is 0: in this process; in legacy mode, by running the
 #' sortann tool, as the C library does).
 #'
-#' wfdb-x: .ann$sort_override (NULL, TRUE or FALSE), set by
+#' WFDB-x: .ann$sort_override (NULL, TRUE or FALSE), set by
 #' write_annotations for the duration of its call (its sort argument),
 #' decides instead of WFDBANNSORT when it is not NULL; the environment is
 #' not changed.  When it is FALSE, the advice to run sortann is not printed
@@ -1066,7 +1066,7 @@ oannclose <- function(n) {
     if (!is.null(.ann$sort_override)) dosort <- .ann$sort_override
     if (dosort) {
       wfdb_error("Rearranging annotations for output annotator %s ...", oa$name)
-      # wfdb-x: the file is sorted in this process; the C library ran the
+      # WFDB-x: the file is sorted in this process; the C library ran the
       # sortann program, as legacy mode does.
       st <- if (wfdbx_get_legacy()) .ann_run_sortann(oa$rname, oa$name) else
         .ann_sort_file(oa$fname, oa$name)
@@ -1094,9 +1094,9 @@ oannclose <- function(n) {
 
 # Run the sortann tool on annotator aname of record rname in a new process
 # (legacy mode: as the C library's system("sortann -r. REC -a ANN")); its
-# exit status, or -1.  wfdb-x: base R cannot run a program without a shell
+# exit status, or -1.  WFDB-x: base R cannot run a program without a shell
 # (system2, too, passes a command line to /bin/sh on POSIX systems), so the
-# arguments are quoted for the shell instead.  wfdb-x: the child runs with
+# arguments are quoted for the shell instead.  WFDB-x: the child runs with
 # --legacy (as the original program) and, with an output directory, in that
 # directory (where the file is).
 .ann_run_sortann <- function(rname, aname) {
@@ -1109,12 +1109,12 @@ oannclose <- function(n) {
 }
 
 # ---------------------------------------------------------------------------
-# wfdb-x: in-process sorting of an output annotation file
+# WFDB-x: in-process sorting of an output annotation file
 
 # The order of the annotations (indices into T, N, C: time, num, chan)
 # after inserting them in turn into the list of sortann.c (insert_ann; used
 # by .ann_sort_file and the sortann tool); in_order is FALSE if some
-# annotation was inserted out of order.  wfdb-x: unless legacy is TRUE, the
+# annotation was inserted out of order.  WFDB-x: unless legacy is TRUE, the
 # head is never compared with an annotation: sortann.c compared it, and took
 # an out-of-order annotation at time 0 (num 0, chan 0) for a duplicate of
 # it, linking it where the output never reaches it (losing it, and the

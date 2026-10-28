@@ -1,29 +1,50 @@
 # WFDB-x for R
 
+> **WFDB-x** is the WFDB Software Package (the library and its 33
+> command-line tools) reimplemented in seven languages: Python, C++,
+> MATLAB/Octave, Rust, Julia, R and Kotlin, tested to behave identically to
+> the original C package and to each other. This is the R implementation.
+> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
+> · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+
 The R package `wfdbx` reads and writes physiological signal records in the
 WFDB format used by [PhysioNet](https://physionet.org). It is a complete R
-implementation of the WFDB Software Package 10.7.0: the library and all of
-its command-line tools. It reads and writes the same files as the original C
+implementation of the WFDB Software Package: the library and all of its
+command-line tools. It reads and writes the same files as the original C
 library, and its tools print the same output.
-
-You can use it in three ways:
-
-* **High-level functions** that read and write whole records and annotation
-  files as R matrices and data frames: `read_record`, `read_header`,
-  `read_annotations`, `write_record`, `write_annotations`, and `check_record`,
-  which checks a record.
-* **Command-line tools** such as `rdsamp`, `rdann` and `wrsamp`, run through
-  the driver script `wfdbx.R` or from R with `wfdbx_tool`.
-* **The WFDB library functions** under their C names (`isigopen`, `getvec`,
-  `getann`, ...), for programs written against the C library.
 
 The package is written in base R only: it needs no other package and has
 nothing to compile. It needs R 4.1 or later, and runs on Linux and macOS.
 On Windows, see [Notes](#notes).
 
-WFDB-x is part of a project that provides the same package in seven languages
-with identical behavior; see the
-[project README](https://github.com/alphanumericslab/wfdb-x#readme).
+## Three ways to use WFDB-x
+
+All three are written in R; none of them calls the C library.
+
+1. **The high-level functions (recommended).** `read_record`,
+   `read_header`, `read_annotations`, `write_record`, `write_annotations`
+   and `check_record` read and write whole records and annotation files as
+   R matrices and data frames, in one call, with named arguments, and stop
+   with R errors on failure. They read signal files in large blocks, so
+   they are the fastest way to read a record. They are an addition of
+   WFDB-x: the C package has no equivalent. Use them for new code and
+   analysis.
+2. **The WFDB library functions** under their C names (`isigopen`,
+   `getvec`, `getann`, `putann`, ...), with the C behavior: sample by
+   sample and annotation by annotation, with errors reported by return
+   values. Use them to port a program written against the C library, or
+   for the exact C semantics.
+3. **The command-line tools** (`rdsamp`, `rdann`, `wrsamp`, `xform`, and
+   29 others), with the options, output and exit status of the C tools,
+   run with `Rscript` through the driver script `wfdbx.R`
+   (`Rscript r/inst/bin/wfdbx.R rdsamp -r 100s` in a copy of the
+   repository; see [Command-line tools](#command-line-tools)), or from R
+   with `wfdbx_tool`. Use them in shell scripts and pipelines, or to
+   reproduce work done with the original tools.
+
+The high-level functions return exactly the samples and annotations that
+the library functions (and the C library) give.
 
 ## Installation
 
@@ -34,7 +55,7 @@ with this shell command:
 R CMD INSTALL r
 ```
 
-You can also install it from R, giving the path of the `r/` directory:
+It can also be installed from R, with the path of the `r/` directory:
 
 ```r
 install.packages("r", repos = NULL, type = "source")
@@ -48,7 +69,7 @@ the repository: the first minute of record 100 of the
 [MIT-BIH Arrhythmia Database](https://physionet.org/content/mitdb/), with
 two ECG signals at 360 Hz and its beat annotations. This example reads it
 and writes part of it as a new record. Replace the path with the
-`tests/data` directory of your copy of the repository.
+`tests/data` directory of a copy of the repository.
 
 ```r
 library(wfdbx)
@@ -183,12 +204,12 @@ write_record("rand", x, fs = 360, fmt = 16, physical = TRUE,
              gains = 1000, adcres = 16, units = "mV", names = c("A", "B"))
 ```
 
-This writes the header `rand.hea` and the signal file `rand.dat`. You must
-give the sampling frequency, the gain and ADC resolution of each signal, and
-the units of each calibrated signal; there are no defaults. A gain of 0
-marks a signal as uncalibrated, which is only allowed for samples given in
-ADC units. Per-signal arguments take one value for all signals, or a vector
-with one value per signal.
+This writes the header `rand.hea` and the signal file `rand.dat`. The
+sampling frequency, the gain and ADC resolution of each signal, and the
+units of each calibrated signal are required; there are no defaults. A gain
+of 0 marks a signal as uncalibrated, which is only allowed for samples given
+in ADC units. Per-signal arguments take one value for all signals, or a
+vector with one value per signal.
 
 | Argument | Meaning |
 |---|---|
@@ -219,7 +240,7 @@ Give the annotation types as `symbol` or as `code`. `subtype`, `chan`,
 `read_annotations`, which then gives all the fields.
 
 If the annotations are not in time order, the file is sorted when it is
-written. `sort = FALSE` keeps the order you gave (without the library's
+written. `sort = FALSE` keeps the given order (without the library's
 advice to run `sortann`) and `sort = TRUE` always sorts, for that call
 only. Without `sort`, the `WFDBANNSORT` environment variable decides
 (sorting is on unless it is `0`).
@@ -276,9 +297,9 @@ report
 
 `check_record(record, annotators)` checks the header of a record, its signal
 specifications, every sample of its signal files, and the annotation files
-you name. It reports each problem it finds. It never stops with an error
-for a problem in the record. It checks for problems similar to those found
-by Benjamin Moody's [wfdbcheck](https://github.com/bemoody/wfdbcheck).
+named. It reports each problem it finds. It never stops with an error for a
+problem in the record. It checks for problems similar to those found by
+Benjamin Moody's [wfdbcheck](https://github.com/bemoody/wfdbcheck).
 
 The result is a list of class `wfdbx_check_report`. `report$ok` is `TRUE`
 if there is no error. `report$issues` is a data frame with one row per
@@ -322,20 +343,20 @@ The sample record `100s` gives two warnings: its header gives no units.
 
 ## Where files are read and written
 
-WFDB-x reads and writes files exactly where you name them, and nowhere else:
+WFDB-x reads and writes files exactly where they are named, and nowhere else:
 
 | The name is | It is read from | It is written to |
 |---|---|---|
 | a full path: `/data/mitdb/100` | that path | that path |
-| a home path: `~/data/100` | your home directory | your home directory |
+| a home path: `~/data/100` | the user's home directory | the user's home directory |
 | a URL: `https://.../100` | that URL, if network access is on | (URLs cannot be written) |
 | anything else: `100`, `mitdb/100`, `../data/100` | the **input directory** | the **output directory** |
 
 In this table, `/data/mitdb` stands for a local copy of the MIT-BIH
 Arrhythmia Database, and `100` for its record 100.
 
-The input and output directories are both the current directory unless you
-set them:
+The input and output directories are both the current directory unless they
+are set:
 
 | Setting | Function | Option of the high-level functions | Environment variable |
 |---|---|---|---|
@@ -394,10 +415,10 @@ seconds.
 ## Signal parameters
 
 WFDB-x never assumes a sampling frequency, gain, ADC resolution or units
-that a record does not give. Where one is needed, you must give it: in
+that a record does not give. Where one is needed, it must be given: in
 `write_record`, as the `fs` argument of `read_annotations`, or as an option
-of the tools (see below). A record whose header gives no frequency has
-`fs = 0`. See
+of the tools (see below). A record whose header gives no frequency has `fs =
+0`. See
 [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md)
 for the reasons.
 
@@ -422,6 +443,7 @@ export WFDBX_INPUT_DIR=wfdb-x/tests/data   # the directory of 100s
 wfdbx rdsamp -r 100s -t 10 -p      # print the first 10 seconds, in physical units
 wfdbx rdann -r 100s -a atr         # print the annotations
 wfdbx --list                       # list the tools
+wfdbx --version                    # print the version of WFDB-x
 ```
 
 From R, `wfdbx_tool` runs a tool with its arguments as a character vector,
@@ -470,8 +492,8 @@ For example, this command writes the record `rec` from the text file
 
 Every function of the WFDB library is available under its C name, with the
 same arguments and meaning, so programs and documentation written for the C
-library carry over directly. Where a C function fills an array that you
-pass, the R function returns it instead, in a list with the C return value.
+library carry over directly. Where a C function fills an array passed by the
+caller, the R function returns it instead, in a list with the C return value.
 This example reads the sample record `100s` (see [Quick start](#quick-start)):
 
 ```r
@@ -531,10 +553,11 @@ Legacy mode reproduces the original WFDB package exactly, including its
 assumed signal parameters and its search for files. Use it only to reproduce
 old results:
 
-* tools: `--legacy` as the first argument, as in `wfdbx rdsamp --legacy -r 100s`,
-  run in the directory of the sample record `100s` (`tests/data` in a copy
-  of the repository). Legacy mode finds files through the WFDB path, which begins with the
-  current directory, and does not use the input directory;
+* tools: `--legacy` as the first argument, as in `wfdbx rdsamp --legacy -r
+  100s`, run in the directory of the sample record `100s` (`tests/data` in a
+  copy of the repository). Legacy mode finds files through the WFDB path,
+  which begins with the current directory, and does not use the input
+  directory;
 * high-level functions: `legacy = TRUE`;
 * the whole library: `wfdbx_set_legacy(TRUE)`.
 
@@ -547,9 +570,15 @@ describes what changes in legacy mode.
   written in R, without any external library. The C library reads files
   written by WFDB-x with identical sample values, although the compressed
   bytes differ from those of libFLAC.
-* **Speed.** Reading and writing whole records is vectorized: `read_record`
-  and `write_record` handle 200,000 frames of 2 signals in a few hundredths
-  of a second.
+* **Speed.** `read_record` and `write_record` work on whole blocks of
+  samples with vectorized R code, so they are the fastest way to read and
+  write a record. For code that processes a record as a stream, the
+  library function `getframes` reads many frames at once; reading sample
+  by sample with `getvec` in an R loop is much slower. Read a record too
+  large for memory with `read_record` in chunks, with `sampfrom` and
+  `sampto`.
+  [BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+  compares the seven languages and wfdb-python.
 * **Tool output from R.** `wfdbx_tool` writes to the standard output and
   error of the R process. `sink` and `capture.output` do not capture it, and
   a graphical console may not show it. To capture the output, run the
@@ -591,6 +620,8 @@ the original C programs. [DEVELOPING.md](DEVELOPING.md) describes how the
 package is organized.
 
 ## Authors and license
+
+WFDB-x implements version 10.7.0 of the WFDB Software Package.
 
 The WFDB library and tools were written by George B. Moody, with revisions by
 Benjamin Moody and contributions from many others; `parsescp` was written by

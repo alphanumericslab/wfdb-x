@@ -11,7 +11,7 @@
 // GAIN (required) and -U UNITS (required unless the gain is 0) give them (the
 // original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
 // millivolts); --legacy, as the first argument, restores the original
-// behavior. Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md
+// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
@@ -43,7 +43,7 @@
 
 #include <wfdbx/wfdb.hpp>
 
-// wfdb-x: getc without locking the stream (the input is read a byte at a
+// WFDB-x: getc without locking the stream (the input is read a byte at a
 // time).
 #if defined(_WIN32)
 #define WFDBX_APP_GETC(f) _getc_nolock(f)
@@ -67,7 +67,7 @@ static void help();
 // data chunk ("data", length).
 constexpr long WAVHDRLEN = 44;
 
-// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
+// Exit after reporting an unrecognized option (WFDB-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -77,15 +77,15 @@ constexpr long WAVHDRLEN = 44;
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
     char buf[80];
     const char *ifname = nullptr, *record = nullptr;
     std::string recbuf;
-    const char *Uunits = nullptr;     // wfdb-x: -U
-    double sps, Ggain = 0.;           // wfdb-x: -G
+    const char *Uunits = nullptr;     // WFDB-x: -U
+    double sps, Ggain = 0.;           // WFDB-x: -G
     int Gset = 0;
     int bitspersample, framelen, i, nsig, tag, wres;
     long flen, len, wnsamp;
@@ -95,7 +95,7 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (*argv[i] == '-') switch (*(argv[i]+1)) {
           case 'G':     // gain in adu per physical unit (WFDB-x)
-              if (wfdbx_get_legacy())   // wfdb-x: not in the original
+              if (wfdbx_get_legacy())   // WFDB-x: not in the original
                   unrecognized(argv[i]);
             if (++i >= argc || std::sscanf(argv[i], "%lf", &Ggain) != 1 ||
                 Ggain < 0.) {
@@ -134,7 +134,7 @@ int main(int argc, char **argv)
             record = argv[i];
             break;
           case 'U':     // physical units (WFDB-x)
-              if (wfdbx_get_legacy())   // wfdb-x: not in the original
+              if (wfdbx_get_legacy())   // WFDB-x: not in the original
                   unrecognized(argv[i]);
             if (++i >= argc) {
                 std::fprintf(stderr, "%s: units must follow -U\n", pname);
@@ -157,7 +157,7 @@ int main(int argc, char **argv)
         help();
         std::exit(1);
     }
-    // wfdb-x: the gain and units must be given explicitly; the C program
+    // WFDB-x: the gain and units must be given explicitly; the C program
     // wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, with no
     // units (millivolts).  (The sampling frequency and the resolution are
     // those given in the file.)  Legacy mode: as in the C program.
@@ -230,10 +230,10 @@ int main(int argc, char **argv)
     bitspersample = in16();
     if (bitspersample <= 8) {
         wres = 8;
-        if (wfdbx_get_legacy()) Ggain = 12.5;  // wfdb-x: the C program's gain
+        if (wfdbx_get_legacy()) Ggain = 12.5;  // WFDB-x: the C program's gain
     } else if (bitspersample <= 16) {
         wres = 16;
-        if (wfdbx_get_legacy()) Ggain = 6400;  // wfdb-x: the C program's gain
+        if (wfdbx_get_legacy()) Ggain = 6400;  // WFDB-x: the C program's gain
     } else {
         std::fprintf(stderr,
                      "%s: unsupported resolution (%d bits/sample) in %s\n",
@@ -341,7 +341,7 @@ static const char *help_strings[] = {
     nullptr
 };
 
-// wfdb-x: the help text of the original program, printed in legacy mode
+// WFDB-x: the help text of the original program, printed in legacy mode
 static const char *legacy_help_strings[] = {
     "usage: %s -i FILE.wav -r RECORD [ OPTIONS ... ]\n",
     "where FILE.wav is the name of the wav-format input signal file,",
@@ -353,7 +353,7 @@ static const char *legacy_help_strings[] = {
 
 static void help()
 {
-    // wfdb-x: the original help text in legacy mode
+    // WFDB-x: the original help text in legacy mode
     const char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;
     int i;
 

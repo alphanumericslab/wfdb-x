@@ -199,7 +199,7 @@ end
         @test W.adumuv(w, 1, 1) == 5
         @test W.adumuv(w, 0, -1) == -5
         W.wfdbquiet(w)
-        @test W.adumuv(w, 7, 100) == WFDB_INVALID_SAMPLE   # wfdb-x: no default gain
+        @test W.adumuv(w, 7, 100) == WFDB_INVALID_SAMPLE   # WFDB-x: no default gain
         @test W.muvadu(w, 0, 1000) == 200
         @test W.muvadu(w, 0, -333) == -67
         @test W.muvadu(w, 1, 2) == 0
@@ -352,7 +352,7 @@ end
 
 @testset "uncalibrated signals" begin
     with_data() do w
-        isig(w, "null")     # gain 0 (wfdb-x: no default gain)
+        isig(w, "null")     # gain 0 (WFDB-x: no default gain)
         W.wfdbquiet(w)
         @test W.adumuv(w, 0, 100) == WFDB_INVALID_SAMPLE
         @test W.muvadu(w, 1, 100) == WFDB_INVALID_SAMPLE
@@ -711,7 +711,7 @@ end
     end
 end
 
-# wfdb-x: no default sampling frequency or gain (t_nodefaults of
+# WFDB-x: no default sampling frequency or gain (t_nodefaults of
 # tests/reference/api_expect.c; see docs/DIVERGENCES.md).
 NF_HEA = "nf 2\n100s.dat 212 200 11 1024 995 21537 0 MLII\n" *
                "100s.dat 212 200 11 1024 1011 -3962 0 V5\n"
@@ -959,7 +959,7 @@ end
     end
 end
 
-# wfdb-x: the legacy option of the high-level functions (the behavior of
+# WFDB-x: the legacy option of the high-level functions (the behavior of
 # the port before WFDB-x removed the built-in defaults).
 @testset "high-level API legacy option" begin
     with_data() do w
@@ -1057,7 +1057,7 @@ end
 
 
 # ---------------------------------------------------------------------------
-# wfdb-x: the output directory (wfdbx_set_output_dir), the in-process sorting
+# WFDB-x: the output directory (wfdbx_set_output_dir), the in-process sorting
 # of an annotation file written there, and absolute paths (as t_outdir in
 # api_expect.c and test_api.py)
 
@@ -1316,7 +1316,7 @@ end
 end
 
 
-# wfdb-x: a checksum error (getvec status -4) is a warning of read_record
+# WFDB-x: a checksum error (getvec status -4) is a warning of read_record
 # (every frame is returned), not an error; checksum_warning=false turns it
 # off. The library's getvec message is not printed then.
 @testset "read_record checksum warning" begin
@@ -1384,7 +1384,7 @@ end
     end
 end
 
-# wfdb-x: in high-resolution mode, every vector of the frame at which the
+# WFDB-x: in high-resolution mode, every vector of the frame at which the
 # checksum is verified has getvec status -4; read_record returns all of them
 # (and reads on to the end), with a single warning.
 @testset "read_record checksum error, high resolution" begin
@@ -1458,7 +1458,7 @@ end
     end
 end
 
-# wfdb-x: an output signal file is never a signal file of the open input
+# WFDB-x: an output signal file is never a signal file of the open input
 # record (the files are compared, not their names); legacy mode: no check
 # (as t_alias in api_expect.c).
 @testset "output file is an input file" begin
@@ -1567,7 +1567,7 @@ end
     end
 end
 
-# wfdb-x: the bulk frame reader (_bulk_frames!) gives exactly what the
+# WFDB-x: the bulk frame reader (_bulk_frames!) gives exactly what the
 # per-frame path gives (samples, statuses, and the state of the library).
 function bulk_state(w)
     st = w.sig
@@ -1681,7 +1681,7 @@ rnd(r::XorShift, lo::Integer, hi::Integer, n::Integer) = [Int32(rnd(r, lo, hi)) 
     end
 end
 
-# wfdb-x: records of several sampling frequencies, and multi-segment
+# WFDB-x: records of several sampling frequencies, and multi-segment
 # records, are read in bulk too: the same samples as frame by frame.
 MF_RANGES = Dict(8 => 30000, 80 => 127, 16 => 32767, 61 => 32767, 160 => 32767,
                        24 => 8388607, 32 => 2147483647, 212 => 2047, 310 => 511, 311 => 511)
@@ -1915,6 +1915,354 @@ end
     end
 end
 
+# ---------------------------------------------------------------------------
+# WFDB-x: the fast paths of read_record (blocks of frames copied into the
+# samples matrix, the tiled bulk decoder), of write_record (bulk frame
+# writing) and of rdsamp (integer output), compared with the paths they
+# replace.
+
+# The previous read_record: all frames read into one buffer, then
+# transposed (the reference for _read_record).
+function ref_read_record(w, record, channels, from, to, highres::Bool, pad::Bool)
+    rname = W._lossy(record)
+    W.wfdbquit(w)
+    nsig = W.isigopen(w, record, nothing, 0)
+    nsig <= 0 && W._hl_fail(w, "can't read record $rname")
+    si = [W.Siginfo() for _ in 1:nsig]
+    nsig = W.isigopen(w, record, si, nsig)
+    nsig <= 0 && W._hl_fail(w, "can't open signals of record $rname")
+    nsig = Int(nsig)
+    W.setgvmode(w, (highres ? W.WFDB_HIGHRES : W.WFDB_LOWRES) | (pad ? W.WFDB_GVPAD : Int32(0)))
+    fs = W.sampfreq(w, nothing)
+    t0 = W._resolve_time(w, from, rname)
+    t1 = to === nothing ? nothing : W._resolve_time(w, to, rname)
+
+    W._strip_desc!(si)
+    cols = Int[]
+    if channels === nothing
+        append!(cols, 1:nsig)
+    else
+        for c in channels
+            # (a name: among the names without white space first)
+            k = Int32(-1)
+            if !(c isa Integer)
+                name = W._strip_space(W.cstr(W.bytes(c)))
+                for j in 1:nsig
+                    if si[j].desc == name
+                        k = Int32(j - 1)
+                        break
+                    end
+                end
+            end
+            k < 0 && (k = W.findsig(w, c isa Integer ? string(c) : c))
+            (k < 0 || k >= nsig) && W._hl_fail(w, "record $rname has no signal $c")
+            push!(cols, k + 1)
+        end
+    end
+    base_time, base_time_ms, base_date = W._base_info(w, fs)
+    W.isigsettime(w, t0) < 0 && W._hl_fail(w, "can't seek to sample $t0 of record $rname")
+
+    # getvec returns one value per signal in either mode. The frames are
+    # read straight into `all` (one column per frame), allocated once for
+    # the number of frames to read if it is known (to, or the length of the
+    # record), and grown only if more are read.
+    st = w.sig
+    remaining = t1 === nothing ? nothing : max(t1 - t0, Int64(0))
+    rlen = (st.in_msrec != 0 ? st.msnsamples : st.nsamples) *
+           ((st.gvmode & W.WFDB_HIGHRES) == W.WFDB_HIGHRES ? Int64(st.spfmax) : Int64(1))
+    expect = remaining !== nothing ? remaining : rlen > t0 ? rlen - t0 : Int64(W.READ_BLOCK)
+    expect = remaining !== nothing && rlen > t0 ? min(expect, rlen - t0) : expect
+    # (not more than about 1 GiB at first: a header may overstate the length)
+    expect = clamp(expect, Int64(1), max(Int64(1), (Int64(1) << 28) ÷ nsig))
+    all = Vector{Int32}(undef, expect * nsig)
+    # (a multiple of 6 frames per call, so that formats 212, 310 and 311
+    # end each call on a whole packed unit: the frames are then read in
+    # bulk)
+    unit = 6 * (highres ? max(Int64(st.ispfmax), 1) : Int64(1))
+    block = Int64(W.READ_BLOCK) - Int64(W.READ_BLOCK) % unit
+    nframes = Int64(0)
+    cksum_error = false
+    st.cksum_quiet = true
+    try
+        while remaining === nothing || remaining > 0
+            n = remaining === nothing ? block : min(remaining, block)
+            nframes + n > length(all) ÷ nsig &&
+                resize!(all, max(2 * length(all), (nframes + n) * nsig))
+            got, stat = W._getvecs_into(w, all, Int(nframes * nsig), n, true)
+            got = max(got, Int64(0))
+            nframes += got
+            remaining === nothing || (remaining -= got)
+            # WFDB-x: -4, a checksum error: the vector is complete, only the
+            # sum of the samples does not match the header: a warning (see
+            # below), not an error. In high-resolution mode each of the spf
+            # vectors of the checksum frame has status -4: read on until -1
+            # (the end of the data) or the requested end.
+            if stat == -4
+                cksum_error = true
+                got > 0 && continue
+                break
+            end
+            if got < n
+                # WFDB-x: a status below -1 (e.g. -3, unexpected EOF: a
+                # signal file shorter than its header says, or a decoder or
+                # I/O error) is an error, not the end of the data (-1).
+                stat < -1 && W._hl_fail(w, "can't read signal data of record $rname (getvec status $stat)")
+                break
+            end
+        end
+    finally
+        w.sig.cksum_quiet = false
+    end
+    samples = ref_frames_to_samples(all, nsig, Int(nframes), cols)
+    comments = W._comments(w, record)
+    W.wfdbquit(w)
+    W.Record(rname, fs, samples, Siginfo[si[k] for k in cols], base_time, base_time_ms,
+           base_date, t0, comments, Int[k - 1 for k in cols], !cksum_error)
+end
+
+# The samples matrix (one row per frame, one column per element of cols)
+# of the first nframes frames stored in v (nsig values per frame).
+function ref_frames_to_samples(v::Vector{Int32}, nsig::Int, nframes::Int, cols::Vector{Int})
+    frames = reshape(view(v, 1:nsig*nframes), nsig, nframes)
+    cols == 1:nsig && return permutedims(frames)
+    samples = Matrix{Int32}(undef, nframes, length(cols))
+    for (j, c) in enumerate(cols)
+        @inbounds for i in 1:nframes
+            samples[i, j] = frames[c, i]
+        end
+    end
+    samples
+end
+# read_record (new) and the reference (bulk reading on or off): the
+# samples, checksum_ok, sampfrom and channels, or the exception message.
+function hl_result(f)
+    try
+        r = f()
+        return (r.samples, r.checksum_ok, r.sampfrom, r.channels, r.fs, r.base_time)
+    catch e
+        e isa W.WfdbError || rethrow()
+        return e.msg
+    end
+end
+hl_same(w, rec, kw::NamedTuple=(;)) = hl_same_kw(w, rec; kw...)
+function hl_same_kw(w, rec; channels=nothing, from=0, to=nothing, highres=false, pad=false)
+    W.wfdbquiet(w)
+    a = hl_result(() -> W._read_record(w, rec, channels, from, to, highres, pad, false))
+    b = hl_result(() -> ref_read_record(w, rec, channels, from, to, highres, pad))
+    W._BULK_ENABLED[] = false
+    c = try
+        hl_result(() -> ref_read_record(w, rec, channels, from, to, highres, pad))
+    finally
+        W._BULK_ENABLED[] = true
+    end
+    W.wfdbverbose(w)
+    a == b && a == c
+end
+HL_OPTS = ((;), (; pad=true), (; highres=true), (; highres=true, pad=true), (; from=1234),
+           (; from=7, to=15000), (; highres=true, from=3, to=9001), (; channels=[1, 0, 1]),
+           (; to=1), (; from=5, to=5))
+
+@testset "read_record equals the previous reader" begin
+    with_data() do w
+        rng = XorShift(0x5851f42d4c957f2d)
+        for fmt in (8, 80, 16, 61, 160, 24, 32, 212, 310, 311)
+            for spf in ([1, 1], [4, 1, 1, 1], [2, 3], [1, 2])
+                n = rnd(rng, 3000, 9000)
+                mf_record(w, "hr", rng, fmt, spf, n)
+                for kw in HL_OPTS
+                    @test hl_same(w, "hr", kw)
+                end
+            end
+        end
+        # the test records
+        for h in sort(filter(f -> endswith(f, ".hea"), readdir(".")))
+            rec = h[1:end-4]
+            rec in ("8", "16") && continue      # (signals on the standard input)
+            for kw in ((;), (; pad=true), (; highres=true), (; from=3, to=100))
+                @test hl_same(w, rec, kw)
+            end
+        end
+        # multi-segment records: fixed layout, variable layout with a null
+        # segment
+        names = ["ECG", "ABP", "RESP"]
+        segs = mf_segments(w, "fy", rng, 212, [4, 1, 1], [9000, 7001, 12000]; names)
+        write("fy.hea", "fy/3 3 250 $(sum(last, segs))\n" * join(("$s $n\n" for (s, n) in segs)))
+        write("vm_0.hea", "vm_0 3 250 0\n~ 0x4 400(10)/mV 12 0 0 0 0 ECG\n" *
+                          "~ 0 100/mV 16 0 0 0 0 ABP\n~ 0 50/mV 16 0 0 0 0 RESP\n")
+        s1 = mf_segments(w, "vma", rng, 16, [4, 1, 1], [5000]; names, gains=[400.0, 100.0, 50.0])
+        s2 = mf_segments(w, "vmb", rng, 212, [1], [4000]; names=["ABP"], gains=[100.0])
+        segs = [("vm_0", 0); s1; [("~", 2500)]; s2]
+        write("vm.hea", "vm/$(length(segs)) 3 250 $(sum(last, segs))\n" *
+                        join(("$s $n\n" for (s, n) in segs)))
+        for rec in ("fy", "vm"), kw in (HL_OPTS..., (; from=4990, to=9000))
+            @test hl_same(w, rec, kw)
+        end
+        # the length not in the header: shorter and longer than the first
+        # allocation (READ_BLOCK frames)
+        for n in (5000, W.READ_BLOCK + 1, 2 * W.READ_BLOCK + 7)
+            x = mf_record(w, "nl", rng, 212, [1, 1], n)
+            write("nl.hea", replace(read("nl.hea", String), r"^nl 2 250 \d+" => "nl 2 250"))
+            for kw in ((;), (; channels=[1]), (; from=100), (; to=n + 10), (; highres=true))
+                @test hl_same(w, "nl", kw)
+            end
+            @test W.read_record(w, "nl"; pad=false).samples == x
+        end
+        # a wrong checksum, a truncated signal file, a header that overstates
+        # the length
+        mf_record(w, "ck", rng, 16, [1, 1], 7000)
+        hea = read("ck.hea", String)
+        write("ck.hea", replace(hea, r"(ck\.dat \S+ \S+ \S+ \S+ \S+ )(-?\d+)" => s"\g<1>12345";
+                                count=1))
+        for kw in ((;), (; highres=true), (; to=7000))
+            @test hl_same(w, "ck", kw)
+        end
+        write("ck.hea", replace(hea, r"^ck 2 250 7000" => "ck 2 250 9000"))
+        @test hl_same(w, "ck")
+        write("ck.hea", hea)
+        open(f -> truncate(f, filesize("ck.dat") - 101), "ck.dat", "r+")
+        for kw in ((;), (; to=100), (; from=6000))
+            @test hl_same(w, "ck", kw)
+        end
+    end
+end
+
+# The bulk decoder in tiles: many tiles per call (large input buffers),
+# with lengths that are not a multiple of the tile.
+@testset "bulk reading with large input buffers" begin
+    with_data() do w
+        rng = XorShift(0x14057b7ef767814f)
+        for fmt in (8, 80, 16, 61, 160, 24, 32, 212, 310, 311), spf in ([1, 1, 1], [4, 1], [2, 3])
+            n = rnd(rng, 5000, 12000)
+            mf_record(w, "tl", rng, fmt, spf, n)
+            for mode in (W.WFDB_LOWRES, W.WFDB_LOWRES | W.WFDB_GVPAD, W.WFDB_HIGHRES),
+                chunks in ((W._BULK_TILE * 3 + 5,), (7, 2049))
+                traces = map((true, false)) do bulk
+                    W.wfdbquit(w)
+                    W.setibsize(w, 1 << 16)
+                    t = bulk_trace(w, "tl", length(spf), bulk; mode, chunks)
+                    W.setibsize(w, 0)
+                    t
+                end
+                @test traces[1] == traces[2]
+            end
+        end
+    end
+end
+
+# write_record with the bulk writer and with putvec only: the same files,
+# messages and errors.
+function wr_files(w, bulk, name, x, fs; kw...)
+    W._BULK_WRITE[] = bulk
+    try
+        e = nothing
+        err = lib_stderr() do
+            e = try
+                W.write_record(w, name, x, fs; kw...)
+            catch ex
+                ex isa W.WfdbError || rethrow()
+                ex.msg
+            end
+        end
+        dat = isfile("$name.dat") && !islink("$name.dat") ? read("$name.dat") : UInt8[]
+        hea = isfile("$name.hea") ? read("$name.hea") : UInt8[]
+        return (e, err, dat, hea)
+    finally
+        W._BULK_WRITE[] = true
+    end
+end
+
+@testset "bulk writing equals putvec" begin
+    with_data() do w
+        rng = XorShift(0x2545f4914f6cdd1d ⊻ 99)
+        for fmt in (16, 61, 80, 160, 24, 32, 8, 212, 310, 311)
+            lim = MF_RANGES[fmt]
+            for spf in ([1], [1, 1], [4, 1, 1, 1], [2, 3], [1, 2]),
+                n in (1, 2, 1000, 8191, rnd(rng, 3000, 30000))
+                x = reshape(rnd(rng, -lim + 1, lim, n * sum(spf)), n, sum(spf))
+                fmt == 8 && (x .= clamp.(x, -100, 100))
+                for i in eachindex(x)
+                    rnd(rng, 1, 50) == 1 && (x[i] = WFDB_INVALID_SAMPLE)
+                end
+                x[1, 1] = WFDB_INVALID_SAMPLE
+                x[end, end] = WFDB_INVALID_SAMPLE
+                kw = (; fmt, gains=200.0, adcres=MF_RES[fmt], units="mV", samps_per_frame=spf)
+                a = wr_files(w, true, "bw", x, 250.0; kw...)
+                b = wr_files(w, false, "bw", x, 250.0; kw...)
+                @test a == b
+                @test a[1] === nothing && isempty(a[2])
+                # (the samples, in other integer types and a view)
+                @test wr_files(w, true, "bw", Int64.(x), 250.0; kw...) == b
+                @test wr_files(w, true, "bw", view(x, :, :), 250.0; kw...) == b
+            end
+        end
+        # physical units (NaN: invalid)
+        y = randn(5000, 3) .* 2
+        y[[1, 77, 5000], [1, 3, 2]] .= NaN
+        for bulk in (true, false)
+            W._BULK_WRITE[] = bulk
+            W.write_record_physical(w, bulk ? "pb" : "pp", y, 360.0; gains=1000.0, adcres=16,
+                                    units="mV", fmt=16)
+            W._BULK_WRITE[] = true
+        end
+        @test read("pb.dat") == read("pp.dat")
+        # a signal file on which every write fails
+        if ispath("/dev/full")
+            r = map((true, false)) do bulk
+                rm("bf.dat"; force=true)
+                symlink("/dev/full", "bf.dat")
+                t = wr_files(w, bulk, "bf", zeros(Int32, 20000, 2), 250.0; gains=200.0,
+                             adcres=16, units="mV")
+                rm("bf.dat")
+                t
+            end
+            @test r[1] == r[2] && r[1][1] == "write error on record bf"
+        end
+    end
+end
+
+# rdsamp's integer formatter (raw units), against printf.
+@testset "rdsamp integers as printf" begin
+    rng = XorShift(0x6a09e667f3bcc908)
+    vals = Int64[0, 1, -1, 9, 10, -10, 99, 100, 999, 1000, -32768, 32767, 9999999, 10000000,
+                 typemax(Int32), typemin(Int32), typemax(Int64), typemin(Int64), 10^18, 10^19 - 1,
+                 -10^18]
+    for _ in 1:2000
+        push!(vals, rnd(rng, -10^rnd(rng, 0, 9), 10^rnd(rng, 0, 9)))
+    end
+    for v in vals, lead in (0x00, UInt8('\t'), UInt8(',')), width in (0, 1, 7, 15, 25)
+        buf = fill(0xee, 64)
+        p = W._rdsamp_put_integer!(buf, 3, lead, v, width)
+        fmt = (lead == 0 ? "" : string(Char(lead))) * "%$(width)ld"
+        @test buf[4:p] == W.cformat(fmt, v) && all(==(0xee), buf[[1:3; p+1:end]])
+    end
+end
+
+# rdsamp in raw units: the lines as printf writes them, over several blocks
+# of frames and output buffers.
+@testset "rdsamp raw output" begin
+    with_data() do w
+        rng = XorShift(0x3c6ef372fe94f82b)
+        x = mf_record(w, "rr", rng, 16, [1, 1, 1], 3 * W._RDSAMP_CHUNK + 77)
+        env = ("WFDBX_INPUT_DIR" => ".",)
+        for (args, rows, cols, csv) in ((String[], 1:size(x, 1), 1:3, false),
+                                        (["-c"], 1:size(x, 1), 1:3, true),
+                                        (["-s", "2", "0"], 1:size(x, 1), [3, 1], false),
+                                        (["-f", "s5000", "-t", "s9001", "-c", "-s", "1"],
+                                         5001:9001, [2], true))
+            st, out, err = W.run_tool("rdsamp", ["-r", "rr", args...]; env=env)
+            want = UInt8[]
+            for i in rows
+                append!(want, W.cformat(csv ? "%ld" : "%15ld", Int64(i - 1)))
+                for c in cols
+                    append!(want, W.cformat(csv ? ",%d" : "\t%7d", x[i, c]))
+                end
+                push!(want, UInt8('\n'))
+            end
+            @test st == 0 && isempty(err) && out == want
+        end
+    end
+end
+
 end
 
 # A signal file or header that cannot be written (a link to /dev/full, on
@@ -2027,3 +2375,4 @@ end
     end
     rm(d; recursive=true, force=true)
 end
+

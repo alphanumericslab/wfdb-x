@@ -20,7 +20,7 @@
 // output (-X), and the gain of each selected signal for physical units (-p,
 // -P) (the original assumed 250 Hz and 200 adu/mV); unspecified units are
 // shown as "nd" (the original showed "mV"); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rdsamp.c, WFDB Software Package 10.7.0.
@@ -190,7 +190,7 @@ fn skip_spaces(s: &[u8]) -> &[u8] {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut record: Option<usize> = None;
@@ -325,7 +325,7 @@ fn main() {
         cstd::exit(2);
     }
     if legacy {
-        // wfdb-x: the C program's default gain (legacy mode)
+        // WFDB-x: the C program's default gain (legacy mode)
         for s in si.iter_mut().take(nsig as usize) {
             if s.gain == 0.0 {
                 s.gain = WFDB_DEFGAIN;
@@ -336,7 +336,7 @@ fn main() {
         wfdbx::setgvmode(WFDB_HIGHRES);
     }
     let mut freq = wfdbx::sampfreq(NULL);
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz
     // if the header did not specify one, as legacy mode does).
     let needs_freq = |k: i64| k > 0 && wfdbx::wfdbx_time_needs_freq(&argv[k as usize]) != 0;
     if !legacy
@@ -389,7 +389,7 @@ fn main() {
     };
     let nsig = sig.len();
 
-    // wfdb-x: no default gain (the C program assumed 200 adu/mV for
+    // WFDB-x: no default gain (the C program assumed 200 adu/mV for
     // uncalibrated signals, as legacy mode does).
     if pflag != 0 && !legacy {
         for &s in &sig {
@@ -574,7 +574,7 @@ fn main() {
             out.puts(&tufmt);
 
             for &s in &sig {
-                // wfdb-x: unspecified units are shown as "nd" (C, legacy
+                // WFDB-x: unspecified units are shown as "nd" (C, legacy
                 // mode: mV)
                 let nd: &[u8] = if legacy { b"mV" } else { b"nd" };
                 let u = cstd::cstr(si[s].units.as_deref().unwrap_or(nd)).to_vec();

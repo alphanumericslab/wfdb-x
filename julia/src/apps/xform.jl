@@ -22,7 +22,7 @@
 # are shown as "nd" (the original assumed 250 Hz, 200 adu/mV, a resolution
 # based on the format, and millivolts); when an output signal file would be one
 # of the input files, the message says so; --legacy, as the first argument,
-# restores the original behavior. Each change is marked "wfdb-x:" in the code;
+# restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/xform.c, WFDB Software Package 10.7.0.
@@ -84,9 +84,9 @@ const _XFORM_BTSTRING_LEN = 30
 "Initial value of the previous annotation's `chan` (below any `chan`)."
 const _XFORM_NO_CHAN = Int32(-129)
 
-"`%s` of a missing units string (wfdb-x: \"nd\"; the C program showed \"mV\")."
+"`%s` of a missing units string (WFDB-x: \"nd\"; the C program showed \"mV\")."
 const _XFORM_DEFAULT_UNITS = "nd"
-const _XFORM_LEGACY_UNITS = "mV"    # wfdb-x: legacy mode (original behavior)
+const _XFORM_LEGACY_UNITS = "mV"    # WFDB-x: legacy mode (original behavior)
 
 function _xform_help(pname)
     ceprintf(_XFORM_HELP[1], pname)
@@ -191,7 +191,7 @@ end
 end
 
 # The largest ADC resolution offered for a storage format (xform offers a
-# resolution only within 8 and this; wfdb-x: the C program otherwise offered
+# resolution only within 8 and this; WFDB-x: the C program otherwise offered
 # one based on the format, 12 bits for 16-bit formats).
 function _xform_maxres(fmt::Integer)
     (fmt == 80 || fmt == 508) ? Int32(8) :
@@ -224,7 +224,7 @@ end
 @inline _xform_shl1(n::Integer) = Int64(1) << (n & 63)
 
 function xform_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
@@ -441,7 +441,7 @@ function xform_main(args::Vector{String})
         setgvmode(WFDB_HIGHRES)
     end
     ifreq = sampfreq(nothing)
-    # wfdb-x: no default sampling frequency (the C program assumed 250 Hz if
+    # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
     # the input header did not specify one, as legacy mode does).
     if ifreq <= 0.0 && !legacy
         ceprintf("%s: sampling frequency of record %s is not specified\n", pname, irec)
@@ -470,7 +470,7 @@ function xform_main(args::Vector{String})
 
         # Determine the output sampling frequency.
         ofreq = sampfreq(orec)
-        if ofreq == 0.0 && !legacy  # wfdb-x: no default sampling frequency
+        if ofreq == 0.0 && !legacy  # WFDB-x: no default sampling frequency
             ceprintf("%s: sampling frequency of record %s is not specified\n", pname, orec)
             wfdbquit()
             cexit(2)
@@ -530,8 +530,8 @@ function xform_main(args::Vector{String})
             end
         end
         if ofreq == 0 && legacy
-            ofreq = WFDB_DEFFREQ    # wfdb-x: as in the C program
-        elseif ofreq == 0           # wfdb-x: the C program assumed 250 Hz
+            ofreq = WFDB_DEFFREQ    # WFDB-x: as in the C program
+        elseif ofreq == 0           # WFDB-x: the C program assumed 250 Hz
             ceprintf("%s: the output sampling frequency must be > 0\n", pname)
             wfdbquit()
             cexit(1)
@@ -617,7 +617,7 @@ function xform_main(args::Vector{String})
             dref[] = d.gain
             csscanf(_xform_sfgets(prompt, _XFORM_ANSWER_LEN), "%lf", dref)
             d.gain = dref[]
-            # wfdb-x: a resolution is offered only if it comes from the input
+            # WFDB-x: a resolution is offered only if it comes from the input
             # (or the previous output signal) and suits the output format; the
             # C program otherwise offered one based on the format (12 bits for
             # 16-bit formats). Without one, the user must give it. Legacy
@@ -767,7 +767,7 @@ function xform_main(args::Vector{String})
     # sampling frequency differences.
     wfdbquiet()
     if orec !== nothing && osigopen(orec, dfout, nosig) != nosig
-        # wfdb-x: say why if an output file is one of the input files (the
+        # WFDB-x: say why if an output file is one of the input files (the
         # library's message, quieted above, is the last error)
         e = wfdberror()
         es = String(copy(e))
@@ -831,16 +831,16 @@ function xform_main(args::Vector{String})
         #     only if the input and output ADC resolutions differ.  In this
         #     case, the scale factor (gain[]) is determined so that the
         #     appropriate number of bits will be dropped from or added to
-        #     each signal.  (wfdb-x: if either resolution is unspecified,
+        #     each signal.  (WFDB-x: if either resolution is unspecified,
         #     this is an error.)
         # 2.  If the output gain has been specified, the signal is scaled by
-        #     the ratio of the output and input gains.  (wfdb-x: if the input
+        #     the ratio of the output and input gains.  (WFDB-x: if the input
         #     signal is uncalibrated, this is an error; the C program assumed
         #     an input gain of WFDB_DEFGAIN.)
         # These rules differ from those used by earlier versions of xform,
         # although the default behavior remains the same in most cases.
         if d.gain == 0.0            # output gain not specified
-            # wfdb-x: rescaling by ADC resolution needs both resolutions (the
+            # WFDB-x: rescaling by ADC resolution needs both resolutions (the
             # C program guessed an unspecified input resolution from the
             # format, assuming WFDB_DEFRES for 16-bit formats, as legacy mode
             # does).
@@ -855,7 +855,7 @@ function xform_main(args::Vector{String})
                 cexit(2)
             end
             gain[k] = Float64(_xform_shl1(d.adcres)) / Float64(_xform_shl1(di.adcres))
-        elseif di.gain == 0.0 && legacy     # (wfdb-x: as in the C program)
+        elseif di.gain == 0.0 && legacy     # (WFDB-x: as in the C program)
             gain[k] = d.gain / WFDB_DEFGAIN
         elseif di.gain == 0.0       # output gain specified, but input gain not specified
             ceprintf("%s: signal %d of record %s is uncalibrated; it cannot be rescaled to the specified gain\n",
@@ -1084,7 +1084,7 @@ register_workload("xform") do
         workload_tool("xform", "-i", "100s", "-o", "nf", "-n", "xo")
         workload_tool("xform", "-i", "uc", "-o", "100s", "-n", "xu", "-t", "s10")
         workload_tool("xform", "-i", "100s", "-S", "xw5.txt", "-t", "2")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         workload_tool("xform", "--legacy", "-i", "nr", "-o", "ug", "-n", "xr", "-t", "s10")
         workload_tool("xform", "--legacy", "-i", "fmt16", "-S", "xsa.txt", "-t", "s5000")
         workload_tool("xform", "--legacy", "-i", "nf", "-n", "xn", "-t", "s10")

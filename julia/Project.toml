@@ -1,13 +1,14 @@
 name = "WFDBX"
 uuid = "83908d18-08d1-4bfc-946c-24f35ef35e8c"
-authors = ["wfdb-x contributors"]
-version = "1.0.0"
+authors = ["WFDB-x contributors"]
+version = "1.1.0"
 
 [compat]
 julia = "1.9"
 
 [extras]
+Sockets = "6462fe0b-24de-5631-8697-dd941f90decc"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["Sockets", "Test"]

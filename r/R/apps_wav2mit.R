@@ -12,7 +12,7 @@
 # (required) and -U UNITS (required unless the gain is 0) give them (the
 # original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
 # millivolts); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
 # Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
@@ -50,7 +50,7 @@ app_wav2mit <- function(args = character(0)) {
   arg <- function(i) argv[i + 1L]          # C argv[i]
   ifname <- NULL
   record <- NULL
-  Ggain <- NULL                             # wfdb-x: -G and -U
+  Ggain <- NULL                             # WFDB-x: -G and -U
   Uunits <- NULL
   legacy <- wfdbx_get_legacy()
   i <- 1
@@ -99,7 +99,7 @@ app_wav2mit <- function(args = character(0)) {
     .wav2mit_help(pname)
     cexit(1)
   }
-  # wfdb-x: the gain and units must be given explicitly; the C program wrote
+  # WFDB-x: the gain and units must be given explicitly; the C program wrote
   # 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, with no units
   # (millivolts).  (The sampling frequency and the resolution are those
   # given in the file.)  Legacy mode: as in the C program.
@@ -165,10 +165,10 @@ app_wav2mit <- function(args = character(0)) {
   bitspersample <- in16()
   if (bitspersample <= 8) {
     wres <- 8
-    if (legacy) Ggain <- 12.5        # wfdb-x: the C program's gain
+    if (legacy) Ggain <- 12.5        # WFDB-x: the C program's gain
   } else if (bitspersample <= 16) {
     wres <- 16
-    if (legacy) Ggain <- 6400        # wfdb-x: the C program's gain
+    if (legacy) Ggain <- 6400        # WFDB-x: the C program's gain
   } else {
     ceprintf("%s: unsupported resolution (%d bits/sample) in %s\n",
              pname, bitspersample, ifname)

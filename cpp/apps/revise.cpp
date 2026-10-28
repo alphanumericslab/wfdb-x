@@ -9,7 +9,7 @@
 //
 // Changes from the original: no built-in ADC resolution: a missing resolution
 // stays unspecified (the original assumed 12 bits); --legacy, as the first
-// argument, restores the original behavior. Each change is marked "wfdb-x:" in
+// argument, restores the original behavior. Each change is marked "WFDB-x:" in
 // the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/revise.c, WFDB Software Package 10.7.0.
@@ -43,7 +43,7 @@ static int readoldheader(const char *record, WFDB_Siginfo *siarray);
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -185,7 +185,7 @@ static int readoldheader(const char *record, WFDB_Siginfo *siarray)
             siarray[s].adcres = (p = std::strtok(nullptr, sep)) ?
                                 std::atoi(p) :
                                 (wfdbx_get_legacy() ? WFDB_DEFRES : 0);
-            // wfdb-x: C (and legacy mode) assumed WFDB_DEFRES
+            // WFDB-x: C (and legacy mode) assumed WFDB_DEFRES
 
             // Determine the ADC zero.
             siarray[s].adczero = (p = std::strtok(nullptr, sep)) ?

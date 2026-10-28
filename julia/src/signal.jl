@@ -35,7 +35,7 @@
 # written with WFDB-x's own codec (flac.jl) instead of libFLAC; additions:
 # wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq,
 # getvecs and getvecs_status; legacy mode (wfdbx_set_legacy) restores the
-# original behavior. Each change is marked "wfdb-x:" in the code;
+# original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -315,10 +315,10 @@ mutable struct SigState
     # sample()
     sample_tt::Int64
 
-    # wfdb-x: legacy mode (the original library's built-in defaults)
+    # WFDB-x: legacy mode (the original library's built-in defaults)
     legacy::Bool
 
-    # wfdb-x: the directory of the header read last (see wfdbx_dirname;
+    # WFDB-x: the directory of the header read last (see wfdbx_dirname;
     # nothing if unknown: the standard input), and the directory and name of
     # the header of the current multi-segment record (msrec_name is nothing
     # if there is none); user_segments while setmsheader reads the headers
@@ -328,14 +328,15 @@ mutable struct SigState
     msrec_name::Union{Nothing,Vector{UInt8}}
     user_segments::Bool
 
-    # wfdb-x: true while a high-level reader reads (getvec's checksum
+    # WFDB-x: true while a high-level reader reads (getvec's checksum
     # message is then not printed: the reader warns instead)
     cksum_quiet::Bool
 
-    # wfdb-x: work space of the bulk reader (the frames read, and the frames
-    # of the layout of a variable-layout record)
+    # WFDB-x: work space of the bulk reader (the frames read, the frames of
+    # the layout of a variable-layout record, and a tile of decoded samples)
     bframes::Vector{Int32}
     bmapped::Vector{Int32}
+    braw::Vector{Int32}
 end
 
 SigState() = SigState(
@@ -352,7 +353,7 @@ SigState() = SigState(
     false,
     nothing, nothing, nothing, false,
     false,
-    Int32[], Int32[])
+    Int32[], Int32[], Int32[])
 
 # ---------------------------------------------------------------------------
 # Legacy mode (WFDB-x)
@@ -716,7 +717,7 @@ end
 The mean of the `n` samples `s[off+1:off+n]`, rounded to the nearest
 integer (halfway cases rounded up); invalid if any of them is.
 """
-function meansamp(s::Vector{Int32}, off::Int, n::Int32)
+@inline function meansamp(s::Vector{Int32}, off::Int, n::Int32)
     sum = Int64(n ÷ Int32(2))
     for i in 1:max(Int(n), 0)
         x = s[off+i]
@@ -1165,7 +1166,7 @@ end
 
 # Open the header (of type s: "hea", or nothing for a file name) of a
 # record, or of a segment named in the header of the current multi-segment
-# record (wfdb-x: in that header's directory), and note its directory.
+# record (WFDB-x: in that header's directory), and note its directory.
 function _open_header(w::Wfdb, s::OptByteStr, record::Vector{UInt8})
     st = w.sig
     wfdbx_get_legacy(w) != 0 && return wfdb_open(w, s, record, WFDB_READ)
@@ -1233,7 +1234,7 @@ function readheader_body(w::Wfdb, record::Vector{UInt8}, line::Vector{UInt8})
 
     # For local files, be sure that the name (p) within the header file
     # matches the name (record) provided as an argument to this function.
-    # (wfdb-x: not for remote files either, as in C)
+    # (WFDB-x: not for remote files either, as in C)
     isstd = st.hheader !== nothing && (is_std(st.hheader) || file_type(st.hheader) != WFDB_LOCAL)
     plen = length(p)
     if !isstd && !(length(record) >= plen && view(record, 1:plen) == p)
@@ -1279,9 +1280,9 @@ function readheader_body(w::Wfdb, record::Vector{UInt8}, line::Vector{UInt8})
             st.ffreq = f
         end
     elseif st.legacy && st.ffreq == 0.0
-        st.ffreq = WFDB_DEFFREQ     # wfdb-x: legacy mode (original behavior)
+        st.ffreq = WFDB_DEFFREQ     # WFDB-x: legacy mode (original behavior)
     end
-    # wfdb-x: no default sampling frequency (C assumed WFDB_DEFFREQ, 250 Hz):
+    # WFDB-x: no default sampling frequency (C assumed WFDB_DEFFREQ, 250 Hz):
     # without a frequency field (and none set by setsampfreq), it stays 0.
 
     # Set the sampling rate to the frame rate for now.
@@ -1331,7 +1332,7 @@ function readheader_body(w::Wfdb, record::Vector{UInt8}, line::Vector{UInt8})
 
     # Special processing for master header of a multi-segment record.
     if st.segments != 0 && st.in_msrec == 0
-        if wfdbx_get_legacy(w) == 0     # wfdb-x: the segments are next to it
+        if wfdbx_get_legacy(w) == 0     # WFDB-x: the segments are next to it
             st.msrec_dir = st.hdr_dir === nothing ? nothing : copy(st.hdr_dir)
             st.msrec_name = copy(record)
         end
@@ -1497,7 +1498,7 @@ function readheader_body(w::Wfdb, record::Vector{UInt8}, line::Vector{UInt8})
         end
         info.units = units
 
-        # Determine the ADC resolution in bits. wfdb-x: if this number is
+        # Determine the ADC resolution in bits. WFDB-x: if this number is
         # missing, it is unspecified (0); the C library inferred it from the
         # format or assumed WFDB_DEFRES (12 bits).
         r = strtok(tk, _HSEP)
@@ -2248,7 +2249,7 @@ function getskewedframe(w::Wfdb, vecstart::Vector{Int32}, off::Int)
             info.nsamp -= 1
             if info.nsamp == 0 && (cksum & Int32(0xffff)) != 0 && st.in_msrec == 0 &&
                st.isedf == 0 && fmt != 0
-                # wfdb-x: not printed during a high-level read (which warns
+                # WFDB-x: not printed during a high-level read (which warns
                 # instead), but recorded for wfdberror
                 pr = w.io.error_print
                 st.cksum_quiet && (w.io.error_print = false)
@@ -2357,7 +2358,7 @@ end
 # ---------------------------------------------------------------------------
 # Opening output signals
 
-# wfdb-x: an output signal file is never one of the input files. In normal
+# WFDB-x: an output signal file is never one of the input files. In normal
 # mode, openosig refuses to create (and so to truncate) an output signal file
 # that is the same file as a signal file of the open input record: a signal
 # file open for input, or a signal file of any segment of the open
@@ -2516,7 +2517,7 @@ function openosig(w::Wfdb, func::String, si_out::Union{Nothing,AbstractVector{Si
                 end
             end
             if info.fmt != 0
-                # wfdb-x: never an input file (see _is_input_file)
+                # WFDB-x: never an input file (see _is_input_file)
                 if wfdbx_get_legacy(w) == 0 && _is_input_file(w, info.fname)
                     wfdb_error(w, "%s: output file %s is also an input file\n", func, info.fname)
                     og.buf = UInt8[]
@@ -2872,7 +2873,7 @@ function isigopen(w::Wfdb, record::OptByteStr, siarray::SiginfoArg, nsig::Intege
             ig.fp = nothing     # Don't open a file for a null signal.
         else
             fname = hs.info.fname === nothing ? UInt8[] : copy(cstr(hs.info.fname))
-            # wfdb-x: in the directory of the header
+            # WFDB-x: in the directory of the header
             ig.fp = wfdbx_get_legacy(w) != 0 ? wfdb_open(w, fname, nothing, WFDB_READ) :
                     wfdbx_open_in(w, st.hdr_dir, nothing, fname, rec)
             # Skip this group if the signal file can't be opened.
@@ -3164,7 +3165,7 @@ function setifreq(w::Wfdb, f::Real)
     g = st.sfreq
     if g <= 0.0
         st.ifreq = 0.0
-        if st.nisig > 0 && !st.legacy   # wfdb-x: the frequency is not specified
+        if st.nisig > 0 && !st.legacy   # WFDB-x: the frequency is not specified
             wfdb_error(w, "setifreq: sampling frequency is not specified\n")
         else
             wfdb_error(w, "setifreq: no open input record\n")
@@ -3362,11 +3363,12 @@ getvecs(w::Wfdb, out::Vector{Int32}, n::Integer) = getvecs_status(w, out, n)[1]
 # _bulk_frames)
 #
 # _bulk_frames! reads up to n sample vectors (as n calls of getvec) by
-# decoding whole frames at once, straight from the input buffers, with one
-# loop per signal (no per-sample dispatch on the format). It covers records
-# of several sampling frequencies (in low- and high-resolution modes) and
-# the segments of multi-segment records (mapped to the layout signals when
-# the layout varies; null signals included). It is exactly equivalent to
+# decoding whole frames at once, straight from the input buffers: the
+# samples of each group a tile of frames at a time (one loop per format),
+# then signal by signal. It covers records of several sampling frequencies
+# (in low- and high-resolution modes) and the segments of multi-segment
+# records (mapped to the layout signals when the layout varies; null
+# signals included). It is exactly equivalent to
 # calls of getvec in the situations where it is used, and it declines
 # (returning fewer vectors, possibly none) whenever a frame would require
 # special handling: data not in the input buffer (it never reads the file:
@@ -3416,87 +3418,130 @@ function _bulk_static_ok(st::SigState)
     true
 end
 
-# Decode the sample at index j (0-based) of a group's stream of format fmt
-# starting at buf[b+1] (a whole number of packed units).
-@inline function _bulk_sample(fmt::Int32, buf::Vector{UInt8}, b::Int, j::Int)
-    @inbounds if fmt == 16
-        o = b + 2j
-        return Int32(reinterpret(Int16, UInt16(buf[o+1]) | UInt16(buf[o+2]) << 8))
-    elseif fmt == 212
-        o = b + 3 * (j >> 1)
-        v = iseven(j) ? Int32(buf[o+1]) | (Int32(buf[o+2]) & Int32(0x0f)) << 8 :
-                        Int32(buf[o+3]) | (Int32(buf[o+2]) & Int32(0xf0)) << 4
-        return (v & Int32(0x800)) != 0 ? v | ~Int32(0xfff) : v
-    elseif fmt == 8
-        return Int32(reinterpret(Int8, buf[b+j+1]))
-    elseif fmt == 80
-        return Int32(buf[b+j+1]) - Int32(1 << 7)
-    elseif fmt == 61
-        o = b + 2j
-        return Int32(reinterpret(Int16, UInt16(buf[o+1]) << 8 | UInt16(buf[o+2])))
-    elseif fmt == 160
-        o = b + 2j
-        return Int32(UInt16(buf[o+1]) | UInt16(buf[o+2]) << 8) - Int32(1 << 15)
-    elseif fmt == 24
-        o = b + 3j
-        v = UInt32(buf[o+1]) | UInt32(buf[o+2]) << 8 | UInt32(buf[o+3]) << 16
-        return reinterpret(Int32, v << 8) >> 8
-    elseif fmt == 32
-        o = b + 4j
-        return reinterpret(Int32, UInt32(buf[o+1]) | UInt32(buf[o+2]) << 8 |
-                                  UInt32(buf[o+3]) << 16 | UInt32(buf[o+4]) << 24)
-    else    # 310, 311
-        t, r = divrem(j, 3)
-        o = b + 4t
-        w0 = Int32(buf[o+1]) | Int32(buf[o+2]) << 8
-        if fmt == 310
-            w1 = Int32(buf[o+3]) | Int32(buf[o+4]) << 8
-            v = r == 0 ? (w0 >> 1) & Int32(0x3ff) :
-                r == 1 ? (w1 >> 1) & Int32(0x3ff) :
-                ((w0 & Int32(0xf800)) >> 11) | ((w1 & Int32(0xf800)) >> 6)
-        else
-            v = r == 0 ? w0 & Int32(0x3ff) :
-                r == 1 ? ((w0 & Int32(0xfc00)) >> 10) | ((Int32(buf[o+3]) & Int32(0xf)) << 6) :
-                ((Int32(buf[o+3]) | Int32(buf[o+4]) << 8) >> 4) & Int32(0x3ff)
+# Frames per tile of the bulk reader: the samples of a group are decoded a
+# tile at a time into a work space (st.braw), then copied signal by signal.
+const _BULK_TILE = 1024
+
+# Decode cnt samples (a whole number of packed units) of a group's stream of
+# format fmt, starting at buf[b+1], into raw[1:cnt], as the r*() functions
+# read them (format 8: the differences).
+function _bulk_decode!(raw::Vector{Int32}, fmt::Int32, buf::Vector{UInt8}, b::Int, cnt::Int)
+    @inbounds if fmt == 212
+        for i in 1:2:cnt
+            x = Int32(buf[b+1]) | (Int32(buf[b+2]) & Int32(0x0f)) << 8
+            y = Int32(buf[b+3]) | (Int32(buf[b+2]) & Int32(0xf0)) << 4
+            raw[i] = x - ((x & Int32(0x800)) << 1)
+            raw[i+1] = y - ((y & Int32(0x800)) << 1)
+            b += 3
         end
-        return (v & Int32(0x200)) != 0 ? v | ~Int32(0x3ff) : v
+    elseif fmt == 16
+        for i in 1:cnt
+            raw[i] = Int32(reinterpret(Int16, UInt16(buf[b+1]) | UInt16(buf[b+2]) << 8))
+            b += 2
+        end
+    elseif fmt == 8
+        for i in 1:cnt
+            raw[i] = Int32(reinterpret(Int8, buf[b+i]))
+        end
+    elseif fmt == 80
+        for i in 1:cnt
+            raw[i] = Int32(buf[b+i]) - Int32(1 << 7)
+        end
+    elseif fmt == 61
+        for i in 1:cnt
+            raw[i] = Int32(reinterpret(Int16, UInt16(buf[b+1]) << 8 | UInt16(buf[b+2])))
+            b += 2
+        end
+    elseif fmt == 160
+        for i in 1:cnt
+            raw[i] = Int32(UInt16(buf[b+1]) | UInt16(buf[b+2]) << 8) - Int32(1 << 15)
+            b += 2
+        end
+    elseif fmt == 24
+        for i in 1:cnt
+            v = UInt32(buf[b+1]) | UInt32(buf[b+2]) << 8 | UInt32(buf[b+3]) << 16
+            raw[i] = reinterpret(Int32, v << 8) >> 8
+            b += 3
+        end
+    elseif fmt == 32
+        for i in 1:cnt
+            raw[i] = reinterpret(Int32, UInt32(buf[b+1]) | UInt32(buf[b+2]) << 8 |
+                                        UInt32(buf[b+3]) << 16 | UInt32(buf[b+4]) << 24)
+            b += 4
+        end
+    elseif fmt == 310
+        for i in 1:3:cnt
+            w0 = Int32(buf[b+1]) | Int32(buf[b+2]) << 8
+            w1 = Int32(buf[b+3]) | Int32(buf[b+4]) << 8
+            x = (w0 >> 1) & Int32(0x3ff)
+            y = (w1 >> 1) & Int32(0x3ff)
+            z = ((w0 & Int32(0xf800)) >> 11) | ((w1 & Int32(0xf800)) >> 6)
+            raw[i] = x - ((x & Int32(0x200)) << 1)
+            raw[i+1] = y - ((y & Int32(0x200)) << 1)
+            raw[i+2] = z - ((z & Int32(0x200)) << 1)
+            b += 4
+        end
+    else    # 311
+        for i in 1:3:cnt
+            w0 = Int32(buf[b+1]) | Int32(buf[b+2]) << 8
+            x = w0 & Int32(0x3ff)
+            y = ((w0 & Int32(0xfc00)) >> 10) | ((Int32(buf[b+3]) & Int32(0xf)) << 6)
+            z = ((Int32(buf[b+3]) | Int32(buf[b+4]) << 8) >> 4) & Int32(0x3ff)
+            raw[i] = x - ((x & Int32(0x200)) << 1)
+            raw[i+1] = y - ((y & Int32(0x200)) << 1)
+            raw[i+2] = z - ((z & Int32(0x200)) << 1)
+            b += 4
+        end
     end
+    nothing
 end
 
-# Decode the spf samples per frame of signal is (from sample k of the gfl
-# samples of a frame of its group) of m frames from buf[b+1:...] into dst
+# Store the spf samples per frame of signal is (from sample k of the gfl
+# samples of a frame of its group) of m frames, decoded into raw, into dst
 # (sample j of frame i, both 0-based, at dst[o+i*fstride+j+1]), as
 # getskewedframe does (invalid samples, GVPAD, format 8 differences, the
-# checksum). A function barrier: fmt is dispatched once per signal.
+# checksum).
 function _bulk_signal!(dst::Vector{Int32}, o::Int, fstride::Int, is::IsData,
-                       buf::Vector{UInt8}, b::Int, k::Int, gfl::Int, m::Int, pad::Bool)
+                       raw::Vector{Int32}, k::Int, gfl::Int, m::Int, pad::Bool)
     info = is.info
     fmt = info.fmt
     spf = Int(info.spf)
     cksum = info.cksum
     samp = is.samp
-    if fmt == 8
+    @inbounds if fmt == 8
         for i in 0:m-1
             q = o + i * fstride
-            j0 = i * gfl + k
-            for j in 0:spf-1
-                samp += _bulk_sample(fmt, buf, b, j0 + j)
-                @inbounds dst[q+j+1] = samp
+            r = i * gfl + k
+            for j in 1:spf
+                samp += raw[r+j]
+                dst[q+j] = samp
                 cksum -= samp
             end
+        end
+    elseif spf == 1
+        inval = _invalid_out(fmt)
+        for i in 0:m-1
+            v = raw[i*gfl+k+1]
+            if v == inval
+                dst[o+i*fstride+1] = pad ? samp : WFDB_INVALID_SAMPLE
+            else
+                samp = v
+                dst[o+i*fstride+1] = v
+            end
+            cksum -= v
         end
     else
         inval = _invalid_out(fmt)
         for i in 0:m-1
             q = o + i * fstride
-            j0 = i * gfl + k
-            for j in 0:spf-1
-                v = _bulk_sample(fmt, buf, b, j0 + j)
+            r = i * gfl + k
+            for j in 1:spf
+                v = raw[r+j]
                 if v == inval
-                    @inbounds dst[q+j+1] = pad ? samp : WFDB_INVALID_SAMPLE
+                    dst[q+j] = pad ? samp : WFDB_INVALID_SAMPLE
                 else
                     samp = v
-                    @inbounds dst[q+j+1] = v
+                    dst[q+j] = v
                 end
                 cksum -= v
             end
@@ -3613,20 +3658,46 @@ function _bulk_frames!(w::Wfdb, out::Vector{Int32}, pos::Int, n::Int64, stride::
         length(dst) < m * fstride && resize!(dst, m * fstride)
         o = 0
     end
+    # (each signal's first column in a frame, and first sample in a frame
+    # of its group)
+    scol = zeros(Int, nisig)
+    sk = zeros(Int, nisig)
     kk = zeros(Int, nigroup)
     col = 0
     for s in 1:nisig
+        info = isd[s].info
+        g = Int(info.group) + 1
+        scol[s] = col
+        sk[s] = kk[g]
+        info.fmt == 0 || (kk[g] += info.spf)
+        col += info.spf
+    end
+    # The signals in files, group by group, a tile at a time.
+    tile = _BULK_TILE - _BULK_TILE % period
+    raw = st.braw
+    for g in 1:nigroup
+        gfl[g] == 0 && continue
+        fmt = gfmt[g]
+        nb, ns = _bulk_unit(fmt)
+        ig = igd[g]
+        length(raw) < tile * gfl[g] && resize!(raw, tile * gfl[g])
+        t0 = 0
+        while t0 < m
+            mt = min(tile, m - t0)
+            _bulk_decode!(raw, fmt, ig.buf, ig.bp + t0 * gfl[g] * nb ÷ ns, mt * gfl[g])
+            for s in 1:nisig
+                info = isd[s].info
+                (info.fmt == 0 || Int(info.group) + 1 != g) && continue
+                _bulk_signal!(dst, o + t0 * fstride + scol[s], fstride, isd[s], raw, sk[s],
+                              gfl[g], mt, pad)
+            end
+            t0 += mt
+        end
+    end
+    for s in 1:nisig
         is = isd[s]
         info = is.info
-        g = Int(info.group) + 1
-        if info.fmt == 0
-            _bulk_null!(dst, o + col, fstride, is, m, pad)
-        else
-            ig = igd[g]
-            _bulk_signal!(dst, o + col, fstride, is, ig.buf, ig.bp, kk[g], gfl[g], m, pad)
-            kk[g] += info.spf
-        end
-        col += info.spf
+        info.fmt == 0 && _bulk_null!(dst, o + scol[s], fstride, is, m, pad)
         if info.nsamp > 0
             info.nsamp -= m
         elseif info.nsamp == 0
@@ -3682,11 +3753,19 @@ function _bulk_frames!(w::Wfdb, out::Vector{Int32}, pos::Int, n::Int64, stride::
         end
     elseif !highres
         # (one per frame: the mean of the samples of each signal)
+        (pos + (m - 1) * stride + nvsig <= length(out) && m * tspf <= length(frames)) ||
+            throw(BoundsError(out, pos + (m - 1) * stride + nvsig))
         tp = 0
         for s in 1:nvsig
             sf = st.vsd[s].info.spf
-            for i in 0:m-1
-                out[pos+i*stride+s] = meansamp(frames, i * tspf + tp, sf)
+            if sf == 1
+                @inbounds for i in 0:m-1
+                    out[pos+i*stride+s] = frames[i*tspf+tp+1]
+                end
+            else
+                @inbounds for i in 0:m-1
+                    out[pos+i*stride+s] = meansamp(frames, i * tspf + tp, sf)
+                end
             end
             tp += Int(sf)
         end
@@ -3742,7 +3821,7 @@ function getvecs_status(w::Wfdb, out::Vector{Int32}, n::Integer; keep_checksum_f
     _getvecs_into(w, out, 0, Int64(n), keep_checksum_frame)
 end
 
-# getvecs_status storing the vectors from out[off+1] (wfdb-x: the
+# getvecs_status storing the vectors from out[off+1] (WFDB-x: the
 # high-level reader reads into its output buffer directly).
 function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_checksum_frame::Bool)
     n <= 0 && return (Int64(0), Int32(0))
@@ -3762,7 +3841,7 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
                 bulk = _bulk_static_ok(st)
             end
             if bulk
-                # wfdb-x: as many frames as possible in bulk (identical
+                # WFDB-x: as many frames as possible in bulk (identical
                 # results), the others one by one
                 room = Int64((length(out) - pos) ÷ max(stride, 1))
                 m = _bulk_frames!(w, out, pos, min(n - k, room), stride)
@@ -3790,7 +3869,7 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
             stat = getskewedframe(w, out, pos)
             st.istime += 1
             if stat < 0
-                # wfdb-x: the frame of a checksum error is complete
+                # WFDB-x: the frame of a checksum error is complete
                 (stat == -4 && keep_checksum_frame) && (k += 1)
                 break
             end
@@ -3811,7 +3890,7 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
                 bulk = _bulk_static_ok(st)
             end
             if bulk && stride > 0
-                # wfdb-x: whole frames in bulk, as above
+                # WFDB-x: whole frames in bulk, as above
                 room = Int64((length(out) - pos) ÷ stride)
                 m = _bulk_frames!(w, out, pos, min(n - k, room), stride)
                 if m > 0
@@ -3936,6 +4015,122 @@ function putvec(w::Wfdb, vector::AbstractVector{Int32})
         end
     end
     stat
+end
+
+# ---------------------------------------------------------------------------
+# Bulk frame writing (WFDB-x)
+#
+# _putframes! writes frames as calls of putvec would, encoding the samples
+# straight into the output buffers, signal by signal. It is used only where
+# putvec has nothing special to do: every output signal in format 16, 61,
+# 80, 160, 24 or 32 in a local file without a write error, after the first
+# frame (which sets the initial values), and for frames that do not fill
+# an output buffer (the frame that does is written by putvec, which flushes
+# the buffer). The bytes, checksums, sample counts, last samples and ostime
+# are therefore identical.
+
+# (private switch, for the tests: false writes every frame with putvec)
+const _BULK_WRITE = Ref(true)
+
+# Bytes per sample of the formats written in bulk (0 for the others).
+@inline _bulk_out_bytes(fmt::Int32) =
+    (fmt == 16 || fmt == 61 || fmt == 160) ? 2 : fmt == 80 ? 1 : fmt == 24 ? 3 :
+    fmt == 32 ? 4 : 0
+
+# Write the frames i0+1:i1 of frames (one row per frame, as the vectors of
+# putvec) in bulk, as far as possible; the number of frames written.
+function _putframes!(w::Wfdb, frames::AbstractMatrix{<:Integer}, i0::Int, i1::Int)
+    st = w.sig
+    nosig = Int(st.nosig)
+    (_BULK_WRITE[] && nosig > 0 && i1 > i0) || return 0
+    ngroup = length(st.ogd)
+    gbytes = zeros(Int, ngroup)     # bytes of a frame in each group
+    for s in 1:nosig
+        info = st.osd[s].info
+        nb = _bulk_out_bytes(info.fmt)
+        (nb == 0 || info.nsamp == 0 || info.spf < 1) && return 0
+        g = Int(info.group) + 1
+        1 <= g <= ngroup || return 0
+        og = st.ogd[g]
+        fp = og.fp
+        (fp === nothing || fp.kind != _K_FILE || ferror(fp) || og.flac !== nothing) && return 0
+        gbytes[g] += Int(info.spf) * nb
+    end
+    # (the frames that leave every buffer short of full)
+    m = i1 - i0
+    for g in 1:ngroup
+        gbytes[g] == 0 && continue
+        og = st.ogd[g]
+        m = min(m, max(og.be - og.bp - 1, 0) ÷ gbytes[g])
+    end
+    m <= 0 && return 0
+    goff = zeros(Int, ngroup)       # bytes of the frame before the signal
+    col = 0
+    for s in 1:nosig
+        os = st.osd[s]
+        info = os.info
+        g = Int(info.group) + 1
+        og = st.ogd[g]
+        spf = Int(info.spf)
+        _putframes_signal!(og.buf, og.bp + goff[g], gbytes[g], os, frames, i0, m, col, spf)
+        goff[g] += spf * _bulk_out_bytes(info.fmt)
+        info.nsamp += m
+        col += spf
+    end
+    for g in 1:ngroup
+        st.ogd[g].bp += m * gbytes[g]
+    end
+    st.ostime += m
+    m
+end
+
+# The samples of output signal os (columns col+1:col+spf of frames i0+1:i0+m
+# of frames) into buf (frame i at buf[b+i*stride+1:...], 0-based), as
+# putvec writes them.
+function _putframes_signal!(buf::Vector{UInt8}, b::Int, stride::Int, os::OsData,
+                            frames::AbstractMatrix{<:Integer}, i0::Int, m::Int, col::Int, spf::Int)
+    info = os.info
+    fmt = info.fmt
+    nb = _bulk_out_bytes(fmt)
+    inval = _invalid_out(fmt)
+    cksum = info.cksum
+    samp = os.samp
+    (b + (m - 1) * stride + spf * nb <= length(buf) && i0 + m <= size(frames, 1) &&
+     col + spf <= size(frames, 2)) || throw(BoundsError(buf, b + (m - 1) * stride + spf * nb))
+    @inbounds for i in 0:m-1
+        q = b + i * stride
+        for j in 1:spf
+            samp = frames[i0+i+1, col+j] % Int32
+            samp == WFDB_INVALID_SAMPLE && (samp = inval)
+            if fmt == 16
+                buf[q+1] = samp % UInt8
+                buf[q+2] = (samp >> 8) % UInt8
+            elseif fmt == 61
+                buf[q+1] = (samp >> 8) % UInt8
+                buf[q+2] = samp % UInt8
+            elseif fmt == 80
+                buf[q+1] = ((samp & Int32(0xff)) + Int32(1 << 7)) % UInt8
+            elseif fmt == 160
+                v = (samp & Int32(0xffff)) + Int32(1 << 15)
+                buf[q+1] = v % UInt8
+                buf[q+2] = (v >> 8) % UInt8
+            elseif fmt == 24
+                buf[q+1] = samp % UInt8
+                buf[q+2] = (samp >> 8) % UInt8
+                buf[q+3] = (samp >> 16) % UInt8
+            else    # 32
+                buf[q+1] = samp % UInt8
+                buf[q+2] = (samp >> 8) % UInt8
+                buf[q+3] = (samp >> 16) % UInt8
+                buf[q+4] = (samp >> 24) % UInt8
+            end
+            cksum += samp
+            q += nb
+        end
+    end
+    os.samp = samp
+    info.cksum = cksum
+    nothing
 end
 
 """
@@ -4180,7 +4375,7 @@ function newheader(w::Wfdb, record::ByteStr)
     setheader(w, rec, osi, st.nosig)
 end
 
-# A name as written into the header of record. wfdb-x: outside legacy mode,
+# A name as written into the header of record. WFDB-x: outside legacy mode,
 # names are written relative to the header's directory (where the reader
 # looks for them): the directory part of record is removed from name when
 # name begins with it.
@@ -4352,7 +4547,7 @@ function setmsheader(w::Wfdb, record::ByteStr, segment_name::AbstractVector, nse
         end
         st.in_msrec = 1
         st.nsamples = 0
-        st.user_segments = true     # wfdb-x: names given by the caller
+        st.user_segments = true     # WFDB-x: names given by the caller
         n = readheader(w, name)
         st.user_segments = false
         st.in_msrec = old_in_msrec
@@ -4930,7 +5125,7 @@ function _tfreq(st::SigState)
     st.ifreq > 0.0 ? st.ifreq : st.sfreq > 0.0 ? st.sfreq : st.legacy ? 1.0 : 0.0
 end
 
-# wfdb-x: no default sampling frequency (C assumed 1 sample per second in
+# WFDB-x: no default sampling frequency (C assumed 1 sample per second in
 # the time conversions). Without one, timstr and mstimstr report an error
 # and return the time as a sample number ("s" followed by |t|, a valid
 # strtim argument).
@@ -4971,7 +5166,7 @@ end
     timstr([w], t) -> String
 
 C `timstr`: a time string (`hh:mm:ss`, or `[hh:mm:ss dd/mm/yyyy]` for a
-time of day: `t <= 0` when the base time is defined). wfdb-x: if the
+time of day: `t <= 0` when the base time is defined). WFDB-x: if the
 sampling frequency is not specified, reports an error and returns `"s"`
 followed by `|t|` (C assumed 1 sample per second; see `docs/DIVERGENCES.md`).
 
@@ -4989,7 +5184,7 @@ end
 """
     mstimstr([w], t) -> String
 
-C `mstimstr`: as `timstr`, with milliseconds (wfdb-x: the same error as
+C `mstimstr`: as `timstr`, with milliseconds (WFDB-x: the same error as
 `timstr` if the sampling frequency is not specified).
 
 Translation of the C function mstimstr() (lib/signal.c, WFDB 10.7.0): same
@@ -5036,7 +5231,7 @@ setbasecount(w::Wfdb, counter::Real) = (w.sig.bcount = Float64(counter); nothing
     strtim([w], string) -> Int64
 
 C `strtim`: convert a time string to a sample number (negative for a time
-of day). wfdb-x: if the sampling frequency is not specified and the
+of day). WFDB-x: if the sampling frequency is not specified and the
 string needs one ([`wfdbx_time_needs_freq`](@ref)), reports an error and
 returns 0 (C assumed 1 sample per second; see `docs/DIVERGENCES.md`).
 
@@ -5136,12 +5331,12 @@ end
 # ---------------------------------------------------------------------------
 # Amplitude conversions
 
-# wfdb-x: no default gain (C assumed WFDB_DEFGAIN, 200 adu per physical
+# WFDB-x: no default gain (C assumed WFDB_DEFGAIN, 200 adu per physical
 # unit, for uncalibrated signals and invalid signal numbers). Returns the
 # gain of signal s, or 0 after reporting an error (C conversion_gain).
 function _conversion_gain(w::Wfdb, fn::String, s::UInt32)
     st = w.sig
-    if st.legacy        # wfdb-x: legacy mode (original behavior)
+    if st.legacy        # WFDB-x: legacy mode (original behavior)
         g = s < max(st.nvsig, 0) % UInt32 ? st.vsd[s+1].info.gain : WFDB_DEFGAIN
         return g == 0.0 ? WFDB_DEFGAIN : g
     end
@@ -5161,7 +5356,7 @@ _conversion_baseline(st::SigState, s::UInt32) =
 """
     adumuv([w], s, a) -> Int32
 
-C `adumuv`: convert ADC units of signal `s` to microvolts. wfdb-x: for an
+C `adumuv`: convert ADC units of signal `s` to microvolts. WFDB-x: for an
 uncalibrated signal or an invalid signal number, reports an error and
 returns `WFDB_INVALID_SAMPLE`.
 
@@ -5180,7 +5375,7 @@ end
 """
     muvadu([w], s, v) -> Int32
 
-C `muvadu`: convert microvolts to ADC units of signal `s`. wfdb-x: for an
+C `muvadu`: convert microvolts to ADC units of signal `s`. WFDB-x: for an
 uncalibrated signal or an invalid signal number, reports an error and
 returns `WFDB_INVALID_SAMPLE`.
 
@@ -5199,7 +5394,7 @@ end
 """
     aduphys([w], s, a) -> Float64
 
-C `aduphys`: convert ADC units of signal `s` to physical units. wfdb-x: for
+C `aduphys`: convert ADC units of signal `s` to physical units. WFDB-x: for
 an uncalibrated signal or an invalid signal number, reports an error and
 returns `NaN`.
 
@@ -5219,7 +5414,7 @@ end
 """
     physadu([w], s, v) -> Int32
 
-C `physadu`: convert physical units to ADC units of signal `s`. wfdb-x: for
+C `physadu`: convert physical units to ADC units of signal `s`. WFDB-x: for
 an uncalibrated signal or an invalid signal number, reports an error and
 returns `WFDB_INVALID_SAMPLE`.
 

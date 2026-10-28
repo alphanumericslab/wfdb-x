@@ -9,7 +9,7 @@ the original program, but it is new code, not the original C code.
 
 Changes from the original: no built-in sampling frequency: the record must give
 it (the original assumed 250 Hz); --legacy, as the first argument, restores the
-original behavior. Each change is marked "wfdb-x:" in the code;
+original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/mit2wav.c, WFDB Software Package 10.7.0.
@@ -111,7 +111,7 @@ def _main(argv):
     nsig = w.isigopen(record, s, nsig)
     if nsig <= 0:
         raise Exit(3)
-    # wfdb-x: no default frequency (legacy mode: no check, as in C)
+    # WFDB-x: no default frequency (legacy mode: no check, as in C)
     if not legacy() and w.sampfreq(None) <= 0.0:
         freq_not_specified(pname, record)
         raise Exit(3)

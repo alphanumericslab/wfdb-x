@@ -565,7 +565,7 @@ so <- .ann_sort_order(c(5, 1, 3, 3, 2), c(0, 0, 0, 0, 0), c(0, 0, 0, 0, 0))
 expect_equal(so, list(order = c(2L, 5L, 4L, 1L), in_order = FALSE), "sortann order: duplicates")
 
 # ---------------------------------------------------------------------------
-# Out-of-order output annotations: sorted when the file is closed (wfdb-x: in
+# Out-of-order output annotations: sorted when the file is closed (WFDB-x: in
 # this process; in legacy mode, by running sortann, as the C library)
 # (python test_annotations.py::test_sort_in_process and following)
 
@@ -635,13 +635,13 @@ rest <- cbind(c(20, 50, 75, 100, 100, 100, 150, 150, 200, 5000),
               c(NORMAL, PVC, NORMAL, PVC, APC, NORMAL, NOISE, NOISE, RHYTHM, NORMAL),
               c(0, 0, 2, 0, 1, 0, 3, 3, 0, 0), c(0, 0, 0, 0, 0, 1, -1, 0, 0, 0))
 expect_equal(read_ticks("leg"), rest, "sort (legacy): order, duplicates, NOTQRS, loss as sortann")
-# wfdb-x: nothing is lost
+# WFDB-x: nothing is lost
 expect_equal(read_ticks("mod"), rbind(c(0, NORMAL, 0, 0), c(5, NORMAL, 1, 0), rest),
              "sort: nothing lost")
 setannstr(-42, "[42]")
 .ann$modified[43] <- FALSE
 
-# the list (insert_ann): 5, 0, 3 (wfdb-x: 0, 3, 5; legacy, as sortann: 5)
+# the list (insert_ann): 5, 0, 3 (WFDB-x: 0, 3, 5; legacy, as sortann: 5)
 for (lg in c(FALSE, TRUE)) {
   so <- .ann_sort_order(c(5, 0, 3), c(0, 0, 0), c(0, 0, 0), legacy = lg)
   expect_equal(so, list(order = if (lg) 1L else c(2L, 3L, 1L), in_order = FALSE),

@@ -1,7 +1,7 @@
 function p = getwfdb()
 %GETWFDB The input directory (in legacy mode, the WFDB path).
 %   P = wfdbx.getwfdb() returns the input directory (see
-%   wfdbx.wfdbx_set_input_dir), or '.' if none is set.  wfdb-x: files are
+%   wfdbx.wfdbx_set_input_dir), or '.' if none is set.  WFDB-x: files are
 %   not searched for.
 %
 %   In legacy mode, it returns the WFDB path: the list of directories (and
@@ -30,7 +30,7 @@ function p = getwfdb()
 %
 % Changes from the original: it returns the input directory; files are not
 % searched for (the WFDB path only in legacy mode). Each change is marked
-% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
@@ -43,7 +43,7 @@ function p = getwfdb()
 % any later version. See LICENSE.
 
 st = wfdbx.internal.io_state();
-if ~wfdbx.wfdbx_get_legacy()    % wfdb-x: the input directory
+if ~wfdbx.wfdbx_get_legacy()    % WFDB-x: the input directory
     wfdbx.internal.init_input_dir(st);
     p = st.input_dir;
     if ~ischar(p) || isempty(p)

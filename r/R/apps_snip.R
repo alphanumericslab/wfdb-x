@@ -10,7 +10,7 @@
 # Changes from the original: no built-in sampling frequency: the input record
 # must give it, for the header of the excerpt (the original assumed 250 Hz);
 # --legacy, as the first argument, restores the original behavior. Each change
-# is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/snip.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -185,7 +185,7 @@ app_snip <- function(args = character(0)) {
       }
       .app_fwrite(ohfile, csprintf("%s %ld\r\n", orseg, len))
     }
-    .app_fclose(ohfile)         # wfdb-x: reports a write error
+    .app_fclose(ohfile)         # WFDB-x: reports a write error
     return(s)
   }
 
@@ -366,7 +366,7 @@ app_snip <- function(args = character(0)) {
     ceprintf("%s: error reading input header\n", pname)
     cexit(2)
   }
-  # wfdb-x: the output header needs the sampling frequency (the C program
+  # WFDB-x: the output header needs the sampling frequency (the C program
   # assumed 250 Hz if the input header did not specify one).
   if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0) {     # (legacy mode: no check)
     wfdbquit()

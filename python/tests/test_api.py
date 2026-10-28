@@ -123,7 +123,7 @@ def test_resetwfdb_fresh_process(datadir):
 
 def test_wfdbfile(datadir):
     w.wfdbquiet()
-    w.setwfdb("a b")    # (wfdb-x: an error; nothing changes)
+    w.setwfdb("a b")    # (WFDB-x: an error; nothing changes)
     w.wfdbverbose()
     assert w.getwfdb() == "."
     w.setwfdb(".")
@@ -205,7 +205,7 @@ def test_amplitude_conversion(datadir):
             w.adumuv(0, -1), w.adumuv(7, 100)] == [1000, -185, 5, -5, -32768]
     assert [w.muvadu(0, 1000), w.muvadu(0, -333), w.muvadu(1, 2),
             w.muvadu(9, 1000)] == [200, -67, 0, -32768]
-    # wfdb-x: no default gain for invalid signal numbers (C: 200)
+    # WFDB-x: no default gain for invalid signal numbers (C: 200)
     assert [w.aduphys(0, 1224), w.aduphys(1, 900)] == [1.0, -0.62]
     assert math.isnan(w.aduphys(5, 300))
     assert [w.physadu(0, 1.0), w.physadu(1, -0.5023), w.physadu(5, 1.5)] == \
@@ -796,7 +796,7 @@ def test_default_calibration_file(datadir):
 
 
 def test_uncalibrated_signals(datadir):
-    isig("null")        # gain 0 (wfdb-x: no default gain; C assumed 200)
+    isig("null")        # gain 0 (WFDB-x: no default gain; C assumed 200)
     w.wfdbquiet()
     try:
         assert [w.adumuv(0, 100), w.muvadu(1, 100)] == [-32768, -32768]
@@ -861,7 +861,7 @@ def test_strtim_out_of_range():
     # Frame numbers without a record (frame frequency 0) and times out of
     # the range of WFDB_Time: the C conversion of the double gives LONG_MIN
     # on x86-64 (and "[...]" times wrap around as WFDB_Time differences).
-    # (wfdb-x: without a sampling frequency, strtim fails for these strings
+    # (WFDB-x: without a sampling frequency, strtim fails for these strings
     # and returns 0; a frequency of 1 Hz is set for the out-of-range times.)
     w.wfdbquit()
     w.wfdbquiet()
@@ -876,7 +876,7 @@ def test_strtim_out_of_range():
         w.wfdbverbose()
 
 
-# t_nodefaults (wfdb-x: no default sampling frequency, gain, ADC resolution
+# t_nodefaults (WFDB-x: no default sampling frequency, gain, ADC resolution
 # or units; see docs/DIVERGENCES.md)
 
 def test_time_needs_freq():
@@ -978,7 +978,7 @@ def test_no_default_resolution_or_units(datadir):
     w.wfdbquit()
 
 
-# t_legacy (wfdb-x: legacy mode, the original library's built-in defaults;
+# t_legacy (WFDB-x: legacy mode, the original library's built-in defaults;
 # see docs/DIVERGENCES.md)
 
 def test_legacy(datadir):
@@ -1223,7 +1223,7 @@ def test_absolute_paths(datadir):
 
 
 # ---------------------------------------------------------------------------
-# t_files (wfdb-x: finding files: the input directory, setwfdb and getwfdb,
+# t_files (WFDB-x: finding files: the input directory, setwfdb and getwfdb,
 # names, the output directory, files named in headers, "~" segments, network
 # access).  The two curl lines of t_files (curl missing) do not apply to
 # Python, which reads URLs with urllib.
@@ -1288,7 +1288,7 @@ def test_files(datadir, monkeypatch):
         assert w.wfdbx_get_input_dir() == "fsub"
         w.setwfdb("a b")
         assert w.wfdberror() == (
-            "setwfdb: wfdb-x reads from a single input directory; use "
+            "setwfdb: WFDB-x reads from a single input directory; use "
             "wfdbx_set_input_dir (or legacy mode for the WFDB search path)\n")
         assert w.wfdbx_get_input_dir() == "fsub"
         w.setwfdb("a:b")
@@ -1379,7 +1379,7 @@ def test_files(datadir, monkeypatch):
         w.wfdbquit()
         # network access (off by default)
         assert w.wfdbx_get_network() == 0
-        msg = ("wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or "
+        msg = ("WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or "
                "call wfdbx_set_network(1) to open http://127.0.0.1:1/x.hea\n")
         assert w.wfdbfile("hea", "http://127.0.0.1:1/x") is None
         assert w.wfdberror() == msg

@@ -21,7 +21,7 @@
 // wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
 // wfdbx_time_needs_freq, getvecs, and the functions used by the high-level
 // functions and check_record; legacy mode (wfdbx_set_legacy) restores the
-// original behavior. Each change is marked "wfdb-x:" in the code;
+// original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -60,7 +60,7 @@
 #include <sys/types.h>
 
 #if defined(_WIN32)
-#include <io.h>         // wfdb-x: for file_id
+#include <io.h>         // WFDB-x: for file_id
 #include <windows.h>
 #endif
 
@@ -257,7 +257,7 @@ struct SigMapInfo {
 // ---------------------------------------------------------------------------
 // Shared local data (the file-scope variables of signal.c)
 
-// wfdb-x: legacy mode.  By default, the library has no built-in signal
+// WFDB-x: legacy mode.  By default, the library has no built-in signal
 // parameters (see docs/DIVERGENCES.md).  In legacy mode (wfdbx_set_legacy(1),
 // or --legacy as the first argument of a tool, see wfdbx_legacy_args), it
 // behaves exactly as the original WFDB library 10.7.0, with its built-in
@@ -268,7 +268,7 @@ struct SigMapInfo {
 // compatibility only.
 bool legacy_mode = false;
 
-// wfdb-x: files named in a header.  In normal mode, the signal files named in
+// WFDB-x: files named in a header.  In normal mode, the signal files named in
 // a header, and the segments (and layout header) named in the header of a
 // multi-segment record, are in the directory of that header, or below it:
 // "a.dat" is <header directory>/a.dat; a name that is absolute, begins with
@@ -433,7 +433,7 @@ const char *cstr_or_null(const std::optional<std::string> &s)
 // ---------------------------------------------------------------------------
 // Variable-layout multi-segment records (see signal.c for a description)
 
-// wfdb-x: a name as written into the header of `record`.  Outside legacy
+// WFDB-x: a name as written into the header of `record`.  Outside legacy
 // mode, names are written relative to the header's directory (where the
 // reader looks for them): the directory part of `record` (up to and
 // including its last '/') is removed from `name` when `name` begins with it.
@@ -649,7 +649,7 @@ void read_edf_str(char *buf, int size, WFDBFile *ifile)
     }
 }
 
-// wfdb-x: open the header (of type s: "hea", or nullptr for a file name) of a
+// WFDB-x: open the header (of type s: "hea", or nullptr for a file name) of a
 // record, or of a segment named in the header of the current multi-segment
 // record, and note its directory (see hdr_dir).
 FilePtr open_header(const char *s, const char *record)
@@ -935,7 +935,7 @@ int readheader(const char *record)
         } else
             ffreq = f;
     }
-    // wfdb-x: if the header does not specify the sampling frequency (and the
+    // WFDB-x: if the header does not specify the sampling frequency (and the
     // caller has not set one with setsampfreq), it remains unspecified (0);
     // the C library assumed WFDB_DEFFREQ (250 Hz), as legacy mode does.
     else if (legacy_mode && ffreq == 0.)
@@ -985,7 +985,7 @@ int readheader(const char *record)
 
     // Special processing for master header of a multi-segment record.
     if (segments && !in_msrec) {
-        // wfdb-x: the segments are in the directory of this header
+        // WFDB-x: the segments are in the directory of this header
         if (!legacy_mode) {
             msrec_dir = hdr_dir;
             msrec_name = std::string(record);
@@ -1145,7 +1145,7 @@ int readheader(const char *record)
         else
             hs->info.units.reset();
 
-        // Determine the ADC resolution in bits.  wfdb-x: if this number is
+        // Determine the ADC resolution in bits.  WFDB-x: if this number is
         // missing, it is unspecified (0); the C library inferred it from the
         // format or assumed WFDB_DEFRES (12 bits), as legacy mode does.
         if ((p = xstrtok(nullptr, sep, &save)) != nullptr)
@@ -2207,7 +2207,7 @@ int getskewedframe(WFDB_Sample *vector)
         if (is->info.nsamp >= 0 && --is->info.nsamp == 0 &&
             (is->info.cksum & 0xffff) && !in_msrec && !isedf &&
             is->info.fmt != 0) {
-            // wfdb-x: recorded but not printed during a high-level read
+            // WFDB-x: recorded but not printed during a high-level read
             // (which reports the checksum error itself)
             bool print = checksum_quiet ? wfdb_set_error_print(false) : true;
             wfdb_error("getvec: checksum error in signal %d\n", s);
@@ -2290,7 +2290,7 @@ int rgetvec(WFDB_Sample *vector)
 // ---------------------------------------------------------------------------
 // Opening output signals
 
-// wfdb-x: an output signal file is never one of the input files.  In normal
+// WFDB-x: an output signal file is never one of the input files.  In normal
 // mode, openosig refuses to create (and so to truncate) an output signal file
 // that is the same file as a signal file of the open input record: a signal
 // file open for input, or a signal file of any segment of the open
@@ -2491,7 +2491,7 @@ int openosig(const char *func, WFDB_Siginfo *si_out, const WFDB_Siginfo *si_in,
                     os->info.fmt = 16;
             }
             if (os->info.fmt != 0) {
-                // wfdb-x: never an input file (see is_input_file)
+                // WFDB-x: never an input file (see is_input_file)
                 if (!legacy_mode && is_input_file(cstr(os->info.fname))) {
                     wfdb_error("%s: output file %s is also an input file\n",
                                func, cstr_or_null(os->info.fname));
@@ -2784,7 +2784,7 @@ int isigopen(const char *record_arg, WFDB_Siginfo *siarray, int nsig)
         if (hs->info.fmt == 0)
             ig->fp.reset();     // Don't open a file for a null signal.
         else {
-            // wfdb-x: in the directory of the header
+            // WFDB-x: in the directory of the header
             ig->fp = legacy_mode
                 ? wfdb_open(cstr(hs->info.fname), nullptr, WFDB_READ)
                 : wfdbx_open_in(hdr_dir, nullptr, cstr(hs->info.fname), record);
@@ -3019,7 +3019,7 @@ int setifreq(WFDB_Frequency f)
 
     if (g <= 0.0) {
         ifreq = 0.0;
-        if (nisig > 0 && !legacy_mode)  // wfdb-x: the frequency is unspecified
+        if (nisig > 0 && !legacy_mode)  // WFDB-x: the frequency is unspecified
             wfdb_error("setifreq: sampling frequency is not specified\n");
         else
             wfdb_error("setifreq: no open input record\n");
@@ -3130,7 +3130,7 @@ int getframe(WFDB_Sample *vector)
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: bulk reading for getvecs (the equivalent of _bulk_frames in
+// WFDB-x: bulk reading for getvecs (the equivalent of _bulk_frames in
 // python/src/wfdbx/_signal.py).
 //
 // bulk_frames() decodes up to n sample vectors at once (whole frames), group
@@ -3463,33 +3463,54 @@ long long bulk_frames(WFDB_Sample *out, long long n)
         bulk_decode(bg.fmt, src, m, raw.data());
         if (bg.ns > 1) bulk_last_unit(ig, bg.fmt, src + need - bg.nb);
         const int inval = bulk_invalid(bg.fmt);
+        // Signal by signal, in tiles of frames that stay in the cache, with
+        // the last sample and the checksum of each signal of the group kept
+        // in gs[].
+        struct SigState { int spf, samp, cksum; size_t pos, col; };
+        static std::vector<SigState> gs;
+        gs.clear();
         size_t c = 0;   // first sample of the signal in the group's frame
         for (unsigned s : bg.sigs) {
-            ISData *is = isd[s].get();
-            const int spf = is->info.spf;
-            int samp = is->samp, cksum = is->info.cksum;
-            const int *r = raw.data() + c;
-            WFDB_Sample *o = in + pos[s];
-            if (bg.fmt == 8) {
-                for (long long i = 0; i < nf; i++, r += gfl, o += istride)
-                    for (int j = 0; j < spf; j++) {
-                        o[j] = samp = iadd(samp, r[j]);
-                        cksum = isub(cksum, samp);
-                    }
-            } else {
-                for (long long i = 0; i < nf; i++, r += gfl, o += istride)
-                    for (int j = 0; j < spf; j++) {
-                        int v = r[j];
-                        if (v == inval)
-                            o[j] = pad ? samp : WFDB_INVALID_SAMPLE;
-                        else
-                            o[j] = samp = v;
-                        cksum = isub(cksum, v);
-                    }
+            gs.push_back({isd[s]->info.spf, isd[s]->samp, isd[s]->info.cksum,
+                          pos[s], c});
+            c += static_cast<size_t>(isd[s]->info.spf);
+        }
+        constexpr long long tile = 1024;
+        for (long long i0 = 0; i0 < nf; i0 += tile) {
+            const long long i1 = std::min(nf, i0 + tile);
+            for (SigState &st : gs) {
+                const int spf = st.spf;
+                int samp = st.samp, cksum = st.cksum;
+                const int *r = raw.data() + static_cast<size_t>(i0) * gfl +
+                               st.col;
+                WFDB_Sample *o = in + static_cast<size_t>(i0) * istride +
+                                 st.pos;
+                if (bg.fmt == 8) {
+                    for (long long i = i0; i < i1; i++, r += gfl, o += istride)
+                        for (int j = 0; j < spf; j++) {
+                            o[j] = samp = iadd(samp, r[j]);
+                            cksum = isub(cksum, samp);
+                        }
+                } else {
+                    for (long long i = i0; i < i1; i++, r += gfl, o += istride)
+                        for (int j = 0; j < spf; j++) {
+                            int v = r[j];
+                            if (v == inval)
+                                o[j] = pad ? samp : WFDB_INVALID_SAMPLE;
+                            else
+                                o[j] = samp = v;
+                            cksum = isub(cksum, v);
+                        }
+                }
+                st.samp = samp;
+                st.cksum = cksum;
             }
-            is->samp = samp;
-            is->info.cksum = cksum;
-            c += static_cast<size_t>(spf);
+        }
+        size_t k = 0;
+        for (unsigned s : bg.sigs) {
+            isd[s]->samp = gs[k].samp;
+            isd[s]->info.cksum = gs[k].cksum;
+            k++;
         }
     }
     if (nf == 0) return 0;
@@ -3619,7 +3640,7 @@ long long getvecs(WFDB_Sample *out, long long n, int *status)
         // samples otherwise.
         const bool frames = ispfmax < 2;
         size_t stride = static_cast<size_t>(frames ? tspf : nvsig);
-        // wfdb-x: vectors are read in bulk where possible (bulk_frames), and
+        // WFDB-x: vectors are read in bulk where possible (bulk_frames), and
         // one at a time otherwise (if ispfmax < 2, getvec is getframe, which
         // is getskewedframe).  Bulk reading is tried again when a
         // multi-segment record moves to another segment.
@@ -4029,7 +4050,7 @@ int setmsheader(const char *record_arg, const char *const *segment_name,
         }
         in_msrec = 1;
         nsamples = 0;
-        user_segments = true;   // wfdb-x: names given by the caller
+        user_segments = true;   // WFDB-x: names given by the caller
         n = readheader(segment_name[i]);
         user_segments = false;
         in_msrec = old_in_msrec;
@@ -4477,7 +4498,7 @@ WFDB_Time fstrtim(const char *string, WFDB_Frequency f)
 
 namespace {
 
-// wfdb-x: the time conversion functions need a sampling frequency; the C
+// WFDB-x: the time conversion functions need a sampling frequency; the C
 // library used 1 sample per second when none was specified.  Without one,
 // timstr and mstimstr report an error and return the time as a sample number
 // ("s" followed by the number, a valid strtim argument), and strtim reports
@@ -4642,7 +4663,7 @@ std::string datstr(WFDB_Date date)
 {
     int d, m, y;
 
-    // wfdb-x: the calendar computation is in wfdbx_julian_ymd (also used by
+    // WFDB-x: the calendar computation is in wfdbx_julian_ymd (also used by
     // the high-level readers)
     wfdbx_julian_ymd(date, &y, &m, &d);
     std::snprintf(date_string, sizeof(date_string), " %02d/%02d/%d", d, m, y);
@@ -4685,7 +4706,7 @@ WFDB_Date strdat(const char *string)
 
 namespace {
 
-// wfdb-x: the unit conversion functions need the gain of the signal; the C
+// WFDB-x: the unit conversion functions need the gain of the signal; the C
 // library assumed WFDB_DEFGAIN (200 adu per physical unit) for uncalibrated
 // signals (gain 0) and invalid signal numbers (with a baseline of 0), as
 // legacy mode does.  Otherwise they report an error and return

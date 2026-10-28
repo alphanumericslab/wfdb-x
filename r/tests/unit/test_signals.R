@@ -249,7 +249,7 @@ if (.mode == "source") {
   setgvmode(0)
   wfdbquit()
 
-  # ---- amplitude conversion (wfdb-x: invalid signal numbers give
+  # ---- amplitude conversion (WFDB-x: invalid signal numbers give
   # WFDB_INVALID_SAMPLE or NaN; C assumed a gain of 200)
   isig("100s")
   wfdbquiet()
@@ -522,7 +522,7 @@ if (.mode == "source") {
   expect_equal(vec(3), c(-3, 0, 0, 0), "flac getvec after failed seek (2)")
   wfdbquit()
 
-  # Frame numbers without a record: wfdb-x: no sampling frequency, so an
+  # Frame numbers without a record: WFDB-x: no sampling frequency, so an
   # error and 0 (C: frame frequency 0, a division by zero giving LONG_MIN).
   wfdbquiet()
   expect_equal(strtim("f5"), 0, "strtim f5")
@@ -581,6 +581,53 @@ if (.mode == "source") {
     }
   }
   check(ok, "putframes == putvec (signal files and headers, all formats)")
+  # several groups (of different formats, with several samples per frame),
+  # frames written in several calls, values beyond the range of the format
+  # (wrapped as C does)
+  write_groups <- function(si, x, chunks) {
+    wfdbquit()
+    osigfopen(si, length(si))
+    setsampfreq(360)
+    if (chunks) {
+      for (r in split(seq_len(nrow(x)), ceiling(seq_len(nrow(x)) * chunks / nrow(x))))
+        putframes(x[r, , drop = FALSE])
+    } else {
+      # (putvec takes a frame: the samples of each signal in turn)
+      for (i in seq_len(nrow(x))) putvec(x[i, ])
+    }
+    newheader("pg")
+    wfdbquit()
+    list(rf("pg0.dat"), rf("pg1.dat"), rf("pg2.dat"), rf("pg.hea"))
+  }
+  for (fmts in list(c(212, 16, 310), c(16, 61, 311), c(80, 24, 32), c(160, 8, 212))) {
+    si <- list(siginfo(fname = "pg0.dat", gain = 200, fmt = fmts[1L], group = 0, spf = 2, adcres = 12),
+               siginfo(fname = "pg0.dat", gain = 200, fmt = fmts[1L], group = 0, spf = 1, adcres = 12),
+               siginfo(fname = "pg1.dat", gain = 200, fmt = fmts[2L], group = 1, spf = 1, adcres = 12),
+               siginfo(fname = "pg2.dat", gain = 200, fmt = fmts[3L], group = 2, spf = 3, adcres = 12),
+               siginfo(fname = "pg2.dat", gain = 200, fmt = fmts[3L], group = 2, spf = 1, adcres = 12))
+    for (n in c(1, 5, 999, 7001)) {
+      set.seed(n + fmts[1L])
+      x <- matrix(floor(runif(n * 8, -40000, 40000)), n, 8)
+      if (8 %in% fmts) x[, 4] <- cumsum(sample.int(201, n, replace = TRUE) - 101)
+      x[runif(n * 8) < 0.02] <- WFDB_INVALID_SAMPLE
+      ref <- write_groups(si, x, 0)
+      for (chunks in unique(pmin(c(1, 3, 7), n)))
+        check(identical(write_groups(si, x, chunks), ref),
+              sprintf("putframes == putvec: groups of formats %s, %d frames in %d calls",
+                      paste(fmts, collapse = ","), n, chunks))
+    }
+  }
+  # write_record of an integer matrix, and of a matrix with dimnames: the
+  # same files as of the plain double matrix
+  x <- matrix(as.integer(floor(runif(3000, -2000, 2000))), 1000, 3)
+  wr <- function(m) {
+    write_record("wm", m, 360, fmt = 212, gains = 200, adcres = 12, units = "mV")
+    list(rf("wm.dat"), rf("wm.hea"))
+  }
+  ref <- wr(x + 0)
+  y <- x + 0
+  dimnames(y) <- list(NULL, c("a", "b", "c"))
+  check(identical(wr(x), ref) && identical(wr(y), ref), "write_record: integer matrix, dimnames")
 
   # ---- the output directory (wfdbx_set_output_dir; port of t_outdir in
   # tests/reference/api_expect.c, python test_api.py::test_output_dir)

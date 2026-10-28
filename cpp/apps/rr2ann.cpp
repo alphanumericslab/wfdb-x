@@ -10,7 +10,7 @@
 // Changes from the original: no built-in sampling frequency: -F FREQ is
 // required when the record has no header or its header gives none (the
 // original assumed 250 Hz); --legacy, as the first argument, restores the
-// original behavior. Each change is marked "wfdb-x:" in the code;
+// original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/rr2ann.c, WFDB Software Package 10.7.0.
@@ -71,7 +71,7 @@ static const char *help_strings[] = {
     nullptr
 };
 
-// wfdb-x: the help text of the original program, printed in legacy mode
+// WFDB-x: the help text of the original program, printed in legacy mode
 static const char *legacy_help_strings[] = {
     "usage: %s -r RECORD -a ANNOTATOR [OPTIONS ...] <TEXT-FILE\n",
     "where RECORD and ANNOTATOR specify the output, and OPTIONS may include:",
@@ -97,7 +97,7 @@ static const char *legacy_help_strings[] = {
 
 static void help()
 {
-    // wfdb-x: the original help text in legacy mode
+    // WFDB-x: the original help text in legacy mode
     const char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;
 
     std::fprintf(stderr, hs[0], pname);
@@ -107,7 +107,7 @@ static void help()
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -187,7 +187,7 @@ int main(int argc, char **argv)
     // sampfreq is likely to fail, since the header probably doesn't exist.
     // Suppress its error message.
     wfdbquiet();
-    // wfdb-x: no default sampling frequency (the C program assumed 250 Hz,
+    // WFDB-x: no default sampling frequency (the C program assumed 250 Hz,
     // as legacy mode does); -F specifies one if the record header does not.
     WFDB_Frequency f;
     if ((f = sampfreq(record)) <= 0.0) {

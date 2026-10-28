@@ -10,7 +10,7 @@
 //
 // Changes from the original: no built-in sampling frequency: the record must
 // give it (the original assumed 250 Hz); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "wfdb-x:" in the code;
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/wfdbtime.c, WFDB Software Package 10.7.0.
@@ -43,7 +43,7 @@ fun Wfdb.wfdbtimeMain(argv0: Array<ByteArray>): Int {
             record = argv[i]
             if (isigopen(argv[i], null, 0) < 0) exit(2)
             if (!legacy && sampfreq(null) <= 0.0) {
-                // wfdb-x: no default sampling frequency (except in legacy mode)
+                // WFDB-x: no default sampling frequency (except in legacy mode)
                 eprintf("%s: sampling frequency of record %s is not specified\n", argv[0], argv[i])
                 exit(2)
             }

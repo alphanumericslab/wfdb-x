@@ -45,7 +45,7 @@ end
 _makeid_nulls(n::Integer) = cout_write(zeros(UInt8, n))
 
 function makeid_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     wfdbx_legacy_args(args)
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]

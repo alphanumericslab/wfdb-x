@@ -19,7 +19,7 @@
 // adu/mV, a resolution based on the format, and millivolts); -G 0 declares the
 // signals uncalibrated; -G, -R and -U take one value per signal; --legacy, as
 // the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1993-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -187,7 +187,7 @@ private val WRSAMP_HELP = arrayOf(
 private const val PAGELINES = 23
 
 /**
- * wfdb-x: the lines of WRSAMP_HELP that differ in the help text of the
+ * WFDB-x: the lines of WRSAMP_HELP that differ in the help text of the
  * original program (printed in legacy mode): each is replaced by the
  * original line, or left out (null).
  */
@@ -237,8 +237,8 @@ fun Wfdb.wrsampMain(argv0: Array<ByteArray>): Int {
     val pname = progName(argv[0])
     var gain = ByteArray(0)
     var scale = ByteArray(0)
-    var res = ByteArray(0) // wfdb-x: -R
-    var uopt: ByteArray? = null // wfdb-x: -U
+    var res = ByteArray(0) // WFDB-x: -R
+    var uopt: ByteArray? = null // WFDB-x: -U
     var record: ByteArray? = null
     var delim = " \t\r\n,".latin1() // defpmode.delim
     var rsep = '\n'.code
@@ -248,7 +248,7 @@ fun Wfdb.wrsampMain(argv0: Array<ByteArray>): Int {
     var ustrings: List<ByteArray> = emptyList()
     var haveDstrings = false
     var haveUstrings = false
-    // wfdb-x: no default frequency (legacy mode: that of the C program)
+    // WFDB-x: no default frequency (legacy mode: that of the C program)
     var freq = if (legacy) WFDB_DEFFREQ else 0.0
     var dflag = false
     var format = 16
@@ -294,14 +294,14 @@ fun Wfdb.wrsampMain(argv0: Array<ByteArray>): Int {
                 wrsampHelp(pname)
                 exit(1)
             }
-            c == 'R' && !legacy -> { // wfdb-x: ADC resolution(s) in bits
+            c == 'R' && !legacy -> { // WFDB-x: ADC resolution(s) in bits
                 if (++i >= argc) {
                     eprintf("%s: ADC resolution(s) must follow -R\n", pname)
                     exit(1)
                 }
                 res = cstr(argv[i])
             }
-            c == 'U' && !legacy -> { // wfdb-x: units
+            c == 'U' && !legacy -> { // WFDB-x: units
                 if (++i >= argc) {
                     eprintf("%s: units must follow -U\n", pname)
                     exit(1)
@@ -386,7 +386,7 @@ fun Wfdb.wrsampMain(argv0: Array<ByteArray>): Int {
         i++
     }
 
-    // wfdb-x: the sampling frequency, the gains, the ADC resolutions, and the
+    // WFDB-x: the sampling frequency, the gains, the ADC resolutions, and the
     // units (of calibrated signals) must be specified when a header is
     // written (the C program assumed 250 Hz, 200 adu/mV, a resolution based
     // on the format, and millivolts), as legacy mode does.
@@ -555,7 +555,7 @@ fun Wfdb.wrsampMain(argv0: Array<ByteArray>): Int {
         s.desc = if (haveDstrings) dstrings.getOrNull(fv[k])?.copyOf() ?: ByteArray(0) else cformat("col %d", fv[k])
         val u = uopt
         if (u != null) {
-            // wfdb-x: -U (the last one applies to the rest)
+            // WFDB-x: -U (the last one applies to the rest)
             var q = up
             while (u.at(q) == ' '.code) q++
             up = q
@@ -574,11 +574,11 @@ fun Wfdb.wrsampMain(argv0: Array<ByteArray>): Int {
         s.fmt = format
         s.spf = 1
         s.bsize = 0
-        // wfdb-x: the ADC resolutions are given by -R (the last one applies to
+        // WFDB-x: the ADC resolutions are given by -R (the last one applies to
         // the remaining signals); the C program inferred them from the format
         // or assumed WFDB_DEFRES, as legacy mode does.
         if (legacy) {
-            s.adcres = legacyAdcres(format) // wfdb-x: legacy mode
+            s.adcres = legacyAdcres(format) // WFDB-x: legacy mode
         } else {
             while (res.at(rp) == ' '.code) rp++
             val r = CInt(0)
@@ -599,14 +599,14 @@ fun Wfdb.wrsampMain(argv0: Array<ByteArray>): Int {
         while (gain.at(gp) == ' '.code) gp++
         val g = CDouble(0.0)
         if (scanF64(from(gain, gp), g) < 1) {
-            // wfdb-x: C (legacy mode): WFDB_DEFGAIN
+            // WFDB-x: C (legacy mode): WFDB_DEFGAIN
             val g0 = if (legacy) WFDB_DEFGAIN else 0.0
             s.gain = if (k == 0) g0 else si[k - 1].gain
         } else {
             s.gain = g.v
             while (gp < gain.size && gain[gp] != ' '.code.toByte()) gp++
         }
-        // wfdb-x: the units of a calibrated signal must be specified, by -U
+        // WFDB-x: the units of a calibrated signal must be specified, by -U
         // or by the input (the C program left them out: millivolts).
         if (check && s.gain != 0.0 && (s.units?.isEmpty() ?: true)) {
             eprintf("%s: the units must be specified (-U)\n", pname)

@@ -19,7 +19,7 @@
 // adu/mV, a resolution based on the format, and millivolts); -G 0 declares the
 // signals uncalibrated; -G, -R and -U take one value per signal; --legacy, as
 // the first argument, restores the original behavior. Each change is marked
-// "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1993-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -207,7 +207,7 @@ const HELP_STRINGS: &[&str] = &[
 /// Lines of the usage summary shown before each "--More--" prompt.
 const PAGELINES: usize = 23;
 
-/// wfdb-x: the lines of `HELP_STRINGS` that differ in the help text of the
+/// WFDB-x: the lines of `HELP_STRINGS` that differ in the help text of the
 /// original program (printed in legacy mode): each is replaced by the
 /// original line, or left out (`None`).
 const LEGACY_HELP_EDITS: &[(&str, Option<&str>)] = &[
@@ -261,13 +261,13 @@ fn scan_f64(s: &[u8], x: &mut f64) -> i32 {
 
 fn main() {
     let mut argv = cstd::args();
-    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // wfdb-x: --legacy
+    let legacy = wfdbx::wfdbx_legacy_args(&mut argv) != 0; // WFDB-x: --legacy
     let argc = argv.len();
     let pname = cstd::prog_name(&argv[0]).to_vec();
     let mut gain: Vec<u8> = Vec::new();
     let mut scale: Vec<u8> = Vec::new();
-    let mut res: Vec<u8> = Vec::new(); // wfdb-x: -R
-    let mut uopt: Option<Vec<u8>> = None; // wfdb-x: -U
+    let mut res: Vec<u8> = Vec::new(); // WFDB-x: -R
+    let mut uopt: Option<Vec<u8>> = None; // WFDB-x: -U
     let mut record: Option<Vec<u8>> = None;
     let mut delim: Vec<u8> = b" \t\r\n,".to_vec(); // defpmode.delim
     let mut rsep = b'\n';
@@ -277,7 +277,7 @@ fn main() {
     let mut ustrings: Vec<Vec<u8>> = Vec::new();
     let mut have_dstrings = false;
     let mut have_ustrings = false;
-    // wfdb-x: no default frequency (legacy mode: that of the C program)
+    // WFDB-x: no default frequency (legacy mode: that of the C program)
     let mut freq = if legacy { WFDB_DEFFREQ } else { 0.0 };
     let mut dflag = false;
     let mut format = 16;
@@ -329,7 +329,7 @@ fn main() {
                 cstd::exit(1);
             }
             b'R' if !legacy => {
-                // wfdb-x: ADC resolution(s) in bits
+                // WFDB-x: ADC resolution(s) in bits
                 i += 1;
                 if i >= argc {
                     ceprintf!(b"%s: ADC resolution(s) must follow -R\n", pname);
@@ -338,7 +338,7 @@ fn main() {
                 res = cstd::cstr(&argv[i]).to_vec();
             }
             b'U' if !legacy => {
-                // wfdb-x: units
+                // WFDB-x: units
                 i += 1;
                 if i >= argc {
                     ceprintf!(b"%s: units must follow -U\n", pname);
@@ -437,7 +437,7 @@ fn main() {
         i += 1;
     }
 
-    // wfdb-x: the sampling frequency, the gains, the ADC resolutions, and the
+    // WFDB-x: the sampling frequency, the gains, the ADC resolutions, and the
     // units (of calibrated signals) must be specified when a header is
     // written (the C program assumed 250 Hz, 200 adu/mV, a resolution based
     // on the format, and millivolts), as legacy mode does.
@@ -637,7 +637,7 @@ fn main() {
             wfdbx::cformat!(b"col %d", fv[k])
         });
         if let Some(u) = &uopt {
-            // wfdb-x: -U (the last one applies to the rest)
+            // WFDB-x: -U (the last one applies to the rest)
             let mut q = up;
             while u.get(q) == Some(&b' ') {
                 q += 1;
@@ -664,11 +664,11 @@ fn main() {
         s.fmt = format;
         s.spf = 1;
         s.bsize = 0;
-        // wfdb-x: the ADC resolutions are given by -R (the last one applies
+        // WFDB-x: the ADC resolutions are given by -R (the last one applies
         // to the remaining signals); the C program inferred them from the
         // format or assumed WFDB_DEFRES, as legacy mode does.
         if legacy {
-            s.adcres = legacy_adcres(format); // wfdb-x: legacy mode
+            s.adcres = legacy_adcres(format); // WFDB-x: legacy mode
         } else {
             while res.get(rp) == Some(&b' ') {
                 rp += 1;
@@ -695,7 +695,7 @@ fn main() {
         }
         let mut g = 0.0;
         if scan_f64(&gain[gp.min(gain.len())..], &mut g) < 1 {
-            // wfdb-x: C (legacy mode): WFDB_DEFGAIN
+            // WFDB-x: C (legacy mode): WFDB_DEFGAIN
             let g0 = if legacy { WFDB_DEFGAIN } else { 0.0 };
             si[k].gain = if k == 0 { g0 } else { si[k - 1].gain };
         } else {
@@ -704,7 +704,7 @@ fn main() {
                 gp += 1;
             }
         }
-        // wfdb-x: the units of a calibrated signal must be specified, by -U
+        // WFDB-x: the units of a calibrated signal must be specified, by -U
         // or by the input (the C program left them out: millivolts).
         if check && si[k].gain != 0.0 && si[k].units.as_deref().unwrap_or_default().is_empty() {
             ceprintf!(b"%s: the units must be specified (-U)\n", pname);

@@ -28,7 +28,7 @@ classdef WFDBFile < handle
 %   is_std (true for the standard input and output) and out (true for an
 %   output file, and for the standard output).
 %
-%   wfdb-x: closing an output file that could not be written, flushed or
+%   WFDB-x: closing an output file that could not be written, flushed or
 %   closed counts as a write error (see wfdbx.wfdbx_write_errors).  As
 %   Octave's fflush does not report a failure, an output file is flushed
 %   by fseek(fp, 0, 'cof') where it is seekable.
@@ -54,7 +54,7 @@ classdef WFDBFile < handle
 %
 % Changes from the original: a field names the temporary file that holds the
 % contents of a remote file; write errors are counted. Each change is marked
-% "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
@@ -71,8 +71,8 @@ classdef WFDBFile < handle
         type = 0        % WFDB_LOCAL (0) or WFDB_NET (1)
         name = ''       % file name ('-' for the standard streams)
         is_std = false  % standard input or output
-        out = false     % wfdb-x: an output file (see close)
-        temp = ''       % wfdb-x: a temporary file deleted by close() (the
+        out = false     % WFDB-x: an output file (see close)
+        temp = ''       % WFDB-x: a temporary file deleted by close() (the
                         % contents of a remote file; see fetch_open)
     end
 
@@ -289,7 +289,7 @@ classdef WFDBFile < handle
 
         function st = close(obj)
             %CLOSE fclose() (the standard streams are only flushed).
-            % wfdb-x: an output file that could not be written, flushed
+            % WFDB-x: an output file that could not be written, flushed
             % or closed counts as a write error (see
             % wfdbx.wfdbx_write_errors)
             st = 0;

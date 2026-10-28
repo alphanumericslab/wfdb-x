@@ -117,7 +117,7 @@ setenv('WFDBANNSORT', old);
 r = wfdbx.read_annotations('100s', 'ooo');
 assert_eq([r.samples, r.codes], [100 200 300; 5 1 1].', 'sorted by oannclose');
 
-% wfdb-x: out-of-order annotations are sorted in this process (in legacy
+% WFDB-x: out-of-order annotations are sorted in this process (in legacy
 % mode, by running sortann, as the C library)
 sort_in_process(C);
 sort_legacy_in_output_dir();
@@ -317,7 +317,7 @@ assert_eq(wfdbx.annstr(42), 'Z', 'library table after the sort');
 rest = [20 C.NORMAL 0 0; 50 C.PVC 0 0; 75 C.NORMAL 2 0; ...
     100 C.PVC 0 0; 100 C.APC 1 0; 100 C.NORMAL 0 1; 150 C.NOISE 3 -1; ...
     150 C.NOISE 3 0; 200 C.RHYTHM 0 0; 5000 C.NORMAL 0 0];
-% wfdb-x: nothing is lost (the time-0 annotation that follows later ones,
+% WFDB-x: nothing is lost (the time-0 annotation that follows later ones,
 % and the one at time 5 inserted next to it, are kept)
 assert_eq(read_all('srt', 1000), [0 C.NORMAL 0 0; 5 C.NORMAL 1 0; rest], ...
     'sorted in process');

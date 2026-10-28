@@ -223,7 +223,7 @@ WFDBX_TEST(c_version_and_errors)
 WFDBX_TEST(c_path_and_wfdbfile)
 {
     DataDir d;  // (setwfdb("."))
-    // wfdb-x: setwfdb sets a single input directory ("a b" is an error);
+    // WFDB-x: setwfdb sets a single input directory ("a b" is an error);
     // resetwfdb restores that of the last setwfdb, and wfdbquit leaves it as
     // it is.
     wfdbquiet();
@@ -314,7 +314,7 @@ WFDBX_TEST(c_amplitude_conversion)
 {
     DataDir d;
     isig("100s");   // gain 200, baseline 1024
-    // (wfdb-x: invalid signal numbers give WFDB_INVALID_SAMPLE or NaN; C
+    // (WFDB-x: invalid signal numbers give WFDB_INVALID_SAMPLE or NaN; C
     // assumed the gain WFDB_DEFGAIN; see docs/DIVERGENCES.md)
     wfdbquiet();
     CHECK_EQ(adumuv(0, 200), 1000);
@@ -953,7 +953,7 @@ WFDBX_TEST(c_uncalibrated_signals)
 {
     DataDir d;
     isig("null");       // gain 0
-    // (wfdb-x: no default gain; C assumed WFDB_DEFGAIN)
+    // (WFDB-x: no default gain; C assumed WFDB_DEFGAIN)
     wfdbquiet();
     CHECK_EQ(adumuv(0, 100), WFDB_INVALID_SAMPLE);
     CHECK_EQ(muvadu(1, 100), WFDB_INVALID_SAMPLE);
@@ -1262,7 +1262,7 @@ WFDBX_TEST(c_legacy)
 }
 
 // ---------------------------------------------------------------------------
-// wfdb-x: the output directory (wfdbx_set_output_dir; t_outdir in
+// WFDB-x: the output directory (wfdbx_set_output_dir; t_outdir in
 // api_expect.c), the sorting of out-of-order output annotation files in this
 // process (legacy mode: by the sortann program), and input files named by
 // absolute paths
@@ -1272,7 +1272,7 @@ namespace {
 
 // Out-of-order annotations with ties in time, num and chan, duplicates (the
 // last one is kept), NOTQRS (dropped), aux strings, and a time 0 annotation
-// that precedes the others (wfdb-x: kept; dropped by the original sortann,
+// that precedes the others (WFDB-x: kept; dropped by the original sortann,
 // with the one at time 5 inserted after it, see docs/KNOWN_C_BEHAVIORS.md).
 // The same as TRICKY in python/tests/test_annotations.py.
 Annotations tricky()
@@ -1363,7 +1363,7 @@ static void sort_in_process()
     }
     // (the library's settings and tables are unchanged)
     CHECK(getafreq() == 0 && annstr(42) == "Z" && !anndesc(42));
-    // The result, read back (in ticks of the time resolution).  wfdb-x:
+    // The result, read back (in ticks of the time resolution).  WFDB-x:
     // nothing is lost; the original sortann loses the annotation at time 0,
     // and the one at time 5 inserted after it.
     const std::vector<std::vector<long long>> rest = {
@@ -1685,7 +1685,7 @@ static void outdir()
     CHECK(ann(0) == (std::vector<long long>{0, 30, 1, 0, 0, 0}));
     CHECK_EQ(ann(0)[0], -1);
     wfdbquit();
-    setwfdb(".");   // (wfdb-x: the setting of the last setwfdb remains)
+    setwfdb(".");   // (WFDB-x: the setting of the last setwfdb remains)
     sortfix();
 }
 
@@ -1735,7 +1735,7 @@ WFDBX_TEST(c_absolute_paths)
     wfdbverbose();
 }
 
-// The annotation list (wfdb-x: an out-of-order annotation at time 0, num 0,
+// The annotation list (WFDB-x: an out-of-order annotation at time 0, num 0,
 // chan 0 is not lost; legacy: as by the original sortann).
 WFDBX_TEST(c_annlist_time0)
 {

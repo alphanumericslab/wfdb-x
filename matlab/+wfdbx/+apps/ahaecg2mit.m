@@ -16,7 +16,7 @@ function status = ahaecg2mit(args)
 %   physical unit), ADC resolution (bits) and units of the signals.  The
 %   options precede the input files, in any order.
 %
-%   wfdb-x: -F, -G, -R and -U are new and required (-U unless the gain is
+%   WFDB-x: -F, -G, -R and -U are new and required (-U unless the gain is
 %   0); the C program assumed the parameters of the AHA database (250 Hz,
 %   400 adu/mV, 12 bits, millivolts): use -F 250 -G 400 -R 12 -U mV for
 %   the AHA DVD files; see docs/DIVERGENCES.md.
@@ -48,7 +48,7 @@ function status = ahaecg2mit(args)
 % millivolts); the options precede the input files, in any order; the
 % short-format part of a long-format file (skipped by -s) is located from -F;
 % --legacy, as the first argument, restores the original behavior. Each change
-% is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 %   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source has
@@ -71,7 +71,7 @@ ep = @wfdbx.internal.ceprintf;
 argc = numel(argv);
 legacy = wfdbx.wfdbx_get_legacy();
 if argc < 2 || strcmp(argv{2}, '-h')
-    if legacy   % wfdb-x: the usage of the C program
+    if legacy   % WFDB-x: the usage of the C program
         ep('usage: %s [-s] RECORD.XXX [RECORD.XXX]...\n', argv{1});
     else
         ep(['usage: %s [-s] -F FREQ -G GAIN -R BITS -U UNITS RECORD.XXX ' ...
@@ -100,13 +100,13 @@ if argc < 2 || strcmp(argv{2}, '-h')
 end
 SKIP_MINUTES = 145;     % the part of a long-format record not in the short one
 FRAME_BYTES = 5;        % bytes per sample frame of a binary (.ecg) file
-% wfdb-x: options (-s and the signal parameters) precede the input files,
+% WFDB-x: options (-s and the signal parameters) precede the input files,
 % in any order.
 P = wfdbx.internal.sigparams();
 sflag = 0;
 i = 1;
 if legacy
-    % wfdb-x: in legacy mode, the option of the C program (-s only, as the
+    % WFDB-x: in legacy mode, the option of the C program (-s only, as the
     % first argument), and the parameters of the AHA database that it set
     % (250 Hz, 400 adu/mV, 12 bits, millivolts).
     if strcmp(argv{2}, '-s')
@@ -135,7 +135,7 @@ while ~legacy && i < argc
     end
     i = i + 1;
 end
-% wfdb-x: the signal parameters must be given explicitly (see
+% WFDB-x: the signal parameters must be given explicitly (see
 % docs/DIVERGENCES.md); in legacy mode, these checks pass.
 [P, ok] = wfdbx.internal.sigparams(argv{1}, P, 'FGRU');
 if ~ok
@@ -185,7 +185,7 @@ status = 0;
 end
 
 function process(record, V, A, P)
-wfdbx.setsampfreq(P.F);   % wfdb-x: -F (the C program set 250 Hz)
+wfdbx.setsampfreq(P.F);   % WFDB-x: -F (the C program set 250 Hz)
 ofname = [record '.dat'];
 si = wfdbx.siginfo(2);
 for k = 1:2

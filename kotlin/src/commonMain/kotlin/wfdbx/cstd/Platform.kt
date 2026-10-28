@@ -141,7 +141,7 @@ internal expect object Platform {
     /** Ends the process (without flushing anything). */
     fun exit(status: Int): Nothing
 
-    /** The current directory (absolute), or null if unknown (wfdb-x: for checkRecord). */
+    /** The current directory (absolute), or null if unknown (WFDB-x: for checkRecord). */
     fun currentDir(): ByteArray?
 
     /** A file name given as a string, as bytes in the encoding of file names (for the high-level API). */

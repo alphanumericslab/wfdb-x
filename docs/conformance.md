@@ -45,7 +45,8 @@ Blobs larger than 64 KB are stored as SHA-256 digests (`*.sha256`).
 Write errors are tested with `/dev/full`, a device on which every write
 fails ("no space left on device"): a case can create output files as links
 to it (`full`), and send the standard output there (`stdout_full`). These
-cases are skipped where `/dev/full` does not exist (it does on Linux).
+cases are skipped where `/dev/full` does not exist (macOS and Windows; it
+exists on Linux), and the summary says how many.
 
 The golden directory names are case-sensitive: a capital letter in a case id
 is stored as `^` and the letter in lower case (`rdsamp-r_100s_S` is
@@ -87,21 +88,19 @@ Cases run in parallel, as many at a time as the computer has processors;
 `-j N` sets the number (`-j 1` runs them one by one). `-x` stops at the
 first failure. The harness itself needs only Python 3.9 or later (the
 Python implementation also needs NumPy).
-The cases that write to `/dev/full` are skipped where it does not exist
-(macOS and Windows), and the summary says how many.
 
 `--impl` accepts `python`, `cpp`, `rust`, `julia`, `r`, `octave`, `matlab`,
 `kotlin`, or a command template containing `{tool}`. The environment
 variable `WFDBX_<IMPL>_CMD` overrides the template of a named
-implementation, (for `cpp` and `rust`) `WFDBX_<IMPL>_BIN` names another
-directory of tools, and (for `kotlin`) `WFDBX_KOTLIN_JAR` names another jar
+implementation; for `cpp` and `rust`, `WFDBX_<IMPL>_BIN` names another
+directory of tools; and for `kotlin`, `WFDBX_KOTLIN_JAR` names another jar
 of the tools.
 
 ## Regenerating golden results
 
 ```sh
-tests/reference/build_reference.sh /tmp/wfdb-ref
-python3 tests/conformance/harness.py golden --cbin /tmp/wfdb-ref/bin
+tests/reference/build_reference.sh build/wfdb-ref
+python3 tests/conformance/harness.py golden --cbin build/wfdb-ref/bin
 ```
 
 The C tools are run by name, with their directory first in `PATH`, so that

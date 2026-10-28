@@ -13,7 +13,7 @@
 // header); annotation times given in milliseconds (AHA file types 1 to 3) are
 // converted at the record's sampling frequency (the original assumed 4 ms per
 // sample); --legacy, as the first argument, restores the original behavior.
-// Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+// Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 // reasons.
 //
 // Original C program: convert/a2m.c, WFDB Software Package 10.7.0.
@@ -114,7 +114,7 @@ static const char *help_strings[] = {
     nullptr
 };
 
-// wfdb-x: the help text of the original program, printed in legacy mode
+// WFDB-x: the help text of the original program, printed in legacy mode
 static const char *legacy_help_strings[] = {
     "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
     "where AHAFILE is the name of the AHA-format input annotation file,",
@@ -138,7 +138,7 @@ static const char *legacy_help_strings[] = {
 
 static void help()
 {
-    // wfdb-x: the original help text in legacy mode
+    // WFDB-x: the original help text in legacy mode
     const char **hs = wfdbx_get_legacy() ? legacy_help_strings : help_strings;
 
     std::fprintf(stderr, hs[0], pname);
@@ -180,7 +180,7 @@ static int getcann(WFDB_Annotation *ap)
     return 0;
 }
 
-// Exit after reporting an unrecognized option (wfdb-x: also the WFDB-x
+// Exit after reporting an unrecognized option (WFDB-x: also the WFDB-x
 // options, in legacy mode).
 [[noreturn]] static void unrecognized(const char *arg)
 {
@@ -190,7 +190,7 @@ static int getcann(WFDB_Annotation *ap)
 
 int main(int argc, char **argv)
 {
-    // wfdb-x: --legacy as the first argument selects legacy mode (the
+    // WFDB-x: --legacy as the first argument selects legacy mode (the
     // behavior of the original program; see src/signal.cpp)
     wfdbx_legacy_args(argc, argv);
 
@@ -217,7 +217,7 @@ int main(int argc, char **argv)
                 oann = argv[i];
                 break;
             case 'F': // sampling frequency follows (WFDB-x)
-                if (wfdbx_get_legacy())   // wfdb-x: not in the original
+                if (wfdbx_get_legacy())   // WFDB-x: not in the original
                     unrecognized(argv[i]);
                 if (++i >= argc || std::sscanf(argv[i], "%lf", &Ffreq) != 1 ||
                     Ffreq <= 0.) {
@@ -325,7 +325,7 @@ int main(int argc, char **argv)
         std::exit(2);
 
     // Set the time shift.
-    // wfdb-x: if the record header does not give the sampling frequency, -F
+    // WFDB-x: if the record header does not give the sampling frequency, -F
     // must give it.  (The C program assumed the rate of the AHA database,
     // 250 Hz, if a header without a frequency existed, and 1 sample per
     // second if there was no header, as legacy mode does.)

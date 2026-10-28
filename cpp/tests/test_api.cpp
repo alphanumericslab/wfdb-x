@@ -725,7 +725,7 @@ WFDBX_TEST(mnemonics)
 }
 
 // ---------------------------------------------------------------------------
-// The output directory of the writers (wfdb-x: WriteOptions::dir and the dir
+// The output directory of the writers (WFDB-x: WriteOptions::dir and the dir
 // parameter of write_annotations())
 
 namespace {

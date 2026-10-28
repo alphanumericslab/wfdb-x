@@ -1,6 +1,8 @@
 function test_csprintf()
 %TEST_CSPRINTF Tests of wfdbx.internal.csprintf against glibc printf.
 %   The expected strings were produced by glibc printf() on x86-64 Linux.
+%   wfdbx.internal.format_rows (the vectorized printing of rdsamp) gives
+%   the text of sprintf.
 
 % This file is part of WFDB-x, an independent reimplementation of the WFDB
 % Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -100,6 +102,83 @@ assert_eq(wfdbx.internal.csprintf(f, 12, '', pnan, -1, 'q'), ...
 assert_eq(wfdbx.internal.csprintf('no conversions'), 'no conversions', ...
     'plain text');
 assert_eq(wfdbx.internal.csprintf(''), '', 'empty format');
+
+format_rows_check();
+end
+
+function format_rows_check()
+% format_rows prints random matrices as sprintf does (with "-" for the
+% elements to dash, as rdsamp substitutes it for NaN), or declines ([]).
+r = wfdbx.internal.GlibcRand(31);
+u = @(n) reshape(r.rand(n), [], 1) / wfdbx.internal.GlibcRand.RAND_MAX;
+specs = {{'', '\t', '\t'}, [15 7 7], [-1 -1 -1]; {'', ',', ','}, [0 0 0], [-1 -1 -1]; ...
+    {'', '\t', '\t'}, [15 7 7], [3 3 3]; {'', '\t'}, [15 15], [3 8]; ...
+    {'', ',', ','}, [0 0 0], [3 3 8]; {'', '\t'}, [15 7], [5 7]; ...
+    {'x', ' y '}, [3 2], [-1 0]; {''}, 0, 1};
+done = 0;
+for t = 1:120
+    sp = specs(1 + mod(t, size(specs, 1)), :);
+    q = numel(sp{1});
+    m = 1 + mod(t * 7, 60);
+    V = zeros(m, q);
+    for k = 1:q
+        e = floor(u(m) * 10);           % magnitudes 1 to 1e9
+        x = (u(m) - 0.5) * 2 .* 10 .^ e;
+        if sp{3}(k) < 0
+            V(:, k) = round(x);
+        elseif mod(t, 3) == 0
+            V(:, k) = round(x * 200) / 200;     % (adu / gain)
+        else
+            V(:, k) = x / 1000;
+        end
+    end
+    if sp{3}(end) >= 0 && m > 3
+        V(1:3, end) = [-0; -0.0004; 1e-9];
+    end
+    V(1, 1) = 0;
+    dash = [false(m, 1), reshape(u(m * (q - 1)), m, q - 1) < 0.1];
+    pre = cellfun(@sprintf, sp{1}, 'UniformOutput', false);
+    fmt = '';
+    for k = 1:q
+        fmt = [fmt sp{1}{k} conv(sp{2}(k), sp{3}(k))]; %#ok<AGROW>
+    end
+    W = V;
+    W(dash) = NaN;
+    want = sprintf([fmt '\n'], W.');
+    for k = 2:q
+        if sp{2}(k) > 0
+            dk = sprintf([sp{1}{k} '%' sprintf('%d', sp{2}(k)) 's'], '-');
+        else
+            dk = sprintf([sp{1}{k} '-']);
+        end
+        want = strrep(want, sprintf([sp{1}{k} conv(sp{2}(k), sp{3}(k))], NaN), dk);
+    end
+    got = wfdbx.internal.format_rows(V, pre, sp{2}, sp{3}, dash);
+    if ischar(got)
+        assert_eq(got, want, sprintf('format_rows, case %d: %s', t, fmt));
+        done = done + 1;
+    end
+end
+assert(done >= 80, 'format_rows: the vectorized path is used');
+% values it declines: non-finite, a %d non-integer, a rounding tie
+assert(isempty(wfdbx.internal.format_rows([1; Inf], {''}, 0, -1)), 'Inf');
+assert(isempty(wfdbx.internal.format_rows(1.5, {''}, 0, -1)), '%d of 1.5');
+assert(isempty(wfdbx.internal.format_rows(0.0625, {''}, 0, 3)), 'tie');
+assert_eq(wfdbx.internal.format_rows([7 -0 -2; -10 3 0], {'', ',', ' '}, ...
+    [3 0 4], [-1 2 -1]), sprintf('  7,-0.00   -2\n-10,3.00    0\n'), 'example');
+end
+
+function c = conv(w, p)
+% %Wd (P < 0) or %W.Pf (W = 0: no width)
+c = '%';
+if w > 0
+    c = [c sprintf('%d', w)];
+end
+if p < 0
+    c = [c 'd'];
+else
+    c = [c sprintf('.%df', p)];
+end
 end
 
 function x = nan_bits(hi)

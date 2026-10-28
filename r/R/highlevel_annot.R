@@ -63,7 +63,7 @@
 #'
 #' fs: the sampling frequency of the record, used (like the -F option of
 #' rdann) only if the record has no header or its header does not specify
-#' one.  wfdb-x: there is no default (C assumed 250 Hz; see
+#' one.  WFDB-x: there is no default (C assumed 250 Hz; see
 #' docs/DIVERGENCES.md): without one, the fs attribute of the result is
 #' that of the annotation file (0 if it does not specify one), and time
 #' strings that need the sampling frequency (wfdbx_time_needs_freq) are an
@@ -146,7 +146,7 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' subtype, chan and num are recycled; aux is a character vector (NA for
 #' none) or NULL.  If fs is given, it is recorded as the time resolution of
 #' the file (setafreq).  Annotations out of order are sorted when the file
-#' is closed (as the sortann tool does; wfdb-x: in this process, whereas the
+#' is closed (as the sortann tool does; WFDB-x: in this process, whereas the
 #' C library, as legacy mode, runs sortann), unless the WFDBANNSORT
 #' environment variable is 0.  dir: if given, the directory (which must
 #' exist) in which the file is created (record must not contain a
@@ -171,7 +171,7 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
     old <- wfdbx_set_legacy(TRUE)
     on.exit(wfdbx_set_legacy(old), add = TRUE)
   }
-  if (!is.null(dir) && nzchar(dir)) {       # wfdb-x: see .hl_output_dir
+  if (!is.null(dir) && nzchar(dir)) {       # WFDB-x: see .hl_output_dir
     .hl_check_output_dir(record, dir)
     old_dir <- wfdbx_set_output_dir(dir)
     on.exit(wfdbx_set_output_dir(old_dir), add = TRUE)

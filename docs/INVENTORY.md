@@ -15,11 +15,12 @@ Legend: **✓** implemented and tested.
 * *Library functions* are tested by the unit tests of each implementation
   (`python/tests/`, `cpp/tests/`, `matlab/tests/`, `rust/tests/`,
   `julia/test/`, `r/tests/`, `kotlin/src/commonTest/` and
-  `kotlin/src/jvmTest/`), with expected values produced by the C
-  library (`tests/reference/api_expect.c`), and through the tools that use
-  them. A differential test (about 10,000 random tool invocations and 950
-  library-level scripts, each run with the C library and every
-  implementation) found no remaining differences.
+  `kotlin/src/jvmTest/`), with expected values produced by the C library
+  (`tests/reference/api_expect.c`), and through the tools that use them.
+  During development, a differential test (about 10,000 random tool
+  invocations and 950 library-level scripts, each run with the C library and
+  every implementation; not part of the repository, but the cases it
+  motivated are in the conformance suite) found no remaining differences.
 
 MATLAB/Octave status: tested with GNU Octave 8.4 (MATLAB was not
 available; the code follows the MATLAB R2019b+ compatibility rules of

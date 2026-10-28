@@ -14,7 +14,10 @@
 
 cmake_minimum_required(VERSION 3.14)
 
-project(wfdbx VERSION 1.0.0 LANGUAGES CXX)
+project(wfdbx VERSION 1.1.0
+  DESCRIPTION "The WFDB Software Package (library and command-line tools) in C++, part of WFDB-x: the same package in seven languages"
+  HOMEPAGE_URL "https://github.com/alphanumericslab/wfdb-x"
+  LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,7 +40,7 @@ else()
   add_compile_options(-Wall -Wextra -Wpedantic -ffp-contract=off)
 endif()
 
-# wfdb-x: ferror and feof without locking the stream, where the C library
+# WFDB-x: ferror and feof without locking the stream, where the C library
 # has them (see src/wfdblib.hpp); ferror and feof otherwise.
 include(CheckCXXSymbolExists)
 check_cxx_symbol_exists(ferror_unlocked "stdio.h" WFDBX_HAVE_FERROR_UNLOCKED)
@@ -48,7 +51,7 @@ endif()
 if(WFDBX_HAVE_FEOF_UNLOCKED AND NOT WIN32)
   add_compile_definitions(WFDBX_HAVE_FEOF_UNLOCKED)
 endif()
-# wfdb-x: on_exit, which gives the exit status to the exit check of the tools
+# WFDB-x: on_exit, which gives the exit status to the exit check of the tools
 # (see src/wfdbio.cpp; glibc has it); atexit otherwise.
 check_cxx_symbol_exists(on_exit "stdlib.h" WFDBX_HAVE_ON_EXIT)
 if(WFDBX_HAVE_ON_EXIT)

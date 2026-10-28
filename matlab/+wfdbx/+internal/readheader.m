@@ -23,7 +23,7 @@ function nsig = readheader(record)
 % bits or a value based on the format); the signal files and segments named
 % in a header are read from the header's directory or below it, and a name
 % that is absolute, begins with '~', is a URL or contains '..' is refused.
-% Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
@@ -37,7 +37,8 @@ function nsig = readheader(record)
 % any later version. See LICENSE.
 
 S = wfdbx.internal.sig_state();
-sep = sprintf(' \t\n\r');
+sep = false(1, 256);   % the delimiters ' \t\n\r'
+sep(double(sprintf(' \t\n\r')) + 1) = true;
 if ~isempty(S.hheader)
     S.hheader.close();
     S.hheader = [];
@@ -123,8 +124,8 @@ if strncmp(line, '#wfdb', 5)
         return;
     end
 end
-tok = wfdbx.internal.Strtok(line);
-p = tok.next(sep);
+[t, rest] = tokens(line, sep, 4);
+p = t{1};
 while ~ischar(p) || p(1) == '#'
     line = hh.getline();
     if isempty(line)
@@ -133,8 +134,8 @@ while ~ischar(p) || p(1) == '#'
         nsig = -2;
         return;
     end
-    tok = wfdbx.internal.Strtok(line);
-    p = tok.next(sep);
+    [t, rest] = tokens(line, sep, 4);
+    p = t{1};
 end
 slash = find(p(2:end) == '/', 1);
 if ~isempty(slash)
@@ -165,17 +166,17 @@ if hh.type == 0 && ~hh.is_std && ~strncmp(record, p, numel(p))
         return;
     end
 end
-p = tok.next(sep);
+p = t{2};
 if ~ischar(p)
     wfdbx.internal.wfdb_error('init: obsolete format in record %s header\n', ...
         record);
     nsig = -2;
     return;
 end
-nsig = mod(wfdbx.internal.strtol(p), 4294967296);   % unsigned
-p = tok.next(sep);
+nsig = mod(tol(p), 4294967296);   % unsigned
+p = t{3};
 if ischar(p)
-    f = wfdbx.internal.strtod(p);
+    f = tod(p);
     if f <= 0
         wfdbx.internal.wfdb_error(['init: sampling frequency in record %s ' ...
             'header is incorrect\n'], record);
@@ -191,7 +192,7 @@ if ischar(p)
         S.ffreq = f;
     end
 elseif S.legacy_mode && S.ffreq == 0
-    % wfdb-x: if the header does not specify the sampling frequency (and
+    % WFDB-x: if the header does not specify the sampling frequency (and
     % the caller has not set one with setsampfreq), it remains unspecified
     % (0); the C library assumed WFDB_DEFFREQ (250 Hz), as legacy mode
     % does.  See docs/DIVERGENCES.md.
@@ -213,9 +214,9 @@ end
 if S.cfreq <= 0
     S.cfreq = S.ffreq;
 end
-p = tok.next(sep);
+p = t{4};
 if ischar(p)
-    ns = wfdbx.internal.strtol(p);
+    ns = tol(p);
     if ns < 0
         wfdbx.internal.wfdb_error(['init: number of samples in record %s ' ...
             'header is incorrect\n'], record);
@@ -235,14 +236,14 @@ if ischar(p)
 else
     ns = 0;
 end
-p = tok.next(sprintf('\n\r'));
+p = line_rest(line, rest);
 if ischar(p) && S.btime == 0 && wfdbx.setbasetime(p) < 0
     nsig = -2;
     return;
 end
 % The master header of a multi-segment record.
 if S.segments && ~S.in_msrec
-    if ~wfdbx.wfdbx_get_legacy()    % wfdb-x: the segments are next to it
+    if ~wfdbx.wfdbx_get_legacy()    % WFDB-x: the segments are next to it
         S.msrec_dir = S.hdr_dir;
         S.msrec_name = record;
     end
@@ -262,8 +263,8 @@ if S.segments && ~S.in_msrec
                 nsig = -2;
                 return;
             end
-            tok = wfdbx.internal.Strtok(line);
-            p = tok.next(sep);
+            t = tokens(line, sep, 2);
+            p = t{1};
             if ischar(p) && p(1) ~= '#'
                 break;
             end
@@ -285,9 +286,9 @@ if S.segments && ~S.in_msrec
             return;
         end
         segarray(i).recname = p;
-        p = tok.next(sep);
+        p = t{2};
         if ischar(p)
-            segarray(i).nsamp = wfdbx.internal.strtol(p);
+            segarray(i).nsamp = tol(p);
         end
         if ~ischar(p) || segarray(i).nsamp < 0
             wfdbx.internal.wfdb_error(['init: length must be specified for ' ...
@@ -334,41 +335,43 @@ while s < nsig
             nsig = -2;
             return;
         end
-        tok = wfdbx.internal.Strtok(line);
-        p = tok.next(sep);
+        [t, rest] = tokens(line, sep, 8);
+        p = t{1};
         if ischar(p) && p(1) ~= '#'
             break;
         end
     end
+    info = hs.info;
     if s == 0 || ~strcmp(p, hsd(s).info.fname)
         if s == 0
-            hs.info.group = 0;
+            info.group = 0;
         else
-            hs.info.group = hsd(s).info.group + 1;
+            info.group = hsd(s).info.group + 1;
         end
-        hs.info.fname = p;
+        info.fname = p;
     else
-        hs.info.group = hsd(s).info.group;
-        hs.info.fname = hsd(s).info.fname;
+        info.group = hsd(s).info.group;
+        info.fname = hsd(s).info.fname;
     end
-    p = tok.next(sep);
+    p = t{2};
     if ischar(p)
-        hs.info.fmt = wfdbx.internal.cint32(wfdbx.internal.strtol(p));
+        info.fmt = cint32(tol(p));
     end
-    if ~ischar(p) || ~any(hs.info.fmt == fmtlist)
+    if ~ischar(p) || ~any(info.fmt == fmtlist)
         S.hsd = hsd;
         wfdbx.internal.wfdb_error( ...
             'init: illegal format for signal %d, record %s\n', s, record);
         nsig = -2;
         return;
     end
-    hs.info.spf = 1;
+    info.spf = 1;
     hs.skew = 0;
     hs.start = 0;
     % Parse the optional "xSPF", ":SKEW" and "+START" suffixes (0-based k).
     k = 0;
     n = numel(p);
-    while true
+    q = p(2:end);
+    while any(q == 'x' | q == ':' | q == '+')
         k = k + 1;
         if k >= n
             break;
@@ -376,10 +379,10 @@ while s < nsig
         if p(k + 1) == 'x'
             k = k + 1;
             if k < n
-                hs.info.spf = wfdbx.internal.cint32( ...
+                info.spf = wfdbx.internal.cint32( ...
                     wfdbx.internal.strtol(p, 10, k + 1));
-                if hs.info.spf < 1
-                    hs.info.spf = 1;
+                if info.spf < 1
+                    info.spf = 1;
                 end
             end
         end
@@ -405,52 +408,52 @@ while s < nsig
             break;
         end
     end
-    if hs.info.spf > S.spfmax
-        S.spfmax = hs.info.spf;
+    if info.spf > S.spfmax
+        S.spfmax = info.spf;
     end
-    hs.skew = fix(hs.skew / hs.info.spf + 0.5);
-    p = tok.next(sep);
+    hs.skew = fix(hs.skew / info.spf + 0.5);
+    p = t{3};
     if ischar(p)
-        hs.info.gain = wfdbx.internal.strtod(p);
+        info.gain = tod(p);
     else
-        hs.info.gain = 0;
+        info.gain = 0;
     end
     nobaseline = true;
     units = [];
     if ischar(p)
-        k = 0;
         n = numel(p);
-        while k < n && p(k + 1) ~= '(' && p(k + 1) ~= '/'
-            k = k + 1;
+        k = find(p == '(' | p == '/', 1) - 1;
+        if isempty(k)
+            k = n;
         end
         if k < n && p(k + 1) == '('
             k = k + 1;
-            hs.info.baseline = wfdbx.internal.cint32( ...
+            info.baseline = wfdbx.internal.cint32( ...
                 wfdbx.internal.strtol(p, 10, k + 1));
             nobaseline = false;
         end
-        while k < n
-            c = p(k + 1);
-            k = k + 1;
-            if c == '/' && k < n
-                break;
-            end
+        % (after the first '/' that is not the last character)
+        j = find(p(k + 1:n - 1) == '/', 1);
+        if isempty(j)
+            k = n;
+        else
+            k = k + j;
         end
         if k < n
             units = p(k + 1:min(n, k + 50));    % WFDB_MAXUSL
         end
     end
-    hs.info.units = units;
-    p = tok.next(sep);
+    info.units = units;
+    p = t{4};
     if ischar(p)
-        i = wfdbx.internal.strtol(p);
+        i = tol(p);
     else
-        % wfdb-x: a missing ADC resolution is unspecified (0); the C
+        % WFDB-x: a missing ADC resolution is unspecified (0); the C
         % library inferred it from the format or assumed WFDB_DEFRES (12),
         % as legacy mode does.
         i = 0;
         if S.legacy_mode
-            switch hs.info.fmt
+            switch info.fmt
                 case 80
                     i = 8;
                 case 160
@@ -464,38 +467,39 @@ while s < nsig
             end
         end
     end
-    hs.info.adcres = wfdbx.internal.cint32(i);
-    p = tok.next(sep);
+    info.adcres = cint32(i);
+    p = t{5};
     if ischar(p)
-        hs.info.adczero = wfdbx.internal.cint32(wfdbx.internal.strtol(p));
+        info.adczero = cint32(tol(p));
     else
-        hs.info.adczero = 0;
+        info.adczero = 0;
     end
     if nobaseline
-        hs.info.baseline = hs.info.adczero;
+        info.baseline = info.adczero;
     end
-    p = tok.next(sep);
+    p = t{6};
     if ischar(p)
-        hs.info.initval = wfdbx.internal.cint32(wfdbx.internal.strtol(p));
+        info.initval = cint32(tol(p));
     else
-        hs.info.initval = hs.info.adczero;
+        info.initval = info.adczero;
     end
-    p = tok.next(sep);
+    p = t{7};
     if ischar(p)
-        hs.info.cksum = wfdbx.internal.cint32(wfdbx.internal.strtol(p));
-        hs.info.nsamp = ns;
+        info.cksum = cint32(tol(p));
+        info.nsamp = ns;
     else
-        hs.info.cksum = 0;
-        hs.info.nsamp = 0;
+        info.cksum = 0;
+        info.nsamp = 0;
     end
-    p = tok.next(sep);
+    p = t{8};
     if ischar(p)
-        hs.info.bsize = wfdbx.internal.cint32(wfdbx.internal.strtol(p));
+        info.bsize = cint32(tol(p));
     else
-        hs.info.bsize = 0;
+        info.bsize = 0;
     end
-    if s > 0 && hs.info.group == hsd(s).info.group && ...
-            (hs.info.fmt ~= hsd(s).info.fmt || hs.info.bsize ~= hsd(s).info.bsize)
+    if s > 0 && info.group == hsd(s).info.group && ...
+            (info.fmt ~= hsd(s).info.fmt || info.bsize ~= hsd(s).info.bsize)
+        hs.info = info;
         hsd(s + 1) = hs;
         S.hsd = hsd;
         wfdbx.internal.wfdb_error( ...
@@ -503,12 +507,13 @@ while s < nsig
         nsig = -2;
         return;
     end
-    p = tok.next(sprintf('\n\r'));
+    p = line_rest(line, rest);
     if ischar(p)
-        hs.info.desc = p(1:min(end, 100));      % WFDB_MAXDSL
+        info.desc = p(1:min(end, 100));      % WFDB_MAXDSL
     else
-        hs.info.desc = sprintf('record %s, signal %d', record, s);
+        info.desc = sprintf('record %s, signal %d', record, s);
     end
+    hs.info = info;
     hsd(s + 1) = hs;
     s = s + 1;
 end
@@ -520,7 +525,7 @@ end
 function f = open_header(S, s, record)
 % Open the header (of type s: 'hea', or [] for a file name) of a record,
 % or of a segment named in the header of the current multi-segment record
-% (wfdb-x: in that header's directory), and note its directory.
+% (WFDB-x: in that header's directory), and note its directory.
 if wfdbx.wfdbx_get_legacy()
     f = wfdbx.internal.wfdb_open(s, record, 0);     % WFDB_READ
     return;
@@ -538,4 +543,80 @@ S.hdr_dir = [];
 if ~isempty(f) && ~f.is_std
     S.hdr_dir = wfdbx.internal.wfdb_dirname(wfdbx.wfdbfile([], []));
 end
+end
+
+function [t, pos] = tokens(s, isd, k)
+% The first K tokens of the line S (strtok(s, d), then K - 1 calls of
+% strtok(NULL, d), the delimiters d being the characters c with
+% ISD(c + 1)): a cell row with [] for the missing ones.  POS: the index of
+% the next character to scan (as Strtok), 0 when the line is exhausted.
+t = cell(1, k);
+m = isd(double(s) + 1);
+d = diff([true, m, true]);
+first = find(d == -1);
+last = find(d == 1) - 1;
+for q = 1:min(k, numel(first))
+    t{q} = s(first(q):last(q));
+end
+if numel(first) >= k && last(k) < numel(s)
+    pos = last(k) + 2;      % (after the delimiter ending token K)
+else
+    pos = 0;
+end
+end
+
+function p = line_rest(s, pos)
+% strtok(NULL, "\n\r") from the index POS of the line S (as Strtok).
+p = [];
+if pos == 0 || pos > numel(s)
+    return;
+end
+m = s(pos:end) == 10 | s(pos:end) == 13;
+i = find(~m, 1);
+if isempty(i)
+    return;
+end
+j = find(m(i:end), 1);
+if isempty(j)
+    p = s(pos + i - 1:end);
+else
+    p = s(pos + i - 1:pos + i + j - 3);
+end
+end
+
+function v = tol(p)
+% strtol(p, NULL, 10) for a token P (decimal digits read directly).
+d = double(p) - 48;
+neg = d(1) == -3;           % '-'
+if neg || d(1) == -5        % '+'
+    d = d(2:end);
+end
+if ~isempty(d) && numel(d) <= 15 && all(d >= 0 & d <= 9)
+    v = d * 10 .^ (numel(d) - 1:-1:0)';
+    if neg
+        v = -v;
+    end
+else
+    v = wfdbx.internal.strtol(p);
+end
+end
+
+function v = tod(p)
+% strtod(p, NULL) for a token P (an integer ending at '/', '(' or the end
+% read directly).
+d = double(p) - 48;
+k = find(d < 0 | d > 9, 1);
+if isempty(k)
+    k = numel(d) + 1;
+end
+if k > 1 && k <= 16 && (k > numel(d) || p(k) == '/' || p(k) == '(')
+    v = d(1:k - 1) * 10 .^ (k - 2:-1:0)';
+else
+    v = wfdbx.internal.strtod(p);
+end
+end
+
+function y = cint32(x)
+% (int) x
+y = mod(x + 2147483648, 4294967296) - 2147483648;
 end

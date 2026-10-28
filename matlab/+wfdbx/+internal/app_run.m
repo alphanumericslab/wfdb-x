@@ -10,7 +10,7 @@ function status = app_run(main, argv)
 %   passed on to the caller (the command-line driver reports them and exits
 %   with status 1).
 %
-%   wfdb-x: at the end, in normal mode, a standard output that could not be
+%   WFDB-x: at the end, in normal mode, a standard output that could not be
 %   written is reported ("PROGRAM: write error on standard output"), and the
 %   exit status 0 becomes 1 if the standard output or another output file
 %   could not be written (see wfdbx.wfdbx_write_errors), as for the

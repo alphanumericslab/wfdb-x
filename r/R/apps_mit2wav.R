@@ -9,7 +9,7 @@
 #
 # Changes from the original: no built-in sampling frequency: the record must
 # give it (the original assumed 250 Hz); --legacy, as the first argument,
-# restores the original behavior. Each change is marked "wfdb-x:" in the code;
+# restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/mit2wav.c, WFDB Software Package 10.7.0.
@@ -116,7 +116,7 @@ app_mit2wav <- function(args = character(0)) {
   nsig <- r$nsig
   s <- r$si
   if (nsig <= 0) cexit(3)
-  if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0)  # wfdb-x: no default frequency
+  if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0)  # WFDB-x: no default frequency
                                                    # (except in legacy mode)
     .app_nofreq(pname, record, 3)
   if (!is.null(nrec) && newheader(nrec) < 0) cexit(3)

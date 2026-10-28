@@ -21,9 +21,9 @@ this).
 
 ### Portability rules
 
-Only Octave 8 is available for testing here, so these rules (learned from
-an audit of the code against the documentation of both products) must be
-followed by reading, not by running MATLAB:
+MATLAB has not been available for testing, so these rules (from the
+documentation of both products) must be followed by reading the code, not by
+running MATLAB:
 
 * **Functions.** Only core functions present in both MATLAB R2019b and
   Octave 6.1; when in doubt, use the older one. Not available in Octave 6
@@ -134,7 +134,7 @@ with the exact authors and years of [`docs/AUTHORS.md`](../docs/AUTHORS.md):
 ```
 
 * "Changes from the original" lists, in one short sentence each, how the
-  file differs from the C code ("Each change is marked "wfdb-x:" in the
+  file differs from the C code ("Each change is marked "WFDB-x:" in the
   code; docs/DIVERGENCES.md gives the reasons."), or says "none, apart from
   the language.";
 * tools (`+wfdbx/+apps/`) say "original program" and "Original C program:
@@ -248,7 +248,7 @@ directly. `cout` buffers its output (flushed when the buffer is large, by
 `cout()`, before anything is written by `cerr`, when a tool run by
 `app_run` returns, and before the drivers exit); `cerr` is unbuffered.
 
-**Write errors** (wfdb-x: `wfdbx_write_errors`, and the exit status of the
+**Write errors** (WFDB-x: `wfdbx_write_errors`, and the exit status of the
 tools) need care in Octave: a write to file identifier 1 never reports a
 failure, and for other files `fflush` and `fclose` return 0 even when the
 buffered data could not be written (only an `fwrite` of 4096 bytes or more
@@ -264,9 +264,15 @@ its temporary file with `cat` and reports a failure of that copy itself.
 The files that the tools write themselves are `wfdbx.internal.OutputFile`
 objects.
 
-Large outputs (e.g. `rdsamp`) are formatted in a vectorized way (one
-`sprintf` call over a matrix, after substituting the C spelling of special
-values) for speed, with the same results.
+Large outputs (e.g. `rdsamp`) are formatted in a vectorized way, with the
+same results: `wfdbx.internal.format_rows(V, pre, width, prec, dash)`
+prints the rows of a matrix as `sprintf` would with `%Wd` and `%W.Pf`
+conversions, taking the digits of whole columns three at a time from
+tables (several times as fast as `sprintf`); it returns `[]` when a value
+cannot be printed that way (non-finite, a `%d` non-integer, 2^52 or more
+after scaling, or too close to a rounding tie), and the caller then uses
+one `sprintf` call over the matrix, after substituting the C spelling of
+special values. `tests/test_csprintf.m` compares it with `sprintf`.
 
 ## Library state
 
@@ -290,7 +296,10 @@ statement), so per-sample loops are avoided on common paths:
 * `wfdbx.getframes(n)` (as in the Python port) decodes many frames at once
   with vector operations, with exactly the semantics of `n` calls of
   `getvec`; it is used by `rdsamp`, `read_record` and other tools that read
-  whole records;
+  whole records; `wfdbx.putframes` is its counterpart for writing;
+* header lines are split into fields at once (`readheader`'s `tokens`),
+  and decimal fields converted directly, `strtol` and `strtod` being called
+  only for the other forms;
 * annotation files are decoded in bulk where possible
   (`wfdbx.internal.getann_bulk`, `putann_bulk`; see *Annotations* below).
 
@@ -424,20 +433,34 @@ whole blocks of its file (the buffer is left as the refills would leave
 it: the block holding the last byte used, the later blocks in `ahead`)
 and in whole packed units (an alignment period of frames, the least common
 multiple over the groups of `ns / gcd(gfl, ns)`, with `gfl` the samples of
-a frame of the group and `ns` those of a packed unit). It stops before any
-frame that needs special handling: the frame at which a checksum is
-verified (the last frame of each segment), the end of a file, a partial
-bit-packed group, the middle of a frame in `WFDB_HIGHRES` mode.
-`getframes` then calls `getvec` for one vector and tries the bulk path
-again. The samples, statuses and library state (`istime`, each signal's
-`samp`, `cksum`, `nsamp`, `gvc`, `tvector`, ...) are those of `getvec`.
-Skewed records (`dsbuf`), `setifreq` resampling and unskipped prologs use
-`getvec` throughout. `read_record` reads chunks of a multiple of 6 frames
-(`6 * ispfmax` vectors in high resolution), so that formats 212, 310 and
-311 end each chunk on a whole packed unit. The `SigState` properties
-`bulk_read` (set it to false to turn the bulk path off: the tests compare
-both paths) and `bulk_vectors` (the number of vectors read in blocks) are
-not reset by `wfdbquit`.
+a frame of the group and `ns` those of a packed unit). The frames
+of a group are decoded into an `n`-by-`gfl` matrix, in blocks of about
+`SigState.bulk_block` samples (65536; the temporary arrays then stay in
+the processor's cache), with tables of the bytes for the bit-packed
+formats (formats 16 and 61: at once, by `typecast`); the sums of its
+columns (modulo 2^32, for the checksums) and whether they hold the
+invalid value are computed as they are decoded, so that a signal without
+invalid samples needs no other work, and a single group holding every
+signal is the result itself (no copy). The frame at which the checksums
+are verified (the last frame of each segment) is included when they are
+correct (they are known once decoded; otherwise the frames are trimmed
+back to it, and `getvec` reads it and reports the error), except with
+FLAC or format 8 groups. It stops before any other frame that needs
+special handling: the end of a file, a partial bit-packed group, the
+middle of a frame in `WFDB_HIGHRES` mode. `getframes` then calls `getvec`
+for one vector and tries the bulk path again (it reads at most 2^22
+frames at a time, so that `n` may be `Inf`). The samples, statuses and
+library state (`istime`, each signal's `samp`, `cksum`, `nsamp`, `gvc`,
+`tvector`, ...) are those of `getvec`. Skewed records (`dsbuf`),
+`setifreq` resampling and unskipped prologs use `getvec` throughout.
+`read_record` reads chunks of a multiple of 6 frames (`6 * ispfmax`
+vectors in high resolution), so that formats 212, 310 and 311 end each
+chunk on a whole packed unit, joins them at the end (a record read in one
+chunk is not copied), and converts to physical units in place, in blocks
+of rows. The `SigState` properties `bulk_read` (set it to false to turn
+the bulk path off: the tests compare both paths), `bulk_vectors` (the
+number of vectors read in blocks) and `bulk_block` (the tests make it
+small) are not reset by `wfdbquit`.
 
 **Writing.** `putvec` encodes a frame into the bytes of each group and
 appends them with `wfdbx.internal.og_put(og, bytes)` (which writes the
@@ -446,6 +469,11 @@ buffer in chunks of `obuflen` bytes, as C's `w8` does byte by byte).
 calling `putvec` for each (vector encoding of all formats, continuing any
 partial bit-packed group; format 8 differences are clipped sample by
 sample only where they exceed [-128, 127], as clipping is sequential).
+The frames of a group whose signals share a format other than 8 are taken
+as a matrix (its rows are the samples in file order); in formats 16, 61,
+80, 160, 24 and 32 they are converted to bytes with `typecast` when they
+are all integers of the format's range, by the arithmetic of the general
+path otherwise (out of range values wrap as in C).
 `wfdb_osflush` (from `wfdbflush` and `osigclose`) writes partial
 bit-packed groups and rewinds as C does. `setheader`, `newheader`,
 `setmsheader`, `setinfo`, `putinfo` write headers (`\r\n` line ends);
@@ -467,7 +495,7 @@ Constants: `wfdbx.WFDB_INVALID_SAMPLE()`, `WFDB_LOWRES`, `WFDB_HIGHRES`,
 mode (below): WFDB-x never assumes a sampling frequency, a gain, an ADC resolution or units
 ([`docs/DIVERGENCES.md`](../docs/DIVERGENCES.md), defined by
 `tests/reference/divergences.patch`); code that needs one and does not
-have it reports an error, with the comment "wfdb-x: no default sampling
+have it reports an error, with the comment "WFDB-x: no default sampling
 frequency (C assumed 250 Hz)" or the like. An unspecified ADC resolution
 is 0, unspecified units are `[]` (shown as `nd` where a tool must print
 them). The converters' `-F`, `-G`, `-R`, `-U` options are parsed by
@@ -480,7 +508,7 @@ original" paragraph of their file header.
 `wfdbx_get_legacy`; not reset by `wfdbquit`). `app_run` calls
 `wfdbx.wfdbx_legacy_args` before a tool's `main` and restores the previous
 setting when the tool returns. Every divergence branches on it, with the
-original code in the legacy branch (comment "wfdb-x: legacy mode"); in the
+original code in the legacy branch (comment "WFDB-x: legacy mode"); in the
 tools, options added by WFDB-x are made unrecognized by clearing the
 option character before the `switch`, and `help` prints the original text
 in legacy mode. The high-level functions take a `'legacy'` option
@@ -502,13 +530,10 @@ Octave's do not), and `isigsettime` relies on it: `WFDBFile.seek` emulates
 it (reads there find the end of the file; a write extends the file with
 zeros).
 
-**Speed** (Octave 8): `rdsamp -r 100s` (the sample record of `tests/data`, the first minute of MIT-BIH record 100) runs in 0.2 s in all (process
-start included); for a record of 650,000 frames of two format-212
-signals, `getframes` takes 0.13 s, `putframes` 0.12 s, and `rdsamp`
-(raw or `-p`) 1.0 s in all. `getvec` and `putvec` cost about 0.4 and
-0.25 ms per call (a handle property access costs 3-5 microseconds).
-`write_record` (which uses `putframes`) writes 216,000 frames of two
-signals in about 0.08 s, and `read_record` reads them in about 0.05 s.
+**Speed** (Octave 8): see [`docs/BENCHMARKS.md`](../docs/BENCHMARKS.md)
+for `read_record`, `write_record`, the annotation functions and `rdsamp`.
+`getvec` and `putvec` cost about 0.4 and 0.25 ms per call (a handle
+property access costs 3-5 microseconds).
 
 ## Annotations (lib/annot.c)
 
@@ -687,24 +712,22 @@ environment variable). The record name `-` refers to the standard input or
 output, as in C.
 
 `bin/wfdbx_cli.m` (an Octave script) adds `matlab/` to the path and calls
-`wfdbx.internal.cli_main(argv())`, which calls
-`status = wfdbx.apps.<tool>(args)`; the script then exits with `status`.
-An unknown tool, or a MATLAB error in a tool, gives a message on the
-standard error output and status 1. `bin/wfdbx_matlab.sh` saves the
-standard input to a temporary file (WFDBX_STDIN), passes the arguments in
-hexadecimal (decoded by `wfdbx.internal.hexargs`, so that any bytes arrive
-unchanged), and runs `matlab -batch` (`$WFDBX_MATLAB` overrides the MATLAB
-command); it waits for the end of its standard input before starting
-MATLAB. It could not be tested here (no MATLAB): it has been checked by
-running its MATLAB command in Octave. Messages that include the program
-name use the tool's name.
+`wfdbx.internal.cli_main(argv())`, which calls `status =
+wfdbx.apps.<tool>(args)`; the script then exits with `status`. An unknown
+tool, or a MATLAB error in a tool, gives a message on the standard error
+output and status 1. `bin/wfdbx_matlab.sh` saves the standard input to a
+temporary file (WFDBX_STDIN), passes the arguments in hexadecimal (decoded
+by `wfdbx.internal.hexargs`, so that any bytes arrive unchanged), and runs
+`matlab -batch` (`$WFDBX_MATLAB` overrides the MATLAB command); it waits for
+the end of its standard input before starting MATLAB. It has not been run
+with MATLAB; its MATLAB command has been checked in Octave. Messages that
+include the program name use the tool's name.
 
-Octave starts in about 0.07 s, and running a small tool through
-`bin/wfdbx_cli.m` takes about 0.09 s in all; keep startup work minimal (no
-work at load time; state is created on first use).
-In legacy mode, `oannclose` sorts out-of-order annotation files by
-running the `sortann` tool in a separate process (the same interpreter,
-`bin/wfdbx_cli.m`).
+Keep start-up work minimal (no work at load time; state is created on first
+use); [`docs/BENCHMARKS.md`](../docs/BENCHMARKS.md) gives the start-up time
+of the tools. In legacy mode, `oannclose` sorts out-of-order annotation
+files by running the `sortann` tool in a separate process (the same
+interpreter, `bin/wfdbx_cli.m`).
 
 ## Testing
 

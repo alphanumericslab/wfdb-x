@@ -5,7 +5,7 @@
 \description{
   \code{read_annotations} reads an annotation file, such as the beat
   labels \file{100s.atr} of record \code{100s} (the sample record included
-  with wfdb-x: the first minute of record 100 of the MIT-BIH Arrhythmia
+  with WFDB-x: the first minute of record 100 of the MIT-BIH Arrhythmia
   Database), into a data frame with one
   row per annotation.  \code{write_annotations} writes an annotation file
   from vectors or from such a data frame.

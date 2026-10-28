@@ -10,7 +10,7 @@
 # Changes from the original: wfdbquit leaves the input and output directories
 # as they are (the original restored the WFDB path); legacy mode
 # (wfdbx_set_legacy) restores the original behavior. Each change is marked
-# "wfdb-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C code: lib/wfdbinit.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1983-2012 George B. Moody; revised 2012-2019 by
@@ -59,7 +59,7 @@ function wfdbquit(w::Wfdb)
     wfdb_anclose(w)     # close annotation files, reset variables
     wfdb_oinfoclose(w)  # close info file
     wfdb_sigclose(w)    # close signals, reset variables
-    # restore the WFDB path (wfdb-x: in legacy mode only; the input directory
+    # restore the WFDB path (WFDB-x: in legacy mode only; the input directory
     # remains)
     wfdbx_get_legacy(w) != 0 && resetwfdb(w)
     wfdb_sampquit(w)    # release sample data buffer

@@ -70,9 +70,9 @@ errmsg <- function(expr) tryCatch({
   expr
   ""
 }, error = function(e) conditionMessage(e))
-NET_OFF <- paste0("wfdb-x: network access is disabled; set WFDBX_NETWORK=1 or call ",
+NET_OFF <- paste0("WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or call ",
                   "wfdbx_set_network(1) to open %s\n")
-WFDB_IGNORED <- paste0("wfdb-x: the WFDB environment variable is ignored; set ",
+WFDB_IGNORED <- paste0("WFDB-x: the WFDB environment variable is ignored; set ",
                        "WFDBX_INPUT_DIR instead (or use legacy mode)\n")
 
 # ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ ok <- TRUE
 for (p in c("a b", "a;b", "a:b", ". http://h/x", "http://h/x:/y")) {
   setwfdb(p)
   ok <- ok && identical(wfdbx_get_input_dir(), "keep") &&
-    startsWith(wfdberror(), "setwfdb: wfdb-x reads from a single input directory; use ")
+    startsWith(wfdberror(), "setwfdb: WFDB-x reads from a single input directory; use ")
 }
 check(ok, "setwfdb: more than one directory is an error")
 wfdbx_set_input_dir("other")

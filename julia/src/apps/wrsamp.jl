@@ -17,7 +17,7 @@
 # unless the input gives the units (the original assumed 250 Hz, 200 adu/mV, a
 # resolution based on the format, and millivolts); -G 0 declares the signals
 # uncalibrated; -G, -R and -U take one value per signal; --legacy, as the first
-# argument, restores the original behavior. Each change is marked "wfdb-x:" in
+# argument, restores the original behavior. Each change is marked "WFDB-x:" in
 # the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
@@ -168,7 +168,7 @@ const _WRSAMP_HELP = [
     "If no COLUMN is specified, all fields are copied in order; column 0 can be",
     "omitted in this case by using the '-z' option.",
 ]
-# wfdb-x: the help text of the original program, printed in legacy mode
+# WFDB-x: the help text of the original program, printed in legacy mode
 const _WRSAMP_LEGACY_HELP = [
     _WRSAMP_HELP[1:6];
     " -F FREQ     specify frequency to be written to header file (default: 250)";
@@ -217,15 +217,15 @@ function _wrsamp_legacy_adcres(format::Int32)
 end
 
 function wrsamp_main(args::Vector{String})
-    # wfdb-x: --legacy as the first argument selects legacy mode (the
+    # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
     legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
     argc = length(argv) + 1
     pname = "wrsamp"
     gain = UInt8[]
-    res = UInt8[]                   # wfdb-x: -R
-    uopt = nothing                  # wfdb-x: -U
+    res = UInt8[]                   # WFDB-x: -R
+    uopt = nothing                  # WFDB-x: -U
     scale = UInt8[]
     record = nothing
     delim = Vector{UInt8}(b" \t\r\n,")      # defpmode.delim
@@ -236,7 +236,7 @@ function wrsamp_main(args::Vector{String})
     ustrings = Vector{UInt8}[]
     have_dstrings = false
     have_ustrings = false
-    freq = legacy ? WFDB_DEFFREQ : 0.0  # wfdb-x: no default frequency (C, legacy: 250)
+    freq = legacy ? WFDB_DEFFREQ : 0.0  # WFDB-x: no default frequency (C, legacy: 250)
     dflag = false
     format = Int32(16)
     zflag = UInt32(0)
@@ -278,14 +278,14 @@ function wrsamp_main(args::Vector{String})
         elseif c == UInt8('h')
             _wrsamp_help(pname, legacy)
             cexit(1)
-        elseif c == UInt8('R') && !legacy  # wfdb-x: ADC resolution(s) in bits
+        elseif c == UInt8('R') && !legacy  # WFDB-x: ADC resolution(s) in bits
             i += 1
             if i >= argc
                 ceprintf("%s: ADC resolution(s) must follow -R\n", pname)
                 cexit(1)
             end
             res = copy(cstr(argv[i]))
-        elseif c == UInt8('U') && !legacy  # wfdb-x: units
+        elseif c == UInt8('U') && !legacy  # WFDB-x: units
             i += 1
             if i >= argc
                 ceprintf("%s: units must follow -U\n", pname)
@@ -370,7 +370,7 @@ function wrsamp_main(args::Vector{String})
         i += 1
     end
 
-    # wfdb-x: the sampling frequency, the gains, the ADC resolutions, and the
+    # WFDB-x: the sampling frequency, the gains, the ADC resolutions, and the
     # units (of calibrated signals) must be specified when a header is
     # written (the C program assumed 250 Hz, 200 adu/mV, a resolution based
     # on the format, and millivolts), as legacy mode does.
@@ -535,7 +535,7 @@ function wrsamp_main(args::Vector{String})
         s.fname = copy(ofname)
         s.desc = have_dstrings ? (fv[k] < length(dstrings) ? copy(dstrings[fv[k]+1]) : UInt8[]) :
                  cformat("col %d", fv[k])
-        if uopt !== nothing         # wfdb-x: -U (the last one applies to the rest)
+        if uopt !== nothing         # WFDB-x: -U (the last one applies to the rest)
             while up <= length(uopt) && uopt[up] == UInt8(' ')
                 up += 1
             end
@@ -557,7 +557,7 @@ function wrsamp_main(args::Vector{String})
         s.fmt = format
         s.spf = 1
         s.bsize = 0
-        # wfdb-x: the ADC resolutions are given by -R (the last one applies
+        # WFDB-x: the ADC resolutions are given by -R (the last one applies
         # to the remaining signals); the C program (and legacy mode) inferred
         # them from the format or assumed WFDB_DEFRES.
         if legacy
@@ -587,7 +587,7 @@ function wrsamp_main(args::Vector{String})
         end
         fref[] = 0.0
         if _wrsamp_scan_f64(view(gain, min(gp, length(gain) + 1):length(gain)), fref) < 1
-            # wfdb-x: no default gain (C, legacy mode: WFDB_DEFGAIN)
+            # WFDB-x: no default gain (C, legacy mode: WFDB_DEFGAIN)
             s.gain = k > 1 ? si[k-1].gain : legacy ? WFDB_DEFGAIN : 0.0
         else
             s.gain = fref[]
@@ -595,7 +595,7 @@ function wrsamp_main(args::Vector{String})
                 gp += 1
             end
         end
-        # wfdb-x: the units of a calibrated signal must be specified, by -U
+        # WFDB-x: the units of a calibrated signal must be specified, by -U
         # or by the input (the C program left them out: millivolts).
         if record !== nothing && !legacy && s.gain != 0.0 && isempty(cstr(s.units))
             ceprintf("%s: the units must be specified (-U)\n", pname)
@@ -710,7 +710,7 @@ register_workload("wrsamp") do
         workload_tool("wrsamp", "-o", "wlx", "-F", "360", "-G", "200", "-R", "11"; stdin=xml)
         workload_tool("wrsamp", "-x")
         workload_tool("wrsamp"; stdin="")
-        # wfdb-x: legacy mode (original behavior)
+        # WFDB-x: legacy mode (original behavior)
         for fmt in ("8", "16", "80", "212", "310", "24", "32", "516", "508")
             workload_tool("wrsamp", "--legacy", "-o", "wl", "-O", fmt; stdin=input)
         end

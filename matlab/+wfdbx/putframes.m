@@ -68,6 +68,37 @@ while s <= nosig
     end
     og = ogd{g + 1};
     fmt = osd(s).info.fmt;
+    same = true;
+    for k = s + 1:s2
+        same = same && osd(k).info.fmt == fmt;
+    end
+    if same && any(fmt == [0 16 61 80 160 212 310 311 24 32 508 516 524])
+        % (the frames of the group as a matrix: the samples in file order
+        % are its rows)
+        [X, osd, vi] = group_frames(m, osd, s, s2, vi, fmt);
+        switch fmt
+            case 0
+                bytes = [];
+            case {508, 516, 524}
+                if wfdbx.internal.flac_putsamps(reshape(X.', 1, []), fmt, og) < 0
+                    stat = -1;
+                end
+                bytes = [];
+            case {212, 310, 311}
+                [bytes, count, data, datb] = packed(fmt, reshape(X.', 1, []), ...
+                    og.count, og.data, og.datb);
+                og.count = count;
+                og.data = data;
+                og.datb = datb;
+            otherwise
+                bytes = encode_frames(fmt, X);
+        end
+        if put_bytes(og, bytes, s, s2)
+            stat = -1;
+        end
+        s = s2 + 1;
+        continue;
+    end
     gs = cell(s2 - s + 1, 1);       % the samples of each signal (spf-by-n)
     for k = s:s2
         info = osd(k).info;
@@ -128,19 +159,101 @@ while s <= nosig
         otherwise
             bytes = encode(fmt, seq);
     end
-    if ~isempty(bytes)
-        wfdbx.internal.og_put(og, bytes);
-        if ~isempty(og.fp) && og.fp.ferror()
-            for k = s:s2
-                wfdbx.internal.wfdb_error('putvec: write error in signal %d\n', k - 1);
-            end
-            stat = -1;
-        end
+    if put_bytes(og, bytes, s, s2)
+        stat = -1;
     end
     s = s2 + 1;
 end
 S.osd = osd;
 S.ostime = S.ostime + nrows;
+end
+
+function [X, osd, vi] = group_frames(m, osd, s, s2, vi, fmt)
+% The columns of M for the output signals S to S2 of a group (all in
+% format FMT, not 8, from column VI + 1), with invalid samples replaced as
+% the format writes them; the state of each signal updated.
+nrows = size(m, 1);
+nn = 0;
+for k = s:s2
+    nn = nn + osd(k).info.spf;
+end
+X = m(:, vi + 1:vi + nn);
+bits = wfdbx.internal.fmt_bits(fmt);
+if bits > 0
+    % WFDB_INVALID_SAMPLE is written as the lowest value of the format
+    inv = X == -32768;
+    if any(inv(:))
+        X(inv) = -2^(bits - 1);
+    end
+end
+c = 0;
+for k = s:s2
+    info = osd(k).info;
+    spf = info.spf;
+    if info.nsamp == 0
+        info.initval = m(1, vi + c + 1);
+    end
+    info.nsamp = info.nsamp + nrows;
+    if spf == 1
+        cks = sum(X(:, c + 1));
+    else
+        x = X(:, c + 1:c + spf).';
+        cks = sum(x(:));
+    end
+    c = c + spf;
+    osd(k).samp = X(nrows, c);
+    cks = info.cksum + cks;
+    info.cksum = cks - 4294967296 * floor((cks + 2147483648) / 4294967296);   % (int)
+    osd(k).info = info;
+end
+vi = vi + nn;
+end
+
+function err = put_bytes(og, bytes, s, s2)
+% Write the BYTES of the output signals S to S2 (true on a write error).
+err = false;
+if ~isempty(bytes)
+    wfdbx.internal.og_put(og, bytes);
+    if ~isempty(og.fp) && og.fp.ferror()
+        for k = s:s2
+            wfdbx.internal.wfdb_error('putvec: write error in signal %d\n', k - 1);
+        end
+        err = true;
+    end
+end
+end
+
+function b = encode_frames(fmt, X)
+% The bytes of the frames X (n-by-nn, the rows in file order) in format
+% FMT (8 excepted): integers of the format's range are converted directly.
+switch fmt
+    case 80
+        Y = int8(X);
+    case {16, 61, 160}
+        Y = int16(X);
+    otherwise   % 24, 32
+        Y = int32(X);
+end
+if ~isequal(Y, X)
+    b = encode(fmt, reshape(X.', 1, []));
+    return;
+end
+Y = reshape(Y.', 1, []);
+switch fmt
+    case 16
+        b = typecast(Y, 'uint8');
+    case 61
+        b = typecast(swapbytes(Y), 'uint8');
+    case 80
+        b = bitxor(typecast(Y, 'uint8'), uint8(128));
+    case 160
+        b = typecast(bitxor(typecast(Y, 'uint16'), uint16(32768)), 'uint8');
+    case 24
+        b = reshape(typecast(Y, 'uint8'), 4, []);
+        b = reshape(b(1:3, :), 1, []);
+    otherwise   % 32
+        b = typecast(Y, 'uint8');
+end
 end
 
 function [d, osamp, clipped] = diffs(x, prev)

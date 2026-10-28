@@ -61,8 +61,12 @@ for fmt = fmts
     putframes_check(fmt, [1 1 1], 1);
     if fmt < 500
         putframes_check(fmt, [2 1], 2);
+        putframes_check(fmt, [1 3], 0, true);
     end
 end
+
+% Header fields are read as strtok, strtol and strtod read them.
+header_fields();
 
 % Physical units
 [n, si] = wfdbx.isigopen('100s', 2); %#ok<ASGLU>
@@ -299,9 +303,145 @@ if isfolder(d)
 end
 end
 
-function putframes_check(fmt, spf, rows0)
+function header_fields()
+% Signal specifications written in many ways (blanks and tabs between the
+% fields, signs, leading zeros, long numbers, missing fields, suffixes of
+% the format, baselines and units of the gain, descriptions with blanks)
+% are read as strtok, strtol and strtod read them.  (Each signal has its
+% own file, so that formats and block sizes may differ.)
+r = wfdbx.internal.GlibcRand(23);
+ints = {'0', '12', '-7', '+5', '007', '-0', '123456789012345678', ...
+    '2147483648', '-2147483649', '12abc', '0x1F', '+', '-', ['1' char(11)]};
+gains = {'200', '200.5', '1e3', '200(5)/mV', '200(-12)/uV', '/mV', '200/', ...
+    '100(3)', '7(+2)/a/b', '0', '0x10/mV', '2000/NU', ...
+    '1234567890123456/mV'};
+fmts = {'16', '212', '16x2', '16:3', '16x4:7+100', '212+512', '16x', '16x0', ...
+    '16:-2', '0016', '+16'};
+sep = {' ', '  ', char(9), [' ' char(9) ' ']};
+pick = @(c) c{1 + mod(r.rand(), numel(c))};
+nsig = 40;
+lines = cell(1, nsig);
+for s = 1:nsig
+    f = {sprintf('hf%d.dat', s), pick(fmts), pick(gains), pick(ints), ...
+        pick(ints), pick(ints), pick(ints), pick({'0', '0', '512', '-3'}), ''};
+    nf = 2 + mod(r.rand(), 8);      % the fields written (2-9)
+    if nf == 9
+        f{9} = pick({'ECG', ' lead II ', 'A  B', ['x' char(9) 'y'], ['z' char(13) 'w']});
+    end
+    t = f{1};
+    for j = 2:nf
+        t = [t pick(sep) f{j}]; %#ok<AGROW>
+    end
+    lines{s} = [t pick({'', ' ', char(9), char(13)})];
+end
+write_text('hf.hea', sprintf('hf %d 250 1000\n%s\n', nsig, strjoin(lines, char(10))));
+[n, si] = wfdbx.isigopen('hf', -nsig);
+S = wfdbx.internal.sig_state();
+hsd = S.hsd;
+wfdbx.wfdbquit();
+assert_eq(n, nsig, 'header fields: signals');
+for s = 1:nsig
+    what = sprintf('header fields: %s', lines{s});
+    % the fields, as strtok gives them
+    tok = wfdbx.internal.Strtok([lines{s} char(10)]);
+    f = cell(1, 9);
+    for j = 1:8
+        f{j} = tok.next(sprintf(' \t\n\r'));
+    end
+    f{9} = tok.next(sprintf('\n\r'));
+    i = si(s);
+    assert_eq(i.fname, f{1}, [what ' (file)']);
+    assert_eq(i.fmt, cint32(wfdbx.internal.strtol(f{2})), [what ' (format)']);
+    [spf, skew, start] = suffixes(f{2});
+    assert_eq(i.spf, spf, [what ' (spf)']);
+    assert_eq(hsd(s).skew, fix(skew / spf + 0.5), [what ' (skew)']);
+    assert_eq(hsd(s).start, start, [what ' (start)']);
+    vals = zeros(1, 5);
+    for j = 4:8
+        if ischar(f{j})
+            vals(j - 3) = wfdbx.internal.strtol(f{j});
+        end
+    end
+    if ischar(f{3})
+        assert_eq(i.gain, wfdbx.internal.strtod(f{3}), [what ' (gain)']);
+    else
+        assert_eq(i.gain, 0, [what ' (gain)']);
+    end
+    assert_eq(i.adcres, cint32(vals(1)), [what ' (adcres)']);
+    assert_eq(i.adczero, cint32(vals(2)), [what ' (adczero)']);
+    [base, units] = gain_parts(f{3});
+    if isempty(base)
+        base = cint32(vals(2));
+    end
+    assert_eq(i.baseline, base, [what ' (baseline)']);
+    assert_eq(i.units, units, [what ' (units)']);
+    if ischar(f{6})
+        assert_eq(i.initval, cint32(vals(3)), [what ' (initval)']);
+    else
+        assert_eq(i.initval, cint32(vals(2)), [what ' (initval)']);
+    end
+    assert_eq(i.cksum, cint32(vals(4)), [what ' (cksum)']);
+    assert_eq(i.nsamp, 1000 * ischar(f{7}), [what ' (nsamp)']);
+    assert_eq(i.bsize, cint32(vals(5)), [what ' (bsize)']);
+    if ischar(f{9})
+        assert_eq(i.desc, f{9}, [what ' (desc)']);
+    else
+        assert_eq(i.desc, sprintf('record hf, signal %d', s - 1), [what ' (desc)']);
+    end
+end
+end
+
+function [spf, skew, start] = suffixes(p)
+% The xSPF, :SKEW and +START suffixes of a format field, read with strtol.
+spf = 1;
+skew = 0;
+start = 0;
+k = find(p == 'x', 1);
+if ~isempty(k) && k > 1 && k < numel(p)
+    spf = max(1, cint32(wfdbx.internal.strtol(p, 10, k + 1)));
+end
+k = find(p == ':', 1);
+if ~isempty(k) && k > 1 && k < numel(p)
+    skew = max(0, cint32(wfdbx.internal.strtol(p, 10, k + 1)));
+end
+k = find(p == '+', 1);
+if ~isempty(k) && k > 1 && k < numel(p)
+    start = max(0, wfdbx.internal.strtol(p, 10, k + 1));
+end
+end
+
+function [base, units] = gain_parts(p)
+% The baseline ("(B)") and units ("/U") of a gain field.
+base = [];
+units = [];
+if ~ischar(p)
+    return;
+end
+k = find(p == '(' | p == '/', 1);
+if ~isempty(k) && p(k) == '('
+    base = cint32(wfdbx.internal.strtol(p, 10, k + 1));
+end
+if isempty(k)
+    return;
+end
+j = find(p(k:end - 1) == '/', 1);
+if ~isempty(j)
+    units = p(k + j:end);
+end
+end
+
+function y = cint32(x)
+y = mod(x + 2147483648, 4294967296) - 2147483648;
+end
+
+function putframes_check(fmt, spf, rows0, wide)
 % wfdbx.putframes writes the same files as putvec (including after
-% ROWS0 frames written by putvec, and with invalid samples).
+% ROWS0 frames written by putvec, and with invalid samples, the first and
+% the last ones among them).  WIDE: also with values outside the range of
+% the format (which wrap as in C).
+if nargin < 4
+    wide = false;
+end
 nsig = numel(spf);
 r = wfdbx.internal.GlibcRand(fmt + 7 * nsig + rows0);
 n = 257;
@@ -319,6 +459,12 @@ switch fmt
         x = mod(reshape(r.rand(n * w), n, w), 65536) - 32768;
 end
 x(5, 1) = -32768;
+x(rows0 + 1, 1) = -32768;
+x(n, end) = -32768;
+if wide
+    x(7, :) = x(7, :) + 2^20;
+    x(9, 1) = -2^31 - 5;
+end
 si = wfdbx.siginfo(nsig);
 for k = 1:nsig
     si(k).fname = 'pf.dat';
@@ -344,6 +490,12 @@ for method = 1:2
     wfdbx.wfdbquit();
     files{method} = [read_file('pf.dat'), read_file('pf.hea')];
 end
-assert_eq(files{2}, files{1}, sprintf('putframes, format %d, spf %s, %d', ...
-    fmt, mat2str(spf), rows0));
+assert_eq(files{2}, files{1}, sprintf('putframes, format %d, spf %s, %d, %d', ...
+    fmt, mat2str(spf), rows0, wide));
+end
+
+function write_text(name, s)
+fid = fopen(name, 'wb');
+fwrite(fid, uint8(s));
+fclose(fid);
 end

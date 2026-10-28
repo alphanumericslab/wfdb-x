@@ -41,7 +41,7 @@
 // header); annotation times given in milliseconds (AHA file types 1 to 3) are
 // converted at the record's sampling frequency (the original assumed 4 ms per
 // sample); --legacy, as the first argument, restores the original behavior.
-// Each change is marked "wfdb-x:" in the code; docs/DIVERGENCES.md gives the
+// Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 // reasons.
 //
 // Original C program: convert/a2m.c, WFDB Software Package 10.7.0.
@@ -81,7 +81,7 @@ private val A2M_HELP = arrayOf(
     "                (defaults: 3 if AHAFILE ends in .ANO or .ano, else 0)",
 )
 
-/** wfdb-x: the help lines added by WFDB-x (left out in legacy mode). */
+/** WFDB-x: the help lines added by WFDB-x (left out in legacy mode). */
 private val A2M_WFDBX_HELP = setOf(
     " -F FREQ       sampling frequency, if the record header does not specify",
     "                one (AHA database: 250)",
@@ -141,7 +141,7 @@ private fun getcann(input: WfdbFile, ap: Annotation): Int {
  * frequency (WFDB-x; C, and legacy mode, assumed 4 ms per sample interval).
  */
 private fun Wfdb.msToSamples(t: Long, legacy: Boolean): Long {
-    if (legacy) return t shr 2 // wfdb-x: legacy mode: 4 msec/sample
+    if (legacy) return t shr 2 // WFDB-x: legacy mode: 4 msec/sample
     return d2l(t.toDouble() * sampfreq(null as ByteArray?) / 1000.0)
 }
 
@@ -158,7 +158,7 @@ fun Wfdb.a2mMain(argv0: Array<ByteArray>): Int {
     var offsetArg = 0
     var nann = 2
     val annot = Annotation()
-    val ffreq = CDouble(0.0) // wfdb-x: -F
+    val ffreq = CDouble(0.0) // WFDB-x: -F
 
     // Read and interpret command-line arguments.
     var i = 1
@@ -279,7 +279,7 @@ fun Wfdb.a2mMain(argv0: Array<ByteArray>): Int {
     if (annopen(record, afarray, nann) < 0) exit(2)
 
     // Set the time shift.
-    // wfdb-x: if the record header does not give the sampling frequency, -F
+    // WFDB-x: if the record header does not give the sampling frequency, -F
     // must give it. (The C program assumed the rate of the AHA database,
     // 250 Hz, if a header without a frequency existed, and 1 sample per
     // second if there was no header, as legacy mode does.)
