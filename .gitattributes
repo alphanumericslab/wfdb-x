@@ -1,0 +1,7 @@
+# Left out of source archives (git archive, and GitHub's release
+# "Source code" downloads): files of the GitHub Pages site.
+/_config.yml       export-ignore
+/_includes         export-ignore
+/_layouts          export-ignore
+/assets            export-ignore
+/.gitattributes    export-ignore
