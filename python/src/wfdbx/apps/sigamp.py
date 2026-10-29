@@ -28,7 +28,7 @@ import os
 import sys
 
 import wfdbx as w
-from wfdbx._cstd import atoi, d2i, cfmt_float, int32
+from wfdbx._cstd import atoi, d2i, cfmt_float, fdiv, int32
 from ._common import Output, Exit, eprintf, legacy, legacy_gains, run
 
 NMAX = 300              # default maximum number of measurements per signal
@@ -303,7 +303,7 @@ def _main(argv, out):
             if w.isigsettime(t) < 0 or w.getvec(vv) < nsig:
                 break
             for k in range(nsig):
-                vmean[k] = vmean[k] / dtw + vv[k] - v0[k]
+                vmean[k] = fdiv(vmean[k], dtw) + vv[k] - v0[k]
                 v = d2i(vv[k] - vmean[k])
                 vsum[k] += float(v) * v
             tt = 1
@@ -318,7 +318,7 @@ def _main(argv, out):
             if not ok:
                 break
             for k in range(nsig):
-                amp[k][namp] = math.sqrt(vsum[k] / dtw)
+                amp[k][namp] = math.sqrt(fdiv(vsum[k], dtw))
             if vflag or qflag:
                 printamp(t)
             namp += 1

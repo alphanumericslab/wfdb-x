@@ -562,7 +562,15 @@ if pflag
                     end
                     continue;
                 end
-                txt = sprintf([tfmt repmat(vfmt, 1, nsig) '\n'], [tv phys]');
+                if all(isfinite(tv))
+                    txt = sprintf([tfmt repmat(vfmt, 1, nsig) '\n'], [tv phys]');
+                else
+                    % (a sampling frequency of nan: C prints the times as
+                    % nan, which MATLAB/Octave sprintf prints as NaN)
+                    tcol = arrayfun(@(x) csp(tfmt, x), tv, 'UniformOutput', false);
+                    c = [tcol num2cell(phys)]';
+                    txt = sprintf(['%s' repmat(vfmt, 1, nsig) '\n'], c{:});
+                end
             else
                 tcol = cell(m, 1);
                 for r = 1:m

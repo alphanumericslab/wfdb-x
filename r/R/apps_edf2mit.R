@@ -87,6 +87,7 @@ app_edf2mit <- function(args = character(0)) {
   vflag <- 0
   siglist <- numeric(0)
   data <- NULL                              # the whole input file
+  iname <- NULL                             # its name, as given
   i <- 1
   while (i < argc) {
     a <- arg(i)
@@ -101,6 +102,7 @@ app_edf2mit <- function(args = character(0)) {
         i <- i + 1
         if (i < argc) {
           fn <- arg(i)
+          iname <- fn
           if (fn == "-") {
             data <- stdin_bytes()
           } else {
@@ -148,6 +150,18 @@ app_edf2mit <- function(args = character(0)) {
     ceprintf("using the -r option as described above.\n\n")
     ceprintf("  Valid record names may include letters, digits, and underscores only.\n")
     cexit(1)
+  }
+  hea_file <- wfdbfile(NULL, NULL)          # (the header newheader created)
+  # WFDB-x: the 256-byte fixed part of the EDF header is read at once.  If
+  # the input file is shorter (C takes the missing fields from uninitialized
+  # memory; see KNOWN_C_BEHAVIORS.md), and its first 8 bytes are not those
+  # of another format, the program stops, and no output file remains.
+  if (length(data) < 256 &&
+      (length(data) < 8 || identical(data[1:8], charToRaw(EDF_MAGIC)))) {
+    wfdbquit()
+    if (!is.null(hea_file)) unlink(hea_file)
+    ceprintf("%s: incomplete EDF header in %s\n", pname, iname)
+    cexit(2)
   }
 
   # fread() from the input file

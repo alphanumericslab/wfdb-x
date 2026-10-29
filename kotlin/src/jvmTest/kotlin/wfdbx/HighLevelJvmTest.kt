@@ -94,6 +94,58 @@ class HighLevelJvmTest {
         }
     }
 
+    /** Runs [f] in a thread of its own; fails if it does not finish in 60 s. */
+    private fun <T> inTime(f: () -> T): T {
+        var result: T? = null
+        var failure: Throwable? = null
+        val t = Thread {
+            try {
+                result = f()
+            } catch (e: Throwable) {
+                failure = e
+            }
+        }
+        t.isDaemon = true
+        t.start()
+        t.join(60000)
+        assertFalse(t.isAlive, "readRecord did not finish")
+        failure?.let { throw it }
+        @Suppress("UNCHECKED_CAST")
+        return result as T
+    }
+
+    @Test
+    fun readRecordHighresLargeFrames() {
+        // A block of vectors is rounded down to a multiple of 6 times the
+        // largest number of samples per frame; it is at least one such unit,
+        // so that every read progresses (this used to loop without end).
+        val d = DataDir("hrlarge")
+        try {
+            val w = d.wfdb()
+            // 512 signals, spf [1024] + [1] * 511, one frame
+            val spf = IntArray(512) { if (it == 0) 1024 else 1 }
+            val x = IntArray(spf.sum()) { it % 1000 }
+            w.writeRecord("mixed", x, 512, 1.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"), sampsPerFrame = spf)
+            var r = inTime { d.wfdb().readRecord("mixed", highres = true, to = TimeSpec(1)) }
+            assertEquals(listOf(512, 1), listOf(r.nsig, r.nsamples))
+            assertEquals(listOf(0, 1024 % 1000), listOf(r.at(0, 0), r.at(0, 1)))
+            r = inTime { d.wfdb().readRecord("mixed", highres = true) }
+            assertEquals(1024, r.nsamples)
+            assertEquals(listOf(1023 % 1000, (1024 + 510) % 1000), listOf(r.at(1023, 0), r.at(1023, 511)))
+            // one signal with 16384 (and 350000) samples per frame, two frames
+            for (n in listOf(16384, 350000)) {
+                val y = IntArray(2 * n) { it % 30000 }
+                w.writeRecord("big", y, 1, 1.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"), sampsPerFrame = intArrayOf(n))
+                r = inTime { d.wfdb().readRecord("big", highres = true, to = TimeSpec(1)) }
+                assertEquals(listOf(0), r.samples.asList())
+                r = inTime { d.wfdb().readRecord("big", highres = true) }
+                assertTrue(y.contentEquals(r.samples))
+            }
+        } finally {
+            d.remove()
+        }
+    }
+
     @Test
     fun writeRecordWriteError() {
         // A signal file or header that cannot be written throws an error, in

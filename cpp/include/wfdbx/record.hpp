@@ -34,7 +34,8 @@
 // package, for that call only.  Use it only to reproduce old results.
 //
 // Errors throw wfdbx::Error.  The functions call wfdbquit() before and after
-// their work, which closes anything opened with the WFDB library functions.
+// their work (also when they throw), which closes anything opened with the
+// WFDB library functions.
 // They are not thread-safe.  Results are returned by value.
 //
 //     #include <wfdbx/record.hpp>
@@ -321,12 +322,14 @@ Annotations read_annotations(const std::string &record,
                              const InputOptions &input = {});
 
 /// Options of write_record() and write_record_physical().  Each per-signal
-/// vector holds one value for all signals, or one value per signal.
+/// vector holds one value for all signals, or one value per signal (or
+/// none, for those that have a default); any other length throws Error.
 /// gains, adcres and units have no default: you must give them.
 struct WriteOptions {
     int fmt = 16;               ///< storage format (the same for all signals)
-    /// Gains, in ADC units per physical unit: required.  A gain of 0 marks a
-    /// signal as uncalibrated, which only write_record() (ADC units) allows.
+    /// Gains, in ADC units per physical unit: required, and finite.  A gain
+    /// of 0 marks a signal as uncalibrated, which only write_record() (ADC
+    /// units) allows.  Negative gains are allowed.
     std::vector<WFDB_Gain> gains;
     std::vector<int> baselines;         ///< default: the adczeros values
     std::vector<int> adczeros{0};       ///< ADC output for 0 V input
@@ -339,7 +342,9 @@ struct WriteOptions {
     /// Samples per frame of each signal, for multi-frequency records
     /// (default: 1).
     std::vector<int> samps_per_frame;
-    std::optional<std::string> base_time;   ///< e.g. "12:00:00 01/01/2020"
+    /// Start time and date, e.g. "12:00:00 01/01/2020" (see setbasetime());
+    /// one that setbasetime() rejects throws Error.
+    std::optional<std::string> base_time;
     std::vector<std::string> comments;  ///< info strings (header comments)
     /// If not empty, the directory in which the files are created.  The
     /// directory must exist, and the record name must not contain a
@@ -358,16 +363,21 @@ struct WriteOptions {
 /// is the sampling frequency in Hz.
 ///
 /// Throws Error if a samps_per_frame value is less than 1
-/// ("samps_per_frame must hold integers >= 1", checked first), if nsig or fs
-/// is not greater than 0, if the gains, the ADC resolutions or the units of
-/// a calibrated signal are missing ("gains must be specified", "ADC
+/// ("samps_per_frame must hold integers >= 1", checked first), if the
+/// record name is empty, if nsig is not greater than 0 ("at least one signal
+/// is required"), if a per-signal vector of `opt` has another length than
+/// 0, 1 or nsig, if fs is not finite or not greater than 0, if a gain is not
+/// finite ("gains must be finite"), if the gains, the ADC resolutions or the
+/// units of a calibrated signal are missing ("gains must be specified", "ADC
 /// resolution(s) must be specified", "units must be specified"), if
-/// samples.size() is not a multiple of the frame size, if the files cannot
-/// be created, or if they cannot be written completely (for example, when
-/// the disk is full: "write error on record R").  With opt.dir, it also throws if the
-/// directory does not exist ("directory D does not exist") or the record
-/// name contains one ("record name must not contain a directory when dir is
-/// given").
+/// samples.size() is not a multiple of the frame size, if opt.base_time is
+/// not a valid time ("incorrect base time 'T'"), if the files cannot be
+/// created, or if they cannot be written completely (for example, when the
+/// disk is full: "write error on record R").  Every check except the last
+/// two comes before any file is created.  With opt.dir, it also throws if
+/// the directory does not exist ("directory D does not exist") or the
+/// record name contains one ("record name must not contain a directory when
+/// dir is given").
 ///
 ///     wfdbx::WriteOptions w;
 ///     w.fmt = 212;
@@ -396,14 +406,17 @@ void write_record_physical(const std::string &record,
 /// Write the annotation file of `annotator` for `record`,
 /// "<record>.<annotator>".  The type of each annotation is its `symbols`
 /// entry ("N", "V", ...; an unknown mnemonic gives NOTQRS), or its `codes`
-/// entry if the symbol is empty or absent.  Each of symbols, codes,
-/// subtypes, chans, nums and aux is either empty (subtypes, chans and nums
-/// are then 0, and there is no aux) or has one entry per annotation; any
-/// other length throws Error before anything is written.  subtypes, chans
-/// and nums are stored in 8 bits, as by putann() (300 is stored as 44, as
-/// in C), and aux texts are cut to 255 bytes.  If
-/// fs > 0, it is recorded in the file (ann.fs is not used).  If `dir` is not
-/// empty, the file is created in that directory, which must exist.
+/// entry.  Both may be given (as read_annotations() returns them) if they
+/// agree: the code of each non-empty symbol (strann()) is the code given
+/// for that annotation; an empty symbol leaves the code.  Each of
+/// symbols, codes, subtypes, chans, nums and aux is either empty (subtypes,
+/// chans and nums are then 0, and there is no aux) or has one entry per
+/// annotation; any other length throws Error before anything is written.
+/// subtypes, chans and nums are stored in 8 bits, as by putann() (300 is
+/// stored as 44, as in C), and aux texts are cut to 255 bytes.  `fs` is 0
+/// (none) or a finite frequency > 0, which is recorded in the file (ann.fs
+/// is not used).  If `dir` is not empty, the file is created in that
+/// directory, which must exist.
 ///
 /// If the annotations are not in time order, the file is sorted when it is
 /// written.  sort = false keeps the order given (without the library's
@@ -411,9 +424,12 @@ void write_record_physical(const std::string &record,
 /// sorts, for this call only.  Without `sort`, the WFDBANNSORT environment
 /// variable decides: sorting is on unless it is 0.
 ///
-/// Throws Error if the file cannot be created, if it cannot be written
-/// completely ("write error on annotator A for record R"), or for a `dir`
-/// as write_record() does.
+/// Throws Error if symbols and codes are both given and disagree
+/// ("symbols and codes disagree at annotation K", K counted from 0), if
+/// `fs` is not 0 and not a finite frequency > 0, if
+/// the file cannot be created, if it cannot be written completely ("write
+/// error on annotator A for record R"), or for a `dir` as write_record()
+/// does.  The arguments are checked before the file is created.
 ///
 ///     wfdbx::Annotations qrs;
 ///     qrs.samples = {100, 460, 820};

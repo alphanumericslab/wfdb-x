@@ -8,7 +8,9 @@ function write_annotations(record, annotator, samples, varargin)
 %                 of one-character mnemonics ('NNV'), one per annotation
 %                 (or one for all); or
 %     'codes'     annotation codes (wfdbx.NORMAL(), ...).  One of the two is
-%                 required.
+%                 required.  If both are given (as wfdbx.read_annotations
+%                 returns them), each symbol must be that of its code (an
+%                 empty symbol is not checked), and the codes are written.
 %     'subtypes', 'chans', 'nums'   one value for all annotations, or one
 %                 per annotation (default 0).  As in C, they are stored in
 %                 one byte each, and other values wrap around (subtypes and
@@ -16,6 +18,7 @@ function write_annotations(record, annotator, samples, varargin)
 %     'aux'       cell array of auxiliary texts, one per annotation ([] for
 %                 none), or one char vector for all
 %     'fs'        time resolution to record in the file, in ticks per second
+%                 (finite, > 0)
 %     'dir'       folder in which to create the file (default: the output
 %                 directory).  RECORD must then be a plain name.
 %     'sort'      true to always sort the file, false to keep the order given
@@ -29,7 +32,12 @@ function write_annotations(record, annotator, samples, varargin)
 %   is 0.
 %
 %   Errors: an error (identifier 'wfdbx:write_annotations') is thrown if
-%   neither 'symbols' nor 'codes' is given, if a per-annotation option
+%   neither 'symbols' nor 'codes' is given, if both are given and disagree
+%   ("symbols and codes disagree at annotation K", K counting from 0), if a
+%   time in SAMPLES is not an integer within the range of a 64-bit integer
+%   (NaN, infinite values and fractions included), if a code, subtype,
+%   chan or num is NaN or infinite, if 'fs' is not finite and > 0, if a
+%   per-annotation option
 %   ('symbols', 'codes', 'subtypes', 'chans', 'nums', 'aux') given as a list
 %   does not have one value per annotation ("... must have one value per
 %   annotation"), if 'dir' does not exist, if the file cannot be created,
@@ -95,6 +103,18 @@ elseif isa(opt.aux, 'string')
 end
 samples = reshape(double(samples), 1, []);
 n = numel(samples);
+% WFDB-x: the times are integers within the range of WFDB_Time
+if ~all(isfinite(samples) & samples == fix(samples))
+    error('wfdbx:write_annotations', 'annotation times must be integers');
+end
+if ~all(samples >= -2^63 & samples < 2^63)
+    error('wfdbx:write_annotations', ['annotation times must be integers ' ...
+        'within the range of a 64-bit integer']);
+end
+if ~isempty(opt.fs) && ~(isnumeric(opt.fs) && isscalar(opt.fs) && ...
+        isreal(opt.fs) && isfinite(opt.fs) && opt.fs > 0)
+    error('wfdbx:write_annotations', 'fs must be finite and > 0');
+end
 if isempty(opt.codes)
     if isempty(opt.symbols) && n > 0
         error('wfdbx:write_annotations', 'symbols or codes must be given');
@@ -124,6 +144,34 @@ A.anntyp = per(codes, n, 'codes');
 A.subtyp = per(opt.subtypes, n, 'subtypes');
 A.chan = per(opt.chans, n, 'chans');
 A.num = per(opt.nums, n, 'nums');
+% WFDB-x: NaN (or an infinite value) is an error
+fields = {'anntyp', 'codes'; 'subtyp', 'subtypes'; 'chan', 'chans'; 'num', 'nums'};
+for k = 1:size(fields, 1)
+    if ~all(isfinite(A.(fields{k, 1})))
+        error('wfdbx:write_annotations', '%s must not be NaN or infinite', ...
+            fields{k, 2});
+    end
+end
+if ~isempty(opt.codes) && ~isempty(opt.symbols)
+    % WFDB-x: symbols and codes may both be given (as read_annotations
+    % returns them) if they agree: each symbol is that of its code (an
+    % empty symbol agrees with any code)
+    if numel(opt.symbols) == 1      % (one mnemonic for all)
+        opt.symbols = repmat(reshape(opt.symbols, 1, 1), 1, n);
+    end
+    check(opt.symbols, n, 'symbols');
+    sym = reshape(opt.symbols(1:n), 1, []);
+    if ~iscell(sym)
+        sym = num2cell(sym);
+    end
+    for k = 1:n
+        if ischar(sym{k}) && ~isempty(sym{k}) && ...
+                wfdbx.strann(sym{k}) ~= A.anntyp(k)
+            error('wfdbx:write_annotations', ...
+                'symbols and codes disagree at annotation %d', k - 1);
+        end
+    end
+end
 A.aux = cell(1, n);
 if ~isempty(opt.aux)
     if ~iscell(opt.aux)

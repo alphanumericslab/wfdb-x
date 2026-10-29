@@ -71,13 +71,15 @@ def _main(argv, out):
     # shown (C assumed 250 Hz).  In legacy mode, the output is that of the
     # C program.
     freq = w.sampfreq(None)
+    # These two tests are not complements when freq is NaN, as in C.
     timed = freq > 0.0 or legacy()
+    untimed = freq <= 0.0 and not legacy()
     p = w.mstimstr(0) if timed else ""
     out.write("\nStarting time: %s\n" % (p if p.startswith("[")
                                          else "not specified"))
     out.write("Length: ")
     done = False
-    if not timed and (nsig < 1 or t > 0):
+    if untimed and (nsig < 1 or t > 0):
         out.write("%d sample intervals\n" % t)
         done = True
     elif nsig < 1 or t > 0:
@@ -112,7 +114,7 @@ def _main(argv, out):
                 t = cdiv(3 * nbytes, 4 * framesize)
             else:
                 t = -1
-            if t >= 0 and not timed:
+            if t >= 0 and untimed:
                 out.write("%d sample intervals [from signal file size]\n"
                           % t)
             elif t >= 0:

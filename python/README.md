@@ -100,7 +100,7 @@ rec = wfdbx.read_record("100s", channels=["MLII"], sampfrom="0:10", sampto="0:20
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
 | `channels` | signals to read, by number or name (as in `names`) | all signals |
-| `sampfrom`, `sampto` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
+| `sampfrom`, `sampto` | first sample, and the sample after the last one: a sample number (a whole number) or a time string (see below); `sampto=None` reads to the end | the whole record |
 | `physical` | return physical units (float64) instead of ADC units (int32) | `False` |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `False` |
 | `pad` | replace invalid samples by the previous valid one | `False` |
@@ -183,9 +183,9 @@ with one value per signal.
 | Argument | Meaning |
 |---|---|
 | `signals` | array with one row per sample and one column per signal; ADC units, or physical units with `physical=True` |
-| `fs` | sampling frequency in Hz |
+| `fs` | sampling frequency in Hz (finite, > 0) |
 | `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
-| `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
+| `gains`, `adcres`, `units` | gain (finite; 0 for an uncalibrated signal), ADC resolution in bits, and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
 | `samps_per_frame` | samples per frame of each signal, for a multi-frequency record; `signals` then has one row per frame and `sum(samps_per_frame)` columns |
@@ -200,7 +200,11 @@ written above:
 wfdbx.write_annotations("rand", "qrs", samples=[100, 460, 820], symbols=["N", "N", "V"])
 ```
 
-Give the annotation types as `symbols` or as `codes`. `subtypes`, `chans`,
+Give the annotation types as `symbols` or as `codes`. Both may be given
+(as `read_annotations` returns them) if they agree: each symbol must be
+that of its code (an empty symbol is not checked). The
+times in `samples` must be integers within the range of a 64-bit integer.
+`subtypes`, `chans`,
 `nums` and `aux` are optional. Each of these arguments is one value for all
 annotations, or a list with exactly one value per annotation; a list of any
 other length raises `ValueError` before the file is created. As in C,
@@ -219,17 +223,30 @@ environment variable decides (sorting is on unless it is `0`).
   annotator ANN for record REC". (`wfdbx_write_errors()` counts such errors
   for the C-style functions, which report them only with a message, as in
   C.)
-* In `write_record`, `samps_per_frame` values that are not integers of at
+* In `write_record`, an empty record name, no signals ("at least one
+  signal is required"), a sampling frequency that is not finite and
+  greater than 0, a gain that is not finite (a gain of 0 marks an
+  uncalibrated signal, and negative gains are allowed), a `base_time` that
+  cannot be parsed, `samps_per_frame` values that are not integers of at
   least 1, a number of columns of `signals` other than their sum, a list of
   per-signal values without one value per signal, samples in ADC units that
   are not integers (floats with whole values are integers) or that lie
   outside the range of a 32-bit integer, and samples in physical units that
   are infinite or whose ADC value lies outside that range, raise
   `ValueError` before any file is created. (NaN in physical units is an
-  invalid sample.) Whatever the outcome, `write_record` and
+  invalid sample.) In `write_annotations`, `symbols` and `codes` that
+  disagree ("symbols and codes disagree at annotation K"), an annotation
+  time that is not an integer within the range of a
+  64-bit integer (NaN, an infinite value, a fraction or a huge value), NaN
+  or None in `samples`, `codes`, `subtypes`, `chans` or `nums`, and an `fs`
+  that is not finite and greater than 0 raise `ValueError` before the file
+  is created. Whatever the outcome, `write_record` and
   `write_annotations` close their output files and the library's output
   signals and annotators before they return.
-* A negative `sampfrom` in `read_record` raises `ValueError`.
+* A negative `sampfrom` in `read_record` raises `ValueError`, and so does a
+  `sampfrom` or `sampto` that is not a whole number (a fraction, NaN or an
+  infinite value). Whatever the outcome, `read_record` closes the input
+  signals before it returns.
 * `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
   only: the mode in force before the call is restored afterwards.
 * A signal file that is shorter than its header says raises `IOError`:

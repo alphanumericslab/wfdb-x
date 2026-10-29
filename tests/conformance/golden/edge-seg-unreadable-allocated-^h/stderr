@@ -1,0 +1,4 @@
+sigmap_init: loss of precision in signal 0 in segment rec_s0
+sigmap_init: unexpected spf for signal 1 in segment rec_s1
+isigopen: none of the signals for record rec_s2 is readable
+isigsettime: can't open segment rec_s2

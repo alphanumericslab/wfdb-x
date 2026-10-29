@@ -2540,3 +2540,333 @@ fn write_record_option_lengths() {
     let r = w.read_record("wl", &ReadOptions::default()).unwrap();
     assert_eq!(r.samples, x);
 }
+
+// ---------------------------------------------------------------------------
+// WFDB-x: the high-level functions check their arguments before any file is
+// created, and leave no input signals or annotators open after an error
+
+/// No input signals are open (`wfdbx_input_state` lists none) and no
+/// annotator is open.
+fn assert_closed(w: &mut Wfdb) {
+    assert!(
+        !w.wfdbx_input_state().contains(';'),
+        "{}",
+        w.wfdbx_input_state()
+    );
+    let mut a = Annotation::default();
+    assert!(w.getann(0, &mut a) < 0);
+}
+
+fn no_files(names: &[&str]) {
+    for n in names {
+        assert!(!std::path::Path::new(n).exists(), "{n} exists");
+    }
+}
+
+/// Reads `record` (written in `dir`) at high resolution, to `to` (or to the
+/// end), in a thread of its own; fails if it does not finish in 60 s.
+fn read_highres_in_time(dir: &std::path::Path, record: &str, to: Option<i64>) -> Record {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let dir = dir.to_str().unwrap().to_string();
+    let record = record.to_string();
+    std::thread::spawn(move || {
+        let mut w = Wfdb::new();
+        w.setwfdb(".");
+        let opt = ReadOptions {
+            to: to.map(TimeSpec::from),
+            highres: true,
+            input_dir: Some(dir),
+            ..Default::default()
+        };
+        let _ = tx.send(w.read_record(&record, &opt));
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(60))
+        .expect("read_record did not finish")
+        .unwrap()
+}
+
+#[test]
+fn read_record_highres_large_frames() {
+    // A block of vectors is rounded down to a multiple of 6 times the
+    // largest number of samples per frame; it is at least one such unit, so
+    // that every read progresses (this used to loop without end).
+    let d = DataDir::new();
+    let dir = d.dir.clone();
+    let mut w = Wfdb::new();
+    // 512 signals, spf [1024] + [1] * 511, one frame
+    let mut spf = vec![1024];
+    spf.extend(std::iter::repeat(1).take(511));
+    let x: Vec<i32> = (0..spf.iter().sum::<i32>()).map(|i| i % 1000).collect();
+    let o = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        samps_per_frame: spf.clone(),
+        ..Default::default()
+    };
+    w.write_record("mixed", &x, 512, 1.0, &o).unwrap();
+    let r = read_highres_in_time(&dir, "mixed", Some(1));
+    assert_eq!((r.nsig, r.nsamples()), (512, 1));
+    assert_eq!(r.at(0, 0), 0);
+    assert_eq!(r.at(0, 1), 1024 % 1000);
+    let r = read_highres_in_time(&dir, "mixed", None);
+    assert_eq!(r.nsamples(), 1024);
+    assert_eq!(r.at(1023, 0), 1023 % 1000);
+    assert_eq!(r.at(1023, 511), (1024 + 510) % 1000);
+    // one signal with 16384 (and 350000) samples per frame, two frames
+    for n in [16384, 350000] {
+        let x: Vec<i32> = (0..2 * n).map(|i| i % 30000).collect();
+        let o = WriteOptions {
+            samps_per_frame: vec![n],
+            ..o.clone()
+        };
+        w.write_record("big", &x, 1, 1.0, &o).unwrap();
+        let r = read_highres_in_time(&dir, "big", Some(1));
+        assert_eq!(r.samples, [0]);
+        let r = read_highres_in_time(&dir, "big", None);
+        assert_eq!(r.samples, x);
+    }
+}
+
+#[test]
+fn write_record_metadata_checks() {
+    // The sampling frequency (finite, > 0), the gains (finite), the base
+    // time, the record name, the number of signals and the lengths of the
+    // per-signal options are checked before any file is created.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let x = [1i32, 2, 3, 4, 5, 6];
+    let good = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    let freq = "write_record: the sampling frequency must be > 0";
+    let finite = "write_record: the sampling frequency must be finite";
+    for (fs, msg) in [
+        (f64::NAN, freq),
+        (f64::INFINITY, finite),
+        (f64::NEG_INFINITY, freq),
+        (0.0, freq),
+        (-1.0, freq),
+    ] {
+        let e = w.write_record("mc", &x, 2, fs, &good).unwrap_err();
+        assert_eq!(e.message(), msg, "{fs}");
+        let xp = [0.5; 6];
+        let e = w
+            .write_record_physical("mc", &xp, 2, fs, &good)
+            .unwrap_err();
+        assert_eq!(e.message(), msg, "{fs}");
+        no_files(&["mc.hea", "mc.dat"]);
+    }
+    // (legacy mode: no frequency is allowed, but it must be finite)
+    let legacy = WriteOptions {
+        legacy: true,
+        ..good.clone()
+    };
+    for fs in [f64::NAN, f64::INFINITY] {
+        let e = w.write_record("mc", &x, 2, fs, &legacy).unwrap_err();
+        assert_eq!(e.message(), finite);
+        no_files(&["mc.hea", "mc.dat"]);
+    }
+    for gains in [
+        vec![f64::NAN],
+        vec![f64::INFINITY],
+        vec![200.0, f64::NEG_INFINITY],
+    ] {
+        let o = WriteOptions {
+            gains,
+            ..good.clone()
+        };
+        let e = w.write_record("mc", &x, 2, 100.0, &o).unwrap_err();
+        assert_eq!(e.message(), "write_record: gains must be finite");
+        let e = w
+            .write_record_physical("mc", &[0.5; 6], 2, 100.0, &o)
+            .unwrap_err();
+        assert_eq!(e.message(), "write_record: gains must be finite");
+        no_files(&["mc.hea", "mc.dat"]);
+    }
+    let bt = WriteOptions {
+        base_time: Some(b"garbage".to_vec()),
+        ..good.clone()
+    };
+    let e = w.write_record("mc", &x, 2, 100.0, &bt).unwrap_err();
+    assert_eq!(e.message(), "write_record: incorrect base time 'garbage'");
+    no_files(&["mc.hea", "mc.dat"]);
+    let e = w.write_record("", &x, 2, 100.0, &good).unwrap_err();
+    assert_eq!(
+        e.message(),
+        "write_record: the record name must not be empty"
+    );
+    no_files(&[".hea", ".dat"]);
+    let e = w.write_record("mc", &[], 0, 100.0, &good).unwrap_err();
+    assert_eq!(e.message(), "write_record: at least one signal is required");
+    let e = w
+        .write_record_physical("mc", &[], 0, 100.0, &good)
+        .unwrap_err();
+    assert_eq!(e.message(), "write_record: at least one signal is required");
+    no_files(&["mc.hea", "mc.dat"]);
+    // units: one value for all signals, or one per signal (also when the
+    // other signals are uncalibrated)
+    let units = WriteOptions {
+        gains: vec![200.0, 0.0, 0.0],
+        units: vec![Some("mV".into()), None],
+        ..good.clone()
+    };
+    let e = w
+        .write_record("mc", &[1, 2, 3], 3, 100.0, &units)
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "write_record: units must have one value per signal"
+    );
+    no_files(&["mc.hea", "mc.dat"]);
+    assert_closed(w);
+    // valid: a gain of 0 (uncalibrated), a negative gain, a base time
+    let ok = WriteOptions {
+        gains: vec![0.0, -200.0],
+        units: vec![None, Some("mV".into())],
+        base_time: Some(b"12:30:15 02/03/2020".to_vec()),
+        ..good.clone()
+    };
+    w.write_record("mc", &x, 2, 100.0, &ok).unwrap();
+    let r = w.read_record("mc", &ReadOptions::default()).unwrap();
+    assert_eq!(r.samples, x);
+    assert_eq!(r.siginfo[0].gain, 0.0);
+    assert_eq!(r.siginfo[1].gain, -200.0);
+    assert_eq!(r.base_time.as_deref(), Some("[12:30:15 02/03/2020]"));
+}
+
+#[test]
+fn write_annotations_checks() {
+    // Symbols and codes that disagree, and a frequency that is not finite
+    // and > 0 (other than 0, for none), are errors before the file is
+    // created; symbols and codes that agree (as read_annotations returns
+    // them) are written.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let ann = Annotations {
+        samples: vec![10, 20],
+        symbols: vec!["N".into(), "V".into()],
+        codes: vec![NORMAL, NORMAL],
+        ..Default::default()
+    };
+    let e = w
+        .write_annotations("ac", "tst", &ann, 0.0, None)
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "write_annotations: symbols and codes disagree at annotation 1"
+    );
+    no_files(&["ac.tst"]);
+    let sym = Annotations {
+        codes: Vec::new(),
+        ..ann.clone()
+    };
+    for fs in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -250.0] {
+        let e = w
+            .write_annotations("ac", "tst", &sym, fs, None)
+            .unwrap_err();
+        assert_eq!(
+            e.message(),
+            "write_annotations: fs must be finite and > 0 (or 0: none)"
+        );
+        no_files(&["ac.tst"]);
+    }
+    assert_closed(w);
+    let codes = Annotations {
+        symbols: Vec::new(),
+        codes: vec![NORMAL, PVC],
+        ..ann.clone()
+    };
+    for (a, fs) in [(&sym, 0.0), (&codes, 250.0)] {
+        w.write_annotations("ac", "tst", a, fs, None).unwrap();
+        let r = w
+            .read_annotations("ac", "tst", None, None, Some(250.0), false)
+            .unwrap();
+        assert_eq!(r.codes, [NORMAL, PVC]);
+        assert_eq!(r.samples, [10, 20]);
+    }
+    // a round trip: read_annotations gives both symbols and codes (an
+    // empty symbol for a code without a mnemonic, which agrees with it)
+    let read = |w: &mut Wfdb, rec: &str| {
+        w.read_annotations(rec, "atr", None, None, Some(360.0), false)
+            .unwrap()
+    };
+    let r = read(w, "100s");
+    assert!(!r.symbols.is_empty() && !r.codes.is_empty());
+    w.write_annotations("rt", "atr", &r, 0.0, None).unwrap();
+    let r2 = read(w, "rt");
+    assert_eq!(
+        (&r2.samples, &r2.codes, &r2.symbols),
+        (&r.samples, &r.codes, &r.symbols)
+    );
+    let mut r3 = r.clone();
+    r3.symbols[3].clear();
+    w.write_annotations("rt", "atr", &r3, 0.0, None).unwrap();
+    assert_eq!(read(w, "rt").codes, r.codes);
+    let odd = Annotations {
+        samples: vec![5, 6, 7],
+        codes: vec![42, 43, NORMAL],
+        ..Default::default()
+    };
+    w.write_annotations("rt", "atr", &odd, 0.0, None).unwrap();
+    let r = read(w, "rt");
+    assert_eq!(r.codes, [42, 43, NORMAL]);
+    // (their mnemonics, as annstr gives them, are "[42]" and "[43]")
+    assert_eq!(r.symbols[..2], [b"[42]".to_vec(), b"[43]".to_vec()]);
+    w.write_annotations("rt2", "atr", &r, 0.0, None).unwrap();
+    let r2 = read(w, "rt2");
+    assert_eq!((&r2.codes, &r2.symbols), (&r.codes, &r.symbols));
+    // (an empty symbol agrees with any code)
+    let empty = Annotations {
+        symbols: vec![Vec::new(), Vec::new(), b"N".to_vec()],
+        ..odd.clone()
+    };
+    w.write_annotations("rt3", "atr", &empty, 0.0, None)
+        .unwrap();
+    assert_eq!(read(w, "rt3").codes, [42, 43, NORMAL]);
+}
+
+#[test]
+fn read_record_errors_close_signals() {
+    // After any error once the record is open, its input signals are
+    // closed and the getvec mode is restored.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    w.setgvmode(WFDB_LOWRES);
+    let bad = [
+        ReadOptions {
+            from: Some((-1).into()),
+            ..Default::default()
+        },
+        ReadOptions {
+            channels: vec!["nosuch".into()],
+            highres: true,
+            ..Default::default()
+        },
+        ReadOptions {
+            from: Some(1_000_000.into()),
+            ..Default::default()
+        },
+    ];
+    for o in &bad {
+        assert!(w.read_record("100s", o).is_err());
+        assert_closed(w);
+        assert_eq!(w.getgvmode(), WFDB_LOWRES);
+    }
+    // (and after a successful read)
+    w.read_record(
+        "100s",
+        &ReadOptions {
+            to: Some(5.into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_closed(w);
+}

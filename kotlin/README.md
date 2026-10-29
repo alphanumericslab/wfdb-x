@@ -170,7 +170,10 @@ rec.physical!![0]     // its first sample, in mV
 
 A `TimeSpec` is a sample number, `TimeSpec(3600)`, or a WFDB time string,
 `TimeSpec("0:10")` (10 seconds), `TimeSpec("1:02:03.5")`, `TimeSpec("s3600")`
-(sample 3600) or `TimeSpec("e")` (the end of the record).
+(sample 3600) or `TimeSpec("e")` (the end of the record). A sample number
+is a whole number by its type; `null` (the default `to`) reads to the end.
+On any error once the record is open, its input signals are closed, and
+the getvec mode and the settings changed for the call are restored.
 
 The result is a `Record`. The samples are in one `IntArray`, frame by frame,
 as the library returns them: `samples[i * nsig + s]` is sample `i` of signal
@@ -247,14 +250,16 @@ writeRecord("rand", x, nsig = 2, fs = 360.0, fmt = 16, gains = doubleArrayOf(100
 ```
 
 This writes the header `rand.hea` and the signal file `rand.dat`. The
-sampling frequency, the gain and ADC resolution of each signal, and the
-units of each calibrated signal are required; there are no defaults. The
+sampling frequency (finite and > 0), the gain (finite) and ADC resolution
+of each signal, and the units of each calibrated signal are required; there
+are no defaults. The record name must not be empty, there must be at least
+one signal, and a `baseTime` that cannot be parsed is an error. The
 samples are given frame by frame, as `Record.samples`: an `IntArray` of ADC
 units, or a `DoubleArray` of physical units, converted to ADC units as
 `round(x * gain) + baseline` (NaN becomes an invalid sample; an infinite
 value, or one beyond the range of 32-bit integers in ADC units, is an error).
 A gain of 0 marks a signal as uncalibrated, which is only allowed for
-samples in ADC units. Per-signal arguments take one value for all signals,
+samples in ADC units; negative gains are allowed. Per-signal arguments take one value for all signals,
 or one value per signal; anything else is an error. The arguments are
 checked before any file is created, and the output signals are closed
 whatever happens.
@@ -277,10 +282,14 @@ whatever happens.
 writeAnnotations("rand", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N", "N", "V"))
 ```
 
-Give the annotation types as `symbols` or as `codes`. `subtypes`, `chans`,
-`nums` and `aux` are optional. Each of these arguments, when given, has one
-value per annotation; anything else is an error, reported before the file
-is created. As in C, the subtype, channel and annotator number are stored
+Give the annotation types as `symbols` or as `codes`. Both may be given (as
+`readAnnotations` returns them) if they agree: the code of each symbol must
+be the code at its position (an empty symbol agrees with any code), or
+"writeAnnotations: symbols and codes disagree at annotation K" (K counting
+from 0) is thrown. `subtypes`, `chans`, `nums` and `aux` are optional.
+Each of these arguments, when given, has one value per annotation; anything
+else is an error. `fs`, if given, must be finite and > 0. These checks are
+made before the file is created. As in C, the subtype, channel and annotator number are stored
 in one byte each (other values wrap around). An `Annotations` object can also be written
 as it is: `writeAnnotations("rand", "atr2", ann)`. If the annotations are
 not in time order, the file is sorted when it is written. `sort = false`

@@ -27,6 +27,7 @@ version. See LICENSE.
 import sys
 
 import wfdbx as w
+from wfdbx._cstd import int32
 from wfdbx._signal import WFDB_TIME_MAX
 from ._common import (Output, Exit, eprintf, freq_not_specified, legacy,
                       legacy_gains, run)
@@ -254,7 +255,7 @@ def _main(argv, out):
         o.spf = 1
         o.fmt = wfdbtype
         o.adczero = 0
-        o.baseline -= si[sig[k]].adczero
+        o.baseline = int32(o.baseline - si[sig[k]].adczero)
         if o.units is None:     # WFDB-x: not assumed to be millivolts
             o.units = "mV" if legacy() else "nd"    # (C, legacy mode: mV)
         elif len(o.units) == 0:
@@ -312,7 +313,7 @@ def _main(argv, out):
     while t < to and stat >= 0:
         stat = w.getvec(vi)
         for k in range(nosig):
-            vo[k] = vi[sig[k]] - si[sig[k]].adczero
+            vo[k] = int32(vi[sig[k]] - si[sig[k]].adczero)
         if w.putvec(vo) != nosig:
             break
         t += 1

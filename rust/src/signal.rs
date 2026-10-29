@@ -1986,7 +1986,10 @@ impl Wfdb {
                             nsamp: n,
                             samp0: ns,
                         });
-                        ns += n;
+                        // (C: the sum overflows if the lengths exceed the
+                        // range of WFDB_Time; WFDB-x wraps it around, as C
+                        // does on x86-64: see docs/KNOWN_C_BEHAVIORS.md)
+                        ns = ns.wrapping_add(n);
                     }
                     _ => {
                         let msg = cformat!(
@@ -3118,8 +3121,13 @@ impl Wfdb {
             // Go through groups in reverse order since seeking on group 0
             // should always be done last.
             g -= 1;
-            // (a seek that failed may have closed the input signals)
-            if g < self.sig.nigroup && self.sig.igd[g as usize].initial_skip != 0 {
+            // A seek that opens another segment may leave fewer groups, or
+            // fail and close the input signals: the allocated slots past
+            // them are zeroed (no initial skip).  WFDB-x: a group number
+            // past the allocated slots is reported as incorrect by
+            // isgsetframe (C reads past its group array; see
+            // docs/KNOWN_C_BEHAVIORS.md).
+            if g as usize >= self.sig.igd.len() || self.sig.igd[g as usize].initial_skip != 0 {
                 let t0 = if self.sig.in_msrec != 0 {
                     self.sig.segarray[self.sig.segp as usize].samp0
                 } else {
@@ -3316,7 +3324,10 @@ impl Wfdb {
         let st = &self.sig;
         for i in 0..st.tspf.max(0) as usize {
             let m = &st.smi[i];
-            let x = ivec[m.index as usize];
+            // After a segment fails to open (sigmap_init: frame size too
+            // large), an index can be past the end of ivec; C reads past its
+            // buffer there, and finds 0 (as C++ does).
+            let x = ivec.get(m.index as usize).copied().unwrap_or(0);
             if x == WFDB_INVALID_SAMPLE {
                 vector[i] = WFDB_INVALID_SAMPLE;
             } else {
@@ -4464,7 +4475,10 @@ impl Wfdb {
     pub fn getvec(&mut self, vector: &mut [i32]) -> i32 {
         let need = self.vec_need();
         if vector.len() < need {
+            // (with the caller's values, which C leaves as they are where
+            // it writes nothing, e.g. after the end of the record)
             let mut tmp = vec![0; need];
+            tmp[..vector.len()].copy_from_slice(vector);
             let r = self.getvec_impl(&mut tmp);
             let n = vector.len();
             vector.copy_from_slice(&tmp[..n]);
@@ -4522,7 +4536,10 @@ impl Wfdb {
     pub fn getframe(&mut self, vector: &mut [i32]) -> i32 {
         let need = self.vec_need();
         if vector.len() < need {
+            // (with the caller's values, which C leaves as they are where
+            // it writes nothing, e.g. after the end of the record)
             let mut tmp = vec![0; need];
+            tmp[..vector.len()].copy_from_slice(vector);
             let r = self.getframe_impl(&mut tmp);
             let n = vector.len();
             vector.copy_from_slice(&tmp[..n]);

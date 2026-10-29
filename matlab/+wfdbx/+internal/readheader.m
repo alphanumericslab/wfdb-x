@@ -253,7 +253,7 @@ if S.segments && ~S.in_msrec
     S.msbdate = S.bdate;
     S.msnsamples = S.nsamples;
     segarray = wfdbx.seginfo(S.segments);
-    ns = 0;
+    ns = int64(0);      % (a WFDB_Time: the sum wraps as in C on x86-64)
     for i = 1:S.segments
         while true
             line = hh.getline();
@@ -300,18 +300,20 @@ if S.segments && ~S.in_msrec
             nsig = -2;
             return;
         end
-        segarray(i).samp0 = ns;
-        ns = ns + segarray(i).nsamp;
+        segarray(i).samp0 = double(ns);
+        ns = wfdbx.internal.cadd64(ns, segarray(i).nsamp);
     end
     S.segarray = segarray;
     S.segend = numel(segarray) - 1;
     S.segp = 0;
     if S.msnsamples == 0
-        S.msnsamples = ns;
+        S.msnsamples = double(ns);
     elseif ns ~= S.msnsamples
         wfdbx.internal.wfdb_error(['warning (init): in record %s, stated ' ...
             'record length (%d)\n'], record, S.msnsamples);
-        wfdbx.internal.wfdb_error(' does not match sum of segment lengths (%d)\n', ns);
+        % (sprintf prints an int64 exactly)
+        wfdbx.internal.wfdb_error(' does not match sum of segment lengths (%s)\n', ...
+            sprintf('%d', ns));
     end
     nsig = 0;
     return;

@@ -104,11 +104,13 @@ fun Wfdb.wfdbdescMain(argv0: Array<ByteArray>): Int {
     // shown (the C program assumed 250 Hz). In legacy mode, the output is
     // that of the C program.
     val freq = sampfreq(null)
+    // As in C, these tests are not complements when freq is NaN.
     val timed = freq > 0.0 || legacy
+    val untimed = freq <= 0.0 && !legacy
     val p = if (timed) mstimstr(0) else ByteArray(0)
     printf("\nStarting time: %s\n", if (p.at(0) == '['.code) p else "not specified")
     printf("Length: ")
-    if (!timed && (nsig < 1 || t > 0)) {
+    if (untimed && (nsig < 1 || t > 0)) {
         printf("%lld sample intervals\n", t)
     } else if (nsig < 1 || t > 0) {
         val ts = if (t > 0) mstimstr(t) else "0".latin1()
@@ -134,7 +136,7 @@ fun Wfdb.wfdbdescMain(argv0: Array<ByteArray>): Int {
                 310, 311 -> (3 * nbytes) / (4 * framesize)
                 else -> -1
             }
-            if (t >= 0 && !timed) {
+            if (t >= 0 && untimed) {
                 printf("%lld sample intervals [from signal file size]\n", t)
             } else if (t >= 0) {
                 printf("%s (%lld sample intervals) [from signal file size]\n", mstimstr(t), t)

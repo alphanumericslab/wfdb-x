@@ -78,12 +78,14 @@ app_wfdbdesc <- function(args = character(0)) {
   # C program.
   legacy <- wfdbx_get_legacy()
   freq <- sampfreq(NULL)
-  showtimes <- freq > 0 || legacy
+  # As in C, these tests are not complements when freq is NaN.
+  showtimes <- isTRUE(freq > 0) || legacy
+  untimed <- isTRUE(freq <= 0) && !legacy
   p <- if (showtimes) mstimstr(0) else ""
   cprintf("\nStarting time: %s\n", if (startsWith(p, "[")) p else "not specified")
   cout("Length: ")
   done <- FALSE
-  if (!showtimes && (nsig < 1 || t > 0)) {
+  if (untimed && (nsig < 1 || t > 0)) {
     cprintf("%d sample intervals\n", t)
     done <- TRUE
   } else if (nsig < 1 || t > 0) {
@@ -116,7 +118,7 @@ app_wfdbdesc <- function(args = character(0)) {
       } else {
         -1
       }
-      if (t >= 0 && !showtimes) {
+      if (t >= 0 && untimed) {
         cprintf("%d sample intervals [from signal file size]\n", t)
       } else if (t >= 0) {
         cprintf("%s (%d sample intervals) [from signal file size]\n", mstimstr(t), t)

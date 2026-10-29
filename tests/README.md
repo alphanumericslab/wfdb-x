@@ -6,7 +6,7 @@ unit tests of its own, in its directory (for example `python/tests`,
 
 | Directory | Contents |
 |---|---|
-| [`conformance/`](conformance/README.md) | The conformance suite: 1081 command-line test cases, and 877 more for legacy mode, whose expected results were produced by the original C programs (except for 15 inputs on which C crashes, whose results are WFDB-x's documented behavior), run by a harness that works with any implementation |
+| [`conformance/`](conformance/README.md) | The conformance suite: 1098 command-line test cases, and 877 more for legacy mode, whose expected results were produced by the original C programs (except for 20 inputs on which C crashes, whose results are WFDB-x's documented behavior), run by a harness that works with any implementation |
 | [`data/`](data/README.md) | The test records and input files, most of them written by the original C library |
 | [`reference/`](reference/README.md) | How the reference results are made: the build of the original C package, the deliberate divergences of WFDB-x as a patch, and the C programs that wrote the test records and the expected values of the library unit tests |
 

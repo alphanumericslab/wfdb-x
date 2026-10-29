@@ -158,6 +158,7 @@ big_endian = 0;
 vflag = 0;
 siglist = [];
 data = [];
+iname = '';
 i = 1;
 while i < argc
     a = argv{i + 1};
@@ -177,6 +178,7 @@ while i < argc
             case 'i'
                 i = i + 1;
                 if i < argc
+                    iname = argv{i + 1};
                     if strcmp(argv{i + 1}, '-')
                         data = wfdbx.internal.stdin_bytes();
                     else
@@ -253,6 +255,21 @@ if isempty(record) || wfdbx.newheader(record) < 0
     wfdbx.internal.ceprintf('using the -r option as described above.\n\n');
     wfdbx.internal.ceprintf('  Valid record names may include letters, digits, and underscores only.\n');
     status = 1;
+    return;
+end
+io = wfdbx.internal.io_state();
+hea_file = io.wfdb_filename;     % (the header newheader created)
+% WFDB-x: if the input is shorter than the 256-byte fixed part of the EDF
+% header (C takes the missing fields from uninitialized memory; see
+% KNOWN_C_BEHAVIORS.md), and its first 8 bytes are not those of another
+% format, the program stops, and no output file remains.
+if numel(data) < 256 && (numel(data) < 8 || isequal(char(data(1:8)), '0       '))
+    wfdbx.wfdbquit();
+    if ischar(hea_file) && isfile(hea_file)
+        delete(hea_file);
+    end
+    wfdbx.internal.ceprintf('%s: incomplete EDF header in %s\n', pname, iname);
+    status = 2;
     return;
 end
 fb.data = data;

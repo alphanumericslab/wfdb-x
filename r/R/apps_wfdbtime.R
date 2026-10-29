@@ -37,7 +37,7 @@ app_wfdbtime <- function(args = character(0)) {
       if (i == argc) break
       record <- argv[i + 1L]
       if (isigopen(record, 0)$nsig < 0) cexit(2)
-      if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0)  # WFDB-x: no default frequency
+      if (!wfdbx_get_legacy() && isTRUE(sampfreq(NULL) <= 0))  # WFDB-x: no default frequency
                                                        # (except in legacy mode)
         .app_nofreq(argv[1L], record, 2)
     } else if (!is.null(record)) {

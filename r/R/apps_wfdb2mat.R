@@ -172,7 +172,7 @@ app_wfdb2mat <- function(args = character(0)) {
   if (legacy) for (k in seq_len(nisig)) if (si[[k]]$gain == 0) si[[k]]$gain <- WFDB_DEFGAIN
   if (highres) setgvmode(WFDB_HIGHRES)
   freq <- sampfreq(NULL)
-  if (freq <= 0 && !legacy) .app_nofreq(pname, record, 2)
+  if (isTRUE(freq <= 0) && !legacy) .app_nofreq(pname, record, 2)
   if (from > 0) from <- abs(strtim(arg(from)))
   if (isigsettime(from) < 0) cexit(2)
   if (to > 0) to <- abs(strtim(arg(to)))

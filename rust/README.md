@@ -257,10 +257,14 @@ write_record_physical("sine", &x, 2, fs, &opt)?;
 
 This writes the header `sine.hea` and the signal file `sine.dat`. The
 sampling frequency, the gain and ADC resolution of each signal, and the
-units of each calibrated signal are required; there are no defaults. A gain
+units of each calibrated signal are required; there are no defaults. The
+sampling frequency must be finite and > 0, and the gains finite. A gain
 of 0 marks a signal as uncalibrated, which is only allowed for samples given
-in ADC units. Per-signal options take one value for all signals, or a vector
-with one value per signal.
+in ADC units; negative gains are allowed. Per-signal options take one value
+for all signals, or a vector with one value per signal. The record name
+must not be empty, there must be at least one signal, and `base_time`, if
+given, must be a valid time. All of this is checked before any file is
+created.
 
 | Argument or option | Meaning |
 |---|---|
@@ -293,12 +297,14 @@ write_annotations("sine", "qrs", &ann, 0.0, None)?;   // writes sine.qrs
 
 The arguments are `record`, `annotator`, the annotations, `fs` and an
 optional existing output directory. Give the annotation types as `symbols`
-or as `codes`. `subtypes`, `chans`, `nums` and `aux` are optional. Each of
+or as `codes`. If both are given (as `read_annotations` returns them), each
+mnemonic must be that of the code at its position. `subtypes`, `chans`,
+`nums` and `aux` are optional. Each of
 these fields is either empty or has one entry per annotation; anything else
 is an error, reported before the file is created. As in C, the subtype,
 channel and annotator number are stored in one byte each (other values wrap
-around). A positive `fs` is stored in the file as the frequency of its
-sample numbers.
+around). An `fs` other than 0 is stored in the file as the frequency of its
+sample numbers; it must be finite and > 0.
 
 If the annotations are not in time order, the file is sorted when it is
 written. `write_annotations_with` takes an `AnnWriteOptions` with the fields

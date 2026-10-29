@@ -238,6 +238,8 @@ internal actual object Platform {
 
     actual fun mkdir(path: ByteArray): Boolean = File(jnuString(path)).mkdir()
 
+    actual fun remove(path: ByteArray): Boolean = File(jnuString(path)).delete()
+
     actual fun pathId(path: ByteArray): FileId? {
         val p = path(path) ?: return null
         if (!Files.exists(p)) return null

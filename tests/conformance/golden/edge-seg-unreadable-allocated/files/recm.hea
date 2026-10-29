@@ -1,0 +1,5 @@
+recm 2 128 202
+recm.mat 16+192 1000(-1014)/nd 16 0 -20845 -20074 0 V5
+recm.mat 16+192 1000(10)/uV 8 0 -71 30356 0 V5
+#Creator: wfdb2mat
+#Source: record rec

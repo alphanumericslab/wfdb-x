@@ -422,6 +422,210 @@ read_record_negative_sampfrom();
 write_record_invalid_samples();
 write_record_per_signal_lengths();
 write_annotations_argument_lengths();
+
+% --- WFDB-x: decisions of the third review (docs/DIVERGENCES.md)
+highres_progress();
+read_record_whole_numbers();
+write_record_checks_first();
+write_annotations_checks_first();
+end
+
+function highres_progress()
+% High-resolution reads always make progress, even when the number of
+% samples per frame exceeds the reader's block size.
+kw = {'gains', 200, 'adcres', 16, 'units', 'mV'};
+x = (1:2 * 16384) - 16384;
+wfdbx.write_record('big', reshape(x, 16384, 2)', 250, ...
+    'samps_per_frame', 16384, kw{:});
+r = wfdbx.read_record('big', 'highres', true, 'sampto', 1);
+assert_eq(r.signals, x(1), 'spf 16384, sampto 1');
+r = wfdbx.read_record('big', 'highres', true);
+assert_true(isequal(r.signals', x), 'spf 16384, whole record');
+spf = [1024, ones(1, 511)];
+x = zeros(1, sum(spf));
+x(1:1024) = 1:1024;
+x(1025:end) = 2:512;
+wfdbx.write_record('mixed', x, 1, 'samps_per_frame', spf, kw{:});
+r = wfdbx.read_record('mixed', 'highres', true, 'sampto', 1);
+assert_eq(r.signals, [1, 2:512], '512 signals, sampto 1');
+r = wfdbx.read_record('mixed', 'highres', true);
+assert_eq(size(r.signals), [1024, 512], '512 signals, whole record');
+assert_eq(r.signals(:, 1)', 1:1024, '512 signals, signal 0');
+assert_eq(r.signals(1024, 2:end), 2:512, '512 signals, the others');
+delete('big.dat');
+delete('big.hea');
+delete('mixed.dat');
+delete('mixed.hea');
+end
+
+function read_record_whole_numbers()
+% sampfrom and sampto must be whole numbers (a fraction, NaN or an infinite
+% value is an error); after any error, the input signals are closed and
+% the getvec mode and input directory are restored.
+S = wfdbx.internal.sig_state();
+io = wfdbx.internal.io_state();
+for v = {1.5, NaN, Inf, -Inf}
+    for opt = {'sampfrom', 'sampto'}
+        m = '';
+        try
+            wfdbx.read_record('fmt16', opt{1}, v{1});
+        catch err
+            m = err.message;
+        end
+        assert_eq(m, sprintf('read_record: %s must be a whole number', opt{1}), ...
+            sprintf('%s %g', opt{1}, v{1}));
+        assert_eq(S.nisig, 0, 'no input signal open');
+    end
+end
+m = '';
+try
+    wfdbx.read_record('fmt16', 'sampto', 2^63);
+catch err
+    m = err.message;
+end
+assert_eq(m, 'read_record: sampto is beyond the range of a 64-bit integer', ...
+    'sampto 2^63');
+% (errors after the signals are opened)
+wfdbx.setgvmode(0);
+dir0 = io.input_dir;
+for args = {{'channels', {{1}}}, {'channels', 7}, {'channels', {'nosuch'}}}
+    failed = false;
+    try
+        wfdbx.read_record('fmt16', 'highres', true, 'input_dir', '.', ...
+            args{1}{:});
+    catch
+        failed = true;
+    end
+    assert_true(failed, 'error after isigopen');
+    assert_eq(S.nisig, 0, 'input signals closed after an error');
+    assert_eq(wfdbx.getgvmode(), 0, 'getvec mode restored after an error');
+    assert_eq(io.input_dir, dir0, 'input directory restored after an error');
+end
+r = wfdbx.read_record('fmt16', 'sampfrom', 2, 'sampto', 5);
+assert_eq(size(r.signals, 1), 3, 'whole numbers');
+assert_eq(S.nisig, 0, 'input signals closed');
+end
+
+function write_record_checks_first()
+% write_record checks its arguments before creating any file: a finite
+% frequency > 0, finite gains (0 and negative gains are allowed), a base
+% time that wfdbx.setbasetime can parse, a record name, at least one
+% signal, per-signal values of the right length, and a valid format.
+S = wfdbx.internal.sig_state();
+kw = {'adcres', 16, 'units', 'mV'};
+bad = {'x', [1; 2], Inf, {'gains', 200}, ...
+    'the sampling frequency (fs) must be finite and > 0'; ...
+    'x', [1; 2], NaN, {'gains', 200}, ...
+    'the sampling frequency (fs) must be finite and > 0'; ...
+    'x', [1; 2], 0, {'gains', 200}, ...
+    'the sampling frequency (fs) must be finite and > 0'; ...
+    'x', [1; 2], 250, {'gains', NaN}, 'gains must be finite'; ...
+    'x', [1 2; 3 4], 250, {'gains', [200, -Inf]}, 'gains must be finite'; ...
+    'x', [1; 2], 250, {'gains', 200, 'base_time', 'garbage'}, ...
+    'invalid base_time ''garbage'''; ...
+    '', [1; 2], 250, {'gains', 200}, 'the record name must not be empty'; ...
+    'x', zeros(3, 0), 250, {'gains', 200}, 'at least one signal is required'; ...
+    'x', [1 2; 3 4], 250, {'gains', [200 200 200]}, ...
+    'gains: one value, or one per signal (2)'; ...
+    'x', [1; 2], 250, {'gains', 200, 'fmt', 999}, ...
+    'can''t create signal file for record x'};
+btime = S.btime;
+for k = 1:size(bad, 1)
+    [rec, x, fs, args, msg] = bad{k, :};
+    m = '';
+    wfdbx.wfdbquiet();
+    try
+        wfdbx.write_record(rec, x, fs, kw{:}, args{:});
+    catch err
+        m = err.message;
+    end
+    wfdbx.wfdbverbose();
+    assert_eq(m, msg, sprintf('write_record check %d', k));
+    assert_true(~isfile('x.dat') && ~isfile('x.hea') && ~isfile('.dat') ...
+        && ~isfile('.hea'), sprintf('no file written (%d)', k));
+    assert_eq(S.nosig, 0, 'no output signal open');
+    assert_eq(S.btime, btime, 'base time unchanged');
+end
+% (A2: the format check of osigfopen)
+si = wfdbx.siginfo(1);
+si.fname = 'x.dat';
+si.fmt = 999;
+wfdbx.wfdbquiet();
+assert_eq(wfdbx.osigfopen(si, 1), -2, 'osigfopen format 999');
+wfdbx.wfdbverbose();
+assert_true(~isfile('x.dat'), 'no signal file for format 999');
+assert_eq(S.nosig, 0, 'no output signal open (format 999)');
+wfdbx.write_record('x', [1; 2], 250, kw{:}, 'gains', -200, ...
+    'base_time', '12:00:00 01/02/2003');
+r = wfdbx.read_record('x');
+assert_eq(r.gains, -200, 'negative gain');
+assert_eq(r.base_time, '[12:00:00 01/02/2003]', 'base_time round trip');
+wfdbx.write_record('x', [1; 2], 250, kw{:}, 'gains', 0);
+r = wfdbx.read_record('x');
+assert_eq(r.gains, 0, 'gain 0 (uncalibrated)');
+delete('x.dat');
+delete('x.hea');
+end
+
+function write_annotations_checks_first()
+% write_annotations checks its arguments before creating the file: times
+% that are integers within the range of a 64-bit integer, no NaN in the
+% other fields, a finite fs > 0, and symbols that agree with the codes
+% when both are given.
+A = wfdbx.internal.ann_state();
+t = [10 20 30];
+bad = {[10 NaN 30], {'symbols', 'N'}, 'annotation times must be integers'; ...
+    [10 Inf 30], {'symbols', 'N'}, 'annotation times must be integers'; ...
+    [10 -Inf 30], {'symbols', 'N'}, 'annotation times must be integers'; ...
+    [10 20.5 30], {'symbols', 'N'}, 'annotation times must be integers'; ...
+    [10 2^70 30], {'symbols', 'N'}, ['annotation times must be integers ' ...
+    'within the range of a 64-bit integer']; ...
+    t, {'codes', [1 NaN 1]}, 'codes must not be NaN or infinite'; ...
+    t, {'codes', 1, 'subtypes', [0 NaN 0]}, ...
+    'subtypes must not be NaN or infinite'; ...
+    t, {'codes', 1, 'chans', NaN}, 'chans must not be NaN or infinite'; ...
+    t, {'codes', 1, 'nums', [0 0 NaN]}, 'nums must not be NaN or infinite'; ...
+    t, {'codes', 1, 'fs', NaN}, 'fs must be finite and > 0'; ...
+    t, {'codes', 1, 'fs', Inf}, 'fs must be finite and > 0'; ...
+    t, {'codes', 1, 'fs', 0}, 'fs must be finite and > 0'; ...
+    t, {'codes', [1 1 5], 'symbols', {'N', 'V', 'V'}}, ...
+    'symbols and codes disagree at annotation 1'; ...
+    t, {'codes', [1 5 1], 'symbols', 'V'}, ...
+    'symbols and codes disagree at annotation 0'};
+for k = 1:size(bad, 1)
+    [tt, args, msg] = bad{k, :};
+    m = '';
+    try
+        wfdbx.write_annotations('100s', 'bad', tt, args{:});
+    catch err
+        m = err.message;
+    end
+    assert_eq(m, msg, sprintf('write_annotations check %d', k));
+    assert_true(~isfile('100s.bad'), sprintf('no annotation file (%d)', k));
+    assert_true(isempty(A.oad) || all(cellfun('isempty', A.oad)), ...
+        'no annotator open');
+end
+% (symbols and codes that agree; an empty symbol agrees with any code)
+wfdbx.write_annotations('100s', 'ok', t, 'codes', [1 5 42], ...
+    'symbols', {'N', 'V', ''});
+a = wfdbx.read_annotations('100s', 'ok');
+assert_eq(a.codes', [1 5 42], 'symbols and codes agree');
+% (a read_annotations -> write_annotations round trip)
+wfdbx.write_annotations('100s', 'ok2', a.samples, 'codes', a.codes, ...
+    'symbols', a.symbols, 'subtypes', a.subtypes, 'chans', a.chans, ...
+    'nums', a.nums, 'aux', a.aux);
+assert_eq(readfile('100s.ok2'), readfile('100s.ok'), 'round trip');
+a = wfdbx.read_annotations('100s', 'atr');
+wfdbx.write_annotations('100s', 'ok3', a.samples, 'codes', a.codes, ...
+    'symbols', a.symbols, 'subtypes', a.subtypes, 'chans', a.chans, ...
+    'nums', a.nums, 'aux', a.aux);
+b = wfdbx.read_annotations('100s', 'ok3');
+assert_eq(b.samples, a.samples, 'round trip of 100s.atr: samples');
+assert_eq(b.codes, a.codes, 'round trip of 100s.atr: codes');
+assert_eq(b.aux, a.aux, 'round trip of 100s.atr: aux');
+delete('100s.ok');
+delete('100s.ok2');
+delete('100s.ok3');
 end
 
 function read_record_gvmode()
@@ -460,7 +664,7 @@ r = wfdbx.read_record('fmt16', 'sampfrom', 0, 'sampto', 3);
 assert_eq(size(r.signals, 1), 3, 'sampfrom 0');
 r = wfdbx.read_record('fmt16');
 n = size(r.signals, 1);
-r = wfdbx.read_record('fmt16', 'sampfrom', 5, 'sampto', 2^63);
+r = wfdbx.read_record('fmt16', 'sampfrom', 5, 'sampto', 2^62);
 assert_eq(size(r.signals, 1), n - 5, 'sampto beyond the end');
 end
 

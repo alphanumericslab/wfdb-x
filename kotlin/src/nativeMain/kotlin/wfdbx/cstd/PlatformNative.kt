@@ -38,6 +38,7 @@ import platform.posix.isatty
 import platform.posix.lseek
 import platform.posix.open
 import platform.posix.read
+import platform.posix.remove as premove
 import platform.posix.setenv as psetenv
 import platform.posix.unsetenv as punsetenv
 import platform.posix.write
@@ -163,6 +164,8 @@ internal actual object Platform {
     actual fun isDirectory(path: ByteArray): Boolean = nativeIsDirectory(cname(path))
 
     actual fun mkdir(path: ByteArray): Boolean = nativeMkdir(cname(path))
+
+    actual fun remove(path: ByteArray): Boolean = premove(cname(path)) == 0
 
     actual fun pathId(path: ByteArray): FileId? = nativePathId(cname(path))
 

@@ -717,15 +717,15 @@ end
 "Range of the sample values of a storage format (for `sigmap_init`)."
 function fmt_range(fmt::Int32)
     if fmt == 508 || fmt == 80
-        (Int32(-0x80), Int32(0x7f))
+        (-Int32(0x80), Int32(0x7f))
     elseif fmt == 310 || fmt == 311
-        (Int32(-0x200), Int32(0x1ff))
+        (-Int32(0x200), Int32(0x1ff))
     elseif fmt == 212
-        (Int32(-0x800), Int32(0x7ff))
+        (-Int32(0x800), Int32(0x7ff))
     elseif fmt == 16 || fmt == 61 || fmt == 516 || fmt == 160
-        (Int32(-0x8000), Int32(0x7fff))
+        (-Int32(0x8000), Int32(0x7fff))
     elseif fmt == 524 || fmt == 24
-        (Int32(-0x800000), Int32(0x7fffff))
+        (-Int32(0x800000), Int32(0x7fffff))
     else
         (WFDB_SAMPLE_MIN, WFDB_SAMPLE_MAX)
     end
@@ -2146,8 +2146,13 @@ function getskewedframe(w::Wfdb, vecstart::Vector{Int32}, off::Int)
     while g > 0
         # Go through groups in reverse order since seeking on group 0 should
         # always be done last.
+        # A seek that opens another segment may leave fewer groups: the
+        # allocated slots past them are zeroed (no initial skip).  WFDB-x: a
+        # group number past the allocated slots is reported as incorrect by
+        # isgsetframe (C reads past its group array; see
+        # docs/KNOWN_C_BEHAVIORS.md).
         g -= 1
-        if igd[g+1].initial_skip != 0
+        if g >= length(st.igd) || st.igd[g+1].initial_skip != 0
             t0 = st.in_msrec != 0 ? st.segarray[st.segp+1].samp0 : Int64(0)
             isgsetframe(w, g, t0)
         end
@@ -2290,13 +2295,17 @@ end
 
 "Create a virtual signal vector from a raw sample vector (C `sigmap`)."
 sigmap(w::Wfdb, vector::Vector{Int32}, off::Int, ivec::Vector{Int32}) =
-    _sigmap_at(w.sig, vector, off, ivec, 0)
+    _sigmap_at(w.sig, vector, off, ivec, 0, length(ivec))
 
-# sigmap reading the raw sample vector from ivec[ioff+1:...].
-function _sigmap_at(st::SigState, vector::Vector{Int32}, off::Int, ivec::Vector{Int32}, ioff::Int)
+# sigmap reading the raw sample vector, of n samples, from ivec[ioff+1:...].
+# WFDB-x: an index beyond the input frame (left by a segment that could not
+# be opened, whose frame was too large) gives 0, as the bytes that glibc's
+# calloc() clears after C's array usually do (C reads past its end).
+function _sigmap_at(st::SigState, vector::Vector{Int32}, off::Int, ivec::Vector{Int32}, ioff::Int,
+                    n::Int)
     for i in 1:max(Int(st.tspf), 0)
         m = st.smi[i]
-        x = ivec[ioff+m.index+1]
+        x = m.index < n ? ivec[ioff+m.index+1] : Int32(0)
         if x == WFDB_INVALID_SAMPLE
             vector[off+i] = WFDB_INVALID_SAMPLE
         else
@@ -3757,7 +3766,7 @@ function _bulk_frames!(w::Wfdb, out::Vector{Int32}, pos::Int, n::Int64, stride::
         frames = st.bmapped
         length(frames) < m * tspf && resize!(frames, m * tspf)
         for i in 0:m-1
-            _sigmap_at(st, frames, i * tspf, dst, i * framelen)
+            _sigmap_at(st, frames, i * tspf, dst, i * framelen, framelen)
         end
     else
         frames = dst

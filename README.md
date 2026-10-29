@@ -112,13 +112,13 @@ This is verified by tests whose expected results were produced by the
 original C code, not written by hand:
 
 * **Conformance suite** ([`tests/conformance/`](tests/conformance/),
-  described in [`docs/conformance.md`](docs/conformance.md)): 1081
+  described in [`docs/conformance.md`](docs/conformance.md)): 1098
   command-line test cases, run by a language-independent harness. Their
   expected results were produced by the C programs, built from
   `third_party/` with FLAC support and with
   [`tests/reference/divergences.patch`](tests/reference/divergences.patch)
   applied ([`tests/reference/build_reference.sh`](tests/reference/build_reference.sh)).
-  The exceptions are 15 cases whose input makes the C programs crash; their
+  The exceptions are 20 cases whose input makes the C programs crash; their
   expected results are the behavior that WFDB-x defines for that input (see
   [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md#input-on-which-the-c-package-crashes)).
   Every implementation passes all of them on the reference platform, x86-64
@@ -251,7 +251,7 @@ verification and unit testing**.
   C sources, and were reviewed and tested by human engineers.
 * **Cross-language verification.** Every implementation is checked
   against the outputs of the original C tools and library on the
-  conformance suite: 1081 cases, plus 877 for legacy mode. Because all
+  conformance suite: 1098 cases, plus 877 for legacy mode. Because all
   seven must pass the same cases, each implementation is also checked
   against the other six.
 * **Unit testing.** Each implementation has its own unit tests of the

@@ -96,6 +96,68 @@ d2l <- function(x) {
   r
 }
 
+# Exact 64-bit integers, for WFDB_Time sums that wrap around as in C on
+# x86-64 (beyond the range of a double's exact integers): c(hi, lo), the
+# value modulo 2^64 as two 32-bit halves.
+
+#' strtol(s) (base 10) as an exact 64-bit integer c(hi, lo).
+i64_strtol <- function(s) {
+  b <- if (is.integer(s)) s else cbytes(s)
+  n <- length(b)
+  i <- 1L
+  while (i <= n && (b[i] == 32L || (b[i] >= 9L && b[i] <= 13L))) i <- i + 1L
+  neg <- FALSE
+  if (i <= n && (b[i] == 43L || b[i] == 45L)) {
+    neg <- b[i] == 45L
+    i <- i + 1L
+  }
+  hi <- 0
+  lo <- 0
+  while (i <= n && b[i] >= 48L && b[i] <= 57L) {
+    lo <- lo * 10 + (b[i] - 48L)
+    c <- floor(lo / 4294967296)
+    lo <- lo - c * 4294967296
+    hi <- hi * 10 + c
+    if (hi >= 2147483648)      # (clamped to LONG_MAX or LONG_MIN)
+      return(if (neg) c(2147483648, 0) else c(2147483647, 4294967295))
+    i <- i + 1L
+  }
+  x <- c(hi, lo)
+  if (neg) i64_neg(x) else x
+}
+#' -x (modulo 2^64).
+i64_neg <- function(x) {
+  c((4294967296 - x[1L] - (x[2L] > 0)) %% 4294967296, (4294967296 - x[2L]) %% 4294967296)
+}
+#' a + b (modulo 2^64).
+i64_add <- function(a, b) {
+  lo <- a[2L] + b[2L]
+  c <- lo >= 4294967296
+  c((a[1L] + b[1L] + c) %% 4294967296, lo - c * 4294967296)
+}
+#' The (signed) value of x, as a double (rounded beyond 2^53).
+i64_dbl <- function(x) {
+  (if (x[1L] >= 2147483648) x[1L] - 4294967296 else x[1L]) * 4294967296 + x[2L]
+}
+#' The (signed) value of x in decimal, exactly.
+i64_str <- function(x) {
+  neg <- x[1L] >= 2147483648
+  if (neg) x <- i64_neg(x)
+  hi <- x[1L]
+  lo <- x[2L]
+  d <- character(0)
+  repeat {
+    r <- hi %% 10
+    hi <- (hi - r) / 10
+    t <- r * 4294967296 + lo
+    r <- t %% 10
+    lo <- (t - r) / 10
+    d <- c(as.character(r), d)
+    if (hi == 0 && lo == 0) break
+  }
+  paste0(if (neg) "-" else "", paste(d, collapse = ""))
+}
+
 # ---------------------------------------------------------------------------
 # Byte strings
 

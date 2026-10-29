@@ -87,11 +87,15 @@ private const val METADATA_LAST = 0x80
 
 /** Metadata block types. */
 private const val METADATA_STREAMINFO = 0
+private const val METADATA_APPLICATION = 2
 private const val METADATA_SEEKTABLE = 3
 private const val METADATA_VORBIS_COMMENT = 4
 
 /** Length of the body of a STREAMINFO block. */
 private const val STREAMINFO_LEN = 34
+
+/** The capacity of libFLAC's bit-reader buffer, in bytes. */
+private const val BR_CAPACITY = 8192
 
 /** Offset of the MD5 signature in a STREAMINFO block body. */
 private const val STREAMINFO_MD5_POS = 18
@@ -163,6 +167,7 @@ internal enum class FlacState {
     END_OF_STREAM,
     SEEK_ERROR,
     ABORTED,
+    MEMORY_ALLOCATION_ERROR,
 }
 
 /** The header of a decoded frame (FLAC block). */
@@ -492,6 +497,9 @@ private class FrameBody {
 
     /** The offset of the end of the frame (if valid). */
     var end = 0
+
+    /** The offset of the end of the bytes read (the end of the data if they end within the frame). */
+    var reached = 0
 }
 
 /**
@@ -501,6 +509,7 @@ private class FrameBody {
 private fun frameBody(data: ByteArray, start: Int, pos: Int, h: FlacFrameHeader, assignment: Int): FrameBody {
     val body = FrameBody()
     body.end = pos
+    body.reached = data.size
     val bits = Bits(data, pos)
     val subframes = ArrayList<LongArray>(h.channels)
     var ok = true
@@ -532,10 +541,13 @@ private fun frameBody(data: ByteArray, start: Int, pos: Int, h: FlacFrameHeader,
         } catch (e: FlacFail) {
             -1L
         }
+        if (padding >= 0) body.reached = ((bits.pos + 7) / 8).toInt()
         if (padding != 0L) {
             body.errors.add(FlacDecodeError.LOST_SYNC)
             return body
         }
+    } else {
+        body.reached = bits.bytePos()
     }
     if (!ok) return body
     val fend = bits.bytePos()
@@ -545,6 +557,7 @@ private fun frameBody(data: ByteArray, start: Int, pos: Int, h: FlacFrameHeader,
         body.eof = true
         return body
     }
+    body.reached = bits.bytePos()
     if (crc16(data, start, fend) != c16) {
         body.errors.add(FlacDecodeError.CRC_MISMATCH)
         return body
@@ -595,11 +608,20 @@ private fun frameBody(data: ByteArray, start: Int, pos: Int, h: FlacFrameHeader,
 /** A seek point of a SEEKTABLE metadata block. */
 private class SeekPoint(val sampleNumber: ULong, val streamOffset: ULong, val frameSamples: Int)
 
+/**
+ * The reads of the fields of a STREAMINFO block body by libFLAC, before the
+ * MD5 signature: pairs of offsets (where the reader is, and the end).
+ */
+private val STREAMINFO_READS = intArrayOf(0, 2, 2, 4, 4, 7, 7, 10, 10, 13, 12, 13, 12, 14, 13, 18)
+
 /** The first bytes of an ID3v2 tag. */
 private val ID3V2_TAG = "ID3".latin1()
 
 /** Value of a placeholder seek point. */
 private const val SEEKPOINT_PLACEHOLDER: ULong = ULong.MAX_VALUE
+
+/** Length of the ID of an APPLICATION metadata block. */
+private const val APPLICATION_ID_LEN = 4
 
 /** Length of a seek point. */
 private const val SEEKPOINT_LEN = 18
@@ -631,6 +653,19 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
     /** The two bytes of the frame sync code of the frame being read, and the offset that follows them. */
     private val warmup = IntArray(2)
     private var framesync = 0
+
+    /**
+     * libFLAC's bit-reader buffer: it holds the bytes of the stream from
+     * offset [bstart] up to [bend] (excluded; [bend] is the position of the
+     * client). [fsloc]: does it still hold the frame sync code found by
+     * `frame_sync_` (C: the bit reader's `last_seen_framesync`)?
+     */
+    private var bstart = 0
+    private var bend = 0
+    private var fsloc = false
+
+    /** The position after the last frame sync code found by `frame_sync_` (0 if none, or if the stream cannot seek). */
+    private var lastSeenFramesync = 0L
     private var hasStreamInfo = false
     private var minBlocksize = 0
     private var maxBlocksize = 0
@@ -681,8 +716,36 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
     fun flush() {
         samplesDecoded = 0
         doMd5Checking = false
+        lastSeenFramesync = 0
         lastFrameIsSet = false
+        brClear()
         state = FlacState.SEARCH_FOR_FRAME_SYNC
+    }
+
+    /** `FLAC__bitreader_clear`: empties the bit-reader buffer (the next byte read is that at the position of the client, [pos]). */
+    private fun brClear() {
+        bstart = pos
+        bend = pos
+        fsloc = false
+    }
+
+    /**
+     * `bitreader_read_from_client_`, as often as libFLAC calls it to read up
+     * to the offset end0, when the reader is at the offset p: the whole
+     * words before p leave the buffer, and it is filled up.
+     */
+    private fun brFill(p: Int, end0: Int) {
+        val end = minOf(end0, data.size)
+        while (bend < end) {
+            val words = maxOf(minOf(p, bend) - bstart, 0) / 8
+            if (words > 0) {
+                fsloc = false
+                bstart += 8 * words
+            }
+            val room = BR_CAPACITY - (bend - bstart)
+            if (room == 0) break
+            bend += minOf(room, data.size - bend)
+        }
     }
 
     private fun sendError(client: FlacClient, e: FlacDecodeError) {
@@ -692,6 +755,7 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
 
     /** The next byte (-1 at the end of the stream, which ends decoding). */
     private fun byte(): Int {
+        brFill(pos, pos + 1)
         if (pos < data.size) return data[pos++].toInt() and 0xff
         state = FlacState.END_OF_STREAM
         return -1
@@ -699,6 +763,8 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
 
     /** Skips n bytes (false at the end of the stream). */
     private fun skip(n: Int): Boolean {
+        // (libFLAC skips whole words of its buffer at a time)
+        brFill(Int.MAX_VALUE, if (n > Int.MAX_VALUE - pos) Int.MAX_VALUE else pos + n)
         if (n > data.size - pos) {
             pos = data.size
             state = FlacState.END_OF_STREAM
@@ -710,6 +776,8 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
 
     /** The big-endian value of the next n bytes (null at the end of the stream). */
     private fun bytes(n: Int): Long? {
+        // (libFLAC reads them at once)
+        brFill(pos, pos + n)
         var v = 0L
         for (i in 0 until n) {
             val x = byte()
@@ -738,7 +806,7 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
                     if (r > 0) return true
                 }
                 FlacState.END_OF_STREAM, FlacState.ABORTED -> return true
-                FlacState.SEEK_ERROR -> return false
+                FlacState.SEEK_ERROR, FlacState.MEMORY_ALLOCATION_ERROR -> return false
             }
         }
     }
@@ -751,7 +819,7 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
                 FlacState.READ_METADATA -> if (!readMetadata()) return false
                 FlacState.SEARCH_FOR_FRAME_SYNC, FlacState.READ_FRAME, FlacState.END_OF_STREAM,
                 FlacState.ABORTED -> return true
-                FlacState.SEEK_ERROR -> return false
+                FlacState.SEEK_ERROR, FlacState.MEMORY_ALLOCATION_ERROR -> return false
             }
         }
     }
@@ -816,11 +884,19 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
 
     /** `read_metadata_`: one metadata block. Blocks other than STREAMINFO and SEEKTABLE are skipped. */
     private fun readMetadata(): Boolean {
+        // (libFLAC reads the last-block flag and the type, then the length)
+        brFill(pos, pos + 1)
+        brFill(pos + 1, pos + METADATA_HEADER_LEN)
         val hdr = bytes(METADATA_HEADER_LEN) ?: return false
         val isLast = hdr and 0x80000000L != 0L
         val kind = ((hdr ushr 24) and 0x7f).toInt()
         val length = (hdr and 0xffffff).toInt()
         if (kind == METADATA_STREAMINFO) {
+            // (libFLAC reads the fields one at a time, then the MD5
+            // signature as a block)
+            val p = pos
+            for (k in STREAMINFO_READS.indices step 2) brFill(p + STREAMINFO_READS[k], p + STREAMINFO_READS[k + 1])
+            brFill(Int.MAX_VALUE, p + STREAMINFO_LEN)
             if (pos + STREAMINFO_LEN > data.size) {
                 skip(STREAMINFO_LEN)
                 return false
@@ -852,8 +928,19 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
                 }
                 seekTable = points.toTypedArray()
             }
-        } else if (!skip(length)) {
-            return false
+        } else {
+            // (an APPLICATION block begins with its 4-byte ID, which libFLAC
+            // reads first: a shorter block is an error)
+            var len = length
+            if (kind == METADATA_APPLICATION) {
+                if (!skip(APPLICATION_ID_LEN)) return false
+                if (len < APPLICATION_ID_LEN) {
+                    state = FlacState.MEMORY_ALLOCATION_ERROR
+                    return false
+                }
+                len -= APPLICATION_ID_LEN
+            }
+            if (!skip(len)) return false
         }
         if (isLast) {
             val p = decodePosition()
@@ -878,6 +965,9 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
                 } else if (y shr 1 == 0x7c) {
                     warmup[1] = y
                     framesync = pos
+                    fsloc = true
+                    val dp = decodePosition()
+                    lastSeenFramesync = if (dp < 0) 0 else dp
                     state = FlacState.READ_FRAME
                     return true
                 }
@@ -1069,6 +1159,8 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
         val h = readFrameHeader(client) ?: return 0
         if (h === HEADER_EOF) return -1
         val body = frameBody(data, start, pos, h, assignment)
+        // (the bytes libFLAC reads into its buffer to decode it)
+        brFill(Int.MAX_VALUE, body.reached)
         for (e in body.errors) sendError(client, e)
         var got = false
         val chans = body.chans
@@ -1110,8 +1202,20 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
                 return -1
             }
         }
-        // Damaged frame: go back to just after its sync code.
-        if (!got) pos = framesync + 1
+        // Damaged frame: go back to just after its sync code, if the
+        // bit-reader buffer still holds it; if not (or if the frame was found
+        // while looking for the metadata), to the start of the buffer, or to
+        // the last sync code found by frame_sync_.
+        if (!got) {
+            if (fsloc) {
+                pos = framesync + 1
+            } else if (lastSeenFramesync != 0L) {
+                pos = lastSeenFramesync.toInt()
+                brClear()
+            } else {
+                pos = bstart
+            }
+        }
         state = FlacState.SEARCH_FOR_FRAME_SYNC
         return if (got) 1 else 0
     }
@@ -1246,7 +1350,7 @@ internal class FlacStreamDecoder(private val data: ByteArray, private val seekab
         var firstSeek = true
         var seekFromLowerBound = false
         while (true) {
-            if (state == FlacState.ABORTED) return false
+            if (state == FlacState.ABORTED || state == FlacState.MEMORY_ALLOCATION_ERROR) return false
             if (lowerBoundSample >= upperBoundSample || lowerBound > upperBound ||
                 upperBound >= Long.MAX_VALUE.toULong()
             ) {

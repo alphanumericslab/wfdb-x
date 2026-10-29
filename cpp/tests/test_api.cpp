@@ -1330,3 +1330,246 @@ WFDBX_TEST(edf_no_samples_per_record)
     }
     setgvmode(prev);
 }
+
+// ---------------------------------------------------------------------------
+// Decisions on the arguments of the high-level functions (WFDB-x)
+
+namespace {
+
+// True if no input signal and no annotator is open.
+bool library_clean()
+{
+    std::vector<WFDB_Sample> v(1 << 20);
+    WFDB_Annotation a;
+    wfdbquiet();
+    bool clean = getvec(v.data()) == 0 && getann(0, &a) == -2;
+    wfdbverbose();
+    return clean;
+}
+
+WriteOptions mv_write_options()
+{
+    WriteOptions w;
+    w.gains = {200};
+    w.adcres = {16};
+    w.units = {std::string("mV")};
+    return w;
+}
+
+} // namespace
+
+// A high-resolution read whose frames hold many vectors (the block size,
+// rounded down to whole units of 6 frames, would be 0) ends at once.
+WFDBX_TEST(read_record_highres_large_frames)
+{
+    DataDir d;
+    // 512 signals: the first one with 1024 samples per frame
+    std::vector<int> spf(512, 1);
+    spf[0] = 1024;
+    WriteOptions w = mv_write_options();
+    w.samps_per_frame = spf;
+    std::vector<WFDB_Sample> x(1024 + 511);
+    for (size_t i = 0; i < x.size(); i++) x[i] = static_cast<int>(i);
+    write_record("mixed", x, 512, 250, w);
+    ReadOptions o;
+    o.highres = true;
+    o.to = 1;
+    Record r = read_record("mixed", o);
+    REQUIRE(r.nsig == 512 && r.nsamples() == 1);
+    CHECK(r.at(0, 0) == 0 && r.at(0, 1) == 1024 && r.at(0, 511) == 1534);
+    o.to = {};
+    r = read_record("mixed", o);
+    REQUIRE(r.nsamples() == 1024);
+    CHECK(r.at(1023, 0) == 1023 && r.at(1023, 511) == 1534);
+    // One signal with 16384 samples per frame (3 frames)
+    w.samps_per_frame = {16384};
+    x.resize(3 * 16384);
+    for (size_t i = 0; i < x.size(); i++) x[i] = static_cast<int>(i % 30000);
+    write_record("big", x, 1, 250, w);
+    o.to = 1;
+    r = read_record("big", o);
+    CHECK(r.nsamples() == 1 && r.at(0, 0) == 0);
+    o.to = {};
+    r = read_record("big", o);
+    CHECK(r.samples == x);
+    o.from = 16385;
+    o.to = 16387;
+    r = read_record("big", o);
+    CHECK(r.samples == (std::vector<WFDB_Sample>{16385, 16386}));
+    CHECK(read_record("big").nsamples() == 3);
+    CHECK(library_clean());
+}
+
+// write_record and write_record_physical check their arguments before any
+// file is created.
+WFDBX_TEST(write_record_checks_before_writing)
+{
+    DataDir d;
+    std::vector<WFDB_Sample> x = {1, 2, 3, 4};
+    std::vector<double> p = {0.5, 1, 1.5, 2};
+    const double inf = std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    auto check = [&](const WriteOptions &w, int nsig, double fs,
+                     const std::string &msg, const std::string &rec = "v") {
+        wfdbquiet();
+        CHECK_EQ(error_of([&] { write_record(rec, x, nsig, fs, w); }), msg);
+        CHECK_EQ(error_of([&] { write_record_physical(rec, p, nsig, fs, w); }),
+                 msg);
+        wfdbverbose();
+        CHECK(!fs::exists(rec + ".hea") && !fs::exists(rec + ".dat"));
+        CHECK(library_clean());
+    };
+    WriteOptions w = mv_write_options();
+    // the sampling frequency: finite and > 0
+    check(w, 2, inf, "write_record: the sampling frequency must be finite");
+    check(w, 2, -inf, "write_record: the sampling frequency must be > 0");
+    check(w, 2, nan, "write_record: the sampling frequency must be > 0");
+    w.legacy = true;
+    check(w, 2, inf, "write_record: the sampling frequency must be finite");
+    check(w, 2, nan, "write_record: the sampling frequency must be finite");
+    w.legacy = false;
+    // the gains: finite (0, uncalibrated, and negative gains are allowed)
+    for (double g : {nan, inf, -inf}) {
+        w.gains = {g};
+        check(w, 2, 250, "write_record: gains must be finite");
+        w.gains = {200, g};
+        check(w, 2, 250, "write_record: gains must be finite");
+    }
+    w.gains = {-200};
+    CHECK_EQ(error_of([&] { write_record("v", x, 2, 250, w); }), "");
+    CHECK(read_header("v").siginfo[1].gain == -200);
+    w.gains = {0};
+    CHECK_EQ(error_of([&] { write_record("v", x, 2, 250, w); }), "");
+    fs::remove("v.hea");
+    fs::remove("v.dat");
+    w.gains = {200};
+    // the base time must be valid
+    w.base_time = "garbage";
+    check(w, 2, 250, "write_record: incorrect base time 'garbage'");
+    w.base_time = "12:00:00 01/02/2003";
+    CHECK_EQ(error_of([&] { write_record("v", x, 2, 250, w); }), "");
+    CHECK(read_header("v").base_time == std::string("[12:00:00 01/02/2003]"));
+    fs::remove("v.hea");
+    fs::remove("v.dat");
+    w.base_time.reset();
+    // the record name, and at least one signal
+    check(w, 2, 250, "write_record: the record name must not be empty", "");
+    check(w, 0, 250, "write_record: at least one signal is required");
+    // per-signal vectors: one value for all signals, or one per signal
+    const std::string per = " must have one value for all signals or one "
+                            "value per signal (2)";
+    w.gains = {200, 300, 400};
+    check(w, 2, 250, "write_record: gains" + per);
+    w.gains = {200};
+    w.adcres = {12, 12, 12};
+    check(w, 2, 250, "write_record: adcres" + per);
+    w.adcres = {16};
+    w.units = {std::string("mV"), std::string("mV"), std::string("mV")};
+    check(w, 2, 250, "write_record: units" + per);
+    w.units = {std::string("mV")};
+    w.baselines = {5, 6, 7};
+    check(w, 2, 250, "write_record: baselines" + per);
+    w.baselines = {};
+    w.adczeros = {0, 0, 0};
+    check(w, 2, 250, "write_record: adczeros" + per);
+    w.adczeros = {0};
+    w.names = {"a", "b", "c"};
+    check(w, 2, 250, "write_record: names" + per);
+    w.names = {};
+    w.samps_per_frame = {1, 1, 1};
+    check(w, 2, 250, "write_record: samps_per_frame" + per);
+    w.samps_per_frame = {};
+    w.legacy = true;
+    w.gains = {200, 300, 400};
+    check(w, 2, 250, "write_record: gains" + per);
+    // (legacy mode: fewer gains than signals are not missing values)
+    w.gains = {};
+    x.resize(6);
+    p.resize(6, 0.5);
+    w.adcres = {12, 12};
+    const std::string per3 = " must have one value for all signals or one "
+                             "value per signal (3)";
+    check(w, 3, 250, "write_record: adcres" + per3);
+    CHECK_EQ(wfdbx_get_legacy(), 0);
+}
+
+// write_annotations checks its arguments before any file is created.
+WFDBX_TEST(write_annotations_checks_before_writing)
+{
+    DataDir d;
+    Annotations a;
+    a.samples = {10, 20, 30};
+    a.symbols = {"N", "V", "N"};
+    a.codes = {NORMAL, PVC, NORMAL};
+    auto check = [&](double fs, const std::string &msg) {
+        CHECK_EQ(error_of([&] { write_annotations("100s", "chk", a, fs); }),
+                 msg);
+        CHECK(!fs::exists("100s.chk"));
+        CHECK(library_clean());
+    };
+    // Symbols and codes that agree are accepted; any disagreement is an
+    // error.
+    a.codes = {NORMAL, NORMAL, NORMAL};
+    check(0, "write_annotations: symbols and codes disagree at annotation 1");
+    a.symbols = {"N", "V", ""};     // (an empty symbol leaves the code)
+    a.codes = {NORMAL, PVC, PVC};
+    CHECK_EQ(error_of([&] { write_annotations("100s", "agr", a); }), "");
+    Annotations g = read_annotations("100s", "agr");
+    CHECK(g.codes == (std::vector<int>{NORMAL, PVC, PVC}));
+    a.symbols = {"N", "V", "N"};
+    a.codes.clear();
+    const char *fs_msg = "write_annotations: fs must be finite and > 0 (or 0: "
+                         "none)";
+    for (double f : {std::numeric_limits<double>::quiet_NaN(),
+                     std::numeric_limits<double>::infinity(), -360.0})
+        check(f, fs_msg);
+    write_annotations("100s", "chk", a, 360);
+    Annotations r = read_annotations("100s", "chk");
+    CHECK(r.symbols == a.symbols && r.samples == a.samples);
+    // An annotation file that was read gives both: it is written back as
+    // it is (here, 100s.atr, whose types include codes without a
+    // mnemonic: none of them disagrees).
+    r = read_annotations("100s", "atr");
+    CHECK_EQ(error_of([&] { write_annotations("100s", "cp", r); }), "");
+    Annotations c = read_annotations("100s", "cp");
+    CHECK(c.samples == r.samples && c.codes == r.codes &&
+          c.symbols == r.symbols && c.subtypes == r.subtypes &&
+          c.chans == r.chans && c.nums == r.nums && c.aux == r.aux);
+    // ... also with codes that have no mnemonic.
+    Annotations u;
+    u.samples = {5, 6};
+    u.codes = {42, 43};
+    write_annotations("100s", "un", u);
+    r = read_annotations("100s", "un");
+    CHECK(r.codes == u.codes);
+    CHECK_EQ(error_of([&] { write_annotations("100s", "un2", r); }), "");
+    CHECK(read_annotations("100s", "un2").codes == u.codes);
+}
+
+// read_record closes the input signals on every error after opening them,
+// and restores the library's settings.
+WFDBX_TEST(read_record_errors_close_signals)
+{
+    DataDir d;
+    const int mode = getgvmode();
+    ReadOptions o;
+    o.from = -1;
+    CHECK_EQ(error_of([&] { read_record("100s", o); }),
+             "read_record: from must not be negative");
+    CHECK(library_clean());
+    o.from = {};
+    o.channels = {"nosuch"};
+    CHECK_EQ(error_of([&] { read_record("100s", o); }),
+             "record 100s has no signal nosuch");
+    CHECK(library_clean());
+    o.channels = {};
+    o.from = 1000000;
+    o.highres = true;
+    wfdbquiet();
+    CHECK_EQ(error_of([&] { read_record("100s", o); }),
+             "can't seek to sample 1000000 of record 100s");
+    wfdbverbose();
+    CHECK(library_clean());
+    CHECK_EQ(getgvmode(), mode);
+    CHECK_EQ(wfdbx_get_legacy(), 0);
+}

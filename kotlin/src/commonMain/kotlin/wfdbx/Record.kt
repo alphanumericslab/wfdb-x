@@ -610,6 +610,9 @@ private const val CHUNK_FRAMES = 1L shl 20
  *   its header says ("can't read signal data of record REC (getvec status
  *   -3)")
  *
+ * On any error once the record is open, its input signals are closed, and
+ * the getvec mode and the settings changed for the call are restored.
+ *
  * The warning on a checksum error is "checksum error in record REC: the
  * signal data do not match the checksums in its header".
  *
@@ -638,7 +641,12 @@ fun Wfdb.readRecord(
 ): Record = withGvmode {
     withLegacy(legacy) {
         withInput(inputDir, network) {
-            readRecordImpl(record, channels, from, to, physical, highres, pad, checksumWarning, onWarning)
+            try {
+                readRecordImpl(record, channels, from, to, physical, highres, pad, checksumWarning, onWarning)
+            } catch (e: Throwable) {
+                wfdbquit() // (the input signals are closed on any error)
+                throw e
+            }
         }
     }
 }
@@ -697,7 +705,11 @@ private fun Wfdb.readRecordImpl(
     // 6 of them, so that formats 212, 310 and 311 end each call on a whole
     // packed unit (the frames are then read in blocks).
     val unit = 6L * (if (highres) maxOf(sig.ispfmax, 1) else 1)
-    val chunk = CHUNK_FRAMES - CHUNK_FRAMES % unit
+    // (A block is at least one such unit, even when a frame holds more
+    // samples: a block of 0 vectors would read nothing, and the loop below
+    // would not progress.)
+    fun aligned(n: Long): Long = maxOf(n - n % unit, unit)
+    val chunk = aligned(CHUNK_FRAMES)
     var used = 0 // values read
     var checksumError = false
     val quiet = wfdbxSetCksumQuiet(true) // (getvec's own message is replaced by the warning below)
@@ -707,7 +719,7 @@ private fun Wfdb.readRecordImpl(
             val n = when {
                 remaining != null -> minOf(remaining, chunk)
                 expected > have -> minOf(expected - have, chunk)
-                else -> 65536L - 65536L % unit
+                else -> aligned(65536L)
             }
             val need = used.toLong() + n * nsig
             if (need > Int.MAX_VALUE - 8) fail("record $record is too long to be read at once")
@@ -905,10 +917,10 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  *   frame 0, then those of frame 1, and so on. A signal with `spf` samples
  *   per frame has `spf` consecutive values in each frame.
  * @param nsig the number of signals
- * @param fs sampling frequency in Hz (frames per second, > 0)
+ * @param fs sampling frequency in Hz (frames per second; finite, > 0)
  * @param fmt storage format, such as 16, 212, 24 or 516 (FLAC)
- * @param gains gain in ADC units per physical unit; 0 marks a signal as
- *   uncalibrated
+ * @param gains gain in ADC units per physical unit (finite); 0 marks a
+ *   signal as uncalibrated, and negative gains are allowed
  * @param baselines ADC value that corresponds to 0 physical units
  *   (default: the ADC zero)
  * @param adczeros ADC value at the middle of the ADC range (default 0)
@@ -917,7 +929,7 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  *   with a gain other than 0 (null for an uncalibrated signal)
  * @param names signal descriptions (default: none)
  * @param baseTime start time, with an optional date: "hh:mm:ss
- *   dd/mm/yyyy" (default: none)
+ *   dd/mm/yyyy" (default: none); checked before any file is created
  * @param comments info strings, written at the end of the header
  * @param sampsPerFrame samples per frame of each signal, at least 1, for
  *   a multi-frequency record (default 1)
@@ -926,11 +938,19 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  *   that directory under its plain name)
  * @param legacy behave as the original WFDB package (default gain 200, an
  *   ADC resolution based on the format, no units required)
- * @throws WfdbException "writeRecord: sampsPerFrame must hold integers >=
- *   1" (checked first, also in legacy mode), "writeRecord: gains must be specified",
- *   "writeRecord: ADC resolution(s) must be specified", "writeRecord: units
- *   must be specified", "writeRecord: the sampling frequency must be > 0",
- *   "writeRecord: no signals", "writeRecord: the number of samples is not a
+ * @throws WfdbException (every argument is checked before any file is
+ *   created) "writeRecord: sampsPerFrame must hold integers >= 1" (checked
+ *   first, also in legacy mode), "writeRecord: the record name must not be
+ *   empty", "writeRecord: at least one signal is required", "writeRecord:
+ *   NAME must have one value per signal" (a per-signal argument with more
+ *   than one value, but not one per signal; [gains] or [adcres] with fewer:
+ *   as missing values, except in legacy mode), "writeRecord: the sampling
+ *   frequency must be > 0" (not checked in legacy mode), "writeRecord: the
+ *   sampling frequency must be finite", "writeRecord: gains must be
+ *   specified", "writeRecord: gains must be finite", "writeRecord: ADC
+ *   resolution(s) must be specified", "writeRecord: units must be
+ *   specified", "writeRecord: incorrect base time 'TIME'" (after the
+ *   library's own message), "writeRecord: the number of samples is not a
  *   multiple of the frame size", "record name must not contain a directory
  *   when dir is given", "directory DIR does not exist", "can't create
  *   signal file for record REC" (also when the output would overwrite a
@@ -1009,9 +1029,7 @@ fun Wfdb.writeRecord(
     withOutputDir(dir, record) {
         withLegacy(legacy) {
             val leg = isLegacy()
-            if (nsig <= 0) throw WfdbException("writeRecord: no signals")
-            checkPerSignal(spec, nsig, leg)
-            checkWriteFreq(fs, leg)
+            checkWriteArgs(record, nsig, fs, spec, leg)
             // gain and baseline of each column of a frame
             val g = ArrayList<Double>()
             val b = ArrayList<Int>()
@@ -1074,11 +1092,25 @@ private fun adcresOf(adcres: IntArray?, k: Int, fmt: Int, legacy: Boolean): Int 
 }
 
 /**
+ * Checks the arguments of writeRecord that need no library call (WFDB-x:
+ * before anything is written): the record name is not empty, there is at
+ * least one signal, the per-signal arguments hold valid numbers of values
+ * ([checkPerSignal]), the sampling frequency is valid ([checkWriteFreq]),
+ * and the gains are finite.
+ */
+private fun checkWriteArgs(record: String, nsig: Int, fs: Double, spec: WriteSpec, legacy: Boolean) {
+    if (record.isEmpty()) throw WfdbException("writeRecord: the record name must not be empty")
+    if (nsig <= 0) throw WfdbException("writeRecord: at least one signal is required")
+    checkPerSignal(spec, nsig, legacy)
+    checkWriteFreq(fs, legacy)
+    if (spec.gains != null && spec.gains.any { !it.isFinite() }) throw WfdbException("writeRecord: gains must be finite")
+}
+
+/**
  * Checks that each per-signal argument holds no value, one value for all
  * signals, or one value per signal (WFDB-x: before anything is written).
- * A required argument ([WriteSpec.gains], [WriteSpec.adcres],
- * [WriteSpec.units]) with fewer values is reported as missing values
- * instead, except in legacy mode.
+ * A required argument ([WriteSpec.gains], [WriteSpec.adcres]) with fewer
+ * values is reported as missing values instead, except in legacy mode.
  */
 private fun checkPerSignal(spec: WriteSpec, nsig: Int, legacy: Boolean) {
     val lens = listOf(
@@ -1086,7 +1118,7 @@ private fun checkPerSignal(spec: WriteSpec, nsig: Int, legacy: Boolean) {
         Triple("baselines", spec.baselines?.size, false),
         Triple("adczeros", spec.adczeros?.size, false),
         Triple("adcres", spec.adcres?.size, true),
-        Triple("units", spec.units?.size, true),
+        Triple("units", spec.units?.size, false),
         Triple("names", spec.names?.size, false),
         Triple("sampsPerFrame", spec.sampsPerFrame?.size, false),
     )
@@ -1102,16 +1134,18 @@ private fun checkWriteSpf(spf: IntArray?) {
     if (spf != null && spf.any { it < 1 }) throw WfdbException("writeRecord: sampsPerFrame must hold integers >= 1")
 }
 
-/** Checks the sampling frequency (WFDB-x: no default; not checked in legacy mode, as in the original package). */
+/**
+ * Checks the sampling frequency: finite, and > 0 (WFDB-x: no default; > 0
+ * is not checked in legacy mode, as in the original package).
+ */
 private fun checkWriteFreq(fs: Double, legacy: Boolean) {
     if (!(fs > 0.0) && !legacy) throw WfdbException("writeRecord: the sampling frequency must be > 0")
+    if (!fs.isFinite()) throw WfdbException("writeRecord: the sampling frequency must be finite")
 }
 
 private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Double, spec: WriteSpec) {
-    if (nsig <= 0) throw WfdbException("writeRecord: no signals")
     val legacy = isLegacy()
-    checkPerSignal(spec, nsig, legacy)
-    checkWriteFreq(fs, legacy)
+    checkWriteArgs(record, nsig, fs, spec, legacy)
     val rec = fname(record)
     val datName = fname("$record.dat")
     var frame = 0
@@ -1136,6 +1170,11 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
         throw WfdbException("writeRecord: the number of samples is not a multiple of the frame size")
     }
     wfdbquit()
+    // WFDB-x: the base time is checked before anything is written (it is
+    // set again below, once the signal file is open).
+    if (spec.baseTime != null && setbasetime(spec.baseTime.latin1()) < 0) {
+        fail("writeRecord: incorrect base time '${spec.baseTime}'")
+    }
     val errors = wfdbx_write_errors()
     try {
         if (osigfopen(si, nsig) != nsig) fail("can't create signal file for record $record")
@@ -1158,11 +1197,12 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
 /**
  * Writes an annotation file.
  *
- * Give the annotation types as [codes] or as [symbols] ([codes] is used if
- * both are given). If the annotations are not in time order, the file is
- * sorted when it is written; [sort] decides this for one call. Without
- * [sort], the WFDBANNSORT environment variable decides: sorting is on
- * unless it is 0.
+ * Give the annotation types as [codes] or as [symbols]; if both are given
+ * (as [readAnnotations] returns them), each symbol must be that of its code
+ * (an empty symbol is not checked). If the annotations are not in time
+ * order, the file is sorted when it is written; [sort] decides this for one
+ * call. Without [sort], the WFDBANNSORT environment variable decides:
+ * sorting is on unless it is 0.
  *
  * Part of WFDB-x; not in the original WFDB package.
  *
@@ -1172,7 +1212,8 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  * @param samples annotation times, in samples
  * @param symbols mnemonics such as "N" or "V" (an unknown mnemonic becomes
  *   code 0, NOTQRS)
- * @param codes annotation codes, used instead of [symbols]
+ * @param codes annotation codes (if both are given, they must agree with
+ *   [symbols])
  * @param subtypes subtype of each annotation (null: 0; as in C, stored in
  *   one byte: other values wrap around to -128 to 127)
  * @param chans channel number of each annotation (null: 0; stored in one
@@ -1181,19 +1222,23 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  *   byte: other values wrap around to -128 to 127)
  * @param aux auxiliary text of each annotation, or null where there is none
  *   (texts longer than 255 bytes are cut)
- * @param fs if given, written to the file as the frequency in which the
- *   times are counted
+ * @param fs if given (finite, > 0), written to the file as the frequency
+ *   in which the times are counted
  * @param sort true to always sort, false to keep the order given (without
  *   the library's advice to run sortann), null to follow WFDBANNSORT
  * @param dir an existing directory in which to create the file, for this
  *   call only; [record] must then be a plain name
  * @param legacy behave as the original WFDB package
- * @throws WfdbException if neither symbols nor codes is given ("symbols or
- *   codes must be given"), if an array does not have one value per
- *   annotation, if the file cannot be created ("can't create annotator ANN
- *   for record REC"), if it cannot be written completely, for example when
- *   the disk is full ("write error on annotator ANN for record REC"; also in
- *   legacy mode), or as for [writeRecord]'s dir
+ * @throws WfdbException (the arguments are checked before any file is
+ *   created) if neither symbols nor codes is given ("symbols or codes must
+ *   be given"), if both are given and the code of a symbol is not the code
+ *   at its position ("writeAnnotations: symbols and codes disagree at
+ *   annotation K", K counting from 0), if an array does not have one value
+ *   per annotation, if fs is not finite and > 0 ("writeAnnotations: fs must
+ *   be finite and > 0"), if the file cannot be created ("can't create
+ *   annotator ANN for record REC"), if it cannot be written completely, for
+ *   example when the disk is full ("write error on annotator ANN for record
+ *   REC"; also in legacy mode), or as for [writeRecord]'s dir
  *
  * ```
  * writeAnnotations("rand", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N", "N", "V"))
@@ -1224,12 +1269,25 @@ fun Wfdb.writeAnnotations(
     check("chans", chans?.size)
     check("nums", nums?.size)
     check("aux", aux?.size)
+    // (`!(f > 0)` also rejects NaN)
+    if (fs != null && !(fs > 0.0 && fs.isFinite())) throw WfdbException("writeAnnotations: fs must be finite and > 0")
     withOutputDir(dir, record) {
         withLegacy(legacy) {
             val types = codes ?: IntArray(n).also { t ->
                 if (symbols == null) throw WfdbException("symbols or codes must be given")
                 val cache = HashMap<String, Int>()
                 for (k in 0 until n) t[k] = cache.getOrPut(symbols[k]) { strann(symbols[k].latin1()) }
+            }
+            if (codes != null && symbols != null) {
+                // WFDB-x: symbols and codes may both be given (as
+                // readAnnotations returns them) if they agree: each symbol
+                // is that of its code (an empty symbol leaves the code).
+                for (k in 0 until n) {
+                    val sym = symbols[k]
+                    if (sym.isNotEmpty() && strann(sym.latin1()) != codes[k]) {
+                        throw WfdbException("writeAnnotations: symbols and codes disagree at annotation $k")
+                    }
+                }
             }
             val zeros = IntArray(n)
             val auxes = arrayOfNulls<ByteArray>(n)

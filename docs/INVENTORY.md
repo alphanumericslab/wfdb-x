@@ -36,13 +36,13 @@ macOS; the tests of the repository do not compile the native code (see
 | Tool | What it does | Cases | Python | C++ | MATLAB/Octave | Rust | Julia | R | Kotlin |
 |---|---|---:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **Signals** | | | | | | | | | |
-| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 320 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 328 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wrsamp` | write a record from text (columns, scaling, any storage format) | 72 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbdesc` | describe the signals of a record (header contents) | 53 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 49 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `snip` | copy a segment of a record (any format) to a new record | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `xform` | convert records: format, sampling frequency, gain, signal selection | 58 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sampfreq` | print the sampling (or counter) frequency of a record | 23 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbdesc` | describe the signals of a record (header contents) | 54 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 51 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `snip` | copy a segment of a record (any format) to a new record | 43 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `xform` | convert records: format, sampling frequency, gain, signal selection | 59 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `sampfreq` | print the sampling (or counter) frequency of a record | 24 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signame` | print signal names | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signum` | print the number of a named signal | 7 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbcat` | copy WFDB files to the standard output | 8 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -57,12 +57,12 @@ macOS; the tests of the repository do not compile the native code (see
 | `ann2rr` | print RR intervals from annotations | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rr2ann` | write an annotation file from RR intervals | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Format converters** | | | | | | | | | |
-| `edf2mit` | convert EDF/EDF+ to a WFDB record | 17 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mit2edf` | convert a WFDB record to EDF | 21 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `edf2mit` | convert EDF/EDF+ to a WFDB record | 18 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mit2edf` | convert a WFDB record to EDF | 22 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rdedfann` | print EDF+ annotations (as `rdann` text) | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wav2mit` | convert a WAV file to a WFDB record | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mit2wav` | convert a WFDB record to a WAV file | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdb2mat` | convert a WFDB record to a MATLAB/Octave .mat file | 31 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdb2mat` | convert a WFDB record to a MATLAB/Octave .mat file | 32 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `a2m` | convert AHA-format annotations to WFDB format | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `m2a` | convert WFDB annotations to AHA format | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ad2m` | convert AHA-format signals (tape/CD) to a WFDB record | 15 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -72,7 +72,7 @@ macOS; the tests of the repository do not compile the native code (see
 | `makeid` | write a record ID block (for AHA conversions) | 5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `readid` | read a record ID block | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `revise` | convert an old-style header to the current format | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Total** | 33 tools | **1081** | 1081 | 1081 | 1081 | 1081 | 1081 | 1081 | 1081 |
+| **Total** | 33 tools | **1098** | 1098 | 1098 | 1098 | 1098 | 1098 | 1098 | 1098 |
 
 ## Library functions
 

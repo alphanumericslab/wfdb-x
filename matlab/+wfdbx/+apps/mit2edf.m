@@ -310,7 +310,13 @@ if bytes_per_block > EDFMAXBLOCK
     status = 5;
     return;
 end
-nblocks = wfdbx.internal.cdiv(wfdbx.strtim('e'), frames_per_block) + 1;
+% (WFDB-x: no blocks of frames if there are no frames per block; C divided
+% by zero.)
+if frames_per_block ~= 0
+    nblocks = wfdbx.internal.cdiv(wfdbx.strtim('e'), frames_per_block) + 1;
+else
+    nblocks = 1;
+end
 hlen = (nsig + 1) * 256;
 header = repmat(uint8(32), 1, hlen);
 if vflag

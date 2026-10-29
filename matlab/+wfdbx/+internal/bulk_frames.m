@@ -175,6 +175,7 @@ for k = 1:ng
             end
         end
         avail = floor((ig.flac.len - ig.flac.pos) / nnv(k));
+        avail = avail - mod(avail, period);     % (whole packed units)
         if avail < n
             n = avail;
         end
@@ -491,8 +492,15 @@ idx = [smi(1:tspf).index] + 1;
 scale = [smi(1:tspf).scale];
 offset = [smi(1:tspf).offset];
 so = [smi(1:tspf).sample_offset];
-X = F(:, idx);
-nr = size(X, 1);
+nr = size(F, 1);
+if all(idx <= size(F, 2))
+    X = F(:, idx);
+else
+    % (indices past the input frame: see wfdbx.internal.sigmap)
+    X = zeros(nr, tspf);
+    k = idx <= size(F, 2);
+    X(:, k) = F(:, idx(k));
+end
 V = X .* repmat(scale, nr, 1) + repmat(offset, nr, 1);
 out = zeros(size(V)) + WFDB_SAMPLE_MIN;     % (NaN)
 k = V >= 0;

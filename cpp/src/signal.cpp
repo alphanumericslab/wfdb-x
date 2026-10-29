@@ -109,6 +109,14 @@ inline int ishl(int a, int n)
     return static_cast<int>(static_cast<unsigned>(a) << n);
 }
 
+// Sum of two WFDB_Time values, wrapping around as a two's-complement 64-bit
+// integer (as C's signed overflow does on x86-64).
+inline WFDB_Time tadd(WFDB_Time a, WFDB_Time b)
+{
+    return static_cast<WFDB_Time>(static_cast<unsigned long long>(a) +
+                                  static_cast<unsigned long long>(b));
+}
+
 // Conversion of a double to int as on x86 (INT_MIN if out of range).
 inline int d2i(double x)
 {
@@ -602,11 +610,15 @@ int sigmap_init(int first_segment)
     return 0;
 }
 
-void sigmap(WFDB_Sample *vector, const WFDB_Sample *ivec)
+// Map the input frame ivec, of n samples, to the layout signals.  WFDB-x:
+// an index beyond the input frame (left by a segment that could not be
+// opened, whose frame was too large) gives 0, as the bytes that glibc's
+// calloc() clears after C's array usually do (C reads past its end).
+void sigmap(WFDB_Sample *vector, const WFDB_Sample *ivec, size_t n)
 {
     for (int i = 0; i < tspf; i++) {
         const SigMapInfo &m = smi[i];
-        WFDB_Sample x = ivec[m.index];
+        WFDB_Sample x = static_cast<size_t>(m.index) < n ? ivec[m.index] : 0;
         if (x == WFDB_INVALID_SAMPLE)
             vector[i] = WFDB_INVALID_SAMPLE;
         else {
@@ -1035,7 +1047,9 @@ int readheader(const char *record)
                 return -2;
             }
             seg.samp0 = ns;
-            ns += seg.nsamp;
+            // (C: the sum overflows if the lengths exceed the range of
+            // WFDB_Time; see docs/KNOWN_C_BEHAVIORS.md)
+            ns = tadd(ns, seg.nsamp);
             segarray.push_back(seg);
         }
         segend = static_cast<int>(segarray.size()) - 1;
@@ -2172,8 +2186,12 @@ int getskewedframe(WFDB_Sample *vector)
     }
     for (unsigned g = nigroup; g;) {
         // Go through groups in reverse order since seeking on group 0
-        // should always be done last.
-        if (igd[--g]->initial_skip)
+        // should always be done last.  A seek that opens another segment
+        // may leave fewer groups: the slots past them that are allocated
+        // are zeroed (no initial skip).  WFDB-x: a group number past the
+        // allocated slots is reported as incorrect by isgsetframe() (C
+        // reads past its group array; see docs/KNOWN_C_BEHAVIORS.md).
+        if (--g >= igd.size() || igd[g]->initial_skip)
             isgsetframe(g, in_msrec ? segarray[segp].samp0 : 0);
     }
     // WFDB-x: a signal group whose frames hold no samples is at the end of
@@ -2264,7 +2282,7 @@ int getskewedframe(WFDB_Sample *vector)
     }
 
     if (need_sigmap)
-        sigmap(vecstart, ovec.data());
+        sigmap(vecstart, ovec.data(), ovec.size());
     else if (static_cast<int>(framelen) != tspf)
         for (int s = static_cast<int>(framelen); s < tspf; s++)
             vecstart[s] = WFDB_INVALID_SAMPLE;
@@ -3604,7 +3622,8 @@ long long bulk_frames(WFDB_Sample *out, long long n)
     if (need_sigmap) {
         for (long long i = 0; i < nf; i++)
             sigmap(fr + static_cast<size_t>(i) * tlen,
-                   in + static_cast<size_t>(i) * flen);
+                   in + static_cast<size_t>(i) * flen,
+                   static_cast<size_t>(flen));
         // (the last frame read, as getskewedframe() leaves it)
         std::copy(in + static_cast<size_t>(nf - 1) * flen,
                   in + static_cast<size_t>(nf) * flen, ovec.begin());

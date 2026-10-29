@@ -42,7 +42,10 @@ function write_record(record, signals, fs, varargin)
 %   hold integers >= 1") or the number of columns of SIGNALS is not their
 %   sum ("signals has N columns, but samps_per_frame adds up to M"; these
 %   are checked first, before any file is created), if FS is not greater
-%   than 0, if the gains, ADC resolutions or required units are not given,
+%   than 0 or not finite, if RECORD is empty, if SIGNALS has no signals ("at
+%   least one signal is required"), if a gain is not finite, if
+%   'base_time' cannot be parsed by wfdbx.setbasetime, if the gains, ADC
+%   resolutions or required units are not given,
 %   if a per-signal option does not have one value or one value per
 %   signal, if samples in ADC units are not integers or lie outside the
 %   range of a 32-bit integer, if samples in physical units are infinite or
@@ -88,6 +91,9 @@ function write_record(record, signals, fs, varargin)
 % any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
+if ~ischar(record) || isempty(record)
+    error('wfdbx:write_record', 'the record name must not be empty');
+end
 % WFDB-x: the gains are required (C's default was WFDB_DEFGAIN)
 opt = struct('fmt', 16, 'gains', [], 'baselines', [], 'adczeros', 0, ...
     'adcres', [], 'units', [], 'names', [], 'base_time', [], ...
@@ -118,6 +124,9 @@ else
             size(x, 2), sum(spf));
     end
 end
+if nsig == 0
+    error('wfdbx:write_record', 'at least one signal is required');
+end
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
 if isempty(opt.gains)
@@ -126,12 +135,16 @@ if isempty(opt.gains)
     end
     opt.gains = 200;        % WFDB_DEFGAIN (WFDB-x: legacy mode)
 end
-% WFDB-x: no default sampling frequency (C assumed 250 Hz)
-if ~legacy && (~isnumeric(fs) || ~isscalar(fs) || ~(fs > 0))
-    error('wfdbx:write_record', 'the sampling frequency (fs) must be > 0');
+% WFDB-x: no default sampling frequency (C assumed 250 Hz); a finite
+% frequency > 0, in legacy mode too
+if ~isnumeric(fs) || ~isscalar(fs) || ~isreal(fs) || ~(fs > 0) || ~isfinite(fs)
+    error('wfdbx:write_record', 'the sampling frequency (fs) must be finite and > 0');
 end
 fmts = per(opt.fmt, nsig, 'fmt');
 gains = per(opt.gains, nsig, 'gains');
+if ~all(isfinite(gains))
+    error('wfdbx:write_record', 'gains must be finite');
+end
 zeros_ = per(opt.adczeros, nsig, 'adczeros');
 if isempty(opt.baselines)
     bases = zeros_;
@@ -200,6 +213,10 @@ else
             'the range of a 32-bit integer']);
     end
 end
+base_time = wfdbx.internal.strarg(opt.base_time);
+if ~(isnumeric(base_time) && isempty(base_time))
+    check_base_time(base_time);
+end
 comments = opt.comments;
 if ischar(comments) || isa(comments, 'string')
     comments = cellstr(comments);
@@ -245,8 +262,8 @@ try
     % library); a new record written here has neither.
     wfdbx.setcfreq(0);
     wfdbx.setbasecount(0);
-    if ischar(opt.base_time)
-        wfdbx.setbasetime(opt.base_time);
+    if ischar(base_time)
+        wfdbx.setbasetime(base_time);
     end
     wfdbx.putframes(x);
     if wfdbx.newheader(record) < 0
@@ -263,6 +280,42 @@ wfdbx.wfdbquit();
 if wfdbx.wfdbx_write_errors() > errors
     error('wfdbx:write_record', 'write error on record %s', record);
 end
+end
+
+function check_base_time(t)
+% WFDB-x: an error if wfdbx.setbasetime cannot parse T (checked before any
+% file is created); the library's base time and its messages are left as
+% they were.
+if ~ischar(t)
+    error('wfdbx:write_record', 'base_time must be a string');
+end
+S = wfdbx.internal.sig_state();
+saved = {S.btime, S.bdate, S.pdays, S.date_string, S.time_string};
+io = wfdbx.internal.io_state();
+msg = {io.error_print, io.error_flag, io.error_message};
+io.error_print = false;
+try
+    ok = wfdbx.setbasetime(t) >= 0;
+catch err
+    restore_base_time(S, io, saved, msg);
+    rethrow(err);
+end
+restore_base_time(S, io, saved, msg);
+if ~ok
+    error('wfdbx:write_record', 'invalid base_time ''%s''', t);
+end
+end
+
+function restore_base_time(S, io, saved, msg)
+% (the state saved by check_base_time)
+S.btime = saved{1};
+S.bdate = saved{2};
+S.pdays = saved{3};
+S.date_string = saved{4};
+S.time_string = saved{5};
+io.error_print = msg{1};
+io.error_flag = msg{2};
+io.error_message = msg{3};
 end
 
 function tf = is_text(s)

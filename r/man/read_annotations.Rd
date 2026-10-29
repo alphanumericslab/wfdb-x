@@ -32,7 +32,7 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
   \item{fs}{\code{read_annotations}: the sampling frequency to use when
     the record has no header, or its header gives none.
     \code{write_annotations}: the frequency in which \code{sample} is
-    counted, recorded in the file.  By default the times are samples of
+    counted (finite, greater than 0), recorded in the file.  By default the times are samples of
     the record.}
   \item{input_dir}{the input directory for this call only: a local
     directory, a \code{~} path or a URL.  \code{NULL}, the default, keeps
@@ -42,7 +42,9 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
     current setting.}
   \item{legacy}{if \code{TRUE}, behave as the original WFDB package for
     this call (see \code{\link{wfdbx_set_legacy}}).}
-  \item{sample}{the times of the annotations, in samples.  It can also be
+  \item{sample}{the times of the annotations, in samples: integers within
+    the range of a 64-bit integer (\code{NA}, \code{NaN}, infinite
+    values and fractions are errors).  It can also be
     a data frame returned by \code{read_annotations}: its columns then
     give all the fields, and the arguments you give explicitly take
     precedence.}
@@ -51,11 +53,16 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
     \code{\link{annstr}}.}
   \item{code}{the annotation types as codes, such as \code{NORMAL} or
     \code{PVC} (see \code{\link{ecgcodes}}).  Give \code{symbol} or
-    \code{code}.}
+    \code{code}.  Both may be given, as \code{read_annotations} returns
+    them, only if they agree: each symbol must be the mnemonic of its
+    code (an empty symbol agrees with any code); otherwise
+    \code{write_annotations} stops with \samp{symbols and codes disagree
+    at annotation K} (K counting from 0).}
   \item{subtype, chan, num}{the subtype, channel and annotator number of
     each annotation: small integers.  As in C, subtypes and annotator
     numbers are stored as signed bytes and channels as unsigned bytes
-    (other values wrap around).}
+    (other values wrap around).  \code{NA}, \code{NaN} and infinite
+    values are errors, in \code{code} too.}
   \item{aux}{the auxiliary text of each annotation, such as a rhythm label
     \code{"(AFIB"}: a character vector with \code{NA} where there is none,
     or \code{NULL}.  Texts longer than 255 bytes are truncated.

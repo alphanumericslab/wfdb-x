@@ -105,6 +105,7 @@ for i = 1:nsegments
         S.msbtime = S.btime;
         S.msbdate = S.bdate;
         S.msnsamples = ns(i);
+        msn = int64(ns(i));     % (a WFDB_Time: the sum wraps as in C)
     else
         if nsig ~= n
             wfdbx.internal.wfdb_error(['setmsheader: incorrect number of ' ...
@@ -118,7 +119,8 @@ for i = 1:nsegments
             stat = -4;
             return;
         end
-        S.msnsamples = S.msnsamples + ns(i);
+        msn = wfdbx.internal.cadd64(msn, ns(i));
+        S.msnsamples = double(msn);
     end
 end
 S.oheader = wfdbx.internal.wfdb_open('hea', record, 1);    % WFDB_WRITE
@@ -138,7 +140,7 @@ if (mscfreq > 0 && mscfreq ~= msfreq) || msbcount ~= 0
         out = [out '(' g12(msbcount) ')'];
     end
 end
-out = [out sprintf(' %d', S.msnsamples)];
+out = [out sprintf(' %d', msn)];     % (int64: printed exactly)
 if S.msbtime ~= 0 || S.msbdate ~= 0
     if mod(S.msbtime, 1000) == 0
         out = [out ' ' wfdbx.internal.ftimstr(S.msbtime, 1000)];

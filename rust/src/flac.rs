@@ -79,10 +79,13 @@ const METADATA_HEADER_LEN: usize = 4;
 const METADATA_LAST: u8 = 0x80;
 /// Metadata block types.
 const METADATA_STREAMINFO: u8 = 0;
+const METADATA_APPLICATION: u8 = 2;
 const METADATA_SEEKTABLE: u8 = 3;
 const METADATA_VORBIS_COMMENT: u8 = 4;
 /// Length of the body of a STREAMINFO block.
 const STREAMINFO_LEN: usize = 34;
+/// The capacity of libFLAC's bit-reader buffer, in bytes.
+const BR_CAPACITY: usize = 8192;
 /// Offset of the MD5 signature in a STREAMINFO block body.
 const STREAMINFO_MD5_POS: usize = 18;
 /// Length of an MD5 signature.
@@ -151,6 +154,7 @@ pub(crate) enum State {
     EndOfStream,
     SeekError,
     Aborted,
+    MemoryAllocationError,
 }
 
 /// The header of a decoded frame (FLAC block).
@@ -610,6 +614,9 @@ struct FrameBody {
     chans: Option<Vec<Vec<i32>>>,
     /// The offset of the end of the frame (if valid).
     end: usize,
+    /// The offset of the end of the bytes read (the end of the data if
+    /// they end within the frame).
+    reached: usize,
 }
 
 /// The subframes and footer of a frame that starts at `start`, from `pos`
@@ -626,6 +633,7 @@ fn frame_body(
         eof: false,
         chans: None,
         end: pos,
+        reached: data.len(),
     };
     let mut bits = Bits::new(data, pos);
     let mut subframes: Vec<Vec<i64>> = Vec::with_capacity(h.channels as usize);
@@ -652,7 +660,11 @@ fn frame_body(
     }
     // The zero padding to a byte boundary.
     let n = ((8 - bits.pos % 8) % 8) as i32;
-    if n > 0 && bits.read(n) != Ok(0) {
+    let padding = if n > 0 { bits.read(n) } else { Ok(0) };
+    if padding != Err(Fail::Eof) {
+        body.reached = ((bits.pos + 7) / 8) as usize;
+    }
+    if padding != Ok(0) {
         body.errors.push(DecodeError::LostSync);
         return body;
     }
@@ -664,6 +676,7 @@ fn frame_body(
         body.eof = true;
         return body;
     };
+    body.reached = bits.byte_pos();
     if crc16(&data[start..fend]) != c16 as u32 {
         body.errors.push(DecodeError::CrcMismatch);
         return body;
@@ -724,6 +737,8 @@ struct SeekPoint {
 const ID3V2_TAG: &[u8] = b"ID3";
 /// Value of a placeholder seek point.
 const SEEKPOINT_PLACEHOLDER: u64 = u64::MAX;
+/// Length of the ID of an APPLICATION metadata block.
+const APPLICATION_ID_LEN: usize = 4;
 /// Length of a seek point.
 const SEEKPOINT_LEN: usize = 18;
 
@@ -746,6 +761,16 @@ pub(crate) struct StreamDecoder {
     /// the offset that follows them.
     warmup: [u8; 2],
     framesync: usize,
+    /// libFLAC's bit-reader buffer: it holds the bytes of the stream from
+    /// offset `bstart` up to `bend` (excluded; `bend` is the position of
+    /// the client). `fsloc`: does it still hold the frame sync code found
+    /// by `frame_sync_` (C: the bit reader's `last_seen_framesync`)?
+    bstart: usize,
+    bend: usize,
+    fsloc: bool,
+    /// The position after the last frame sync code found by `frame_sync_`
+    /// (0 if none, or if the stream cannot seek).
+    last_seen_framesync: u64,
     has_stream_info: bool,
     min_blocksize: u32,
     max_blocksize: u32,
@@ -782,6 +807,10 @@ impl StreamDecoder {
             state: State::SearchForMetadata,
             warmup: [0; 2],
             framesync: 0,
+            bstart: 0,
+            bend: 0,
+            fsloc: false,
+            last_seen_framesync: 0,
             has_stream_info: false,
             min_blocksize: 0,
             max_blocksize: 0,
@@ -833,8 +862,37 @@ impl StreamDecoder {
     pub(crate) fn flush(&mut self) {
         self.samples_decoded = 0;
         self.do_md5_checking = false;
+        self.last_seen_framesync = 0;
         self.last_frame_is_set = false;
+        self.br_clear();
         self.state = State::SearchForFrameSync;
+    }
+
+    /// `FLAC__bitreader_clear`: empties the bit-reader buffer (the next byte
+    /// read is that at the position of the client, `pos`).
+    fn br_clear(&mut self) {
+        self.bstart = self.pos;
+        self.bend = self.pos;
+        self.fsloc = false;
+    }
+
+    /// `bitreader_read_from_client_`, as often as libFLAC calls it to read
+    /// up to the offset `end`, when the reader is at the offset `p`: the
+    /// whole words before `p` leave the buffer, and it is filled up.
+    fn br_fill(&mut self, p: usize, end: usize) {
+        let end = end.min(self.data.len());
+        while self.bend < end {
+            let words = p.min(self.bend).saturating_sub(self.bstart) / 8;
+            if words > 0 {
+                self.fsloc = false;
+                self.bstart += 8 * words;
+            }
+            let room = BR_CAPACITY - (self.bend - self.bstart);
+            if room == 0 {
+                break;
+            }
+            self.bend += room.min(self.data.len() - self.bend);
+        }
     }
 
     fn send_error(&self, client: &mut dyn Client, e: DecodeError) {
@@ -846,6 +904,7 @@ impl StreamDecoder {
 
     /// The next byte (None at the end of the stream, which ends decoding).
     fn byte(&mut self) -> Option<u8> {
+        self.br_fill(self.pos, self.pos + 1);
         match self.data.get(self.pos) {
             Some(&b) => {
                 self.pos += 1;
@@ -860,6 +919,8 @@ impl StreamDecoder {
 
     /// Skips `n` bytes (false at the end of the stream).
     fn skip(&mut self, n: usize) -> bool {
+        // (libFLAC skips whole words of its buffer at a time)
+        self.br_fill(usize::MAX, self.pos.saturating_add(n));
         if n > self.data.len() - self.pos {
             self.pos = self.data.len();
             self.state = State::EndOfStream;
@@ -871,6 +932,8 @@ impl StreamDecoder {
 
     /// The big-endian value of the next `n` bytes.
     fn bytes(&mut self, n: usize) -> Option<u64> {
+        // (libFLAC reads them at once)
+        self.br_fill(self.pos, self.pos + n);
         let mut v = 0u64;
         for _ in 0..n {
             v = (v << 8) | self.byte()? as u64;
@@ -905,7 +968,7 @@ impl StreamDecoder {
                     Ok(false) => {}
                 },
                 State::EndOfStream | State::Aborted => return true,
-                State::SeekError => return false,
+                State::SeekError | State::MemoryAllocationError => return false,
             }
         }
     }
@@ -928,7 +991,7 @@ impl StreamDecoder {
                 | State::ReadFrame
                 | State::EndOfStream
                 | State::Aborted => return true,
-                State::SeekError => return false,
+                State::SeekError | State::MemoryAllocationError => return false,
             }
         }
     }
@@ -1002,6 +1065,9 @@ impl StreamDecoder {
     /// `read_metadata_`: one metadata block. Blocks other than STREAMINFO
     /// and SEEKTABLE are skipped.
     fn read_metadata(&mut self) -> bool {
+        // (libFLAC reads the last-block flag and the type, then the length)
+        self.br_fill(self.pos, self.pos + 1);
+        self.br_fill(self.pos + 1, self.pos + METADATA_HEADER_LEN);
         let Some(hdr) = self.bytes(METADATA_HEADER_LEN) else {
             return false;
         };
@@ -1009,6 +1075,22 @@ impl StreamDecoder {
         let kind = ((hdr >> 24) & 0x7f) as u8;
         let length = (hdr & 0xff_ffff) as usize;
         if kind == METADATA_STREAMINFO {
+            // (libFLAC reads the fields one at a time, then the MD5
+            // signature as a block)
+            let p = self.pos;
+            for (from, to) in [
+                (0, 2),
+                (2, 4),
+                (4, 7),
+                (7, 10),
+                (10, 13),
+                (12, 13),
+                (12, 14),
+                (13, 18),
+            ] {
+                self.br_fill(p + from, p + to);
+            }
+            self.br_fill(usize::MAX, p + STREAMINFO_LEN);
             let Some(b) = self.data.get(self.pos..self.pos + STREAMINFO_LEN) else {
                 self.skip(STREAMINFO_LEN);
                 return false;
@@ -1054,8 +1136,23 @@ impl StreamDecoder {
                 }
                 self.seek_table = Some(points);
             }
-        } else if !self.skip(length) {
-            return false;
+        } else {
+            // (an APPLICATION block begins with its 4-byte ID, which
+            // libFLAC reads first: a shorter block is an error)
+            let mut length = length;
+            if kind == METADATA_APPLICATION {
+                if !self.skip(APPLICATION_ID_LEN) {
+                    return false;
+                }
+                if length < APPLICATION_ID_LEN {
+                    self.state = State::MemoryAllocationError;
+                    return false;
+                }
+                length -= APPLICATION_ID_LEN;
+            }
+            if !self.skip(length) {
+                return false;
+            }
         }
         if is_last {
             self.first_frame_offset = self.decode_position().unwrap_or(0);
@@ -1082,6 +1179,8 @@ impl StreamDecoder {
                 } else if y >> 1 == 0x7c {
                     self.warmup[1] = y;
                     self.framesync = self.pos;
+                    self.fsloc = true;
+                    self.last_seen_framesync = self.decode_position().unwrap_or(0);
                     self.state = State::ReadFrame;
                     return true;
                 }
@@ -1279,6 +1378,8 @@ impl StreamDecoder {
             return Ok(false);
         };
         let body = frame_body(&self.data, start, self.pos, &h, assignment);
+        // (the bytes libFLAC reads into its buffer to decode it)
+        self.br_fill(usize::MAX, body.reached);
         for &e in &body.errors {
             self.send_error(client, e);
         }
@@ -1334,8 +1435,18 @@ impl StreamDecoder {
             }
         }
         if !got {
-            // Damaged frame: go back to just after its sync code.
-            self.pos = self.framesync + 1;
+            // Damaged frame: go back to just after its sync code, if the
+            // bit-reader buffer still holds it; if not (or if the frame was
+            // found while looking for the metadata), to the start of the
+            // buffer, or to the last sync code found by frame_sync_.
+            if self.fsloc {
+                self.pos = self.framesync + 1;
+            } else if self.last_seen_framesync != 0 {
+                self.pos = self.last_seen_framesync as usize;
+                self.br_clear();
+            } else {
+                self.pos = self.bstart;
+            }
         }
         self.state = State::SearchForFrameSync;
         Ok(got)
@@ -1488,7 +1599,7 @@ impl StreamDecoder {
         self.target_sample = target;
         let (mut first_seek, mut seek_from_lower_bound) = (true, false);
         loop {
-            if self.state == State::Aborted {
+            if matches!(self.state, State::Aborted | State::MemoryAllocationError) {
                 return false;
             }
             if lower_bound_sample >= upper_bound_sample

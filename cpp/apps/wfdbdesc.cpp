@@ -123,13 +123,15 @@ int main(int argc, char **argv)
     // shown (the C program assumed 250 Hz).  In legacy mode, the output is
     // that of the C program.
     WFDB_Frequency freq = sampfreq(nullptr);
+    // As in C, these tests are not complements when freq is NaN.
     const bool timed = freq > 0. || wfdbx_get_legacy();
+    const bool untimed = freq <= 0. && !wfdbx_get_legacy();
     std::string p = timed ? mstimstr(0L) : "";
     std::printf("\nStarting time: %s\n",
                 !p.empty() && p[0] == '[' ? p.c_str() : "not specified");
     std::printf("Length: ");
     struct stat st;
-    if (!timed && (nsig < 1 || t > 0L))
+    if (untimed && (nsig < 1 || t > 0L))
         std::printf("%lld sample intervals\n", t);
     else if (nsig < 1 || t > 0L)
         std::printf("%s (%lld sample intervals)\n",
@@ -170,7 +172,7 @@ int main(int argc, char **argv)
             t = -1;
             break;
         }
-        if (t >= 0 && !timed)
+        if (t >= 0 && untimed)
             std::printf("%lld sample intervals [from signal file size]\n", t);
         else if (t >= 0)
             std::printf("%s (%lld sample intervals) [from signal file size]\n",

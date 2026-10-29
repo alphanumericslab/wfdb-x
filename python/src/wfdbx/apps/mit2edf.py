@@ -28,7 +28,7 @@ version. See LICENSE.
 import sys
 
 import wfdbx as w
-from wfdbx._cstd import sscanf, int32, int8, cdiv, cmod
+from wfdbx._cstd import sscanf, int32, int8, cdiv, cmod, fdiv
 from ._common import (Output, OutputFile, Exit, eprintf, freq_not_specified, legacy,
                       run)
 
@@ -168,7 +168,9 @@ def _main(argv, out):
     while bytes_per_block > EDFMAXBLOCK:
         frames_per_block = cdiv(frames_per_block, 10)
         bytes_per_block = samples_per_frame * 2 * frames_per_block
-    seconds_per_block = frames_per_block / frames_per_second
+    # (C double division: NaN if the record has no frames per second, as if
+    # its sampling frequency is nan.)
+    seconds_per_block = fdiv(frames_per_block, frames_per_second)
     if frames_per_block < 1 and bytes_per_block < EDFMAXBLOCK // 60:
         frames_per_block = w.strtim("1:0")      # frames per minute
         bytes_per_block = 2 * samples_per_frame * frames_per_block
@@ -181,7 +183,10 @@ def _main(argv, out):
                 "signals, or use\n 'xform' to reduce the sampling frequency."
                 "\n", samples_per_frame * 2)
         raise Exit(5)
-    nblocks = cdiv(w.strtim("e"), frames_per_block) + 1
+    # (WFDB-x: no blocks of frames if there are no frames per block; C
+    # divided by zero.)
+    nblocks = (cdiv(w.strtim("e"), frames_per_block) if frames_per_block
+               else 0) + 1
     hlen = (nsig + 1) * 256     # 256 header bytes, plus 256 per signal
     header = bytearray(b" " * hlen)
     if vflag:

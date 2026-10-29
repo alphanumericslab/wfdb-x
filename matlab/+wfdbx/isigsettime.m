@@ -47,11 +47,15 @@ if S.ifreq <= 0
         return;
     end
 end
-for g = 1:S.nigroup - 1
+% (S.nigroup is read again on every pass, as in C: opening another
+% segment can change it)
+g = 1;
+while g < S.nigroup
     stat = wfdbx.isgsettime(g, t);
     if stat < 0
         break;
     end
+    g = g + 1;
 end
 if stat == 0
     stat = wfdbx.isgsettime(0, t);

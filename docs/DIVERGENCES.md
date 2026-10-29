@@ -491,8 +491,25 @@ in `KNOWN_C_BEHAVIORS.md`. Those found while reviewing version 1.1.0:
   samples are written as 0. WFDB-x shifts the samples right to 16 bits and
   writes a gain multiplier of 0.
 
-The conformance suite checks all but the `wfdb2mat` and `mit2wav` cases
-with results recorded from WFDB-x (cases with `golden_impl`; see
+* **Multi-segment records whose segments have different numbers of signal
+  groups**, when a segment change (for example after a zero-length first
+  segment) leaves fewer groups than the library is about to seek: C reads
+  past the end of its array of signal groups and crashes. WFDB-x reports
+  `isgsettime: incorrect signal group number N`, as it does for any other
+  incorrect group.
+* **A segment length beyond the range of `WFDB_Time`** (e.g.
+  `99999999999999999999`): the sum of the segment lengths overflows in C.
+  WFDB-x wraps it around as a 64-bit integer, as C does on x86-64.
+* **`snip` when the last frame to copy cannot be read** and no frame was
+  read before it: C writes its uninitialized sample vector to the output.
+  WFDB-x writes 0.
+* **`edf2mit` with a file shorter than the 256-byte fixed part of the EDF
+  header**: C fills the missing fields from uninitialized memory, so its
+  output changes from run to run. WFDB-x prints `edf2mit: incomplete EDF
+  header in FILE` and exits with status 2, creating no files.
+
+The conformance suite checks most of these, with results recorded from
+WFDB-x instead of C (cases with `golden_impl`; see
 [`conformance.md`](conformance.md#adding-cases)). Legacy mode gives the
 same results, since the C behavior cannot be reproduced.
 

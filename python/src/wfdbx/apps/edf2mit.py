@@ -20,9 +20,11 @@ Foundation, either version 3 of the License, or (at your option) any later
 version. See LICENSE.
 """
 
+import os
 import sys
 
 import wfdbx as w
+from wfdbx import _wfdbio as wio
 from wfdbx._cstd import sscanf, int32, int16, cdiv, atoi, d2i, fdiv
 from ._common import Output, Exit, eprintf, run
 
@@ -90,6 +92,23 @@ class FieldBuffer:
         return (b if k < 0 else b[:k]).decode("latin-1")
 
 
+class _Prefixed:
+    """A binary input stream whose first bytes were read already."""
+
+    def __init__(self, head, f):
+        self.head = head
+        self.f = f
+
+    def read(self, n):
+        if not self.head:
+            return self.f.read(n)
+        b = self.head[:n]
+        self.head = self.head[len(b):]
+        if len(b) < n:
+            b += self.f.read(n - len(b))
+        return b
+
+
 def _main(argv, out):
     pname = argv[0]
     argc = len(argv)
@@ -97,6 +116,7 @@ def _main(argv, out):
     big_endian = vflag = 0
     siglist = []
     ifile = None
+    iname = None
     i = 1
     while i < argc:
         a = argv[i]
@@ -112,6 +132,7 @@ def _main(argv, out):
             elif c == "i":
                 i += 1
                 if i < argc:
+                    iname = argv[i]
                     if argv[i] == "-":
                         ifile = sys.stdin.buffer
                     else:
@@ -171,6 +192,23 @@ def _main(argv, out):
         eprintf("  Valid record names may include letters, digits, and "
                 "underscores only.\n")
         raise Exit(1)
+    hea_file = wio.get_filename()     # (the header newheader created)
+    # WFDB-x: the 256-byte fixed part of the EDF header is read at once.  If
+    # the input file is shorter (C takes the missing fields from
+    # uninitialized memory; see KNOWN_C_BEHAVIORS.md), and its first 8 bytes
+    # are not those of another format, the program stops, and no output
+    # file remains.
+    head = ifile.read(256)
+    if len(head) < 256 and (len(head) < 8 or head[:8] == b"0       "):
+        w.wfdbquit()
+        try:
+            os.remove(hea_file)
+        except (OSError, TypeError):
+            pass
+        eprintf("%s: incomplete EDF header in %s\n", pname, iname)
+        raise Exit(2)
+    ifile_ = ifile
+    ifile = _Prefixed(head, ifile)
     fb = FieldBuffer(ifile)
     b = ifile.read(8)
     fb.buf[:len(b)] = b
@@ -357,8 +395,8 @@ def _main(argv, out):
                     p += 2
                 pos[jj] = p
             w.putvec(vout)
-    if ifile is not sys.stdin.buffer:
-        ifile.close()
+    if ifile_ is not sys.stdin.buffer:
+        ifile_.close()
     w.newheader(record)
     w.wfdbquit()
     return 0

@@ -59,15 +59,17 @@ app_mit2edf <- function(args = character(0)) {
 }
 
 # n frames read as the C program's getframe calls do: one row per frame,
-# rows of WFDB_INVALID_SAMPLE for the frames that getframe could not read.
+# rows of WFDB_INVALID_SAMPLE for the frames for which getframe did not
+# return nsig (it could not read them, or a segment with another number of
+# signals was open).
 # After a failure, the following frames are read again only while that can
 # have a visible effect (a later segment, signals with samples left to
 # count, groups not at their end); otherwise they are all invalid.
-.mit2edf_frames <- function(n, tspf) {
+.mit2edf_frames <- function(n, tspf, nsig) {
   V <- matrix(WFDB_INVALID_SAMPLE, n, tspf)
   got <- 0
   while (got < n) {
-    r <- .getframes_full(n - got)
+    r <- .getframes_full(n - got, nsig)
     m <- nrow(r$v)
     if (m > 0) V[got + seq_len(m), ] <- r$v
     got <- got + m
@@ -156,7 +158,8 @@ app_mit2edf <- function(args = character(0)) {
   # signal (the C program assumed 250 Hz and 200 adu/mV if the header did
   # not specify them, as legacy mode does).
   legacy <- wfdbx_get_legacy()
-  if (!legacy && sampfreq(NULL) <= 0) .app_nofreq(pname, record, 3)
+  # (As in C, a frequency of nan passes this test.)
+  if (!legacy && isTRUE(sampfreq(NULL) <= 0)) .app_nofreq(pname, record, 3)
   for (k in seq_len(if (legacy) 0 else nsig)) {
     if (si[[k]]$gain == 0) .app_uncalibrated(pname, k - 1, record, 3)
     # WFDB-x: the EDF digital range needs the ADC resolution (the C program
@@ -208,7 +211,10 @@ app_mit2edf <- function(args = character(0)) {
              samples_per_frame * 2)
     cexit(5)
   }
-  nblocks <- cdiv(strtim("e"), frames_per_block) + 1
+  # (WFDB-x: no blocks of frames if there are no frames per block; C
+  # divided by zero.)
+  nblocks <- (if (frames_per_block != 0) cdiv(strtim("e"), frames_per_block)
+              else 0) + 1
   hlen <- (nsig + 1) * EDF_FIELD_BYTES
   header <- rep(as.raw(0x20), hlen)
   if (vflag) {
@@ -310,7 +316,7 @@ app_mit2edf <- function(args = character(0)) {
   b0 <- 0
   while (b0 < nblocks && frames_per_block > 0) {
     nb <- min(step, nblocks - b0)
-    V <- .mit2edf_frames(nb * frames_per_block, samples_per_frame)
+    V <- .mit2edf_frames(nb * frames_per_block, samples_per_frame, nsig)
     parts <- lapply(seq_len(nsig), function(k) {
       matrix(t(V[, sig_cols[[k]], drop = FALSE]), spfs[k] * frames_per_block, nb)
     })

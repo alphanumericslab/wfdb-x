@@ -183,7 +183,7 @@ app_sigamp <- function(args = character(0)) {
   # WFDB-x: no default sampling frequency (the C program assumed 250 Hz); the
   # measurement windows are defined in seconds.
   sfreq <- sampfreq(NULL)
-  if (sfreq <= 0) {
+  if (isTRUE(sfreq <= 0)) {                 # (not nan, as in C)
     if (wfdbx_get_legacy()) sfreq <- WFDB_DEFFREQ     # WFDB-x: legacy mode
     else .app_nofreq(pname, record, 2)
   }
@@ -227,9 +227,10 @@ app_sigamp <- function(args = character(0)) {
   # C).  Returns the RMS amplitude of each signal.
   rms <- function(v1, v2) {
     vmean <- colSums(v1) / dtw + v2[1L, ] - v1[1L, ]   # (sums of integers: exact)
-    d <- d2i(v2 - rep(vmean, each = dtw))   # (int)(vv - vmean)
+    m <- nrow(v2)                           # (dtw, or 1 if dtw is 0)
+    d <- d2i(v2 - rep(vmean, each = m))     # (int)(vv - vmean)
     d <- d * d
-    vsum <- if (max(d) * dtw < 2^53) {
+    vsum <- if (max(d) * m < 2^53) {
       colSums(d)                            # exact
     } else {
       apply(d, 2L, function(x) Reduce(`+`, x, 0))     # in the order of C

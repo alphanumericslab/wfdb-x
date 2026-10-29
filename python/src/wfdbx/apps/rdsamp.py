@@ -31,6 +31,7 @@ import sys
 import numpy as np
 
 import wfdbx as w
+from wfdbx import _signal
 from wfdbx._signal import getframes
 from ._common import Output, Exit, eprintf, legacy, legacy_gains, run
 
@@ -397,7 +398,7 @@ def _main(argv, out):
             if m:
                 t = np.arange(frm, frm + m)
                 if tsf is not None:
-                    tcol = [tsf(int(x)) for x in t]
+                    tcol = _times(tsf, t)
                 elif timeunits == SAMPLES:
                     tcol = [tfmt % x for x in t.tolist()]
                 else:
@@ -441,6 +442,24 @@ def _main(argv, out):
         out.write("</samplevectors>\n</wfdbsampleset>\n")
     w.wfdbquit()
     return 0
+
+
+def _times(tsf, t):
+    """The time strings tsf(x) of the samples x in t, just read by
+    getframes().  C prints each sample before it reads the next: a segment
+    that fails to open (and resets the sampling frequency) while a sample
+    is read changes the times of that sample and of the next ones only."""
+    st = _signal._s
+    ch = st.getframes_sfreq
+    if ch is None:
+        return [tsf(int(x)) for x in t]
+    k, f = ch
+    sfreq, st.sfreq = st.sfreq, f
+    try:
+        tcol = [tsf(int(x)) for x in t[:k]]
+    finally:
+        st.sfreq = sfreq
+    return tcol + [tsf(int(x)) for x in t[k:]]
 
 
 def main(argv=None):

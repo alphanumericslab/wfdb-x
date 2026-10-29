@@ -11,7 +11,10 @@
 //! the end of a data record (if the samples per frame do not divide the
 //! samples per record); 0 frames per record if a signal has 0 samples per
 //! frame; and `INT_MIN` for out-of-range conversions of doubles to int (as on
-//! x86).
+//! x86). An EDF file shorter than the 256-byte fixed part of its header
+//! (whose missing fields C takes from uninitialized memory) gives
+//! "edf2mit: incomplete EDF header in FILE", no output files and exit
+//! status 2.
 //
 // This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -76,19 +79,36 @@ fn gcd(mut x: f64, mut y: f64) -> f64 {
 
 /// Length of the longest EDF header field.
 const MAXFIELD: usize = 80;
+/// Length of the fixed part of an EDF header.
+const FIXED_HEADER: usize = 256;
 
 /// The reusable header field buffer of the C program (the longest field
 /// and a NUL).
 struct Field {
     buf: [u8; MAXFIELD + 1],
+    /// WFDB-x: the fixed part of the header, read at once (see main), and
+    /// the number of its bytes used.
+    head: Vec<u8>,
+    hpos: usize,
 }
 
 impl Field {
+    /// Read n bytes into buf: from the fixed part of the header that was
+    /// read already, then from the file.
+    fn fread(&mut self, ifile: &mut WfdbFile, n: usize) {
+        let k = n.min(self.head.len() - self.hpos);
+        self.buf[..k].copy_from_slice(&self.head[self.hpos..self.hpos + k]);
+        self.hpos += k;
+        if k < n {
+            ifile.fread(&mut self.buf[k..n], 1, n - k);
+        }
+    }
+
     /// Read a header field of n bytes into buf, mark its end with a space,
     /// and replace trailing spaces (from `buf[t]` backward) with NULs.
     /// Returns the index of the last non-space character (or -1).
     fn read(&mut self, ifile: &mut WfdbFile, n: usize, t: usize) -> i32 {
-        ifile.fread(&mut self.buf[..n], 1, n);
+        self.fread(ifile, n);
         self.buf[n] = b' ';
         let mut jj = t as i32;
         while jj >= 0 && self.buf[jj as usize] == b' ' {
@@ -111,6 +131,7 @@ fn main() {
     let pname = argv[0].clone();
     let mut record: Vec<u8> = Vec::new();
     let mut ifile: Option<WfdbFile> = None;
+    let mut iname: Vec<u8> = Vec::new();
     let mut big_endian = false;
     let mut vflag = false;
     let mut nsig: i32 = 0;
@@ -133,6 +154,7 @@ fn main() {
                     // file name follows
                     i += 1;
                     if i < argc {
+                        iname = argv[i].clone();
                         if cstd::cstr(&argv[i]) == b"-" {
                             ifile = Some(WfdbFile::stdin());
                         } else {
@@ -213,12 +235,32 @@ fn main() {
         ceprintf!(b"  Valid record names may include letters, digits, and underscores only.\n");
         cstd::exit(1);
     }
+    // (the header file that newheader created)
+    let hea_file = wfdbx::with_default(|w| w.wfdb_filename().to_vec());
 
+    // WFDB-x: the fixed part of the EDF header is read at once (see
+    // Field::fread). If the input file is shorter, the program stops (C
+    // takes the missing fields from uninitialized memory; see
+    // docs/KNOWN_C_BEHAVIORS.md): no output files remain.
+    let mut head = vec![0u8; FIXED_HEADER];
+    let n = ifile.fread(&mut head, 1, FIXED_HEADER);
+    head.truncate(n);
+    let incomplete = || -> ! {
+        wfdbx::wfdbquit();
+        let _ = std::fs::remove_file(cstd::bytes_to_os(&hea_file));
+        ceprintf!(b"%s: incomplete EDF header in %s\n", pname, iname);
+        cstd::exit(2);
+    };
+    if n < 8 {
+        incomplete();
+    }
     let mut f = Field {
         buf: [0; MAXFIELD + 1],
+        head,
+        hpos: 0,
     };
 
-    ifile.fread(&mut f.buf[..8], 1, 8);
+    f.fread(&mut ifile, 8);
     // Check to see that the input is an EDF file. (This check will detect
     // most but not all other types of files.)
     if &f.buf[..8] != b"0       " {
@@ -227,6 +269,9 @@ fn main() {
             pname
         );
         cstd::exit(2);
+    }
+    if n < FIXED_HEADER {
+        incomplete();
     }
     f.buf[8] = b' ';
     let mut j: i32 = 8;

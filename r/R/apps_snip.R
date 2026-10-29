@@ -368,7 +368,7 @@ app_snip <- function(args = character(0)) {
   }
   # WFDB-x: the output header needs the sampling frequency (the C program
   # assumed 250 Hz if the input header did not specify one).
-  if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0) {     # (legacy mode: no check)
+  if (!wfdbx_get_legacy() && isTRUE(sampfreq(NULL) <= 0)) {     # (legacy mode: no check)
     wfdbquit()
     .app_nofreq(pname, irec, 2)
   }

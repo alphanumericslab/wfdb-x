@@ -1,0 +1,3 @@
+sigmap_init: unexpected spf for signal 0 in segment s
+sigmap_init: frame size too large in segment s
+isigsettime: can't open segment s

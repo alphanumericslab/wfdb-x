@@ -119,7 +119,7 @@ rec = wfdbx.read_record('100s', 'channels', {'MLII'}, 'sampfrom', '0:10', ...
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
 | `'channels'` | signals to read: signal numbers, or a cell array of numbers and names (by name, as in `names`) | all signals |
-| `'sampfrom'`, `'sampto'` | first sample, and the sample after the last one: a sample number (`'sampfrom'` not negative) or a time string (see below) | the whole record |
+| `'sampfrom'`, `'sampto'` | first sample, and the sample after the last one: a sample number (a whole number; `'sampfrom'` not negative) or a time string (see below) | the whole record (`'sampto'`: `[]`) |
 | `'physical'` | return physical units instead of ADC units | `false` |
 | `'highres'` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `'pad'` | replace invalid samples by the previous valid one | `false` |
@@ -228,7 +228,14 @@ wfdbx.write_annotations('rand', 'qrs', [100 460 820], 'symbols', {'N', 'N', 'V'}
 This writes the annotation file `rand.qrs`, for the record `rand` written
 above, in the current folder.
 
-Give the annotation types as `'symbols'` or as `'codes'`. `'subtypes'`,
+Give the annotation types as `'symbols'` or as `'codes'`. Both may be
+given (as `read_annotations` returns them) if they agree: each symbol must
+be that of its code (an empty symbol agrees with any code), else the error
+is "symbols and codes disagree at annotation K" (K counting from 0). The
+times must be integers within the range of a 64-bit integer (NaN, infinite
+values and fractions are errors), the codes, subtypes, chans and nums must
+not be NaN, and `'fs'`, if given, must be finite and greater than 0.
+`'subtypes'`,
 `'chans'`, `'nums'`, `'aux'`, `'fs'` and `'dir'` are optional. Each
 per-annotation option is one value for all annotations, or a list with
 exactly one value per annotation; a list of any other length is an error,
@@ -261,13 +268,22 @@ unless it is `0`).
   samps_per_frame adds up to M"). These are checked first, and nothing is
   written. Samples in ADC units must be integers within the range of a
   32-bit integer, and samples in physical units must not be infinite or
-  have ADC values outside that range (NaN is an invalid sample); all the
+  have ADC values outside that range (NaN is an invalid sample). The record
+  name must not be empty, there must be at least one signal ("at least one
+  signal is required"), the sampling frequency must be finite and greater
+  than 0, the gains must be finite (0 marks an uncalibrated signal; negative
+  gains are allowed), and `'base_time'` must be a time that
+  `wfdbx.setbasetime` can parse ("invalid base_time 'T'"). All the
   arguments are checked before any file is created. Whatever the outcome,
   `write_record` and `write_annotations` close their output files and the
   library's output signals and annotators before they return.
-* A negative `'sampfrom'` in `read_record` is an error. `read_record` sets
-  the getvec mode (`'highres'`, `'pad'`) for its own reading only: the mode
-  in force before the call is restored afterwards.
+* A negative `'sampfrom'` in `read_record` is an error, and so is a
+  `'sampfrom'` or `'sampto'` that is not a whole number (a fraction, NaN or
+  an infinite value; the end of the record is `'sampto'`, `[]`).
+  `read_record` sets the getvec mode (`'highres'`, `'pad'`) for its own
+  reading only: the mode in force before the call is restored afterwards.
+  Whatever happens, errors included, it closes the input signals before it
+  returns.
 * An annotation file that ends unexpectedly, or cannot be read, before
   `'sampto'` throws an error: "can't read annotation file ANN of record REC
   (getann status -3)".

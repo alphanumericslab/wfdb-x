@@ -259,8 +259,9 @@ samples are given frame by frame, as in `Record::samples`. The sampling
 frequency, the gain and ADC resolution of each signal, and the units of each
 calibrated signal are required; there are no defaults. A gain of 0 marks a
 signal as uncalibrated, which is only allowed for samples given in ADC
-units. Per-signal fields take one value for all signals, or one value per
-signal.
+units; negative gains are allowed. The sampling frequency and the gains must
+be finite. Per-signal fields take one value for all signals, or one value
+per signal; any other length throws `wfdbx::Error`.
 
 | Field of `WriteOptions` | Meaning |
 |---|---|
@@ -285,12 +286,17 @@ wfdbx::write_annotations("rand", "qrs", qrs);
 ```
 
 The full signature is `write_annotations(record, annotator, ann, fs, dir,
-sort)`. Give the annotation types as `symbols` or as `codes`. `subtypes`,
+sort)`. Give the annotation types as `symbols` or as `codes`. Both may be
+given, as `read_annotations` returns them, if they agree: each non-empty
+symbol must be the mnemonic of the code at the same position (otherwise
+"symbols and codes disagree at annotation K", K counted from 0). `subtypes`,
 `chans`, `nums` and `aux` are optional. Each of these fields is either empty
 or has one entry per annotation; any other length throws `wfdbx::Error`
 before anything is written. `subtypes`, `chans` and `nums` are stored in 8
-bits, as in C (300 is stored as 44). `fs`, if greater than 0, is recorded
-in the file. `dir` is the directory in which to create the file.
+bits, as in C (300 is stored as 44). `fs` is 0 (none) or a finite
+frequency greater than 0, which is recorded in the file. `dir` is the
+directory in which to create the file. The arguments are checked before the
+file is created.
 
 If the annotations are not in time order, the file is sorted when it is
 written. `sort = false` keeps the given order (without the library's
@@ -322,10 +328,13 @@ only. Without `sort`, the `WFDBANNSORT` environment variable decides
   read reaches the end of the record.
 * `write_record` throws `wfdbx::Error` if a `samps_per_frame` value is less
   than 1 ("write_record: samps_per_frame must hold integers >= 1", checked
-  before anything else), or if the number of samples is not a multiple of
-  the frame size. `write_record_physical` also throws if a sample is
-  infinite or out of the range of a 32-bit ADC value (NaN is stored as an
-  invalid sample). Nothing is written then.
+  before anything else), if the record name is empty, if there are no
+  signals ("write_record: at least one signal is required"), if the number
+  of samples is not a multiple of the frame size, or if `base_time` is not
+  a valid time ("write_record: incorrect base time 'T'").
+  `write_record_physical` also throws if a sample is infinite or out of the
+  range of a 32-bit ADC value (NaN is stored as an invalid sample). Nothing
+  is written then.
 * `read_record` throws `wfdbx::Error` if `from` is negative. `write_record` and `write_annotations` throw
   `wfdbx::Error` when a file cannot be written completely, for example on a
   full disk: "write error on record REC", "write error on annotator ANN for
@@ -349,8 +358,10 @@ try {
 }
 ```
 
-The high-level functions call `wfdbquit()`, which closes anything opened
-with the WFDB library functions.
+The high-level functions call `wfdbquit()` before and after their work,
+also when they throw, which closes anything opened with the WFDB library
+functions. The library's settings (legacy mode, getvec mode, input and
+output directories) are the same after a call as before it.
 
 ### Checking a record: `check_record`
 

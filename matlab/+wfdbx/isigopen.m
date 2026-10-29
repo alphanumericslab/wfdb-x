@@ -125,6 +125,13 @@ if S.ibsize <= 0
 end
 nisig0 = S.nisig;
 nigroup0 = S.nigroup;
+% (the input groups C allocates (allocigroup), whether they are opened or
+% not: isgsetframe reads them)
+nn = nigroup0 + hsd(navail).info.group + 1;
+if nn > nigroup0 + nsig
+    nn = nigroup0 + nsig;
+end
+S.nigalloc = max(S.nigalloc, nn);
 new_isd = repmat(wfdbx.internal.isdata(), 1, 0);
 new_igd = {};
 si_ = 0;        % 0-based index in hsd

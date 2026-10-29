@@ -33,6 +33,12 @@ st = wfdbx.internal.io_state();
 st.error_flag = true;
 st.error_message = wfdbx.internal.csprintf(fmt, varargin{:});
 if st.error_print
-    wfdbx.internal.cerr(st.error_message);
+    if st.capture
+        % WFDB-x: kept, with the row of wfdbx.getframes being read, for a
+        % tool that prints it in order with its own messages (xform)
+        st.captured(end + 1, :) = {st.capture_row, st.error_message};
+    else
+        wfdbx.internal.cerr(st.error_message);
+    end
 end
 end

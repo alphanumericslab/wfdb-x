@@ -85,6 +85,8 @@ version. See LICENSE.
 # of 200 for uncalibrated signals in physical units).
 
 import functools
+import math
+import numbers
 import os
 import sys
 import warnings
@@ -215,6 +217,29 @@ class Annotations:
             self.record, self.annotator, len(self))
 
 
+def _sample_number(t, name):
+    """t (a sample number, None or a time string) checked: a sample
+    number must be a whole number within the range of WFDB_Time (WFDB-x:
+    a fraction, NaN or an infinite value is an error); it is returned as
+    an int."""
+    if t is None or isinstance(t, str):
+        return t
+    if isinstance(t, numbers.Integral):
+        x = int(t)
+    else:
+        try:
+            f = float(t)
+        except (TypeError, ValueError):
+            raise ValueError("%s must be a sample number or a time string" %
+                             name)
+        if not (math.isfinite(f) and f == math.floor(f)):
+            raise ValueError("%s must be a whole number" % name)
+        x = int(f)
+    if not -(1 << 63) <= x < (1 << 63):
+        raise ValueError("%s is beyond the range of a 64-bit integer" % name)
+    return x
+
+
 def _time(t):
     """Convert a time argument (int sample number or strtim() string) to a
     sample number; absolute times ("[hh:mm:ss]") are made positive."""
@@ -297,6 +322,25 @@ _REQUIRED = ("gains", "adcres", "units")
 
 _INT32_MIN = -(1 << 31)
 _INT32_MAX = (1 << 31) - 1
+
+
+def _check_base_time(base_time):
+    """Raise ValueError if setbasetime() cannot parse base_time (WFDB-x);
+    the library's base time and date are left as they were."""
+    s_ = sig._s
+    saved = (s_.btime, s_.bdate, s_.pdays, s_.date_string, s_.time_string)
+    flag, message = wio._io.error_flag, wio._io.error_message
+    verbose = wio._io.error_print
+    wio._io.error_print = False
+    try:
+        ok = sig.setbasetime(base_time) >= 0
+    finally:
+        wio._io.error_print = verbose
+        wio._io.error_flag, wio._io.error_message = flag, message
+        (s_.btime, s_.bdate, s_.pdays, s_.date_string,
+         s_.time_string) = saved
+    if not ok:
+        raise ValueError("invalid base_time %r" % (base_time,))
 
 
 def _digital_samples(x, np):
@@ -474,10 +518,11 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
       channels   list of the signals to read, by number (int) or name (str,
                  as in Record.names), in the order you want them. Default:
                  all signals.
-      sampfrom   first sample to read: a sample number (>= 0) or a time
-                 string. Default: 0.
-      sampto     the sample after the last one to read: a sample number or a
-                 time string. Default: the end of the record.
+      sampfrom   first sample to read: a sample number (a whole number
+                 >= 0) or a time string. Default: 0.
+      sampto     the sample after the last one to read: a sample number (a
+                 whole number) or a time string. Default (None): the end of
+                 the record.
       physical   False (the default) to return ADC units (int32), True to
                  return physical units (float64). Physical units are
                  (adc - baseline) / gain, and every signal you read must have
@@ -513,10 +558,14 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                   record has no signals, if sampfrom is beyond the end of the
                   record, or if a signal file is shorter than its header says
                   ("can't read signal data of record REC (getvec status -3)")
-      ValueError  if sampfrom is negative, if a channel is not in the
-                  record, if a time string needs the sampling frequency and
-                  the header gives none, or if physical=True and a signal
-                  you read has no gain
+      ValueError  if sampfrom is negative, if sampfrom or sampto is not a
+                  whole number (a fraction, NaN or an infinite value), if a
+                  channel is not in the record, if a time string needs the
+                  sampling frequency and the header gives none, or if
+                  physical=True and a signal you read has no gain
+
+    Whatever happens, the input signals are closed (wfdbquit) before the
+    function returns.
 
     Warns:
       RuntimeWarning  "checksum error in record REC: the signal data do not
@@ -535,145 +584,149 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
     Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
+    sampfrom = _sample_number(sampfrom, "sampfrom")
+    sampto = _sample_number(sampto, "sampto")
     if not isinstance(sampfrom, str) and sampfrom is not None and \
             sampfrom < 0:
         raise ValueError("sampfrom must not be negative")
     init.wfdbquit()
-    nsig = sig.isigopen(record, None, 0)
-    if nsig <= 0:
-        init.wfdbquit()
-        raise IOError("can't read record %s" % record)
-    si = []
-    nsig = sig.isigopen(record, si, nsig)
-    if nsig <= 0:
-        init.wfdbquit()
-        raise IOError("can't open signals of record %s" % record)
-    mode = (sig.WFDB_HIGHRES if highres else sig.WFDB_LOWRES) | \
-        (sig.WFDB_GVPAD if pad else 0)
-    sig.setgvmode(mode)
-    fs = sig.sampfreq(None)
-    _check_time_freq(record, sampfrom, sampto)
-    frm = _time(sampfrom) or 0
-    to = _time(sampto)
-    _strip_desc(si)
-    if channels is None:
-        cols = list(range(nsig))
-    else:
-        cols = []
-        names = [s.desc for s in si]
-        for c in channels:
-            if isinstance(c, int):
-                k = c
-            elif str(c).strip(_SPACE) in names:
-                k = names.index(str(c).strip(_SPACE))
-            else:
-                k = sig.findsig(str(c))
-            if k < 0 or k >= nsig:
-                init.wfdbquit()
-                raise ValueError("record %s has no signal %r" % (record, c))
-            cols.append(k)
-    if physical and not _legacy():
-        # WFDB-x: no default gain (C, legacy mode: 200 adu/mV)
-        for k in cols:
-            if si[k].gain == 0.0:
-                init.wfdbquit()
-                raise ValueError("signal %d of record %s is uncalibrated" %
-                                 (k, record))
-    base_time, base_time_ms, base_date = _base_time_fields()
-    if sig.isigsettime(frm) < 0:
-        init.wfdbquit()
-        raise IOError("can't seek to sample %d of record %s" % (frm, record))
-    want = None if to is None else max(to - frm, 0)
-    # The output array is allocated once, for the number of frames to be
-    # read according to the header (or sampto), and grown only if the
-    # record turns out to be longer (or its length is not given); each
-    # chunk is decoded straight into its rows.
-    chunk = max(4096, _CHUNK_SAMPLES // max(nsig, 1))
-    # (whole frames, and a multiple of 6 of them, so that formats 212, 310
-    # and 311 end each chunk on a whole packed unit: the frames are then
-    # read in blocks)
-    unit = 6 * (max(sig._s.ispfmax, 1) if highres else 1)
-    chunk -= chunk % unit
-    length = sig._record_length()
-    expected = length - frm if length > frm else None
-    if want is not None and (expected is None or want < expected):
-        expected = want
-    size = expected if expected is not None else chunk
-    data = np.empty((size, len(cols)), np.int32)
-    probe = np.empty((1, len(cols)), np.int32)
-    sel_cols = None if cols == list(range(nsig)) else cols
-    nread = 0
-    cksum_error = False
-    sig._s.cksum_quiet = 1
+    # (whatever happens, the input signals are closed before returning)
     try:
-        while want is None or nread < want:
-            n = chunk if want is None else min(chunk, want - nread)
-            if nread < len(data):
-                n = min(n, len(data) - nread)
-                m, stat = sig._getframes_into(data, nread, n, sel_cols,
-                                              keep_checksum_frame=True)
-            else:
-                # The array is full: read one frame before growing it.
-                n = 1
-                m, stat = sig._getframes_into(probe, 0, 1, sel_cols,
-                                              keep_checksum_frame=True)
-                if m:
-                    grown = max(nread + chunk, 2 * len(data))
-                    if want is not None:
-                        grown = min(grown, want)
-                    bigger = np.empty((grown, len(cols)), np.int32)
-                    bigger[:nread] = data[:nread]
-                    bigger[nread] = probe[0]
-                    data = bigger
-            nread += m
-            # WFDB-x: -4, a checksum error: the samples are valid, only
-            # their sum does not match the header: a warning (see below),
-            # not an error. In high-resolution mode getvec returns -4 for
-            # each sample vector of the last frame, so reading continues
-            # until -1 (or sampto).
-            if stat == -4:
-                cksum_error = True
-                continue
-            if m < n:
-                # WFDB-x: a status below -1 (e.g. -3, unexpected EOF: the
-                # signal file is shorter than its header says, or a decoder
-                # or I/O error) is an error, not the end of the data (-1)
-                if stat < -1:
-                    init.wfdbquit()
-                    raise IOError("can't read signal data of record %s "
-                                  "(getvec status %d)" % (record, stat))
-                break
+        nsig = sig.isigopen(record, None, 0)
+        if nsig <= 0:
+            raise IOError("can't read record %s" % record)
+        si = []
+        nsig = sig.isigopen(record, si, nsig)
+        if nsig <= 0:
+            raise IOError("can't open signals of record %s" % record)
+        mode = (sig.WFDB_HIGHRES if highres else sig.WFDB_LOWRES) | \
+            (sig.WFDB_GVPAD if pad else 0)
+        sig.setgvmode(mode)
+        fs = sig.sampfreq(None)
+        _check_time_freq(record, sampfrom, sampto)
+        frm = _time(sampfrom) or 0
+        to = _time(sampto)
+        _strip_desc(si)
+        if channels is None:
+            cols = list(range(nsig))
+        else:
+            cols = []
+            names = [s.desc for s in si]
+            for c in channels:
+                if isinstance(c, int):
+                    k = c
+                elif str(c).strip(_SPACE) in names:
+                    k = names.index(str(c).strip(_SPACE))
+                else:
+                    k = sig.findsig(str(c))
+                if k < 0 or k >= nsig:
+                    raise ValueError("record %s has no signal %r" %
+                                     (record, c))
+                cols.append(k)
+        if physical and not _legacy():
+            # WFDB-x: no default gain (C, legacy mode: 200 adu/mV)
+            for k in cols:
+                if si[k].gain == 0.0:
+                    raise ValueError("signal %d of record %s is uncalibrated" %
+                                     (k, record))
+        base_time, base_time_ms, base_date = _base_time_fields()
+        if sig.isigsettime(frm) < 0:
+            raise IOError("can't seek to sample %d of record %s" %
+                          (frm, record))
+        want = None if to is None else max(to - frm, 0)
+        # The output array is allocated once, for the number of frames to be
+        # read according to the header (or sampto), and grown only if the
+        # record turns out to be longer (or its length is not given); each
+        # chunk is decoded straight into its rows.
+        chunk = max(4096, _CHUNK_SAMPLES // max(nsig, 1))
+        # (whole frames, and a multiple of 6 of them, so that formats 212, 310
+        # and 311 end each chunk on a whole packed unit: the frames are then
+        # read in blocks)
+        unit = 6 * (max(sig._s.ispfmax, 1) if highres else 1)
+        # (at least one unit: a chunk of 0 frames would read nothing, and
+        # the loop below would not progress)
+        chunk = max(chunk - chunk % unit, unit)
+        length = sig._record_length()
+        expected = length - frm if length > frm else None
+        if want is not None and (expected is None or want < expected):
+            expected = want
+        size = expected if expected is not None else chunk
+        data = np.empty((size, len(cols)), np.int32)
+        probe = np.empty((1, len(cols)), np.int32)
+        sel_cols = None if cols == list(range(nsig)) else cols
+        nread = 0
+        cksum_error = False
+        sig._s.cksum_quiet = 1
+        try:
+            while want is None or nread < want:
+                n = chunk if want is None else min(chunk, want - nread)
+                if nread < len(data):
+                    n = min(n, len(data) - nread)
+                    m, stat = sig._getframes_into(data, nread, n, sel_cols,
+                                                  keep_checksum_frame=True)
+                else:
+                    # The array is full: read one frame before growing it.
+                    n = 1
+                    m, stat = sig._getframes_into(probe, 0, 1, sel_cols,
+                                                  keep_checksum_frame=True)
+                    if m:
+                        grown = max(nread + chunk, 2 * len(data))
+                        if want is not None:
+                            grown = min(grown, want)
+                        bigger = np.empty((grown, len(cols)), np.int32)
+                        bigger[:nread] = data[:nread]
+                        bigger[nread] = probe[0]
+                        data = bigger
+                nread += m
+                # WFDB-x: -4, a checksum error: the samples are valid, only
+                # their sum does not match the header: a warning (see below),
+                # not an error. In high-resolution mode getvec returns -4 for
+                # each sample vector of the last frame, so reading continues
+                # until -1 (or sampto).
+                if stat == -4:
+                    cksum_error = True
+                    continue
+                if m < n:
+                    # WFDB-x: a status below -1 (e.g. -3, unexpected EOF: the
+                    # signal file is shorter than its header says, or a decoder
+                    # or I/O error) is an error, not the end of the data (-1)
+                    if stat < -1:
+                        raise IOError("can't read signal data of record %s "
+                                      "(getvec status %d)" % (record, stat))
+                    break
+        finally:
+            sig._s.cksum_quiet = 0
+        if cksum_error and checksum_warning:
+            warnings.warn("checksum error in record %s: the signal data do "
+                          "not match the checksums in its header" % record,
+                          RuntimeWarning, stacklevel=_warn_level())
+        if nread < len(data):
+            # (a view if most of the array is used, else a copy that frees it)
+            data = data[:nread] if 2 * nread >= len(data) else \
+                data[:nread].copy()
+        sel = [si[k] for k in cols]
+        comments = _info_strings(record)
+        if physical:
+            # (legacy mode: the default gain for uncalibrated signals)
+            g = np.array([s.gain if s.gain != 0 or not _legacy() else
+                          sig.WFDB_DEFGAIN for s in sel])
+            b = np.array([float(s.baseline) for s in sel])
+            # (in place: (data - b) / g without temporary arrays)
+            out = np.subtract(data, b, dtype=np.float64)
+            np.divide(out, g, out=out)
+            inv = data == sig.WFDB_INVALID_SAMPLE
+            if inv.any():
+                out[inv] = np.nan
+            data = out
+        rec = Record(name=record, fs=fs, signals=data, siginfo=sel,
+                     names=[s.desc for s in sel], units=[s.units for s in sel],
+                     gains=[s.gain for s in sel],
+                     baselines=[s.baseline for s in sel], base_time=base_time,
+                     base_time_ms=base_time_ms, base_date=base_date,
+                     sampfrom=frm, comments=comments,
+                     checksum_ok=not cksum_error)
     finally:
-        sig._s.cksum_quiet = 0
-    if cksum_error and checksum_warning:
-        warnings.warn("checksum error in record %s: the signal data do not "
-                      "match the checksums in its header" % record,
-                      RuntimeWarning, stacklevel=_warn_level())
-    if nread < len(data):
-        # (a view if most of the array is used, else a copy that frees it)
-        data = data[:nread] if 2 * nread >= len(data) else data[:nread].copy()
-    sel = [si[k] for k in cols]
-    comments = _info_strings(record)
-    if physical:
-        # (legacy mode: the default gain for uncalibrated signals)
-        g = np.array([s.gain if s.gain != 0 or not _legacy() else
-                      sig.WFDB_DEFGAIN for s in sel])
-        b = np.array([float(s.baseline) for s in sel])
-        # (in place: (data - b) / g without temporary arrays)
-        out = np.subtract(data, b, dtype=np.float64)
-        np.divide(out, g, out=out)
-        inv = data == sig.WFDB_INVALID_SAMPLE
-        if inv.any():
-            out[inv] = np.nan
-        data = out
-    rec = Record(name=record, fs=fs, signals=data, siginfo=sel,
-                 names=[s.desc for s in sel], units=[s.units for s in sel],
-                 gains=[s.gain for s in sel],
-                 baselines=[s.baseline for s in sel], base_time=base_time,
-                 base_time_ms=base_time_ms, base_date=base_date,
-                 sampfrom=frm, comments=comments,
-                 checksum_ok=not cksum_error)
-    init.wfdbquit()
+        init.wfdbquit()
     return rec
 
 
@@ -799,11 +852,12 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                  A 1-D array is one signal. The values are integer ADC units
                  (integers, or floats with whole values, within the range of
                  a 32-bit integer), or physical units if physical=True.
-      fs         sampling frequency in Hz (> 0)
+      fs         sampling frequency in Hz (finite, > 0)
       fmt        storage format, such as 16, 212, 24 or 516 (FLAC).
                  Default: 16.
-      gains      gain in ADC units per physical unit. 0 marks a signal as
-                 uncalibrated, which is only allowed for ADC units.
+      gains      gain in ADC units per physical unit (finite). 0 marks a
+                 signal as uncalibrated, which is only allowed for ADC
+                 units.
       baselines  ADC value that corresponds to 0 physical units. Default:
                  the ADC zero.
       adczeros   ADC value at the middle of the ADC range. Default: 0.
@@ -833,8 +887,12 @@ def write_record(record, signals, fs, fmt=16, gains=None,
       None
 
     Raises:
-      ValueError         if fs, a gain, an ADC resolution or the units of a
-                         calibrated signal is missing or invalid, if a list of
+      ValueError         if record is empty, if signals has no signals ("at
+                         least one signal is required"), if fs, a gain, an
+                         ADC resolution or the units of a calibrated signal
+                         is missing or invalid (fs and the gains must be
+                         finite, and fs > 0), if base_time cannot be parsed,
+                         if a list of
                          per-signal values does not have one value per signal,
                          if a signal in physical units has a gain of 0, if a
                          sample is not valid (see signals and physical), if
@@ -862,10 +920,14 @@ def write_record(record, signals, fs, fmt=16, gains=None,
     Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
+    if not record:
+        raise ValueError("record name must not be empty")
     x = np.asarray(signals)
     if x.ndim == 1:
         x = x[:, None]
     nsig = x.shape[1] if samps_per_frame is None else len(samps_per_frame)
+    if nsig == 0:
+        raise ValueError("at least one signal is required")
     spf = [1] * nsig if samps_per_frame is None else list(samps_per_frame)
     # Each frame holds spf[k] >= 1 samples of signal k, and each row of
     # signals is one frame.
@@ -909,12 +971,17 @@ def write_record(record, signals, fs, fmt=16, gains=None,
         for k in range(nsig):
             if gains_[k] != 0 and not units_[k]:
                 raise ValueError("units must be specified")
-        if not float(fs) > 0:
-            raise ValueError("sampling frequency must be > 0")
         if physical:
             for k in range(nsig):
                 if gains_[k] == 0:
                     raise ValueError("signal %d is uncalibrated" % k)
+    # WFDB-x: a finite frequency > 0 and finite gains (0: uncalibrated)
+    if not (math.isfinite(float(fs)) and float(fs) > 0):
+        raise ValueError("sampling frequency must be finite and > 0")
+    if not all(math.isfinite(float(g)) for g in gains_):
+        raise ValueError("gains must be finite")
+    if base_time is not None:
+        _check_base_time(base_time)
     res = [int(r) for r in res]
     zeros = per(adczeros, "adczeros", 0)
     bases = per(baselines, "baselines")
@@ -993,12 +1060,15 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
       record     record name
       annotator  annotator name: the suffix of the file. An existing file is
                  overwritten.
-      samples    annotation times, in samples
+      samples    annotation times, in samples: integers within the range
+                 of a 64-bit integer
       symbols    mnemonics such as "N" or "V", one per annotation (or one
                  string for all). An unknown mnemonic becomes code 0
                  (NOTQRS).
-      codes      annotation codes, used instead of ``symbols``: one per
-                 annotation, or one value for all
+      codes      annotation codes, instead of ``symbols``: one per
+                 annotation, or one value for all. If both are given (as
+                 read_annotations returns them), each symbol must be that
+                 of its code (an empty symbol is not checked).
       subtypes, chans, nums
                  subtype, channel and annotator number: one value for all
                  annotations, or one per annotation. Default: 0. As in C,
@@ -1007,8 +1077,8 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
       aux        list of auxiliary texts, one per annotation, with None where
                  there is none (or one text for all). Texts longer than 255
                  bytes are cut. Default: none.
-      fs         if given, written to the file as the frequency in which the
-                 times are counted
+      fs         if given (finite, > 0), written to the file as the
+                 frequency in which the times are counted
       sort       True to always sort, False to keep the order you gave
                  (without the library's advice to run sortann), None (the
                  default) to follow WFDBANNSORT
@@ -1021,10 +1091,14 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
       None
 
     Raises:
-      ValueError         if neither symbols nor codes is given, if a list of
-                         per-annotation values does not have one value per
-                         annotation, or if record contains a directory and
-                         dir is given
+      ValueError         if neither symbols nor codes is given, if both are
+                         given and disagree ("symbols and codes disagree at
+                         annotation K"), if a list of per-annotation values
+                         does not have one value per annotation, if a time
+                         is not an integer within the range of a 64-bit
+                         integer, if a sample, code, subtype, chan or num is
+                         NaN (or None), if fs is not finite and > 0, or if
+                         record contains a directory and dir is given
       FileNotFoundError  if dir does not exist
       IOError            if the annotation file cannot be created, or cannot
                          be written completely ("write error on annotator A
@@ -1053,6 +1127,9 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
                 raise ValueError("%s must have one value per annotation" %
                                  name)
 
+    both = symbols is not None and codes is not None
+    if both and not isinstance(symbols, str):
+        check(symbols, "symbols")
     if codes is None:
         if symbols is None:
             raise ValueError("symbols or codes must be given")
@@ -1065,24 +1142,64 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
                     (chans, "chans"), (nums, "nums"), (aux, "aux")):
         check(v, name)
     afs = None if fs is None else float(fs)
+    if afs is not None and not (math.isfinite(afs) and afs > 0):
+        raise ValueError("fs must be finite and > 0")
 
-    def ints(v):
+    def ints(v, name, time=False):
         # v (a sequence, or a scalar for all annotations): an integer NumPy
-        # array as it is, else a list of n Python ints
+        # array as it is, else a list of n Python ints.  WFDB-x: NaN (or
+        # None) is an error; with time, so is a value that is not an
+        # integer within the range of WFDB_Time.
         if isinstance(v, np.ndarray) and v.ndim == 0:
             v = v.item()
         if isinstance(v, np.ndarray) and v.dtype.kind in "iu":
+            if time and v.dtype.kind == "u" and v.size and \
+                    v.max() >= (1 << 63):
+                raise ValueError("annotation times must be integers within "
+                                 "the range of a 64-bit integer")
             return v
-        if isinstance(v, (list, tuple, np.ndarray)):
-            return [int(x) for x in v]
-        x = int(v)
-        if -(1 << 63) <= x < (1 << 63):
-            return np.full(n, x, np.int64)
-        return [x] * n
+        if isinstance(v, np.ndarray) and v.dtype.kind == "f":
+            # (at once, if all are finite and within the range)
+            with np.errstate(invalid="ignore"):
+                ok = np.isfinite(v).all() and (v >= -2.0 ** 63).all() and \
+                    (v < 2.0 ** 63).all() and \
+                    (not time or (v == np.floor(v)).all())
+            if ok:
+                return v.astype(np.int64)
+        seq = isinstance(v, (list, tuple, np.ndarray))
+        out = []
+        for x in (v if seq else [v]):
+            if isinstance(x, (float, np.floating)) and not \
+                    (math.isfinite(x) and (not time or x == math.floor(x))):
+                if time:
+                    raise ValueError("annotation times must be integers")
+                raise ValueError("%s must not be NaN or infinite" % name)
+            try:
+                x = int(x)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("%s must be integers" % name)
+            if time and not -(1 << 63) <= x < (1 << 63):
+                raise ValueError("annotation times must be integers within "
+                                 "the range of a 64-bit integer")
+            out.append(x)
+        if seq:
+            return out
+        if -(1 << 63) <= out[0] < (1 << 63):
+            return np.full(n, out[0], np.int64)
+        return out * n
 
-    times = ints(samples)
-    codes, subtypes, chans, nums = ints(codes), ints(subtypes), \
-        ints(chans), ints(nums)
+    times = ints(samples, "samples", time=True)
+    codes, subtypes, chans, nums = ints(codes, "codes"), \
+        ints(subtypes, "subtypes"), ints(chans, "chans"), ints(nums, "nums")
+    if both:
+        # WFDB-x: symbols and codes may both be given (as read_annotations
+        # returns them) if they agree: each symbol is that of its code (an
+        # empty symbol leaves the code)
+        for k in range(n):
+            sym = symbols if isinstance(symbols, str) else symbols[k]
+            if sym and ann.strann(sym) != int(codes[k]):
+                raise ValueError("symbols and codes disagree at annotation "
+                                 "%d" % k)
     # aux: the texts one after the other, as bytes, and the length of each
     # (0: none; cut to _MAXAUX bytes by _putanns)
     if aux is None:

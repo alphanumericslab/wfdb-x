@@ -119,7 +119,7 @@ x = physical(rec)
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
 | `channels` | signals to read, by number (`0` is the first signal) or name (as in `signal_names`) | all signals |
-| `from`, `to` | first sample, and the sample after the last one: a sample number (`from` is not negative) or a time string (see below) | the whole record |
+| `from`, `to` | first sample, and the sample after the last one: a sample number (a whole number; `from` is not negative) or a time string (see below) | the whole record |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `pad` | replace invalid samples by the previous valid one | `false` |
 | `checksum_warning` | warn when the data do not match the header's checksums | `true` |
@@ -214,8 +214,12 @@ This writes the header `rand.hea` and the signal file `rand.dat`. The
 sampling frequency, the gain and ADC resolution of each signal, and the
 units of each calibrated signal are required; there are no defaults. A gain
 of 0 marks a signal as uncalibrated, which is only allowed with
-`write_record`. Per-signal options take one value for all signals, or a
-vector with one value per signal; a vector of another length is an error.
+`write_record`; negative gains are allowed. The sampling frequency and the
+gains must be finite. Per-signal options take one value for all signals, or
+a vector with one value per signal; a vector of another length is an error.
+The record name must not be empty, there must be at least one signal
+("write_record: at least one signal is required"), and `base_time`, if
+given, must be a valid time ("write_record: incorrect base time 'T'").
 
 | Argument | Meaning |
 |---|---|
@@ -237,12 +241,16 @@ ann = Annotations(samples=[100, 460, 820], symbols=[b"N", b"N", b"V"])
 write_annotations("rand", "qrs", ann)            # writes rand.qrs, for the record "rand" written above
 ```
 
-Give the annotation types as `symbols` or as `codes`. `subtypes`, `chans`,
+Give the annotation types as `symbols` or as `codes`. Both may be given, as
+`read_annotations` returns them, if they agree: each non-empty symbol must
+be the mnemonic of the code at the same position (otherwise "symbols and
+codes disagree at annotation K", K counted from 0). `subtypes`, `chans`,
 `nums` and `aux` are optional. Each of these fields is either empty or has
 one element per annotation; any other length is an error, reported before
 the file is created. As in C, the subtype, channel and annotator number are
-stored in one byte each (other values wrap around). The `fs` option records the time resolution
-in the file; `ann.fs` is not used. `dir` and `legacy` are as in
+stored in one byte each (other values wrap around). The `fs` option, 0
+(none) or a finite frequency > 0, records the time resolution in the file;
+`ann.fs` is not used. `dir` and `legacy` are as in
 `write_record`.
 
 If the annotations are not in time order, the file is sorted when it is
@@ -281,7 +289,8 @@ on unless it is `0`).
 * The writers check all their arguments before they create a file.
   Whatever happens, they close their output signals and annotators before
   they return.
-* A negative `from` in `read_record` throws a `WfdbError`.
+* A negative `from` in `read_record`, or a `from` or `to` that is a number
+  but not a whole one (a fraction, `NaN` or `Inf`), throws a `WfdbError`.
 * `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
   only: the mode in force before the call is restored afterwards.
 * `write_record`, `write_record_physical` and `write_annotations` throw a
@@ -293,8 +302,10 @@ on unless it is `0`).
   output fails with "output file NAME is also an input file". `write_record`
   reads nothing, so it overwrites any existing files of the same name.
 
-The high-level functions call `wfdbquit()`, which closes anything opened
-with the WFDB library functions.
+The high-level functions call `wfdbquit()` before and after their work, also
+when they throw, which closes anything opened with the WFDB library
+functions. The library's settings (legacy mode, getvec mode, input and
+output directories) are the same after a call as before it.
 
 ### Checking a record: `check_record`
 

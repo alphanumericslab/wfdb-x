@@ -9,6 +9,10 @@ classdef IOState < handle
 %     error_print    false after wfdbquiet()
 %     error_flag     true once wfdb_error() has been called
 %     error_message  the last error message
+%     capture        WFDB-x: true while the printed messages are kept in
+%                    captured instead (see wfdbx.getframes)
+%     captured       the messages kept: an N-by-2 cell array {row, text}
+%     capture_row    the row of the result of wfdbx.getframes being read
 %     wfdb_filename  the name of the last file opened (or tried) by wfdb_open
 %     irec           the current record name (for %r in the WFDB path)
 %     mem_behavior   the argument of the last wfdbmemerr() call
@@ -70,6 +74,9 @@ classdef IOState < handle
         error_print = true
         error_flag = false
         error_message = []
+        capture = false
+        captured = cell(0, 2)
+        capture_row = 0
         wfdb_filename = []
         irec = ''
         mem_behavior = 1

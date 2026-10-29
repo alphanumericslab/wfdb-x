@@ -64,8 +64,8 @@ app_sampfreq <- function(args = character(0)) {
         cprintf("%s\t%g\n", si[[i]]$desc, si[[i]]$spf * freq)
       } else {
         # (a signal that could not be opened: C prints the zeroed entry of
-        # its array)
-        cprintf("(null)\t0\n")
+        # its array, spf 0 times freq: nan if freq is nan or infinite)
+        cprintf("(null)\t%g\n", 0 * freq)
       }
     }
   }

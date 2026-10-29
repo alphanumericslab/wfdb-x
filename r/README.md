@@ -117,7 +117,7 @@ rec <- read_record("100s", channels = "MLII", sampfrom = "0:10", sampto = "0:20"
 |---|---|---|
 | `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
 | `channels` | signals to read, by number (starting at 0) or by name, as in `names` | all signals |
-| `sampfrom`, `sampto` | first sample, and the sample after the last one: a sample number or a time string (see below) | the whole record |
+| `sampfrom`, `sampto` | first sample, and the sample after the last one: a sample number (a whole number) or a time string (see below); `sampto = NULL` reads to the end | the whole record |
 | `physical` | return physical units instead of ADC units | `FALSE` |
 | `highres` | read a multi-frequency record at its highest sampling frequency | `FALSE` |
 | `pad` | replace invalid samples by the previous valid one | `FALSE` |
@@ -215,9 +215,9 @@ vector with one value per signal.
 | Argument | Meaning |
 |---|---|
 | `signals` | matrix with one row per sample and one column per signal; ADC units (integers within the range of a 32-bit integer), or physical units with `physical = TRUE` (`NA` is written as an invalid sample; an infinite value, or one beyond the range of 32-bit ADC units, is an error) |
-| `fs` | sampling frequency in Hz |
+| `fs` | sampling frequency in Hz (finite, > 0) |
 | `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
-| `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
+| `gains`, `adcres`, `units` | gain (finite), ADC resolution in bits, and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
 | `samps_per_frame` | samples per frame of each signal, for a multi-frequency record |
@@ -235,9 +235,15 @@ the previous example) to the file `rand.qrs`:
 write_annotations("rand", "qrs", sample = c(100, 460, 820), symbol = c("N", "N", "V"))
 ```
 
-Give the annotation types as `symbol` or as `code`. `subtype`, `chan`,
-`num` and `aux` are optional, and `fs` records the frequency in which
-`sample` is counted. Each of `symbol`, `code`, `subtype`, `chan`, `num`
+Give the annotation types as `symbol` or as `code`; both can be given
+(as `read_annotations` returns them) only if they agree: each symbol must
+be the mnemonic of its code (an empty symbol agrees with any code), or
+`write_annotations` stops with "symbols and codes disagree at annotation
+K" (K counting from 0). `subtype`, `chan`, `num` and `aux` are optional,
+and `fs` (finite, > 0) records the frequency in which `sample` is
+counted. The times must be integers within the range of a 64-bit integer,
+and `sample`, `code`, `subtype`, `chan` and `num` must not hold `NA`,
+`NaN` or infinite values; these are checked before the file is created. Each of `symbol`, `code`, `subtype`, `chan`, `num`
 and `aux` is one value for all annotations, or a vector with one value per
 annotation; any other length is an error, before the file is created. As
 in C, subtypes and annotator numbers are stored as signed bytes and
@@ -268,12 +274,20 @@ only. Without `sort`, the `WFDBANNSORT` environment variable decides
 * In `write_record`, each `samps_per_frame` value must be an integer of 1
   or more ("samps_per_frame must hold integers >= 1"), and `signals` must
   have `sum(samps_per_frame)` columns ("signals has N columns, but
-  samps_per_frame adds up to M"). A vector of per-signal values must have
+  samps_per_frame adds up to M"). The record name must not be empty, at
+  least one signal is required ("at least one signal is required"), `fs`
+  and the gains must be finite (and `fs` > 0; a gain of 0 still marks an
+  uncalibrated signal), and a `base_time` that cannot be parsed is an
+  error ("invalid base_time 'TEXT'"). A vector of per-signal values must have
   one value per signal, and the samples must be valid (see `signals`
   above). All the arguments are checked first, and nothing is written if
   one is invalid. Whatever happens, `write_record` and `write_annotations`
   close their output signals and annotators before they return.
-* A negative `sampfrom` in `read_record` is an error.
+* A negative `sampfrom` in `read_record` is an error, and so is a
+  `sampfrom` or `sampto` that is not a whole number (a fraction, `NA`,
+  `NaN` or an infinite value: "sampfrom must be a whole number"). Whatever
+  happens, `read_record` and `read_header` close the record's signals
+  before they return.
 * `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
   only: the mode in force before the call is restored afterwards.
 * Invalid arguments, and a value the operation needs but the record does not

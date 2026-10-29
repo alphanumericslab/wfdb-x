@@ -217,6 +217,12 @@ def int32(x):
     return x - 0x100000000 if x & 0x80000000 else x
 
 
+def int64(x):
+    """(long long) x."""
+    x &= 0xFFFFFFFFFFFFFFFF
+    return x - 0x10000000000000000 if x & 0x8000000000000000 else x
+
+
 def uint32(x):
     """(unsigned) x."""
     return x & 0xFFFFFFFF

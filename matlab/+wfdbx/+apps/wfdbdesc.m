@@ -116,6 +116,8 @@ legacy = wfdbx.wfdbx_get_legacy();
 % WFDB-x: times are shown only if the frequency is known (legacy mode: in
 % any case, as in the C program)
 showtimes = freq > 0 || legacy;
+% As in C, these tests are not complements when freq is NaN.
+untimed = freq <= 0 && ~legacy;
 if showtimes
     p = wfdbx.mstimstr(0);
 else
@@ -128,7 +130,7 @@ else
 end
 out('Length: ');
 done = false;
-if ~showtimes && (nsig < 1 || t > 0)
+if untimed && (nsig < 1 || t > 0)
     out(sprintf('%d sample intervals\n', t));
     done = true;
 elseif nsig < 1 || t > 0
@@ -165,7 +167,7 @@ elseif s(1).fmt
             otherwise
                 t = -1;
         end
-        if t >= 0 && ~showtimes
+        if t >= 0 && untimed
             out(sprintf('%d sample intervals [from signal file size]\n', t));
         elseif t >= 0
             out(sprintf('%s (%d sample intervals) [from signal file size]\n', ...

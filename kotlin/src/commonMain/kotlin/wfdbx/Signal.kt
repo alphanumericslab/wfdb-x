@@ -728,6 +728,13 @@ internal class SigState {
     var ovec = IntArray(0)
     var smi: Array<SigMapInfo> = emptyArray()
 
+    /**
+     * The vectors of getvec and of getframe (which getvec calls) for a
+     * caller's vector that is too short (reused: a frame may be large).
+     */
+    var shortVec = IntArray(0)
+    var shortFrame = IntArray(0)
+
     // getvec resampling (setifreq)
     var mticks = 0L
     var nticks = 0L
@@ -1583,6 +1590,9 @@ private fun Wfdb.readheaderBody(record: ByteArray): Int {
             val nsamp = if (lenp != null) strtol(lenp, 10).value else -1L
             if (lenp != null && nsamp >= 0) {
                 st.segarray.add(Seginfo(name, nsamp, ns))
+                // (C: the sum overflows if the lengths exceed the range of
+                // WFDB_Time; WFDB-x wraps it around, as C does on x86-64:
+                // see docs/KNOWN_C_BEHAVIORS.md)
                 ns += nsamp
             } else {
                 return segfail(cformat("init: length must be specified for segment %s in record %s\n", name, record))
@@ -2270,8 +2280,12 @@ private fun Wfdb.getskewedframe(vecstart: IntArray, voff: Int): Int {
         // Go through groups in reverse order since seeking on group 0 should
         // always be done last.
         g--
-        // (a seek that failed may have closed the input signals)
-        if (g < sig.nigroup && sig.igd[g].initialSkip != 0) {
+        // A seek that opens another segment may leave fewer groups, or fail
+        // and close the input signals: the allocated slots past them are
+        // zeroed (no initial skip).  WFDB-x: a group number past the
+        // allocated slots is reported as incorrect by isgsetframe (C reads
+        // past its group array; see docs/KNOWN_C_BEHAVIORS.md).
+        if (g >= sig.igd.size || sig.igd[g].initialSkip != 0) {
             val t0 = if (sig.inMsrec != 0) sig.segarray[sig.segp].samp0 else 0L
             isgsetframe(g, t0)
         }
@@ -2378,7 +2392,7 @@ private fun Wfdb.getskewedframe(vecstart: IntArray, voff: Int): Int {
     }
 
     if (needSigmap) {
-        sigmap(vecstart, voff, ovec)
+        sigmap(vecstart, voff, ovec, 0, ovec.size)
     } else {
         val framelen = sig.framelen
         val tspf = sig.tspf
@@ -2387,11 +2401,15 @@ private fun Wfdb.getskewedframe(vecstart: IntArray, voff: Int): Int {
     return stat
 }
 
-private fun Wfdb.sigmap(vector: IntArray, off: Int, ivec: IntArray, ioff: Int = 0) {
+// Map the input frame at ioff in ivec, of n samples, to the layout signals.
+// WFDB-x: an index beyond the input frame (left by a segment that could not
+// be opened, whose frame was too large) gives 0, as C usually finds there (C
+// reads past the end of its buffer).
+private fun Wfdb.sigmap(vector: IntArray, off: Int, ivec: IntArray, ioff: Int, n: Int) {
     val st = sig
     for (i in 0 until maxOf(st.tspf, 0)) {
         val m = st.smi[i]
-        val x = ivec[ioff + m.index]
+        val x = if (m.index in 0 until n) ivec[ioff + m.index] else 0
         if (x == WFDB_INVALID_SAMPLE) {
             vector[off + i] = WFDB_INVALID_SAMPLE
         } else {
@@ -3281,12 +3299,27 @@ fun Wfdb.getvec(vector: IntArray): Int = getvecAt(vector, 0)
 private fun Wfdb.getvecAt(vector: IntArray, off: Int): Int {
     val need = vecNeed()
     if (vector.size - off < need) {
-        val tmp = IntArray(need)
+        val tmp = shortVector(vector, off, need, false)
         val r = getvecImpl(tmp, 0)
         tmp.copyInto(vector, off, 0, vector.size - off)
         return r
     }
     return getvecImpl(vector, off)
+}
+
+/**
+ * A vector of at least [need] values for getvec or getframe, when the
+ * caller's (vector[off...]) is shorter: it begins with the caller's values,
+ * which C leaves as they are where it writes nothing (e.g. after the end of
+ * the record). (The vector is reused, so that each call takes time in
+ * proportion to the values it gives, not to the size of a frame.)
+ */
+private fun Wfdb.shortVector(vector: IntArray, off: Int, need: Int, frame: Boolean): IntArray {
+    if (frame && sig.shortFrame.size < need) sig.shortFrame = IntArray(need)
+    if (!frame && sig.shortVec.size < need) sig.shortVec = IntArray(need)
+    val tmp = if (frame) sig.shortFrame else sig.shortVec
+    vector.copyInto(tmp, 0, off, vector.size)
+    return tmp
 }
 
 private fun Wfdb.getvecImpl(vector: IntArray, off: Int): Int {
@@ -3331,7 +3364,7 @@ fun Wfdb.getframe(vector: IntArray): Int = getframeAt(vector, 0)
 private fun Wfdb.getframeAt(vector: IntArray, off: Int): Int {
     val need = vecNeed()
     if (vector.size - off < need) {
-        val tmp = IntArray(need)
+        val tmp = shortVector(vector, off, need, true)
         val r = getframeImpl(tmp, 0)
         tmp.copyInto(vector, off, 0, vector.size - off)
         return r
@@ -3605,7 +3638,7 @@ private fun Wfdb.bulkFrames(out: IntArray, off: Int, n: Long): Int {
     if (needSigmap) {
         val fr = if (frames) out else st.bulkFr
         val foff = if (frames) off else 0
-        for (f in 0 until m) sigmap(fr, foff + f * tlen, st.bulkIn, f * flen)
+        for (f in 0 until m) sigmap(fr, foff + f * tlen, st.bulkIn, f * flen, flen)
         // (the last frame read, as getskewedframe leaves it)
         st.bulkIn.copyInto(st.ovec, 0, (m - 1) * flen, (m - 1) * flen + minOf(flen, st.ovec.size))
     }

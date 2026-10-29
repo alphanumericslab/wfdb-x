@@ -140,9 +140,14 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 
 #' Write an annotation file (as wrann does).
 #'
-#' sample: the annotation times (or a data frame as returned by
-#' read_annotations, whose columns then give all fields).  Give either
-#' symbol (mnemonics such as "N") or code (annotation type codes).
+#' sample: the annotation times, integers within the range of a 64-bit
+#' integer (or a data frame as returned by read_annotations, whose columns
+#' then give all fields).  Give symbol (mnemonics such as "N") or code
+#' (annotation type codes); both only if they agree (each symbol is the
+#' mnemonic of its code; an empty symbol agrees with any code), else the
+#' error is "symbols and codes disagree at annotation K" (K from 0).  NA,
+#' NaN and infinite values are errors in sample, code, subtype, chan and
+#' num, as is an fs that is not finite and > 0.
 #' symbol, code, subtype, chan, num and aux are each one value for all
 #' annotations, or one value per annotation (any other length is an error,
 #' before the file is created); aux is a character vector (NA for none) or
@@ -200,14 +205,34 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
       stop(name, " must have one value per annotation")
     rep_len(v, n)
   }
+  # WFDB-x: the times are integers within the range of WFDB_Time
+  time <- suppressWarnings(as.numeric(sample))
+  if (!all(is.finite(time) & time == trunc(time) & time >= -2^63 & time < 2^63))
+    stop("annotation times must be integers within the range of a 64-bit integer")
   if (is.null(code)) {
     if (is.null(symbol)) stop("symbol or code must be given")
     code <- strann(as.character(per(symbol, "symbol")))
+  } else if (!is.null(symbol)) {
+    # WFDB-x: symbol and code may both be given (as read_annotations
+    # returns them) if they agree: each symbol is that of its code (an
+    # empty symbol, as read_annotations gives for a code without a
+    # mnemonic, agrees with any code)
+    sym <- as.character(per(symbol, "symbol"))
+    cv <- suppressWarnings(as.numeric(per(code, "code")))
+    bad <- which(!is.na(sym) & nzchar(sym) & !(strann(sym) == cv) %in% TRUE)
+    if (length(bad))
+      stop(sprintf("symbols and codes disagree at annotation %d", bad[1L] - 1L))
   }
-  code <- as.numeric(per(code, "code"))
-  subtype <- as.numeric(per(subtype, "subtype"))
-  chan <- as.numeric(per(chan, "chan"))
-  num <- as.numeric(per(num, "num"))
+  # WFDB-x: NA (or NaN, or an infinite value) is an error
+  finite <- function(v, name) {
+    v <- suppressWarnings(as.numeric(per(v, name)))
+    if (!all(is.finite(v))) stop(name, " must not be NA, NaN or infinite")
+    v
+  }
+  code <- finite(code, "code")
+  subtype <- finite(subtype, "subtype")
+  chan <- finite(chan, "chan")
+  num <- finite(num, "num")
   auxl <- vector("list", n)
   if (!is.null(aux)) {
     aux <- as.character(per(aux, "aux"))
@@ -221,7 +246,9 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
     })
     auxl[ok] <- ub[match(aux[ok], u)]
   }
-  afs <- if (!is.null(fs)) as.numeric(fs)
+  afs <- if (!is.null(fs)) suppressWarnings(as.numeric(fs))
+  if (!is.null(afs) && !(length(afs) == 1L && is.finite(afs) && afs > 0))
+    stop("fs must be finite and > 0")
   wfdbquit()
   errors <- wfdbx_write_errors()
   # (the sort option applies to the file written here only: set after the
@@ -234,7 +261,7 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
   on.exit(wfdbquit(), add = TRUE, after = FALSE)
   if (annopen(record, list(anninfo(annotator, WFDB_WRITE)), 1) < 0)
     stop(sprintf("can't create annotator %s for record %s", annotator, record))
-  st <- .putann_bulk(0, list(time = trunc(as.numeric(sample)), anntyp = code,
+  st <- .putann_bulk(0, list(time = time, anntyp = code,
                              subtyp = subtype, chan = chan, num = num, aux = auxl))
   wfdbquit()
   if (wfdbx_write_errors() > errors)

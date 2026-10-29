@@ -513,4 +513,42 @@ class AnnotationsTest {
         assertEquals(t.toList(), r.samples.toList())
         assertEquals(listOf(NORMAL, PVC, NORMAL), r.codes.toList())
     }
+
+    @Test
+    fun writeAnnotationsChecks() = withData("annchk") { d, w ->
+        // Symbols and codes that disagree, and a frequency that is not
+        // finite and > 0, are errors before the file is created; symbols and
+        // codes that agree (as readAnnotations returns them) are written.
+        w.wfdbquiet()
+        val t = longArrayOf(10, 20)
+        fails("writeAnnotations: symbols and codes disagree at annotation 1") {
+            w.writeAnnotations("ac", "tst", t, symbols = listOf("N", "V"), codes = intArrayOf(NORMAL, NORMAL))
+        }
+        assertNull(d.read("ac.tst"))
+        for (fs in listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, -250.0, 0.0)) {
+            fails("writeAnnotations: fs must be finite and > 0") {
+                w.writeAnnotations("ac", "tst", t, symbols = listOf("N", "V"), fs = fs)
+            }
+            assertNull(d.read("ac.tst"))
+        }
+        assertEquals(listOf(0, 0, 0, 0), listOf(w.sig.nisig, w.sig.nosig, w.ann.iad.size, w.ann.oad.size))
+        w.writeAnnotations("ac", "tst", t, symbols = listOf("N", "V"), codes = intArrayOf(NORMAL, PVC), fs = 250.0)
+        assertEquals(listOf(NORMAL, PVC), w.readAnnotations("ac", "tst").codes.toList())
+        // a round trip: readAnnotations gives both symbols and codes
+        val r = w.readAnnotations("100s", "atr")
+        w.writeAnnotations("rt", "atr", r.samples, symbols = r.symbols, codes = r.codes, aux = r.aux)
+        val r2 = w.readAnnotations("rt", "atr", fs = 360.0)
+        assertEquals(listOf(r.samples.toList(), r.codes.toList(), r.symbols), listOf(r2.samples.toList(), r2.codes.toList(), r2.symbols))
+        // (an empty symbol agrees with any code; codes without a standard
+        // mnemonic, such as 42, have the mnemonic "[42]" that annstr gives)
+        val odd = intArrayOf(42, 43, NORMAL)
+        w.writeAnnotations("rt", "atr", longArrayOf(5, 6, 7), codes = odd)
+        val r3 = w.readAnnotations("rt", "atr", fs = 360.0)
+        assertEquals(listOf("[42]", "[43]", "N"), r3.symbols)
+        w.writeAnnotations("rt3", "atr", r3.samples, symbols = r3.symbols, codes = r3.codes)
+        assertEquals(odd.toList(), w.readAnnotations("rt3", "atr", fs = 360.0).codes.toList())
+        w.writeAnnotations("rt3", "atr", r3.samples, symbols = listOf("", "", "N"), codes = odd)
+        assertEquals(odd.toList(), w.readAnnotations("rt3", "atr", fs = 360.0).codes.toList())
+        assertEquals(listOf(0, 0, 0, 0), listOf(w.sig.nisig, w.sig.nosig, w.ann.iad.size, w.ann.oad.size))
+    }
 }

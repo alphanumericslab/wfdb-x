@@ -184,30 +184,59 @@ app_xform <- function(args = character(0)) {
   list(x = x, msgs = list(row = mrow[o], sig = sigof[mcol[o]], value = mval[o]), X = X)
 }
 
+# getframes(k, nisig)$v, and the library's messages printed meanwhile (lib:
+# a list of list(row, text), row 0 being the first frame read), which
+# .xform_report prints in the order of C.
+.xform_read_frames <- function(k, nisig) {
+  io <- .wfdb_io
+  io$captured <- list()
+  io$capture <- TRUE
+  ok <- FALSE
+  on.exit({
+    io$capture <- FALSE
+    if (!ok) {
+      # (on an error, the messages kept are printed at once)
+      for (m in io$captured) cerr(m[[2L]])
+      io$captured <- list()
+    }
+  })
+  V <- getframes(k, nisig)$v
+  lib <- io$captured
+  io$captured <- list()
+  ok <- TRUE
+  list(V = V, lib = lib)
+}
+
 # Write the progress dots (one per minute of input) for nframes more input
-# frames and the range messages msgs (printed while processing input frame
-# msgframe[j] of the block), in the order of C (a frame's dot first).
-.xform_report <- function(X, nframes, msgs, msgframe) {
+# frames, the range messages msgs (printed while processing input frame
+# msgframe[j] of the block) and the library's messages lib (from
+# .xform_read_frames: printed while frame row + 1 was read), in the order of
+# C (for a frame: the library's messages, its dot, then its messages).
+.xform_report <- function(X, nframes, msgs, msgframe, lib = list()) {
   P <- max(X$spm, 1)
   first <- P - X$nsm                  # first frame of the block with a dot
   dots <- if (first <= nframes) seq(first, nframes, by = P) else numeric(0)
   X$nsm <- (X$nsm + nframes) %% P
   nm <- length(msgs$row)
-  if (!length(dots) && !nm) return(X)
-  text <- character(length(dots) + nm)
-  isdot <- c(rep(TRUE, length(dots)), rep(FALSE, nm))
+  nl <- length(lib)
+  if (!length(dots) && !nm && !nl) return(X)
+  nd <- length(dots)
+  text <- character(nd + nm)
+  type <- c(rep(0, nd), rep(1, nm), rep(-1, nl))
   if (nm) {
-    text[!isdot] <- csprintf_v("v[%d] = %d (out of range)\n", msgs$sig - 1, msgs$value)
+    text[nd + seq_len(nm)] <- csprintf_v("v[%d] = %d (out of range)\n", msgs$sig - 1, msgs$value)
   }
   # after every 60th dot, a newline
-  nd <- length(dots)
   if (nd) {
     count <- X$nminutes + seq_len(nd)
     text[seq_len(nd)] <- ifelse(count %% 60 == 0, ".\n", ".")
     X$nminutes <- (X$nminutes + nd) %% 60
   }
-  o <- order(c(dots, msgframe), !isdot)
-  cerr(paste0(text[o], collapse = ""))
+  # (as raw vectors: the library's messages are raw)
+  parts <- c(lapply(text, charToRaw), lapply(lib, function(m) m[[2L]]))
+  lframe <- vapply(lib, function(m) m[[1L]] + 1, 0)
+  o <- order(c(dots, msgframe, lframe), type)
+  cerr(do.call(c, parts[o]))
   X
 }
 
@@ -376,7 +405,7 @@ app_xform <- function(args = character(0)) {
   # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
   # the input header did not specify one, as legacy mode does).
   legacy <- wfdbx_get_legacy()
-  if (ifreq <= 0 && !legacy) {
+  if (isTRUE(ifreq <= 0) && !legacy) {
     wfdbquit()
     .app_nofreq(pname, irec, 2)
   }
@@ -387,7 +416,7 @@ app_xform <- function(args = character(0)) {
     # an output record was specified
     if (!is.null(nrec) && newheader(nrec) < 0) cexit(2)
     ofreq <- sampfreq(orec)
-    if (ofreq == 0 && !legacy) {   # WFDB-x: no default sampling frequency
+    if (isTRUE(ofreq == 0) && !legacy) {   # WFDB-x: no default sampling frequency
       wfdbquit()
       .app_nofreq(pname, orec, 2)
     }
@@ -488,12 +517,12 @@ app_xform <- function(args = character(0)) {
         ceprintf("Output sampling frequency (Hz per signal, > 0) [%g]: ", ofreq)
         answer <- script_fgets(32)
         ofreq <- scan1(answer, "%lf", ofreq)
-        if (!(ofreq < 0)) break
+        if (!isTRUE(ofreq < 0)) break
       }
     }
-    if (ofreq == 0 && legacy) {    # WFDB-x: legacy mode (as the C program)
+    if (isTRUE(ofreq == 0) && legacy) {    # WFDB-x: legacy mode (as the C program)
       ofreq <- WFDB_DEFFREQ
-    } else if (ofreq == 0) {       # WFDB-x: the C program assumed 250 Hz
+    } else if (isTRUE(ofreq == 0)) {       # WFDB-x: the C program assumed 250 Hz
       ceprintf("%s: the output sampling frequency must be > 0\n", pname)
       wfdbquit()
       cexit(1)
@@ -851,11 +880,12 @@ app_xform <- function(args = character(0)) {
         break
       }
       k <- if (remaining < 0) .XFORM_CHUNK else min(.XFORM_CHUNK, remaining)
-      V <- getframes(k, nisig)$v       # (getvec(vin) >= nisig)
+      rf <- .xform_read_frames(k, nisig)  # (getvec(vin) >= nisig)
+      V <- rf$V
       L <- nrow(V)
       Vc <- V[, cols, drop = FALSE]
       ck <- .xform_check(.xform_input(Vc, X), sigs, X, Vc != INV)
-      X <- .xform_report(ck$X, L, ck$msgs, ck$msgs$row)
+      X <- .xform_report(ck$X, L, ck$msgs, ck$msgs$row, rf$lib)
       if (putframes(ck$x) < 0 || L < k) break
       if (remaining > 0) remaining <- remaining - L
     }
@@ -873,9 +903,13 @@ app_xform <- function(args = character(0)) {
         break
       }
       k <- if (remaining < 0) .XFORM_CHUNK else min(.XFORM_CHUNK, remaining)
-      V <- getframes(k, nisig)$v       # (getvec(vin) >= nisig)
+      rf <- .xform_read_frames(k, nisig)  # (getvec(vin) >= nisig)
+      V <- rf$V
       L <- nrow(V)
-      if (L == 0) break
+      if (L == 0) {
+        X <- .xform_report(X, 0, list(row = numeric(0)), numeric(0), rf$lib)
+        break
+      }
       q1 <- ((i0 + L - 1) * n) %/% m        # the last output of this block
       q <- if (q1 >= q0) q0:q1 else numeric(0)
       nq <- length(q)
@@ -923,7 +957,7 @@ app_xform <- function(args = character(0)) {
       out <- .xform_round(vd)
       out[bad] <- INV
       ck <- .xform_check(out, sigs, X, !bad)
-      X <- .xform_report(ck$X, L, ck$msgs, iq[ck$msgs$row])
+      X <- .xform_report(ck$X, L, ck$msgs, iq[ck$msgs$row], rf$lib)
       if (putframes(ck$x) < 0 || L < k) break
       vv <- y[L, ]
       i0 <- i0 + L

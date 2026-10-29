@@ -25,6 +25,7 @@ version. See LICENSE.
 import sys
 
 import wfdbx as w
+from wfdbx._cstd import cfmt_float
 from ._common import Output, Exit, eprintf, run
 
 
@@ -64,8 +65,9 @@ def _main(argv, out):
             if i < len(si):
                 out.write("%s\t%g\n" % (si[i].desc, si[i].spf * freq))
             else:   # (a signal that could not be opened: C prints the
-                # zeroed entry of its array)
-                out.write("(null)\t0\n")
+                # zeroed entry of its array: spf 0 times freq, which is
+                # nan if freq is nan, and -nan if it is infinite)
+                out.write("(null)\t%s\n" % cfmt_float("%g", 0.0 * freq))
     return 0
 
 

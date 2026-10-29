@@ -1,0 +1,11 @@
+isgsettime: incorrect signal group number 1
+sigmap_init: unexpected spf for signal 0 in segment m0_s2
+sigmap_init: unexpected spf for signal 1 in segment m0_s2
+sigmap_init: unexpected spf for signal 2 in segment m0_s2
+sigmap_init: loss of precision in signal 2 in segment m0_s2
+sigmap_init: loss of precision in signal 3 in segment m0_s2
+sigmap_init: unexpected spf for signal 0 in segment m0_s3
+sigmap_init: unexpected spf for signal 1 in segment m0_s3
+sigmap_init: unexpected spf for signal 3 in segment m0_s3
+sigmap_init: frame size too large in segment m0_s3
+getvec: error opening segment m0_s3

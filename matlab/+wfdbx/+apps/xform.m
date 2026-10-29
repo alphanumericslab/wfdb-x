@@ -254,29 +254,58 @@ if size(msgs, 1) > 1
 end
 end
 
-function X = report(X, nframes, msgs, msgframe)
+function [V, lib] = read_frames(k, nisig)
+% wfdbx.getframes(K, NISIG), and the library's messages printed meanwhile
+% (LIB: {row, text}, row 0 being the first frame read), which report()
+% prints in the order of C.
+io = wfdbx.internal.io_state();
+io.captured = cell(0, 2);
+io.capture = true;
+try
+    V = wfdbx.getframes(k, nisig);
+catch err
+    io.capture = false;
+    wfdbx.internal.cerr([io.captured{:, 2}]);
+    io.captured = cell(0, 2);
+    rethrow(err);
+end
+io.capture = false;
+lib = io.captured;
+io.captured = cell(0, 2);
+end
+
+function X = report(X, nframes, msgs, msgframe, lib)
 % Write the progress dots (one per minute of input, after NFRAMES more
-% input frames) and the range messages (MSGS, emitted while processing
-% input frame MSGFRAME(j) of this block, 1-based) to the standard error,
-% in the order of C.
+% input frames), the range messages (MSGS, emitted while processing input
+% frame MSGFRAME(j) of this block, 1-based) and the library's messages
+% (LIB, from read_frames: printed while frame row + 1 was read) to the
+% standard error, in the order of C.
+if nargin < 5
+    lib = cell(0, 2);
+end
 P = max(X.spm, 1);
 first = P - X.nsm;              % first frame of the block with a dot
 dots = first:P:nframes;
 X.nsm = mod(X.nsm + nframes, P);
-if isempty(dots) && isempty(msgs)
+if isempty(dots) && isempty(msgs) && isempty(lib)
     return;
 end
-% events: [frame, type (0 dot, 1 message), index]
+% events: [frame, type (-1 library message, 0 dot, 1 message), index]
+nl = size(lib, 1);
 ev = [dots(:), zeros(numel(dots), 1), (1:numel(dots)).'; ...
-    msgframe(:), ones(size(msgs, 1), 1), (1:size(msgs, 1)).'];
+    msgframe(:), ones(size(msgs, 1), 1), (1:size(msgs, 1)).'; ...
+    reshape([lib{:, 1}], [], 1) + 1, -ones(nl, 1), (1:nl).'];
 ev = sortrows(ev, [1 2 3]);
 parts = cell(1, size(ev, 1));
 isdot = ev(:, 2) == 0;
-if any(~isdot)
-    m = msgs(ev(~isdot, 3), :);
+ismsg = ev(:, 2) == 1;
+if any(ismsg)
+    m = msgs(ev(ismsg, 3), :);
     txt = sprintf('v[%d] = %d (out of range)\n', [m(:, 2), m(:, 3)].');
-    parts(~isdot) = regexp(txt, '[^\n]*\n', 'match');
+    parts(ismsg) = regexp(txt, '[^\n]*\n', 'match');
 end
+islib = ev(:, 2) == -1;
+parts(islib) = lib(ev(islib, 3), 2);
 for j = find(isdot).'
     X.nminutes = X.nminutes + 1;
     if X.nminutes >= 60
@@ -1132,11 +1161,11 @@ elseif fflag == 0
         else
             k = min(CHUNK, remaining);
         end
-        V = wfdbx.getframes(k, nisig);   % (getvec(vin) >= nisig)
+        [V, lib] = read_frames(k, nisig);   % (getvec(vin) >= nisig)
         L = size(V, 1);
         y = xf_input(V, X);
         [y, msgs, X] = check_rows(y, X, V(:, X.cols) ~= INV);
-        X = report(X, L, msgs, msgs(:, 1));
+        X = report(X, L, msgs, msgs(:, 1), lib);
         if wfdbx.putframes(y) < 0 || L < k
             break;
         end
@@ -1161,10 +1190,10 @@ else
         else
             k = min(CHUNK, remaining);
         end
-        V = wfdbx.getframes(k, nisig);   % (getvec(vin) >= nisig)
+        [V, lib] = read_frames(k, nisig);   % (getvec(vin) >= nisig)
         L = size(V, 1);
         if L == 0
-            X = report(X, 0, zeros(0, 3), zeros(0, 1));
+            X = report(X, 0, zeros(0, 3), zeros(0, 1), lib);
             break;
         end
         q1 = floor((i0 + L - 1) * n / m);       % last output of this block
@@ -1228,7 +1257,7 @@ else
         bad = a == INV | b == INV;
         out(bad) = INV;
         [out, msgs, X] = check_rows(out, X, ~bad);
-        X = report(X, L, msgs, iq(msgs(:, 1)));
+        X = report(X, L, msgs, iq(msgs(:, 1)), lib);
         if wfdbx.putframes(out) < 0 || L < k
             break;
         end

@@ -24,6 +24,7 @@
 #include "wfdblib.hpp"      // (wfdbx_set_checksum_quiet, ...)
 
 #include <cmath>
+#include <exception>
 #include <filesystem>
 #include <limits>
 
@@ -36,6 +37,20 @@ namespace {
     wfdbquit();
     throw Error(msg);
 }
+
+// WFDB-x: wfdbquit() when the object is destroyed by an exception (so that
+// no input file stays open after an error, whatever its cause).  Declared
+// after the other scopes of a function, it runs before they restore their
+// settings.
+class QuitOnErrorScope {
+public:
+    QuitOnErrorScope() : n_(std::uncaught_exceptions()) {}
+    ~QuitOnErrorScope() { if (std::uncaught_exceptions() > n_) wfdbquit(); }
+    QuitOnErrorScope(const QuitOnErrorScope &) = delete;
+    QuitOnErrorScope &operator=(const QuitOnErrorScope &) = delete;
+private:
+    int n_;
+};
 
 // Library legacy mode on for the lifetime of the object if `on` (restoring
 // the previous setting afterwards, also when an exception is thrown); no
@@ -316,6 +331,7 @@ Header read_header(const std::string &record, bool legacy,
     LegacyScope scope(legacy);
     InputScope input_scope(input);
     GvmodeScope gvmode_scope;
+    QuitOnErrorScope quit_scope;
     wfdbquit();
     int n = isigopen(record.c_str(), nullptr, 0);
     if (n < 0) fail("can't read header for record " + record);
@@ -342,6 +358,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
     LegacyScope scope(opt.legacy);
     InputScope input_scope(opt);
     GvmodeScope gvmode_scope;
+    QuitOnErrorScope quit_scope;
     wfdbquit();
     int nsig = isigopen(record.c_str(), nullptr, 0);
     if (nsig <= 0) fail("can't read record " + record);
@@ -394,9 +411,11 @@ Record read_record(const std::string &record, const ReadOptions &options)
     std::vector<WFDB_Sample> all;
     // Vectors read per getvecs() call: whole frames, and a multiple of 6 of
     // them, so that formats 212, 310 and 311 end each call on a whole
-    // packed unit (the frames are then read in blocks).
+    // packed unit (the frames are then read in blocks).  A block is at
+    // least one such unit (more than 65536 vectors if a frame holds more
+    // than 65536 / 6 samples of a signal), so that each call reads.
     const long long unit = 6LL * std::max(getspf(), 1);
-    const long long block = 65536 - 65536 % unit;
+    const long long block = std::max(65536 - 65536 % unit, unit);
     std::optional<long long> remaining;
     if (to) remaining = *to > from ? *to - from : 0;
     {
@@ -483,6 +502,7 @@ Annotations read_annotations(const std::string &record,
     legacy = legacy || wfdbx_get_legacy() != 0;    // or the library's mode
     LegacyScope scope(legacy);
     InputScope input_scope(input);
+    QuitOnErrorScope quit_scope;
     wfdbquit();
     // WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
     // had no header); `fs` gives one, as rdann -F does.
@@ -537,14 +557,49 @@ Annotations read_annotations(const std::string &record,
 
 namespace {
 
-// Each frame holds samps_per_frame[k] >= 1 samples of signal k (checked
-// before the other arguments).
-void check_samps_per_frame(const WriteOptions &opt)
+// The checks of the arguments of write_record() and
+// write_record_physical() that need no library call, before anything is
+// written.  Each frame holds samps_per_frame[k] >= 1 samples of signal k
+// (checked first).  The record name is not empty, there is at least one
+// signal, each per-signal vector holds no value, one value for all signals
+// or one value per signal (gains and adcres with fewer values are missing
+// values instead, reported when the signal is reached, except in legacy
+// mode), the sampling frequency is finite (and, except in legacy mode,
+// > 0), and the gains are finite.
+void check_write_args(const std::string &record, int nsig, WFDB_Frequency fs,
+                      const WriteOptions &opt)
 {
     for (int n : opt.samps_per_frame)
         if (n < 1)
             throw Error("write_record: samps_per_frame must hold integers "
                         ">= 1");
+    if (record.empty())
+        throw Error("write_record: the record name must not be empty");
+    if (nsig <= 0)
+        throw Error("write_record: at least one signal is required");
+    const std::pair<const char *, size_t> lens[] = {
+        {"gains", opt.gains.size()}, {"baselines", opt.baselines.size()},
+        {"adczeros", opt.adczeros.size()}, {"adcres", opt.adcres.size()},
+        {"units", opt.units.size()}, {"names", opt.names.size()},
+        {"samps_per_frame", opt.samps_per_frame.size()}};
+    const size_t ns = static_cast<size_t>(nsig);
+    for (const auto &l : lens) {
+        bool missing = !opt.legacy && l.second < ns &&
+            (l.first == std::string("gains") ||
+             l.first == std::string("adcres"));
+        if (l.second > 1 && l.second != ns && !missing)
+            throw Error(std::string("write_record: ") + l.first +
+                        " must have one value for all signals or one value "
+                        "per signal (" + std::to_string(nsig) + ")");
+    }
+    // WFDB-x: no default sampling frequency (C: 250 Hz).
+    if (!opt.legacy && !(fs > 0))
+        throw Error("write_record: the sampling frequency must be > 0");
+    if (!std::isfinite(fs))
+        throw Error("write_record: the sampling frequency must be finite");
+    for (WFDB_Gain g : opt.gains)
+        if (!std::isfinite(g))
+            throw Error("write_record: gains must be finite");
 }
 
 void write_adc(const std::string &record,
@@ -552,12 +607,9 @@ void write_adc(const std::string &record,
                WFDB_Frequency fs, const WriteOptions &options)
 {
     const WriteOptions opt = with_library_legacy(options);
-    check_samps_per_frame(opt);
-    if (nsig <= 0) throw Error("write_record: no signals");
     // WFDB-x: no default sampling frequency, gain, ADC resolution or units
     // (C: 250 Hz, 200 adu/mV, a resolution based on the format, mV).
-    if (!opt.legacy && !(fs > 0))
-        throw Error("write_record: the sampling frequency must be > 0");
+    check_write_args(record, nsig, fs, opt);
     std::vector<WFDB_Siginfo> si(nsig);
     size_t frame = 0;
     for (int k = 0; k < nsig; k++) {
@@ -581,6 +633,10 @@ void write_adc(const std::string &record,
                     "of the frame size");
     LegacyScope scope(opt.legacy);
     wfdbquit();
+    // WFDB-x: the base time is checked before anything is written (it is
+    // set again below, once the signal file is open).
+    if (opt.base_time && setbasetime(opt.base_time->c_str()) < 0)
+        fail("write_record: incorrect base time '" + *opt.base_time + "'");
     int errors = wfdbx_write_errors();
     if (osigfopen(si.data(), nsig) != nsig)
         fail("can't create signal file for record " + record);
@@ -620,10 +676,7 @@ void write_record_physical(const std::string &record,
     // Gain and baseline of each column of a frame
     std::vector<double> g;
     std::vector<int> b;
-    check_samps_per_frame(opt);
-    if (nsig <= 0) throw Error("write_record: no signals");
-    if (!opt.legacy && !(fs > 0))
-        throw Error("write_record: the sampling frequency must be > 0");
+    check_write_args(record, nsig, fs, opt);
     for (int k = 0; k < nsig; k++) {
         double gain = gain_of(opt, k);
         if (gain == 0 && opt.legacy)    // WFDB-x: legacy mode (original)
@@ -675,6 +728,18 @@ void write_annotations(const std::string &record, const std::string &annotator,
             throw Error(std::string("write_annotations: ") + f.first +
                         " must have one entry per annotation (" +
                         std::to_string(n) + "), or none");
+    // WFDB-x: symbols and codes may both be given (as read_annotations()
+    // returns them) if they agree: each symbol is that of its code (an
+    // empty symbol leaves the code).
+    if (!ann.symbols.empty() && !ann.codes.empty())
+        for (size_t k = 0; k < n; k++)
+            if (!ann.symbols[k].empty() &&
+                strann(ann.symbols[k].c_str()) != ann.codes[k])
+                throw Error("write_annotations: symbols and codes disagree "
+                            "at annotation " + std::to_string(k));
+    if (fs != 0 && !(std::isfinite(fs) && fs > 0))
+        throw Error("write_annotations: fs must be finite and > 0 (or 0: "
+                    "none)");
     wfdbquit();
     int errors = wfdbx_write_errors();
     AnnSortScope sort_scope(sort);  // (for the file written here only)

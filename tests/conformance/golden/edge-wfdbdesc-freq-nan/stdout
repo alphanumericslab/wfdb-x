@@ -1,0 +1,16 @@
+Record h1
+Starting time: not specified
+Length: s250 (250 sample intervals)
+Sampling frequency: not specified
+1 signal
+Group 0, Signal 0:
+ File: fmt310b.dat
+ Description: sig0
+ Gain: 100 adu/mV
+ Initial value: -1
+ Storage format: 310
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: -5
+ Checksum: -32290

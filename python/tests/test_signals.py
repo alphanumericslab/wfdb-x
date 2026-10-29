@@ -1177,3 +1177,204 @@ def test_write_record_per_signal_lengths(datadir):
         assert not os.path.exists("x.dat") and not os.path.exists("x.hea")
     w.write_record("x", x, 100, names=["a", "b"], **kw)
     assert w.read_record("x").names == ["a", "b"]
+
+
+# WFDB-x 1.1.0, third review: the decisions on the high-level API.
+
+def _state_clean():
+    s_ = w._signal._s
+    a_ = w._annot._a
+    return s_.nisig == 0 and s_.nosig == 0 and \
+        not any(x is not None for x in a_.iad) and \
+        not any(x is not None for x in a_.oad)
+
+
+def test_read_record_highres_large_frames(datadir):
+    # The block size is never rounded down to 0 frames (which looped
+    # forever): a frame of 1024 + 511 samples of 512 signals, and a signal
+    # with 16384 samples per frame, read in high resolution.
+    import faulthandler
+    faulthandler.dump_traceback_later(120, exit=True)
+    try:
+        spf = [1024] + [1] * 511
+        x = np.arange(2 * sum(spf)).reshape(2, sum(spf)) % 1000
+        w.write_record("mixed", x, 1, samps_per_frame=spf, gains=200,
+                       adcres=16, units="mV",
+                       names=["s%d" % k for k in range(512)])
+        r = w.read_record("mixed", highres=True, sampto=1)
+        assert r.signals.shape == (1, 512)
+        assert r.signals[0, :2].tolist() == [x[0, 0], x[0, 1024]]
+        r = w.read_record("mixed", highres=True)
+        assert r.signals.shape == (2048, 512)
+        assert r.signals[1024:1026, 0].tolist() == x[1, :2].tolist()
+        y = np.arange(3 * 16384).reshape(3, 16384) % 2000
+        w.write_record("big", y, 1, samps_per_frame=[16384], gains=200,
+                       adcres=16, units="mV")
+        assert w.read_record("big", highres=True, sampto=1) \
+            .signals.ravel().tolist() == [0]
+        assert w.read_record("big", highres=True).signals.ravel().tolist() \
+            == y.ravel().tolist()
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+
+
+def test_read_record_sample_numbers(datadir):
+    # sampfrom and sampto must be whole numbers (or time strings); an error
+    # leaves no input signal open.
+    for kw in (dict(sampfrom=float("nan")), dict(sampfrom=1.5),
+               dict(sampfrom=float("inf")), dict(sampto=float("inf")),
+               dict(sampto=-float("inf")), dict(sampto=2.5),
+               dict(sampto=float("nan")), dict(sampto=2**70)):
+        with pytest.raises(ValueError, match="samp"):
+            w.read_record("100s", **kw)
+        assert _state_clean()
+    r = w.read_record("100s", sampfrom=1.0, sampto=np.int64(4))
+    assert r.signals.tolist() == \
+        w.read_record("100s", sampfrom=1, sampto=4).signals.tolist()
+    # errors after the signals are opened close them too
+    for kw in (dict(channels=["nosuch"]), dict(sampfrom="0:10", sampto=5,
+                                               input_dir="nosuchdir")):
+        with pytest.raises((ValueError, IOError)):
+            w.read_record("100s", **kw)
+        assert _state_clean()
+    with pytest.raises(IOError):
+        w.read_record("100s", sampfrom=10**9)
+    assert _state_clean()
+
+
+def test_write_record_metadata_checks(datadir):
+    # The metadata are checked before any file is created.
+    x = np.array([1, 2, 3])
+    kw = dict(gains=200, adcres=16, units="mV")
+    bad = [(dict(fs=np.inf), "sampling frequency"),
+           (dict(fs=np.nan), "sampling frequency"),
+           (dict(fs=-np.inf), "sampling frequency"),
+           (dict(fs=0), "sampling frequency"),
+           (dict(fs=250, gains=np.nan), "gains must be finite"),
+           (dict(fs=250, gains=np.inf), "gains must be finite"),
+           (dict(fs=250, gains=[200, -np.inf], signals=np.zeros((3, 2))),
+            "gains must be finite"),
+           (dict(fs=250, base_time="bad time"), "base_time"),
+           (dict(fs=250, record=""), "record name"),
+           (dict(fs=250, signals=np.zeros((3, 0))), "at least one signal"),
+           (dict(fs=250, signals=np.zeros((3, 0)), samps_per_frame=[]),
+            "at least one signal"),
+           (dict(fs=250, gains=[200, 200]), "one value per signal")]
+    for k, msg in bad:
+        a = dict(kw, record="m", signals=x)
+        a.update(k)
+        with pytest.raises(ValueError, match=msg):
+            w.write_record(**a)
+        assert not os.path.exists("m.dat") and not os.path.exists("m.hea")
+        assert not os.path.exists(".dat") and not os.path.exists(".hea")
+        assert _state_clean()
+    for legacy in (False, True):
+        with pytest.raises(ValueError, match="sampling frequency"):
+            w.write_record("m", x, np.nan, legacy=legacy, **kw)
+        assert not os.path.exists("m.dat")
+    # a gain of 0 (uncalibrated) and negative gains remain allowed, and a
+    # valid base time is written
+    w.write_record("m", np.zeros((3, 2), np.int64), 250, gains=[-200, 0],
+                   adcres=16, units=["mV", None],
+                   base_time="10:11:12 01/02/2003")
+    r = w.read_record("m")
+    assert r.gains == [-200, 0]
+    assert r.base_time == "[10:11:12 01/02/2003]"
+
+
+def test_write_annotations_checks(datadir):
+    # Times must be integers within the range of WFDB_Time; NaN anywhere,
+    # both symbols and codes, and an invalid fs are errors, before the file
+    # is created.
+    bad = [(dict(samples=[1, 2**70]), "64-bit"),
+           (dict(samples=np.array([1, 2**64 - 1], np.uint64)), "64-bit"),
+           (dict(samples=[1, float("nan")]), "times"),
+           (dict(samples=np.array([1.0, np.nan])), "times"),
+           (dict(samples=[np.inf]), "times"),
+           (dict(samples=[-np.inf]), "times"),
+           (dict(samples=[1.5]), "times"),
+           (dict(samples=np.array([2.0**63])), "64-bit"),
+           (dict(samples=[1, None]), "samples"),
+           (dict(samples=[1, 2], subtypes=[0, float("nan")]), "subtypes"),
+           (dict(samples=[1], chans=float("nan")), "chans"),
+           (dict(samples=[1], nums=[None]), "nums"),
+           (dict(samples=[1], symbols=None, codes=[float("nan")]), "codes"),
+           (dict(samples=[1, 2], codes=[1, 5]),
+            "symbols and codes disagree at annotation 1"),
+           (dict(samples=[1, 2], symbols=["N", "V"], codes=5),
+            "disagree at annotation 0"),
+           (dict(samples=[1], fs=np.nan), "fs"),
+           (dict(samples=[1], fs=np.inf), "fs"),
+           (dict(samples=[1], fs=0), "fs")]
+    for k, msg in bad:
+        a = dict(record="m", annotator="a", symbols="N")
+        a.update(k)
+        with pytest.raises(ValueError, match=msg):
+            w.write_annotations(**a)
+        assert not os.path.exists("m.a")
+        assert _state_clean()
+    w.write_annotations("m", "a", np.array([1.0, 5.0, 2**40]), codes=1,
+                        fs=250)
+    assert w.read_annotations("m", "a").samples.tolist() == [1, 5, 2**40]
+    # symbols and codes may both be given if they agree, as
+    # read_annotations returns them (an empty symbol is not checked)
+    a = w.read_annotations("100s", "atr")
+    w.write_annotations("100s", "rt", a.samples, symbols=a.symbols,
+                        codes=a.codes, subtypes=a.subtypes, chans=a.chans,
+                        nums=a.nums, aux=a.aux, sort=False)
+    b = w.read_annotations("100s", "rt")
+    for k in ("samples", "codes", "symbols", "subtypes", "chans", "nums",
+              "aux"):
+        assert list(getattr(a, k)) == list(getattr(b, k))
+    w.write_annotations("m", "b", [1, 2, 3], symbols=["N", "", "[45]"],
+                        codes=[1, 5, 45])
+    assert w.read_annotations("m", "b").codes.tolist() == [1, 5, 45]
+    # codes without a mnemonic (42, 43) round-trip too
+    w.write_annotations("m", "c", [1, 2, 3], codes=[42, 43, 1])
+    c = w.read_annotations("m", "c")
+    w.write_annotations("m", "d", c.samples, symbols=c.symbols,
+                        codes=c.codes)
+    d = w.read_annotations("m", "d")
+    assert d.codes.tolist() == [42, 43, 1] and d.symbols == c.symbols
+    assert open("m.c", "rb").read() == open("m.d", "rb").read()
+
+
+def test_edf2mit_incomplete_header(datadir, capfd):
+    # An EDF file shorter than the 256-byte fixed part of its header is
+    # refused, and no output file is created.
+    from wfdbx.apps import edf2mit
+    for n in (100, 255):
+        with open("fmt16.edf", "rb") as f:
+            open("t.edf", "wb").write(f.read(n))
+        assert edf2mit.main(["edf2mit", "-i", "t.edf", "-r", "o"]) == 2
+        assert capfd.readouterr().err == \
+            "edf2mit: incomplete EDF header in t.edf\n"
+        assert not os.path.exists("o.hea") and not os.path.exists("o.dat")
+    # (the record name is checked first; a file that is not EDF keeps the
+    # header created, as in C)
+    open("t.edf", "wb").write(b"not an EDF file")
+    assert edf2mit.main(["edf2mit", "-i", "t.edf", "-r", "o"]) == 2
+    assert "does not appear to be EDF" in capfd.readouterr().err
+    assert os.path.exists("o.hea")
+
+
+def test_apps_nan_sampling_frequency(datadir, capfd):
+    # A sampling frequency of nan is neither "> 0" nor "<= 0", as in C:
+    # wfdbdesc shows no starting time or frequency, but the length is given
+    # by mstimstr (in sample intervals); sampfreq -a gives nan for a signal
+    # that could not be opened; mit2edf writes a header and no data.
+    from wfdbx.apps import wfdbdesc, sampfreq, mit2edf
+    open("h1.hea", "w").write("h1 1 nan 250\nfmt310b.dat 310 100(-5)/mV "
+                              "12 0 -1 -32290 0 sig0\n")
+    assert wfdbdesc.main(["wfdbdesc", "h1"]) == 0
+    o = capfd.readouterr()
+    assert "Starting time: not specified\n" in o.out
+    assert "Length: s250 (250 sample intervals)\n" in o.out
+    assert "Sampling frequency: not specified\n" in o.out
+    assert o.err == "mstimstr: sampling frequency is not specified\n"
+    open("h2.hea", "w").write("h2 1 nan 10\nnone.dat 16 200 12 0 0 0 0 x\n")
+    assert sampfreq.main(["sampfreq", "-a", "h2"]) == 0
+    assert capfd.readouterr().out == "(null)\tnan\n"
+    assert mit2edf.main(["mit2edf", "-r", "h1", "-o", "o.edf"]) == 0
+    capfd.readouterr()
+    assert len(open("o.edf", "rb").read()) == 512

@@ -221,7 +221,7 @@ class RecordTest {
         fails("writeRecord: signal 1 is uncalibrated") {
             w.writeRecord("nd", DoubleArray(20), 2, 250.0, gains = doubleArrayOf(200.0, 0.0), adcres = intArrayOf(16), units = listOf("mV"))
         }
-        fails("writeRecord: no signals") { w.writeRecord("nd", x, 0, 250.0) }
+        fails("writeRecord: at least one signal is required") { w.writeRecord("nd", x, 0, 250.0) }
         fails("writeRecord: the number of samples is not a multiple of the frame size") {
             w.writeRecord("nd", IntArray(5), 2, 250.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"))
         }
@@ -954,5 +954,103 @@ class RecordTest {
         assertFalse(fileExists(d.path("wl.dat")))
         w.writeRecord("wl", x, 3, 100.0, gains = g, adcres = r, units = u)
         assertEquals(x.toList(), w.readRecord("wl").samples.toList())
+    }
+
+    // WFDB-x: the high-level functions check their arguments before any file
+    // is created, and leave no input signals or annotators open after an
+    // error
+
+    /** No signals or annotators are open in [w]. */
+    private fun assertClosed(w: Wfdb) {
+        assertEquals(listOf(0, 0, 0, 0), listOf(w.sig.nisig, w.sig.nosig, w.ann.iad.size, w.ann.oad.size))
+    }
+
+    private fun noFiles(d: DataDir, vararg names: String) {
+        for (n in names) assertFalse(fileExists(d.path(n)), "$n exists")
+    }
+
+    @Test
+    fun writeRecordMetadataChecks() = withData("metachk") { d, w ->
+        // The sampling frequency (finite, > 0), the gains (finite), the base
+        // time, the record name, the number of signals and the lengths of
+        // the per-signal arguments are checked before any file is created.
+        w.wfdbquiet()
+        val x = intArrayOf(1, 2, 3, 4, 5, 6)
+        val xp = DoubleArray(6) { 0.5 }
+        val g = doubleArrayOf(200.0)
+        val r = intArrayOf(16)
+        val u = listOf("mV")
+        val freq = "writeRecord: the sampling frequency must be > 0"
+        val finite = "writeRecord: the sampling frequency must be finite"
+        for ((fs, msg) in listOf(Double.NaN to freq, Double.POSITIVE_INFINITY to finite,
+            Double.NEGATIVE_INFINITY to freq, 0.0 to freq, -1.0 to freq)) {
+            fails(msg) { w.writeRecord("mc", x, 2, fs, gains = g, adcres = r, units = u) }
+            fails(msg) { w.writeRecord("mc", xp, 2, fs, gains = g, adcres = r, units = u) }
+            noFiles(d, "mc.hea", "mc.dat")
+        }
+        // (legacy mode: no frequency is allowed, but it must be finite)
+        for (fs in listOf(Double.NaN, Double.POSITIVE_INFINITY)) {
+            fails(finite) { w.writeRecord("mc", x, 2, fs, gains = g, adcres = r, units = u, legacy = true) }
+            noFiles(d, "mc.hea", "mc.dat")
+        }
+        for (gains in listOf(doubleArrayOf(Double.NaN), doubleArrayOf(Double.POSITIVE_INFINITY), doubleArrayOf(200.0, Double.NEGATIVE_INFINITY))) {
+            fails("writeRecord: gains must be finite") { w.writeRecord("mc", x, 2, 100.0, gains = gains, adcres = r, units = u) }
+            fails("writeRecord: gains must be finite") { w.writeRecord("mc", xp, 2, 100.0, gains = gains, adcres = r, units = u) }
+            noFiles(d, "mc.hea", "mc.dat")
+        }
+        for (legacy in listOf(false, true)) {
+            fails("writeRecord: incorrect base time 'garbage'") {
+                w.writeRecord("mc", x, 2, 100.0, gains = g, adcres = r, units = u, baseTime = "garbage", legacy = legacy)
+            }
+            fails("writeRecord: incorrect base time 'garbage'") {
+                w.writeRecord("mc", xp, 2, 100.0, gains = g, adcres = r, units = u, baseTime = "garbage", legacy = legacy)
+            }
+            noFiles(d, "mc.hea", "mc.dat")
+        }
+        fails("writeRecord: the record name must not be empty") { w.writeRecord("", x, 2, 100.0, gains = g, adcres = r, units = u) }
+        fails("writeRecord: the record name must not be empty") { w.writeRecord("", xp, 2, 100.0, gains = g, adcres = r, units = u) }
+        noFiles(d, ".hea", ".dat")
+        fails("writeRecord: at least one signal is required") { w.writeRecord("mc", IntArray(0), 0, 100.0, gains = g, adcres = r, units = u) }
+        fails("writeRecord: at least one signal is required") { w.writeRecord("mc", DoubleArray(0), 0, 100.0, gains = g, adcres = r, units = u) }
+        noFiles(d, "mc.hea", "mc.dat")
+        // units: one value for all signals, or one per signal (also when the
+        // other signals are uncalibrated)
+        fails("writeRecord: units must have one value per signal") {
+            w.writeRecord("mc", intArrayOf(1, 2, 3), 3, 100.0, gains = doubleArrayOf(200.0, 0.0, 0.0), adcres = r, units = listOf("mV", null))
+        }
+        noFiles(d, "mc.hea", "mc.dat")
+        assertClosed(w)
+        // valid: a gain of 0 (uncalibrated), a negative gain, a base time
+        w.writeRecord("mc", x, 2, 100.0, gains = doubleArrayOf(0.0, -200.0), adcres = r, units = listOf(null, "mV"), baseTime = "12:30:15 02/03/2020")
+        val rec = w.readRecord("mc")
+        assertContentEquals(x, rec.samples)
+        assertEquals(listOf(0.0, -200.0), rec.gains)
+        assertEquals("[12:30:15 02/03/2020]", rec.baseTime)
+        assertClosed(w)
+    }
+
+    @Test
+    fun readRecordErrorsCloseSignals() = withData("rderr") { d, w ->
+        // After any error once the record is open, its input signals are
+        // closed, and the getvec mode and the input directory are restored.
+        w.wfdbquiet()
+        w.setgvmode(WFDB_LOWRES)
+        writeFile(d.path("uc.hea"), "uc 1 250 3\nuc.dat 16 0 16 0 0 0 0 x\n")
+        writeFile(d.path("uc.dat"), ByteArray(6))
+        val bad = listOf<() -> Unit>(
+            { w.readRecord("100s", from = TimeSpec(-1)) },
+            { w.readRecord("100s", channels = listOf("nosuch"), highres = true) },
+            { w.readRecord("100s", from = TimeSpec(1000000)) },
+            { w.readRecord("uc", physical = true) },
+            { w.readRecord("100s", inputDir = d.path("nosuch")) },
+        )
+        for ((k, f) in bad.withIndex()) {
+            assertFailsWith<WfdbException>("case $k") { f() }
+            assertClosed(w)
+            assertEquals(WFDB_LOWRES, w.getgvmode())
+            assertEquals(d.dir, w.wfdbxGetInputDir())
+        }
+        assertEquals(10, w.readRecord("100s", to = TimeSpec(10)).nsamples)
+        assertClosed(w)
     }
 }

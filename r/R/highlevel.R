@@ -48,6 +48,54 @@
   as.numeric(t)
 }
 
+# A sample number argument (sampfrom, sampto) checked: NULL and time
+# strings are returned as they are; a number must be a whole number within
+# the range of WFDB_Time (WFDB-x: a fraction, NA, NaN or an infinite value
+# is an error).
+.hl_sample_number <- function(t, name) {
+  if (is.null(t) || is.character(t)) return(t)
+  if (!is.numeric(t) || length(t) != 1L || !is.finite(t) || t != trunc(t))
+    stop(name, " must be a whole number")
+  # (2^63 stands for LONG_MAX, as in strtol: see cstd.R)
+  if (t < -2^63 || t > 2^63) stop(name, " is beyond the range of a 64-bit integer")
+  as.numeric(t)
+}
+
+# Evaluate expr (the body of a reader); on an error, close everything
+# (wfdbquit) before the error propagates (WFDB-x), so that no input signal
+# or annotator is left open.
+.hl_quit_on_error <- function(expr) {
+  ok <- FALSE
+  on.exit(if (!ok) wfdbquit())
+  r <- expr
+  ok <- TRUE
+  r
+}
+
+# Stop if setbasetime() cannot parse base_time (WFDB-x); the library's base
+# time and date, and its error state, are left as they were.
+.hl_check_base_time <- function(base_time) {
+  if (!is.character(base_time) || length(base_time) != 1L || is.na(base_time))
+    stop("base_time must be a string")
+  st <- .sig
+  io <- .wfdb_io
+  saved <- list(st$btime, st$bdate, st$pdays, st$date_string, st$time_string)
+  err <- list(io$error_print, io$error_flag, io$error_message)
+  io$error_print <- FALSE
+  ok <- tryCatch(setbasetime(base_time) >= 0, finally = {
+    io$error_print <- err[[1L]]
+    io$error_flag <- err[[2L]]
+    io$error_message <- err[[3L]]
+    st$btime <- saved[[1L]]
+    st$bdate <- saved[[2L]]
+    st$pdays <- saved[[3L]]
+    st$date_string <- saved[[4L]]
+    st$time_string <- saved[[5L]]
+  })
+  if (!ok) stop("invalid base_time '", base_time, "'")
+  invisible()
+}
+
 # Evaluate expr with the library's legacy mode on if legacy is TRUE (the
 # previous setting is restored afterwards, also on errors), or with the
 # current setting otherwise: the legacy argument of the high-level functions.
@@ -173,7 +221,7 @@
 #' comments (the info strings).
 #' input_dir, network, legacy: see read_record.
 read_header <- function(record, input_dir = NULL, network = NULL,
-                        legacy = FALSE) .hl_legacy(legacy, .hl_input(input_dir, network, {
+                        legacy = FALSE) .hl_legacy(legacy, .hl_input(input_dir, network, .hl_quit_on_error({
   legacy <- wfdbx_get_legacy()
   wfdbquit()
   n <- isigopen(record, 0)$nsig
@@ -194,7 +242,7 @@ read_header <- function(record, input_dir = NULL, network = NULL,
          list(comments = .hl_comments(record)))
   wfdbquit()
   structure(h, class = "wfdbx_header")
-}))
+})))
 
 #' Read the signals of a record into a matrix.
 #'
@@ -218,8 +266,9 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #'
 #' channels: signal numbers (0-based, as in WFDB) or names (as in names;
 #' default: all);
-#' sampfrom, sampto: sample numbers or time strings (sampfrom >= 0; sampto
-#' exclusive; default: the end of the record); highres: WFDB_HIGHRES mode
+#' sampfrom, sampto: sample numbers (whole numbers: a fraction, NA, NaN or
+#' an infinite value is an error) or time strings (sampfrom >= 0; sampto
+#' exclusive; default, NULL: the end of the record); highres: WFDB_HIGHRES mode
 #' for multi-frequency records; pad: WFDB_GVPAD mode (invalid samples
 #' replaced by the previous valid sample).  The getvec mode (highres, pad)
 #' applies to this call only: the mode in force before the call is
@@ -262,11 +311,13 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
                         physical = FALSE, highres = FALSE, pad = FALSE,
                         input_dir = NULL, network = NULL,
-                        legacy = FALSE, checksum_warning = TRUE) .hl_legacy(legacy, .hl_input(input_dir, network, .hl_gvmode({
+                        legacy = FALSE, checksum_warning = TRUE) .hl_legacy(legacy, .hl_input(input_dir, network, .hl_gvmode(.hl_quit_on_error({
   legacy <- wfdbx_get_legacy()
+  sampfrom <- .hl_sample_number(sampfrom, "sampfrom")
+  sampto <- .hl_sample_number(sampto, "sampto")
   # WFDB-x: a negative sampfrom is an error (isigsettime would take it as
   # an absolute time)
-  if (is.numeric(sampfrom) && length(sampfrom) == 1L && !is.na(sampfrom) && sampfrom < 0)
+  if (is.numeric(sampfrom) && sampfrom < 0)
     stop("sampfrom must not be negative")
   wfdbquit()
   nsig <- isigopen(record, 0)$nsig
@@ -378,7 +429,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
               checksum_ok = checksum_ok)
   wfdbquit()
   rec
-})))
+}))))
 
 #' Write signals (and a header) as record `record`.
 #'
@@ -388,7 +439,7 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' the gains and baselines, rounding as physadu() does; NA becomes an
 #' invalid sample, and an infinite value, or one whose ADC value is beyond
 #' the range of a 32-bit integer, is an error).  fs: sampling frequency
-#' (required, > 0).  gains (required): ADC units per physical unit; a gain of 0 declares a signal uncalibrated,
+#' (required, finite, > 0).  gains (required, finite): ADC units per physical unit; a gain of 0 declares a signal uncalibrated,
 #' which is allowed only when the samples are given in ADC units (physical
 #' = FALSE).  adcres (required): ADC resolutions in bits (>= 1).  units
 #' (required for every signal whose gain is not 0): physical units, e.g.
@@ -397,7 +448,9 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' vectors (or lists, for units and names) give per-signal values.
 #' samps_per_frame (per signal) writes a multi-frequency record:
 #' then signals has sum(samps_per_frame) columns, frame by frame.
-#' comments: info strings added to the header.
+#' comments: info strings added to the header.  base_time: the start time
+#' ("hh:mm:ss dd/mm/yyyy"); one that setbasetime cannot parse is an error.
+#' The record name must not be empty, and at least one signal is required.
 #'
 #' dir: if given, the directory (which must exist) in which the files are
 #' created; the header then names the record and its signal file without
@@ -425,12 +478,15 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          base_time = NULL, comments = NULL, physical = FALSE,
                          samps_per_frame = NULL, dir = NULL,
                          legacy = FALSE) .hl_legacy(legacy, .hl_output_dir(record, dir, {
+  if (!is.character(record) || length(record) != 1L || is.na(record) || !nzchar(record))
+    stop("record name must not be empty")
   x <- signals
   if (is.null(dim(x))) x <- matrix(x, ncol = 1L)
   if (!is.double(x) || !is.matrix(x)) x <- matrix(as.numeric(x), nrow(x), ncol(x))
   spf <- if (is.null(samps_per_frame)) rep(1, ncol(x)) else
     suppressWarnings(as.numeric(samps_per_frame))
   nsig <- length(spf)
+  if (nsig == 0) stop("at least one signal is required")
   # Each frame holds spf[k] >= 1 samples of signal k, and each row of
   # signals is one frame.
   if (anyNA(spf) || any(spf < 1 | spf != trunc(spf)))
@@ -444,9 +500,6 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   if (legacy) {
     if (missing(gains)) gains <- WFDB_DEFGAIN
   } else {
-    if (missing(fs) || is.null(fs) || length(fs) != 1L || !is.numeric(fs) ||
-        is.na(fs) || fs <= 0)
-      stop("fs must be specified and > 0")
     if (missing(gains) || is.null(gains) || length(gains) == 0L)
       stop("gains must be specified")
   }
@@ -456,9 +509,16 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
     if (length(v) != nsig) stop(name, " must have one value per signal")
     as.list(v)
   }
+  # WFDB-x: a finite frequency > 0 and finite gains (0: uncalibrated), in
+  # legacy mode too
+  if (missing(fs) || is.null(fs)) stop("fs must be specified and > 0")
+  if (length(fs) != 1L || !is.numeric(fs) || !is.finite(fs) || fs <= 0)
+    stop("fs must be finite and > 0")
   fmts <- unlist(per(fmt))
   gains_ <- as.numeric(unlist(per(gains)))
   if (anyNA(gains_)) stop("gains must be specified")
+  if (!all(is.finite(gains_))) stop("gains must be finite")
+  if (!is.null(base_time)) .hl_check_base_time(base_time)
   zeros <- unlist(per(adczeros, 0))
   bases <- per(baselines)
   bases <- vapply(seq_len(nsig), function(k) if (is.null(bases[[k]])) zeros[k] else bases[[k]], 0)

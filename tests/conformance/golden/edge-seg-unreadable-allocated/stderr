@@ -1,0 +1,3 @@
+isigopen: none of the signals for record rec_s2 is readable
+isigsettime: can't open segment rec_s2
+wfdb2mat (warning): final 2 columns are invalid

@@ -455,7 +455,8 @@ pub struct Annotations {
     /// Annotation codes ([`NORMAL`](crate::NORMAL), [`PVC`](crate::PVC), ...).
     pub codes: Vec<i32>,
     /// Mnemonics of the annotation codes (`b"N"`, `b"V"`, ...). When
-    /// writing, an empty entry means: use `codes`.
+    /// writing, an empty entry means: use `codes`; given both, each symbol
+    /// must be that of its code.
     pub symbols: Vec<Vec<u8>>,
     /// Subtypes.
     pub subtypes: Vec<i32>,
@@ -603,18 +604,45 @@ fn gain_of(gains: &[f64], k: usize, legacy: bool) -> Result<f64, Error> {
     }
 }
 
+/// Checks the arguments of `write_record` that need no library call (WFDB-x:
+/// before anything is written): the record name is not empty, there is at
+/// least one signal, the per-signal options hold valid numbers of values
+/// ([`check_per_signal`]), the sampling frequency is valid
+/// ([`check_write_freq`]), and the gains are finite.
+fn check_write_args(
+    record: &[u8],
+    nsig: usize,
+    fs: f64,
+    opt: &WriteOptions,
+    legacy: bool,
+) -> Result<(), Error> {
+    if record.is_empty() {
+        return Err(Error::new(
+            "write_record: the record name must not be empty",
+        ));
+    }
+    if nsig == 0 {
+        return Err(Error::new("write_record: at least one signal is required"));
+    }
+    check_per_signal(opt, nsig, legacy)?;
+    check_write_freq(fs, legacy)?;
+    if opt.gains.iter().any(|g| !g.is_finite()) {
+        return Err(Error::new("write_record: gains must be finite"));
+    }
+    Ok(())
+}
+
 /// Checks that each per-signal option of `write_record` holds no value,
 /// one value for all signals, or one value per signal (WFDB-x: before
-/// anything is written). A required option (`gains`, `adcres`, `units`)
-/// with fewer values is reported as missing values instead, except in
-/// legacy mode.
+/// anything is written). A required option (`gains`, `adcres`) with fewer
+/// values is reported as missing values instead, except in legacy mode.
 fn check_per_signal(opt: &WriteOptions, nsig: usize, legacy: bool) -> Result<(), Error> {
     let lens = [
         ("gains", opt.gains.len(), true),
         ("baselines", opt.baselines.len(), false),
         ("adczeros", opt.adczeros.len(), false),
         ("adcres", opt.adcres.len(), true),
-        ("units", opt.units.len(), true),
+        ("units", opt.units.len(), false),
         ("names", opt.names.len(), false),
         ("samps_per_frame", opt.samps_per_frame.len(), false),
     ];
@@ -640,16 +668,20 @@ fn check_write_spf(opt: &WriteOptions) -> Result<(), Error> {
     }
 }
 
-/// Checks the sampling frequency given to `write_record` (not checked in
-/// legacy mode, as in the original package).
+/// Checks the sampling frequency given to `write_record`: finite, and > 0
+/// (except in legacy mode, as in the original package).
 fn check_write_freq(fs: f64, legacy: bool) -> Result<(), Error> {
     // WFDB-x: no default sampling frequency (C assumed 250 Hz).
-    if fs > 0.0 || legacy {
-        Ok(())
-    } else {
+    if !(fs > 0.0 || legacy) {
         Err(Error::new(
             "write_record: the sampling frequency must be > 0",
         ))
+    } else if !fs.is_finite() {
+        Err(Error::new(
+            "write_record: the sampling frequency must be finite",
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -1007,7 +1039,11 @@ impl Wfdb {
                 .saturating_mul(nsig)
                 .min(1 << 26),
         );
-        let block = (1 << 20) - (1 << 20) % unit;
+        // (A block is at least one such unit, even when a frame holds more
+        // samples: a block of 0 vectors would read nothing, and the loop
+        // below would not progress.)
+        let aligned = |n: i64| (n - n % unit).max(unit);
+        let block = aligned(1 << 20);
         let mut remaining = to.map(|t| if t > from { t - from } else { 0 });
         let mut checksum_error = false;
         // (getvec's own checksum message is replaced by the warning below)
@@ -1019,7 +1055,7 @@ impl Wfdb {
                     (expected - all.len() as i64 / nsig as i64).min(block)
                 }
                 None if expected == all.len() as i64 / nsig as i64 => unit,
-                None => 65536 - 65536 % unit,
+                None => aligned(65536),
             };
             let len = all.len();
             all.resize(len + n as usize * nsig, 0);
@@ -1243,12 +1279,8 @@ impl Wfdb {
         fs: f64,
         opt: &WriteOptions,
     ) -> Result<(), Error> {
-        if nsig == 0 {
-            return Err(Error::new("write_record: no signals"));
-        }
         let legacy = self.wfdbx_get_legacy() != 0;
-        check_per_signal(opt, nsig, legacy)?;
-        check_write_freq(fs, legacy)?;
+        check_write_args(record, nsig, fs, opt, legacy)?;
         let mut si = vec![Siginfo::default(); nsig];
         let mut frame = 0usize;
         let mut fname = record.to_vec();
@@ -1271,6 +1303,13 @@ impl Wfdb {
             ));
         }
         self.wfdbquit();
+        // WFDB-x: the base time is checked before anything is written (it
+        // is set again below, once the signal file is open).
+        if let Some(bt) = &opt.base_time {
+            if self.setbasetime(bt) < 0 {
+                return self.hl_fail(format!("write_record: incorrect base time '{}'", lossy(bt)));
+            }
+        }
         let errors = wfdbx_write_errors();
         if self.osigfopen(&si, nsig as u32) != nsig as i32 {
             return self.hl_fail(format!(
@@ -1365,11 +1404,7 @@ impl Wfdb {
         // Gain and baseline of each column of a frame
         let mut g: Vec<f64> = Vec::new();
         let mut b: Vec<i32> = Vec::new();
-        if nsig == 0 {
-            return Err(Error::new("write_record: no signals"));
-        }
-        check_per_signal(opt, nsig, legacy)?;
-        check_write_freq(fs, legacy)?;
+        check_write_args(record, nsig, fs, opt, legacy)?;
         for k in 0..nsig {
             let mut gain = gain_of(&opt.gains, k, legacy)?;
             if gain == 0.0 && legacy {
@@ -1489,6 +1524,25 @@ impl Wfdb {
                     "write_annotations: {name} must have one entry per annotation ({n}), or none"
                 )));
             }
+        }
+        // WFDB-x: symbols and codes may both be given (as read_annotations
+        // returns them) if they agree: each symbol is that of its code (an
+        // empty symbol leaves the code).
+        if !ann.symbols.is_empty() && !ann.codes.is_empty() {
+            for k in 0..n {
+                let sym = &ann.symbols[k];
+                if !sym.is_empty() && self.strann(&sym[..]) != ann.codes[k] {
+                    return Err(Error::new(format!(
+                        "write_annotations: symbols and codes disagree at annotation {k}"
+                    )));
+                }
+            }
+        }
+        // (0: no frequency is stored)
+        if fs != 0.0 && !(fs.is_finite() && fs > 0.0) {
+            return Err(Error::new(
+                "write_annotations: fs must be finite and > 0 (or 0: none)",
+            ));
         }
         self.wfdbquit();
         let errors = wfdbx_write_errors();
@@ -1779,7 +1833,7 @@ pub fn read_annotations_with(
 ///   0, signal 1, ...). In a multi-frequency record, a frame holds
 ///   `samps_per_frame` values of each signal.
 /// * `nsig`: the number of signals.
-/// * `fs`: the sampling frequency in Hz (frames per second, > 0).
+/// * `fs`: the sampling frequency in Hz (frames per second; finite, > 0).
 /// * `opt`: the gains, ADC resolutions and units (required), the format, the
 ///   names and other options (see [`WriteOptions`]).
 ///
@@ -1807,8 +1861,16 @@ pub fn read_annotations_with(
 ///
 /// # Errors
 ///
-/// * There are no signals, or `fs` is not positive.
-/// * The gains are missing: "gains must be specified".
+/// * `record` is empty: "the record name must not be empty".
+/// * There are no signals: "at least one signal is required".
+/// * `fs` is not positive ("the sampling frequency must be > 0"; not
+///   checked in legacy mode) or not finite ("the sampling frequency must be
+///   finite").
+/// * The gains are missing: "gains must be specified", or a gain is NaN or
+///   infinite: "gains must be finite". (A gain of 0 marks an uncalibrated
+///   signal; negative gains are allowed.)
+/// * [`WriteOptions::base_time`] cannot be parsed: "incorrect base time
+///   'TIME'" (after the library's own message).
 /// * The ADC resolutions are missing or less than 1: "ADC resolution(s) must
 ///   be specified".
 /// * The units of a signal whose gain is not 0 are missing: "units must be
@@ -1816,8 +1878,8 @@ pub fn read_annotations_with(
 /// * A `samps_per_frame` value is less than 1: "samps_per_frame must hold
 ///   integers >= 1" (checked first, also in legacy mode).
 /// * A per-signal option has more than one value, but not one value per
-///   signal: "OPTION must have one value per signal" (a required option
-///   with fewer values: as missing values).
+///   signal: "OPTION must have one value per signal" (`gains` or `adcres`
+///   with fewer values: as missing values, except in legacy mode).
 /// * The number of samples is not a multiple of the frame size.
 /// * With [`WriteOptions::dir`], the directory does not exist or `record`
 ///   contains a directory.
@@ -1896,14 +1958,16 @@ pub fn write_record_physical(
 ///   `chans`, `nums` and `aux` is empty, or has one entry per annotation
 ///   (one per `samples` entry). The type of each annotation is its
 ///   `symbols` entry, a mnemonic such as `"N"` or `"V"`, or its `codes`
-///   entry if there are no mnemonics or the mnemonic is empty. Without
+///   entry if there are no mnemonics or the mnemonic is empty; if both are
+///   given, each mnemonic must be that of its code (as
+///   [`read_annotations`] returns them). Without
 ///   `subtypes`, `chans`, `nums` or `aux`, they are 0 or absent. As in C,
 ///   the subtype, channel and annotator number are stored in one byte
 ///   each, and other values wrap around (the subtype and number to -128 to
 ///   127, the channel to 0 to 255). An unknown mnemonic gives `NOTQRS`.
 ///   Aux text longer than 255 bytes is cut.
-/// * `fs`: if positive, stored in the file as the frequency of its sample
-///   numbers. `ann.fs` is not used.
+/// * `fs`: if not 0, stored in the file as the frequency of its sample
+///   numbers (finite, > 0). `ann.fs` is not used.
 /// * `dir`: an existing directory in which to create the file, for this call
 ///   only. The record name must then be a plain name, without a directory.
 ///
@@ -1936,6 +2000,11 @@ pub fn write_record_physical(
 /// * A per-annotation field of `ann` is neither empty nor has one entry per
 ///   annotation: "write_annotations: FIELD must have one entry per
 ///   annotation (N), or none".
+/// * `ann.symbols` and `ann.codes` are both given, and the code of a
+///   mnemonic is not the code at its position: "write_annotations: symbols
+///   and codes disagree at annotation K".
+/// * `fs` is neither 0 nor finite and positive: "write_annotations: fs must
+///   be finite and > 0 (or 0: none)".
 /// * The annotation file cannot be created.
 /// * The annotation file cannot be written completely (for example, when
 ///   the disk is full): "write error on annotator ANNOTATOR for record

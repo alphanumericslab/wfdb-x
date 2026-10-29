@@ -34,8 +34,10 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   \item{sampfrom, sampto}{the first sample to read, and the sample after
     the last one.  Each is a sample number or a time string, such as
     \code{"0:10"} (10 seconds), \code{"s1000"} (sample 1000) or \code{"e"}
-    (the end of the record); see \code{\link{strtim}}.  A negative
-    \code{sampfrom} is an error.  By default the whole record is read.}
+    (the end of the record); see \code{\link{strtim}}.  A sample number
+    must be a whole number: a fraction, \code{NA}, \code{NaN} or an
+    infinite value is an error, and so is a negative \code{sampfrom}.
+    By default (\code{sampto = NULL}) the whole record is read.}
   \item{physical}{\code{read_record}: if \code{TRUE}, return the samples
     in physical units, \code{(sample - baseline) / gain}, instead of ADC
     units.  \code{write_record}: if \code{TRUE}, \code{signals} are in
@@ -69,13 +71,13 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     signal.  For a multi-frequency record, see \code{samps_per_frame}.
     In ADC units, the samples must be integers within the range of a
     32-bit integer, and \code{NA} is written as an invalid sample.}
-  \item{fs}{the sampling frequency in Hz, greater than 0.  For a
+  \item{fs}{the sampling frequency in Hz, finite and greater than 0.  For a
     multi-frequency record, this is the frame rate.}
   \item{fmt}{the storage format of the signal file, such as 16, 212 or
     516 (FLAC); see \code{\link{WFDB_FMT_LIST}}.  All signals have the
     same format.}
-  \item{gains}{the gain of each signal, in ADC units per physical unit.
-    A gain of 0 marks a signal as uncalibrated.  This is only allowed when
+  \item{gains}{the gain of each signal, in ADC units per physical unit
+    (finite; negative gains are allowed).  A gain of 0 marks a signal as uncalibrated.  This is only allowed when
     \code{signals} are in ADC units.}
   \item{baselines}{the baseline of each signal: the ADC value of physical
     zero.  By default it equals \code{adczeros}.}
@@ -87,7 +89,8 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   \item{names}{the description of each signal, as a character vector or a
     list.}
   \item{base_time}{the start time of the record, as \code{"hh:mm:ss"} or
-    \code{"hh:mm:ss dd/mm/yyyy"}.  By default the header gives none.}
+    \code{"hh:mm:ss dd/mm/yyyy"}.  By default the header gives none.  A
+    time that cannot be parsed is an error.}
   \item{comments}{a character vector of info strings to add to the end of
     the header.}
   \item{samps_per_frame}{for a multi-frequency record, the number of
@@ -105,7 +108,9 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   no defaults.  The arguments that describe the signals (\code{fmt},
   \code{gains}, \code{baselines}, \code{adczeros}, \code{adcres},
   \code{units}, \code{names}) take one value for all signals, or one value
-  per signal.  The signal file is \file{\var{record}.dat}.  Existing files
+  per signal; any other length is an error.  The record name must not be
+  empty, and at least one signal is required.  All the arguments are
+  checked before any file is created.  The signal file is \file{\var{record}.dat}.  Existing files
   of the same name are overwritten.
 
   A time string such as \code{"0:10"} needs the sampling frequency, and
@@ -113,7 +118,7 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   that does not give them cannot be read that way.
 
   Each call closes anything opened with the WFDB library functions, as
-  \code{\link{wfdbquit}} does.
+  \code{\link{wfdbquit}} does, also when it stops with an error.
 }
 \value{
   \code{read_record} returns a list with these elements:

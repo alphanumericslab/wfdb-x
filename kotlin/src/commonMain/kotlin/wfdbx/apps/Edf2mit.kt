@@ -10,7 +10,10 @@
 // uninitialized in C; the characters of the input file name only for the
 // default record name; 0 for samples beyond the end of a data record; 0
 // frames per record if a signal has 0 samples per frame; and INT_MIN for
-// out-of-range conversions of doubles to int (as on x86).
+// out-of-range conversions of doubles to int (as on x86). An EDF file
+// shorter than the 256-byte fixed part of its header (whose missing fields C
+// takes from uninitialized memory) gives "edf2mit: incomplete EDF header in
+// FILE", no output files and exit status 2.
 //
 // This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -71,13 +74,29 @@ private fun edfGcd(x0: Double, y0: Double): Double {
 
 private const val EDF_MAXFIELD = 80
 
-/** The reusable header field buffer of the C program. */
-private class EdfField {
+/** Length of the fixed part of an EDF header. */
+private const val EDF_FIXED_HEADER = 256
+
+/**
+ * The reusable header field buffer of the C program. WFDB-x: [head] is the
+ * fixed part of the header, read at once (see edf2mitMain), and [hpos] the
+ * number of its bytes used.
+ */
+private class EdfField(val head: ByteArray) {
     val buf = ByteArray(EDF_MAXFIELD + 1)
+    var hpos = 0
+
+    /** Reads n bytes into buf: from the fixed part of the header that was read already, then from the file. */
+    fun fread(ifile: WfdbFile, n: Int) {
+        val k = minOf(n, head.size - hpos)
+        head.copyInto(buf, 0, hpos, hpos + k)
+        hpos += k
+        if (k < n) ifile.read(buf, k, n - k)
+    }
 
     /** Reads a field of n bytes, marks its end with a space, and replaces trailing spaces (from buf[t]) with NULs. */
     fun read(ifile: WfdbFile, n: Int, t: Int): Int {
-        ifile.read(buf, 0, n)
+        fread(ifile, n)
         buf[n] = ' '.code.toByte()
         var jj = t
         while (jj >= 0 && buf[jj] == ' '.code.toByte()) {
@@ -97,6 +116,7 @@ fun Wfdb.edf2mitMain(argv0: Array<ByteArray>): Int {
     val pname = argv[0]
     var record = ByteArray(0)
     var ifile: WfdbFile? = null
+    var iname = ByteArray(0)
     var bigEndian = false
     var vflag = false
     var siglist = ArrayList<Int>()
@@ -113,6 +133,7 @@ fun Wfdb.edf2mitMain(argv0: Array<ByteArray>): Int {
                 'i' -> {
                     i++
                     if (i < argc) {
+                        iname = argv[i]
                         if (beq(cstr(argv[i]), "-")) {
                             ifile = WfdbFile.stdin()
                         } else {
@@ -185,12 +206,29 @@ fun Wfdb.edf2mitMain(argv0: Array<ByteArray>): Int {
         exit(1)
     }
 
-    val f = EdfField()
-    ifile.read(f.buf, 0, 8)
+    // (the header file that newheader created)
+    val heaFile = wfdb_filename().copyOf()
+
+    // WFDB-x: the fixed part of the EDF header is read at once (see
+    // EdfField.fread). If the input file is shorter, the program stops (C
+    // takes the missing fields from uninitialized memory; see
+    // docs/KNOWN_C_BEHAVIORS.md): no output files remain.
+    val head = ByteArray(EDF_FIXED_HEADER)
+    val nhead = ifile.read(head, 0, EDF_FIXED_HEADER)
+    fun incomplete(): Nothing {
+        wfdbquit()
+        Platform.remove(cstr(heaFile))
+        eprintf("%s: incomplete EDF header in %s\n", pname, iname)
+        exit(2)
+    }
+    if (nhead < 8) incomplete()
+    val f = EdfField(head.copyOf(nhead))
+    f.fread(ifile, 8)
     if (!f.buf.copyOf(8).contentEquals("0       ".latin1())) {
         eprintf("%s: input does not appear to be EDF -- no conversion attempted.\n", pname)
         exit(2)
     }
+    if (nhead < EDF_FIXED_HEADER) incomplete()
     f.buf[8] = ' '.code.toByte()
     run {
         var j = 8

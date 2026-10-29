@@ -172,7 +172,7 @@ app_rdsamp <- function(args = character(0)) {
   d <- as.numeric(sub(".*\\.([0-9])f$", "\\1", fmt))
   s <- 10^d
   y <- x * s
-  if (!all(y >= 0 & y < 2^50) ||
+  if (!isTRUE(all(y >= 0 & y < 2^50)) ||      # (or nan)
       any(abs(y - floor(y) - 0.5) <= 1e-12 * pmax(y, 1)))
     return(list(.rdsamp_col(csprintf_v(fmt, x))))
   n <- floor(y + 0.5)
@@ -332,7 +332,7 @@ app_rdsamp <- function(args = character(0)) {
   freq <- sampfreq(NULL)
   # WFDB-x: no default sampling frequency (the C program assumed 250 Hz if
   # the header did not specify one).
-  if (!legacy && freq <= 0 &&
+  if (!legacy && isTRUE(freq <= 0) &&
       ((from_i > 0 && wfdbx_time_needs_freq(arg(from_i))) ||
        (to_i > 0 && wfdbx_time_needs_freq(arg(to_i))) ||
        (maxl_i > 0 && wfdbx_time_needs_freq(arg(maxl_i))) ||
@@ -388,7 +388,7 @@ app_rdsamp <- function(args = character(0)) {
       timeunits <- HHMMSS
     } else if (nchar(p, type = "bytes") < 16) {
       timeunits <- SHORTTIMSTR
-    } else if (freq > 1) {
+    } else if (isTRUE(freq > 1)) {
       timeunits <- MSTIMSTR
     }
   }

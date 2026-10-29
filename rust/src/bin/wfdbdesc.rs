@@ -118,7 +118,9 @@ fn main() {
     // shown (the C program assumed 250 Hz). In legacy mode, the output is
     // that of the C program.
     let freq = wfdbx::sampfreq(NULL);
+    // As in C, these tests are not complements when freq is NaN.
     let timed = freq > 0.0 || legacy;
+    let untimed = freq <= 0.0 && !legacy;
     let p = if timed {
         wfdbx::mstimstr(0)
     } else {
@@ -133,7 +135,7 @@ fn main() {
         }
     );
     cprintf!(b"Length: ");
-    if !timed && (nsig < 1 || t > 0) {
+    if untimed && (nsig < 1 || t > 0) {
         cprintf!(b"%lld sample intervals\n", t);
     } else if nsig < 1 || t > 0 {
         let ts = if t > 0 {
@@ -167,7 +169,7 @@ fn main() {
                 310 | 311 => (3 * nbytes) / (4 * framesize),
                 _ => -1,
             };
-            if t >= 0 && !timed {
+            if t >= 0 && untimed {
                 cprintf!(b"%lld sample intervals [from signal file size]\n", t);
             } else if t >= 0 {
                 cprintf!(

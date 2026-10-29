@@ -1398,3 +1398,205 @@ case("rdsamp", "-r bs", cid="edge-bsize-intmax",
      files={"bs.hea": _BS % 2147483647})
 case("rdsamp", "-r bs -f s50", cid="edge-bsize-intmax-f",
      files={"bs.hea": _BS % 2147483647})
+
+
+# Multi-segment records and FLAC streams from the third review.
+# seeking into a later segment that has fewer signal groups
+_N1 = {"a0.dat": bytes(60), "a1.dat": bytes(60), "a2.dat": bytes(60),
+       "b0.dat": bytes(60),
+       "a.hea": "a 3 250 10\na0.dat 16 200/mV 12 0 0 0 0 X\n"
+                "a1.dat 16 200/mV 12 0 0 0 0 Y\na2.dat 16 200/mV 12 0 0 0 0 Z\n",
+       "b.hea": "b 3 250 10\nb0.dat 16 200/mV 12 0 0 0 0 X\n"
+                "b0.dat 16 200/mV 12 0 0 0 0 Y\nb0.dat 16 200/mV 12 0 0 0 0 Z\n",
+       "ms.hea": "ms/2 3 250 20\na 10\nb 10\n"}
+case("rdsamp", "-r ms -f s12", cid="edge-seg-fewer-groups", files=_N1)
+case("snip", "-i ms -n out -f s12", cid="edge-seg-fewer-groups-snip",
+     files=_N1)
+# a segment that cannot be opened after a zero-length segment with a byte
+# offset
+case("rdsamp", "-r ms", cid="edge-seg-unopenable",
+     files={"z.dat": b"XY", "z1.dat": b"", "s.dat": bytes(24),
+            "s1.dat": bytes(8),
+            "z.hea": "z 2 1000 0\nz.dat 8+2 200/mV 12 0 0 0 0 A\n"
+                     "z1.dat 16 200/mV 12 0 0 0 0 B\n",
+            "s.hea": "s 2 1000 4\ns.dat 212x2 200/mV 12 0 0 0 0 A\n"
+                     "s1.dat 16 200/mV 12 0 0 0 0 B\n",
+            "ms.hea": "ms/2 2 1000 4\nz 0\ns 4\n"})
+# a variable-layout segment whose signal file is missing
+case("rdsamp", "-r vm", cid="edge-seg-missing-file",
+     files={"a.dat": bytes(8),
+            "vm_L.hea": "vm_L 1 250 0\n~ 0 200/mV 12 0 0 0 0 ECG\n",
+            "a.hea": "a 1 250 4\na.dat 16 200/mV 12 0 0 0 0 ECG\n",
+            "b.hea": "b 1 250 4\nnosuch.dat 16 200/mV 12 0 0 0 0 ECG\n",
+            "vm.hea": "vm/3 1 250 8\nvm_L 0\na 4\nb 4\n"})
+# a sampling frequency of nan
+case("sigamp", "-r h1 -t s100 -q", cid="edge-sigamp-freq-nan",
+     files={"h1.hea": "h1 1 nan 250\n"
+                      "fmt310b.dat 310 100(-5)/mV 12 0 -1 -32290 0 sig0\n"})
+
+
+def _rnd_bytes(seed, n):
+    """n bytes of a fixed pseudo-random sequence."""
+    out = bytearray()
+    x = seed
+    for _ in range(n):
+        x = (x * 1103515245 + 12345) & 0x7fffffff
+        out.append(x >> 16 & 0xff)
+    return bytes(out)
+
+
+# a zero-length first segment, a null segment, and segments with other
+# numbers of signal groups: C reads past the end of its array of signal
+# groups (see KNOWN_C_BEHAVIORS.md)
+_N9 = {"m0.hea": "m0/4 4 250 614\nm0_s0 0\n~ 100\nm0_s2 1\nm0_s3 513\n",
+       "m0_s0.hea": "m0_s0 4 250 0\n"
+           "m0_s0_0.dat 212x2 12.5(0)/uV 12 1024 0 0 0 ECG\n"
+           "m0_s0_1.dat 80x3:40+7 1000/uV 0 0 0 0 0 ABP\n"
+           "m0_s0_2.dat 160+1 1(-1024)/mV 12 0 0 0 0 PLETH\n"
+           "m0_s0_2.dat 160+1 200(10)/mmHg 0 0 0 0 0 RESP\n",
+       "m0_s2.hea": "m0_s2 4 250 1\n"
+           "m0_s2_0.dat 8:0 12.5/uV 12 0 -172 -172 0 ECG\n"
+           "m0_s2_0.dat 8:1 12.5/mmHg 0 0 -285 -285 0 ABP\n"
+           "m0_s2_0.dat 8x2 200(-1024)/mmHg 0 1024 262 521 0 PLETH\n"
+           "m0_s2_1.dat 160 1000(10) 0 0 -10028 -10028 0 RESP\n",
+       "m0_s3.hea": "m0_s3 4 250 513\n"
+           "m0_s3_0.dat 8 12.5(10) 12 0 138 21348 0 ECG\n"
+           "m0_s3_1.dat 61x2:5 1000(10)/mV 16 0 21329 -4021 0 ABP\n"
+           "m0_s3_1.dat 61 1/mV 0 0 -7366 23810 0 PLETH\n"
+           "m0_s3_1.dat 61x4 12.5/mmHg 12 0 -29038 3713 0 RESP\n"}
+for _k, _f in enumerate(["m0_s0_0.dat", "m0_s0_1.dat", "m0_s0_2.dat",
+                         "m0_s2_0.dat", "m0_s2_1.dat", "m0_s3_0.dat",
+                         "m0_s3_1.dat"]):
+    _N9[_f] = _rnd_bytes(_k + 1, 3000)
+case("sigamp", "-r m0 -q", cid="edge-seg-group-past-end",
+     golden_impl="cpp", files=_N9)
+case("rdsamp", "-r m0 -X", cid="edge-seg-group-past-end-xml",
+     golden_impl="cpp", files=_N9)
+# a segment length beyond the range of WFDB_Time: the sum of the lengths
+# overflows (C: undefined behavior; WFDB-x wraps it as x86-64 does)
+case("rdsamp", "-r mh -p -f s1500 -t s1600", cid="edge-seg-length-overflow",
+     golden_impl="cpp",
+     files={"mh.hea": "mh/3 2 360 45000\n100s 99999999999999999999\n"
+                      "null 1800\n100s 21600\n"})
+
+
+def _flac_no_metadata():
+    """flac16.dat without its marker and metadata, one bit flipped in its
+    first frame."""
+    d = bytearray(_F16[86:])
+    d[1000] ^= 0x10
+    return bytes(d)
+
+
+def _flac_short_application():
+    """flac16.dat with an APPLICATION block of 2 bytes (shorter than its
+    4-byte ID) after STREAMINFO."""
+    d = bytearray(_F16[:42])
+    d[4] &= 0x7f
+    return bytes(d) + b"\x82\x00\x00\x02ab" + _F16[86:]
+
+
+# a frame found before any metadata, then damaged (libFLAC's rewind)
+case("rdsamp", "-r flac16", cid="edge-flac-no-metadata-bad-frame",
+     files={"flac16.dat": _flac_no_metadata()})
+# an APPLICATION block shorter than its ID: libFLAC fails
+case("rdsamp", "-r flac16 -t s3", cid="edge-flac-short-application",
+     files={"flac16.dat": _flac_short_application()})
+# an EDF file shorter than its fixed header: C reads uninitialized memory
+# (see KNOWN_C_BEHAVIORS.md)
+case("edf2mit", "-i t.edf -r o", cid="edge-edf2mit-truncated-header",
+     golden_impl="python", files={"t.edf": _rd("fmt16.edf")[:100]})
+
+# a sampling frequency of nan: C's comparisons of the frequency are false
+# for nan, and WFDB-x keeps them so
+_HNAN = "h1 1 nan 250\nfmt310b.dat 310 100(-5)/mV 12 0 -1 -32290 0 sig0\n"
+case("wfdbdesc", "h1", cid="edge-wfdbdesc-freq-nan", files={"h1.hea": _HNAN})
+case("sampfreq", "-a h2", cid="edge-sampfreq-freq-nan",
+     files={"h2.hea": "h2 2 nan\nfmt16.dat 16 200 12 0 0 0 0 a\n"
+                      "nosuch.dat 16 200 12 0 0 0 0 b\n"})
+# ... and mit2edf, on which C divides by zero (SIGFPE; see
+# KNOWN_C_BEHAVIORS.md)
+case("mit2edf", "-r h1 -o o.edf", cid="edge-mit2edf-freq-nan",
+     golden_impl="cpp", files={"h1.hea": _HNAN})
+
+
+# multi-segment records whose next segment cannot be opened: C keeps the
+# signal groups that isigopen allocated for it (zeroed), and does not
+# report a group number that is within them
+case("wfdb2mat", "-r rec", cid="edge-seg-unreadable-allocated",
+     files={
+            "rec.hea": "rec/5 2 128 202\n"
+                       "rec_s0 1\n"
+                       "rec_s0 1\n"
+                       "rec_s1 0\n"
+                       "rec_s2 100\n"
+                       "rec_s2 100\n",
+            "rec_s0.hea": "rec_s0 2 128 1\n"
+                          "rec_s0_0.dat 8+2 1000(10) 16 1024 -19923 -29154 0 V5\n"
+                          "rec_s0_0.dat 8 1000(10)/uV 8 0 0 0 0 V5\n",
+            "rec_s0_0.dat": _rnd_bytes(13, 200),
+            "rec_s1.hea": "rec_s1 2 128 0\n"
+                          "rec_s1_0.dat 32:1 65536(0)/mV 16 0 0 20090 0 V5\n"
+                          "rec_s1_1.dat 24:1+2 200/uV 12 0 16774 -21221 0 V5\n",
+            "rec_s1_0.dat": _rnd_bytes(15, 5000),
+            "rec_s1_1.dat": _rnd_bytes(16, 50),
+            "rec_s2.hea": "rec_s2 2 128 100\n"
+                          "rec_s2_0.dat 80+2 65536(0)/degC 12 0 -25253 16429 0 MLII\n"
+                          "rec_s2_1.dat 61x4:1 0 16 1024 0 0 0 RESP\n",
+     })
+case("rdsamp", "-r rec -s 3 1 3 -t s37 -H",
+     cid="edge-seg-unreadable-allocated-H",
+     files={
+            "rec.hea": "rec/5 4 128 513\n"
+                       "rec_L 0\n"
+                       "rec_s0 0\n"
+                       "rec_s1 0\n"
+                       "rec_s1 0\n"
+                       "rec_s2 513\n",
+            "rec_L.hea": "rec_L 4 128 0\n"
+                         "~ 0 200/mV 12 0 0 0 0 ECG\n"
+                         "~ 0 200/mV 12 0 0 0 0 ABP\n"
+                         "~ 0 200/mV 12 0 0 0 0 PLETH\n"
+                         "~ 0 200/mV 12 0 0 0 0 RESP\n",
+            "rec_s0.hea": "rec_s0 1 128 0\n"
+                          "rec_s0_0.dat 32:40 65536(0)/degC 0 -3 11929 -12964 0 RESP\n",
+            "rec_s0_0.dat": _rnd_bytes(14, 50),
+            "rec_s1.hea": "rec_s1 3 128 0\n"
+                          "rec_s1_0.dat 24:1+2 0 32 0 14320 -20060 0 ABP\n"
+                          "rec_s1_0.dat 24x2:1 200 24 0 0 0 0 PLETH\n"
+                          "rec_s1_1.dat 310:5+2 12.5/degC 16 0 0 0 0 ECG\n",
+            "rec_s1_0.dat": _rnd_bytes(16, 5000),
+            "rec_s1_1.dat": _rnd_bytes(17, 200),
+            "rec_s2.hea": "rec_s2 1 128 513\n"
+                          "rec_s2_0.dat 311x4 65536(0)/uV 24 0 -26302 13968 0 RESP\n",
+     })
+
+# xform from a record whose second segment cannot be opened: the library's
+# messages come after the "out of range" lines of the first frame, as in C
+case("xform", "-i m0 -o o1", cid="edge-xform-segment-messages",
+     files={"m0.hea": "m0/2 4 128 2 08:00:00 05/06/2007\nm0_s0 1\nm0_s1 1\n",
+            "m0_s0.hea": "m0_s0 4 128 1\n"
+                "m0_s0_0.dat 32x2:1 1(10)/mmHg 32 0 397631722 -15915 0 ECG\n"
+                "m0_s0_0.dat 32:0 12.5/uV 0 0 106065351 28103 0 ABP\n"
+                "m0_s0_0.dat 32x4:1 200/uV 12 0 1945969286 -30159 0 PLETH\n"
+                "m0_s0_1.dat 80 12.5(10)/mmHg 12 0 -28 -28 0 RESP\n",
+            "m0_s1.hea": "m0_s1 4 128 1\n"
+                "m0_s1_0.dat 310 1000(-1024)/mV 10 0 191 191 0 ECG\n"
+                "m0_s1_1.dat 16x2:40 200(-1024)/mV 16 0 -22851 19825 0 ABP\n"
+                "m0_s1_2.dat 212x4:0 12.5(10) 12 0 1352 5382 0 PLETH\n"
+                "m0_s1_2.dat 212x2 12.5/mV 12 0 1474 2954 0 RESP\n",
+            "o1.hea": "o1 8 0.5/100(5) 0\n"
+                "o1_0.dat 311 65536(0) 10 1024 0 8043 0 ABP\n"
+                "o1_0.dat 311:40 3.7(-1024) 10 -3 15858 0 0 MLII\n"
+                "o1_0.dat 311 0(100000) 10 -3 0 0 0 sig2\n"
+                "o1_1.dat 508 200(1)/l/s 8 2048 0 0 0 ABP\n"
+                "o1_2.dat 524 1000/degC 12 0 0 0 0 x\n"
+                "o1_2.dat 524 200/degC 24 0 0 0 0 ECG\n"
+                "o1_2.dat 524 0(100000)/degC 24 1024 36008 0 0 RESP\n"
+                "o1_3.dat 16 65536(-1024)/% 16 -3 19159 0 0 RESP\n",
+            "m0_s0_0.dat": _rnd_bytes(21, 400),
+            "m0_s0_1.dat": _rnd_bytes(22, 50),
+            "m0_s1_0.dat": _rnd_bytes(23, 100),
+            "m0_s1_1.dat": _rnd_bytes(24, 400),
+            "m0_s1_2.dat": _rnd_bytes(25, 200)},
+     flac_files=["o1_1.dat", "o1_2.dat"])

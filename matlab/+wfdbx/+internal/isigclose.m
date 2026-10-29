@@ -48,6 +48,7 @@ for g = 1:numel(igd)
 end
 S.igd = {};
 S.nigroup = 0;
+S.nigalloc = 0;
 S.istime = 0;
 S.gvc = 1;
 S.ispfmax = 1;

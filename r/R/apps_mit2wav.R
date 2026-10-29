@@ -116,7 +116,7 @@ app_mit2wav <- function(args = character(0)) {
   nsig <- r$nsig
   s <- r$si
   if (nsig <= 0) cexit(3)
-  if (!wfdbx_get_legacy() && sampfreq(NULL) <= 0)  # WFDB-x: no default frequency
+  if (!wfdbx_get_legacy() && isTRUE(sampfreq(NULL) <= 0))  # WFDB-x: no default frequency
                                                    # (except in legacy mode)
     .app_nofreq(pname, record, 3)
   if (!is.null(nrec) && newheader(nrec) < 0) cexit(3)

@@ -94,8 +94,9 @@ if argc == 3 && (strcmp(argv{2}, '-a') || strcmp(argv{2}, '-H'))
         if i <= numel(si)
             wfdbx.internal.cprintf('%s\t%g\n', si(i).desc, si(i).spf * freq);
         else    % (a signal that could not be opened: C prints the zeroed
-            % entry of its array)
-            wfdbx.internal.cout(sprintf('(null)\t0\n'));
+            % entry of its array: spf 0 times freq, which is nan if freq is
+            % nan, and -nan if it is infinite)
+            wfdbx.internal.cprintf('(null)\t%g\n', 0 * freq);
         end
     end
 end

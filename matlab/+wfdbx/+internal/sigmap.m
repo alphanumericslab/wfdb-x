@@ -37,7 +37,12 @@ idx = [smi(1:tspf).index] + 1;
 scale = [smi(1:tspf).scale];
 offset = [smi(1:tspf).offset];
 so = [smi(1:tspf).sample_offset];
-x = ivec(idx);
+% (after a segment fails to open (sigmap_init: frame size too large), an
+% index can be past the end of IVEC: C reads past its buffer there, and
+% finds 0, as C++ does)
+x = zeros(1, tspf);
+k = idx <= numel(ivec);
+x(k) = ivec(idx(k));
 v = x .* scale + offset;
 out = zeros(1, tspf);
 for i = 1:tspf

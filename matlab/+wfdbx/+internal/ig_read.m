@@ -109,6 +109,7 @@ else
     stat = ig.stat;
     nbuf = numel(buf);
 end
+eof = false;
 for k = 1:n
     % number of bytes needed by this sample
     switch fmt
@@ -136,8 +137,19 @@ for k = 1:n
         b = zeros(1, nb);
         for j = 1:nb
             if bp >= be
-                [buf, bp, be, stat] = fill(ig, buf);
-                nbuf = numel(buf);
+                if eof
+                    % (what fill would do again: nothing more to read)
+                    bp = 0;
+                    be = 0;
+                    stat = 0;
+                else
+                    [buf, bp, be, stat] = fill(ig, buf);
+                    nbuf = numel(buf);
+                    % (at the end of the file, and nothing read ahead: the
+                    % next refills of this call would read nothing either,
+                    % so they are not tried, which saves a read per sample)
+                    eof = stat == 0 && isempty(ig.ahead);
+                end
             end
             if bp < nbuf
                 b(j) = double(buf(bp + 1));

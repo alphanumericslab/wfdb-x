@@ -116,6 +116,7 @@ sig_reset <- function() {
   st$igd <- list()
   st$nisig <- 0
   st$nigroup <- 0
+  st$nigalloc <- 0     # C's maxigroup: allocated signal groups
   st$ispfmax <- 0
   st$tvector <- numeric(0)
   st$uvector <- numeric(0)
@@ -598,7 +599,7 @@ wfdbx_legacy_args <- function(argv) {
     smi$offset <- numeric(tspf)
     smi$sample_offset <- rep(WFDB_INVALID_SAMPLE, tspf)
     st$ispfmax <- st$vspfmax
-    if (st$isd[[1L]]$info$fmt == 0 && st$nisig == 1) {
+    if (st$nisig == 1 && st$isd[[1L]]$info$fmt == 0) {
       st$smi <- smi
       return(0)
     }
@@ -690,6 +691,10 @@ wfdbx_legacy_args <- function(argv) {
 .sigmap <- function(ivec) {
   smi <- .sig$smi
   x <- ivec[smi$index + 1]
+  # After a segment fails to open (sigmap_init: frame size too large), an
+  # index can be past the end of ivec; C reads past its buffer there, and
+  # finds 0 (as C++ does).
+  x[is.na(x)] <- 0
   v <- x * smi$scale + smi$offset
   so <- smi$sample_offset
   out <- numeric(length(x))
@@ -992,18 +997,18 @@ wfdbx_legacy_args <- function(argv) {
   p <- strtok_next(tok, sep)
   if (!is.null(p)) {
     f <- strtod(p)[1L]
-    if (f <= 0) {
+    if (isTRUE(f <= 0)) {       # (nan is accepted, as in C)
       wfdb_error("init: sampling frequency in record %s header is incorrect\n", record)
       return(-2)
     }
-    if (st$ffreq > 0 && f != st$ffreq) {
+    if (isTRUE(st$ffreq > 0) && !isTRUE(f == st$ffreq)) {
       wfdb_error("warning (init):\n")
       wfdb_error(" record %s sampling frequency differs", record)
       wfdb_error(" from that of previously opened record\n")
     } else {
       st$ffreq <- f
     }
-  } else if (st$legacy && st$ffreq == 0) {
+  } else if (st$legacy && isTRUE(st$ffreq == 0)) {
     st$ffreq <- WFDB_DEFFREQ
   }
   # WFDB-x: if the header does not specify the sampling frequency (and the
@@ -1021,7 +1026,7 @@ wfdbx_legacy_args <- function(argv) {
       if (k2 > 0L) st$bcount <- strtod(pb, k2 + 1)[1L]
     }
   }
-  if (st$cfreq <= 0) st$cfreq <- st$ffreq
+  if (isTRUE(st$cfreq <= 0)) st$cfreq <- st$ffreq
   p <- strtok_next(tok, sep)
   if (!is.null(p)) {
     ns <- strtol(p)[1L]
@@ -1053,6 +1058,7 @@ wfdbx_legacy_args <- function(argv) {
     st$msnsamples <- st$nsamples
     segarray <- vector("list", max(st$segments, 0))
     ns <- 0
+    nsx <- c(0, 0)               # (ns, exactly: see i64_add)
     fail <- function() {
       st$segarray <- NULL
       st$segments <- 0
@@ -1086,7 +1092,9 @@ wfdbx_legacy_args <- function(argv) {
         return(fail())
       }
       seg$samp0 <- ns
-      ns <- ns + seg$nsamp
+      # (a WFDB_Time: the sum wraps as in C on x86-64)
+      nsx <- i64_add(nsx, i64_strtol(p))
+      ns <- i64_dbl(nsx)
       segarray[[i]] <- seg
     }
     st$segarray <- segarray
@@ -1097,7 +1105,7 @@ wfdbx_legacy_args <- function(argv) {
     } else if (ns != st$msnsamples) {
       wfdb_error("warning (init): in record %s, stated record length (%d)\n",
                  record, st$msnsamples)
-      wfdb_error(" does not match sum of segment lengths (%d)\n", ns)
+      wfdb_error(" does not match sum of segment lengths (%s)\n", i64_str(nsx))
     }
     return(0)
   }
@@ -1264,6 +1272,7 @@ wfdbx_legacy_args <- function(argv) {
   }
   st$igd <- list()
   st$nigroup <- 0
+  st$nigalloc <- 0
   st$bulk_layout <- NULL
   st$istime <- 0
   st$gvc <- 1
@@ -1357,10 +1366,13 @@ wfdbx_legacy_args <- function(argv) {
   st <- .sig
   trem <- 0
   d <- 1
-  # (C reads igd[g] even if g is not a signal group number: undefined
-  # behavior, here the group number is then reported as incorrect)
+  # (C reads igd[g] even if g is not a signal group number: a slot
+  # allocated past the open groups is zeroed; past the allocated slots,
+  # undefined behavior, here the group number is then reported as
+  # incorrect)
   if (st$nigroup < 2 && st$istime == t && st$gvc == st$ispfmax &&
-      g >= 0 && g < length(st$igd) && st$igd[[g + 1]]$start == 0) return(0)
+      g >= 0 && g < st$nigalloc &&
+      (g >= length(st$igd) || st$igd[[g + 1]]$start == 0)) return(0)
   s <- 0
   while (s < st$nisig && g != st$isd[[s + 1]]$info$group) s <- s + 1
   if (s == st$nisig) {
@@ -1550,7 +1562,12 @@ wfdbx_legacy_args <- function(argv) {
   g <- st$nigroup
   while (g) {
     g <- g - 1
-    if (g < length(st$igd) && st$igd[[g + 1]]$initial_skip)
+    # (as in C, the groups are those open now.  A seek that opens another
+    # segment, or fails to, may leave fewer groups: the allocated slots past
+    # them are zeroed (no initial skip).  WFDB-x: a group number past the
+    # allocated slots is reported as incorrect by .isgsetframe: C reads past
+    # its group array, see KNOWN_C_BEHAVIORS.md)
+    if (g >= st$nigalloc || (g < st$nigroup && st$igd[[g + 1]]$initial_skip))
       .isgsetframe(g, if (st$in_msrec) st$segarray[[st$segp + 1]]$samp0 else 0)
   }
   # (the seek may have opened another segment, with new signals)
@@ -1604,10 +1621,13 @@ wfdbx_legacy_args <- function(argv) {
           stat <- -3
         } else if (st$in_msrec && !is.null(st$segarray) && st$segp < st$segend) {
           st$segp <- st$segp + 1
+          # (the samples read so far stay in the frame, as C writes them
+          # in place: in ovec, or in the caller's vector)
+          if (need_sigmap) st$ovec <- w else vec <- w[seq_along(vec)]
           if (.isigopen(st$segarray[[st$segp + 1]]$recname, st$nvsig)$nsig <= 0) {
             wfdb_error("getvec: error opening segment %s\n",
                        st$segarray[[st$segp + 1]]$recname)
-            return(list(stat = -3, v = if (need_sigmap) vec else w))
+            return(list(stat = -3, v = vec))
           } else {
             st$istime <- st$segarray[[st$segp + 1]]$samp0
             return(.getskewedframe(vec))
@@ -1795,6 +1815,10 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
     return(list(nsig = navail, si = si))
   }
   if (nsig > navail) nsig <- navail
+  # (as C's allocigroup: the group slots allocated, before the signal files
+  # are opened; those past the open groups are zeroed)
+  nn <- min(st$nigroup + st$hsd[[navail]]$info$group + 1, st$nigroup + nsig)
+  if (st$nigalloc < nn) st$nigalloc <- nn
   if (st$ibsize <= 0) st$ibsize <- .BUFSIZ
   nisig0 <- st$nisig
   nigroup0 <- st$nigroup
@@ -2376,9 +2400,13 @@ isigsettime <- function(t) {
     }
     if (t == curtime) return(0)
   }
-  for (g in seq_len(max(st$nigroup - 1, 0))) {
+  # Read nigroup again on every pass, as C does: opening another segment
+  # can change it.
+  g <- 1
+  while (g < st$nigroup) {
     stat <- isgsettime(g, t)
     if (stat < 0) break
+    g <- g + 1
   }
   if (stat == 0) stat <- isgsettime(0, t)
   stat
@@ -2419,7 +2447,7 @@ isgsettime <- function(g, t) {
         return(-1)
       }
     }
-    if (st$ifreq > 0 && st$ifreq != st$sfreq) {
+    if (st$ifreq > 0 && !isTRUE(st$ifreq == st$sfreq)) {
       st$gvtime <- 0
       r <- .rgetvec(st$gv0)
       st$gv0 <- r$v
@@ -2586,7 +2614,7 @@ setheader <- function(record, siarray, nsig = length(siarray)) {
     return(list(stat = -1, si = siarray))
   }
   out <- list(csprintf("%s %d %.12g", .hea_name(record, record), nsig, st$ffreq))
-  if ((st$cfreq > 0 && st$cfreq != st$ffreq) || st$bcount != 0) {
+  if ((isTRUE(st$cfreq > 0) && !isTRUE(st$cfreq == st$ffreq)) || st$bcount != 0) {
     out[[length(out) + 1L]] <- csprintf("/%.12g", st$cfreq)
     if (st$bcount != 0) out[[length(out) + 1L]] <- csprintf("(%.12g)", st$bcount)
   }
@@ -2715,7 +2743,7 @@ setmsheader <- function(record, segment_name, nsegments = length(segment_name)) 
     return(-1)
   }
   out <- list(csprintf("%s/%d %d %.12g", .hea_name(record, record), nsegments, nsig, msfreq))
-  if ((mscfreq > 0 && mscfreq != msfreq) || msbcount != 0) {
+  if ((isTRUE(mscfreq > 0) && !isTRUE(mscfreq == msfreq)) || msbcount != 0) {
     out[[length(out) + 1L]] <- csprintf("/%.12g", mscfreq)
     if (msbcount != 0) out[[length(out) + 1L]] <- csprintf("(%.12g)", msbcount)
   }
@@ -2916,7 +2944,7 @@ sampfreq <- function(record = NULL) {
 #' Set the sampling frequency.
 setsampfreq <- function(freq) {
   st <- .sig
-  if (freq >= 0) {
+  if (isTRUE(freq >= 0)) {         # (not nan, as in C)
     st$sfreq <- st$ffreq <- freq
     if (st$spfmax == 0) st$spfmax <- 1
     if (bitwAnd(st$gvmode, WFDB_HIGHRES) == WFDB_HIGHRES) st$sfreq <- st$sfreq * st$spfmax
@@ -2971,7 +2999,8 @@ setbasetime <- function(string) {
 .tfreq <- function() {
   st <- .sig
   # (legacy mode: 1 sample per second, as the C library did)
-  if (st$ifreq > 0) st$ifreq else if (st$sfreq > 0) st$sfreq else if (st$legacy) 1 else 0
+  # (a frequency of nan is not > 0)
+  if (isTRUE(st$ifreq > 0)) st$ifreq else if (isTRUE(st$sfreq > 0)) st$sfreq else if (st$legacy) 1 else 0
 }
 
 # WFDB-x: the time conversion functions need a sampling frequency; the C
@@ -2994,7 +3023,7 @@ wfdbx_time_needs_freq <- function(string) {
   while (i <= n && b[i] %in% c(32L, 9L, 10L, 13L)) i <- i + 1L
   c <- if (i <= n) b[i] else 0L
   if (c %in% c(101L, 105L, 111L, 115L)) return(0L)     # 'e', 'i', 'o', 's'
-  if (c == 99L) return(as.integer(.sig$cfreq > 0))      # 'c'
+  if (c == 99L) return(as.integer(isTRUE(.sig$cfreq > 0)))      # 'c'
   1L
 }
 
@@ -3066,7 +3095,7 @@ mstimstr <- function(t) {
 
 getcfreq <- function() {
   st <- .sig
-  if (st$cfreq > 0) st$cfreq else st$ffreq
+  if (isTRUE(st$cfreq > 0)) st$cfreq else st$ffreq
 }
 
 setcfreq <- function(freq) {
@@ -3092,7 +3121,7 @@ setbasecount <- function(counter) {
   n <- length(b)
   c <- if (n) b[1L] else 0L
   if (c == 99L) {                                   # 'c'
-    if (st$cfreq > 0) return(d2l((strtod(b, 2)[1L] - st$bcount) * f / st$cfreq))
+    if (isTRUE(st$cfreq > 0)) return(d2l((strtod(b, 2)[1L] - st$bcount) * f / st$cfreq))
     return(strtol(b, 10, 2)[1L])
   }
   if (c == 101L) {                                  # 'e'
@@ -3644,7 +3673,8 @@ wfdb_freeinfo <- function() {
   tspf <- length(smi$index)
   out <- matrix(0, n, tspf)
   for (i in seq_len(tspf)) {
-    x <- raw[, smi$index[i] + 1]
+    # (an index past the input frame gives 0, as in .sigmap)
+    x <- if (smi$index[i] < ncol(raw)) raw[, smi$index[i] + 1] else numeric(n)
     v <- x * smi$scale[i] + smi$offset[i]
     so <- smi$sample_offset[i]
     if (so != 0) {
@@ -3934,6 +3964,16 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
 # of the vectors of the frame at which the checksum is verified); stat is
 # then -4 unless reading stops at a status below -1.  (.bulk_frames never
 # decodes that frame.)
+# (the vector of the getvec calls that a bulk block stands for: the next
+# getvec call starts from it, as C's caller passes the same vector again, and
+# leaves the samples it does not read unchanged)
+.getframes_last <- function(blk) {
+  st <- .sig
+  k <- min(ncol(blk), length(st$gvec))
+  if (nrow(blk) > 0 && k > 0) st$gvec[seq_len(k)] <- as.numeric(blk[nrow(blk), seq_len(k)])
+  invisible()
+}
+
 .getframes <- function(n, minstat = 0, keep_checksum_frame = FALSE) {
   st <- .sig
   nsig <- max(st$nvsig, st$nisig)
@@ -3945,11 +3985,14 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
   # (blocks of a multiple of 6 frames, so that formats 212, 310 and 311 end
   # each block on a whole packed unit)
   per <- if (st$ispfmax > 1 && bitwAnd(st$gvmode, WFDB_HIGHRES) == WFDB_HIGHRES) st$ispfmax else 1
-  maxv <- .BULK_MAXFRAMES - .BULK_MAXFRAMES %% (6 * per)
+  # (at least one such block: a block of 0 frames would read nothing)
+  maxv <- max(.BULK_MAXFRAMES - .BULK_MAXFRAMES %% (6 * per), 6 * per)
   # (integer blocks: converted once, by rbind if there are several)
+  .wfdb_io$capture_row <- 0
   blk <- .bulk_frames(min(n, maxv), int = TRUE)
   if (!is.null(blk) && nrow(blk) >= n) {
     if (is.integer(blk)) storage.mode(blk) <- "double"
+    .getframes_last(blk)
     return(list(v = blk, stat = nsig))
   }
   # Otherwise: blocks decoded by .bulk_frames, and vectors read by getvec
@@ -3960,6 +4003,7 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
   acc <- NULL
   nrows <- 0
   cksum_err <- FALSE
+  io <- .wfdb_io
   repeat {
     if (!is.null(blk) && nrow(blk) > 0) {
       if (nrows > 0) {
@@ -3968,7 +4012,9 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
       }
       parts[[length(parts) + 1L]] <- blk
       got <- got + nrow(blk)
+      .getframes_last(blk)
     } else {
+      io$capture_row <- got     # (for the messages kept by wfdb_error)
       r <- .getvec(st$gvec)
       st$gvec <- r$v
       stat <- r$stat
@@ -3989,6 +4035,7 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
       got <- got + 1
     }
     if (got >= n) break
+    io$capture_row <- got
     blk <- .bulk_frames(min(n - got, maxv), int = TRUE)
   }
   if (nrows > 0) parts[[length(parts) + 1L]] <- acc[seq_len(nrows), , drop = FALSE]
@@ -4003,26 +4050,32 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
 }
 
 # Read up to n complete frames at once: equivalent to calling getframe up
-# to n times, stopping at the first negative status.  Returns list(v =
-# matrix with one row per frame read and tspf columns, stat = the status of
-# the first frame that could not be read, or the number of signals if all
-# n were read).  n may be Inf.
-.getframes_full <- function(n) {
+# to n times, stopping at the first negative status (or, if nsig is given,
+# at the first status other than nsig, as a program that compares
+# getframe's result with its number of signals stops: after a segment with
+# another number of signals, getframe returns that number).  Returns
+# list(v = matrix with one row per frame read and tspf columns, stat = the
+# status of the first frame that could not be read, or the number of
+# signals if all n were read).  n may be Inf.
+.getframes_full <- function(n, nsig = NULL) {
   st <- .sig
   tspf <- st$tspf
   parts <- list()
   got <- 0
   stat <- max(st$nvsig, st$nisig)
   while (got < n) {
-    blk <- .bulk_frames(min(n - got, .BULK_MAXFRAMES), full = TRUE)
+    # (the frames read in bulk all have the status nisig)
+    blk <- if (is.null(nsig) || st$nisig == nsig)
+      .bulk_frames(min(n - got, .BULK_MAXFRAMES), full = TRUE)
     if (!is.null(blk) && nrow(blk) > 0) {
       parts[[length(parts) + 1L]] <- blk
       got <- got + nrow(blk)
+      .getframes_last(blk)
       next
     }
     r <- getframe()
     stat <- r$stat
-    if (stat < 0) break
+    if (stat < 0 || (!is.null(nsig) && stat != nsig)) break
     parts[[length(parts) + 1L]] <- matrix(r$v, 1L, tspf)
     got <- got + 1
   }

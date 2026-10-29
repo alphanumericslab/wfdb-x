@@ -54,8 +54,8 @@ import re
 import time as _time
 
 from ._cstd import (LONG_MIN, LONG_MAX, INT_MAX, INT_MIN, UINT_MAX, strtol,
-                    strtod, Strtok, cdiv, cmod, int16, int32, sprintf, d2l,
-                    cstr, fdiv as _fdiv)
+                    strtod, Strtok, cdiv, cmod, int16, int32, int64, sprintf,
+                    d2l, cstr, fdiv as _fdiv)
 from . import _flac
 from . import _wfdbio as wio
 from ._wfdbio import wfdb_error, wfdb_open, WFDB_READ, WFDB_WRITE, \
@@ -532,6 +532,7 @@ class _SigState:
         self.igd = []
         self.nisig = 0
         self.nigroup = 0
+        self.nigalloc = 0      # C's maxigroup: allocated signal groups
         self.ispfmax = 0
         self.tvector = []
         self.uvector = []
@@ -585,6 +586,10 @@ class _SigState:
         self.gv0 = None
         self.gv1 = None
         self.rgetvec_stat = 0
+        # WFDB-x: set by getframes(): None, or (k, f) if the sampling
+        # frequency changed (a segment failed to open) while reading frame
+        # k of the result, f being the frequency of the frames before it
+        self.getframes_sfreq = None
         # time/date strings
         self.date_string = ""
         self.time_string = ""
@@ -730,7 +735,7 @@ def _sigmap_init(first_segment):
             smi[s].offset = 0.0
             smi[s].sample_offset = WFDB_INVALID_SAMPLE
         s_.ispfmax = s_.vspfmax
-        if s_.isd[0].info.fmt == 0 and s_.nisig == 1:
+        if s_.nisig == 1 and s_.isd[0].info.fmt == 0:
             return 0
         j = 0
         for i in range(s_.nisig):
@@ -808,9 +813,13 @@ def _sigmap_init(first_segment):
 
 def _sigmap(vector, ivec):
     smi = _s.smi
+    n = len(ivec)
     for i in range(_s.tspf):
         m = smi[i]
-        x = ivec[m.index]
+        # After a segment fails to open (sigmap_init: frame size too large),
+        # an index can be past the end of ivec; C reads past its buffer
+        # there, and finds 0 (as C++ does).
+        x = ivec[m.index] if m.index < n else 0
         if x == WFDB_INVALID_SAMPLE:
             vector[i] = WFDB_INVALID_SAMPLE
         else:
@@ -1198,7 +1207,8 @@ def _readheader(record):
                 s_.segments = 0
                 return -2
             seg.samp0 = ns
-            ns += seg.nsamp
+            # (a WFDB_Time: the sum wraps as in C on x86-64)
+            ns = int64(ns + seg.nsamp)
             segarray.append(seg)
         s_.segarray = segarray
         s_.segend = len(segarray) - 1
@@ -1361,7 +1371,7 @@ def _isigclose():
         if ig.fp is not None:
             ig.fp.close()
     s_.igd = []
-    s_.nigroup = 0
+    s_.nigroup = s_.nigalloc = 0
     s_.istime = 0
     s_.gvc = s_.ispfmax = 1
     if s_.hheader is not None:
@@ -1427,10 +1437,13 @@ def _isgsetframe(g, t):
     s_ = _s
     trem = 0
     d = 1
-    # (C reads igd[g] even if g is not a signal group number: undefined
-    # behavior, here the group number is then reported as incorrect)
+    # (C reads igd[g] even if g is not a signal group number: a slot
+    # allocated past the open groups is zeroed; past the allocated slots,
+    # undefined behavior, here the group number is then reported as
+    # incorrect)
     if s_.nigroup < 2 and s_.istime == t and s_.gvc == s_.ispfmax and \
-            0 <= g < len(s_.igd) and s_.igd[g].start == 0:
+            0 <= g < s_.nigalloc and \
+            (g >= len(s_.igd) or s_.igd[g].start == 0):
         return 0
     s = 0
     while s < s_.nisig and g != s_.isd[s].info.group:
@@ -1611,14 +1624,19 @@ def _getskewedframe(vector, vstart=0):
     if stat == 0:
         return -1 if s_.nvsig > 0 else 0
     isd = s_.isd
-    igd = s_.igd
     if s_.istime == 0:
         for s in range(s_.nisig):
             isd[s].samp = isd[s].info.initval
     g = s_.nigroup
     while g:
         g -= 1
-        if igd[g].initial_skip:
+        # (as in C, the groups are those open now.  A seek that opens
+        # another segment, or fails to, may leave fewer groups: the
+        # allocated slots past them are zeroed (no initial skip).  WFDB-x:
+        # a group number past the allocated slots is reported as incorrect
+        # by _isgsetframe: C reads past its group array, see
+        # KNOWN_C_BEHAVIORS.md)
+        if g >= s_.nigalloc or (g < s_.nigroup and s_.igd[g].initial_skip):
             _isgsetframe(g, s_.segarray[s_.segp].samp0 if s_.in_msrec else 0)
     # (the seek may have opened another segment, with new signals)
     isd = s_.isd
@@ -1878,6 +1896,13 @@ def isigopen(record, siarray=None, nsig=0):
         return navail
     if nsig > navail:
         nsig = navail
+    # (as C's allocigroup: the group slots allocated, before the signal
+    # files are opened; those past the open groups are zeroed)
+    nn = s_.nigroup + s_.hsd[navail - 1].info.group + 1
+    if nn > s_.nigroup + nsig:
+        nn = s_.nigroup + nsig
+    if s_.nigalloc < nn:
+        s_.nigalloc = nn
     if s_.ibsize <= 0:
         s_.ibsize = BUFSIZ
     nisig0 = s_.nisig
@@ -2439,6 +2464,10 @@ def getframe(vector):
             s_.dsbi += tspf
             if s_.dsbi >= s_.dsblen:
                 s_.dsbi = 0
+        # (after a segment fails to open, ispfmax is 1 and getvec passes
+        # its vector, of nvsig samples, for a whole frame: C writes past
+        # its end; the samples that fit are kept, as in C++)
+        n = len(vector)
         j = 0
         for s in range(s_.nvsig):
             vs = s_.vsd[s]
@@ -2446,7 +2475,8 @@ def getframe(vector):
             if i >= s_.dsblen:
                 i %= s_.dsblen
             for c in range(vs.info.spf):
-                vector[j] = dsbuf[i]
+                if j < n:
+                    vector[j] = dsbuf[i]
                 j += 1
                 i += 1
     else:
@@ -2698,10 +2728,14 @@ def isigsettime(t):
             curtime = (s_.istime - 1) * s_.ispfmax + s_.gvc
         if t == curtime:
             return 0
-    for g in range(1, s_.nigroup):
+    # Read nigroup again on every pass, as C does: opening another segment
+    # can change it.
+    g = 1
+    while g < s_.nigroup:
         stat = isgsettime(g, t)
         if stat < 0:
             break
+        g += 1
     if stat == 0:
         stat = isgsettime(0, t)
     return stat
@@ -3068,7 +3102,7 @@ def setmsheader(record, segment_name, nsegments=None):
                 wfdb_error("setmsheader: incorrect sampling frequency in "
                            "segment %s\n", segment_name[i])
                 return -4
-            s_.msnsamples += ns[i]
+            s_.msnsamples = int64(s_.msnsamples + ns[i])
     s_.oheader = wfdb_open("hea", record, WFDB_WRITE)
     if s_.oheader is None:
         wfdb_error("setmsheader: can't create header file for record %s\n",
@@ -4432,7 +4466,11 @@ def _getframes_into(out, row, n, cols=None, keep_checksum_frame=False):
         if m:
             got += m
             continue
+        f = s_.sfreq
         stat = getvec(v)
+        if s_.sfreq != f and s_.getframes_sfreq is None and \
+                not (f != f and s_.sfreq != s_.sfreq):     # (NaN)
+            s_.getframes_sfreq = (row + got, f)
         if stat < 0 and not (stat == -4 and keep_checksum_frame):
             break
         out[row + got] = v[:nsig] if cols is None else [v[c] for c in cols]
@@ -4462,10 +4500,15 @@ def getframes(n):
     blocks = []
     total = 0
     stat = nsig
+    s_.getframes_sfreq = None
     while total < n:
         k = min(n - total, _GETFRAMES_BLOCK)
         out = np.empty((k, nsig), np.int64)
+        changed = s_.getframes_sfreq is not None
         got, stat = _getframes_into(out, 0, k)
+        if s_.getframes_sfreq is not None and not changed and total:
+            r, f = s_.getframes_sfreq
+            s_.getframes_sfreq = (r + total, f)
         blocks.append(out[:got])
         total += got
         if got < k:

@@ -101,11 +101,13 @@ function wfdbdesc_main(args::Vector{String})
     # shown (the C program assumed 250 Hz). In legacy mode, the output is
     # that of the C program.
     freq = sampfreq(nothing)
+    # As in C, these tests are not complements when freq is NaN.
     showfreq = freq > 0.0 || legacy
+    untimed = freq <= 0.0 && !legacy
     p = showfreq ? mstimstr(0) : ""
     cprintf("\nStarting time: %s\n", startswith(p, '[') ? p : "not specified")
     cprintf("Length: ")
-    if !showfreq && (nsig < 1 || t > 0)
+    if untimed && (nsig < 1 || t > 0)
         cprintf("%lld sample intervals\n", t)
     elseif nsig < 1 || t > 0
         cprintf("%s (%lld sample intervals)\n", t > 0 ? mstimstr(t) : "0", t)
@@ -126,7 +128,7 @@ function wfdbdesc_main(args::Vector{String})
                 fmt == 32 ? nbytes ÷ (4 * framesize) :
                 fmt == 212 ? (2 * nbytes) ÷ (3 * framesize) :
                 (fmt == 310 || fmt == 311) ? (3 * nbytes) ÷ (4 * framesize) : Int64(-1)
-            if t >= 0 && !showfreq
+            if t >= 0 && untimed
                 cprintf("%lld sample intervals [from signal file size]\n", t)
             elseif t >= 0
                 cprintf("%s (%lld sample intervals) [from signal file size]\n", mstimstr(t), t)

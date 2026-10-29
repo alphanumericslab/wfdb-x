@@ -72,6 +72,13 @@ wfdbio_reset <- function() {
   st$error_print <- TRUE
   st$error_flag <- FALSE
   st$error_message <- NULL     # raw
+  # WFDB-x: while capture is TRUE, the messages printed are kept in
+  # captured instead, each as list(row, text), row being capture_row (the
+  # row of the result of getframes being read), for a tool that prints them
+  # in order with its own messages (xform)
+  st$capture <- FALSE
+  st$captured <- list()
+  st$capture_row <- 0
   st$wfdb_filename <- NULL
   st$irec <- ""
   st$mem_behavior <- 1
@@ -337,7 +344,13 @@ wfdb_error <- function(fmt, ...) {
   st <- .wfdb_io
   st$error_flag <- TRUE
   st$error_message <- csprintf(fmt, ...)
-  if (st$error_print) cerr(st$error_message)
+  if (st$error_print) {
+    if (st$capture) {
+      st$captured[[length(st$captured) + 1L]] <- list(st$capture_row, st$error_message)
+    } else {
+      cerr(st$error_message)
+    }
+  }
   invisible()
 }
 

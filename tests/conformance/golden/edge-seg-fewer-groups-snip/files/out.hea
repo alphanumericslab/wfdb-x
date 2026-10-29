@@ -1,0 +1,5 @@
+out 3 250 8
+out.dat 16 200/mV 12 0 0 0 0 X
+out.dat 16 200/mV 12 0 0 0 0 Y
+out.dat 16 200/mV 12 0 0 0 0 Z
+#Produced by snip from record ms, beginning at s12

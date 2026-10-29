@@ -32,9 +32,11 @@ function stat = isgsetframe(g, t)
 S = wfdbx.internal.sig_state();
 d = 1;
 % (C reads igd[g] even if g is not a signal group number: undefined
-% behavior, here the group number is then reported as incorrect)
+% behavior, here the group number is then reported as incorrect.  The
+% groups C allocated but did not open (nigalloc) start at 0.)
 if S.nigroup < 2 && S.istime == t && S.gvc == S.ispfmax && g >= 0 && ...
-        g < numel(S.igd) && S.igd{g + 1}.start == 0
+        g < S.nigalloc && ...
+        (g >= numel(S.igd) || S.igd{g + 1}.start == 0)
     stat = 0;
     return;
 end

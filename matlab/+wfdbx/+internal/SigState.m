@@ -87,6 +87,7 @@ classdef SigState < handle
         igd = {}
         nisig = 0
         nigroup = 0
+        nigalloc = 0    % (C: the number of allocated input groups, igd[])
         ispfmax = 0
         tvector = []
         uvector = []

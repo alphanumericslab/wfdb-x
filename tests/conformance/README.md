@@ -8,7 +8,7 @@ changes are compared, byte for byte, with the results of the C program.
 | Path | Contents |
 |---|---|
 | `harness.py` | Runs the cases with an implementation and compares the results (`check`), or records the results of the C programs (`golden --cbin DIR`) |
-| `cases.py` | The 1081 test cases |
+| `cases.py` | The 1098 test cases |
 | `golden/<case>/` | The results of the C programs for each case: `stdout`, `stderr`, `status`, and `files/` |
 | `legacy/` | The legacy suite: 877 cases of the original package's behavior (`legacy/cases.py`) and their results from the unmodified C package (`legacy/golden/`); `check --legacy` runs each with `--legacy` as the tool's first argument |
 

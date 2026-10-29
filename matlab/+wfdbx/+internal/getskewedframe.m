@@ -54,14 +54,21 @@ end
 igd = S.igd;
 in_msrec = S.in_msrec;
 if S.skip_pending
-    for g = S.nigroup:-1:1
-        if igd{g}.initial_skip
+    % (as in C, the groups are those open now.  A seek that opens another
+    % segment, or fails to, may leave fewer groups: the allocated slots
+    % past them (nigalloc) are zeroed (no initial skip).  WFDB-x: a group
+    % number past the allocated slots is reported as incorrect by
+    % isgsetframe: C reads past its group array, see KNOWN_C_BEHAVIORS.md)
+    g = S.nigroup;
+    while g >= 1
+        if g > S.nigalloc || (g <= S.nigroup && S.igd{g}.initial_skip)
             if in_msrec
                 wfdbx.internal.isgsetframe(g - 1, S.segarray(S.segp + 1).samp0);
             else
                 wfdbx.internal.isgsetframe(g - 1, 0);
             end
         end
+        g = g - 1;
     end
     % (the seek may have opened another segment, with new signals)
     nisig = S.nisig;

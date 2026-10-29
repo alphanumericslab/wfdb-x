@@ -1375,13 +1375,24 @@ def _utf8(v):
     raise ValueError(v)
 
 
-def _rice_cost(u, k):
-    """Bits needed to code the folded residuals u with Rice parameter k."""
-    return sum((x >> k) for x in u) + len(u) * (k + 1)
-
-
 def _best_partition(u, order, blocksize, maxk):
     """Choose a partition order and Rice parameters for folded residuals."""
+    import numpy as np
+    # The bits needed to code a partition with Rice parameter k are the sum
+    # of its values shifted right by k, plus its size times k + 1: from the
+    # prefix sums of u >> k, for each k (once for all partitions;
+    # the folded residuals of samples of up to 32 bits, and their sums, fit
+    # in 64 bits).
+    ua = np.array(u, np.int64)
+    sums = {}
+
+    def psum(k):
+        if k not in sums:
+            c = np.zeros(len(ua) + 1, np.int64)
+            np.cumsum(ua >> k, out=c[1:])
+            sums[k] = c.tolist()
+        return sums[k]
+
     best = None
     for porder in range(0, 7):      # partition orders 0-6, as libFLAC
         nparts = 1 << porder
@@ -1393,24 +1404,26 @@ def _best_partition(u, order, blocksize, maxk):
         cost = 6                    # coding method and partition order
         params = []
         start = 0
+        s0 = psum(0)
         for p in range(nparts):
             n = psize - order if p == 0 else psize
-            part = u[start:start + n]
-            start += n
+            end = start + n
             if n == 0:
                 params.append(0)
                 cost += 4
                 continue
-            mean = sum(part) // n
+            mean = (s0[end] - s0[start]) // n
             k0 = max(mean.bit_length() - 1, 0) if mean > 0 else 0
             bk, bc = None, None
             lo = min(max(k0 - 1, 0), maxk)
             for k in range(lo, min(k0 + 2, maxk) + 1):
-                c = _rice_cost(part, k)
+                sk = psum(k)
+                c = sk[end] - sk[start] + n * (k + 1)
                 if bc is None or c < bc:
                     bk, bc = k, c
             params.append(bk)
             cost += 4 + bc
+            start = end
         if best is None or cost < best[0]:
             best = (cost, porder, params)
     return best

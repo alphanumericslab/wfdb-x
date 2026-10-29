@@ -2586,3 +2586,181 @@ end
         @test_skip "annot.jl"
     end
 end
+
+# The state of the library after a high-level call: nothing open.
+closed(w) = w.sig.nisig == 0 && w.sig.nosig == 0 && isempty(w.ann.iad) && isempty(w.ann.oad)
+
+@testset "high-resolution reads always progress" begin
+    with_data() do w
+        # Blocks of whole packed units of the largest frame: at least one
+        # unit, even when a frame holds more samples than a block (a block
+        # of 0 frames read nothing, and the read did not finish).
+        spf = vcat([1024], fill(1, 511))
+        W.write_record(w, "mixed", zeros(Int32, 1, sum(spf)), 1; samps_per_frame=spf,
+                       gains=200, adcres=16, units="mV", names=["s$k" for k in 0:511])
+        @test size(W.read_record(w, "mixed"; highres=true, to=1).samples) == (1, 512)
+        @test size(W.read_record(w, "mixed"; highres=true).samples) == (1024, 512)
+        @test size(W.read_record(w, "mixed").samples) == (1, 512)
+        x = Int32.((0:2*16384-1) .% 1000)
+        W.write_record(w, "big", permutedims(reshape(x, 16384, 2)), 1;
+                       samps_per_frame=[16384], gains=200, adcres=16, units="mV")
+        r = W.read_record(w, "big"; highres=true, to=1)
+        @test r.samples == reshape(Int32[0], 1, 1)
+        r = W.read_record(w, "big"; highres=true)
+        @test vec(r.samples) == x
+        @test size(W.read_record(w, "big"; highres=true, from=16380, to=16390).samples, 1) == 10
+        @test closed(w)
+    end
+end
+
+@testset "write_record checks its metadata first" begin
+    with_data() do w
+        W.wfdbquiet(w)
+        x = Int32[1 2; 3 4]
+        kw = (gains=200.0, adcres=16, units="mV")
+        nofiles() = !isfile("x.dat") && !isfile("x.hea") && closed(w)
+        for (args, msg) in
+            (((x, Inf), "write_record: the sampling frequency must be finite"),
+             ((x, NaN), "write_record: the sampling frequency must be > 0"),
+             ((x, -Inf), "write_record: the sampling frequency must be > 0"),
+             ((zeros(Int32, 3, 0), 100.0), "write_record: at least one signal is required"))
+            @test hlerr(() -> W.write_record(w, "x", args...; kw...)) == msg
+            @test nofiles()
+            @test hlerr(() -> W.write_record_physical(w, "x", Float64.(args[1]), args[2];
+                                                      kw...)) == msg
+            @test nofiles()
+        end
+        # (legacy mode: no frequency is required, but it must be finite)
+        @test hlerr(() -> W.write_record(w, "x", x, Inf; legacy=true)) ==
+              "write_record: the sampling frequency must be finite"
+        @test nofiles()
+        for g in (NaN, Inf, -Inf, [200.0, NaN], [Inf, 200.0])
+            @test hlerr(() -> W.write_record(w, "x", x, 100.0; kw..., gains=g)) ==
+                  "write_record: gains must be finite"
+            @test nofiles()
+            @test hlerr(() -> W.write_record_physical(w, "x", Float64.(x), 100.0; kw...,
+                                                      gains=g)) ==
+                  "write_record: gains must be finite"
+            @test nofiles()
+        end
+        @test hlerr(() -> W.write_record(w, "", x, 100.0; kw...)) ==
+              "write_record: the record name must not be empty"
+        @test hlerr(() -> W.write_record_physical(w, b"", Float64.(x), 100.0; kw...)) ==
+              "write_record: the record name must not be empty"
+        @test !isfile(".dat") && !isfile(".hea") && closed(w)
+        for bt in ("garbage", "bad time")
+            @test hlerr(() -> W.write_record(w, "x", x, 100.0; kw..., base_time=bt)) ==
+                  "write_record: incorrect base time '$bt'"
+            @test nofiles()
+            @test hlerr(() -> W.write_record_physical(w, "x", Float64.(x), 100.0; kw...,
+                                                      base_time=bt)) ==
+                  "write_record: incorrect base time '$bt'"
+            @test nofiles()
+        end
+        # Per-signal vectors: one value for all signals, or one per signal
+        # (units too, also when a signal is uncalibrated).
+        x3 = Int32[1 2 3]
+        @test hlerr(() -> W.write_record(w, "x", x3, 100.0; gains=[200.0, 0.0, 0.0], adcres=16,
+                                         units=["mV", "mV"])) ==
+              "write_record: units must have one value per signal"
+        @test nofiles()
+        # A gain of 0 is uncalibrated, a negative gain is allowed, and a valid
+        # base time is written.
+        W.write_record(w, "x", x, 100.0; gains=[0.0, -200.0], adcres=16, units=[nothing, "mV"],
+                       base_time="12:30:05 02/03/2020")
+        h = W.read_header(w, "x")
+        @test [s.gain for s in h.siginfo] == [0.0, -200.0]
+        @test h.base_time_ms == (12 * 3600 + 30 * 60 + 5) * 1000
+        @test W.read_record(w, "x").samples == x
+        @test closed(w)
+        W.wfdbverbose(w)
+    end
+end
+
+@testset "write_annotations checks its arguments first" begin
+    with_data() do w
+        t = [10, 20, 30]
+        for fs in (NaN, Inf, -Inf, -1.0)
+            @test hlerr(() -> W.write_annotations(w, "100s", "bad", Annotations(samples=t,
+                                                  codes=[1, 1, 1]); fs=fs)) ==
+                  "write_annotations: fs must be finite and > 0 (or 0: none)"
+            @test !isfile("100s.bad") && closed(w)
+        end
+        # Times are WFDB_Time values (Int64): others cannot be given.
+        for s in ([1.5], [NaN], [Inf], [2.0^70], [big(2)^70])
+            @test_throws InexactError Annotations(samples=s)
+        end
+        # symbols and codes together: they must agree (an empty symbol agrees
+        # with any code).
+        a = Annotations(samples=t, symbols=[b"N", b"V", b"N"], codes=Int32[1, 1, 1])
+        @test hlerr(() -> W.write_annotations(w, "100s", "bad", a)) ==
+              "write_annotations: symbols and codes disagree at annotation 1"
+        @test !isfile("100s.bad") && closed(w)
+        a = Annotations(samples=t, symbols=[b"N", b"", b"V"], codes=Int32[1, 42, W.PVC])
+        W.write_annotations(w, "100s", "ok", a)
+        r = W.read_annotations(w, "100s", "ok")
+        @test r.codes == [1, 42, W.PVC] && r.symbols[[1, 3]] == [b"N", b"V"]
+        W.write_annotations(w, "100s", "ok2", r)
+        @test W.read_annotations(w, "100s", "ok2").codes == r.codes
+        # read_annotations -> write_annotations: a round trip.
+        atr = W.read_annotations(w, "100s", "atr")
+        @test !any(isempty, atr.symbols)
+        W.write_annotations(w, "100s", "cpy", atr)
+        cpy = W.read_annotations(w, "100s", "cpy")
+        @test cpy.samples == atr.samples && cpy.codes == atr.codes && cpy.aux == atr.aux &&
+              cpy.symbols == atr.symbols && cpy.subtypes == atr.subtypes
+        @test closed(w)
+    end
+end
+
+@testset "read_record: whole sample numbers; closed on any error" begin
+    with_data() do w
+        W.wfdbquiet(w)
+        for (kw, msg) in (((from=1.5,), "read_record: from must be a whole number"),
+                          ((from=NaN,), "read_record: from must be a whole number"),
+                          ((from=Inf,), "read_record: from must be a whole number"),
+                          ((to=2.5,), "read_record: to must be a whole number"),
+                          ((to=NaN,), "read_record: to must be a whole number"),
+                          ((to=-Inf,), "read_record: to must be a whole number"),
+                          ((to=Inf,), "read_record: to must be a whole number"),
+                          ((from=2.0^63,), "read_record: from is beyond the range of a 64-bit integer"),
+                          ((to=big(2)^64,), "read_record: to is beyond the range of a 64-bit integer"),
+                          ((from=:x,), "read_record: from must be a sample number or a time string"))
+            @test hlerr(() -> W.read_record(w, "fmt16"; kw...)) == msg
+            @test closed(w)
+        end
+        @test W.read_record(w, "fmt16"; from=2.0, to=5.0).samples ==
+              W.read_record(w, "fmt16"; from=2, to=5).samples
+        @test size(W.read_record(w, "fmt16"; from=2, to=Int32(5)).samples, 1) == 3
+        # Any error after the record is opened closes it, and restores the
+        # settings.
+        W.setgvmode(w, W.WFDB_LOWRES)
+        for ch in ([99], ["nosuch"], [:x])
+            @test_throws Exception W.read_record(w, "fmt16"; channels=ch, highres=true,
+                                                 legacy=true)
+            @test closed(w)
+            @test W.getgvmode(w) == W.WFDB_LOWRES && W.wfdbx_get_legacy(w) == 0
+        end
+        @test_throws Exception W.read_annotations(w, "100s", "atr"; from=:x)
+        @test closed(w)
+        W.wfdbverbose(w)
+    end
+end
+
+@testset "edf2mit: incomplete EDF header" begin
+    d = tmpdir("edf")
+    for n in (0, 5, 8, 100, 255)
+        write(joinpath(d, "t.edf"), [Vector{UInt8}("0       "); fill(UInt8('x'), 300)][1:n])
+        st, out, err = W.run_tool("edf2mit", ["-i", "t.edf", "-r", "o"]; dir=d)
+        @test st == 2 && isempty(out)
+        @test err == b"edf2mit: incomplete EDF header in t.edf\n"
+        @test readdir(d) == ["t.edf"]
+    end
+    # Another format: the usual message; the header is kept, as in C.
+    write(joinpath(d, "t.edf"), b"ABCDEFGH")
+    st, out, err = W.run_tool("edf2mit", ["-i", "t.edf", "-r", "o"]; dir=d)
+    @test st == 2
+    @test err == b"edf2mit: input does not appear to be EDF -- no conversion attempted.\n"
+    @test isfile(joinpath(d, "o.hea"))
+    rm(d; recursive=true)
+end

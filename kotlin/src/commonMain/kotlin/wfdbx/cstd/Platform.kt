@@ -112,6 +112,9 @@ internal expect object Platform {
     /** C `mkdir(path, 0755)`; false on failure. */
     fun mkdir(path: ByteArray): Boolean
 
+    /** C `remove`: deletes a file; false on failure. */
+    fun remove(path: ByteArray): Boolean
+
     /** The identity of the existing file [path] (following links), or null. */
     fun pathId(path: ByteArray): FileId?
 

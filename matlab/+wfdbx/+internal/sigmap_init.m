@@ -71,7 +71,7 @@ elseif S.need_sigmap
     end
     S.ispfmax = S.vspfmax;
     isd = S.isd;
-    if isd(1).info.fmt == 0 && S.nisig == 1
+    if S.nisig == 1 && isd(1).info.fmt == 0
         S.smi = smi;
         return;
     end

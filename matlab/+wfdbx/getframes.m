@@ -79,6 +79,7 @@ last = [];
 vec = zeros(1, max(nsig, 1));
 acc = zeros(0, nsig);
 nrows = 0;
+io = wfdbx.internal.io_state();
 while got < n
     % (read in blocks of at most 2^22 frames, so that N may be Inf)
     [blk, ok] = wfdbx.internal.bulk_frames(min(n - got, 4194304), minstat);
@@ -97,6 +98,7 @@ while got < n
         got = got + size(blk, 1);
         continue;
     end
+    io.capture_row = got;       % (for the messages kept by wfdb_error)
     [stat, vec] = wfdbx.getvec(vec);
     if stat < minstat || stat < 0
         last = vec(1:nsig);

@@ -30,7 +30,10 @@
 // the end of a data record (if the samples per frame do not divide the
 // samples per record); 0 frames per record if a signal has 0 samples per
 // frame; and INT_MIN for out-of-range conversions of doubles to int (as on
-// x86).
+// x86).  An input file shorter than the 256-byte fixed part of the EDF
+// header (whose missing fields C takes from uninitialized memory) gives
+// "edf2mit: incomplete EDF header in FILE", no output files and exit status
+// 2.
 
 #include <climits>
 #include <cstdio>
@@ -41,6 +44,7 @@
 
 #include <wfdbx/wfdb.hpp>
 
+#include "../src/wfdblib.hpp"   // (wfdb_filename)
 #include "cemul.hpp"
 
 using namespace wfdbx;
@@ -62,8 +66,9 @@ int main(int argc, char **argv)
     char buf[81] = {}, record[WFDB_MAXRNL+1] = {};
     double spr = 0, sps;
     std::FILE *ifile = nullptr;
+    const char *ifname = nullptr;
     int big_endian = 0, fpb, h, i, j, k, l, nsig = 0, nosig = 0,
-        tspf = 0, ispf = 0, vflag = 0,
+        tspf = 0, vflag = 0,
         day = 0, month = 0, year = 0, hour = 0, minute = 0, second = 0;
     long adcrange;
     std::vector<int> siglist;
@@ -81,6 +86,7 @@ int main(int argc, char **argv)
             std::exit(0);
           case 'i':     // file name follows
             if (++i < argc) {
+                ifname = argv[i];
                 if (!std::strcmp(argv[i], "-"))
                     ifile = stdin;
                 else {
@@ -154,12 +160,32 @@ int main(int argc, char **argv)
   "  Valid record names may include letters, digits, and underscores only.\n");
         std::exit(1);
     }
+    // (the header file that newheader created)
+    const std::string hea_file = detail::wfdb_filename();
+
+    // WFDB-x: the rest of the 256-byte fixed part of the EDF header, read
+    // at once after its first 8 bytes (see field()).  If the input file is
+    // shorter, the program stops (C takes the missing fields from
+    // uninitialized memory): no output files remain.
+    char fixed[248];
+    size_t nfixed = 0, pfixed = 0;
+    auto incomplete = [&]() {
+        wfdbquit();
+        std::remove(hea_file.c_str());
+        std::fprintf(stderr, "%s: incomplete EDF header in %s\n", pname,
+                     ifname);
+        std::exit(2);
+    };
 
     // Read a header field of n bytes into buf, mark its end with a space,
     // and replace trailing spaces (from buf[t] backward) with NULs.  Returns
     // the index of the last non-space character (or -1).
     auto field = [&](int n, int t) {
-        if (std::fread(buf, 1, n, ifile) != static_cast<size_t>(n)) {}
+        if (pfixed < nfixed) {      // (a field of the fixed part)
+            std::memcpy(buf, fixed + pfixed, n);
+            pfixed += n;
+        }
+        else if (std::fread(buf, 1, n, ifile) != static_cast<size_t>(n)) {}
         buf[n] = ' ';
         int jj;
         for (jj = t; jj >= 0 && buf[jj] == ' '; jj--)
@@ -167,7 +193,7 @@ int main(int argc, char **argv)
         return jj;
     };
 
-    if (std::fread(buf, 1, 8, ifile) != 8) {}
+    if (std::fread(buf, 1, 8, ifile) != 8) incomplete();
     // Check to see that the input is an EDF file.  (This check will detect
     // most but not all other types of files.)
     if (std::strncmp(buf, "0       ", 8)) {
@@ -176,6 +202,8 @@ int main(int argc, char **argv)
                      pname);
         std::exit(2);
     }
+    nfixed = std::fread(fixed, 1, sizeof(fixed), ifile);
+    if (nfixed != sizeof(fixed)) incomplete();
     buf[8] = ' ';
     for (j = 8; j >= 0 && buf[j] == ' '; j--)
         buf[j] = '\0';
@@ -342,8 +370,6 @@ int main(int argc, char **argv)
         so[i] = si[siglist[i]];
     }
 
-    for (i = ispf = 0; i < nsig; i++)
-        ispf += d2i(sampfreq[i]/sps + 0.5);
     fpb = si[siglist[0]].spf ? spb[siglist[0]] / si[siglist[0]].spf : 0;
 
     if (vflag)

@@ -77,7 +77,7 @@ for s = 1:nsig
     if ischar(x.desc)
         ld = numel(x.desc);
     end
-    if lf + ld > 200 || x.bsize < 0    % (limit as in C) || ~any(x.fmt == fmtlist)
+    if lf + ld > 200 || x.bsize < 0 || ~any(x.fmt == fmtlist)    % (limit as in C)
         wfdbx.internal.wfdb_error('osigfopen: error in specification of signal %d\n', s - 1);
         stat = -2;
         return;

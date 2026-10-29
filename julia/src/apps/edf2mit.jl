@@ -11,7 +11,9 @@
 # beyond the end of a data record (if the samples per frame do not divide
 # the samples per record); 0 frames per record if a signal has 0 samples per
 # frame; and INT_MIN for out-of-range conversions of doubles to int (as on
-# x86).
+# x86). An input file shorter than the 256-byte fixed part of the EDF header
+# (whose missing fields C takes from uninitialized memory) gives "edf2mit:
+# incomplete EDF header in FILE", no output files and exit status 2.
 #
 # This file is part of WFDB-x, an independent reimplementation of the WFDB
 # Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -34,6 +36,8 @@
 
 "Size of the C program's header field buffer (the longest field is 80 bytes)."
 const _EDF2MIT_BUFLEN = 81
+"Length of the fixed part of an EDF header."
+const _EDF_HEADER_LEN = 256
 "Lengths of the fields of the fixed part of an EDF header."
 const _EDF_VERSION_LEN = 8
 const _EDF_ID_LEN = 80
@@ -94,8 +98,16 @@ end
 # Read a header field of n bytes into buf, mark its end with a space, and
 # replace trailing spaces (from C index t backward) with NULs. Returns the
 # C index of the last non-space character (or -1).
-function _edf2mit_field!(buf::Vector{UInt8}, f::WfdbFile, n::Integer, t::Integer = n)
-    fread!(f, buf, n)
+# WFDB-x: a field of the fixed part of the header is taken from `fixed` (the
+# rest of that part, read at once after its first 8 bytes) while it lasts.
+function _edf2mit_field!(buf::Vector{UInt8}, f::WfdbFile, n::Integer, t::Integer = n,
+                         fixed::Union{Nothing,Vector{UInt8}} = nothing)
+    if fixed !== nothing && !isempty(fixed)
+        copyto!(buf, 1, fixed, 1, n)
+        deleteat!(fixed, 1:n)
+    else
+        fread!(f, buf, n)
+    end
     buf[n+1] = UInt8(' ')
     j = Int(t)
     while j >= 0 && buf[j+1] == UInt8(' ')
@@ -114,6 +126,7 @@ function edf2mit_main(args::Vector{String})
     pname = "edf2mit"
     record = UInt8[]
     ifile = nothing
+    ifname = UInt8[]
     big_endian = false
     vflag = false
     siglist = Int32[]
@@ -136,6 +149,7 @@ function edf2mit_main(args::Vector{String})
             elseif c == UInt8('i')      # file name follows
                 i += 1
                 if i < argc
+                    ifname = argv[i]
                     if cstr(argv[i]) == b"-"
                         ifile = wfdb_stdin()
                     else
@@ -209,14 +223,29 @@ function edf2mit_main(args::Vector{String})
         cexit(1)
     end
 
+    # (the header file that newheader created)
+    hea_file = String(cstr(wfdb_filename(lib())))
+    # WFDB-x: the rest of the 256-byte fixed part of the EDF header is read at
+    # once after its first 8 bytes. If the input file is shorter, the program
+    # stops (C takes the missing fields from uninitialized memory): no output
+    # files remain.
+    function incomplete()
+        wfdbquit()
+        isfile(hea_file) && rm(hea_file)
+        ceprintf("%s: incomplete EDF header in %s\n", pname, ifname)
+        cexit(2)
+    end
+
     buf = zeros(UInt8, _EDF2MIT_BUFLEN)
-    fread!(ifile, buf, _EDF_VERSION_LEN)
+    fread!(ifile, buf, _EDF_VERSION_LEN) == _EDF_VERSION_LEN || incomplete()
     # Check to see that the input is an EDF file. (This check will detect
     # most but not all other types of files.)
     if view(buf, 1:_EDF_VERSION_LEN) != b"0       "
         ceprintf("%s: input does not appear to be EDF -- no conversion attempted.\n", pname)
         cexit(2)
     end
+    fixed = zeros(UInt8, _EDF_HEADER_LEN - _EDF_VERSION_LEN)
+    fread!(ifile, fixed) == length(fixed) || incomplete()
     buf[_EDF_VERSION_LEN+1] = UInt8(' ')
     j = _EDF_VERSION_LEN
     while j >= 0 && buf[j+1] == UInt8(' ')
@@ -225,38 +254,38 @@ function edf2mit_main(args::Vector{String})
     end
     vflag && cprintf("EDF version number: '%s'\n", cstr(buf))
 
-    _edf2mit_field!(buf, ifile, _EDF_ID_LEN)
+    _edf2mit_field!(buf, ifile, _EDF_ID_LEN, _EDF_ID_LEN, fixed)
     vflag && cprintf("Patient ID: '%s'\n", cstr(buf))
 
-    _edf2mit_field!(buf, ifile, _EDF_ID_LEN)
+    _edf2mit_field!(buf, ifile, _EDF_ID_LEN, _EDF_ID_LEN, fixed)
     vflag && cprintf("Recording ID: '%s'\n", cstr(buf))
 
-    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN)
+    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN, _EDF_SHORT_LEN, fixed)
     vflag && cprintf("Recording date: '%s'\n", cstr(buf))
     csscanf(cstr(buf), "%d%*c%d%*c%d", day, month, year)
     year[] < _EDF2MIT_EPOCH && (year[] += Int32(1900))
     year[] < _EDF2MIT_EPOCH && (year[] += Int32(100))    # should work for a while
 
-    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN)
+    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN, _EDF_SHORT_LEN, fixed)
     vflag && cprintf("Recording time: '%s'\n", cstr(buf))
     csscanf(cstr(buf), "%d%*c%d%*c%d", hour, minute, second)
 
-    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN)
+    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN, _EDF_SHORT_LEN, fixed)
     vflag && cprintf("Number of bytes in header record: '%s'\n", cstr(buf))
 
-    j = _edf2mit_field!(buf, ifile, _EDF_RESERVED_LEN)
+    j = _edf2mit_field!(buf, ifile, _EDF_RESERVED_LEN, _EDF_RESERVED_LEN, fixed)
     j > 0 && vflag && cprintf("Free space: '%s'\n", cstr(buf))
 
-    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN)
+    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN, _EDF_SHORT_LEN, fixed)
     vflag && cprintf("Number of data records: '%s'\n", cstr(buf))
 
-    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN)
+    _edf2mit_field!(buf, ifile, _EDF_SHORT_LEN, _EDF_SHORT_LEN, fixed)
     vflag && cprintf("Duration of each data record in seconds: '%s'\n", cstr(buf))
     dref[] = 0.0
     csscanf(cstr(buf), "%lf", dref)
     spr = dref[] <= 0.0 ? 1.0 : dref[]
 
-    _edf2mit_field!(buf, ifile, _EDF_NSIG_LEN)
+    _edf2mit_field!(buf, ifile, _EDF_NSIG_LEN, _EDF_NSIG_LEN, fixed)
     vflag && cprintf("Number of signals: '%s'\n", cstr(buf))
     iref[] = 0
     csscanf(cstr(buf), "%d", iref)

@@ -1,0 +1,7 @@
+Checking input signals ... done
+v[0] = -2147483648 (out of range)
+v[1] = 167477789 (out of range)
+v[2] = -165060454 (out of range)
+v[3] = 3408 (out of range)
+sigmap_init: wrong spf for signal 0 in segment m0_s1
+getvec: error opening segment m0_s1

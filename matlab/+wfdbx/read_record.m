@@ -10,11 +10,12 @@ function rec = read_record(record, varargin)
 %     'channels'  signals to read: signal numbers (starting at 0), or a cell
 %                 array of numbers and names (by name, as in names; default:
 %                 all signals)
-%     'sampfrom'  first sample: a sample number (not negative), or a time
-%                 string such as '0:10' (10 seconds) or 's3600' (sample
-%                 3600); default 0
-%     'sampto'    the sample after the last one: a sample number or a time
-%                 string (default: the end of the record)
+%     'sampfrom'  first sample: a sample number (a whole number, not
+%                 negative), or a time string such as '0:10' (10 seconds)
+%                 or 's3600' (sample 3600); default 0
+%     'sampto'    the sample after the last one: a sample number (a whole
+%                 number) or a time string (default, []: the end of the
+%                 record)
 %     'physical'  true to return physical units instead of ADC units
 %                 (default false)
 %     'highres'   true to read a multi-frequency record at its highest
@@ -60,14 +61,17 @@ function rec = read_record(record, varargin)
 %   Errors: an error (identifier 'wfdbx:read_record') is thrown if the
 %   record cannot be read, if a signal file is shorter than its header says
 %   ("can't read signal data of record REC (getvec status -3)"), if a
-%   requested signal does not exist, if 'sampfrom' is negative, if a time
+%   requested signal does not exist, if 'sampfrom' is negative, if
+%   'sampfrom' or 'sampto' is not a whole number (a fraction, NaN or an
+%   infinite value), if a time
 %   string needs the sampling frequency and the header gives none, or if
 %   'physical' is true and a selected signal is uncalibrated.  If the data do not match the header's
 %   checksums, all the data are returned with the warning 'wfdbx:checksum'.
 %   Checksums are only checked when a read reaches the end of the record.
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
-%   WFDB library functions.  It sets the getvec mode ('highres', 'pad') for
+%   WFDB library functions; whatever happens, errors included, the input
+%   signals are closed again before it returns.  It sets the getvec mode ('highres', 'pad') for
 %   its own reading only: the mode in force before the call is restored
 %   afterwards.
 %
@@ -111,6 +115,8 @@ legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_record'); %#ok<NASGU>
 restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, 'read_record'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 opt.legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
+check_sample_number(opt.sampfrom, 'sampfrom');
+check_sample_number(opt.sampto, 'sampto');
 if isnumeric(opt.sampfrom) && any(opt.sampfrom(:) < 0)
     error('wfdbx:read_record', 'read_record: sampfrom must not be negative');
 end
@@ -119,6 +125,18 @@ end
 previous_mode = wfdbx.getgvmode();
 restore_mode = onCleanup(@() wfdbx.setgvmode(previous_mode)); %#ok<NASGU>
 wfdbx.wfdbquit();
+% (whatever happens, the input signals are closed before returning)
+try
+    rec = read_signals(record, opt);
+catch err
+    wfdbx.wfdbquit();
+    rethrow(err);
+end
+wfdbx.wfdbquit();
+end
+
+function rec = read_signals(record, opt)
+% The body of read_record, after the options are checked.
 nsig = wfdbx.isigopen(record, 0);
 if nsig <= 0
     wfdbx.wfdbquit();
@@ -213,7 +231,9 @@ if opt.highres
 else
     unit = 6;
 end
-CHUNK = CHUNK - mod(CHUNK, unit);
+% (at least one unit: a chunk of 0 frames would read nothing, and the loop
+% below would not progress)
+CHUNK = max(CHUNK - mod(CHUNK, unit), unit);
 parts = {};
 cksum_error = false;
 S.cksum_quiet = true;       % (getvec's checksum message: see below)
@@ -306,9 +326,23 @@ rec.base_date = base_date;
 rec.sampfrom = from;
 rec.comments = comments;
 rec.checksum_ok = ~cksum_error;
-wfdbx.wfdbquit();
 end
 
 function set_cksum_quiet(S, on)
 S.cksum_quiet = on;
+end
+
+function check_sample_number(t, name)
+% WFDB-x: a sample number (T numeric) must be a whole number within the
+% range of WFDB_Time; a fraction, NaN or an infinite value is an error.
+% [] (sampto: the end of the record) and time strings are not checked here.
+if isnumeric(t) && ~isempty(t)
+    if ~isscalar(t) || ~isreal(t) || ~isfinite(t) || t ~= fix(t)
+        error('wfdbx:read_record', 'read_record: %s must be a whole number', name);
+    end
+    if abs(double(t)) >= 2^63
+        error('wfdbx:read_record', ...
+            'read_record: %s is beyond the range of a 64-bit integer', name);
+    end
+end
 end
