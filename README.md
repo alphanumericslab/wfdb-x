@@ -192,15 +192,24 @@ language runs the tools.
 ## Performance
 
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) compares the speed and memory use
-of the seven implementations (and of wfdb-python and the original C tools)
-on the same records and the same machine, verifies that they all give
-identical results, and explains how to get the most speed from WFDB-x in
-application code. In short, Rust, Julia and C++ are the fastest (an hour of
-a two-signal ECG is read in 7 to 9 ms); Kotlin reads records 1.2 to 1.8
-times slower than C++ (annotation files 4 to 8 times); Python reads records
-about as fast as wfdb-python, and writes them 8.5 times faster; R and
-MATLAB/Octave take 0.06 to 0.08 s for that hour, fast enough for most
-records.
+of the seven implementations, of the original C library and tools, and of
+wfdb-python, on the same records and the same machine, verifies that they
+all give identical results, and explains how to get the most speed from
+WFDB-x in application code. In short:
+
+* Rust, Julia and C++ are the fastest: an hour of a two-signal ECG is read
+  in 4 to 6 ms, 4 to 7 times faster than with the C library (26 ms), which
+  reads one frame per `getvec` call. The C library reads annotation files
+  fastest.
+* The C++ and Rust `rdsamp` print that hour 4 to 5 times as fast as the C
+  `rdsamp`; the C tools start fastest (1.3 ms, against about 2 ms).
+* Kotlin reads records 1.2 to 2.1 times slower than C++ (annotation files
+  4 to 8 times).
+* Python reads records at speeds close to those of wfdb-python and the C
+  library (from 1.7 times slower than C to 2.4 times faster, depending on
+  the record), and writes them 9 times faster than wfdb-python.
+* R and MATLAB/Octave take 46 to 67 ms for that hour, fast enough for most
+  records.
 
 ## Command-line tools
 

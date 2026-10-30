@@ -2,45 +2,63 @@
 
 How fast WFDB-x reads and writes WFDB records and annotation files in each
 of its seven languages, how much memory it uses, and how it compares with
+the original C WFDB library and tools (10.7.0, unmodified) and with
 [wfdb-python](https://github.com/MIT-LCP/wfdb-python) (the `wfdb` package on
-PyPI) and with the command-line tools of the original C package. The
-results are for WFDB-x 1.1.0.
+PyPI). The results are for WFDB-x 1.1.0.
 
-In every benchmark, all seven implementations returned exactly the same
-samples and annotations and wrote exactly the same files, byte for byte.
-They differ only in speed, memory use and start-up time.
+In every benchmark, all seven implementations and the original C library
+returned exactly the same samples and annotations and wrote exactly the
+same files, byte for byte. They differ only in speed, memory use and
+start-up time.
 
 ## Key findings
 
 * **Rust, Julia and C++ are the fastest.** They read an hour of a
-  two-signal ECG (1.3 million frames) in 7 to 9 ms, and a 12-lead ECG of
-  10 minutes in 9 to 17 ms.
-* **The C++ and Rust command-line tools start as fast as the original C
-  tools** (about 2.5 ms) and print a record with `rdsamp` 4.5 to 4.8 times
-  as fast.
-* **Kotlin** reads and writes records 1.2 to 1.8 times slower than C++
+  two-signal ECG (1.3 million frames) in 3.8 to 6.0 ms, and a 12-lead ECG
+  of 10 minutes in 6.3 to 13 ms.
+* **Compared with the original C library**, which reads one frame per
+  `getvec` call:
+  * C++, Rust and Julia read records 1.5 to 6.9 times faster (the hour of
+    ECG in 3.8 to 6.0 ms, against 26 ms in C), and Kotlin 1.3 to 2.1
+    times faster;
+  * the Python implementation reads the 12-lead record 2.4 times faster
+    than C, and the other records 1.1 to 1.7 times slower;
+  * writing records takes the same time in C, C++ and Kotlin; Julia is 2.6
+    times faster;
+  * C reads annotation files fastest (0.07 ms for 4,500 annotations,
+    against 0.24 to 0.58 ms in Rust, C++ and Julia); C, C++ and Rust write
+    them in the same time (0.14 to 0.17 ms);
+  * the speed comes from WFDB-x's block reader, not from the language: read
+    frame by frame with `getvec`, WFDB-x's C++ library takes the same time
+    as the C library (24 and 22 ms).
+* **Command-line tools:** the C++ and Rust `rdsamp` print the hour of ECG
+  4.1 to 5.3 times as fast as the C `rdsamp`, and the Kotlin one 1.2 times
+  as fast. The C tools start fastest (1.3 ms for `wfdbdesc`, 1.8 to 1.9 ms
+  in C++ and Rust).
+* **Kotlin** reads and writes records 1.0 to 2.1 times slower than C++
   once the JVM has compiled the code, and annotation files 4 to 8 times
-  slower (about 1.3 ms for 4,500 annotations). Its first call is 2 to 30
+  slower (about 1.2 ms for 4,500 annotations). Its first call is 2 to 30
   times slower than the later ones.
-* **Python matches wfdb-python on reads, and is faster on everything
-  else.** For a single-segment record in ADC units, wfdb-python is 1.2
-  times faster; in physical units the two are equal. WFDB-x is faster for:
-  * multi-segment records: 1.3 times;
-  * 12-lead records: 1.5 times;
-  * reading annotation files: 2.5 times;
-  * writing records: 8.5 times;
-  * writing annotation files: 11 times.
-* **R and MATLAB/Octave** read the hour of ECG in 63 to 81 ms, 1.7 to 2.2
+* **Python is faster than wfdb-python on everything but one read.** For a
+  single-segment record in ADC units, wfdb-python is 1.4 times faster; in
+  physical units the two are equal. WFDB-x is faster for:
+  * multi-segment records: 1.4 times;
+  * 12-lead records: 1.9 times;
+  * reading annotation files: 2.0 times;
+  * writing records: 9.2 times;
+  * writing annotation files: 8.0 times.
+* **R and MATLAB/Octave** read the hour of ECG in 46 to 67 ms, 1.6 to 2.3
   times Python's time: fast enough for most work.
-* **Memory:** Rust and C++ use the least, 13 to 35 MB, for a record whose
-  samples take 10 MB. Julia uses about 310 MB: its runtime and compiler.
+* **Memory:** C, Rust and C++ use the least, 12 to 35 MB, for a record
+  whose samples take 10 MB. Julia uses about 310 MB: its runtime and
+  compiler.
 
 ## Which language for which job
 
 | Need | Best choice |
 |---|---|
 | The fastest reading and writing, the least memory | Rust or C++ |
-| Command-line tools in shell scripts and pipelines | the C++ or Rust tools (they start instantly) |
+| Command-line tools in shell scripts and pipelines | the C++ or Rust tools (they start in about 2 ms) |
 | Numerical work in a long-running session | Julia (as fast as C++ once compiled) |
 | Android, iOS or JVM applications | Kotlin |
 | Data science, notebooks, machine learning | Python |
@@ -75,17 +93,36 @@ million samples in 20.6 MB of signal files.
   * writing `long` as a new record in format 16 (`write_record`);
   * reading and writing the annotation file (`read_annotations`,
     `write_annotations`).
+* **The same operations with the original C library**, which has no
+  high-level functions: `isigopen` and `getvec` (one frame per call) to
+  read, `aduphys` for physical units, `osigfopen`, `putvec` and `newheader`
+  to write, and `annopen`, `getann` and `putann` for annotations
+  ([`benchmarks/c/bench.c`](../benchmarks/c/bench.c)).
+* **Reading `long` frame by frame with `getvec`**, in C and with WFDB-x's
+  C++ library functions: the same code in both, to compare the libraries
+  themselves.
 * **Command-line tools**, each run as a new process, as from a shell:
   * `rdsamp -r long`, which prints 1,296,000 lines;
+  * `rdann -r long -a atr`, which prints 4,500 lines;
   * `wfdbdesc long`, a small task, so its time is mostly the start-up of
     the language.
+
+### The original C package
+
+The C library and tools are the unmodified WFDB Software Package 10.7.0
+(`third_party/wfdb-main.zip`), built by its own `configure` script with its
+own compiler options (`-g -O`), as a user would install it
+([`benchmarks/c/build.sh`](../benchmarks/c/build.sh)). A build of the C
+library with `-O2` gave the same times, within the variation between runs
+(the hour of ECG in 24.5 ms, against 26.0 ms; frame by frame, 19.3 ms
+against 21.6 ms).
 
 ### How the results were verified
 
 Every program saves the result of each operation outside the timed calls:
 the samples read, every field of every annotation read, and the files
-written. The benchmark runner compares these across the seven languages,
-and stops if any of them differ:
+written. The benchmark runner compares these across the seven languages and
+the C library, and stops if any of them differ:
 * arrays of samples, value by value (an invalid sample, NaN, counts as
   equal to NaN);
 * everything else, byte for byte.
@@ -94,7 +131,7 @@ They were identical in every run.
 
 ## Results
 
-On one x86-64 Linux virtual machine: 4 cores of an Intel Xeon at 2.8 GHz,
+On one x86-64 Linux virtual machine: 4 cores of an Intel Xeon at 2.1 GHz,
 GCC 13.3, Rust 1.97, Julia 1.13, OpenJDK 21 (Kotlin 2.1), Python 3.13 with
 NumPy 2.5, R 4.3.3, GNU Octave 8.4 and wfdb-python 4.3.1. Each time is the
 fastest of 7 calls, and the better of two complete runs (see
@@ -102,15 +139,42 @@ fastest of 7 calls, and the better of two complete runs (see
 
 ### Reading and writing
 
-| | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave | wfdb-python |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| read `long` (1 h, 2 signals, format 212) | 9.3 ms | 6.8 ms | 8.9 ms | 16.6 ms | 37.2 ms | 81.4 ms | 62.9 ms | 30.3 ms |
-| the same, in physical units | 16.3 ms | 16.9 ms | 13.8 ms | 20.8 ms | 57.4 ms | 99.7 ms | 80.1 ms | 55.4 ms |
-| read `mimic` (12 segments, multi-frequency) | 33.4 ms | 23.1 ms | 32.5 ms | 47.2 ms | 102 ms | 333 ms | 422 ms | 134 ms |
-| read `wide` (12 leads, format 16) | 13.8 ms | 9.2 ms | 16.5 ms | 16.7 ms | 11.8 ms | 101 ms | 74.7 ms | 18.1 ms |
-| write `long` (format 16) | 23.2 ms | 23.9 ms | 10.2 ms | 28.5 ms | 38.7 ms | 42.4 ms | 51.2 ms | 328 ms |
-| read 4,500 annotations | 0.34 ms | 0.34 ms | 0.64 ms | 1.3 ms | 8.1 ms | 7.6 ms | 21.1 ms | 20.2 ms |
-| write 4,500 annotations | 0.16 ms | 0.23 ms | 0.56 ms | 1.3 ms | 1.2 ms | 2.6 ms | 9.8 ms | 12.8 ms |
+| | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave | C (original) | wfdb-python |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| read `long` (1 h, 2 signals, format 212) | 6.0 ms | 3.8 ms | 5.8 ms | 12.7 ms | 29.0 ms | 67.3 ms | 45.7 ms | 26.0 ms | 21.3 ms |
+| the same, in physical units | 12.9 ms | 14.8 ms | 12.1 ms | 17.1 ms | 37.2 ms | 99.5 ms | 71.9 ms | 30.1 ms | 36.4 ms |
+| read `mimic` (12 segments, multi-frequency) | 21.7 ms | 14.1 ms | 18.3 ms | 37.8 ms | 82.9 ms | 217 ms | 313 ms | 49.3 ms | 117 ms |
+| read `wide` (12 leads, format 16) | 9.8 ms | 6.3 ms | 13.2 ms | 11.5 ms | 7.9 ms | 92.3 ms | 55.5 ms | 19.4 ms | 15.1 ms |
+| write `long` (format 16) | 17.6 ms | 20.9 ms | 6.7 ms | 17.3 ms | 25.2 ms | 118 ms | 46.9 ms | 17.7 ms | 231 ms |
+| read 4,500 annotations | 0.28 ms | 0.24 ms | 0.58 ms | 1.2 ms | 7.0 ms | 6.9 ms | 11.8 ms | 0.07 ms | 14.1 ms |
+| write 4,500 annotations | 0.14 ms | 0.17 ms | 0.34 ms | 1.1 ms | 0.86 ms | 3.8 ms | 6.3 ms | 0.14 ms | 6.9 ms |
+| read `long` frame by frame (`getvec`) | 23.9 ms | | | | | | | 21.6 ms | |
+
+### Compared with the original C library
+
+The time of the C library divided by the time of each WFDB-x
+implementation: above 1, WFDB-x is faster; below 1, C is faster.
+
+| | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| read `long` | 4.3 | 6.9 | 4.5 | 2.1 | 0.90 | 0.39 | 0.57 |
+| the same, in physical units | 2.3 | 2.0 | 2.5 | 1.8 | 0.81 | 0.30 | 0.42 |
+| read `mimic` | 2.3 | 3.5 | 2.7 | 1.3 | 0.59 | 0.23 | 0.16 |
+| read `wide` | 2.0 | 3.1 | 1.5 | 1.7 | 2.4 | 0.21 | 0.35 |
+| write `long` | 1.0 | 0.85 | 2.6 | 1.0 | 0.70 | 0.15 | 0.38 |
+| read 4,500 annotations | 0.25 | 0.31 | 0.13 | 0.06 | 0.01 | 0.01 | 0.01 |
+| write 4,500 annotations | 1.0 | 0.82 | 0.41 | 0.13 | 0.16 | 0.04 | 0.02 |
+
+C has no block reader: a C program reads a record one frame per `getvec`
+call. Read in the same way, WFDB-x's C++ library takes the same time as the
+C library (23.9 and 21.6 ms, within the variation between runs); WFDB-x's
+`read_record` is faster because it decodes and copies whole blocks of
+frames (see [How the fast paths work](#how-the-fast-paths-work)). The C
+library reads annotation files fastest: `getann` returns each annotation as
+it is decoded, and the C program only copies it, while `read_annotations`
+also builds the mnemonic of each annotation and the arrays of its result.
+In absolute terms, every implementation but MATLAB/Octave reads the 4,500
+annotations in less than 10 ms.
 
 ### The first call
 
@@ -118,32 +182,33 @@ The first call in a new process. Julia and Kotlin (the JVM) compile code the
 first time it runs, so their first call is slower; in a long-running
 program, only the table above matters.
 
-| | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave | wfdb-python |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| read `long` | 20.8 ms | 10.6 ms | 60.1 ms | 98.2 ms | 149 ms | 170 ms | 127 ms | 162 ms |
-| read `mimic` | 51.3 ms | 30.1 ms | 81.2 ms | 245 ms | 190 ms | 564 ms | 625 ms | 191 ms |
-| write `long` | 24.4 ms | 23.0 ms | 26.2 ms | 58.0 ms | 193 ms | 162 ms | 63.7 ms | 565 ms |
-| read 4,500 annotations | 0.66 ms | 0.66 ms | 7.4 ms | 36.2 ms | 8.7 ms | 22.0 ms | 48.2 ms | 30.4 ms |
+| | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave | C (original) | wfdb-python |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| read `long` | 14.4 ms | 9.4 ms | 57.3 ms | 75.8 ms | 142 ms | 102 ms | 95.8 ms | 32.7 ms | 123 ms |
+| read `mimic` | 37.0 ms | 26.3 ms | 78.3 ms | 170 ms | 115 ms | 487 ms | 434 ms | 57.0 ms | 130 ms |
+| write `long` | 19.7 ms | 20.6 ms | 19.9 ms | 41.5 ms | 158 ms | 316 ms | 74.8 ms | 16.1 ms | 483 ms |
+| read 4,500 annotations | 0.60 ms | 0.46 ms | 6.6 ms | 27.3 ms | 7.6 ms | 26.2 ms | 37.6 ms | 0.17 ms | 16.5 ms |
 
 ### Memory
 
 The peak memory of the whole process, the language's runtime included,
 while reading a record. The samples of `long` take 10 MB.
 
-| | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave | wfdb-python |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| read `long` | 24 MB | 13 MB | 310 MB | 150 MB | 80 MB | 180 MB | 115 MB | 118 MB |
-| read `mimic` | 35 MB | 17 MB | 310 MB | 167 MB | 69 MB | 200 MB | 165 MB | 159 MB |
+| | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave | C (original) | wfdb-python |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| read `long` | 24 MB | 13 MB | 311 MB | 149 MB | 80 MB | 157 MB | 115 MB | 12 MB | 118 MB |
+| read `mimic` | 35 MB | 17 MB | 313 MB | 168 MB | 69 MB | 221 MB | 165 MB | 17 MB | 159 MB |
 
 ### The command-line tools
 
 | | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave | C (original) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `rdsamp -r long` | 57.5 ms | 61.1 ms | 430 ms | 238 ms | 728 ms | 857 ms | 720 ms | 273 ms |
-| `wfdbdesc long` | 2.6 ms | 2.4 ms | 387 ms | 85.5 ms | 44.7 ms | 261 ms | 143 ms | 2.5 ms |
+| `rdsamp -r long` | 40.1 ms | 51.4 ms | 374 ms | 179 ms | 395 ms | 750 ms | 570 ms | 210 ms |
+| `rdann -r long -a atr` | 3.4 ms | 3.7 ms | 302 ms | 102 ms | 58.3 ms | 240 ms | 127 ms | 2.5 ms |
+| `wfdbdesc long` | 1.8 ms | 1.9 ms | 337 ms | 60.7 ms | 32.8 ms | 230 ms | 87.0 ms | 1.3 ms |
 
 For scripts that run a tool many times on small inputs, the start-up time
-dominates. The C++ and Rust tools are the best choice there; so is one
+dominates. The C, C++ and Rust tools are the best choice there; so is one
 program that calls the library for every record.
 
 ## How the fast paths work
@@ -251,16 +316,18 @@ int main()
 
 * **One machine.** All results come from one shared cloud virtual machine,
   with the languages run one after the other, never at the same time. The
-  times of such a machine vary from run to run, and by up to about 30%
-  between sessions. So the whole benchmark was run twice, and each table
-  gives the better of the two runs. The ratios between languages are more
-  reliable than the absolute times.
+  times of such a machine vary from run to run (by up to about 30%
+  between sessions; the frame-by-frame reads of C and C++ differ by about 10%
+  here, within that variation). So the whole benchmark was run twice, and
+  each table gives the better of the two runs. The ratios between languages
+  are more reliable than the absolute times, which also differ from those
+  of earlier versions of this page, measured on another machine.
 * **Best of 7.** Each library time is the fastest of 7 timed calls, after
   one untimed first call. The tables give no medians or confidence
   intervals. The processes were not pinned to a core, and the processor's
   frequency was not fixed.
 * **Warm cache.** The files are in the operating system's cache, so the
-  times measure WFDB-x, not the disk.
+  times measure the libraries, not the disk.
 * **Synthetic records.** The records are generated, though shaped like
   real ones: the speed of WFDB-x depends on the sizes and formats of the
   records, not on the signals' values.
@@ -268,7 +335,10 @@ int main()
   factor of up to 2 between runs.
 * **Memory has a floor.** Peak memory includes the language's runtime. A
   process inherits the peak memory of the process that starts it, about
-  11 MB here, so values near that are upper bounds.
+  11 MB here, so values near that (C and Rust) are upper bounds.
+* **The C library was used as a C program uses it.** It has no high-level
+  functions, so its times are those of the library functions called by a
+  short C program; the C++ frame-by-frame read uses the same calls.
 * **Not measured.** The MATLAB/Octave code ran in GNU Octave only, not in
   MATLAB. The Kotlin code ran on the JVM only, not on Android or iOS.
   Only one processor architecture (x86-64) was measured.
@@ -284,13 +354,14 @@ virtual machine), with:
 
 ```sh
 python3 benchmarks/run.py --reps 7               # every language, as measured here
-python3 benchmarks/run.py --langs cpp,rust       # some of them
-WFDB_PYTHON=/path/to/python python3 benchmarks/run.py --cbin /path/to/wfdb/bin
+python3 benchmarks/run.py --langs cpp,c,rust     # some of them
+WFDB_PYTHON=/path/to/python python3 benchmarks/run.py --reps 7
 ```
 
-`benchmarks/run.py` writes the records, builds what needs building, runs
+`benchmarks/run.py` writes the records, builds what needs building (for C,
+the unmodified C package, once; it needs libFLAC, or `FLAC_PREFIX`), runs
 every operation in every language, compares their results, and prints the
 tables. `WFDB_PYTHON` names a Python that has wfdb-python (it is skipped
-otherwise), and `--cbin` the directory of the original C tools, to include
-them. [`benchmarks/README.md`](../benchmarks/README.md) describes the
-programs and the format of the results.
+otherwise), and `--cbin` another build of the C tools to time.
+[`benchmarks/README.md`](../benchmarks/README.md) describes the programs and
+the format of the results.

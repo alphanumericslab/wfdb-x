@@ -1,15 +1,21 @@
 # WFDB-x benchmarks
 
 The same operations, timed in each of the seven WFDB-x languages, and in
-wfdb-python and the original C tools for comparison. The results, and how
+the original C library and tools and wfdb-python for comparison. The results, and how
 to get the most speed from WFDB-x, are in
 [`docs/BENCHMARKS.md`](../docs/BENCHMARKS.md).
 
 ```sh
 python3 benchmarks/run.py                      # all languages (builds the drivers first)
-python3 benchmarks/run.py --langs cpp,python   # some of them
-python3 benchmarks/run.py --cbin /path/to/wfdb/bin   # also time the original C tools
+python3 benchmarks/run.py --langs cpp,c,python # some of them
+python3 benchmarks/run.py --cbin /path/to/wfdb/bin   # time another build of the C tools
 ```
+
+The language `c` is the original C library: `benchmarks/c/build.sh` builds the
+unmodified WFDB Software Package 10.7.0 from `third_party/wfdb-main.zip`, once,
+with its own `configure` script and compiler options (as a user would install
+it; it needs libFLAC, or `FLAC_PREFIX`), and the C driver against it. Its tools
+are the C tools that are timed. If the package cannot be built, C is skipped.
 
 `run.py` writes the test records (with `make_records.py`, into
 `benchmarks/build/data`, the same on every run; they are written again when
@@ -44,10 +50,17 @@ options unless stated.
 | `write_long` | `write_record` of the samples of `long`, as a new record in format 16 | size of the signal file |
 | `read_ann` | `read_annotations("long", "atr")` | number of annotations |
 | `write_ann` | `write_annotations` of those annotations (times, codes, text) | size of the annotation file |
+| `read_long_getvec` | C and C++ only: `long` read with the library functions `isigopen` and `getvec`, one frame per call, the only way of the C library | sum of the samples |
+
+The C driver does each operation with the functions of the C library:
+`isigopen` and `getvec` (one frame per call) to read, `aduphys` for physical
+units, `osigfopen`, `putvec` and `newheader` to write, and `annopen`,
+`getann` and `putann` for annotations.
 
 The command-line tools are timed as whole processes, started by the runner:
-`rdsamp -r long` (1,296,000 lines of output, to `/dev/null`) and
-`wfdbdesc long` (a small task: mostly the start-up time of the language).
+`rdsamp -r long` (1,296,000 lines of output, to `/dev/null`),
+`rdann -r long -a atr` (4,500 lines) and `wfdbdesc long` (a small task:
+mostly the start-up time of the language).
 
 ## The drivers
 
@@ -61,6 +74,7 @@ The command-line tools are timed as whole processes, started by the runner:
 | R | [`r/bench.R`](r/bench.R) |
 | MATLAB/Octave | [`matlab/wfdbx_bench.m`](matlab/wfdbx_bench.m) (run in Octave by `matlab/bench.m`) |
 | wfdb-python | [`wfdb_python/bench.py`](wfdb_python/bench.py) |
+| C (original) | [`c/bench.c`](c/bench.c) (built by [`c/build.sh`](c/build.sh)) |
 
 A driver is run as `DRIVER OP DATADIR REPS`. It reads the records from
 `DATADIR`, writes into a temporary directory, times one call of `OP`
@@ -87,8 +101,8 @@ exactly. All the files are little-endian:
 | `write_ann` | `OP.atr` | the annotation file written |
 
 The runner compares the arrays value by value (NaN equal to NaN) and the
-other files byte for byte, across all the WFDB-x languages, and stops with
-an error if any of them differ.
+other files byte for byte, across all the WFDB-x languages and the C
+library, and stops with an error if any of them differ.
 
 This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GPL-3.0-or-later;
 see [LICENSE](../LICENSE).

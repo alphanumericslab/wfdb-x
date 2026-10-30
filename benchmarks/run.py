@@ -1,5 +1,5 @@
 """Run the WFDB-x benchmarks: the same operations in the seven languages
-(and wfdb-python and the original C tools, for comparison).
+(and the original C library and tools, and wfdb-python, for comparison).
 
     python3 benchmarks/run.py [--langs L,L,...] [--reps N] [--data DIR]
                               [--no-build] [--json FILE] [--markdown FILE]
@@ -38,6 +38,8 @@ sys.path.insert(0, os.path.join(ROOT, "tests", "conformance"))
 import harness  # noqa: E402  (impl_command: how each language runs a tool)
 
 LANGS = ["cpp", "rust", "julia", "kotlin", "python", "r", "octave"]
+# The original C library (benchmarks/c), and wfdb-python, for comparison.
+OTHERS = ["c", "wfdb-python"]
 NAMES = {"cpp": "C++", "rust": "Rust", "julia": "Julia", "kotlin": "Kotlin",
          "python": "Python", "r": "R", "octave": "MATLAB/Octave",
          "wfdb-python": "wfdb-python", "c": "C (original)"}
@@ -48,6 +50,11 @@ OPS = [("read_long", "read 1 h, 2 signals (fmt 212)"),
        ("write_long", "write 1 h, 2 signals (fmt 16)"),
        ("read_ann", "read 4,500 annotations"),
        ("write_ann", "write 4,500 annotations")]
+# Operations that only some drivers have: reading long one frame per getvec
+# call, the C library's only way, in C and in WFDB-x's C++ library API.
+EXTRA_OPS = {"read_long_getvec": ["cpp", "c"]}
+EXTRA_DESC = {"read_long_getvec": "read 1 h, 2 signals, frame by frame "
+              "(getvec)"}
 
 # How to build (in BUILD) and run each benchmark driver:
 #   DRIVER OP DATADIR REPS  ->  one JSON line (benchmarks/README.md)
@@ -66,6 +73,9 @@ BUILDS = {
     "julia": [["julia", "--startup-file=no", "--project=" +
                os.path.join(ROOT, "julia"), "-e",
                "import Pkg; Pkg.instantiate(); import WFDBX"]],
+    # (the unmodified C package, built once, and the driver)
+    "c": [["sh", os.path.join(HERE, "c", "build.sh"), os.path.join(BUILD,
+                                                                  "c")]],
 }
 DRIVERS = {
     "cpp": [os.path.join(BUILD, "cpp", "wfdbx_bench")],
@@ -80,7 +90,10 @@ DRIVERS = {
     "octave": OCTAVE + [os.path.join(HERE, "matlab", "bench.m")],
     "wfdb-python": [os.environ.get("WFDB_PYTHON", sys.executable),
                     os.path.join(HERE, "wfdb_python", "bench.py")],
+    "c": [os.path.join(BUILD, "c", "wfdb_c_bench")],
 }
+# The tools of the C package built by benchmarks/c/build.sh.
+C_BIN = os.path.join(BUILD, "c", "wfdb", "bin")
 # The tools: the conformance harness's commands (compiled tools by name,
 # with their directory first in PATH).
 TOOL_BIN = {"cpp": os.path.join(ROOT, "cpp", "build", "bin"),
@@ -93,6 +106,8 @@ TOOL_BUILDS = {
               os.path.join(ROOT, "rust", "Cargo.toml")]],
 }
 TOOLS = [("rdsamp", ["-r", "long"], "rdsamp -r long (1,296,000 lines)"),
+         ("rdann", ["-r", "long", "-a", "atr"],
+          "rdann -r long -a atr (4,500 lines)"),
          ("wfdbdesc", ["long"], "wfdbdesc long (start-up)")]
 
 
@@ -163,8 +178,9 @@ WFDB_PYTHON_DIFFERS = ["read_mimic"]
 # The languages whose drivers save the result of each operation (all of
 # WFDB-x), and the files they save (benchmarks/README.md): samples as
 # arrays (compared as numbers, NaN equal to NaN), the rest byte for byte.
-DUMPS = ["cpp", "rust", "julia", "kotlin", "python", "r", "octave"]
+DUMPS = ["cpp", "rust", "julia", "kotlin", "python", "r", "octave", "c"]
 RESULTS = {"read_long": [(".bin", "<i4")], "read_mimic": [(".bin", "<i4")],
+           "read_long_getvec": [(".bin", "<i4")],
            "read_wide": [(".bin", "<i4")], "read_long_phys": [(".bin", "<f8")],
            "read_ann": [(".ann", None)], "write_ann": [(".atr", None)],
            "write_long": [(".hea", None), (".dat", None)]}
@@ -242,12 +258,11 @@ def fmt_t(x):
 def tables(res, langs):
     out = []
     tl = [x for x in langs if x != "wfdb-python"]
-    langs = [x for x in langs if x != "c"]
     head = "| | " + " | ".join(NAMES[x] for x in langs) + " |"
     rule = "|---|" + "---:|" * len(langs)
     out += ["**Library, best of the timed runs** (in a running program)", "",
             head, rule]
-    for op, desc in OPS:
+    for op, desc in OPS + [(o, EXTRA_DESC[o]) for o in EXTRA_OPS]:
         row = [fmt_t(res.get(x, {}).get(op, {}).get("best")) for x in langs]
         out.append("| %s | %s |" % (desc, " | ".join(row)))
     out += ["", "**Library, first call** (includes compilation by a JIT)", "",
@@ -300,12 +315,13 @@ def versions():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--langs", default=",".join(LANGS + ["wfdb-python"]))
+    ap.add_argument("--langs", default=",".join(LANGS + OTHERS))
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--tool-reps", type=int, default=3)
     ap.add_argument("--data", default=os.path.join(BUILD, "data"))
     ap.add_argument("--cbin", help="the bin directory of the original WFDB "
-                    "package, to time its tools too")
+                    "package whose tools to time (default: those built for "
+                    "the C driver, when C is among the languages)")
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--no-tools", action="store_true")
     ap.add_argument("--ops", default=",".join(o for o, _ in OPS))
@@ -338,19 +354,30 @@ def main():
                          "WFDB_PYTHON names the Python that has it): "
                          "skipped\n")
         langs.remove("wfdb-python")
+    if "c" in langs and not a.no_build:
+        try:
+            build("c")
+        except subprocess.CalledProcessError:
+            sys.stderr.write("the original C package could not be built "
+                             "(benchmarks/c/build.sh; it needs libFLAC, or "
+                             "FLAC_PREFIX): skipped\n")
+            langs.remove("c")
+    if "c" in langs and not a.cbin and os.path.isdir(C_BIN):
+        a.cbin = C_BIN
     res = {"_versions": versions(), "_tools": {}}
     shutil.rmtree(os.path.join(BUILD, "results"), ignore_errors=True)
     for lang in langs:
         sys.stderr.write("== %s\n" % NAMES[lang])
-        if not a.no_build:
+        if not a.no_build and lang != "c":
             build(lang)
         res[lang] = {}
-        for op in ops:
+        for op in ops + [o for o, ls in EXTRA_OPS.items() if lang in ls
+                         and o not in ops]:
             r = run_driver(lang, op, data, a.reps)
             res[lang][op] = r
             sys.stderr.write("  %-15s best %-9s first %-9s check %s\n" % (
                 op, fmt_t(r["best"]), fmt_t(r["first"]), r["check"]))
-        if not a.no_tools and lang != "wfdb-python":
+        if not a.no_tools and lang not in OTHERS:
             res["_tools"][lang] = {
                 t: run_tool(lang, t, args, data, a.tool_reps, None)
                 for t, args, _ in TOOLS}
@@ -361,6 +388,14 @@ def main():
     # All the WFDB-x languages must have read and written the same data:
     # the same samples, annotations and files (and so the same checks).
     bad = compare_results(langs, ops)
+    # (and reading frame by frame gives what read_record gives)
+    for op, ls in EXTRA_OPS.items():
+        ls = [x for x in ls if x in langs]
+        bad += compare_results(ls, [op])
+        for x in ls:
+            if "read_long" in res[x] and not same(res[x][op]["check"],
+                                                  res[x]["read_long"]["check"]):
+                bad.append("%s %s: %s differs from read_long" % (x, op, op))
     for op in ops:
         # (wfdb-python too, except for mimic: it averages the samples of a
         # multi-frequency record with another rounding)
@@ -371,7 +406,7 @@ def main():
                               for v in checks.values()):
             bad.append("%s: %s" % (op, checks))
     order = [x for x in langs]
-    if a.cbin:
+    if a.cbin and "c" not in order:
         order.append("c")
     text = tables(res, order)
     sys.stdout.write("\n" + text)

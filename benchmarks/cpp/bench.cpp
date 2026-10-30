@@ -17,6 +17,7 @@
 // any later version. See LICENSE.
 
 #include <wfdbx/record.hpp>
+#include <wfdbx/wfdb.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -103,7 +104,8 @@ void save(const std::string &op, const Result &r, const fs::path &out,
 {
     fs::path p = dump / op;
     std::string b;
-    if (op == "read_long" || op == "read_mimic" || op == "read_wide") {
+    if (op == "read_long" || op == "read_long_getvec" || op == "read_mimic" ||
+        op == "read_wide") {
         for (wfdbx::WFDB_Sample x : r.rec.samples) put<int32_t>(b, x);
         write_file(p.string() + ".bin", b);
     } else if (op == "read_long_phys") {
@@ -176,6 +178,23 @@ int main(int argc, char **argv)
         auto sample_sum = [](const Result &r) { return (double)sum(r.rec.samples); };
         if (op == "read_long") {
             run = read("long");
+            check = sample_sum;
+        } else if (op == "read_long_getvec") {
+            // The C library's way: the library functions, one frame per
+            // getvec call (for comparison with the original C library).
+            run = [](Result &r) {
+                const int maxsig = 32;
+                wfdbx::WFDB_Siginfo si[maxsig];
+                int nsig = wfdbx::isigopen("long", si, maxsig);
+                if (nsig < 1) throw std::runtime_error("can't open long");
+                std::vector<wfdbx::WFDB_Sample> frame(nsig);
+                r.rec.nsig = nsig;
+                r.rec.samples.reserve((size_t)si[0].nsamp * nsig);
+                while (wfdbx::getvec(frame.data()) == nsig)
+                    r.rec.samples.insert(r.rec.samples.end(), frame.begin(),
+                                         frame.end());
+                wfdbx::wfdbquit();
+            };
             check = sample_sum;
         } else if (op == "read_long_phys") {
             run = [](Result &r) {
