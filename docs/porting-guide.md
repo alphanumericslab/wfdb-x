@@ -5,6 +5,23 @@ details of the C implementation that an implementation must reproduce to pass
 the conformance suite. The Python implementation (`python/src/wfdbx/`) is the
 template for the others.
 
+## Every change updates the documentation
+
+Every change to WFDB-x, in any language, is reflected in the same commit
+(or pull request) in:
+
+* the code comments and help text of the functions and tools changed (the
+  docstring, doc comment, `.Rd` page or MATLAB help);
+* the README of each language affected, and the front page (`README.md`)
+  if the change is visible there;
+* the user's manual ([`docs/user-manual/`](user-manual/); the PDF is
+  [`wfdb-x-user-manual.pdf`](user-manual/wfdb-x-user-manual.pdf)): the LaTeX
+  sources, which `docs/user-manual/check_manual.py` checks against the
+  code, and the PDF, rebuilt from them;
+* the shared documents of `docs/` that describe it (for example
+  `DIVERGENCES.md` for a change of behavior or an addition, `INVENTORY.md`
+  for a new function or tool), and [`CHANGELOG.md`](../CHANGELOG.md).
+
 ## Structure
 
 Each implementation mirrors the C sources, file by file:

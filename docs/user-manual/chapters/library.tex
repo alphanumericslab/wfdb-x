@@ -1,0 +1,2944 @@
+% The WFDB library functions: the reference of the C-style API of WFDB-x.
+% Part of the WFDB-x user's manual (see ../README.md for the conventions).
+% check_manual.py checks that every library function of the Python
+% implementation (the C-named functions and the wfdbx_* additions) has
+% exactly one \apientry here, and that every entry is one of them.
+
+\chapter{The WFDB library functions}
+\label{chap:library}
+% (long identifiers: allow more stretch in this chapter; reset at its end)
+\setlength{\emergencystretch}{2.5em}
+
+Besides its high-level functions, which read and write whole records in the
+idiom of each language, WFDB-x provides the functions of the C library of the
+WFDB Software Package \wfdbversion{} (\code{libwfdb}, declared in
+\file{<wfdb/wfdb.h>}) in all seven languages. They keep the C names
+(\code{isigopen}, \code{getvec}, \code{getann}, \code{strtim}, ...), the C
+arguments and their order, the C return values and error codes, the messages
+that the C library prints, and its global state: the open record, signals and
+annotators, the sampling frequency and base time used by the time conversion
+functions, the calibration list, the tables of annotation mnemonics. A program
+written for the C library, or a passage of the \emph{WFDB Programmer's Guide},
+carries over call by call; the command-line tools of WFDB-x
+(\cref{chap:tools}) are written with these functions, as the C tools are with
+\code{libwfdb}.
+
+The behavior is that of the C library, edge cases included, with the
+deliberate changes of WFDB-x described in \cref{chap:behavior}: no built-in
+sampling frequency, gain, ADC resolution or units; files found only where
+they are named (an input directory, an output directory, network access off
+by default) instead of being searched for in the WFDB path; out-of-order
+annotation files sorted in the same process, without losing annotations; an
+output signal file never one of the input files; write errors counted. Legacy
+mode (\code{wfdbx\_set\_legacy}) restores the original behavior. Each entry
+below says what changes, if anything. WFDB-x adds a few functions of its own,
+whose names begin with \code{wfdbx\_} (\cref{sec:library-additions}), and a
+reader of many sample vectors at once (\code{getframes}, or \code{getvecs}).
+
+Since the names, the arguments and the behavior are the same in the seven
+languages, each function is documented once, in C notation: the first listing
+of each entry is the prototype of the C library (for the WFDB-x additions,
+the declaration of the C++ implementation, \file{cpp/include/wfdbx/wfdb.hpp},
+which is in the same style). \Cref{sec:library-calling} shows how the C
+conventions (arrays filled by a function, output arguments, \code{NULL},
+strings, structures) appear in each language. The record \code{100s} used in
+the examples is the sample record included with WFDB-x (the first minute of
+record 100 of the MIT-BIH Arrhythmia Database, in \file{tests/data}).
+
+\begin{note}
+These functions are for programs that need the C library's model: reading
+sample by sample, writing headers and annotation files piece by piece, or
+porting an existing C program. To read or write a whole record or annotation
+file, the high-level functions of each language (\code{read\_record},
+\code{write\_annotations}, ...; \cref{chap:python,chap:cpp,chap:rust,chap:julia,chap:r,chap:matlab,chap:kotlin})
+are simpler and faster.
+\end{note}
+
+% ==========================================================================
+\section{Calling the library functions from each language}
+\label{sec:library-calling}
+
+In every language the functions have their C names and take their arguments
+in the C order. What differs is how a language expresses C's pointers:
+arrays that a function fills, output arguments, \code{NULL}, and strings.
+\Cref{tab:library-languages} summarizes these conventions; the notes and the
+example that follow give the details for each language. Each example opens
+the record \code{100s} (from the current directory, the default input
+directory) with \code{isigopen}, reads one sample of each signal with
+\code{getvec}, and prints the description of signal 0 and the two samples
+(\code{MLII 995 1011}).
+
+The conventions common to all languages:
+
+\begin{itemize}
+\item Signal, group and annotator numbers start at 0, as in C, also in the
+  languages whose arrays start at 1 (Julia, R, MATLAB/Octave).
+\item Errors are reported as in C: by the return value, with a message on
+  the standard error output, not by exceptions. \code{wfdberror} returns the
+  last message, and \code{wfdbquiet} stops the messages from being printed.
+\item The state of the library is kept between calls, as in C.
+  \code{wfdbquit} closes the files and resets the record's state; the input
+  and output directories and the network setting are kept.
+\item Text is handled as bytes, one character per byte (ISO-8859-1 where a
+  language's strings are Unicode), so that every byte of a header or an
+  annotation file is kept.
+\item An annotation's \code{aux} field is either absent (C's \code{NULL}) or a
+  sequence of bytes whose first byte is the length of the data that follow,
+  as in C.
+\end{itemize}
+
+\begin{xltabular}{\linewidth}{@{}P{1.6cm}LLLL@{}}
+\caption{The C conventions in each language.}
+\label{tab:library-languages}\\
+\toprule
+{\tabhead Language} & {\tabhead Calling} & {\tabhead Arrays and output
+arguments} & {\tabhead \code{NULL}} & {\tabhead Strings returned}\\
+\midrule
+\endfirsthead
+\toprule
+{\tabhead Language} & {\tabhead Calling} & {\tabhead Arrays and output
+arguments} & {\tabhead \code{NULL}} & {\tabhead Strings returned}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Python & \code{wfdbx.isigopen(...)} (module \code{wfdbx}) & a list passed by
+the caller is filled; an object (\code{Annotation}, \code{Calinfo}) passed by
+the caller is filled & \code{None} & \code{str}; \code{aux} is \code{bytes}\\
+C++ & \code{wfdbx::\allowbreak isigopen(...)} (namespace \code{wfdbx}, header
+\file{<wfdbx/wfdb.hpp>}) & as in C: arrays and structures allocated by the
+caller, passed by pointer & \code{nullptr} & \code{std::string}, or
+\code{std::optional<\allowbreak std::string>} where C may return
+\code{NULL}\\
+Rust & \code{wfdbx::\allowbreak isigopen(...)}, or the method \code{w.isigopen(...)} of a
+\code{Wfdb} value & a mutable slice or reference passed by the caller is
+filled & \code{None} (\code{wfdbx::NULL}) & \code{Vec<u8>}, or
+\code{Option<Vec<u8>>} where C may return \code{NULL}\\
+Julia & \code{isigopen(...)} after \code{using WFDBX}, or
+\code{WFDBX.\allowbreak isigopen(...)}; optionally a \code{Wfdb} object first & a vector
+or mutable structure passed by the caller is filled; a \code{Ref} receives a
+pointer result & \code{nothing} & \code{Vector\{UInt8\}}; \code{String} for
+\code{timstr}, \code{mstimstr}, \code{datstr}\\
+R & \code{isigopen(...)} (package \code{wfdbx}) & returned with the C result
+in a list (\code{r\$nsig}, \code{r\$si}; \code{g\$stat}, \code{g\$v}) & \code{NULL}
+& character strings; \code{aux} is a raw vector\\
+MATLAB/ Octave & \code{wfdbx.isigopen(...)} (package \code{+wfdbx}) & returned as
+extra output values (\code{[nsig, si] = ...}) & \code{[]} & \code{char} row
+vectors; \code{aux} is \code{uint8}\\
+Kotlin & \code{isigopen(...)} (package \code{wfdbx}), or the extension
+function \code{w.isigopen(...)} of a \code{Wfdb} object & an array or object
+passed by the caller is filled & \code{null} & \code{ByteArray}, or
+\code{ByteArray?} where C may return \code{NULL}\\
+\end{xltabular}
+
+\subsection{Python}
+\label{sec:library-python}
+
+The functions, the structures and the constants are in the package
+\code{wfdbx} (\code{import wfdbx}). The C structures are the classes
+\code{Siginfo}, \code{Anninfo}, \code{Annotation}, \code{Calinfo} and
+\code{Seginfo}, with the C field names; their constructors take the fields
+as keyword arguments, with C's zero values, except that \code{Siginfo.spf} is
+1 by default.
+
+\begin{itemize}
+\item Where C fills an array of structures (\code{isigopen},
+  \code{osigopen}), the caller passes a list, which is emptied and receives
+  one \code{Siginfo} per signal. Where C fills an array of samples
+  (\code{getvec}, \code{getframe}), the caller passes a list with room for
+  every value (\code{[0] * nsig}), whose first elements are replaced.
+  \code{putvec} reads a list (or any sequence).
+\item Where C fills a structure (\code{getann}, \code{getcal}), the caller
+  passes an object (\code{Annotation()}, \code{Calinfo()}), whose fields are
+  replaced.
+\item \code{getseginfo()} takes no argument and returns the list of
+  \code{Seginfo} objects (empty if the record is not a multi-segment
+  record), instead of a count and a pointer.
+\item The counts that only give the length of an array have defaults:
+  \code{annopen(record, aiarray)}, \code{osigfopen(siarray)},
+  \code{setheader(record, siarray)} and \code{setmsheader(record, names)}
+  use the length of the list; \code{isigopen} and \code{osigopen} take
+  \code{siarray=None, nsig=0}, \code{getinfo} and \code{calopen} take
+  \code{None}.
+\item Strings are \code{str}; an annotation's \code{aux} is \code{None} or
+  \code{bytes}, and \code{Annotation.aux\_string()} returns its text.
+  \code{wfdb\_error(fmt, *args)} formats as C's \code{printf}.
+\item \code{getframes(n)} reads up to \code{n} sample vectors into a NumPy
+  array (\cref{sec:library-additions}).
+\item The functions of \file{<wfdb/ecgmap.h>} (\code{isann}, \code{isqrs},
+  \code{map1}, ...) and the annotation codes (\code{NORMAL}, \code{PVC}, ...)
+  are in the package; \code{isann} returns \code{True} or \code{False}
+  (C: 1 or 0).
+\end{itemize}
+
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+si = []
+nsig = wfdbx.isigopen("100s", si, 2)    # si receives 2 Siginfo objects
+v = [0] * 2
+if nsig == 2 and wfdbx.getvec(v) > 0:   # v receives one sample per signal
+    print(si[0].desc, v[0], v[1])       # MLII 995 1011
+wfdbx.wfdbquit()
+\end{lstlisting}
+
+\subsection{C++}
+\label{sec:library-cpp}
+
+\file{<wfdbx/wfdb.hpp>} declares the functions, types, structures and
+constants in namespace \code{wfdbx}; \file{<wfdbx/ecgcodes.hpp>} defines the
+annotation codes, and \file{<wfdbx/ecgmap.hpp>} the macros of
+\file{<wfdb/ecgmap.h>} as inline functions (\code{isann}, \code{isqrs}, ...,
+which call \code{wfdb\_isann}, \code{wfdb\_isqrs}, ...).
+
+\begin{itemize}
+\item Arrays and structures are allocated by the caller and passed by
+  pointer, as in C. String arguments are \code{const char *}, and
+  \code{nullptr} is accepted where C accepts \code{NULL}.
+\item Strings are returned by value, as \code{std::string}, or as
+  \code{std::optional<std::string>} where the C function may return
+  \code{NULL} (\code{annstr}, \code{ecgstr}, \code{anndesc}, \code{getinfo},
+  \code{wfdbfile}); unlike C's pointers to static buffers, they stay valid
+  after later calls.
+\item The string fields of \code{WFDB\_Siginfo}, \code{WFDB\_Calinfo} and
+  \code{WFDB\_Annotation} (including \code{aux}) are
+  \code{std::optional<std::string>}, since C distinguishes \code{NULL} from
+  \code{""}; \code{WFDB\_Anninfo::name} is a \code{std::string}. The
+  structures are also available under the shorter names \code{Siginfo},
+  \code{Anninfo}, \code{Annotation}, \code{Calinfo} and \code{Seginfo}.
+\item \code{WFDB\_Time} is \code{long long} (64 bits); \code{getseginfo}
+  takes a \code{const WFDB\_Seginfo **}.
+\item \code{getvecs} reads many sample vectors at once
+  (\cref{sec:library-additions}). The library is not thread-safe, as in C.
+\end{itemize}
+
+\begin{lstlisting}[language=C++,style=example]
+#include <cstdio>
+#include <wfdbx/wfdb.hpp>
+using namespace wfdbx;
+
+int main() {
+    WFDB_Siginfo si[2];
+    WFDB_Sample v[2];
+    int nsig = isigopen("100s", si, 2);
+    if (nsig == 2 && getvec(v) > 0)
+        std::printf("%s %d %d\n", si[0].desc->c_str(), v[0], v[1]);
+    wfdbquit();
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Rust}
+\label{sec:library-rust}
+
+The state of the library is held by a \code{Wfdb} value, and each function is
+a method of it (\code{w.isigopen(...)}). Every function is also a free
+function of the crate with the same name and arguments
+(\code{wfdbx::\allowbreak isigopen(...)}), which uses a default \code{Wfdb} value, one per
+thread; separate \code{Wfdb} values share no state, so that several records
+can be open at once. The functions that use no state of their own are free
+functions only: \code{wfdbldflags}, \code{wfdbcflags}, \code{wfdbdefwfdb},
+\code{wfdbdefwfdbcal}, the count of write errors (\code{wfdbx\_write\_errors},
+\code{wfdbx\_note\_write\_error}, which belongs to the process),
+\code{isann}, \code{ammap} and \code{mamap} (and their \code{wfdb\_} forms),
+and the macros of \file{<wfdb/ecgmap.h>} that use the mapping tables
+(\code{isqrs}, \code{map1}, ...), which use those of the default value (the
+methods \code{w.wfdb\_isqrs(...)}, \code{w.wfdb\_map1(...)}, ... use those of
+\code{w}).
+
+\begin{itemize}
+\item Where C fills an array, the caller passes a mutable slice
+  (\code{\&mut si}, \code{\&mut v}); where C fills a structure, a mutable
+  reference (\code{\&mut annot}). C's \code{NULL} array, as in
+  \code{isigopen(record, NULL, 0)}, is an empty slice.
+\item String arguments accept \code{\&str}, \code{\&[u8]} or \code{b"..."};
+  where C accepts \code{NULL}, they also accept \code{Option}s, and
+  \code{wfdbx::NULL} is a typed \code{None}. Strings are returned as
+  \code{Vec<u8>}, or \code{Option<Vec<u8>>} where C may return \code{NULL}
+  (\code{anndesc}, \code{getinfo}, \code{wfdbfile}, ...).
+\item C's \code{int} is \code{i32}, \code{long} and \code{WFDB\_Time} are
+  \code{i64}, \code{WFDB\_Signal}, \code{WFDB\_Group} and
+  \code{WFDB\_Annotator} are \code{u32}. The structures (\code{Siginfo},
+  \code{Anninfo}, \code{Annotation}, \code{Calinfo}, \code{Seginfo}) have the
+  C field names; \code{Default::default()} gives C's zero values; the
+  \code{char} fields of \code{Annotation} are \code{i8} (\code{chan}:
+  \code{u8}).
+\item \code{getseginfo(\&mut segs)} takes an \code{\&mut Option<Vec<Seginfo>>},
+  which receives a copy of the segment table (\code{None} if there is none).
+\item \code{wfdb\_error(msg)} takes a message already formatted (with the
+  crate's \code{cformat!} macro, which formats as C's \code{printf}), and
+  \code{wfdb\_error\_fmt(fmt, args)} formats it.
+\item \code{getvecs} and \code{getvecs\_status} read many sample vectors at
+  once (\cref{sec:library-additions}); \code{wfdbx\_fclose\_output} closes a
+  file that a program wrote itself and counts a write error
+  (\cref{sec:library-additions}).
+\end{itemize}
+
+\begin{lstlisting}[language=Rust,style=example]
+use wfdbx::Siginfo;
+
+fn main() {
+    let mut si = vec![Siginfo::default(); 2];
+    let nsig = wfdbx::isigopen("100s", &mut si, 2);
+    let mut v = vec![0i32; 2];
+    if nsig == 2 && wfdbx::getvec(&mut v) > 0 {
+        let desc = si[0].desc.clone().unwrap_or_default();
+        println!("{} {} {}", String::from_utf8_lossy(&desc), v[0], v[1]);
+    }
+    wfdbx::wfdbquit();
+}
+\end{lstlisting}
+
+\subsection{Julia}
+\label{sec:library-julia}
+
+The functions are in the module \code{WFDBX}. \code{using WFDBX} makes the
+names of most of them available; those that it does not export are called
+with the module prefix: \code{WFDBX.wfdb\_error}, \code{WFDBX.wfdb\_me\_fatal},
+and the function forms of the macros of \file{<wfdb/ecgmap.h>},
+\code{WFDBX.wfdb\_isann}, \code{WFDBX.wfdb\_isqrs}, ... (\code{isann},
+\code{isqrs}, ... are exported). The state of the library is held by a
+\code{Wfdb} object: every function that uses it takes one as an optional
+first argument (\code{isigopen(w, "100s", si, 2)}) and otherwise uses the
+default object, \code{lib()}; \code{Wfdb()} creates an independent one. The
+functions that use no such state take none: \code{wfdbldflags},
+\code{wfdbcflags}, \code{wfdbdefwfdb}, \code{wfdbdefwfdbcal}, \code{isann},
+\code{ammap}, \code{mamap} (and their \code{wfdb\_} forms), and
+\code{wfdbx\_write\_errors} and \code{wfdbx\_note\_write\_error}, whose
+count belongs to the process.
+
+\begin{itemize}
+\item Where C fills an array, the caller passes a vector: of \code{Siginfo}
+  structures (\code{[Siginfo() for \_ in 1:n]}), or of samples, which must
+  be a \code{Vector\{Int32\}}. Where C fills a structure, the caller passes
+  a mutable structure (\code{Annotation()}). \code{getseginfo(r)} takes a
+  \code{Ref}, which receives a vector of \code{Seginfo} (or \code{nothing}).
+\item C's \code{NULL} is \code{nothing}. Arguments may be \code{String}s or
+  bytes. Text is returned as bytes (\code{Vector\{UInt8\}}; \code{String(x)}
+  converts it), except the results of \code{timstr}, \code{mstimstr} and
+  \code{datstr}, which are \code{String}s; the string fields of the
+  structures are bytes, or \code{nothing}.
+\item The integer types are those of C: \code{WFDB\_Sample} and \code{int} are
+  \code{Int32}, \code{WFDB\_Time} and \code{long} are \code{Int64}; the
+  \code{char} fields of \code{Annotation} are \code{Int8} (\code{chan}:
+  \code{UInt8}).
+\item \code{wfdb\_error(fmt, args...)} formats as C's \code{printf}.
+  \code{wfdbx\_legacy\_args(args)} takes the arguments without the program
+  name (\cref{sec:library-additions}).
+\item \code{getvecs} and \code{getvecs\_status} read many sample vectors at
+  once (\cref{sec:library-additions}).
+\end{itemize}
+
+\begin{lstlisting}[language=Julia,style=example]
+using WFDBX
+
+si = [Siginfo() for _ in 1:2]
+nsig = isigopen("100s", si, 2)          # si receives the specifications
+v = zeros(Int32, 2)
+if nsig == 2 && getvec(v) > 0           # v receives one sample per signal
+    println(String(si[1].desc), " ", v[1], " ", v[2])
+end
+wfdbquit()
+\end{lstlisting}
+
+\subsection{R}
+\label{sec:library-r}
+
+The functions are those of the package \code{wfdbx} (\code{library(wfdbx)}).
+R has no output arguments, so a function that fills an array or a
+structure in C returns it, together with the C return value, in a list; the
+argument that C fills is omitted.
+
+\begin{itemize}
+\item \code{isigopen(record, nsig)} and \code{osigopen(record, nsig)} return
+  \code{list(nsig, si)}: the C result and the list of \code{siginfo} lists;
+  \code{wfdbinit(record, aiarray, nsig)} (without \code{nann}) returns
+  \code{list(stat, si)}; \code{getvec()} and \code{getframe()} return
+  \code{list(stat, v)}; \code{getann(an)} returns \code{list(stat, annot)};
+  \code{getcal(desc, units)} returns \code{list(stat, cal)};
+  \code{setheader} returns \code{list(stat, si)} (with the units and
+  descriptions as \code{setheader} truncates them);
+  \code{getseginfo()} returns the list of \code{seginfo} lists;
+  \code{wfdbx\_legacy\_args(argv)} returns \code{list(argv, legacy)}.
+\item The C structures are lists with the C field names, made by
+  \code{siginfo()}, \code{anninfo()}, \code{annotation()}, \code{calinfo()}
+  and \code{seginfo()} (\code{siginfo()} gives \code{spf} 1). Numbers are
+  doubles; strings are character strings, and C's \code{NULL} is
+  \code{NULL}; an annotation's \code{aux} is \code{NULL} or a raw vector,
+  and \code{aux\_string(aux)} returns its text.
+\item The C function \code{sample} is \code{wfdb\_sample}, so that it does not
+  mask R's \code{sample}. The functions of \file{<wfdb/ecgmap.h>} accept
+  vectors of codes. \code{wfdb\_error(fmt, ...)} formats as C's
+  \code{printf}.
+\item \code{getframes(n)} reads up to \code{n} sample vectors into a matrix
+  (\cref{sec:library-additions}); \code{putframes(m)} writes the rows of a
+  matrix with \code{putvec}.
+\end{itemize}
+
+\begin{lstlisting}[language=R,style=example]
+library(wfdbx)
+
+r <- isigopen("100s", 2)           # r$nsig, and r$si: the specifications
+g <- getvec()                      # g$stat, and g$v: one sample per signal
+if (r$nsig == 2 && g$stat > 0)
+  cat(r$si[[1]]$desc, g$v, "\n")
+wfdbquit()
+\end{lstlisting}
+
+\subsection{MATLAB/Octave}
+\label{sec:library-matlab}
+
+The functions are those of the package \file{+wfdbx}, called with the prefix
+\code{wfdbx.} (\code{wfdbx.isigopen(...)}). An array or structure that C
+fills is returned as an additional output value, and omitted from the
+arguments.
+
+\begin{itemize}
+\item \code{[nsig, si] = wfdbx.isigopen(record, nsig)} and
+  \code{[nsig, si] = wfdbx.osigopen(record, nsig)} return the C result and a
+  struct array of \code{wfdbx.siginfo} structures; \code{[stat, si] =
+  wfdbx.wfdbinit(record, aiarray, nann, nsig)}; \code{[stat, v] =
+  wfdbx.getvec()} and \code{[stat, v] = wfdbx.getframe()} (an initial vector
+  may be passed: its elements are kept where C leaves them unchanged);
+  \code{[stat, annot] = wfdbx.getann(an)}; \code{[stat, cal] =
+  wfdbx.getcal(desc, units)}; \code{[stat, si] = wfdbx.setheader(record, si,
+  nsig)}; \code{segs = wfdbx.getseginfo()} returns a struct array;
+  \code{[r, argv] = wfdbx.wfdbx\_legacy\_args(argv)}.
+\item The C structures are MATLAB structures with the C field names, made by
+  \code{wfdbx.siginfo(n)}, \code{wfdbx.anninfo(name, stat)},
+  \code{wfdbx.annotation()}, \code{wfdbx.calinfo()} and \code{wfdbx.seginfo(n)}
+  (\code{siginfo} gives \code{spf} 1). Samples, times and counts are
+  doubles. Strings are \code{char} row vectors (record names can also be
+  MATLAB strings), and C's \code{NULL} is \code{[]}; an annotation's
+  \code{aux} is \code{[]} or a \code{uint8} row vector.
+\item Constants are functions without arguments: \code{wfdbx.WFDB\_READ()},
+  \code{wfdbx.NORMAL()}, ...; \code{wfdbx.ecgcodes()} returns all the
+  annotation codes in one structure. The calibration constants
+  (\code{WFDB\_AC\_COUPLED}, ...) and \code{WFDB\_FMT\_LIST} are not defined;
+  their values are given in \cref{tab:library-constants}.
+\item \code{wfdbx.wfdb\_error(fmt, ...)} formats as C's \code{printf}.
+  \code{wfdbx.getframes(n)} reads up to \code{n} sample vectors into a matrix
+  (\cref{sec:library-additions}), and \code{wfdbx.putframes(M)} writes the
+  rows of a matrix.
+\end{itemize}
+
+\begin{lstlisting}[language=Matlab,style=example]
+[nsig, si] = wfdbx.isigopen('100s', 2);   % si: the specifications
+[stat, v] = wfdbx.getvec();               % v: one sample per signal
+if nsig == 2 && stat > 0
+    fprintf('%s %d %d\n', si(1).desc, v(1), v(2));
+end
+wfdbx.wfdbquit();
+\end{lstlisting}
+
+\subsection{Kotlin}
+\label{sec:library-kotlin}
+
+The functions are in the package \code{wfdbx} (\code{import wfdbx.*}). The
+state of the library is held by a \code{Wfdb} object, and each function is an
+extension function of it (\code{w.isigopen(...)}); every function is also a
+top-level function with the same name and arguments
+(\code{isigopen(...)}), which uses a default \code{Wfdb} object, one per
+thread. Separate \code{Wfdb} objects share no state; one object must be used
+by one thread at a time. As in Rust, \code{wfdbldflags}, \code{wfdbcflags},
+\code{wfdbdefwfdb}, \code{wfdbdefwfdbcal}, \code{wfdbx\_write\_errors},
+\code{wfdbx\_note\_write\_error}, \code{isann}, \code{ammap},
+\code{mamap} (and their \code{wfdb\_} forms) and the macros of
+\file{<wfdb/ecgmap.h>} that use the mapping tables (\code{isqrs},
+\code{map1}, ..., on the default object; the extension functions are
+\code{w.wfdb\_isqrs(...)}, ...) are top-level functions only.
+
+\begin{itemize}
+\item Where C fills an array, the caller passes an array
+  (\code{Array<Siginfo>}, \code{IntArray}); where C fills a structure, an
+  object (\code{Annotation()}). \code{getseginfo(list)} takes a
+  \code{MutableList<Seginfo>?}, which receives the segments.
+\item Strings are bytes (\code{ByteArray}), as in C; most functions also
+  accept a \code{String} (one character per byte), and \code{latin1()} (in
+  \code{wfdbx.cstd}) converts in either direction. C's \code{NULL} is
+  \code{null}; results that C may return as \code{NULL} are
+  \code{ByteArray?}.
+\item C's \code{int} and \code{WFDB\_Sample} are \code{Int}, \code{long} and
+  \code{WFDB\_Time} are \code{Long}, \code{double} is \code{Double}. The
+  structures (\code{Siginfo}, \code{Anninfo}, \code{Annotation},
+  \code{Calinfo}, \code{Seginfo}) have the C field names and C's zero values;
+  the \code{char} fields of \code{Annotation} are \code{Int} properties that
+  keep C's range (\code{anntyp}, \code{subtyp}, \code{num}: -128 to 127;
+  \code{chan}: 0 to 255).
+\item \code{wfdb\_error(msg)} takes a message already formatted (with
+  \code{cformat} of \code{wfdbx.cstd}, which formats as C's \code{printf}).
+\item \code{getvecs} and \code{getvecs\_status} read many sample vectors at
+  once, and \code{wfdbx\_fclose\_output} closes a file that a program wrote
+  itself (\cref{sec:library-additions}).
+\end{itemize}
+
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+import wfdbx.cstd.latin1
+
+fun main() {
+    val si = Array(2) { Siginfo() }
+    val nsig = isigopen("100s", si, 2)
+    val v = IntArray(2)
+    if (nsig == 2 && getvec(v) > 0)
+        println("${si[0].desc!!.latin1()} ${v[0]} ${v[1]}")
+    wfdbquit()
+}
+\end{lstlisting}
+
+\begin{note}[Functions that exist only in some languages]
+Every function documented in this chapter exists in the seven languages
+(\file{docs/INVENTORY.md}). The reader of many sample vectors has two names:
+\code{getframes} in Python, R and MATLAB/Octave, and \code{getvecs} (with
+\code{getvecs\_status}) in C++, Rust, Julia and Kotlin; it is documented under
+\code{getframes}. A few helpers have no counterpart in the Python
+implementation, and therefore no entry here: \code{putframes} (R,
+MATLAB/Octave), \code{wfdbx\_fclose\_output} (Rust, Kotlin),
+\code{wfdb\_error\_fmt} (Rust), \code{aux\_string} (R; a method of
+\code{Annotation} in Python) and the structure constructors of R and
+MATLAB/Octave. In R, \code{sample} is named \code{wfdb\_sample}.
+\end{note}
+
+% ==========================================================================
+\section{Opening and closing records}
+\label{sec:library-open}
+
+A record is opened for reading by \code{isigopen} (its signals) and
+\code{annopen} (its annotation files), or by \code{wfdbinit}, which calls
+both; output signals are opened by \code{osigopen} or \code{osigfopen}, and
+output annotation files by \code{annopen}. Programs that write files must call
+\code{wfdbquit} (or close the files with the functions given in each entry)
+before they exit.
+
+A record name is found as \cref{chap:behavior} describes: a relative name
+under the input directory (for reading) or the output directory (for
+writing), an absolute name, a \code{\textasciitilde} name or a URL as given; a
+name that begins with \code{+} keeps the files of the same kind already open,
+and the record name \code{-} is the standard input or output. A trailing
+\code{.hea} is removed from a record name.
+
+\apientry{annopen}{Open annotation files}
+\begin{lstlisting}[language=C,style=signature]
+int annopen(char *record, const WFDB_Anninfo *aiarray, unsigned int nann);
+\end{lstlisting}
+Opens, for \code{record}, the \code{nann} annotation files described by
+\code{aiarray}: for reading if their \code{stat} is \code{WFDB\_READ} or
+\code{WFDB\_AHA\_READ}, for writing (created, or truncated) if it is
+\code{WFDB\_WRITE} or \code{WFDB\_AHA\_WRITE}. The file of annotator
+\code{atr} of record \code{100s} is \file{100s.atr}. Input and output
+annotators are numbered separately, from 0, in the order of \code{aiarray}:
+these are the numbers given to \code{getann} and \code{putann}. All the
+annotation files already open are closed first (output files are completed,
+and sorted if needed, as by \code{oannclose}), unless \code{record} begins with
+\code{+}, which is then removed. All the \code{stat} values are checked before
+any file is opened. An input file whose contents show the other format (MIT or
+AHA) than its \code{stat} says is read in the format it has, with a warning.
+The modification labels (mnemonics and descriptions defined at the beginning
+of an input file) are applied to the tables of \code{annstr} and
+\code{anndesc}; the time resolution recorded in an input file is used by
+\code{getann} (see \code{getiaorigfreq}). An output annotator name may contain
+only letters, digits, \code{\_}, \code{\textasciitilde}, \code{-} and
+\code{/}.
+
+With \code{nann} 0, \code{annopen} only closes the open annotation files
+(\code{annopen("", NULL, 0)}) and reports whether that succeeded.
+\begin{params}
+\item[record] The record name.
+\item[aiarray] An array of \code{nann} \code{WFDB\_Anninfo} structures
+  (\cref{sec:library-structures}): the annotator name (\code{name}) and the
+  mode (\code{stat}) of each file.
+\item[nann] The number of annotators in \code{aiarray}.
+\end{params}
+\returns{0 on success; -3 if an input file cannot be opened; -4 if an output
+file cannot be created or its annotator name is illegal; -5 if a \code{stat}
+is not one of the four values. With \code{nann} 0: 0, -6 if an output file
+closed by the call was out of order (whether or not it could be sorted), or
+-7 if one could not be written completely.}
+\raises{\code{annopen: can't read annotator ATR for record REC};
+\code{annopen: can't write annotator ATR for record REC};
+\code{annopen: illegal stat N for annotator ATR, record REC}; \code{init:
+illegal character N in annotator name}.}
+
+WFDB-x: input files are read only where their name says, output files are
+created under the output directory, and out-of-order output files closed by
+the call are sorted in the same process (\cref{chap:behavior}).
+
+\apientry{isigopen}{Open the input signals of a record}
+\begin{lstlisting}[language=C,style=signature]
+int isigopen(char *record, WFDB_Siginfo *siarray, int nsig);
+\end{lstlisting}
+Reads the header of \code{record} and opens its signal files for reading.
+The input signals already open are closed first, unless \code{record} begins
+with \code{+}, which is then removed (the new signals are numbered after
+those open). The header also sets the sampling and counter frequencies, the
+base counter value, the base time and date, and the length of the record,
+which the time conversion functions use.
+
+With \code{nsig} greater than 0, at most \code{nsig} signals are opened, and
+the structures \code{siarray[0]} to \code{siarray[n-1]} are filled with their
+specifications (signal numbers are assigned in the order of the header).
+Signals stored in the same file (a signal group) are opened together: a
+group is skipped if its file cannot be opened, or if its signals do not fit
+in the remaining entries (a record whose signals are all in one file is
+therefore not opened at all if \code{nsig} is smaller than its number of
+signals).
+
+With \code{nsig} 0 or negative, no signals are opened (and the open input
+signals are closed, as above): the header is read, up to \code{-nsig}
+structures of \code{siarray} are filled from it (\code{siarray} may be
+\code{NULL} when \code{nsig} is 0), and the number of signals named in the
+header is returned. \code{isigopen(record, NULL, 0)} thus gives the number of
+signals, to allocate \code{siarray} before opening them, and sets the time
+base of the record for \code{strtim} and \code{timstr}.
+
+A record name that contains a \code{.}, other than in a final \code{.hea},
+names an EDF file, read as a record (\cref{chap:formats}). A multi-segment
+record opens its segments as they are read (see \code{getseginfo}).
+\begin{params}
+\item[record] The record name.
+\item[siarray] An array of at least \code{nsig} (or \code{-nsig})
+  \code{WFDB\_Siginfo} structures, filled by the function.
+\item[nsig] The maximum number of signals to open; 0 or a negative number to
+  read the header only.
+\end{params}
+\returns{With \code{nsig} > 0: the number of signals opened (possibly fewer
+than \code{nsig}), 0 if the record has no signals or none could be opened.
+With \code{nsig} <= 0: the number of signals of the record. In either case:
+-1 if the header cannot be read (probably an incorrect record name), -2 if it
+is not a valid header, -3 if the internal limits are exceeded (the total
+number of samples per frame, or the skew, too large), in which case all the
+input signals are closed.}
+\raises{\code{init: can't open header for record REC}; \code{isigopen:
+record REC has no signals}; \code{isigopen: none of the signals for record
+REC is readable}; the messages of the header parser (\code{init: ...}).}
+
+WFDB-x (\cref{chap:behavior}): the header is read only where the record name
+says, and the signal files and segments that it names only from the header's
+directory (\code{init: file F named in the header of record REC is not in
+the header's directory} for a name that leaves it); a header without a
+sampling frequency, ADC resolution or units leaves them unspecified (0, 0,
+\code{NULL}) instead of assuming 250 Hz, a resolution and millivolts; a header
+with a negative or impossibly large number of signals gives \code{init:
+unexpected EOF in header file for record REC} (C tries to allocate memory for
+that count).
+
+\apientry{osigopen}{Open output signals as described by a header}
+\begin{lstlisting}[language=C,style=signature]
+int osigopen(char *record, WFDB_Siginfo *siarray, unsigned int nsig);
+\end{lstlisting}
+Reads the header of the existing record \code{record} and opens for writing
+(creating or truncating them) the signal files of its first \code{nsig}
+signals, with the specifications of the header; \code{siarray} receives them
+(with \code{nsamp} and \code{cksum} 0). The output signals already open are
+closed first, unless \code{record} begins with \code{+}, which is then
+removed. The samples are then written with \code{putvec}, and a header for
+the new signals with \code{newheader}. A header of an existing database
+record names that record's signal files, which would be overwritten: the
+header used here is usually written for the purpose (a ``piped'' record such
+as \code{8l}, whose signal files are \file{data0} and \file{data1}).
+\begin{params}
+\item[record] The record whose header specifies the output signals.
+\item[siarray] An array of at least \code{nsig} \code{WFDB\_Siginfo}
+  structures, filled by the function.
+\item[nsig] The number of output signals to open.
+\end{params}
+\returns{The number of output signals opened (\code{nsig}, 0 when \code{nsig}
+is 0); -1 if the header cannot be read; -2 if it is not valid, or if the
+signals of a group differ in format or block size; -3 if the record has fewer
+than \code{nsig} signals or a signal file cannot be created.}
+\raises{\code{osigopen: record REC has fewer signals than needed};
+\code{osigopen: can't open FILE}; \code{osigopen: error in specification of
+signal N or M}.}
+
+The Programmer's Guide allows \code{nsig} 0 with \code{siarray} \code{NULL},
+to close the output signals; the C function then reads before the start of
+its internal array. In WFDB-x, in every language, \code{osigopen(record, NULL,
+0)} closes the output signals already open (unless \code{record} begins with
+\code{+}), reads the header (and returns -1 if it cannot be read), opens
+nothing, and returns 0 (\cref{sec:crashes}). \code{osigfopen(NULL, 0)} also
+closes the output signals.
+
+WFDB-x: a signal file is created under the output directory, and a signal
+file that is one of the signal files of the open input record is refused
+(\code{osigopen: output file FILE is also an input file}, -3; legacy mode does
+not check); see \cref{chap:behavior}.
+
+\apientry{osigfopen}{Open output signals as described by the caller}
+\begin{lstlisting}[language=C,style=signature]
+int osigfopen(const WFDB_Siginfo *siarray, unsigned int nsig);
+\end{lstlisting}
+Closes the open output signals, and opens \code{nsig} output signals as
+\code{siarray} describes them: file name, description, units, gain, format,
+samples per frame, block size, ADC resolution and zero, baseline
+(\code{initval}, \code{nsamp} and \code{cksum} are not used). Signals written
+to the same file (a multiplexed signal file) must be consecutive and have the
+same \code{fname} and \code{group}, and the same format and block size; each
+new file has the next group number, starting at 0. A \code{fname} of
+\code{-} is the standard output; a signal of format 0 with no file name (or
+\code{\textasciitilde}) is not written, and a signal of format 0 with a file
+name is written in format 16. An \code{spf} smaller than 1 is taken as 1.
+
+\code{osigfopen(NULL, 0)} closes the output signals (and the header opened by
+\code{newheader}, \code{setheader} or \code{setmsheader}) and reports whether
+they were written successfully.
+\begin{params}
+\item[siarray] An array of \code{nsig} \code{WFDB\_Siginfo} structures,
+  filled by the caller.
+\item[nsig] The number of output signals.
+\end{params}
+\returns{The number of output signals opened (\code{nsig}); -2 for an error in
+a specification (\code{fname} and \code{desc} together longer than 200
+characters, a negative \code{bsize}, a format not in
+\code{WFDB\_FMT\_LIST}, a wrong group or file name, or signals of a group with
+different formats or block sizes); -3 if a signal file cannot be created.
+With \code{nsig} 0: 0, or -4 if a signal file or header closed by the call
+could not be written completely.}
+\raises{\code{osigfopen: error in specification of signal N};
+\code{osigfopen: incorrect file name or group for signal N};
+\code{osigfopen: can't open FILE}; \code{osigclose: write error in signal
+group N}.}
+
+WFDB-x: as for \code{osigopen}, files are created under the output directory,
+and a signal file of the open input record is refused (\code{osigfopen:
+output file FILE is also an input file}); see \cref{chap:behavior}.
+
+\apientry{wfdbinit}{Open the annotation files and the input signals}
+\begin{lstlisting}[language=C,style=signature]
+int wfdbinit(char *record, const WFDB_Anninfo *aiarray, unsigned int nann,
+             WFDB_Siginfo *siarray, unsigned int nsig);
+\end{lstlisting}
+Calls \code{annopen(record, aiarray, nann)} and, if it returns 0,
+\code{isigopen(record, siarray, nsig)}. The Programmer's Guide advises
+against using \code{wfdbinit} together with \code{setifreq}: \code{setifreq}
+must be called after the signals are opened and before the annotation files
+are, to apply to the annotation times.
+\begin{params}
+\item[record] The record name.
+\item[aiarray] The annotators, as for \code{annopen}.
+\item[nann] The number of annotators.
+\item[siarray] An array of at least \code{nsig} \code{WFDB\_Siginfo}
+  structures, as for \code{isigopen}.
+\item[nsig] The maximum number of input signals to open.
+\end{params}
+\returns{The negative result of \code{annopen} if it fails; otherwise the
+result of \code{isigopen}: the number of signals opened, 0 if none (no
+message if \code{nsig} is 0), or -1, -2, -3.}
+
+In R, \code{wfdbinit(record, aiarray, nsig)} has no \code{nann} argument, and
+returns \code{list(stat, si)}; in MATLAB/Octave, \code{[stat, si] =
+wfdbx.wfdbinit(record, aiarray, nann, nsig)}.
+
+\apientry{wfdbquit}{Close all files and reset the library}
+\begin{lstlisting}[language=C,style=signature]
+void wfdbquit(void);
+\end{lstlisting}
+Closes all the annotation files (completing and, if needed, sorting the
+output files, as \code{oannclose}), the info file opened by \code{setinfo},
+the input and output signal files (writing out the buffered samples) and the
+header being written, and releases the buffers of \code{sample} and the info
+strings of \code{getinfo}. It resets the sampling frequencies, the base time
+and date, the record length and the segments of the open record. It does not
+write a header (\code{newheader} or \code{setheader} must be called first),
+and, as in C, it does not reset the counter frequency and base counter value,
+the output annotation time resolution (\code{setafreq}), the buffer sizes
+(\code{setibsize}, \code{setobsize}), the calibration list, or the tables of
+mnemonics, descriptions and code mappings (\cref{chap:behavior}). Programs
+that write signals or annotations must call it (or the closing functions of
+each kind of file) before they exit.
+
+WFDB-x: the input directory, the output directory and the network setting
+are kept; in legacy mode, the WFDB path is restored as by \code{resetwfdb}
+(\cref{chap:behavior}).
+
+\apientry{wfdbflush}{Write the buffered output}
+\begin{lstlisting}[language=C,style=signature]
+void wfdbflush(void);
+\end{lstlisting}
+Writes the buffered output annotations and samples to their files, so that
+the files are up to date while they stay open.
+
+% ==========================================================================
+\section{Reading and writing signals}
+\label{sec:library-signals}
+
+The input signals are read one sample vector at a time, sequentially, with
+\code{getvec} (one sample of each signal) or \code{getframe} (every sample of
+a frame); \code{isigsettime}, \code{isgsettime} and \code{tnextvec} move to
+another time, and \code{sample} gives random access. Samples are integers in
+ADC units; a missing or invalid sample is \code{WFDB\_INVALID\_SAMPLE}
+(-32768) unless the \code{WFDB\_GVPAD} mode is set. Times are in sample
+intervals: of the frame, of the highest sampling frequency in
+\code{WFDB\_HIGHRES} mode, or of the frequency set by \code{setifreq}.
+
+\apientry{getvec}{Read a sample of each input signal}
+\begin{lstlisting}[language=C,style=signature]
+int getvec(WFDB_Sample *vector);
+\end{lstlisting}
+Reads the next sample of each input signal into \code{vector}: \code{vector[i]}
+receives the sample of signal \code{i}. In \code{WFDB\_LOWRES} mode (the
+default), a signal with several samples per frame gives the mean of the
+samples of the frame (rounded to the nearest integer, halves upward; invalid
+if one of them is); in \code{WFDB\_HIGHRES} mode, each call gives the next
+sample at the highest sampling frequency, and the other signals are repeated
+(see \code{setgvmode}). After \code{setifreq}, the signals are resampled at
+the chosen frequency by linear interpolation. Skewed signals are corrected
+for their skew. The checksum of a signal is verified when the number of
+samples given in the header has been read, unless the signals were
+positioned (\code{isigsettime}, \code{isgsettime}) before.
+\begin{params}
+\item[vector] An array with room for one sample per input signal, filled by
+  the function.
+\end{params}
+\returns{The number of input signals, on success; 0 if no input signals are
+open; -1 at the end of the data (the contents of \code{vector} are then not
+valid); -3 at an unexpected end of a signal file (or a FLAC decoding error);
+-4 on a checksum error, detected on the last frame (which is valid).}
+\raises{\code{getvec: unexpected EOF in signal N}; \code{getvec: checksum
+error in signal N}; \code{getvec: error opening segment SEG}.}
+
+\apientry{getframe}{Read a frame of the input signals}
+\begin{lstlisting}[language=C,style=signature]
+int getframe(WFDB_Sample *vector);
+\end{lstlisting}
+Reads the next frame: every sample of every input signal for one frame
+interval, the \code{spf} samples of signal 0 first, then those of signal 1,
+and so on. For a record whose signals all have one sample per frame,
+\code{getframe} and \code{getvec} (without \code{setifreq}) read the same
+vectors. \code{setgvmode} and \code{setifreq} do not affect it.
+\begin{params}
+\item[vector] An array with room for the sum of the \code{spf} fields of the
+  input signals, filled by the function.
+\end{params}
+\returns{As \code{getvec}.}
+
+\apientry{putvec}{Write a sample to each output signal}
+\begin{lstlisting}[language=C,style=signature]
+int putvec(const WFDB_Sample *vector);
+\end{lstlisting}
+Writes a frame to the output signals: \code{vector} holds the \code{spf}
+samples of output signal 0, then those of signal 1, and so on (one sample per
+signal when every \code{spf} is 1). The number of samples and the checksum of
+each signal are kept, for \code{newheader}. A sample equal to
+\code{WFDB\_INVALID\_SAMPLE} is written as the invalid-sample value of the
+format; a sample outside the range of the format is written as C writes it
+(its low-order bits). In format 8 (first differences), a difference outside
+-128 to 127 is limited to that range, and the following samples correct the
+level as soon as the differences allow.
+\begin{params}
+\item[vector] The samples, given by the caller.
+\end{params}
+\returns{The number of output signals on success; 0 if a difference was too
+large in format 8; -1 on a write error.}
+\raises{\code{putvec: write error in signal N}.}
+
+\apientry{isigsettime}{Skip to a time in all input signals}
+\begin{lstlisting}[language=C,style=signature]
+int isigsettime(WFDB_Time t);
+\end{lstlisting}
+Positions the input signals so that the next sample read is the one at time
+\code{t}; only the magnitude of \code{t} counts, so that a value returned by
+\code{strtim} for a time of day can be given as it is. Nothing is done if the
+signals are already at \code{t} (without \code{setifreq}). A pipe, such as the
+standard input, cannot be positioned backward.
+\begin{params}
+\item[t] The time, in sample intervals (see the introduction of this
+  section).
+\end{params}
+\returns{0 on success (also if no input signals are open); -1 at the end of
+the data or on an improper seek; -2 if a signal group is incorrect.}
+\raises{\code{isigsettime: improper seek on signal group N}.}
+
+\apientry{isgsettime}{Skip to a time in one signal group}
+\begin{lstlisting}[language=C,style=signature]
+int isgsettime(WFDB_Group sgroup, WFDB_Time t);
+\end{lstlisting}
+As \code{isigsettime}, for the signals of group \code{sgroup} only (the
+signals stored in one file); the other groups keep their position. It serves
+programs that open several records at once (\code{isigopen("+REC", ...)}).
+\begin{params}
+\item[sgroup] The signal group number.
+\item[t] The time, in sample intervals.
+\end{params}
+\returns{0 on success; -1 at the end of the data or on an improper seek; -2
+if \code{sgroup} is not a signal group.}
+\raises{\code{isigsettime: improper seek on signal group N};
+\code{isgsettime: incorrect signal group number N}.}
+
+WFDB-x: a group number beyond the groups of the open record is reported as
+incorrect (-2) also when the signals are already at \code{t}, where C reads
+past the end of its array (\cref{chap:behavior}).
+
+\apientry{tnextvec}{Find the next valid sample of a signal}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Time tnextvec(WFDB_Signal s, WFDB_Time t);
+\end{lstlisting}
+Finds the first time, at or after \code{t}, at which input signal \code{s}
+has a valid sample (not \code{WFDB\_INVALID\_SAMPLE}), and positions the
+input signals there, so that the next \code{getvec} reads it. It skips long
+gaps (in a multi-segment record, segments without the signal) efficiently.
+\begin{params}
+\item[s] The input signal number.
+\item[t] The time at which the search begins, in sample intervals.
+\end{params}
+\returns{The time of the next valid sample (\code{>= 0}); -1 at the end of
+the data, on an improper seek, or if \code{s} is not an input signal (or the
+negative status of \code{getvec}).}
+\raises{\code{nextvect: illegal signal number N} (the C library's spelling).}
+
+\apientry{sample}{Read a sample by its time}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Sample sample(WFDB_Signal s, WFDB_Time t);
+\end{lstlisting}
+Returns sample \code{t} of input signal \code{s}, in any order: the samples
+are read with \code{getvec} (which moves the input signals) into a buffer of
+the 4096 most recent sample vectors, from which they are returned. A negative
+\code{t} is taken as 0. \code{sample\_valid} tells whether the value is
+valid. \code{wfdbquit} releases the buffer. In R, this function is
+\code{wfdb\_sample}.
+\begin{params}
+\item[s] The input signal number (0 to the number of input signals minus 1).
+\item[t] The sample number.
+\end{params}
+\returns{The sample, in ADC units; after the end of the record, the last
+sample read; \code{WFDB\_INVALID\_SAMPLE} if the signal has no valid sample at
+\code{t}, if \code{s} is not an input signal, or if the signals cannot be
+positioned.}
+
+\apientry{sample\_valid}{Whether the last sample read by sample is valid}
+\begin{lstlisting}[language=C,style=signature]
+int sample_valid(void);
+\end{lstlisting}
+Tells whether the value most recently returned by \code{sample} is valid, so
+that \code{while (sample\_valid())} reads to the end of the record and
+\code{sample\_valid() > 0} selects the values usable in a computation.
+\returns{1 if the value was valid; 0 if \code{t} was after the end of the
+record (the value is padding); -1 if the value was
+\code{WFDB\_INVALID\_SAMPLE} (the signal is not available at \code{t}, or the
+signal number is not valid).}
+
+\apientry{findsig}{Find an input signal by name or number}
+\begin{lstlisting}[language=C,style=signature]
+int findsig(const char *signame);
+\end{lstlisting}
+Returns the number of the input signal designated by \code{signame}: a string
+of decimal digits that is the number of an open input signal is taken as that
+number; otherwise the lowest-numbered input signal whose description
+(\code{desc}) is exactly \code{signame} is returned. The descriptions are
+compared as the header gives them, spaces included (the high-level readers
+remove surrounding spaces from signal names; the library does not).
+\begin{params}
+\item[signame] A signal number or a signal description, such as \code{"MLII"}.
+\end{params}
+\returns{The signal number, or -1 if there is no such signal.}
+
+\apientry{getspf}{Number of samples per signal per frame}
+\begin{lstlisting}[language=C,style=signature]
+int getspf(void);
+\end{lstlisting}
+Returns the number of sample vectors that \code{getvec} returns per frame:
+1, except in \code{WFDB\_HIGHRES} mode for a record with oversampled signals,
+where it is the largest number of samples per frame of the input signals (the
+sampling frequency divided by the frame frequency, rounded).
+\returns{The number of samples per signal per frame.}
+
+\apientry{setgvmode}{Set the mode of getvec}
+\begin{lstlisting}[language=C,style=signature]
+void setgvmode(int mode);
+\end{lstlisting}
+Sets how \code{getvec} reads records whose signals have different numbers of
+samples per frame, and how invalid samples are returned.
+\code{WFDB\_LOWRES} (0, the default): one sample per signal per frame, the
+oversampled signals being averaged over the frame. \code{WFDB\_HIGHRES}
+(1): every sample of the most oversampled signal, the other signals being
+repeated (zero-order hold); the sampling frequency returned by
+\code{sampfreq(NULL)}, and the times of the time conversion functions and of
+the annotations, are then in units of the high-resolution sample interval
+(for annotation files opened after the call). \code{WFDB\_GVPAD} (2), added to
+either: an invalid or missing sample is replaced by the previous valid sample
+of its signal, in \code{getvec}, \code{getframe} and \code{sample}. A negative
+\code{mode} restores the default, read from the environment variable
+\code{WFDBGVMODE} (or \code{WFDB\_LOWRES} if it is not set).
+\begin{params}
+\item[mode] \code{WFDB\_LOWRES} or \code{WFDB\_HIGHRES}, optionally plus
+  \code{WFDB\_GVPAD}; or a negative value.
+\end{params}
+
+\apientry{getgvmode}{The mode of getvec}
+\begin{lstlisting}[language=C,style=signature]
+int getgvmode(void);
+\end{lstlisting}
+Returns the mode set by \code{setgvmode}: the \code{WFDB\_HIGHRES} bit is
+set in high-resolution mode, the \code{WFDB\_GVPAD} bit if invalid samples
+are replaced.
+\returns{The mode (0 to 3).}
+
+\apientry{setifreq}{Resample the input signals}
+\begin{lstlisting}[language=C,style=signature]
+int setifreq(WFDB_Frequency freq);
+\end{lstlisting}
+Makes \code{getvec} return the input signals resampled at \code{freq} samples
+per second, by linear interpolation between the two nearest samples
+(\code{getframe} is not affected). It must be called after the signals are
+opened. From then on, the time conversion functions, \code{isigsettime} and
+\code{isgsettime} use sample intervals at \code{freq}, the annotators opened
+afterwards return times at \code{freq}, and the time resolution of the output
+annotation files opened afterwards is \code{freq} (it calls
+\code{setafreq(freq)}). The resampling uses the greatest common divisor of the
+two frequencies, treated as multiples of 0.005 Hz.
+\begin{params}
+\item[freq] The sampling frequency wanted, in Hz (> 0).
+\end{params}
+\returns{0 on success; -1 if no record is open, if \code{freq} is not
+positive, or (WFDB-x) if the sampling frequency of the open record is not
+specified.}
+\raises{\code{setifreq: no open input record}; \code{setifreq: improper
+frequency F (must be > 0)}; \code{setifreq: sampling frequency is not
+specified}.}
+
+WFDB-x: a record without a sampling frequency is an error
+(\cref{chap:behavior}); in legacy mode, it is reported as \code{setifreq: no
+open input record}, as in C.
+
+\apientry{getifreq}{The frequency of the samples returned by getvec}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Frequency getifreq(void);
+\end{lstlisting}
+Returns the sampling frequency of the samples returned by \code{getvec}: the
+one set by \code{setifreq}, or else that of the open record (as
+\code{sampfreq(NULL)}).
+\returns{The frequency, in Hz (0 if no record is open, or if its frequency is
+not specified).}
+
+\apientry{setibsize}{Set the size of the input buffers}
+\begin{lstlisting}[language=C,style=signature]
+int setibsize(int input_buffer_size);
+\end{lstlisting}
+Sets the size of the buffers in which the input signal files are read, for
+the signals opened afterwards (a block size given in the header takes
+precedence). It cannot be used while input signals are open.
+\begin{params}
+\item[input\_buffer\_size] The size in bytes; 0 for the default
+  (\code{BUFSIZ}, 8192 bytes).
+\end{params}
+\returns{The new size; -1 if input signals are open; -2 if the size is
+negative.}
+\raises{\code{setibsize: can't change buffer size after isigopen};
+\code{setibsize: illegal buffer size N}.}
+
+\apientry{setobsize}{Set the size of the output buffers}
+\begin{lstlisting}[language=C,style=signature]
+int setobsize(int output_buffer_size);
+\end{lstlisting}
+As \code{setibsize}, for the output signal files opened afterwards by
+\code{osigopen} and \code{osigfopen}; it cannot be used while output signals
+are open.
+\begin{params}
+\item[output\_buffer\_size] The size in bytes; 0 for the default
+  (\code{BUFSIZ}, 8192 bytes).
+\end{params}
+\returns{The new size; -1 if output signals are open; -2 if the size is
+negative.}
+\raises{\code{setobsize: can't change buffer size after osig[f]open};
+\code{setobsize: illegal buffer size N}.}
+
+% ==========================================================================
+\section{Time and date conversion}
+\label{sec:library-time}
+
+Times are kept as \code{WFDB\_Time} values, in sample intervals. The
+functions of this section convert them to and from text, using the sampling
+frequency (or the frequency set by \code{setifreq}), the base time and date
+and the counter frequency of the open record, set by \code{isigopen},
+\code{wfdbinit} or \code{sampfreq} from a header, or by \code{setsampfreq},
+\code{setbasetime} and \code{setcfreq}. A positive time is an elapsed time
+(an interval from the beginning of the record); a time of day is represented
+by the negated number of sample intervals from the beginning of the record
+(0 or negative).
+
+WFDB-x (\cref{chap:behavior}): when no sampling frequency is known, C took a
+sample interval to be one second; WFDB-x reports \code{FUNCTION: sampling
+frequency is not specified}, and \code{timstr} and \code{mstimstr} return the
+time as a sample number (\code{s} followed by its magnitude), \code{strtim}
+returns 0 for a string that needs the frequency (\code{wfdbx\_time\_needs\_freq}
+tells which). Legacy mode keeps C's behavior.
+
+\apientry{timstr}{Format a time}
+\begin{lstlisting}[language=C,style=signature]
+char *timstr(WFDB_Time t);
+\end{lstlisting}
+Converts \code{t} to text. If \code{t} is positive, or if neither a base time
+nor a base date is defined, \code{|t|} is an elapsed time, written
+\code{h:mm:ss} right-aligned in 8 characters (more from 100 hours on),
+without the hours under one hour (\code{"    1:00"}, \code{" 1:02:05"}). Otherwise \code{-t} sample intervals
+after the base time are written as a time of day in brackets, with all the
+digits, followed by the date if a base date is defined, or else by the
+number of days after the base time if it is not 0: \code{"[12:00:01
+01/01/2020]"}, \code{"[12:00:00 1]"}. The time is rounded to the
+millisecond, and the milliseconds are then dropped. A
+base time of midnight (0) without a base date counts as undefined.
+\begin{params}
+\item[t] The time, in sample intervals.
+\end{params}
+\returns{The text. In C, it is in a static buffer (shared with
+\code{mstimstr}) that the next call overwrites; in WFDB-x, it is a new string
+in every language.}
+\raises{WFDB-x: \code{timstr: sampling frequency is not specified}, and the
+result \code{s} followed by \code{|t|} (\code{"s100"}), if the frequency is
+not known.}
+
+\apientry{mstimstr}{Format a time with milliseconds}
+\begin{lstlisting}[language=C,style=signature]
+char *mstimstr(WFDB_Time t);
+\end{lstlisting}
+As \code{timstr}, with the milliseconds (rounded): an elapsed time
+\code{h:mm:ss.mmm} right-aligned in 12 characters (\code{"    0:01.000"}), a
+time of day \code{"[hh:mm:ss.mmm dd/mm/yyyy]"}. \code{mstimstr(0)} gives the
+base time and date of the record (there is no \code{getbasetime}).
+\begin{params}
+\item[t] The time, in sample intervals.
+\end{params}
+\returns{The text, as for \code{timstr}.}
+\raises{WFDB-x: \code{mstimstr: sampling frequency is not specified}, as for
+\code{timstr}.}
+
+\apientry{strtim}{Parse a time}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Time strtim(const char *time_string);
+\end{lstlisting}
+Converts a time string to sample intervals. Leading spaces, tabs, carriage
+returns and newlines are skipped; then, according to the first character:
+\begin{description}
+\item[\code{s}\emph{N}] sample number \emph{N} (\code{s12345});
+\item[\code{c}\emph{X}] counter value \emph{X}, converted with the counter
+  frequency and the base counter value (\code{c350.5}); without a counter
+  frequency, \emph{X} is a sample number;
+\item[\code{f}\emph{N}] frame number \emph{N}, converted to sample intervals;
+\item[\code{e}] the end of the record (its length; 0 if the header does not
+  give it), in high-resolution intervals in \code{WFDB\_HIGHRES} mode;
+\item[\code{i}] the time of the next sample of the input signals;
+\item[\code{o}] the time of the next sample of the output signals;
+\item[\code{[}\emph{time} \emph{date}\code{]}] a time of day, \code{[hh:mm:ss]},
+  followed optionally by a date \code{dd/mm/yyyy} or by a number of days after
+  the base date (\code{[13:6:0]}, \code{[8:0:0 1]}, \code{[12:0:0 1/3/1992]}):
+  the result is the negated number of sample intervals from the base time to
+  that time (0 or negative); without the closing bracket, the result is 0;
+\item[otherwise] an elapsed time \code{h:m:s}, \code{m:s} or \code{s}, each
+  part with optional decimals (\code{2:14.875}, \code{143}, \code{4:02:01}),
+  rounded to the nearest sample interval.
+\end{description}
+For records with sampling frequencies below 1 kHz,
+\code{strtim(mstimstr(t))} is \code{t}.
+\begin{params}
+\item[time\_string] The time string.
+\end{params}
+\returns{A positive number of sample intervals for an elapsed time, a sample
+number, a counter value, \code{e}, \code{i} or \code{o}; the negated number
+of sample intervals for a time of day; 0 for a string that is not a time
+(indistinguishable from a time of 0).}
+\raises{WFDB-x: \code{strtim: sampling frequency is not specified}, and 0, if
+the frequency is not known and the string needs it.}
+
+\apientry{datstr}{Format a date}
+\begin{lstlisting}[language=C,style=signature]
+char *datstr(WFDB_Date d);
+\end{lstlisting}
+Converts a Julian date (a day number; these Julian dates begin at midnight
+local time, not at noon) to text, \code{" dd/mm/yyyy"}, with a leading space,
+which the Programmer's Guide does not mention (\code{datstr(1753639)} is
+\code{" 14/07/1789"}). The Gregorian calendar applies from 15 October 1582;
+years before 1 A.D. are negative (there is no year 0).
+\begin{params}
+\item[d] The Julian date.
+\end{params}
+\returns{The text (a static buffer in C; a new string in WFDB-x).}
+
+\apientry{strdat}{Parse a date}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Date strdat(const char *date_string);
+\end{lstlisting}
+Converts a date \code{dd/mm/yyyy} to a Julian date. The year is taken as
+written: \code{15/3/89} is in the year 89, not 1989. The number of days
+between two dates is the difference of their Julian dates.
+\begin{params}
+\item[date\_string] The date.
+\end{params}
+\returns{The Julian date; 0 if the string does not contain two \code{/}, the
+day is not 1 to 31, the month is not 1 to 12, or the year is 0.}
+
+\apientry{sampfreq}{Sampling frequency of a record}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Frequency sampfreq(char *record);
+\end{lstlisting}
+With a record name, reads the header of \code{record} and returns its
+sampling frequency; the frequency, base time and date and counter frequency
+of the header then become those used by the time conversion functions (as
+after \code{isigopen(record, NULL, 0)}, without closing the open signals).
+With \code{NULL}, returns the sampling frequency in use. For a record with
+oversampled signals, the result is the frame frequency in
+\code{WFDB\_LOWRES} mode and the highest sampling frequency in
+\code{WFDB\_HIGHRES} mode.
+\begin{params}
+\item[record] The record name, or \code{NULL}.
+\end{params}
+\returns{The sampling frequency in Hz; -1 if the header cannot be read; -2 if
+it is not valid; WFDB-x: 0 if the header does not give a frequency (C: 250,
+\code{WFDB\_DEFFREQ}; see \cref{chap:behavior}). \code{sampfreq(record)}
+first sets the frequency to 0, so that a frequency set by \code{setsampfreq}
+does not apply to it.}
+
+\apientry{setsampfreq}{Set the sampling frequency}
+\begin{lstlisting}[language=C,style=signature]
+int setsampfreq(WFDB_Frequency sampling_frequency);
+\end{lstlisting}
+Sets the frame frequency used by the time conversion functions and written
+by \code{newheader} and \code{setheader}: it is the sampling frequency of a
+record whose signals have one sample per frame (in \code{WFDB\_HIGHRES} mode,
+the sampling frequency becomes the frame frequency times the largest number
+of samples per frame). A header read afterwards by \code{isigopen}, \code{osigopen} or
+\code{wfdbinit} replaces it, unless the
+header gives no frequency: \code{setsampfreq(250)} before opening a record
+whose header gives none reproduces C's default (\cref{chap:behavior}).
+\begin{params}
+\item[sampling\_frequency] The frame frequency, in Hz (0 or more).
+\end{params}
+\returns{0 on success; -1 if the frequency is negative.}
+\raises{\code{setsampfreq: sampling frequency must not be negative}.}
+
+\apientry{setbasetime}{Set the base time and date}
+\begin{lstlisting}[language=C,style=signature]
+int setbasetime(char *time_string);
+\end{lstlisting}
+Sets the base time (the time of day of sample 0) and the base date, used by
+the time conversion functions and written by \code{newheader} and
+\code{setheader}. The string is a time \code{hh:mm:ss} (with optional
+decimals), optionally followed by a space and a date \code{dd/mm/yyyy};
+leading spaces are skipped. Only a space separates the date (not a tab, which
+the Programmer's Guide also allows). An empty string or \code{NULL} sets the
+current local time and date.
+\begin{params}
+\item[time\_string] The time and date, or \code{""} or \code{NULL}.
+\end{params}
+\returns{0 on success; -1 if neither a time nor a date can be read from the
+string (and it does not begin with \code{[}).}
+\raises{\code{setbasetime: incorrect time format, 'STRING'}.}
+
+\apientry{getcfreq}{Counter frequency}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Frequency getcfreq(void);
+\end{lstlisting}
+Returns the counter frequency: the rate at which a counter (of a tape
+recorder, or the pages of a chart) changes, as given by the header or by
+\code{setcfreq}, which \code{strtim} uses for \code{c} times. If none is
+defined (0 or negative), it returns the frame frequency.
+\returns{The counter frequency, in Hz.}
+
+\apientry{setcfreq}{Set the counter frequency}
+\begin{lstlisting}[language=C,style=signature]
+void setcfreq(WFDB_Frequency counter_frequency);
+\end{lstlisting}
+Sets the counter frequency, used by \code{strtim} and written by
+\code{newheader} and \code{setheader}; 0 or a negative value means none. A
+header read afterwards replaces it. \code{wfdbquit} does not reset it.
+\begin{params}
+\item[counter\_frequency] The counter frequency, in Hz.
+\end{params}
+
+\apientry{getbasecount}{Base counter value}
+\begin{lstlisting}[language=C,style=signature]
+double getbasecount(void);
+\end{lstlisting}
+Returns the counter value of sample 0, as given by the header or by
+\code{setbasecount} (0 if neither gave one).
+\returns{The base counter value.}
+
+\apientry{setbasecount}{Set the base counter value}
+\begin{lstlisting}[language=C,style=signature]
+void setbasecount(double count);
+\end{lstlisting}
+Sets the counter value of sample 0, used by \code{strtim} and written by
+\code{newheader} and \code{setheader}. A header read afterwards replaces it.
+\code{wfdbquit} does not reset it.
+\begin{params}
+\item[count] The base counter value.
+\end{params}
+
+% ==========================================================================
+\section{Amplitude conversion}
+\label{sec:library-amplitude}
+
+These functions convert between ADC units and physical units with the gain
+(and, for \code{aduphys} and \code{physadu}, the baseline) of an open input
+signal. \code{adumuv} and \code{muvadu} convert differences of level (the
+baseline is not used), between ADC units and thousandths of the physical
+unit (microvolts for a signal in millivolts).
+
+WFDB-x (\cref{chap:behavior}): for an uncalibrated signal (gain 0) or a
+number that is not that of an open input signal, C assumed a gain of 200
+(\code{WFDB\_DEFGAIN}) and a baseline of 0; WFDB-x reports \code{FUNCTION:
+signal N is uncalibrated} or \code{FUNCTION: invalid signal number N}, and
+returns \code{WFDB\_INVALID\_SAMPLE} (\code{aduphys}: NaN). Legacy mode keeps
+C's behavior.
+
+\apientry{aduphys}{ADC units to physical units}
+\begin{lstlisting}[language=C,style=signature]
+double aduphys(WFDB_Signal s, WFDB_Sample a);
+\end{lstlisting}
+Returns \code{(a - baseline) / gain} for input signal \code{s}.
+\begin{params}
+\item[s] The input signal number.
+\item[a] The sample value, in ADC units.
+\end{params}
+\returns{The value in physical units; WFDB-x: NaN on error.}
+
+\apientry{physadu}{Physical units to ADC units}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Sample physadu(WFDB_Signal s, double v);
+\end{lstlisting}
+Returns \code{v * gain}, rounded to the nearest integer (halves away from
+zero), plus the baseline of input signal \code{s}.
+\begin{params}
+\item[s] The input signal number.
+\item[v] The value, in physical units.
+\end{params}
+\returns{The sample value in ADC units; WFDB-x: \code{WFDB\_INVALID\_SAMPLE}
+on error.}
+
+\apientry{adumuv}{ADC units to microvolts}
+\begin{lstlisting}[language=C,style=signature]
+int adumuv(WFDB_Signal s, WFDB_Sample a);
+\end{lstlisting}
+Returns \code{a * 1000 / gain} for input signal \code{s}, rounded to the
+nearest integer (halves away from zero).
+\begin{params}
+\item[s] The input signal number.
+\item[a] The difference of level, in ADC units.
+\end{params}
+\returns{The difference in thousandths of the physical unit; WFDB-x:
+\code{WFDB\_INVALID\_SAMPLE} on error.}
+
+\apientry{muvadu}{Microvolts to ADC units}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Sample muvadu(WFDB_Signal s, int microvolts);
+\end{lstlisting}
+Returns \code{microvolts * gain / 1000} for input signal \code{s}, rounded to
+the nearest integer (halves away from zero).
+\begin{params}
+\item[s] The input signal number.
+\item[microvolts] The difference of level, in thousandths of the physical
+  unit.
+\end{params}
+\returns{The difference in ADC units; WFDB-x: \code{WFDB\_INVALID\_SAMPLE} on
+error.}
+
+% ==========================================================================
+\section{Annotations}
+\label{sec:library-annotations}
+
+Annotation files are opened by \code{annopen} (or \code{wfdbinit}), read
+sequentially with \code{getann}, and written with \code{putann}, in MIT
+format (\code{WFDB\_READ}, \code{WFDB\_WRITE}) or AHA format
+(\code{WFDB\_AHA\_READ}, \code{WFDB\_AHA\_WRITE}); \cref{chap:formats}
+describes both formats and lists the annotation codes. An annotation is a
+\code{WFDB\_Annotation} structure (\cref{sec:library-structures}).
+
+\apientry{getann}{Read the next annotation}
+\begin{lstlisting}[language=C,style=signature]
+int getann(WFDB_Annotator a, WFDB_Annotation *annot);
+\end{lstlisting}
+Reads the next annotation of input annotator \code{a} into \code{annot} (an
+annotation pushed back by \code{ungetann} first, if there is one). Its time
+is in sample intervals of the input sampling frequency in effect when the
+annotator was opened (that of \code{setifreq}, or of the record, in
+high-resolution intervals in \code{WFDB\_HIGHRES} mode), converted from the
+time resolution recorded in the file if it records one, or in the units set by
+\code{setiafreq}. In C, \code{aux} points to a buffer of the annotator that
+later calls overwrite.
+\begin{params}
+\item[a] The input annotator number (0 for the first input annotator of
+  \code{annopen}).
+\item[annot] The annotation structure, filled by the function.
+\end{params}
+\returns{0 on success; -1 at the end of the file (\code{*annot} is not
+valid); -2 if \code{a} is not an open input annotator; -3 at an unexpected end
+of the file.}
+\raises{\code{getann: can't read annotator N}; \code{getann: unexpected EOF
+in annotator ATR}; \code{getann: unexpected annot number in annotator ATR}.}
+
+\apientry{ungetann}{Push an annotation back}
+\begin{lstlisting}[language=C,style=signature]
+int ungetann(WFDB_Annotator a, const WFDB_Annotation *annot);
+\end{lstlisting}
+Makes \code{*annot} the next annotation that \code{getann} returns for input
+annotator \code{a}. It need not have been read from that annotator. Only one
+annotation can be pushed back at a time for each annotator.
+\begin{params}
+\item[a] The input annotator number.
+\item[annot] The annotation to push back.
+\end{params}
+\returns{0 on success; -1 if an annotation is already pushed back (this one
+is not); -2 if \code{a} is not an input annotator.}
+\raises{\code{ungetann: annotator N is not initialized}; \code{ungetann:
+pushback buffer is full}.}
+
+\apientry{putann}{Write an annotation}
+\begin{lstlisting}[language=C,style=signature]
+int putann(WFDB_Annotator a, const WFDB_Annotation *annot);
+\end{lstlisting}
+Writes \code{*annot} to output annotator \code{a}; all its fields must be
+set. Annotations may be written in any order: an annotation is in order if
+its time is later than that of the previous annotation, or its \code{chan} or
+its \code{num} is greater, or both are at time 0; a file that received one out
+of order is sorted when it is closed (see \code{oannclose}). The first
+\code{putann} to a file writes, before the annotation, the time resolution set
+by \code{setafreq} and the modification labels of the mnemonics and
+descriptions changed by \code{setannstr} and \code{setanndesc}. In an AHA
+file, at most 6 bytes of \code{aux} are written.
+\begin{params}
+\item[a] The output annotator number (0 for the first output annotator of
+  \code{annopen}).
+\item[annot] The annotation, filled by the caller.
+\end{params}
+\returns{0 on success; -1 on a write error, or for a time equal to
+\code{WFDB\_TIME\_MIN} or \code{WFDB\_TIME\_MAX}; -2 if \code{a} is not an
+open output annotator.}
+\raises{\code{putann: can't write annotation file N}; \code{putann: write
+error on annotation file ATR}; \code{putann: time overflow in annotation file
+N}.}
+
+\apientry{iannsettime}{Skip to a time in all input annotators}
+\begin{lstlisting}[language=C,style=signature]
+int iannsettime(WFDB_Time t);
+\end{lstlisting}
+Positions every input annotator at its first annotation at or after time
+\code{|t|} (rewinding the file if needed, which a pipe cannot do), so that a
+value of \code{strtim} for a time of day can be given as it is.
+\code{WFDB\_TIME\_MIN} rewinds to the very beginning, before annotations at
+negative times. A pushed-back annotation is discarded if the file is rewound.
+\begin{params}
+\item[t] The time, in the units of the annotators' times.
+\end{params}
+\returns{0 if at least one annotator is positioned on an annotation; -1 if
+every annotator reached the end of its file (or none is open), or on an
+improper seek. (The Programmer's Guide also lists -3, which the C code never
+returns.)}
+\raises{\code{iannsettime: improper seek}.}
+
+\apientry{iannclose}{Close an input annotator}
+\begin{lstlisting}[language=C,style=signature]
+void iannclose(WFDB_Annotator a);
+\end{lstlisting}
+Closes the file of input annotator \code{a}. The input annotators that follow
+are renumbered: annotator \code{a+1} becomes \code{a}, and so on. Nothing is
+done if \code{a} is not open.
+\begin{params}
+\item[a] The input annotator number.
+\end{params}
+
+\apientry{oannclose}{Close an output annotator}
+\begin{lstlisting}[language=C,style=signature]
+void oannclose(WFDB_Annotator a);
+\end{lstlisting}
+Completes and closes the file of output annotator \code{a} (an end marker in
+an MIT file, padding to a 1024-byte block in an AHA file); the output
+annotators that follow are renumbered. If annotations were written out of
+order, the file is sorted, unless the environment variable \code{WFDBANNSORT}
+is 0: the result is that of \code{sortann -r. REC -a ATR}, with the messages
+\code{Rearranging annotations for output annotator ATR ...done!}; if it is
+not sorted, the advice \code{Use the command: sortann -r REC -a ATR} is
+printed. The status is kept for \code{annopen(..., 0)}: -7 after a write
+error, -6 after an out-of-order file.
+\begin{params}
+\item[a] The output annotator number.
+\end{params}
+\raises{\code{oannclose: write error on annotation file ATR};
+\code{Annotations still need to be rearranged.}}
+
+WFDB-x (\cref{chap:behavior}): the file is sorted in the same process (C ran
+the program \code{sortann} through the shell), and an annotation at time 0,
+number 0 and channel 0 that arrives after later ones is no longer lost, nor
+are those written after it; legacy mode runs the \code{sortann} tool of the
+same language, with C's result (without a shell; R and MATLAB/Octave quote
+its arguments instead). A write error is counted
+(\code{wfdbx\_write\_errors}). The high-level \code{write\_annotations} can
+decide for its call whether the file is sorted.
+
+\apientry{setafreq}{Set the time resolution of output annotation files}
+\begin{lstlisting}[language=C,style=signature]
+void setafreq(WFDB_Frequency f);
+\end{lstlisting}
+Sets the time resolution, in ticks per second, of the output annotation files
+to which no annotation has been written yet (contrary to the Programmer's
+Guide, this includes those already open): the resolution is recorded at the
+beginning of the file, and the times given to \code{putann} are in ticks. 0
+(the default) records none: the times are then in sample intervals of the
+record. \code{setifreq} calls it. \code{wfdbquit} does not reset it.
+\begin{params}
+\item[f] The time resolution, in Hz; 0 for none.
+\end{params}
+
+\apientry{getafreq}{Time resolution of output annotation files}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Frequency getafreq(void);
+\end{lstlisting}
+Returns the value set by \code{setafreq} (or by \code{setifreq}).
+\returns{The time resolution in Hz; 0 if none was set.}
+
+\apientry{setiafreq}{Set the time units of an input annotator}
+\begin{lstlisting}[language=C,style=signature]
+void setiafreq(WFDB_Annotator a, WFDB_Frequency f);
+\end{lstlisting}
+Makes \code{getann} return the times of input annotator \code{a} in units of
+\code{1/f} second (the times read and pushed back so far are converted too).
+\code{annopen} sets it to the input sampling frequency. With \code{f} 0 or
+negative, the times are those of the file, unconverted. Nothing is done if
+\code{a} is not an open input annotator.
+\begin{params}
+\item[a] The input annotator number.
+\item[f] The frequency, in Hz.
+\end{params}
+
+\apientry{getiafreq}{Time units of an input annotator}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Frequency getiafreq(WFDB_Annotator a);
+\end{lstlisting}
+Returns the frequency of the time units that \code{getann} uses for input
+annotator \code{a} (see \code{setiafreq}).
+\returns{The frequency in Hz; -2 if \code{a} is not an open input annotator.}
+
+\apientry{getiaorigfreq}{Time resolution recorded in an annotation file}
+\begin{lstlisting}[language=C,style=signature]
+WFDB_Frequency getiaorigfreq(WFDB_Annotator a);
+\end{lstlisting}
+Returns the time resolution recorded in the file of input annotator \code{a}
+by the program that wrote it (see \code{setafreq}).
+\returns{The time resolution in Hz; 0 if the file records none (its times are
+then in sample intervals of the record's frames); -2 if \code{a} is not an
+open input annotator.}
+
+\apientry{annstr}{Mnemonic of an annotation code}
+\begin{lstlisting}[language=C,style=signature]
+char *annstr(int annotation_code);
+\end{lstlisting}
+Returns the mnemonic of an annotation code (\code{"N"} for \code{NORMAL}),
+from the table that \code{setannstr} and the modification labels of the input
+annotation files change (\cref{chap:formats} lists the standard mnemonics).
+The codes of the range 0 to \code{ACMAX} that are not defined have mnemonics
+such as \code{"[15]"}.
+\begin{params}
+\item[annotation\_code] The annotation code.
+\end{params}
+\returns{The mnemonic; for a code outside 0 to \code{ACMAX}, the code in
+brackets (\code{"[55]"}).}
+
+\apientry{strann}{Annotation code of a mnemonic}
+\begin{lstlisting}[language=C,style=signature]
+int strann(const char *annotation_mnemonic_string);
+\end{lstlisting}
+Returns the code (1 to \code{ACMAX}) whose mnemonic, in the table of
+\code{annstr}, is \code{annotation\_mnemonic\_string}; if several codes have
+it, the lowest.
+\begin{params}
+\item[annotation\_mnemonic\_string] The mnemonic.
+\end{params}
+\returns{The annotation code; \code{NOTQRS} (0) if no code has that mnemonic.}
+
+\apientry{setannstr}{Change the mnemonic of an annotation code}
+\begin{lstlisting}[language=C,style=signature]
+int setannstr(int annotation_code, const char *annotation_mnemonic_string);
+\end{lstlisting}
+Sets the mnemonic of a code in the table of \code{annstr} and \code{strann}
+(\code{NULL} is taken as \code{""}). With a positive code, the change is also
+marked to be recorded, as a modification label, in the output annotation
+files opened afterwards, so that other programs read the files with these
+mnemonics. With a negative code, the mnemonic of \code{-code} is changed for
+this program only. \code{wfdbquit} does not reset the table.
+\begin{params}
+\item[annotation\_code] The code (or its negation).
+\item[annotation\_mnemonic\_string] The new mnemonic.
+\end{params}
+\returns{0 on success; -1 if \code{|code|} is greater than \code{ACMAX}.}
+\raises{\code{setannstr: illegal annotation code N}.}
+
+\apientry{anndesc}{Description of an annotation code}
+\begin{lstlisting}[language=C,style=signature]
+char *anndesc(int annotation_code);
+\end{lstlisting}
+Returns the description of an annotation code (\code{"Normal beat"} for
+\code{NORMAL}), from the table that \code{setanndesc} and the modification
+labels of the input annotation files change.
+\begin{params}
+\item[annotation\_code] The annotation code.
+\end{params}
+\returns{The description; \code{NULL} for a code of the range 0 to
+\code{ACMAX} that has none; \code{"illegal annotation code"} for a code outside
+that range (the Programmer's Guide says \code{NULL}; the C code returns this
+string).}
+
+\apientry{setanndesc}{Change the description of an annotation code}
+\begin{lstlisting}[language=C,style=signature]
+int setanndesc(int annotation_code, const char *annotation_description);
+\end{lstlisting}
+As \code{setannstr}, for the table of \code{anndesc}: a positive code also
+marks the description to be recorded in the output annotation files opened
+afterwards, a negative code changes the description of \code{-code} for this
+program only.
+\begin{params}
+\item[annotation\_code] The code (or its negation).
+\item[annotation\_description] The new description.
+\end{params}
+\returns{0 on success; -1 if \code{|code|} is greater than \code{ACMAX}.}
+\raises{\code{setanndesc: illegal annotation code N}.}
+
+\apientry{ecgstr}{Standard mnemonic of an annotation code}
+\begin{lstlisting}[language=C,style=signature]
+char *ecgstr(int annotation_code);
+\end{lstlisting}
+As \code{annstr}, from a separate table that only \code{setecgstr} changes
+(not the modification labels of annotation files), for programs that need a
+fixed set of mnemonics.
+\begin{params}
+\item[annotation\_code] The annotation code.
+\end{params}
+\returns{The mnemonic; the code in brackets for a code outside 0 to
+\code{ACMAX}.}
+
+\apientry{strecg}{Annotation code of a standard mnemonic}
+\begin{lstlisting}[language=C,style=signature]
+int strecg(const char *annotation_mnemonic_string);
+\end{lstlisting}
+As \code{strann}, with the table of \code{ecgstr}.
+\begin{params}
+\item[annotation\_mnemonic\_string] The mnemonic.
+\end{params}
+\returns{The annotation code; \code{NOTQRS} (0) if no code has that mnemonic.}
+
+\apientry{setecgstr}{Change a standard mnemonic}
+\begin{lstlisting}[language=C,style=signature]
+int setecgstr(int annotation_code, const char *annotation_mnemonic_string);
+\end{lstlisting}
+Sets the mnemonic of a code in the table of \code{ecgstr} and \code{strecg}
+(\code{NULL} is taken as \code{""}). Nothing is recorded in annotation files,
+and negative codes are illegal.
+\begin{params}
+\item[annotation\_code] The code, 0 to \code{ACMAX}.
+\item[annotation\_mnemonic\_string] The new mnemonic.
+\end{params}
+\returns{0 on success; -1 if the code is outside 0 to \code{ACMAX}.}
+\raises{\code{setecgstr: illegal annotation code N}.}
+
+\subsection{Classification and mapping of annotation codes}
+\label{sec:library-ecgmap}
+
+\file{<wfdb/ecgmap.h>} defines macros that classify annotation codes and map
+them to smaller sets, with tables that a program can change; the C library
+provides each of them also as a function, whose name begins with
+\code{wfdb\_} (\code{wfdb\_isqrs} for \code{isqrs}). WFDB-x provides both
+names in every language, with the same results; the macro names are
+functions too (in C++, inline functions of \file{<wfdbx/ecgmap.hpp>}). A
+setter stores the new value as a C \code{char}, and returns it as stored:
+\code{setisqrs(2, 300)} returns 44. An argument that is not a legal code
+(1 to \code{ACMAX}) changes nothing. In R, these functions accept vectors of
+codes. \code{isann} (and \code{wfdb\_isann}) returns a logical value in
+Python, R and MATLAB/Octave (\code{True}, \code{TRUE}, \code{true}), and 1 or
+0 elsewhere.
+
+\apientry{isann}{Whether a code is a legal annotation code}
+\begin{lstlisting}[language=C,style=signature]
+int isann(int code);              /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Tells whether \code{code} is a legal annotation code, 1 to \code{ACMAX} (49).
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{1 if it is legal, 0 otherwise.}
+
+\apientry{wfdb\_isann}{Function form of isann}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_isann(int code);
+\end{lstlisting}
+The function form of \code{isann}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{1 if it is legal, 0 otherwise.}
+
+\apientry{isqrs}{Whether a code is a beat}
+\begin{lstlisting}[language=C,style=signature]
+int isqrs(int code);              /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Tells whether annotation code \code{code} denotes a QRS complex (a beat), from
+a table that \code{setisqrs} changes. Initially, the beat codes are 1 to 13,
+25, 30, 31, 34, 35, 38 and 41.
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{The value of the table (initially 1 for a beat, 0 otherwise); 0 for
+an illegal code.}
+
+\apientry{wfdb\_isqrs}{Function form of isqrs}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_isqrs(int code);
+\end{lstlisting}
+The function form of \code{isqrs}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{As \code{isqrs}.}
+
+\apientry{setisqrs}{Change the result of isqrs}
+\begin{lstlisting}[language=C,style=signature]
+int setisqrs(int code, int newval);   /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Sets the value that \code{isqrs(code)} returns.
+\begin{params}
+\item[code] The annotation code.
+\item[newval] The new value.
+\end{params}
+\returns{The value stored (\code{newval} as a C \code{char}); 0 for an
+illegal code.}
+
+\apientry{wfdb\_setisqrs}{Function form of setisqrs}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_setisqrs(int code, int newval);
+\end{lstlisting}
+The function form of \code{setisqrs}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\item[newval] The new value.
+\end{params}
+\returns{As \code{setisqrs}.}
+
+\apientry{map1}{Map a code to the five basic classes}
+\begin{lstlisting}[language=C,style=signature]
+int map1(int code);               /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Maps an annotation code to one of \code{NOTQRS}, \code{NORMAL}, \code{PVC},
+\code{FUSION} and \code{LEARN}, from a table that \code{setmap1} changes (for
+example, the bundle branch block beats map to \code{NORMAL}, ventricular
+escape beats to \code{PVC}).
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{The mapped code; \code{NOTQRS} for an illegal code.}
+
+\apientry{wfdb\_map1}{Function form of map1}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_map1(int code);
+\end{lstlisting}
+The function form of \code{map1}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{As \code{map1}.}
+
+\apientry{setmap1}{Change the result of map1}
+\begin{lstlisting}[language=C,style=signature]
+int setmap1(int code, int newval);    /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Sets the value that \code{map1(code)} returns.
+\begin{params}
+\item[code] The annotation code.
+\item[newval] The new value.
+\end{params}
+\returns{The value stored (as a C \code{char}); \code{NOTQRS} for an illegal
+code.}
+
+\apientry{wfdb\_setmap1}{Function form of setmap1}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_setmap1(int code, int newval);
+\end{lstlisting}
+The function form of \code{setmap1}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\item[newval] The new value.
+\end{params}
+\returns{As \code{setmap1}.}
+
+\apientry{map2}{Map a code to the six basic classes}
+\begin{lstlisting}[language=C,style=signature]
+int map2(int code);               /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+As \code{map1}, with \code{SVPB} as a sixth class: the supraventricular
+premature beats (\code{ABERR}, \code{NPC}, \code{APC}, \code{SVPB}) map to
+\code{SVPB} instead of \code{NORMAL}. \code{setmap2} changes its table.
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{The mapped code; \code{NOTQRS} for an illegal code.}
+
+\apientry{wfdb\_map2}{Function form of map2}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_map2(int code);
+\end{lstlisting}
+The function form of \code{map2}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{As \code{map2}.}
+
+\apientry{setmap2}{Change the result of map2}
+\begin{lstlisting}[language=C,style=signature]
+int setmap2(int code, int newval);    /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Sets the value that \code{map2(code)} returns.
+\begin{params}
+\item[code] The annotation code.
+\item[newval] The new value.
+\end{params}
+\returns{The value stored (as a C \code{char}); \code{NOTQRS} for an illegal
+code.}
+
+\apientry{wfdb\_setmap2}{Function form of setmap2}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_setmap2(int code, int newval);
+\end{lstlisting}
+The function form of \code{setmap2}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\item[newval] The new value.
+\end{params}
+\returns{As \code{setmap2}.}
+
+\apientry{ammap}{Map an AHA annotation code to an MIT code}
+\begin{lstlisting}[language=C,style=signature]
+int ammap(int code);              /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Maps an AHA annotation code, a character (its character code, such as that of
+\code{'V'}), to an MIT annotation code: \code{'N'} to \code{NORMAL},
+\code{'V'} to \code{PVC}, \code{'F'} to \code{FUSION}, \code{'E'} to
+\code{VESC}, \code{'P'} to \code{PACE}, \code{'Q'} to \code{UNKNOWN},
+\code{'R'} to \code{RONT}, \code{'O'} to \code{NOTE}, \code{'U'} to
+\code{NOISE}, \code{'['} to \code{VFON}, \code{']'} to \code{VFOFF}. The table
+is fixed.
+\begin{params}
+\item[code] The AHA code.
+\end{params}
+\returns{The MIT code; \code{NOTQRS} for any other character.}
+
+\apientry{wfdb\_ammap}{Function form of ammap}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_ammap(int code);
+\end{lstlisting}
+The function form of \code{ammap}, with the same result.
+\begin{params}
+\item[code] The AHA code.
+\end{params}
+\returns{As \code{ammap}.}
+
+\apientry{mamap}{Map an MIT annotation code to an AHA code}
+\begin{lstlisting}[language=C,style=signature]
+int mamap(int code, int subtype);     /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Maps an MIT annotation code, with its subtype, to an AHA code (a character
+code), from a fixed table: \code{NOISE} maps to \code{'U'} only with subtype
+-1 (unreadable signals), and otherwise to \code{'O'}, as do the codes without
+an AHA equivalent.
+\begin{params}
+\item[code] The MIT annotation code.
+\item[subtype] Its subtype.
+\end{params}
+\returns{The AHA code; \code{'O'} for an illegal code.}
+
+\apientry{wfdb\_mamap}{Function form of mamap}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_mamap(int code, int subtype);
+\end{lstlisting}
+The function form of \code{mamap}, with the same result.
+\begin{params}
+\item[code] The MIT annotation code.
+\item[subtype] Its subtype.
+\end{params}
+\returns{As \code{mamap}.}
+
+\apientry{annpos}{Display position of an annotation code}
+\begin{lstlisting}[language=C,style=signature]
+int annpos(int code);             /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Returns where programs that display annotations place those of code
+\code{code}, from a table that \code{setannpos} changes: \code{APSTD},
+\code{APHIGH}, \code{APLOW}, \code{APATT}, \code{APAHIGH}, \code{APALOW} or
+\code{APUNDEF} (\cref{tab:library-constants}).
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{The position code; \code{APUNDEF} for an illegal code.}
+
+\apientry{wfdb\_annpos}{Function form of annpos}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_annpos(int code);
+\end{lstlisting}
+The function form of \code{annpos}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\end{params}
+\returns{As \code{annpos}.}
+
+\apientry{setannpos}{Change the result of annpos}
+\begin{lstlisting}[language=C,style=signature]
+int setannpos(int code, int newval);  /* a macro of <wfdb/ecgmap.h> */
+\end{lstlisting}
+Sets the value that \code{annpos(code)} returns.
+\begin{params}
+\item[code] The annotation code.
+\item[newval] The new position code.
+\end{params}
+\returns{The value stored (as a C \code{char}); \code{APUNDEF} for an
+illegal code.}
+
+\apientry{wfdb\_setannpos}{Function form of setannpos}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_setannpos(int code, int newval);
+\end{lstlisting}
+The function form of \code{setannpos}, with the same result.
+\begin{params}
+\item[code] The annotation code.
+\item[newval] The new position code.
+\end{params}
+\returns{As \code{setannpos}.}
+
+% ==========================================================================
+\section{Calibration}
+\label{sec:library-calibration}
+
+The calibration functions manage the \emph{calibration list}, kept in
+memory: for types of signals, the levels and shape of their calibration
+pulses and their customary plotting scale (\code{WFDB\_Calinfo},
+\cref{sec:library-structures}). A calibration file has one entry per line:
+the signal type (\code{*} for any), a tab, then the low and high levels
+(\code{-} for an AC-coupled signal's low level, or for a high level equal to
+the low level), the pulse shape (\code{square}, \code{sine},
+\code{sawtooth}, or anything else for an undefined shape), the scale and the
+units, separated by spaces or tabs; lines that begin with \code{\#} and
+incomplete lines are ignored.
+
+\apientry{calopen}{Read a calibration file}
+\begin{lstlisting}[language=C,style=signature]
+int calopen(const char *calibration_filename);
+\end{lstlisting}
+Reads a calibration file into the calibration list, which is emptied first,
+unless the name begins with \code{+}, which is then removed (the entries are
+appended). \code{NULL} reads the file named by the environment variable
+\code{WFDBCAL}, or else \file{wfdbcal}; \code{-} reads the standard input.
+\begin{params}
+\item[calibration\_filename] The name of the calibration file, or
+  \code{NULL}.
+\end{params}
+\returns{0 on success; -2 if the file cannot be opened. (The Programmer's
+Guide also lists -1, for a lack of memory.)}
+\raises{\code{calopen: can't read calibration file FILE}.}
+
+WFDB-x: the file is read only where its name says, under the input directory
+for a relative name, not searched for in the WFDB path (\cref{chap:behavior}).
+
+\apientry{getcal}{Find the calibration of a signal}
+\begin{lstlisting}[language=C,style=signature]
+int getcal(const char *description, const char *units, WFDB_Calinfo *cal);
+\end{lstlisting}
+Copies into \code{*cal} the first entry of the calibration list whose signal
+type is a prefix of \code{description} (or equal to it), and whose units are
+\code{units}. A \code{NULL} argument matches every entry.
+\begin{params}
+\item[description] The signal description (\code{desc} of a
+  \code{WFDB\_Siginfo}), or \code{NULL}.
+\item[units] The physical units, or \code{NULL}.
+\item[cal] The structure filled by the function.
+\end{params}
+\returns{0 if an entry matches; -1 otherwise (also if the list is empty).}
+
+In R and MATLAB/Octave, \code{getcal} takes \code{description} and
+\code{units} only, and returns the entry with the status: \code{list(stat,
+cal)} in R, \code{[stat, cal]} in MATLAB/Octave.
+
+\apientry{putcal}{Add an entry to the calibration list}
+\begin{lstlisting}[language=C,style=signature]
+int putcal(const WFDB_Calinfo *cal);
+\end{lstlisting}
+Appends a copy of \code{*cal} to the end of the calibration list.
+\begin{params}
+\item[cal] The entry.
+\end{params}
+\returns{0. (The Programmer's Guide also lists -1, for a lack of memory.)}
+
+\apientry{newcal}{Write the calibration list to a file}
+\begin{lstlisting}[language=C,style=signature]
+int newcal(const char *calibration_filename);
+\end{lstlisting}
+Writes the calibration list, which is not changed, to a new file in the
+format read by \code{calopen}, with \code{undefined} for an undefined pulse
+shape. The name may contain only letters, digits, \code{\_},
+\code{\textasciitilde}, \code{-} and \code{/}.
+\begin{params}
+\item[calibration\_filename] The name of the file.
+\end{params}
+\returns{0 on success; -1 if the name is illegal, the file cannot be created,
+or it cannot be written completely.}
+\raises{\code{newcal: can't create calibration file FILE}; \code{newcal: write
+error in calibration file}; \code{init: illegal character N in calibration
+file name}.}
+
+WFDB-x: the file is created under the output directory; a write error is
+counted (\code{wfdbx\_write\_errors}).
+
+\apientry{flushcal}{Empty the calibration list}
+\begin{lstlisting}[language=C,style=signature]
+void flushcal(void);
+\end{lstlisting}
+Empties the calibration list. \code{wfdbquit} does not.
+
+% ==========================================================================
+\section{Header and info strings}
+\label{sec:library-header}
+
+A header (\file{.hea} file) describes a record: \code{newheader} writes it
+for the signals written with \code{putvec}, \code{setheader} from signal
+specifications, \code{setmsheader} for a multi-segment record. The header
+being written stays open, so that \code{putinfo} can add info strings to it,
+until another header is written or \code{osigfopen(NULL, 0)} (or
+\code{wfdbquit}) closes it. Info strings are the comment lines of a header
+that follow the record line, and the lines of an optional \file{.info} file;
+\cref{chap:metadata} describes the \code{Key: value} entries that WFDB-x
+reads and writes in them.
+
+WFDB-x (\cref{chap:behavior}): headers are created under the output
+directory; a header written under a path (\code{out/rec}) names the record,
+its signal files and its segments relative to its own directory
+(\code{rec}, \code{rec.dat}), and only the record's own name (the last
+component) must be made of letters, digits, \code{\_}, \code{-} and
+\code{\textasciitilde}. Legacy mode checks the whole name and writes the
+names as given.
+
+\apientry{newheader}{Write the header of the output signals}
+\begin{lstlisting}[language=C,style=signature]
+int newheader(char *record);
+\end{lstlisting}
+Writes the header of \code{record} for the open output signals, as
+\code{setheader} does, with the numbers of samples and the checksums that
+\code{putvec} computed: it is called after the samples are written, before the
+output signals are closed. The frequencies and the base time are those set
+by \code{setsampfreq}, \code{setcfreq}, \code{setbasecount} and
+\code{setbasetime}, and the skews and prolog lengths those set by
+\code{wfdbsetskew} and \code{wfdbsetstart}. The record name \code{-} writes
+the header to the standard output. A record name that begins with
+\code{+} is not accepted (the Programmer's Guide says that the \code{+} is
+removed; the code rejects the character).
+\begin{params}
+\item[record] The record name.
+\end{params}
+\returns{0 on success; -1 if the record name is illegal or the header cannot
+be created.}
+\raises{\code{init: illegal character N in record name}; \code{newheader:
+can't create header for record REC}.}
+
+\apientry{setheader}{Write a header from signal specifications}
+\begin{lstlisting}[language=C,style=signature]
+int setheader(char *record, const WFDB_Siginfo *siarray, unsigned int nsig);
+\end{lstlisting}
+Writes (or rewrites) the header of \code{record} for the \code{nsig} signals
+described by \code{siarray}, with the frequencies, base time, skews and prolog
+lengths as for \code{newheader}; the length is the \code{nsamp} of the first
+signal. It serves to change a header, for example the gain of a signal: the
+specifications are read with \code{isigopen(record, siarray, -nsig)}, changed
+and written back; the info strings must be copied explicitly
+(\code{getinfo}, \code{putinfo}). As in C, and although the argument is
+declared \code{const}, the \code{units} of each structure are cut at their
+first blank and the \code{desc} at their first line break, in the caller's
+structures (in R and MATLAB/Octave, the changed structures are returned:
+\code{list(stat, si)}, \code{[stat, si]}).
+\begin{params}
+\item[record] The record name.
+\item[siarray] The signal specifications.
+\item[nsig] The number of signals.
+\end{params}
+\returns{0 on success; -1 if the record name is illegal or the header cannot
+be created.}
+\raises{\code{newheader: can't create header for record REC}.}
+
+\apientry{setmsheader}{Write the header of a multi-segment record}
+\begin{lstlisting}[language=C,style=signature]
+int setmsheader(char *record, char **segnames, unsigned int nsegments);
+\end{lstlisting}
+Closes the input signals, and writes the header of the multi-segment record
+\code{record}, made of the \code{nsegments} existing records named in
+\code{segnames}, in that order. The segments' signal files are neither
+copied nor changed; the readers of the record (\code{getvec},
+\code{isigsettime}, ...) go from one segment to the next. The segments must
+have the same number of signals and the same sampling frequency, and headers
+that give their length; the record takes the counter frequency, base counter
+value and base time and date of the first segment.
+\begin{params}
+\item[record] The name of the multi-segment record.
+\item[segnames] The names of the segments.
+\item[nsegments] The number of segments.
+\end{params}
+\returns{0 on success; -1 if the record name is illegal, there is no segment,
+or the header cannot be created; -2 if a segment name is longer than
+\code{WFDB\_MAXRNL} (50) characters; -3 if the header of a segment cannot be
+read (or is itself that of a multi-segment record); -4 if a segment's length
+is not given, or its number of signals or sampling frequency differs from
+those of the first segment.}
+\raises{\code{setmsheader: record must contain at least one segment};
+\code{setmsheader: can't read segment SEG header}; \code{setmsheader: length
+of segment SEG must be specified}; \code{setmsheader: incorrect number of
+signals in segment SEG}; \code{setmsheader: incorrect sampling frequency in
+segment SEG}; \code{setmsheader: can't create header file for record REC}.}
+
+\apientry{getseginfo}{The segments of the open record}
+\begin{lstlisting}[language=C,style=signature]
+int getseginfo(WFDB_Seginfo **segments);
+\end{lstlisting}
+Makes \code{*segments} point to the array of \code{WFDB\_Seginfo} structures
+(\cref{sec:library-structures}) that describe the segments of the open
+multi-segment record: the name, the length and the first sample number of
+each. A segment named \code{\textasciitilde} is a gap, in which no signal is
+available. If no multi-segment record is open, \code{*segments} is not
+changed.
+\begin{params}
+\item[segments] The address of a pointer, set by the function.
+\end{params}
+\returns{The number of segments; 0 if the open record is not a
+multi-segment record.}
+
+The form differs between languages: in C++, \code{getseginfo(const
+WFDB\_Seginfo **)} gives a pointer to the library's table; in Rust, Julia and
+Kotlin, the argument (\code{\&mut Option<Vec<Seginfo>>}, a \code{Ref}, a
+\code{MutableList<Seginfo>?}) receives a copy, and the number of segments is
+returned; in Python, R and MATLAB/Octave, \code{getseginfo()} takes no
+argument and returns the list (a struct array in MATLAB/Octave) of segments,
+empty if the record is not a multi-segment record.
+
+\apientry{getinfo}{Read the info strings of a record}
+\begin{lstlisting}[language=C,style=signature]
+char *getinfo(char *record);
+\end{lstlisting}
+With a record name, reads the info strings of \code{record} (the comment
+lines of its header after the record line, then the lines of its
+\file{.info} file that begin with \code{\#}, if it has one) and returns the
+first; with \code{NULL}, returns the next one, reading those of the current
+record (the last one opened or named) on the first call. An info string is
+the line without its \code{\#} and its line ending.
+\begin{params}
+\item[record] The record name, or \code{NULL}.
+\end{params}
+\returns{The info string; \code{NULL} if there are no more.}
+\raises{\code{getinfo: caller did not specify record name}.}
+
+WFDB-x: the header and the \file{.info} file are read only where the record
+name says (\cref{chap:behavior}).
+
+\apientry{putinfo}{Write an info string}
+\begin{lstlisting}[language=C,style=signature]
+int putinfo(const char *info);
+\end{lstlisting}
+Writes \code{info} as an info string (a line \code{\#}\emph{info}, with a
+CR-LF line ending): to the \file{.info} file opened by \code{setinfo}, or
+else to the header being written (after \code{newheader}, \code{setheader}
+or \code{setmsheader}). It should not contain a line break; WFDB-x does not
+limit its length (the Programmer's Guide gives 254 characters).
+\begin{params}
+\item[info] The info string.
+\end{params}
+\returns{0 on success; -1 if no info file or header is open.}
+\raises{\code{putinfo: caller has not specified a record name}.}
+
+\apientry{setinfo}{Open the info file of a record}
+\begin{lstlisting}[language=C,style=signature]
+int setinfo(char *record);
+\end{lstlisting}
+Closes the info file opened by an earlier \code{setinfo}, if any, and opens
+the \file{.info} file of \code{record} for writing with \code{putinfo},
+appending to it if it exists. Such a file holds information about the record
+without changing its header. \code{setinfo(NULL)} only closes the info file.
+\begin{params}
+\item[record] The record name, or \code{NULL}.
+\end{params}
+\returns{0 on success; -1 if the record name is illegal or the file cannot be
+opened; with \code{NULL}, -2 if the info file could not be written
+completely.}
+\raises{\code{setinfo: can't create info file for record REC};
+\code{setinfo: write error in info file}.}
+
+\apientry{wfdb\_freeinfo}{Release the info strings}
+\begin{lstlisting}[language=C,style=signature]
+void wfdb_freeinfo(void);
+\end{lstlisting}
+Releases the info strings read by \code{getinfo}: the next \code{getinfo}
+reads them again, from the first. \code{wfdbquit} calls it. (The Programmer's
+Guide says that it also closes the file opened by \code{setinfo}; the code
+does not, and neither does WFDB-x: \code{setinfo(NULL)} and \code{wfdbquit}
+close it.)
+
+\apientry{wfdbgetskew}{Skew of an input signal}
+\begin{lstlisting}[language=C,style=signature]
+int wfdbgetskew(WFDB_Signal s);
+\end{lstlisting}
+Returns the skew of input signal \code{s} recorded in the header, in frames
+(the header gives it in samples). \code{getvec} and \code{getframe} already
+correct the skew; the function serves programs that rewrite a header and
+must keep the skews (with \code{wfdbsetskew}).
+\begin{params}
+\item[s] The input signal number.
+\end{params}
+\returns{The skew in frames; 0 if \code{s} is not an input signal.}
+
+\apientry{wfdbsetiskew}{Change the skew of an input signal}
+\begin{lstlisting}[language=C,style=signature]
+void wfdbsetiskew(WFDB_Signal s, int skew);
+\end{lstlisting}
+Changes the skew, in frames, with which input signal \code{s} is read (a
+function of the C library that the Programmer's Guide does not document). The
+new skew is applied only if it is between 0 and the largest skew of the
+record's header; otherwise nothing changes.
+\begin{params}
+\item[s] The input signal number.
+\item[skew] The skew, in frames.
+\end{params}
+
+\apientry{wfdbsetskew}{Set the skew of an output signal}
+\begin{lstlisting}[language=C,style=signature]
+void wfdbsetskew(WFDB_Signal s, int skew);
+\end{lstlisting}
+Sets the skew, in frames, that \code{newheader} and \code{setheader} write
+for output signal \code{s} (in samples). It does not affect the reading of
+input signals. Nothing is done if \code{s} is not an output signal.
+\begin{params}
+\item[s] The output signal number.
+\item[skew] The skew, in frames.
+\end{params}
+
+\apientry{wfdbgetstart}{Prolog length of an input signal file}
+\begin{lstlisting}[language=C,style=signature]
+long wfdbgetstart(WFDB_Signal s);
+\end{lstlisting}
+Returns the length of the prolog (the bytes before sample 0) of the signal
+file of input signal \code{s}, as the header records it; the readers already
+skip it. With no input signals open, signal 0 gives the prolog of the first
+signal of the last header read.
+\begin{params}
+\item[s] The input signal number.
+\end{params}
+\returns{The prolog length in bytes; 0 if \code{s} is not an input signal.}
+
+\apientry{wfdbsetstart}{Set the prolog length of an output signal}
+\begin{lstlisting}[language=C,style=signature]
+void wfdbsetstart(WFDB_Signal s, long bytes);
+\end{lstlisting}
+Sets the prolog length that \code{newheader} and \code{setheader} write for
+the signal file of output signal \code{s}; it does not affect the reading of
+input signals. The value also applies to every signal of the next header
+written by \code{setheader} whose file has no prolog length of its own (as
+when no output signals are open).
+\begin{params}
+\item[s] The output signal number.
+\item[bytes] The prolog length, in bytes.
+\end{params}
+
+\apientry{wfdbputprolog}{Write a prolog to an output signal file}
+\begin{lstlisting}[language=C,style=signature]
+int wfdbputprolog(const char *prolog, long bytes, WFDB_Signal s);
+\end{lstlisting}
+Writes the first \code{bytes} bytes of \code{prolog} to the signal file of
+output signal \code{s} (normally before any sample), and records the number
+of bytes written with \code{wfdbsetstart}.
+\begin{params}
+\item[prolog] The bytes of the prolog.
+\item[bytes] Their number.
+\item[s] The output signal number.
+\end{params}
+\returns{0 on success; -1 if fewer bytes were written.}
+\raises{\code{wfdbputprolog: only N of M bytes written}.}
+
+% ==========================================================================
+\section{Error handling and settings}
+\label{sec:library-errors}
+
+The library reports an error by its return value and by a message, printed on
+the standard error output unless \code{wfdbquiet} was called; the last
+message is kept for \code{wfdberror}.
+
+\apientry{wfdbquiet}{Stop printing error messages}
+\begin{lstlisting}[language=C,style=signature]
+void wfdbquiet(void);
+\end{lstlisting}
+Stops the printing of the library's messages on the standard error output;
+they are still kept for \code{wfdberror}.
+
+\apientry{wfdbverbose}{Print error messages again}
+\begin{lstlisting}[language=C,style=signature]
+void wfdbverbose(void);
+\end{lstlisting}
+Restores the printing of the library's messages (the default).
+
+\apientry{wfdberror}{The last error message}
+\begin{lstlisting}[language=C,style=signature]
+char *wfdberror(void);
+\end{lstlisting}
+Returns the last message of the library, printed or not.
+\returns{The message, with its final newline; if there has been none, the
+library version, \code{"WFDB library version 10.7.0 (Jun 10 2022).\textbackslash
+n"} (the build date of the C release reproduced).}
+
+\apientry{wfdb\_error}{Report an error as the library does}
+\begin{lstlisting}[language=C,style=signature]
+void wfdb_error(const char *format_string, ...);
+\end{lstlisting}
+Formats a message as \code{printf} does, keeps it for \code{wfdberror} and
+prints it on the standard error output unless \code{wfdbquiet} was called.
+The library reports its own errors with it; a program may use it for its
+own messages.
+\begin{params}
+\item[format\_string] A \code{printf} format.
+\item[...] The values to format.
+\end{params}
+
+In Python, \code{wfdb\_error(fmt, *args)}; in Rust and Kotlin,
+\code{wfdb\_error(msg)} takes a message already formatted (Rust also has
+\code{wfdb\_error\_fmt(fmt, args)}); in Julia, \code{WFDBX.wfdb\_error(fmt,
+args...)} (not exported). The formatting is that of the GNU C library in
+every language.
+
+\apientry{wfdbmemerr}{Behavior on memory errors}
+\begin{lstlisting}[language=C,style=signature]
+void wfdbmemerr(int exit_on_error);
+\end{lstlisting}
+In C, chooses whether a failure to allocate memory ends the program (nonzero,
+the default) or lets the function continue (0). WFDB-x keeps the value, for
+\code{wfdb\_me\_fatal}, but has no other use for it: the languages report
+memory exhaustion themselves.
+\begin{params}
+\item[exit\_on\_error] Nonzero to end the program on a memory error.
+\end{params}
+
+\apientry{wfdb\_me\_fatal}{Whether memory errors are fatal}
+\begin{lstlisting}[language=C,style=signature]
+int wfdb_me_fatal(void);
+\end{lstlisting}
+Returns the value set by \code{wfdbmemerr}.
+\returns{The value; 1 by default.}
+
+\apientry{wfdbversion}{Version of the library}
+\begin{lstlisting}[language=C,style=signature]
+const char *wfdbversion(void);
+\end{lstlisting}
+Returns the version of the WFDB library that WFDB-x reproduces (the version
+of WFDB-x itself is that of its packages, \wfdbxversion).
+\returns{\code{"10.7.0"}.}
+
+\apientry{wfdbldflags}{Linker flags of the C library}
+\begin{lstlisting}[language=C,style=signature]
+const char *wfdbldflags(void);
+\end{lstlisting}
+In C, returns the linker options with which programs are linked with the
+library (fixed when it is built). WFDB-x has none.
+\returns{\code{""}.}
+
+\apientry{wfdbcflags}{Compiler flags of the C library}
+\begin{lstlisting}[language=C,style=signature]
+const char *wfdbcflags(void);
+\end{lstlisting}
+In C, returns the compiler options with which programs that use the library
+are compiled. WFDB-x has none.
+\returns{\code{""}.}
+
+\apientry{wfdbdefwfdb}{Default WFDB path}
+\begin{lstlisting}[language=C,style=signature]
+const char *wfdbdefwfdb(void);
+\end{lstlisting}
+Returns the default WFDB path of the C library, used in legacy mode when the
+environment variable \code{WFDB} is not set (that of a C release installed in
+\file{/usr/local}).
+\returns{\code{". /usr/local/database http://physionet.org/physiobank/database"}.}
+
+\apientry{wfdbdefwfdbcal}{Default calibration file}
+\begin{lstlisting}[language=C,style=signature]
+const char *wfdbdefwfdbcal(void);
+\end{lstlisting}
+Returns the name of the calibration file that \code{calopen(NULL)} reads when
+the environment variable \code{WFDBCAL} is not set.
+\returns{\code{"wfdbcal"}.}
+
+% ==========================================================================
+\section{File and path functions}
+\label{sec:library-files}
+
+The C library finds its input files by searching the WFDB path, a list of
+directories and URLs. WFDB-x finds a file only where its name says, under the
+input directory for a relative name (\cref{chap:behavior,chap:files}): the
+functions of this section keep their C names and arguments, and set and
+return the input directory; in legacy mode, they work on the WFDB path as in
+C, without network access.
+
+\apientry{setwfdb}{Set the input directory (the WFDB path)}
+\begin{lstlisting}[language=C,style=signature]
+void setwfdb(const char *database_path_string);
+\end{lstlisting}
+WFDB-x: sets the input directory. The string is split as a WFDB path is (at
+spaces, tabs, newlines, \code{;}, and \code{:} outside a URL), and must have at
+most one nonempty component, which becomes the input directory (a directory,
+a \code{\textasciitilde} path or a URL); with none (\code{""}, \code{";"},
+\code{NULL}), the default is restored (\code{WFDBX\_INPUT\_DIR}, or the
+current directory). With more than one, nothing changes and an error is
+reported. A directory whose name contains a space must be set with
+\code{wfdbx\_set\_input\_dir}.
+
+In legacy mode, as in C: sets the WFDB path, the list of locations searched
+for input files (\code{@file} reads it from a file, up to ten levels deep);
+\code{NULL} restores the value of the environment variable \code{WFDB}, or
+the default (\code{wfdbdefwfdb}); the value is also exported as the
+environment variable \code{WFDB}, for the programs started afterwards; URL
+components are not used.
+\begin{params}
+\item[database\_path\_string] The input directory (legacy mode: the WFDB
+  path), or \code{NULL}.
+\end{params}
+\raises{\code{setwfdb: WFDB-x reads from a single input directory; use
+wfdbx\_set\_input\_dir (or legacy mode for the WFDB search path)}.}
+
+\apientry{getwfdb}{The input directory (the WFDB path)}
+\begin{lstlisting}[language=C,style=signature]
+char *getwfdb(void);
+\end{lstlisting}
+WFDB-x: returns the input directory. In legacy mode, as in C: returns the
+WFDB path, read on the first call from the environment variable \code{WFDB}
+(or the default), \code{@file} indirections evaluated. The environment
+variable \code{WFDB} is ignored outside legacy mode, and the library says so
+once (\code{WFDB-x: the WFDB environment variable is ignored; set
+WFDBX\_INPUT\_DIR instead (or use legacy mode)}).
+\returns{The input directory, or \code{"."} if none is set (legacy mode: the
+WFDB path).}
+
+\apientry{resetwfdb}{Restore the input directory (the WFDB path)}
+\begin{lstlisting}[language=C,style=signature]
+void resetwfdb(void);
+\end{lstlisting}
+WFDB-x: restores the input directory set by the last \code{setwfdb}, if any
+(\code{wfdbx\_set\_input\_dir} may have changed it since). In legacy mode, as
+in C: restores the WFDB path to the value that the first \code{getwfdb} of the
+process returned, if \code{getwfdb} was called before \code{setwfdb};
+\code{wfdbquit} calls it (in legacy mode only, in WFDB-x).
+
+\apientry{wfdbfile}{The path of a WFDB file}
+\begin{lstlisting}[language=C,style=signature]
+char *wfdbfile(const char *file_type, char *record);
+\end{lstlisting}
+Returns the name under which the library opens the file of \code{record}
+with suffix \code{file\_type} (\code{"hea"}, \code{"atr"}, ...), if it can be
+opened: \code{wfdbfile("hea", "100s")} gives \file{100s.hea}, or the path
+under the input directory. A file whose name does not contain a record name
+is given by \code{file\_type} with \code{record} \code{NULL}. As in C, a
+second name, with the suffix cut to 3 characters, is tried. With both
+arguments \code{NULL}, it returns the name of the file most recently opened
+by the library.
+\begin{params}
+\item[file\_type] The file type (suffix), or a file name.
+\item[record] The record name, or \code{NULL}.
+\end{params}
+\returns{The path name or URL; \code{NULL} if the file cannot be opened.}
+
+WFDB-x: the name is the one location that the name designates (an absolute
+name or URL as given, a relative name under the input directory), not the
+first found in the WFDB path; a URL is opened only with network access
+(\cref{chap:behavior}).
+
+% ==========================================================================
+\section{WFDB-x additions}
+\label{sec:library-additions}
+
+These functions are not in the C library. Their names begin with
+\code{wfdbx\_}, except the reader of many sample vectors; they are the same
+in the seven languages, and the signatures below are those of the C++
+implementation (\file{cpp/include/wfdbx/wfdb.hpp}). \Cref{chap:behavior}
+explains the settings they control; the environment variables
+\code{WFDBX\_INPUT\_DIR}, \code{WFDBX\_OUTPUT\_DIR} and \code{WFDBX\_NETWORK}
+give their initial values, which a call overrides.
+
+\apientry{wfdbx\_set\_input\_dir}{Set the input directory}
+\begin{lstlisting}[language=C++,style=signature]
+std::optional<std::string> wfdbx_set_input_dir(const char *dir);
+\end{lstlisting}
+Sets the input directory: every file named by a relative name (\code{100s},
+\code{mitdb/100}, \code{../other/100}) is read from it; an absolute name, a
+\code{\textasciitilde} name or a URL is used as given. It may be a local
+directory, a \code{\textasciitilde} path, or the URL of a directory, such as
+\code{https://physionet.org/files/mitdb/1.0.0/} (which also needs network
+access, \code{wfdbx\_set\_network}). The name is used as it is (it may contain
+spaces). The setting applies to the library functions, the high-level
+functions (whose \code{input\_dir} option sets it for the duration of a call)
+and the tools, also for the files that they read themselves
+(\code{wfdbx\_input\_path}); \code{wfdbquit} does not change it; legacy mode
+does not use it (it searches the WFDB path).
+\begin{params}
+\item[dir] The input directory; \code{NULL} or \code{""} restores the
+  default: the value of \code{WFDBX\_INPUT\_DIR} if it is set, otherwise the
+  current directory.
+\end{params}
+\returns{The previous input directory (that of \code{WFDBX\_INPUT\_DIR} if
+it was in effect); \code{NULL} (\code{std::nullopt}, \code{None},
+\code{nothing}, ...) if none was set.}
+
+\apientry{wfdbx\_get\_input\_dir}{The input directory}
+\begin{lstlisting}[language=C++,style=signature]
+std::optional<std::string> wfdbx_get_input_dir();
+\end{lstlisting}
+Returns the input directory set by \code{wfdbx\_set\_input\_dir},
+\code{setwfdb} or \code{WFDBX\_INPUT\_DIR}.
+\returns{The input directory; \code{NULL} if none is set (files are then read
+from the current directory; \code{getwfdb} returns \code{"."}).}
+
+\apientry{wfdbx\_set\_output\_dir}{Set the output directory}
+\begin{lstlisting}[language=C++,style=signature]
+std::optional<std::string> wfdbx_set_output_dir(const char *dir);
+\end{lstlisting}
+Sets the output directory: every file written under a relative name (a
+signal file, a header, an annotation, info or calibration file) is created
+in it; missing directories are created. An absolute name or a
+\code{\textasciitilde} name is used as given. The names recorded in headers
+do not change. The setting applies to the library functions, the high-level
+writers (whose \code{dir} option sets it for the duration of a call) and the
+tools, also for the files that they create themselves
+(\code{wfdbx\_output\_path}); \code{wfdbquit} does not change it. In legacy
+mode it is a plain prefix of every output name, absolute names included.
+\begin{params}
+\item[dir] A local directory or a \code{\textasciitilde} path; \code{NULL} or
+  \code{""} restores the default: the value of \code{WFDBX\_OUTPUT\_DIR} if it
+  is set, otherwise the current directory. A URL is refused.
+\end{params}
+\returns{The previous output directory; \code{NULL} if none was set. For a
+URL, the current output directory, unchanged.}
+\raises{\code{wfdbx\_set\_output\_dir: the output directory must be a local
+directory}.}
+
+\apientry{wfdbx\_get\_output\_dir}{The output directory}
+\begin{lstlisting}[language=C++,style=signature]
+std::optional<std::string> wfdbx_get_output_dir();
+\end{lstlisting}
+Returns the output directory set by \code{wfdbx\_set\_output\_dir} or
+\code{WFDBX\_OUTPUT\_DIR}.
+\returns{The output directory; \code{NULL} if none is set (files are then
+written in the current directory).}
+
+\apientry{wfdbx\_set\_network}{Allow or forbid network access}
+\begin{lstlisting}[language=C++,style=signature]
+int wfdbx_set_network(int on);
+\end{lstlisting}
+Allows or forbids reading files from \code{http://} and \code{https://}
+URLs; it is forbidden by default. A remote file is read in full the first
+time it is opened and kept for the rest of the process; a download gives up
+if it cannot connect, or receives nothing, for 30 seconds. With network
+access forbidden, the first attempt to open a URL prints \code{WFDB-x:
+network access is disabled; set WFDBX\_NETWORK=1 or call wfdbx\_set\_network(1)
+to open URL}, and the file cannot be opened. Legacy mode reads no remote
+files.
+\begin{params}
+\item[on] 1 (or any positive value; \code{True} in Python) to allow, 0 to
+  forbid; a negative value (or \code{None} in Python) restores the default:
+  allowed if \code{WFDBX\_NETWORK} is a nonzero number.
+\end{params}
+\returns{The previous setting: 1 (allowed) or 0.}
+
+\apientry{wfdbx\_get\_network}{Whether network access is allowed}
+\begin{lstlisting}[language=C++,style=signature]
+int wfdbx_get_network();
+\end{lstlisting}
+\returns{1 if network access is allowed, 0 otherwise.}
+
+\apientry{wfdbx\_set\_legacy}{Turn legacy mode on or off}
+\begin{lstlisting}[language=C++,style=signature]
+int wfdbx_set_legacy(int on);
+\end{lstlisting}
+Turns legacy mode on or off for the whole library. In legacy mode, every
+deliberate change of WFDB-x is undone (\cref{chap:behavior}): the built-in
+sampling frequency, gain and ADC resolution, the WFDB search path (without
+network access), sorting by the \code{sortann} program, output files that may
+be input files, and C's checks and names in headers. It is off by default,
+and is meant only to reproduce results of the original package.
+\begin{params}
+\item[on] Nonzero to turn legacy mode on, 0 to turn it off.
+\end{params}
+\returns{The previous setting: 1 (on) or 0.}
+
+\apientry{wfdbx\_get\_legacy}{Whether legacy mode is on}
+\begin{lstlisting}[language=C++,style=signature]
+int wfdbx_get_legacy();
+\end{lstlisting}
+\returns{1 if legacy mode is on, 0 otherwise.}
+
+\apientry{wfdbx\_legacy\_args}{Recognize the --legacy option of a tool}
+\begin{lstlisting}[language=C++,style=signature]
+int wfdbx_legacy_args(int &argc, char **&argv);
+\end{lstlisting}
+The function that every tool calls first: if the first argument after the
+program name (\code{argv[1]}) is exactly \code{--legacy}, it is removed (the
+program name stays first) and legacy mode is turned on. \code{--legacy}
+elsewhere is not recognized. In C++, Rust and Kotlin, the call also arranges
+the exit status of the program as for the tools: at exit, outside legacy
+mode, a failure to write the standard output is reported (\code{PROGRAM:
+write error on standard output}), and an exit status of 0 becomes 1 after a
+write error (see \code{wfdbx\_write\_errors}).
+\begin{params}
+\item[argc] The number of arguments, decremented if \code{--legacy} is
+  removed.
+\item[argv] The arguments, program name first.
+\end{params}
+\returns{1 if \code{--legacy} was found (and removed), 0 otherwise.}
+
+The argument list is that of each language: in Python, a list
+(\code{sys.argv}), changed in place; in Rust and Kotlin, a mutable list of
+byte strings; in R, a character vector, and the result is \code{list(argv,
+legacy)}; in MATLAB/Octave, a cell array, with \code{[r, argv] =
+wfdbx.wfdbx\_legacy\_args(argv)}. In Julia, \code{wfdbx\_legacy\_args(args)}
+takes the arguments \emph{without} the program name (Julia's \code{ARGS}), and
+looks at \code{args[1]}.
+
+\apientry{wfdbx\_time\_needs\_freq}{Whether strtim needs the sampling frequency}
+\begin{lstlisting}[language=C++,style=signature]
+int wfdbx_time_needs_freq(const char *time_string);
+\end{lstlisting}
+Tells whether \code{strtim} needs a sampling frequency to convert
+\code{time\_string}, so that a program can report a missing frequency in its
+own terms.
+\begin{params}
+\item[time\_string] The time string.
+\end{params}
+\returns{0 if the string (after leading spaces, tabs, carriage returns and
+newlines) begins with \code{e}, \code{i}, \code{o} or \code{s}, or with
+\code{c} while no counter frequency is defined; 1 otherwise.}
+
+\apientry{wfdbx\_write\_errors}{Number of write errors}
+\begin{lstlisting}[language=C++,style=signature]
+int wfdbx_write_errors();
+\end{lstlisting}
+Returns the number of write errors since the program started: the output
+files (signal files, headers, annotation, info and calibration files, and
+the standard output opened as \code{-}) that the library could not write,
+flush or close, found when they are closed (by \code{wfdbquit},
+\code{osigfopen(NULL, 0)}, \code{oannclose}, ...), and those counted by
+\code{wfdbx\_note\_write\_error}. The count belongs to the process, not to a
+library state object (Rust, Julia, Kotlin). The tools exit with status 1
+when it is not 0, and the high-level writers raise an error when they meet a
+write error (\cref{chap:behavior}).
+\returns{The number of write errors.}
+
+\apientry{wfdbx\_note\_write\_error}{Count a write error}
+\begin{lstlisting}[language=C++,style=signature]
+void wfdbx_note_write_error();
+\end{lstlisting}
+Adds one to the count of \code{wfdbx\_write\_errors}, for a program that
+writes a file itself and could not write it. (Rust and Kotlin also have
+\code{wfdbx\_fclose\_output(file, pname, name)}, which closes such a file,
+and reports \code{PNAME: write error on NAME} and counts it on failure.)
+
+\apientry{wfdbx\_input\_path}{Where a program reads a file itself}
+\begin{lstlisting}[language=C++,style=signature]
+std::optional<std::string> wfdbx_input_path(const char *name);
+\end{lstlisting}
+Returns the path under which a program opens a file that it reads itself,
+rather than through the library, so that the file is found where
+\code{wfdb\_open} finds a file of that name (with an empty file type). In
+normal mode, a relative name is found under the input directory, if one is
+set (\code{wfdbx\_set\_input\_dir}), a \code{\textasciitilde} name is
+expanded, and an absolute name is used as given; in legacy mode, the name is
+used as given, as the original programs did. The tools use it for the files
+named on their command line that they read themselves, such as the \opt{-i}
+file of \cmd{wrsamp} (\cref{sec:tool-files}). For example, with the input
+directory \file{data}, \code{wfdbx\_input\_path("samples.txt")} returns
+\code{data/samples.txt}.
+\begin{params}
+\item[name] A file name. \code{""} and \code{"-"} (the standard input, if the
+  program treats it so) are returned as given.
+\end{params}
+\returns{The path to open; \code{NULL} (\code{std::nullopt}, \code{None},
+\code{nothing}, ...) if \code{name} is \code{NULL} or a URL, or becomes a URL
+when the input directory is prefixed to it: such a file cannot be opened in
+this way.}
+
+\apientry{wfdbx\_output\_path}{Where a program creates a file itself}
+\begin{lstlisting}[language=C++,style=signature]
+std::optional<std::string> wfdbx_output_path(const char *name);
+\end{lstlisting}
+Returns the path under which a program creates a file that it writes
+itself, rather than through the library, so that the file is created where
+\code{wfdb\_open} creates a file of that name (with an empty file type). In
+normal mode, a relative name is created under the output directory, if one
+is set (\code{wfdbx\_set\_output\_dir}), a \code{\textasciitilde} name is
+expanded, and an absolute name is used as given; in legacy mode, the output
+directory, if one is set, is a plain prefix of any name, absolute names
+included. When the output directory has been prefixed to the name, the
+directories missing in the resulting path are created, as for the output
+files of the library. The tools use it for the files that they create
+themselves, such as the WAV file of \cmd{mit2wav} (\cref{sec:tool-files}).
+For example, with the output directory \file{out},
+\code{wfdbx\_output\_path("notes.txt")} returns \code{out/notes.txt}.
+\begin{params}
+\item[name] A file name. \code{""} and \code{"-"} (the standard output, if the
+  program treats it so) are returned as given.
+\end{params}
+\returns{The path to create; \code{NULL} (\code{std::nullopt}, \code{None},
+\code{nothing}, ...) if \code{name} is \code{NULL} or a URL (which cannot be
+written).}
+
+\apientry{getframes}{Read many sample vectors at once}
+\begin{lstlisting}[language=C++,style=signature]
+long long getvecs(WFDB_Sample *out, long long n, int *status = nullptr);
+// The same function in each language:
+//   C++, Rust, Julia, Kotlin:  getvecs(out, n), and in Rust, Julia and Kotlin
+//                              getvecs_status(out, n), which also returns status
+//   Python:                    frames, status = getframes(n)
+//   R:                         r <- getframes(n, minstat = 0)   # r$v, r$stat
+//   MATLAB/Octave:             [v, status, last] = wfdbx.getframes(n, minstat)
+\end{lstlisting}
+Reads up to \code{n} sample vectors, with exactly the result of \code{n}
+calls of \code{getvec} that stop at the first negative status, but much
+faster: whole blocks of the signal files are decoded at once, for every
+format, for multi-frequency records in both modes of \code{getvec}, and for
+multi-segment records; the frames that need special handling (the one at
+which a checksum is verified, a change of segment, skewed or resampled
+signals) go through \code{getvec}. The vectors follow one another in
+\code{out}, one value per signal in each (in Python, R and MATLAB/Octave, a
+matrix with one row per vector and one column per signal).
+\begin{params}
+\item[out] (C++, Rust, Julia, Kotlin) An array with room for \code{n} times
+  the number of values of a vector, filled by the function.
+\item[n] The maximum number of vectors to read (\code{Inf} in R and
+  MATLAB/Octave reads to the end).
+\item[status] (C++, optional) Receives the value returned by the last
+  \code{getvec}: the negative status of the first vector that could not be
+  read (-1 at the end of the data, -3 for an unexpected end of file, ...), or
+  the number of signals if all \code{n} were read.
+\item[minstat] (R, MATLAB/Octave, optional) Stop at the first vector for
+  which \code{getvec} would return less than \code{minstat} (as a C loop
+  \code{while (getvec(v) >= minstat)}); 0 by default.
+\end{params}
+\returns{C++, Rust, Julia, Kotlin: the number of vectors read (\code{>= 0}),
+or the negative status of \code{getvec} if none could be read;
+\code{getvecs\_status} returns the number and the status. Python: a NumPy
+array (\code{int64}, one row per vector) and the status. R:
+\code{list(v, stat)}, a matrix and the status. MATLAB/Octave: the matrix, the
+status, and the vector filled by the \code{getvec} call that stopped the
+reading (the last frame of the record for a checksum error, -4).}
+
+% ==========================================================================
+\section{Constants and structures}
+\label{sec:library-structures}
+
+The constants of \file{<wfdb/wfdb.h>} have their C names and values in every
+language (\cref{tab:library-constants}); in MATLAB/Octave they are functions
+without arguments (\code{wfdbx.WFDB\_READ()}), and the calibration constants
+and \code{WFDB\_FMT\_LIST} are not defined there. The annotation codes
+(\code{NORMAL}, \code{PVC}, ..., \code{ACMAX}) of \file{<wfdb/ecgcodes.h>}
+are listed in \cref{chap:formats}.
+
+\begin{xltabular}{\linewidth}{@{}P{4.4cm}P{2.4cm}L@{}}
+\caption{The constants of the library.}
+\label{tab:library-constants}\\
+\toprule
+{\tabhead Constant} & {\tabhead Value} & {\tabhead Meaning}\\
+\midrule
+\endfirsthead
+\toprule
+{\tabhead Constant} & {\tabhead Value} & {\tabhead Meaning}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{WFDB\_READ} & 0 & \code{stat} of an MIT-format input annotation file\\
+\code{WFDB\_WRITE} & 1 & \code{stat} of an MIT-format output annotation file\\
+\code{WFDB\_AHA\_READ} & 2 & \code{stat} of an AHA-format input annotation
+file\\
+\code{WFDB\_AHA\_WRITE} & 3 & \code{stat} of an AHA-format output annotation
+file\\
+\code{WFDB\_APPEND} & 4 & mode of an output info file (opened for appending)\\
+\code{WFDB\_INVALID\_SAMPLE} & -32768 & value of an invalid or missing
+sample, in \code{getvec}, \code{getframe} and \code{sample}, unless
+\code{WFDB\_GVPAD} is set; written by \code{putvec} as the invalid value of
+the format\\
+\code{WFDB\_LOWRES} & 0 & \code{getvec} mode: one sample per signal per
+frame\\
+\code{WFDB\_HIGHRES} & 1 & \code{getvec} mode: every sample of the
+oversampled signals\\
+\code{WFDB\_GVPAD} & 2 & \code{getvec} flag: invalid samples replaced by the
+previous valid sample\\
+\code{WFDB\_DEFFREQ} & 250.0 & C's default sampling frequency (Hz); not used
+by WFDB-x outside legacy mode\\
+\code{WFDB\_DEFGAIN} & 200.0 & C's default gain (adu per physical unit); not
+used outside legacy mode\\
+\code{WFDB\_DEFRES} & 12 & C's default ADC resolution (bits); not used
+outside legacy mode\\
+\code{WFDB\_MAXRNL} & 50 & maximum length of a record name (of a segment
+name); not exported in R\\
+\code{WFDB\_MAXUSL} & 50 & maximum length of a \code{units} string\\
+\code{WFDB\_MAXDSL} & 100 & maximum length of a \code{desc} string\\
+\code{WFDB\_FMT\_LIST} & 0, 8, 16, 61, 80, 160, 212, 310, 311, 24, 32, 508,
+516, 524 & the signal storage formats (\cref{chap:formats})\\
+\code{WFDB\_AC\_COUPLED} & 0 & \code{caltype}: AC-coupled signal\\
+\code{WFDB\_DC\_COUPLED} & 1 & \code{caltype}: DC-coupled signal\\
+\code{WFDB\_CAL\_SQUARE} & 2 & \code{caltype}: square calibration pulse\\
+\code{WFDB\_CAL\_SINE} & 4 & \code{caltype}: sine calibration pulse\\
+\code{WFDB\_CAL\_SAWTOOTH} & 6 & \code{caltype}: sawtooth calibration pulse\\
+\code{WFDB\_CAL\_UNDEF} & 8 & \code{caltype}: undefined pulse shape\\
+\code{APUNDEF}, \code{APSTD}, \code{APHIGH}, \code{APLOW}, \code{APATT},
+\code{APAHIGH}, \code{APALOW} & 0 to 6 & display positions (\code{annpos}):
+undefined, standard, above, below, attached to the signal \code{chan}, above
+and below that\\
+\end{xltabular}
+
+The simple types of the C library are integers and floating-point numbers:
+\code{WFDB\_Sample} (\code{int}, 32 bits) for samples in ADC units,
+\code{WFDB\_Time} (64 bits on the reference platform) for times in sample
+intervals, \code{WFDB\_Date} (\code{long}) for Julian dates,
+\code{WFDB\_Frequency} and \code{WFDB\_Gain} (\code{double}), and
+\code{WFDB\_Group}, \code{WFDB\_Signal} and \code{WFDB\_Annotator}
+(\code{unsigned int}). \Cref{sec:library-calling} gives the corresponding
+types of each language (doubles in R and MATLAB/Octave).
+
+The structures have the C field names in every language
+(\cref{tab:library-siginfo,tab:library-anninfo,tab:library-annotation,tab:library-calinfo,tab:library-seginfo});
+their names are \code{WFDB\_Siginfo}, ..., in C++ (also \code{Siginfo}, ...),
+\code{Siginfo}, \code{Anninfo}, \code{Annotation}, \code{Calinfo} and
+\code{Seginfo} in Python, Rust, Julia and Kotlin, and lists or structures made
+by \code{siginfo()}, \code{anninfo()}, \code{annotation()}, \code{calinfo()}
+and \code{seginfo()} in R and MATLAB/Octave (\code{wfdbx.siginfo(n)}, ...). A
+string field that C may leave \code{NULL} is absent in the language's terms
+(\code{None}, \code{std::nullopt}, \code{nothing}, \code{NULL}, \code{[]},
+\code{null}).
+
+\begin{xltabular}{\linewidth}{@{}P{3.4cm}L@{}}
+\caption{\code{WFDB\_Siginfo}: the specification of a signal.}
+\label{tab:library-siginfo}\\
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endfirsthead
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{char *fname} & the name of the signal file, relative to the header's
+directory (WFDB-x); \code{-} is the standard input or output\\
+\code{char *desc} & the description of the signal (\code{MLII}), at most
+\code{WFDB\_MAXDSL} characters, without line breaks; a header that gives none
+gives \code{record REC, signal N}\\
+\code{char *units} & the physical units, at most \code{WFDB\_MAXUSL}
+characters, without blanks; \code{NULL} if not specified (WFDB-x: never
+taken to be millivolts)\\
+\code{WFDB\_Gain gain} & ADC units per physical unit; 0 if uncalibrated\\
+\code{WFDB\_Sample initval} & the value of sample 0 (used by format 8)\\
+\code{WFDB\_Group group} & the signal group: the signals of a group are stored
+in one file, and have consecutive numbers\\
+\code{int fmt} & the storage format (\code{WFDB\_FMT\_LIST},
+\cref{chap:formats})\\
+\code{int spf} & samples per frame (more than 1 for an oversampled signal)\\
+\code{int bsize} & the block size in bytes, for character special files (0
+for ordinary files)\\
+\code{int adcres} & the ADC resolution in bits; 0 if not specified (WFDB-x:
+not inferred from the format)\\
+\code{int adczero} & the ADC output for an input at the center of its range\\
+\code{int baseline} & the ADC value of 0 physical units\\
+\code{long nsamp} & the number of samples per signal (of frames, for an
+oversampled signal); 0 if not specified\\
+\code{int cksum} & the 16-bit checksum of the samples, verified by
+\code{getvec} at the end of the record\\
+\end{xltabular}
+
+The constructors give C's zero values, except that \code{spf} is 1 in Python,
+R and MATLAB/Octave (0 in C++, Rust, Julia and Kotlin; \code{osigfopen} takes
+an \code{spf} below 1 as 1).
+
+\begin{xltabular}{\linewidth}{@{}P{3.4cm}L@{}}
+\caption{\code{WFDB\_Anninfo}: an annotator to open.}
+\label{tab:library-anninfo}\\
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endfirsthead
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{char *name} & the annotator name, the suffix of the annotation file
+(\code{atr} is the reference annotation file of a database record);
+\code{-} is the standard input or output\\
+\code{int stat} & \code{WFDB\_READ}, \code{WFDB\_WRITE},
+\code{WFDB\_AHA\_READ} or \code{WFDB\_AHA\_WRITE}\\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}P{3.4cm}L@{}}
+\caption{\code{WFDB\_Annotation}: an annotation.}
+\label{tab:library-annotation}\\
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endfirsthead
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{WFDB\_Time time} & the time, in sample intervals from the beginning of
+the record (or in the units of \code{setiafreq} and \code{setafreq})\\
+\code{char anntyp} & the annotation code, 1 to \code{ACMAX}
+(\cref{chap:formats})\\
+\code{signed char subtyp} & the subtype (-128 to 127); for noise
+annotations, the signals affected\\
+\code{unsigned char chan} & the channel (0 to 255), usually the signal to
+which the annotation refers\\
+\code{signed char num} & the annotator number (-128 to 127), free for the
+program's use\\
+\code{unsigned char *aux} & \code{NULL}, or the auxiliary data: its first
+byte is the number of bytes that follow (at most 255), such as the rhythm of
+a rhythm change \code{(N}, or the text of a comment; it may contain any
+bytes\\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}P{3.4cm}L@{}}
+\caption{\code{WFDB\_Calinfo}: an entry of the calibration list.}
+\label{tab:library-calinfo}\\
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endfirsthead
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{double low} & the low level of the calibration pulse, in physical
+units (0 for an AC-coupled signal)\\
+\code{double high} & the high level of the pulse (the pulse amplitude for an
+AC-coupled signal)\\
+\code{double scale} & the customary plotting scale, in physical units per
+centimeter\\
+\code{char *sigtype} & the signal type, matched against the beginning of a
+signal description (empty: any signal)\\
+\code{char *units} & the physical units\\
+\code{int caltype} & \code{WFDB\_AC\_COUPLED} or \code{WFDB\_DC\_COUPLED},
+plus \code{WFDB\_CAL\_SQUARE}, \code{WFDB\_CAL\_SINE} or
+\code{WFDB\_CAL\_SAWTOOTH}\\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}P{3.4cm}L@{}}
+\caption{\code{WFDB\_Seginfo}: a segment of a multi-segment record.}
+\label{tab:library-seginfo}\\
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endfirsthead
+\toprule
+{\tabhead Field} & {\tabhead Meaning}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{char recname[WFDB\_MAXRNL+1]} & the name of the segment (a record), or
+\code{\textasciitilde} for a gap without signals\\
+\code{WFDB\_Time nsamp} & the length of the segment, in samples\\
+\code{WFDB\_Time samp0} & the number of samples before the segment in the
+multi-segment record (the sample number of its first sample)\\
+\end{xltabular}
+
+\setlength{\emergencystretch}{0pt}

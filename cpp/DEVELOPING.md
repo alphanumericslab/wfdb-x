@@ -8,13 +8,23 @@ Notes for developers of the C++ implementation. Users should read
 * `src/` is the library. `annot.cpp`, `calib.cpp`, `signal.cpp`,
   `wfdbinit.cpp` and `wfdbio.cpp` follow the C files of the same names in
   `lib/` of the WFDB Software Package, function by function. `record.cpp`
-  is the high-level API, and `flac.cpp` the FLAC codec.
+  is the high-level API, `metadata.cpp` the header metadata functions of
+  the high-level API (`read_metadata`, `set_metadata`, ...; the rules are
+  in `../tests/metadata/README.md`), and `flac.cpp` the FLAC codec.
 * `apps/` holds the tools. Each follows its C program line by line, so that
   it can be compared with the original. `apps/cemul.hpp` holds the few
   helpers that reproduce the reference platform's behavior where C leaves
   it undefined.
 * `include/wfdbx/wfdb.hpp` declares the C-style API, and
-  `include/wfdbx/record.hpp` the high-level API.
+  `include/wfdbx/record.hpp` the high-level API, including the header
+  metadata functions and their exceptions `ArgumentError` and `FileError`.
+* `tests/` holds the unit tests (`tests.hpp` is the test framework, and
+  `http_server.hpp` the local HTTP server on 127.0.0.1 of the network
+  tests). `tests/test_metadata.cpp` runs the shared metadata cases of
+  `../tests/metadata/cases.tsv`. Some tests run tools of the same build
+  (`sortann`, and `wrsamp`, `mit2wav` and `mit2edf` for the files that the
+  tools open themselves, in `tests/test_files.cpp`); CMake builds them
+  first.
 
 ## Bulk reading in `getvecs`
 

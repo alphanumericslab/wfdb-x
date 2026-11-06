@@ -30,7 +30,8 @@ tests = {@t_version, @t_path, @t_bufsize, @t_signals, @t_amplitude, ...
     @t_sample, @t_frames, @t_groups, @t_segments, @t_skew, @t_output, ...
     @t_info, @t_msheader, @t_counter, @t_calib, @t_annot, @t_afreq, ...
     @t_ecgstr, @t_strings, @t_maps, @t_extra, @t_flacseek, ...
-    @t_strtim_range, @t_nodefaults, @t_legacy, @t_outdir, @t_abspath};
+    @t_strtim_range, @t_nodefaults, @t_legacy, @t_outdir, @t_abspath, ...
+    @t_toolpaths, @t_osigopen_none};
 for k = 1:numel(tests)
     wfdbx.wfdbquit();
     wfdbx.setwfdb('.');
@@ -1212,6 +1213,101 @@ assert_eq(a, {'rdsamp', '-r', '--legacy'}, 'wfdbx_legacy_args argv unchanged');
 [r, a] = wfdbx.wfdbx_legacy_args({'rdsamp'});
 assert_eq([r, numel(a), wfdbx.wfdbx_get_legacy()], [0 1 0], ...
     'wfdbx_legacy_args (no arguments)');
+end
+
+function t_toolpaths()
+% WFDB-x: wfdbx_input_path and wfdbx_output_path, where a program opens
+% the files that it reads or creates itself, in normal and legacy mode
+% (t_toolpaths of api_expect.c; HOME is the subdirectory thome)
+home = getenv('HOME');
+q = onCleanup(@() toolpaths_end(home)); %#ok<NASGU>
+setenv('HOME', 'thome');
+ip = @wfdbx.wfdbx_input_path;
+op = @wfdbx.wfdbx_output_path;
+wfdbx.wfdbx_set_input_dir([]);
+wfdbx.wfdbx_set_output_dir([]);
+assert_eq(ip('a.txt'), 'a.txt', 'wfdbx_input_path a.txt');
+assert_eq(ip('~/a.txt'), 'thome/a.txt', 'wfdbx_input_path ~/a.txt');
+assert_eq(ip('-'), '-', 'wfdbx_input_path -');
+assert_eq(ip(''), '', 'wfdbx_input_path empty');
+assert(isempty(ip([])) && ~ischar(ip([])), 'wfdbx_input_path NULL');
+assert(~ischar(ip('http://127.0.0.1:1/a')), 'wfdbx_input_path URL');
+assert_eq(op('a.wav'), 'a.wav', 'wfdbx_output_path a.wav');
+assert_eq(op('~/a.wav'), 'thome/a.wav', 'wfdbx_output_path ~/a.wav');
+assert(~ischar(op('https://127.0.0.1:1/a')), 'wfdbx_output_path URL');
+wfdbx.wfdbx_set_input_dir('tin');
+assert_eq(ip('a.txt'), 'tin/a.txt', 'wfdbx_input_path a.txt (tin)');
+assert_eq(ip('../a.txt'), 'tin/../a.txt', 'wfdbx_input_path ../a.txt (tin)');
+assert_eq(ip('/a.txt'), '/a.txt', 'wfdbx_input_path /a.txt (tin)');
+assert_eq(ip('-'), '-', 'wfdbx_input_path - (tin)');
+wfdbx.wfdbx_set_input_dir('~/tin/');
+assert_eq(ip('a.txt'), 'thome/tin/a.txt', 'wfdbx_input_path a.txt (~/tin/)');
+wfdbx.wfdbx_set_input_dir('http://127.0.0.1:1/d');
+assert(~ischar(ip('a.txt')), 'wfdbx_input_path a.txt (URL)');
+wfdbx.wfdbx_set_input_dir([]);
+wfdbx.wfdbx_set_output_dir('tout/deep');
+assert_eq(op('a.wav'), 'tout/deep/a.wav', ...
+    'wfdbx_output_path a.wav (tout/deep)');
+assert_eq(isfolder('tout/deep'), true, 'tout/deep created');
+assert_eq(op('s/a.wav'), 'tout/deep/s/a.wav', ...
+    'wfdbx_output_path s/a.wav (tout/deep)');
+assert_eq(isfolder('tout/deep/s'), true, 'tout/deep/s created');
+assert_eq(op('/a.wav'), '/a.wav', 'wfdbx_output_path /a.wav (tout/deep)');
+assert_eq(op('~/m/a.wav'), 'thome/m/a.wav', ...
+    'wfdbx_output_path ~/m/a.wav (tout/deep)');
+assert_eq(isfolder('thome/m'), false, 'thome/m created');
+assert_eq(ip('a.txt'), 'a.txt', 'wfdbx_input_path a.txt (output dir only)');
+wfdbx.wfdbx_set_legacy(1);
+wfdbx.wfdbx_set_input_dir('tin');
+wfdbx.wfdbx_set_output_dir('tlout');
+assert_eq(ip('a.txt'), 'a.txt', 'legacy wfdbx_input_path a.txt');
+assert_eq(ip('~/a.txt'), '~/a.txt', 'legacy wfdbx_input_path ~/a.txt');
+assert_eq(op('a.wav'), 'tlout/a.wav', 'legacy wfdbx_output_path a.wav');
+assert_eq(op('/a.wav'), 'tlout//a.wav', 'legacy wfdbx_output_path /a.wav');
+assert_eq(op('~/a.wav'), 'tlout/~/a.wav', 'legacy wfdbx_output_path ~/a.wav');
+assert_eq(op('-'), '-', 'legacy wfdbx_output_path -');
+assert_eq(isfolder('tlout/~'), true, 'tlout/~ created');
+wfdbx.wfdbx_set_output_dir([]);
+assert_eq(op('a.wav'), 'a.wav', ...
+    'legacy wfdbx_output_path a.wav (no output dir)');
+if ~wfdbx.internal.is_octave()     % (MATLAB strings are accepted too)
+    assert_eq(op(string('a.wav')), 'a.wav', 'wfdbx_output_path string');
+end
+end
+
+function toolpaths_end(home)
+wfdbx.wfdbx_set_legacy(0);
+wfdbx.wfdbx_set_input_dir([]);
+wfdbx.wfdbx_set_output_dir([]);
+setenv('HOME', home);
+end
+
+function t_osigopen_none()
+% WFDB-x: osigopen(RECORD, 0) opens no signals and returns 0, after
+% closing the output signals already open (unless RECORD begins with '+');
+% a header that cannot be read is still an error (as in C++ and Python:
+% C reads before the start of an array; see docs/KNOWN_C_BEHAVIORS.md)
+si = wfdbx.siginfo(3);
+for k = 1:3
+    si(k).fname = 'o16.dat';
+    si(k).fmt = 16;
+    si(k).group = 0;
+end
+wfdbx.setsampfreq(360);
+assert_eq(wfdbx.osigfopen(si, 3), 3, 'osigfopen o16.dat');
+[n, so] = wfdbx.osigopen('+100s', 0);
+assert_eq([n numel(so)], [0 0], 'osigopen +100s 0');
+assert_eq(wfdbx.putvec([1 2 3]), 3, 'putvec (still open)');
+[n, so] = wfdbx.osigopen('100s', 0);
+assert_eq([n numel(so)], [0 0], 'osigopen 100s 0');
+assert_eq(wfdbx.putvec([1 2 3]), 0, 'putvec (closed: no signals)');
+assert_eq(wfdbx.osigopen('100s.hea', 0), 0, 'osigopen 100s.hea 0');
+wfdbx.wfdbquiet();
+q = onCleanup(@() wfdbx.wfdbverbose()); %#ok<NASGU>
+assert_eq(wfdbx.osigopen('nosuch', 0), -1, 'osigopen nosuch 0');
+assert_eq(wfdbx.osigopen('100s', 3), -3, 'osigopen 100s 3 (2 signals)');
+wfdbx.wfdbquit();
+assert_eq(fsize('o16.dat'), 6, 'o16.dat size');
 end
 
 function legacy_end()

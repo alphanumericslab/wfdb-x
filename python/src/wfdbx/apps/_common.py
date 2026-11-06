@@ -16,6 +16,7 @@ import sys
 
 from .._cstd import sprintf, sscanf
 from .._wfdbio import (wfdbx_write_errors, wfdbx_note_write_error,
+                       wfdbx_output_path,
                        wfdbx_stdout_error, wfdbx_stdout_failed)
 from .._signal import (wfdbx_get_legacy, wfdbx_set_legacy, wfdbx_legacy_args,
                        sampfreq, setsampfreq, WFDB_DEFFREQ,
@@ -120,12 +121,19 @@ class RawOutput:
 
 class OutputFile:
     """A file that an application writes itself (opened as by open(name,
-    "wb"), which raises OSError if it cannot be created).  A failed write
-    is remembered; WFDB-x: in normal mode, close() then prints "PNAME: write
-    error on NAME" and counts a write error (see wfdbx_write_errors)."""
+    "wb"), which raises OSError if it cannot be created).  WFDB-x: it is
+    created where the library creates an output file of that name (under
+    the output directory, if one is set: see wfdbx_output_path); a URL
+    cannot be created (OSError).  A failed write is remembered; WFDB-x: in
+    normal mode, close() then prints "PNAME: write error on NAME" (the name
+    as given) and counts a write error (see wfdbx_write_errors)."""
 
     def __init__(self, name, pname):
-        self.fp = open(name, "wb")
+        path = wfdbx_output_path(name)
+        if path is None:
+            raise OSError("can't create " + name)
+        self.fp = open(path, "wb")
+
         self.name = name
         self.pname = pname
         self.err = False

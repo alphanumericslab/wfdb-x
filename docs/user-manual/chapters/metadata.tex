@@ -1,0 +1,323 @@
+% Part I, chapter 5: Header metadata.
+\chapter{Header metadata}
+\label{chap:metadata}
+
+Many datasets store facts about a recording in the info strings of its
+header (\cref{sec:info-strings}), as \code{Key: value} lines, for example:
+\begin{lstlisting}[style=text]
+# Age: 63
+# Sex: F
+# Dx: 164889003
+\end{lstlisting}
+These entries are the \emph{metadata} of the record. Five functions of the
+high-level API, added in version 1.2.0, read and change them without
+changing anything else in the header: \code{read\_metadata},
+\code{get\_metadata}, \code{set\_metadata}, \code{remove\_metadata} and
+\code{update\_metadata}. \code{read\_header} also returns the entries, and
+\code{write\_record} writes them. The C package has no counterpart: the
+library functions \code{getinfo}, \code{putinfo} and \code{setinfo}, and the
+tools, are unchanged, and the C library reads the headers that these
+functions change exactly as before (\file{tests/metadata/check\_c.py} checks
+this with the original programs). The seven implementations follow the
+rules of this chapter identically: they pass the same cases
+(\file{tests/metadata/}) and write byte-identical headers.
+
+\section{Entries}
+\label{sec:metadata-entries}
+
+A header is split into lines after each line feed (LF). Each line has a line
+ending: CR LF, LF, or none (the last line of a file that does not end with a
+line feed). The \emph{content} of a line is the line without its ending.
+
+\paragraph{Info strings.} The record line is the first line whose content
+does not begin with \code{\#}. The lines before it are comments that are not
+info strings, and are never read or changed. Every line after the record
+line whose content begins with \code{\#} is an info string, as
+\code{getinfo} reads a header (so a comment between two signal lines is an
+info string too). A header with no record line has no info strings.
+
+\paragraph{Entries and free comments.} An info string is an \emph{entry} if
+the text after its \code{\#} contains a colon. The \emph{key} is the text
+before the first colon, and the \emph{value} is the text after it; spaces,
+tabs, vertical tabs, form feeds and carriage returns are removed at both ends
+of each. If the key is then empty, or contains \code{\#}, the info string is
+a \emph{free comment}. Free comments, and info strings without a colon, are
+never returned and never changed. So \code{\#Age:45}, \code{\# Age: 45} and
+\code{\#~~Age~:~45} all give the key \code{Age} and the value \code{45}, and
+\cref{tab:metadata-reading} shows a few other cases.
+
+\begin{table}[htbp]
+\caption{How info strings are read.}
+\label{tab:metadata-reading}
+\begin{tabularx}{\linewidth}{@{}P{5.6cm}L@{}}
+\toprule
+{\tabhead Info string} & {\tabhead Entry (key, value)} \\
+\midrule
+\code{\#Age: 63} & (\code{Age}, \code{63}) \\
+\code{\# Sex:F} & (\code{Sex}, \code{F}) \\
+\code{\#~~Dx : 164889003, 59118001~} & (\code{Dx},
+  \code{164889003, 59118001}) \\
+\code{\#Notes:} & (\code{Notes}, the empty string) \\
+\code{\#Time: 12:30:00} & (\code{Time}, \code{12:30:00}): the key ends at the
+  first colon \\
+\code{\#\textless{}tab\textgreater{}Tab key\textless{}tab\textgreater{}:%
+  \textless{}tab\textgreater{}value with tabs} & (\code{Tab key},
+  \code{value with tabs}) \\
+\code{\# A free comment without a colon} & none: a free comment \\
+\code{\#: empty key} & none: the key is empty \\
+\code{\#\# Hash: not an entry} & none: the key (\code{\# Hash}) contains
+  \code{\#} \\
+\code{\#Produced by xform from record 100, beginning at 0:0} &
+  (\code{Produced by xform from record 100, beginning at 0}, \code{0}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The last line of \cref{tab:metadata-reading} is an info string of the sample
+record \code{100s}: free text that happens to contain a colon is read as an
+entry. Such an entry is harmless: it is changed only if its key is named.
+
+\paragraph{Keys} are compared without regard to letter case, for the letters
+A--Z and a--z only (no other character is changed: \code{\'E} and
+\code{\'e} differ). So \code{get\_metadata(record, "age")} finds the entry
+\code{Age}. Entries are returned in file order.
+
+\paragraph{Duplicate keys.} A header should not hold two entries whose keys
+are equal, ignoring letter case. If one does (a file written by other
+software), the readers (\code{read\_metadata}, \code{get\_metadata},
+\code{read\_header}) return the first of them, and give one warning for each
+such key, naming the line numbers of its entries (from 1), such as
+\code{header of record dups has more than one entry for key age (lines 4,
+6); the first is used}; \code{set\_metadata} and \code{update\_metadata}
+refuse to change that key (an argument error), and \code{remove\_metadata}
+removes all of them, which repairs the header.
+
+\section{Arguments}
+\label{sec:metadata-arguments}
+
+Before a key or a value given to a function is checked, the spaces, tabs,
+vertical tabs, form feeds and carriage returns at both ends are removed.
+\begin{itemize}
+\item A \textbf{key} must then not be empty, and must not contain \code{:},
+  \code{\#}, a carriage return, a line feed or a NUL character. It may
+  contain spaces, as in \code{Date of birth}.
+\item A \textbf{value} is text, which may be a whole sentence. It must not
+  contain a carriage return, a line feed or a NUL character; it may be
+  empty.
+\item Text is one byte per character (as in the rest of \wfdbx{}: in
+  Python, Latin-1 strings, or bytes as given).
+\item In \code{update\_metadata}, no two keys may be equal, ignoring letter
+  case, and a value of none (\code{None}, \code{nothing}, \code{NULL},
+  \code{null}, or a missing value, depending on the language) means
+  ``remove''.
+\item The record name \code{-} (the standard input) is an argument error,
+  and so is \code{get\_metadata} with an invalid key.
+\end{itemize}
+Every argument is checked before the header is read, and every change
+before anything is written: after an error, the header is unchanged.
+
+\section{Writing}
+\label{sec:metadata-writing}
+
+\paragraph{The written form.} An entry is written as \code{\# Key: value}:
+\code{\#}, a space, the key as the caller spelled it, \code{:}, and, if the
+value is not empty, a space and the value. An entry with an empty value is
+therefore written \code{\# Key:}, with no trailing space.
+
+\paragraph{The changes.}
+\begin{itemize}
+\item \code{set\_metadata}: if the header has one entry for the key, its line
+  is replaced, at the same position, keeping its line ending, even if the
+  value is the same (the line is then rewritten in the written form, with the
+  caller's spelling of the key). Otherwise a new line is inserted.
+\item \code{remove\_metadata}: every line of an entry for the key is deleted,
+  with its line ending. The function returns the number of lines deleted (0
+  if there is none).
+\item \code{update\_metadata}: the changes are applied in the order given,
+  each as \code{set\_metadata} or \code{remove\_metadata} would apply it, and
+  written at once.
+\end{itemize}
+
+\paragraph{Where new lines go.} A new line is inserted after the last info
+string of the header, or, if the header has none, after its last line whose
+content is not blank (not made only of spaces, tabs, vertical tabs, form
+feeds and carriage returns). Its line ending is that of the record line, or,
+if the record line has none, that of the first line that has one, or CR LF
+(the line ending of the headers written by the WFDB library). If the line
+before it has no line ending, that line gets the same ending.
+
+\paragraph{What is kept.} Every other byte of the header is kept: the
+comments before the record line, the record line, the signal lines and their
+checksums, the free comments, and the line endings. If nothing changes
+(and \code{dir} is not given), nothing is written.
+
+\paragraph{Atomic replacement.} The new header is written to a temporary
+file in the directory of the destination, which then replaces the
+destination (by renaming it), keeping its permissions. An error never leaves
+a partly written header, and no other file is left in the directory.
+
+\section{Which file}
+\label{sec:metadata-file}
+
+The header is opened as the library opens the header of a record, after
+removing a trailing \file{.hea} from the name: under the input directory, or
+as given for an absolute path, a \code{\textasciitilde} path or a URL (a URL
+only if network access is on); see \cref{sec:record-paths}. The functions take the
+options of the high-level readers for this, an input directory
+(\code{input\_dir}) and a network permission (\code{network}), for the
+duration of the call. A header that cannot be opened is a file error.
+
+A change is written to the file that was read, unless the call gives an
+output directory \code{dir}: the changed header is then written to the file
+of the same name in that directory, which must exist (else a file error),
+and the header that was read is unchanged. The signal files are not copied.
+A header read from a URL cannot be changed without \code{dir} (an argument
+error).
+
+\paragraph{Multi-segment records.} Only the named header is read or
+changed: for a multi-segment record, that is the master header, unless the
+name of a segment is given. (The info strings of a master header are read by
+\code{getinfo} like those of any other header.)
+
+\paragraph{Info files.} Only the header file (\file{.hea}) is read, never
+the info file (\file{.info}) whose comment lines \code{getinfo} also
+returns.
+
+\section{read\_header and write\_record}
+\label{sec:metadata-header}
+
+\code{read\_header} returns the entries of a header, as \code{read\_metadata}
+returns them (from the \file{.hea} file only), as the \code{metadata} of its
+result, beside its \code{comments}, which are all the info strings.
+
+\code{write\_record} writes the entries given in its \code{metadata}
+argument (a mapping from keys to values, or a list of key and value pairs,
+depending on the language) after its \code{comments}, in the written form
+\code{\# Key: value}, through \code{putinfo}. Its keys must be unique,
+ignoring letter case, and none may be the key of an entry in
+\code{comments}; a value of none is an argument error. This is checked
+before any file is created.
+
+\section{An example}
+\label{sec:metadata-example}
+
+The header \file{tests/metadata/headers/basic.hea} (with CR LF line endings)
+is:
+\begin{lstlisting}[style=text]
+# Converted on: 2026-11-01 (a comment before the record line)
+basic 2 360 21600
+100s.dat 212 200 11 1024 995 21537 0 MLII
+100s.dat 212 200 11 1024 1011 -3962 0 V5
+#Age: 63
+# Sex:F
+#  Dx : 164889003, 59118001
+# A free comment without a colon
+#Notes:
+# Recorded by: Holter monitor, model X
+\end{lstlisting}
+\code{read\_metadata("basic")} returns the five entries, in file order:
+(\code{Age}, \code{63}), (\code{Sex}, \code{F}), (\code{Dx},
+\code{164889003, 59118001}), (\code{Notes}, the empty string) and
+(\code{Recorded by}, \code{Holter monitor, model X}). The first line is
+before the record line, and is not an info string; the free comment is not
+an entry. In Python, the changes
+\begin{lstlisting}[language=Python]
+wfdbx.update_metadata("basic", [("age", "64"), ("Sex", None),
+                                ("Weight", "72"), ("Height", "170")])
+\end{lstlisting}
+replace the entry \code{Age} (at its position, with the caller's spelling
+\code{age}), remove the entry \code{Sex}, and add two new entries after the
+last info string, with the line ending of the record line (CR LF). The other
+lines are unchanged, byte for byte, including the unusual spacing of the
+\code{Dx} line. The header becomes
+\file{tests/metadata/expected/update\_basic.hea}:
+\begin{lstlisting}[style=text]
+# Converted on: 2026-11-01 (a comment before the record line)
+basic 2 360 21600
+100s.dat 212 200 11 1024 995 21537 0 MLII
+100s.dat 212 200 11 1024 1011 -3962 0 V5
+# age: 64
+#  Dx : 164889003, 59118001
+# A free comment without a colon
+#Notes:
+# Recorded by: Holter monitor, model X
+# Weight: 72
+# Height: 170
+\end{lstlisting}
+
+The following Python example writes a record with metadata, from the first
+second of record \code{100s}, and changes its metadata:
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+rec = wfdbx.read_record("100s", sampto=360)
+wfdbx.write_record("demo", rec.signals, fs=rec.fs, fmt=212, gains=rec.gains,
+                   baselines=rec.baselines, adczeros=1024, adcres=11,
+                   units="mV", names=rec.names,
+                   metadata={"Age": "69", "Sex": "M"})
+print(wfdbx.read_metadata("demo"))   # [('Age', '69'), ('Sex', 'M')]
+wfdbx.set_metadata("demo", "age", "70")
+wfdbx.update_metadata("demo", {"Sex": None, "Dx": "Normal sinus rhythm"})
+print(wfdbx.get_metadata("demo", "AGE"))         # 70
+print(wfdbx.read_metadata("demo"))   # [('age', '70'), ('Dx', 'Normal sinus rhythm')]
+print(wfdbx.remove_metadata("demo", "dx"))       # 1
+\end{lstlisting}
+After the call of \code{update\_metadata}, the header \file{demo.hea} is:
+\begin{lstlisting}[style=text]
+demo 2 360 360
+demo.dat 212 200/mV 11 1024 995 20844 0 MLII
+demo.dat 212 200/mV 11 1024 1011 28153 0 V5
+# age: 70
+# Dx: Normal sinus rhythm
+\end{lstlisting}
+
+\section{The functions in each language}
+\label{sec:metadata-functions}
+
+\Cref{tab:metadata-functions} lists the five functions, with their names in
+each language. They take the record name and, as options, the input
+directory and the network permission for reading the header, and, for the
+functions that change it, the output directory \code{dir}. The chapters of
+\cref{part:languages} give their exact signatures, results and errors
+(\cref{chap:python,chap:cpp,chap:rust,chap:julia,chap:r,chap:matlab,chap:kotlin}).
+
+\begin{table}[htbp]
+\caption{The header metadata functions.}
+\label{tab:metadata-functions}
+\begin{tabularx}{\linewidth}{@{}LP{3.2cm}P{3.0cm}P{2.6cm}@{}}
+\toprule
+{\tabhead What it does} & {\tabhead Python, C++, Rust, Julia, R} &
+  {\tabhead MATLAB/Octave} & {\tabhead Kotlin} \\
+\midrule
+Read all the entries, in file order, as (key, value) pairs &
+  \code{read\_metadata} & \code{wfdbx.read\_metadata} &
+  \code{readMetadata} \\
+Return the value of one entry, or none & \code{get\_metadata} &
+  \code{wfdbx.get\_metadata} & \code{getMetadata} \\
+Change the value of an entry, or add it & \code{set\_metadata} &
+  \code{wfdbx.set\_metadata} & \code{setMetadata} \\
+Remove the entries for a key; return the number of lines removed &
+  \code{remove\_metadata} & \code{wfdbx.remove\_metadata} &
+  \code{removeMetadata} \\
+Make several changes in one write & \code{update\_metadata} &
+  \code{wfdbx.update\_metadata} & \code{updateMetadata} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The functions are called with the prefix of each language: \code{wfdbx.}
+in Python and MATLAB/Octave, \code{wfdbx::} in C++ and Rust, \code{WFDBX.}
+in Julia, and none in R and Kotlin. In Rust, each function also has a form
+with options, \code{read\_metadata\_with}, \code{get\_metadata\_with}, and so
+on. The errors are those of the high-level functions of each language
+(\cref{sec:errors}); in C++, the metadata functions throw
+\code{wfdbx::ArgumentError} for an argument error and \code{wfdbx::FileError}
+for a file error, and in Python they raise \code{ValueError} and
+\code{OSError} (\code{FileNotFoundError} for a missing \code{dir}).
+
+\begin{phibox}
+Metadata often holds information about patients, such as ages, dates,
+diagnoses or names. \wfdbx{} stores it as plain text, exactly as given, and
+does not de-identify it, in the header or anywhere else. Removing identifying
+data from headers (their metadata, and the other info strings) before records
+are shared is the responsibility of the user.
+\end{phibox}

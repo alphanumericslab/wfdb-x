@@ -1,0 +1,2305 @@
+% The Rust chapter of the WFDB-x user's manual. It follows the sections of the Python
+% chapter (chapters/python.tex), in the same order. Each \apientry of the section "The
+% high-level API" is a public free function of the crate root defined in
+% rust/src/record.rs, rust/src/check.rs or rust/src/metadata.rs (each also a method of
+% Wfdb, with the same parameters after &mut self); its signature listing is copied from
+% that definition, and its params name every parameter of the definition, in order. The
+% examples of style "example" were compiled and run (each as the body of main(), after
+% the lines given in the conventions of the section, in a copy of tests/data);
+% check_manual.py does not run them.
+\chapter{Rust}
+\label{chap:rust}
+\chapterlanguage{rust}
+
+The Rust implementation of WFDB-x is the crate \code{wfdbx}, in the directory \file{rust}
+of the repository: a library and the 33 command-line tools, each a separate program of
+the crate. It is a complete Rust implementation of the WFDB Software Package: it uses only
+the Rust standard library (no other crate), contains no \code{unsafe} code, and never
+calls the C library.
+
+It offers WFDB-x in three ways:
+\begin{itemize}
+\item \textbf{The high-level API} (\cref{sec:rust-api}): functions that read and write
+  whole records, headers, annotation files and header metadata as \code{Vec}s and
+  structures, in one call, with options given as fields of a structure, and that return a
+  \code{Result} whose error type is \code{wfdbx::record::Error}. They read signal files in
+  large blocks, and are the fastest way to read a record. They are an addition of WFDB-x:
+  the C package has no equivalent. They are the recommended interface for new code and
+  analysis.
+\item \textbf{The WFDB library functions} under their C names (\code{isigopen},
+  \code{getvec}, \code{getann}, \code{putann}, \ldots), with the behavior of the C library
+  (\cref{sec:rust-library}). They are documented once, for all the languages, in
+  \cref{chap:library}.
+\item \textbf{The command-line tools} (\code{rdsamp}, \code{rdann}, \code{wrsamp},
+  \code{xform} and 29 others), with the options, output and exit status of the C tools,
+  one program per tool, run by its name (\cref{sec:rust-tools}). They are documented in
+  \cref{chap:tools}.
+\end{itemize}
+The high-level functions return exactly the samples and annotations that the library
+functions (and the C library) give.
+
+% ==========================================================================================
+\section{Installation and requirements}
+\label{sec:rust-install}
+
+\subsection{Requirements}
+
+WFDB-x for Rust needs Rust 1.70 or later (the stable toolchain, edition 2021; the crate
+declares \code{rust-version = "1.70"}) and Cargo, on Linux, macOS or Windows. It has no
+dependency beyond the Rust standard library: no WFDB library and no libFLAC (the FLAC
+formats 508, 516 and 524 are read and written by WFDB-x's own codec). Network access
+(\cref{sec:network}) runs the program \cmd{curl}, which must then be installed. The tests
+of \code{check\_record} also run \cmd{python3}, with NumPy (\cref{sec:rust-testing}).
+
+\subsection{Using the library in a Cargo project}
+
+A Cargo project uses the crate as a dependency, from the repository or from a copy of it,
+in its \file{Cargo.toml}:
+
+\begin{lstlisting}[language=TOML]
+[dependencies]
+wfdbx = { git = "https://github.com/alphanumericslab/wfdb-x" }
+# or, from a copy of the repository:
+wfdbx = { path = "../wfdb-x/rust" }
+\end{lstlisting}
+
+The crate is \code{wfdbx}, version \code{1.2.0}, under the GNU General Public License,
+version 3 or later. Programs that use it are built in release mode for speed
+(\cmd{cargo build -{}-release}, \cmd{cargo run -{}-release}).
+
+\subsection{Building and installing the tools}
+
+From the root of a copy of the repository, \cmd{cargo install} builds the tools in
+release mode and installs them in \file{\textasciitilde/.cargo/bin}; \cmd{cargo build
+-{}-release}, in the directory \file{rust}, builds the library and the tools in
+\file{rust/target/release/} without installing them:
+
+\begin{lstlisting}[style=shell]
+cargo install --path rust                                # the 33 tools, in ~/.cargo/bin
+cargo build --release --manifest-path rust/Cargo.toml    # in rust/target/release/
+cargo build --release --manifest-path rust/Cargo.toml --bin rdsamp   # one tool
+\end{lstlisting}
+
+The tools, like the C tools, have no \opt{-{}-version} option. \cmd{cargo doc -{}-open}, in
+the directory \file{rust}, builds the documentation of the crate (its doc comments, with
+examples) and opens it.
+
+\subsection{The sample record}
+\label{sec:rust-resources}
+
+The repository includes the sample record \code{100s}, the sample record of the WFDB
+Software Package: the first minute of record 100 of the MIT-BIH Arrhythmia Database, two
+ECG signals (\code{MLII} and \code{V5}) sampled at 360\,Hz, with the reference beat
+annotations (annotator \code{atr}). Its files (\file{100s.hea}, \file{100s.dat},
+\file{100s.atr}) are in the directory \file{tests/data} of a copy of the repository, with
+the other test records of WFDB-x. The crate does not install them: programs name that
+directory as their input directory (\code{wfdbx\_set\_input\_dir("tests/data")}, or the
+option \code{input\_dir}). Work that uses the MIT-BIH Arrhythmia Database cites it as
+described on PhysioNet.
+
+% ==========================================================================================
+\section{Quick start}
+\label{sec:rust-quickstart}
+
+This program reads the header, ten seconds of the signals and the annotations of the
+sample record \code{100s}, from the directory \file{tests/data} of the repository (the
+input directory of each call), and computes the mean heart rate. It then writes the first
+ten seconds as a new record, \code{first10}, in the current directory, with a metadata
+entry in its header.
+
+\begin{lstlisting}[language=Rust,style=example]
+use wfdbx::{check_record, isqrs, read_annotations_with, read_header_with, read_metadata,
+            read_record, set_metadata, write_record, ReadOptions, WriteOptions};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // The sample record 100s, in the directory tests/data of the repository.
+    let sample = ReadOptions { input_dir: Some("tests/data".into()), ..Default::default() };
+
+    // The header only: no samples are read.
+    let hdr = read_header_with("100s", &sample)?;
+    println!("{} {} {}", hdr.nsig, hdr.fs, hdr.nsamples); // 2 360 21600
+
+    // Seconds 10 to 20 of both signals, frame by frame, in ADC units.
+    let opt = ReadOptions {
+        from: Some("0:10".into()),
+        to: Some("0:20".into()),
+        ..sample.clone()
+    };
+    let rec = read_record("100s", &opt)?;
+    println!("{} {}", rec.nsamples(), rec.nsig); // 3600 2
+    println!("{} {}", rec.at(0, 0), rec.physical(0, 0)?); // 946 -0.39
+
+    // The beat annotations, and the mean heart rate.
+    let ann = read_annotations_with("100s", "atr", None, &sample)?;
+    let beats: Vec<i64> = (0..ann.len())
+        .filter(|&i| isqrs(ann.codes[i]) != 0)
+        .map(|i| ann.samples[i])
+        .collect();
+    let rr = (beats[beats.len() - 1] - beats[0]) as f64 / ann.fs / (beats.len() - 1) as f64;
+    println!("{} beats, {:.1} beats per minute", beats.len(), 60.0 / rr);
+    // 74 beats, 73.9 beats per minute
+
+    // Write the first 10 seconds as the record "first10" (first10.hea and first10.dat,
+    // in the current directory), with the signal specifications of 100s.
+    let opt = ReadOptions { to: Some("0:10".into()), ..sample.clone() };
+    let x = read_record("100s", &opt)?;
+    let w = WriteOptions {
+        gains: vec![200.0],
+        baselines: vec![1024],
+        adczeros: vec![1024],
+        adcres: vec![11],
+        units: vec![Some("mV".into())],
+        names: x.names(),
+        metadata: vec![("Source".into(), "MIT-BIH record 100".into())],
+        ..Default::default()
+    };
+    write_record("first10", &x.samples, x.nsig, x.fs, &w)?;
+
+    // Header metadata: "# Key: value" lines of the header (keys and values are bytes).
+    set_metadata("first10", "Age", "69")?;
+    for (key, value) in read_metadata("first10")? {
+        println!("{} = {}", String::from_utf8_lossy(&key), String::from_utf8_lossy(&value));
+    }
+    // Source = MIT-BIH record 100
+    // Age = 69
+    println!("{}", check_record("first10", &[])?); // no problems found
+    Ok(())
+}
+\end{lstlisting}
+
+Run from the root of the repository, as the program \file{src/main.rs} of a Cargo project
+that depends on \code{wfdbx} (\cmd{cargo run -{}-release}). The header \file{100s.hea}
+gives no units: the program writes \code{"mV"} explicitly, since WFDB-x never assumes
+units, a gain, an ADC resolution or a sampling frequency that a record does not give
+(\cref{chap:behavior}).
+
+% ==========================================================================================
+\section{The high-level API}
+\label{sec:rust-api}
+
+The high-level API is made of the functions of this section, defined in the modules
+\code{wfdbx::record}, \code{wfdbx::check} and \code{wfdbx::metadata} and available at the
+root of the crate (\code{wfdbx::read\_record}, \ldots), of the structures of their options
+(\cref{sec:rust-options}) and of their results (\cref{sec:rust-results}), and of the error
+type \code{wfdbx::record::Error} (\cref{sec:rust-warnings}). The doc comments of the
+crate (\cmd{cargo doc}) document each of them.
+
+\subsection{Conventions}
+\label{sec:rust-conventions}
+
+\paragraph{Free functions and methods.} The state of the library (the open record, the
+annotators, the input and output directories, network access, legacy mode) is held by a
+value of the type \code{Wfdb}. Each high-level function exists twice: as a method of
+\code{Wfdb}, such as \code{w.read\_record("100s", \&opt)}, which uses the state of
+\code{w}, and as a free function of the crate with the same name and the same
+parameters, such as \code{wfdbx::read\_record("100s", \&opt)}, which uses the default
+\code{Wfdb} value of the calling thread (one per thread). The entries of this section
+document the free functions; the methods take \code{\&mut self} first, and then the same
+parameters, with the same types and results. Separate \code{Wfdb} values share no state
+(except what belongs to the process: the count of write errors, the cache of fetched URLs
+and the messages printed once per process), so several
+records can be read at once, in one thread or in several; a \code{Wfdb} is \code{Send},
+and is used by one thread at a time.
+
+\begin{lstlisting}[language=Rust,style=example]
+use wfdbx::Wfdb;
+
+fn main() -> Result<(), wfdbx::record::Error> {
+    let mut w = Wfdb::new(); // a library state of its own
+    w.wfdbx_set_input_dir("tests/data");
+    let a = w.read_record("100s", &Default::default())?; // on w
+    let b = wfdbx::read_record("tests/data/100s", &Default::default())?; // on the default value
+    println!("{}", a.samples == b.samples); // true
+    Ok(())
+}
+\end{lstlisting}
+
+\paragraph{Options.} The options of a function are the fields of a structure
+(\code{ReadOptions}, \code{WriteOptions}, \code{AnnWriteOptions}, \code{MetadataOptions},
+\cref{sec:rust-options}), passed by reference as the last argument. Each implements
+\code{Default}, so that the fields that are not given keep their defaults:
+\code{ReadOptions \{ highres: true, ..Default::default() \}}. Several functions have a
+short form with no options or with a few arguments (\code{read\_header},
+\code{read\_annotations}, \code{write\_annotations}, \code{check\_record}, the metadata
+functions), and a form whose name ends in \code{\_with}, which takes the options
+structure. An option that may be absent is an \code{Option}; \code{None} means the
+default or the current setting.
+
+\paragraph{Record names and directories.} A record is named as in the other parts of
+WFDB-x (\cref{chap:records,sec:record-paths}), without the \file{.hea} extension (the
+readers, and \code{write\_annotations}, also accept a trailing \code{".hea"};
+\code{write\_record} does not). A record name is one of:
+\begin{itemize}
+\item a full path, absolute (\code{"/data/mitdb/100"}) or in the home directory
+  (\code{"\textasciitilde/Documents/100s"}), used as given;
+\item a relative path (\code{"100s"}, \code{"data/100s"}), read from the input directory
+  if one is set, otherwise from the current directory, and written to the output
+  directory if one is set, otherwise to the current directory (missing directories are
+  created);
+\item a URL (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network
+  access is on; a URL cannot be written.
+\end{itemize}
+The input and output directories are set with \code{wfdbx\_set\_input\_dir} and
+\code{wfdbx\_set\_output\_dir} (\cref{sec:rust-settings}) or with the environment
+variables \code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}. The readers take the
+optional fields \code{input\_dir} and \code{network} of a \code{ReadOptions} (or a
+\code{MetadataOptions}), and the writers a \code{dir}: they apply to that one call, and
+the previous settings are restored when it returns, also when it fails.
+\code{input\_dir} applies to relative names only, not to full paths or URLs. A writer
+given a name with a path creates the files in that directory, and the header names the
+record and its signal file without the path (\code{rec}, \code{rec.dat}), so that the
+record opens under any path that leads to it; in legacy mode, as in the original, the
+header gives the name with its path. With \code{dir}, the name must be a plain name
+(\code{"rec"}): the files are created in \code{dir}, and the record opens from that
+directory under its plain name. The signal files that a header names are read from the
+header's directory.
+
+\paragraph{Times.} The fields \code{from} and \code{to} of \code{ReadOptions}, and the
+arguments \code{from} and \code{to} of \code{read\_annotations}, are
+\code{Option<TimeSpec>} values (\cref{tab:rust-timespec}): a sample number or a WFDB time
+string, as \code{strtim} reads it (\code{"0:10"}, 10 seconds; \code{"1:02:03.5"};
+\code{"s3600"}, sample 3600; \code{"e"}, the end of the record; or a time of day in
+brackets, \code{"[14:00:00]"}). A \code{TimeSpec} converts from integers and strings, so
+\code{Some(3600.into())} and \code{Some("0:10".into())} both work; \code{None} means that
+no time is given. A time in seconds needs the sampling frequency; when the record does
+not give it, such a time is an error.
+
+\paragraph{Samples.} Samples are \code{i32} values (C's \code{WFDB\_Sample}), in ADC
+units, stored frame by frame in one \code{Vec<i32>}: \code{samples[i * nsig + s]} is
+sample \code{i} of signal \code{s}. Invalid samples are \code{WFDB\_INVALID\_SAMPLE}
+($-32768$), and NaN in physical units. Sample numbers and times are \code{i64}.
+
+\paragraph{Per-signal and per-annotation values.} The per-signal fields of
+\code{WriteOptions} (\code{gains}, \code{units}, \ldots) hold one value for all the
+signals, or one value per signal; the per-annotation fields of \code{Annotations}
+(\code{symbols}, \code{chans}, \ldots) are empty or hold one value per annotation. Any
+other length is an error, reported before anything is written.
+
+\paragraph{Signal parameters.} No sampling frequency, gain, ADC resolution or units is
+ever assumed. Where one is needed and the record does not give it, it must be given;
+otherwise the function returns an error. A record whose header gives no sampling
+frequency has \code{fs} 0, a signal without an ADC resolution has \code{adcres} 0, and a
+signal without units has \code{units} \code{None}.
+
+\paragraph{Text.} Text read from files (signal descriptions, units, info strings,
+metadata, aux strings, mnemonics) is given as bytes, \code{Vec<u8>}, since WFDB files are
+not UTF-8: every byte sequence round-trips unchanged. Arguments accept \code{\&str},
+\code{\&[u8]}, \code{b"..."} or \code{Vec<u8>} (\code{impl AsRef<[u8]>}), and a
+\code{Vec<u8>} field is set from a \code{\&str} with \code{.into()}.
+\code{String::from\_utf8\_lossy} converts bytes for printing. The fields
+\code{channels} and \code{input\_dir} of the options and \code{base\_time} of the results
+are \code{String}s, and the directories \code{dir} are \code{PathBuf}s.
+
+\paragraph{Legacy mode.} With \code{legacy} set to \code{true}, a function behaves as in
+the original WFDB package, with its assumed signal parameters and its search for files
+(\cref{chap:behavior}); the library's legacy mode is on for the duration of the call
+only. With \code{false} (the default), the current setting of \code{wfdbx\_set\_legacy}
+applies, which is off unless it was turned on.
+
+\paragraph{State.} The functions that read and write records and annotation files call
+\code{wfdbquit()} on the \code{Wfdb} value they use, before and after their work, also
+when they fail, which closes anything opened with the WFDB library functions on that
+value. The library's settings (legacy mode, getvec mode, input and output directories,
+network access) are the same after a call as before it. \code{read\_record},
+\code{read\_header}, \code{read\_annotations}, \code{write\_record},
+\code{write\_record\_physical}, \code{write\_annotations}, their \code{\_with} forms and
+\code{check\_record} also leave the time resolution of output annotators
+(\code{getafreq()}) and the getvec mode (\code{getgvmode()}) as they were, also after
+reading an EDF record, whose opening sets both (as in C; the library functions keep that
+behavior). The metadata functions do not
+call \code{wfdbquit()}: they open only the header, and leave the library's open files as
+they are. Results are returned by value.
+
+\paragraph{The examples} of this section are the body of the function
+\code{fn main() -> Result<(), Box<dyn std::error::Error>{}>}, followed by \code{Ok(())},
+compiled after these lines, and run with the free functions in a copy of the test
+records of \file{tests/data} (among them \code{100s}), which is the current directory and
+holds the records that the examples write:
+\begin{lstlisting}[language=Rust]
+use wfdbx::*;
+
+/// Text (bytes) as a String, for printing.
+fn s(b: &[u8]) -> String {
+    String::from_utf8_lossy(b).into_owned()
+}
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Reading records}
+\label{sec:rust-reading}
+
+\apientry{read\_record}{Read the signals of a record}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record, Error>
+\end{lstlisting}
+Reads the signals of a record from \code{opt.from} up to \code{opt.to} (exclusive), in
+ADC units, frame by frame, together with the description of the record. The samples are
+those that \code{getvec} returns (\cref{chap:library}), read in large blocks with
+\code{getvecs}. If the record ends before \code{opt.to}, the samples up to its end are
+returned. When the read reaches the end of the record, the samples are compared with the
+checksums of the header (\cref{sec:rust-warnings}). The getvec mode (\code{getgvmode()})
+and the time resolution of output annotators (\code{getafreq()}) are the same after the
+call as before it.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[opt] The options (\cref{tab:rust-readoptions}): the signals to read
+  (\code{channels}), the interval (\code{from}, \code{to}), \code{highres}, \code{pad},
+  \code{checksum\_warning}, \code{legacy}, and the input directory (under which relative
+  record names are read; it does not apply to full paths or URLs) and network access of
+  the call (\code{input\_dir}, \code{network}). \code{\&ReadOptions::default()}: every
+  signal of the whole record, with the current settings.
+\end{params}
+\returns{A \code{Record} (\cref{tab:rust-record}), with the samples in ADC units.}
+\raises{An \code{Error} if the record cannot be read or has no signals (``can't read record
+REC''), or its signals cannot be opened (``can't open signals of record REC''); if a
+requested signal does not exist (``record REC has no signal C''); if \code{opt.from} is a
+negative sample number (``read\_record: from must not be negative'') or cannot be reached
+(``can't seek to sample N of record REC''); if a time string needs the sampling frequency
+and the header gives none (``sampling frequency of record REC is not specified''); or if a
+signal file is shorter than its header says, or cannot be read or decoded (``can't read
+signal data of record REC (getvec status S)''). Data that do not match the checksums of
+the header are returned, with a warning (see \code{checksum\_warning}).}
+\begin{lstlisting}[language=Rust,style=example]
+// Seconds 10 to 20 of lead MLII, in physical units.
+let opt = ReadOptions {
+    channels: vec!["MLII".into()],
+    from: Some("0:10".into()),
+    to: Some("0:20".into()),
+    ..Default::default()
+};
+let rec = read_record("100s", &opt)?;
+let mlii: Vec<f64> = rec.physical_signal(0)?;
+println!("{} {} {} {}", mlii.len(), rec.fs, rec.sampfrom, s(&rec.names()[0]));
+// 3600 360 3600 MLII
+
+// The first 3 samples of both signals, in ADC units, V5 first.
+let first = ReadOptions {
+    channels: vec!["1".into(), "0".into()],
+    to: Some(3.into()),
+    ..Default::default()
+};
+let rec = read_record("100s", &first)?;
+for i in 0..rec.nsamples() {
+    println!("{} {}", rec.at(i, 0), rec.at(i, 1)); // 1011 995, 3 times
+}
+println!("{} {}", rec.siginfo[0].gain, rec.siginfo[0].baseline); // 200 1024
+
+// The whole record: the checksums are verified.
+let rec = read_record("100s", &ReadOptions::default())?;
+println!("{} {}", rec.nsamples(), rec.checksum_ok); // 21600 true
+\end{lstlisting}
+A multi-frequency record (here the test record \code{mfreq}, whose signals have 1, 2
+and 4 samples per frame at a frame frequency of 100\,Hz) is read at its frame frequency,
+or at its highest sampling frequency:
+\begin{lstlisting}[language=Rust,style=example]
+let rec = read_record("mfreq", &ReadOptions::default())?;
+println!("{} {}", rec.fs, rec.nsamples()); // 100 600
+let opt = ReadOptions { highres: true, ..Default::default() };
+let rec = read_record("mfreq", &opt)?;
+println!("{} {}", rec.fs, rec.nsamples()); // 400 2400
+let spf: Vec<i32> = rec.siginfo.iter().map(|si| si.spf).collect();
+println!("{spf:?}"); // [1, 2, 4]
+\end{lstlisting}
+
+\apientry{read\_header}{Read the header of a record}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn read_header(record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Error>
+\end{lstlisting}
+Reads the header of a record, without opening its signal files. The result describes the
+record and each of its signals, and holds the info strings and the metadata entries of the
+header (from the \file{.hea} file only, as \code{read\_metadata} reads them, with its
+warning for a key given more than once). For an EDF record, which has no \file{.hea}
+file, and for a header read from the standard input (\code{"-"}), the metadata is empty,
+without an error. For a multi-segment record, the master header is read, and
+\code{nsamples} is the length of the whole record.
+\begin{params}
+\item[record] Record name, as for \code{read\_record}: a full path (absolute or
+  \code{\textasciitilde}), used as given; a relative path, read from the input directory
+  if one is set, otherwise from the current directory; or a URL, read only if network
+  access is on.
+\item[legacy] \code{true} to read the header as the original WFDB package does; normally
+  \code{false}.
+\end{params}
+\returns{A \code{Header} (\cref{tab:rust-header}).}
+\raises{An \code{Error} if the header cannot be read (``can't read header for record
+REC'').}
+\begin{lstlisting}[language=Rust,style=example]
+let hdr = read_header("100s", false)?;
+println!("{} {} {} {}", s(&hdr.name), hdr.fs, hdr.nsig, hdr.nsamples); // 100s 360 2 21600
+for si in &hdr.siginfo {
+    let desc = si.desc.as_deref().unwrap_or(b"");
+    let fname = si.fname.as_deref().unwrap_or(b"");
+    println!("{} {} {} {} {} {:?}", s(desc), s(fname), si.fmt, si.gain, si.adcres, si.units);
+}
+// MLII 100s.dat 212 200 11 None
+// V5 100s.dat 212 200 11 None
+println!("[{}]", s(&hdr.comments[0])); // [ 69 M 1085 1629 x1]
+println!("{}", hdr.base_time.is_none()); // true: the header gives no start time
+let (key, value) = &hdr.metadata[0];
+println!("[{}] [{}]", s(key), s(value));
+// [Produced by xform from record 100, beginning at 0] [0]
+\end{lstlisting}
+
+\apientry{read\_header\_with}{Read the header of a record, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Header, Error>
+\end{lstlisting}
+As \code{read\_header}, with the options \code{input\_dir}, \code{network} and
+\code{legacy} of \code{opt}, for this call only. The other fields of \code{opt} are not
+used.
+\begin{params}
+\item[record] Record name, as for \code{read\_header}.
+\item[opt] The options (\cref{tab:rust-readoptions}); only \code{input\_dir} (optional:
+  the input directory under which relative record names are read; it does not apply to
+  full paths or URLs), \code{network} and \code{legacy} are used.
+\end{params}
+\returns{A \code{Header} (\cref{tab:rust-header}).}
+\raises{As \code{read\_header}.}
+\begin{lstlisting}[language=Rust,style=example]
+// A copy of the header 100s.hea in the directory "in".
+std::fs::create_dir_all("in")?;
+std::fs::copy("100s.hea", "in/100s.hea")?;
+let opt = ReadOptions { input_dir: Some("in".into()), ..Default::default() };
+let hdr = read_header_with("100s", &opt)?; // reads in/100s.hea
+println!("{} {}", hdr.nsig, hdr.fs); // 2 360
+println!("{}", read_header("100s", false).is_ok()); // true: the input directory is restored
+\end{lstlisting}
+
+\apientry{read\_annotations}{Read an annotation file}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn read_annotations(
+    record: impl AsRef<[u8]>,
+    annotator: impl AsRef<[u8]>,
+    from: Option<TimeSpec>,
+    to: Option<TimeSpec>,
+    fs: Option<f64>,
+    legacy: bool,
+) -> Result<Annotations, Error>
+\end{lstlisting}
+Reads the annotations of an annotation file, in file order, as parallel vectors. The
+sampling frequency, needed to convert times in seconds, is that of the record's header,
+or, for a record without a header or whose header gives none, the argument \code{fs}, as
+the option \opt{-F} of \code{rdann}.
+\begin{params}
+\item[record] Record name, as for \code{read\_record}: a full path (absolute or
+  \code{\textasciitilde}), used as given; a relative path, read from the input directory
+  if one is set, otherwise from the current directory; or a URL, read only if network
+  access is on Its header, if there is one, gives the sampling frequency.
+\item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
+  file \file{RECORD.atr}.
+\item[from] The first time to read: a sample number or a time string. \code{None}: the
+  beginning of the file.
+\item[to] The time at which to stop: annotations at or after it are not read.
+  \code{None}: the end of the file.
+\item[fs] The sampling frequency, in Hz ($> 0$), to use when the record has no header or
+  its header gives none; it is ignored otherwise. \code{None}: none.
+\item[legacy] \code{true} to behave as the original WFDB package (which assumes 250\,Hz
+  for a record without a frequency); normally \code{false}.
+\end{params}
+\returns{An \code{Annotations} (\cref{tab:rust-annotations}). Its \code{fs} is the
+frequency in which the times are counted: the one written in the annotation file, if
+there is one, or else the sampling frequency; it is 0 if none of them is known.}
+\raises{An \code{Error} if \code{fs} is given and is not $> 0$ (``fs must be > 0''); if
+the annotation file cannot be opened (``can't read annotator ANN for record REC''); if a
+time string needs the sampling frequency and none is known (``sampling frequency of
+record REC is not specified''); if \code{from} cannot be reached (``can't seek in
+annotator ANN''); or if the file ends early or cannot be read before \code{to} is reached
+(``can't read annotation file ANN of record REC (getann status S)'', where S is the
+status that \code{getann} returned, such as $-3$ for an unexpected end of file).}
+\begin{lstlisting}[language=Rust,style=example]
+let ann = read_annotations("100s", "atr", Some("0:10".into()), Some("0:30".into()), None, false)?;
+println!("{} {}", ann.len(), ann.fs); // 24 360
+println!("{} {}", ann.samples[0], s(&ann.symbols[0])); // 3862 N
+
+// The whole file: the first annotation is a rhythm change, with an aux string.
+let ann = read_annotations("100s", "atr", None, None, None, false)?;
+let aux = ann.aux[0].as_deref().unwrap_or(b"");
+println!("{} {} {}", s(&ann.symbols[0]), ann.codes[0] == RHYTHM, s(aux)); // + true (N
+\end{lstlisting}
+For a record without a header, \code{fs} gives the frequency in which times in seconds
+are converted (the library reports on the standard error that it cannot open the
+header):
+\begin{lstlisting}[language=Rust,style=example]
+let beats = Annotations {
+    samples: vec![100, 460, 820],
+    symbols: vec!["N".into(), "N".into(), "N".into()],
+    ..Default::default()
+};
+write_annotations("beats", "qrs", &beats, 0.0, None)?; // no header
+let ann = read_annotations("beats", "qrs", None, Some("0:02".into()), Some(360.0), false)?;
+println!("{} {}", ann.len(), ann.fs); // 2 360
+\end{lstlisting}
+
+\apientry{read\_annotations\_with}{Read an annotation file, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn read_annotations_with(
+    record: impl AsRef<[u8]>,
+    annotator: impl AsRef<[u8]>,
+    fs: Option<f64>,
+    opt: &ReadOptions,
+) -> Result<Annotations, Error>
+\end{lstlisting}
+As \code{read\_annotations}, with the options \code{from}, \code{to}, \code{input\_dir},
+\code{network} and \code{legacy} of \code{opt} (the last three for this call only). The
+other fields of \code{opt} are not used.
+\begin{params}
+\item[record] Record name, as for \code{read\_annotations}.
+\item[annotator] Annotator name, as for \code{read\_annotations}.
+\item[fs] The sampling frequency to use when the record has no header or its header
+  gives none, as for \code{read\_annotations}.
+\item[opt] The options (\cref{tab:rust-readoptions}); only \code{from}, \code{to},
+  \code{input\_dir} (optional: the input directory under which relative record names are
+  read; it does not apply to full paths or URLs), \code{network} and \code{legacy} are
+  used.
+\end{params}
+\returns{An \code{Annotations} (\cref{tab:rust-annotations}).}
+\raises{As \code{read\_annotations}.}
+\begin{lstlisting}[language=Rust,style=example]
+// Seconds 10 to 30 of the annotations of 100s, read from the directory "in".
+std::fs::create_dir_all("in")?;
+for f in ["100s.hea", "100s.atr"] {
+    std::fs::copy(f, format!("in/{f}"))?;
+}
+let opt = ReadOptions {
+    from: Some("0:10".into()),
+    to: Some("0:30".into()),
+    input_dir: Some("in".into()),
+    ..Default::default()
+};
+let ann = read_annotations_with("100s", "atr", None, &opt)?;
+println!("{} {}", ann.len(), ann.samples[0]); // 24 3862
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Writing records}
+\label{sec:rust-writing}
+
+\apientry{write\_record}{Write a header and a signal file}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn write_record(
+    record: impl AsRef<[u8]>,
+    samples: &[i32],
+    nsig: usize,
+    fs: f64,
+    opt: &WriteOptions,
+) -> Result<(), Error>
+\end{lstlisting}
+Writes samples in ADC units as a new record: the header \file{RECORD.hea} and one signal
+file, \file{RECORD.dat}, which holds all the signals (so they share one format). Existing
+files of these names are overwritten. The sampling frequency, the gain and ADC resolution
+of each signal, and the units of each calibrated signal must be given: there are no
+defaults. Every check except those of the writing itself comes before any file is
+created; whatever happens, the output signals are closed before the function returns,
+and the getvec mode and the time resolution of output annotators are left as they were.
+\begin{params}
+\item[record] Record name (not empty), without the \file{.hea} extension: a plain name
+  (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output directory
+  if one is set, otherwise in the current directory, missing directories included; or a
+  full path, absolute or in the home directory (\code{"\textasciitilde/Documents/rec"}),
+  used as given. With a path, the files are created in that directory, and the header
+  names the record and its signal file without the path (\code{rec}, \code{rec.dat}), so
+  that the record opens under any path that leads to it (in legacy mode, as in the
+  original, the header gives the name with its path). A URL cannot be written.
+\item[samples] The samples, in ADC units, frame by frame: \code{nsig} values per frame,
+  or, for a multi-frequency record, the sum of \code{opt.samps\_per\_frame} (the samples
+  of signal 0, then those of signal 1, and so on). \code{WFDB\_INVALID\_SAMPLE} marks
+  invalid samples. The number of samples must be a multiple of the frame size.
+\item[nsig] The number of signals ($> 0$).
+\item[fs] The sampling frequency, in Hz: a finite number $> 0$ (for a multi-frequency
+  record, the frame frequency).
+\item[opt] The options (\cref{tab:rust-writeoptions}): the format, the signal
+  specifications (\code{gains}, \code{adcres} and \code{units} are required), the start
+  time, the comments and metadata, the directory \code{dir} (which must exist) in which to
+  create the files for this call only, \code{record} being then a plain name, and
+  \code{legacy}.
+\end{params}
+\returns{\code{Ok(())}.}
+\raises{An \code{Error} if a \code{samps\_per\_frame} value is less than 1
+(``write\_record: samps\_per\_frame must hold integers >= 1'', checked first); with
+\code{opt.dir}, if the directory does not exist (``directory D does not exist'') or the
+record name contains one (``record name must not contain a directory when dir is
+given''); if the record name is empty (``write\_record: the record name must not be
+empty''); if \code{nsig} is 0 (``write\_record: at least one signal is required''); if a
+per-signal field of \code{opt} has more than one value but not one per signal
+(``write\_record: OPTION must have one value per signal''); if \code{fs} is not $> 0$ or
+not finite (``write\_record: the sampling frequency must be > 0'', ``\ldots must be
+finite''); if a gain is not finite (``write\_record: gains must be finite''); if an entry
+of \code{opt.metadata} is not valid (``write\_record: metadata key 'K' is also given in
+comments'', for example); if the gains, the ADC resolutions or the units of a calibrated
+signal are missing (``write\_record: gains must be specified'', ``write\_record: ADC
+resolution(s) must be specified'', ``write\_record: units must be specified''); if
+\code{samples.len()} is not a multiple of the frame size (``write\_record: the number of
+samples is not a multiple of the frame size''); if \code{opt.base\_time} is not a valid
+time (``write\_record: incorrect base time 'T'''); if the files cannot be created
+(``can't create signal file for record REC'', ``can't create header for record REC''); or
+if they cannot be written completely, for example on a full disk (``write error on record
+REC'').}
+\begin{lstlisting}[language=Rust,style=example]
+// A ramp of 1000 samples of one signal, in millivolts, at 100 Hz: the record "ramp"
+// (ramp.hea and ramp.dat).
+let x: Vec<i32> = (0..1000).collect();
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    names: vec!["ramp".into()],
+    base_time: Some("14:00:03 21/06/2024".into()),
+    comments: vec!["a ramp".into()],
+    metadata: vec![("Generator".into(), "loop".into())],
+    ..Default::default()
+};
+write_record("ramp", &x, 1, 100.0, &opt)?;
+let rec = read_record("ramp", &ReadOptions::default())?;
+println!("{} {} {}", rec.nsamples(), rec.base_time.as_deref().unwrap_or(""), rec.physical(10, 0)?);
+// 1000 [14:00:03 21/06/2024] 0.05
+for c in &read_header("ramp", false)?.comments {
+    println!("[{}]", s(c));
+}
+// [a ramp]
+// [ Generator: loop]
+\end{lstlisting}
+A multi-frequency record: signal \code{fast} has 2 samples per frame, signal
+\code{slow} one; each frame holds the two samples of \code{fast} and then the sample of
+\code{slow}:
+\begin{lstlisting}[language=Rust,style=example]
+let mut frames = Vec::new();
+for i in 0..100 {
+    // 1 second at 100 frames per second
+    frames.push(2 * i); // fast: 200 samples per second
+    frames.push(2 * i + 1);
+    frames.push(500); // slow: 100 samples per second
+}
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    names: vec!["fast".into(), "slow".into()],
+    samps_per_frame: vec![2, 1],
+    ..Default::default()
+};
+write_record("mf", &frames, 2, 100.0, &opt)?;
+let hi = ReadOptions { highres: true, ..Default::default() };
+let rec = read_record("mf", &hi)?;
+println!("{} {} {} {} {}", rec.fs, rec.at(0, 0), rec.at(0, 1), rec.at(1, 0), rec.at(1, 1));
+// 200 0 500 1 500
+\end{lstlisting}
+
+\apientry{write\_record\_physical}{Write a record from samples in physical units}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn write_record_physical(
+    record: impl AsRef<[u8]>,
+    samples: &[f64],
+    nsig: usize,
+    fs: f64,
+    opt: &WriteOptions,
+) -> Result<(), Error>
+\end{lstlisting}
+As \code{write\_record}, with the samples in physical units. Each sample $v$ is stored as
+$\mathrm{round}(v \cdot \mathit{gain}) + \mathit{baseline}$ (halves rounded away from
+zero), and NaN is stored as an invalid sample. Every signal must have a gain other than
+0.
+\begin{params}
+\item[record] Record name, as for \code{write\_record}.
+\item[samples] The samples, in physical units, frame by frame (as for
+  \code{write\_record}).
+\item[nsig] The number of signals ($> 0$).
+\item[fs] The sampling frequency, in Hz: a finite number $> 0$.
+\item[opt] The options, as for \code{write\_record} (\cref{tab:rust-writeoptions}).
+\end{params}
+\returns{\code{Ok(())}.}
+\raises{As \code{write\_record}; also an \code{Error} if a gain is 0 (``write\_record:
+signal N is uncalibrated''), or if a sample is infinite or its ADC value is outside the
+range of \code{i32} (``write\_record: sample I is infinite or beyond the range of 32-bit
+ADC units''). Nothing is written then.}
+\begin{lstlisting}[language=Rust,style=example]
+// Two sine waves, in millivolts, at 360 Hz, frame by frame: the record "sine".
+let fs = 360.0;
+let mut x = Vec::new();
+for i in 0..3600 {
+    let t = 2.0 * std::f64::consts::PI * i as f64 / fs;
+    x.push(t.sin()); // signal 0
+    x.push(0.5 * t.cos()); // signal 1
+}
+let opt = WriteOptions {
+    gains: vec![1000.0],
+    adcres: vec![16],
+    units: vec![Some("mV".into())],
+    names: vec!["A".into(), "B".into()],
+    ..Default::default()
+};
+write_record_physical("sine", &x, 2, fs, &opt)?;
+let rec = read_record("sine", &ReadOptions::default())?;
+let mut err: f64 = 0.0;
+for (i, v) in x.iter().enumerate() {
+    err = err.max((rec.physical(i / 2, i % 2)? - v).abs());
+}
+println!("{} {}", rec.nsamples(), err <= 0.0005); // 3600 true: rounded to 1/1000 mV
+\end{lstlisting}
+
+\apientry{write\_annotations}{Write an annotation file}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn write_annotations(
+    record: impl AsRef<[u8]>,
+    annotator: impl AsRef<[u8]>,
+    ann: &Annotations,
+    fs: f64,
+    dir: Option<&Path>,
+) -> Result<(), Error>
+\end{lstlisting}
+Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
+that name is overwritten. The record need not have a header. The type of each annotation
+is its \code{symbols} entry (\code{b"N"}, \code{b"V"}, \ldots; an unknown mnemonic gives
+\code{NOTQRS}), or, if \code{symbols} is empty or the entry is empty, its \code{codes}
+entry (\cref{chap:formats}). Both may be given (as \code{read\_annotations} returns them)
+if they agree: the code of each non-empty symbol (\code{strann}) is the code given for
+that annotation. \code{subtypes}, \code{chans} and \code{nums} are stored in one byte
+each, as by \code{putann} (other values wrap around: the subtype and number to $-128$ to
+127, the channel to 0 to 255), and \code{aux} texts are cut to 255 bytes. If the
+annotations are not in time order, the file is sorted when it is written, unless the
+environment variable \code{WFDBANNSORT} is \code{0} (\code{write\_annotations\_with}
+decides this for one call). The arguments are checked before the file is created;
+whatever happens, the annotator is closed before the function returns, and the getvec
+mode and the time resolution of output annotators (\code{getafreq()}) are left as they
+were (\code{fs} applies to this file only).
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a plain name or a relative path (\code{"data/100s"}), created in the
+  output directory if one is set, otherwise in the current directory; or a full path,
+  absolute or in the home directory (\code{"\textasciitilde/Documents/100s"}), used as
+  given. The file is \file{RECORD.ANNOTATOR} at that place (\file{data/100s.qrs}). A URL
+  cannot be written.
+\item[annotator] Annotator name: the suffix of the file. \code{"qrs"} writes
+  \file{RECORD.qrs}.
+\item[ann] The annotations (\cref{tab:rust-annotations}): \code{samples}, and
+  \code{symbols} or \code{codes}; \code{subtypes}, \code{chans}, \code{nums} and
+  \code{aux} are optional. Each of these vectors is empty (\code{subtypes}, \code{chans}
+  and \code{nums} are then 0, and there is no aux) or has one entry per annotation.
+  \code{ann.record}, \code{ann.annotator} and \code{ann.fs} are not used.
+\item[fs] 0 (none) or a finite frequency $> 0$, in which the times are counted, recorded
+  in the file; it applies to this file only.
+\item[dir] The directory (which must exist) in which to create the file, for this call
+  only. \code{record} must then be a plain name, without a directory: the file is
+  \file{DIR/RECORD.ANNOTATOR}. \code{None}: the output directory.
+\end{params}
+\returns{\code{Ok(())}.}
+\raises{An \code{Error} if a per-annotation field has another length than 0 or the number
+of annotations (``write\_annotations: symbols must have one entry per annotation (N), or
+none'', for example); if \code{symbols} and \code{codes} are both given and disagree
+(``write\_annotations: symbols and codes disagree at annotation K'', K counted from 0);
+if \code{fs} is not 0 and not a finite frequency $> 0$ (``write\_annotations: fs must be
+finite and > 0 (or 0: none)''); if the file cannot be created (``can't create annotator
+ANN for record REC''); if it cannot be written completely (``write error on annotator ANN
+for record REC''); or, with \code{dir}, if the directory does not exist (``directory D
+does not exist'') or \code{record} contains a directory (``record name must not contain a
+directory when dir is given'').}
+\begin{lstlisting}[language=Rust,style=example]
+// Three beats and a rhythm change, by symbol, with an aux string for the rhythm.
+let a = Annotations {
+    samples: vec![18, 77, 370, 662],
+    symbols: vec!["+".into(), "N".into(), "V".into(), "N".into()],
+    aux: vec![Some("(N".into()), None, None, None],
+    ..Default::default()
+};
+write_annotations("100s", "test", &a, 0.0, None)?;
+let b = read_annotations("100s", "test", None, None, None, false)?;
+let aux = b.aux[0].as_deref().unwrap_or(b"");
+println!("{} {} {}", s(&b.symbols[0]), s(&b.symbols[2]), s(aux)); // + V (N
+
+// A copy of the reference annotations, as read_annotations returns them.
+let atr = read_annotations("100s", "atr", None, None, None, false)?;
+write_annotations("100s", "copy", &atr, 0.0, None)?;
+let c = read_annotations("100s", "copy", None, None, None, false)?;
+println!("{}", c.samples == atr.samples && c.aux == atr.aux); // true
+\end{lstlisting}
+
+\apientry{write\_annotations\_with}{Write an annotation file, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn write_annotations_with(
+    record: impl AsRef<[u8]>,
+    annotator: impl AsRef<[u8]>,
+    ann: &Annotations,
+    fs: f64,
+    opt: &AnnWriteOptions,
+) -> Result<(), Error>
+\end{lstlisting}
+As \code{write\_annotations}, with the output directory and the sorting of the file given
+by \code{opt}, for this call only.
+\begin{params}
+\item[record] Record name, as for \code{write\_annotations}.
+\item[annotator] Annotator name, as for \code{write\_annotations}.
+\item[ann] The annotations, as for \code{write\_annotations}.
+\item[fs] 0 or the frequency recorded in the file, as for \code{write\_annotations}.
+\item[opt] The options (\cref{tab:rust-annwriteoptions}): \code{dir}, as the argument
+  \code{dir} of \code{write\_annotations}, and \code{sort}: \code{Some(true)} always sorts
+  annotations that are not in time order, \code{Some(false)} keeps the given order
+  (without the library's advice to run \code{sortann}), and \code{None} lets
+  \code{WFDBANNSORT} decide (sorting is on unless it is \code{0}). The environment is not
+  changed.
+\end{params}
+\returns{\code{Ok(())}.}
+\raises{As \code{write\_annotations}.}
+\begin{lstlisting}[language=Rust,style=example]
+let u = Annotations {
+    samples: vec![500, 100],
+    codes: vec![NORMAL, NORMAL],
+    ..Default::default()
+};
+// Sorted when the file is written (the library reports it on the standard error).
+write_annotations_with("100s", "sorted", &u, 0.0, &AnnWriteOptions::default())?;
+let a = read_annotations("100s", "sorted", None, None, None, false)?;
+println!("{:?}", a.samples); // [100, 500]
+// Kept in the order given, in the existing directory "out".
+std::fs::create_dir_all("out")?;
+let opt = AnnWriteOptions { dir: Some("out".into()), sort: Some(false) };
+write_annotations_with("100s", "unsorted", &u, 0.0, &opt)?;
+println!("{}", std::path::Path::new("out/100s.unsorted").exists()); // true
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Checking records}
+\label{sec:rust-checking}
+
+\apientry{check\_record}{Check a record and its annotation files}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn check_record(record: impl AsRef<[u8]>, annotators: &[&str]) -> Result<CheckReport, Error>
+\end{lstlisting}
+Checks the header of a record, its signal specifications, every sample of its signal
+files, each segment of a multi-segment record, and the annotation files named, and
+reports each problem found. A problem in the record is never an error of the function: it
+is reported, with a severity (\code{Severity::Error}: the record is damaged or does not
+follow the WFDB format, and programs will read wrong data or fail;
+\code{Severity::Warning}: the record can be read, but something is missing or unusual,
+and may give wrong results; \code{Severity::Info}: a fact worth knowing, such as invalid
+samples). The problems, their codes and their messages are the same in the seven
+languages (\cref{tab:python-issue-codes}). The checks run in normal mode, even if legacy
+mode is on, and the library prints no messages during the call (the previous settings
+are restored afterwards, the getvec mode and the time resolution of output annotators
+among them). They are similar to those of Benjamin Moody's \code{wfdbcheck}.
+\begin{params}
+\item[record] Record name, as for \code{read\_record}: a full path (absolute or
+  \code{\textasciitilde}), used as given; a relative path, read from the input directory
+  if one is set, otherwise from the current directory; or a URL, read only if network
+  access is on.
+\item[annotators] The annotator names whose files are checked, such as \code{\&["atr"]};
+  \code{\&[]}: none.
+\end{params}
+\returns{A \code{CheckReport} (\cref{tab:rust-checkreport}): \code{report.ok} is
+\code{true} if no problem is an error, \code{report.issues} lists the problems
+(\code{Issue} values, \cref{tab:rust-issue}), and \code{report.lines()} (or
+\code{Display}) gives one line per problem, or \code{no problems found}.}
+\raises{An \code{Error} if \code{record} is empty (``record must not be empty''). A record
+that cannot be read is reported (code \code{header\_unreadable}), not returned as an
+error.}
+\begin{lstlisting}[language=Rust,style=example]
+let report = check_record("100s", &["atr"])?;
+println!("{}", report.ok); // true: no errors
+println!("{report}");
+// warning: signal 0: the units are not specified
+// warning: signal 1: the units are not specified
+
+// A damaged record: one sample of a 12-bit signal is overwritten with 2048.
+let x: Vec<i32> = (0..100).collect();
+let opt = WriteOptions {
+    gains: vec![100.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    names: vec!["ramp".into()],
+    ..Default::default()
+};
+write_record("damaged", &x, 1, 100.0, &opt)?;
+let mut dat = std::fs::read("damaged.dat")?;
+dat[20] = 0x00; // sample 10 (2 bytes per sample in format 16):
+dat[21] = 0x08; // 0x0800 = 2048, little-endian
+std::fs::write("damaged.dat", &dat)?;
+let report = check_record("damaged", &[])?;
+println!("{}", report.ok); // false
+for i in &report.issues {
+    println!("{} {} {}", i.severity, i.code, i.r#where);
+}
+// error sample_range signal 0
+// error checksum signal 0
+println!("{}", report.lines()[0]);
+// error: signal 0: 1 sample is outside the ADC range (-2048 to 2047): sample 10 (value 2048)
+\end{lstlisting}
+
+\apientry{check\_record\_with}{Check a record, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn check_record_with(
+    record: impl AsRef<[u8]>,
+    annotators: &[&str],
+    opt: &ReadOptions,
+) -> Result<CheckReport, Error>
+\end{lstlisting}
+As \code{check\_record}, with the options \code{input\_dir} and \code{network} of
+\code{opt}, for this call only. The other fields of \code{opt} are not used.
+\begin{params}
+\item[record] Record name, as for \code{check\_record}.
+\item[annotators] The annotator names whose files are checked, as for
+  \code{check\_record}.
+\item[opt] The options (\cref{tab:rust-readoptions}); only \code{input\_dir} (optional:
+  the input directory under which relative record names are read; it does not apply to
+  full paths or URLs) and \code{network} are used.
+\end{params}
+\returns{A \code{CheckReport} (\cref{tab:rust-checkreport}).}
+\raises{As \code{check\_record}.}
+\begin{lstlisting}[language=Rust,style=example]
+std::fs::create_dir_all("in")?;
+for f in ["100s.hea", "100s.dat", "100s.atr"] {
+    std::fs::copy(f, format!("in/{f}"))?;
+}
+let opt = ReadOptions { input_dir: Some("in".into()), ..Default::default() };
+let report = check_record_with("100s", &["atr"], &opt)?;
+println!("{} {}", report.ok, report.issues.len()); // true 2
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Header metadata}
+\label{sec:rust-metadata}
+
+These functions read and change the metadata of a header: its info strings of the form
+\code{\# Key: value}, such as \code{\# Age: 63} (\cref{chap:metadata}). In short: keys are
+compared without regard to letter case (A-Z and a-z only); a key must not be empty and
+must not contain \code{:}, \code{\#}, CR, LF or NUL, and a value must not contain CR, LF
+or NUL; spaces, tabs, VT, FF and CR at either end of keys and values are removed; keys and
+values are bytes (arguments \code{impl AsRef<[u8]>}, results \code{Vec<u8>}). A change
+rewrites the header in one step, through a temporary file in the directory of the
+destination, which then replaces it, keeping its permissions (on Unix) and every other
+byte of it; the temporary file is removed on any failure. All the arguments are checked
+first, so an error leaves the header unchanged, and nothing is written if nothing changes
+(unless \code{dir} is given). Only the \file{.hea} file is read (not a \file{.info}
+file); for a multi-segment record, it is the master header, unless a segment is named.
+The header is opened as the library opens a header (\code{wfdb\_open}), so in legacy mode
+it is searched for in the WFDB path. The entries are returned as a \code{Metadata}:
+\begin{lstlisting}[language=Rust]
+pub type Metadata = Vec<(Vec<u8>, Vec<u8>)>;
+\end{lstlisting}
+Each function has a form whose name ends in \code{\_with}, which takes a
+\code{MetadataOptions} (\cref{tab:rust-metadataoptions}): the input directory and network
+access for reading the header, and, for the functions that change it, the directory
+\code{dir} in which to write it. These functions do not call \code{wfdbquit()}. Metadata
+often holds information about patients: WFDB-x stores it as plain text, exactly as given,
+and does not de-identify it.
+
+\begin{phibox}
+A header can hold identifying data about a patient (a name, a date of birth, a medical
+record number). The metadata functions read and write such data as given. Records that
+are shared must be de-identified first.
+\end{phibox}
+
+\apientry{read\_metadata}{Read the metadata of a record}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn read_metadata(record: impl AsRef<[u8]>) -> Result<Metadata, Error>
+\end{lstlisting}
+Reads the metadata entries of the header of a record, in file order. An info string is an
+entry if it contains a colon: the key is the text before the first colon, the value the
+rest of the line, both without spaces at either end. Info strings without a colon, or
+whose key is empty or contains \code{\#}, are free comments, which are not returned.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\end{params}
+\returns{The entries, as (key, value) pairs, in file order. A key that appears more than
+once (ignoring letter case) is returned once, with its first value, with a warning
+(\cref{sec:rust-warnings}).}
+\raises{An \code{Error} if the header cannot be found or read (``can't read header for
+record REC''), or if \code{record} is empty (``record name must not be empty'') or
+\code{"-"} (``the metadata of a header read from the standard input cannot be read or
+changed'').}
+\begin{lstlisting}[language=Rust,style=example]
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    names: vec!["ECG".into()],
+    comments: vec!["recorded at rest".into()],
+    metadata: vec![("Age".into(), "63".into()), ("Sex".into(), "F".into())],
+    ..Default::default()
+};
+write_record("pat", &[0; 360], 1, 360.0, &opt)?;
+for (key, value) in read_metadata("pat")? {
+    println!("{} = {}", s(&key), s(&value));
+}
+// Age = 63
+// Sex = F
+for c in read_header("pat", false)?.comments {
+    println!("[{}]", s(&c));
+}
+// [recorded at rest]: the free comment is not an entry
+// [ Age: 63]
+// [ Sex: F]
+\end{lstlisting}
+
+\apientry{read\_metadata\_with}{Read the metadata of a record, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn read_metadata_with(
+    record: impl AsRef<[u8]>,
+    opt: &MetadataOptions,
+) -> Result<Metadata, Error>
+\end{lstlisting}
+As \code{read\_metadata}, with the input directory and network access of \code{opt}, for
+this call only. \code{opt.dir} is not used.
+\begin{params}
+\item[record] Record name, as for \code{read\_metadata}.
+\item[opt] The options (\cref{tab:rust-metadataoptions}); only \code{input\_dir} and
+  \code{network} are used.
+\end{params}
+\returns{The entries, as for \code{read\_metadata}.}
+\raises{As \code{read\_metadata}.}
+\begin{lstlisting}[language=Rust,style=example]
+std::fs::create_dir_all("in")?;
+std::fs::copy("100s.hea", "in/100s.hea")?;
+let opt = MetadataOptions { input_dir: Some("in".into()), ..Default::default() };
+let md = read_metadata_with("100s", &opt)?; // reads in/100s.hea
+println!("{} {}", md.len(), s(&md[0].1)); // 1 0
+\end{lstlisting}
+
+\apientry{get\_metadata}{Return the value of a metadata entry}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn get_metadata(
+    record: impl AsRef<[u8]>,
+    key: impl AsRef<[u8]>,
+) -> Result<Option<Vec<u8>>, Error>
+\end{lstlisting}
+Returns the value of one metadata entry of the header of a record.
+\begin{params}
+\item[record] Record name (as for \code{read\_metadata}).
+\item[key] The key, such as \code{"Age"}. Letter case is ignored, and spaces at either end
+  are removed; it must be a valid key (see \code{set\_metadata}), which is checked before
+  the header is read.
+\end{params}
+\returns{\code{Some(value)} (empty for an entry with an empty value), or \code{None} if the
+header has no entry for \code{key}. If it has more than one, the first is returned, with
+the warning of \code{read\_metadata}.}
+\raises{As \code{read\_metadata}; also an \code{Error} if \code{key} is not valid
+(``metadata key 'a\#b' must not contain '\#''', for example).}
+\begin{lstlisting}[language=Rust,style=example]
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    metadata: vec![("Age".into(), "63".into()), ("Notes".into(), "".into())],
+    ..Default::default()
+};
+write_record("pat", &[0; 360], 1, 360.0, &opt)?;
+println!("{:?}", get_metadata("pat", "age")?.map(|v| s(&v))); // Some("63")
+println!("{:?}", get_metadata("pat", " NOTES ")?.map(|v| s(&v))); // Some(""): an empty value
+println!("{:?}", get_metadata("pat", "Weight")?); // None: no such entry
+\end{lstlisting}
+
+\apientry{get\_metadata\_with}{Return the value of a metadata entry, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn get_metadata_with(
+    record: impl AsRef<[u8]>,
+    key: impl AsRef<[u8]>,
+    opt: &MetadataOptions,
+) -> Result<Option<Vec<u8>>, Error>
+\end{lstlisting}
+As \code{get\_metadata}, with the input directory and network access of \code{opt}, for
+this call only. \code{opt.dir} is not used.
+\begin{params}
+\item[record] Record name (as for \code{read\_metadata}).
+\item[key] The key (as for \code{get\_metadata}).
+\item[opt] The options (\cref{tab:rust-metadataoptions}); only \code{input\_dir} and
+  \code{network} are used.
+\end{params}
+\returns{As \code{get\_metadata}.}
+\raises{As \code{get\_metadata}.}
+\begin{lstlisting}[language=Rust,style=example]
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    metadata: vec![("Age".into(), "63".into())],
+    ..Default::default()
+};
+write_record("pat", &[0; 360], 1, 360.0, &opt)?;
+std::fs::create_dir_all("in")?;
+std::fs::copy("pat.hea", "in/pat.hea")?;
+let opt = MetadataOptions { input_dir: Some("in".into()), ..Default::default() };
+let age = get_metadata_with("pat", "Age", &opt)?.unwrap_or_default();
+println!("{}", s(&age)); // 63
+\end{lstlisting}
+
+\apientry{set\_metadata}{Set the value of a metadata entry}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn set_metadata(
+    record: impl AsRef<[u8]>,
+    key: impl AsRef<[u8]>,
+    value: impl AsRef<[u8]>,
+) -> Result<(), Error>
+\end{lstlisting}
+Sets the value of a metadata entry in the header of a record. If the header has an entry
+for \code{key} (ignoring letter case), its line is replaced by \code{\# Key: value}, at
+the same position and with its line ending, with the spelling of \code{key} given here
+(even if the value is the same). Otherwise the entry is added after the last info string
+of the header (or, if it has none, after its last line that is not blank), with the line
+ending of the record line. Every other byte of the header is kept.
+\begin{params}
+\item[record] Record name (as for \code{read\_metadata}). The header is changed where it
+  was read, unless \code{dir} is given (\code{set\_metadata\_with}); a header read from a
+  URL can only be written elsewhere, with \code{set\_metadata\_with} and \code{dir}.
+\item[key] The key, such as \code{"Age"} or \code{"Date of birth"}. Spaces at either end
+  are removed; it must not then be empty, and must not contain \code{:}, \code{\#}, CR,
+  LF or NUL.
+\item[value] The value, which may be a sentence. Spaces at either end are removed; it
+  must not contain CR, LF or NUL, and may be empty (it is then written \code{\# Key:}).
+\end{params}
+\returns{\code{Ok(())}.}
+\raises{An \code{Error} if \code{key} or \code{value} is not valid (``metadata key must not
+be empty'', ``metadata key 'KEY' must not contain C'', ``value of metadata key 'KEY' must
+not contain C'', where C is \code{':'}, \code{'\#'}, ``a line break'' or ``a NUL
+character''); if \code{record} is empty or \code{"-"}; if the header cannot be read
+(``can't read header for record REC''); if it has more than one entry for \code{key}
+(``header of record REC has more than one entry for key KEY (lines L1, L2); remove them
+first''); if it has no record line (``header of record REC has no record line''); if it
+was read from a URL (``header of record REC was read from a URL, and cannot be changed
+(give dir to write the changed header to a local directory)''); or if the changed header
+cannot be written (``can't write header for record REC'').}
+\begin{lstlisting}[language=Rust,style=example]
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    metadata: vec![("Age".into(), "63".into())],
+    ..Default::default()
+};
+write_record("pat", &[0; 360], 1, 360.0, &opt)?;
+set_metadata("pat", "AGE", "64")?; // replaces the line: "# AGE: 64"
+set_metadata("pat", "Date of birth", "1961-02-03")?; // adds "# Date of birth: 1961-02-03"
+for (key, value) in read_metadata("pat")? {
+    println!("{} = {}", s(&key), s(&value));
+}
+// AGE = 64
+// Date of birth = 1961-02-03
+if let Err(e) = set_metadata("pat", "a:b", "1") {
+    println!("{e}"); // metadata key 'a:b' must not contain ':'
+}
+\end{lstlisting}
+
+\apientry{set\_metadata\_with}{Set the value of a metadata entry, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn set_metadata_with(
+    record: impl AsRef<[u8]>,
+    key: impl AsRef<[u8]>,
+    value: impl AsRef<[u8]>,
+    opt: &MetadataOptions,
+) -> Result<(), Error>
+\end{lstlisting}
+As \code{set\_metadata}, with the input directory and network access for reading the
+header, and the directory \code{dir} in which to write the changed header, given by
+\code{opt}, for this call only. With \code{dir}, the header that was read is unchanged,
+and the changed header is written to the file of the same name in \code{dir}, even if
+nothing changes.
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}). A header read from a URL can be
+  changed only with \code{opt.dir}.
+\item[key] The key (as for \code{set\_metadata}).
+\item[value] The value (as for \code{set\_metadata}).
+\item[opt] The options (\cref{tab:rust-metadataoptions}): \code{input\_dir},
+  \code{network} and \code{dir}.
+\end{params}
+\returns{\code{Ok(())}.}
+\raises{As \code{set\_metadata}; also an \code{Error} if \code{opt.dir} does not exist
+(``directory D does not exist'').}
+\begin{lstlisting}[language=Rust,style=example]
+// The header of 100s (in the current directory) is unchanged; the changed copy is
+// written to the directory "copy" (which must exist).
+std::fs::create_dir_all("copy")?;
+let opt = MetadataOptions { dir: Some("copy".into()), ..Default::default() };
+set_metadata_with("100s", "Age", "69", &opt)?;
+let age = get_metadata("copy/100s", "Age")?.unwrap_or_default();
+println!("{} {:?}", s(&age), get_metadata("100s", "Age")?); // 69 None
+\end{lstlisting}
+
+\apientry{remove\_metadata}{Remove a metadata entry}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn remove_metadata(record: impl AsRef<[u8]>, key: impl AsRef<[u8]>) -> Result<usize, Error>
+\end{lstlisting}
+Removes a metadata entry from the header of a record. Every entry for \code{key}
+(ignoring letter case) is removed, with its line ending, so this also repairs a header
+that has more than one. Every other byte is kept. Nothing is written if the header has no
+entry for \code{key}.
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}).
+\item[key] The key (as for \code{set\_metadata}).
+\end{params}
+\returns{The number of lines removed (0 if the header has no entry for \code{key}).}
+\raises{As \code{set\_metadata}, except that more than one entry for \code{key} is not an
+error.}
+\begin{lstlisting}[language=Rust,style=example]
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    metadata: vec![("Age".into(), "63".into()), ("Sex".into(), "F".into())],
+    ..Default::default()
+};
+write_record("pat", &[0; 360], 1, 360.0, &opt)?;
+println!("{}", remove_metadata("pat", "sex")?); // 1
+println!("{}", remove_metadata("pat", "Weight")?); // 0: nothing is written
+println!("{}", read_metadata("pat")?.len()); // 1
+\end{lstlisting}
+
+\apientry{remove\_metadata\_with}{Remove a metadata entry, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn remove_metadata_with(
+    record: impl AsRef<[u8]>,
+    key: impl AsRef<[u8]>,
+    opt: &MetadataOptions,
+) -> Result<usize, Error>
+\end{lstlisting}
+As \code{remove\_metadata}, with the options of \code{opt}, for this call only (as for
+\code{set\_metadata\_with}). With \code{dir}, the header is written to \code{dir} even if
+nothing is removed.
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}).
+\item[key] The key (as for \code{set\_metadata}).
+\item[opt] The options (\cref{tab:rust-metadataoptions}): \code{input\_dir},
+  \code{network} and \code{dir}.
+\end{params}
+\returns{The number of lines removed.}
+\raises{As \code{remove\_metadata}; also an \code{Error} if \code{opt.dir} does not exist.}
+\begin{lstlisting}[language=Rust,style=example]
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    metadata: vec![("Age".into(), "63".into()), ("Sex".into(), "F".into())],
+    ..Default::default()
+};
+write_record("pat", &[0; 360], 1, 360.0, &opt)?;
+std::fs::create_dir_all("out")?;
+let opt = MetadataOptions { dir: Some("out".into()), ..Default::default() };
+println!("{}", remove_metadata_with("pat", "Sex", &opt)?); // 1
+println!("{} {}", read_metadata("pat")?.len(), read_metadata("out/pat")?.len()); // 2 1
+\end{lstlisting}
+
+\apientry{update\_metadata}{Make several changes to the metadata}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn update_metadata<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+    record: impl AsRef<[u8]>,
+    changes: &[(K, Option<V>)],
+) -> Result<(), Error>
+\end{lstlisting}
+Makes several changes to the metadata of a record in one write. Each (key, value) of
+\code{changes} is applied in order, as \code{set\_metadata} does for \code{Some(value)}, or
+as \code{remove\_metadata} does for \code{None}. All the changes are checked first: if one
+is not valid, none is made.
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}).
+\item[changes] The changes, as (key, value) pairs; a value of \code{None} removes the
+  entry. No two keys may differ only in letter case. A list of removals only needs the
+  type of its values: \code{\&[("Dx", None::<\&str>)]}. Empty \code{changes} change
+  nothing (and write nothing).
+\end{params}
+\returns{\code{Ok(())}.}
+\raises{As \code{set\_metadata}; also an \code{Error} if two keys differ only in letter
+case (``metadata key 'K' is given more than once (keys are compared without regard to
+letter case)'').}
+\begin{lstlisting}[language=Rust,style=example]
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    metadata: vec![("Age".into(), "63".into()), ("Dx".into(), "164889003".into())],
+    ..Default::default()
+};
+write_record("pat", &[0; 360], 1, 360.0, &opt)?;
+update_metadata("pat", &[("Age", Some("64")), ("Dx", None), ("Sex", Some("F"))])?;
+for (key, value) in read_metadata("pat")? {
+    println!("{} = {}", s(&key), s(&value));
+}
+// Age = 64
+// Sex = F
+update_metadata("pat", &[("Sex", None::<&str>)])?; // removals only: the type of the values
+println!("{}", read_metadata("pat")?.len()); // 1
+\end{lstlisting}
+
+\apientry{update\_metadata\_with}{Make several changes to the metadata, with options}
+\begin{lstlisting}[language=Rust,style=signature]
+pub fn update_metadata_with<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+    record: impl AsRef<[u8]>,
+    changes: &[(K, Option<V>)],
+    opt: &MetadataOptions,
+) -> Result<(), Error>
+\end{lstlisting}
+As \code{update\_metadata}, with the options of \code{opt}, for this call only (as for
+\code{set\_metadata\_with}). With \code{dir}, the header is written to \code{dir} even if
+\code{changes} is empty.
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}).
+\item[changes] The changes (as for \code{update\_metadata}).
+\item[opt] The options (\cref{tab:rust-metadataoptions}): \code{input\_dir},
+  \code{network} and \code{dir}.
+\end{params}
+\returns{\code{Ok(())}.}
+\raises{As \code{update\_metadata}; also an \code{Error} if \code{opt.dir} does not
+exist.}
+\begin{lstlisting}[language=Rust,style=example]
+let opt = WriteOptions {
+    gains: vec![200.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    metadata: vec![("Age".into(), "64".into())],
+    ..Default::default()
+};
+write_record("pat", &[0; 360], 1, 360.0, &opt)?;
+// The header "pat" in the directory "in" is unchanged; the changed copy is written to
+// the directory "out" (which must exist).
+std::fs::create_dir_all("in")?;
+std::fs::create_dir_all("out")?;
+std::fs::copy("pat.hea", "in/pat.hea")?;
+let opt = MetadataOptions {
+    input_dir: Some("in".into()),
+    dir: Some("out".into()),
+    ..Default::default()
+};
+update_metadata_with("pat", &[("Age", Some("65"))], &opt)?;
+let a = get_metadata("in/pat", "Age")?.unwrap_or_default();
+let b = get_metadata("out/pat", "Age")?.unwrap_or_default();
+println!("{} {}", s(&a), s(&b)); // 64 65
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{The options}
+\label{sec:rust-options}
+
+The options of the high-level functions are the fields of the structures of
+\cref{tab:rust-readoptions,tab:rust-writeoptions,tab:rust-annwriteoptions,tab:rust-metadataoptions},
+all public, and all with a \code{Default} implementation; the times are \code{TimeSpec}
+values (\cref{tab:rust-timespec}). \code{ReadOptions}, \code{WriteOptions},
+\code{AnnWriteOptions} and \code{TimeSpec} are defined in \code{wfdbx::record},
+\code{MetadataOptions} in \code{wfdbx::metadata}; all are available at the root of the
+crate.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{ReadOptions}, the options of \code{read\_record} (all),
+  \code{read\_header\_with} (\code{input\_dir}, \code{network}, \code{legacy}),
+  \code{read\_annotations\_with} (\code{from}, \code{to}, \code{input\_dir},
+  \code{network}, \code{legacy}) and \code{check\_record\_with} (\code{input\_dir},
+  \code{network})}
+\label{tab:rust-readoptions} \\
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{channels: Vec<String>} & the signals to return, in this order, by number
+  (\code{"0"}, \code{"1"}, \ldots) or by name (\code{"V5"}, as in \code{Record::names()},
+  then as \code{findsig} finds it). Default empty: all the signals \\
+\code{from: Option<TimeSpec>} & the first sample: a sample number ($\ge 0$) or a time
+  string. Default \code{None}: 0 \\
+\code{to: Option<TimeSpec>} & the sample after the last one: a sample number or a time
+  string. Default \code{None}: the end of the record \\
+\code{highres: bool} & \code{true} to read a multi-frequency record at its highest
+  sampling frequency, repeating the samples of the slower signals; \code{false} averages
+  the samples of the faster signals to one per frame. Default \code{false} \\
+\code{pad: bool} & \code{true} to replace each invalid sample by the previous valid sample
+  of the same signal. Default \code{false} \\
+\code{legacy: bool} & behave as the original WFDB package, for this call only. Default
+  \code{false} \\
+\code{input\_dir: Option<String>} & the input directory for this call only (optional;
+  see \code{wfdbx\_set\_input\_dir}): a local directory, a \code{\textasciitilde} path or
+  the URL of a directory, under which relative record names are read. It does not apply
+  to full paths or URLs. \code{""} means the default (\code{WFDBX\_INPUT\_DIR}, or the
+  current directory). Default \code{None}: the current setting \\
+\code{network: Option<bool>} & \code{Some(true)} to allow opening URLs for this call
+  only, \code{Some(false)} to forbid it (see \code{wfdbx\_set\_network}). Default
+  \code{None}: the current setting \\
+\code{checksum\_warning: bool} & \code{true} to print a warning on the standard error when
+  the samples do not match the checksums of the header (\cref{sec:rust-warnings}); the
+  samples are returned either way. Default \code{true} \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{WriteOptions}, the options of \code{write\_record} and
+  \code{write\_record\_physical}. Each per-signal vector holds one value for all the
+  signals, or one value per signal (or none, for those that have a default)}
+\label{tab:rust-writeoptions} \\
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{fmt: i32} & the storage format, the same for all the signals, such as \code{16},
+  \code{212}, \code{24} or \code{516} (FLAC) (\cref{chap:formats}). Default \code{16} \\
+\code{gains: Vec<f64>} & the gains, in ADC units per physical unit: required, and finite.
+  A gain of 0 marks a signal as uncalibrated, which only \code{write\_record} (ADC units)
+  allows. Negative gains are allowed \\
+\code{baselines: Vec<i32>} & the ADC values that correspond to 0 physical units.
+  Default: the \code{adczeros} values \\
+\code{adczeros: Vec<i32>} & the ADC output for an input of 0\,V. Default
+  \code{vec![0]} \\
+\code{adcres: Vec<i32>} & the ADC resolutions, in bits: required, each at least 1 \\
+\code{units: Vec<Option<Vec<u8>{}>{}>} & the physical units, such as
+  \code{Some("mV".into())}: required for every signal whose gain is not 0; \code{None}
+  for an uncalibrated signal \\
+\code{names: Vec<Vec<u8>{}>} & the signal descriptions. Default: empty descriptions \\
+\code{samps\_per\_frame: Vec<i32>} & the number of samples per frame of each signal, for a
+  multi-frequency record (each $\ge 1$). Default: 1 \\
+\code{base\_time: Option<Vec<u8>{}>} & the start time and date, such as
+  \code{"12:00:00 01/01/2020"} (see \code{setbasetime}). Default \code{None}: none \\
+\code{comments: Vec<Vec<u8>{}>} & the info strings, written to the header as comment lines
+  (\code{"\#"} followed by the string). Default: none \\
+\code{metadata: Vec<(Vec<u8>, Vec<u8>)>} & metadata entries (\cref{chap:metadata})
+  written to the header after the comments, as \code{\# Key: value} (through
+  \code{putinfo}), in this order. The keys and values follow the rules of
+  \code{set\_metadata}; no two keys may differ only in letter case, and none may be the
+  key of an entry in \code{comments} (an error, before any file is created). Default:
+  none \\
+\code{legacy: bool} & behave as the original WFDB package, for this call only: the gain
+  defaults to 200, and the ADC resolution to one based on the format. Default
+  \code{false} \\
+\code{dir: Option<PathBuf>} & the directory (which must exist) in which the files are
+  created, for this call only; the record name must then be a plain name, without a
+  directory, and the record opens from that directory under its plain name. Default
+  \code{None} (or an empty path): the output directory \\
+\end{xltabular}
+
+\begin{table}[htbp]
+\centering
+\caption{The fields of \code{AnnWriteOptions}, the options of
+  \code{write\_annotations\_with}}
+\label{tab:rust-annwriteoptions}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\code{dir: Option<PathBuf>} & the directory (which must exist) in which to create the
+  file, for this call only; the record name must then be a plain name, without a
+  directory: the file is \file{DIR/RECORD.ANNOTATOR}. Default \code{None}: the output
+  directory \\
+\code{sort: Option<bool>} & \code{Some(true)} always sorts annotations that are not in
+  time order, \code{Some(false)} keeps the given order, for this call only. Default
+  \code{None}: \code{WFDBANNSORT} decides (sorting is on unless it is \code{0}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{The fields of \code{MetadataOptions}, the options of the metadata functions whose
+  names end in \code{\_with}}
+\label{tab:rust-metadataoptions}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\code{input\_dir: Option<String>} & the input directory for reading the header, for this
+  call only (optional), as in \code{ReadOptions}: it applies to relative record names
+  only. Default \code{None}: the current setting \\
+\code{network: Option<bool>} & network access for this call only, as in
+  \code{ReadOptions}. Default \code{None}: the current setting \\
+\code{dir: Option<PathBuf>} & for \code{set\_metadata\_with},
+  \code{remove\_metadata\_with} and \code{update\_metadata\_with}: the directory (which
+  must exist; a \code{\textasciitilde} path is expanded) in which the changed header is
+  written, under the file name of the header that was read, instead of changing that
+  header. The header is then written even if nothing changes. The signal files are not
+  copied, and the output directory is not used. Not used by \code{read\_metadata\_with}
+  and \code{get\_metadata\_with}. Default \code{None} (or an empty path): the header is
+  changed where it was read \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{\code{TimeSpec}, a sample number or a time string}
+\label{tab:rust-timespec} \\
+\toprule
+\tabhead Item & \tabhead Meaning \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Item & \tabhead Meaning \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{TimeSpec::Sample(i64)} & a sample number \\
+\code{TimeSpec::Str(Vec<u8>)} & a time string, converted with \code{strtim} for the open
+  record \\
+\code{From<i64>}, \code{From<i32>}, \code{From<u32>}, \code{From<usize>} & the sample
+  number: \code{3600.into()} \\
+\code{From<\&str>}, \code{From<String>}, \code{From<\&[u8]>} & the time string:
+  \code{"0:10".into()} \\
+\code{fn resolve(\&self, w: \&mut Wfdb) -> i64} & the sample number; a time string is
+  converted with \code{strtim} for the record open in \code{w}, and a time of day gives
+  the elapsed time from the start of the record (the absolute value of what
+  \code{strtim} returns) \\
+\code{fn needs\_freq(\&self, w: \&mut Wfdb) -> bool} & \code{true} if the time is a
+  string that needs a sampling frequency to be converted (see
+  \code{wfdbx\_time\_needs\_freq}) \\
+\end{xltabular}
+
+% ------------------------------------------------------------------------------------------
+\subsection{The result types}
+\label{sec:rust-results}
+
+The readers return structures of the types \code{Record}, \code{Header} and
+\code{Annotations}, whose fields and methods are listed in
+\cref{tab:rust-record,tab:rust-header,tab:rust-annotations}; \code{check\_record} returns
+a \code{CheckReport}, which holds \code{Issue} values
+(\cref{tab:rust-checkreport,tab:rust-issue}). The signals of a record are described by
+\code{Siginfo} structures (\cref{tab:rust-siginfo}), which are those of the WFDB library
+(\cref{sec:rust-library}). Their fields are public, and may be changed. \code{Record},
+\code{Header} and \code{Annotations} implement \code{Clone}, \code{Debug}, \code{Default}
+and \code{PartialEq}; \code{CheckReport} and \code{Issue} implement \code{Clone},
+\code{Debug}, \code{PartialEq} and \code{Eq}.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields and methods of \code{Record}, the result of \code{read\_record}}
+\label{tab:rust-record} \\
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{name: Vec<u8>} & the record name, as given to \code{read\_record} \\
+\code{fs: f64} & the sampling frequency of the returned samples, in Hz, or 0 if the header
+  gives none; with \code{highres}, the highest sampling frequency of a multi-frequency
+  record \\
+\code{nsig: usize} & the number of signals returned \\
+\code{signals: Vec<usize>} & the number, in the record, of each signal returned \\
+\code{samples: Vec<i32>} & the samples in ADC units, frame by frame:
+  \code{samples[i * nsig + s]} is sample \code{i} of signal \code{s}; invalid samples are
+  \code{WFDB\_INVALID\_SAMPLE} \\
+\code{siginfo: Vec<Siginfo>} & one per signal returned, in the order of the signals;
+  \code{desc} has no white space at either end \\
+\code{base\_time: Option<String>} & the start time and date as text, to the second, such
+  as \code{"[14:00:03 21/06/2024]"}; \code{None} if the header gives none \\
+\code{base\_time\_ms: Option<i64>} & the start time in milliseconds after midnight
+  (\code{"14:00:03.500"} gives \code{50403500}); \code{Some} exactly when
+  \code{base\_time} is \\
+\code{base\_date: Option<[i32; 3]>} & the start date as \code{[year, month, day]};
+  \code{None} if the header gives no date \\
+\code{sampfrom: i64} & the number of the first sample returned \\
+\code{comments: Vec<Vec<u8>{}>} & the info strings of the record: the comments of the
+  header, and the lines of its \file{.info} file if it has one (see \code{getinfo}) \\
+\code{checksum\_ok: bool} & \code{false} if the samples do not match the checksums of the
+  header; checksums are checked only when a read reaches the end of the record, so a
+  shorter read gives \code{true} \\
+\code{legacy: bool} & \code{true} if the record was read in legacy mode;
+  \code{physical()} then uses a gain of 200 for uncalibrated signals \\
+\code{fn nsamples(\&self) -> usize} & the number of samples per signal (the number of
+  frames) \\
+\code{fn at(\&self, i: usize, s: usize) -> i32} & sample \code{i} of signal \code{s}, in
+  ADC units; panics if \code{i} or \code{s} is out of range \\
+\code{fn physical(\&self, i: usize, s: usize)} & a \code{Result<f64, Error>}: sample
+  \code{i} of signal \code{s} in physical units, $(\mathit{value} - \mathit{baseline}) /
+  \mathit{gain}$; NaN if the sample is invalid. An \code{Error} (``signal N of record REC
+  is uncalibrated'') if the gain of the signal is 0 \\
+\code{fn physical\_signal(\&self, s: usize)} & a \code{Result<Vec<f64>, Error>}: all the
+  samples of signal \code{s} in physical units (the same error) \\
+\code{fn names(\&self) -> Vec<Vec<u8>{}>} & the signal descriptions (empty if absent),
+  without the white space that a header may put at either end of them \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{Header}, the result of \code{read\_header} and
+  \code{read\_header\_with}}
+\label{tab:rust-header} \\
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{name: Vec<u8>} & the record name, as given \\
+\code{fs: f64} & the sampling frequency in Hz, as \code{sampfreq} gives it; 0 if the
+  header gives none \\
+\code{counter\_freq: f64} & the counter frequency (\code{getcfreq}) \\
+\code{base\_counter: f64} & the base counter value (\code{getbasecount}) \\
+\code{nsamples: i64} & the number of samples per signal, from the record line of the
+  header (0 if the header does not give it) \\
+\code{nsig: usize} & the number of signals \\
+\code{siginfo: Vec<Siginfo>} & the signal specifications, one per signal; \code{desc} has
+  no white space at either end \\
+\code{base\_time}, \code{base\_time\_ms}, \code{base\_date} & the start time and date, as
+  in \code{Record} \\
+\code{comments: Vec<Vec<u8>{}>} & the info strings of the record, as in \code{Record} \\
+\code{metadata: Vec<(Vec<u8>, Vec<u8>)>} & the metadata entries of the header, in file
+  order, as \code{read\_metadata} returns them: from the \file{.hea} file only; empty,
+  without an error, for an EDF record and for a header read from the standard input \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields and methods of \code{Annotations}, the result of
+  \code{read\_annotations} and the argument of \code{write\_annotations}: parallel
+  vectors, annotation \code{i} being \code{samples[i]}, \code{codes[i]},
+  \code{symbols[i]}, \ldots, in file order}
+\label{tab:rust-annotations} \\
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{record: Vec<u8>}, \code{annotator: Vec<u8>} & the record and annotator names, such
+  as \code{b"100s"} and \code{b"atr"} \\
+\code{fs: f64} & the frequency in which \code{samples} are counted, normally the sampling
+  frequency of the record; 0 if unknown. \code{write\_annotations} does not use it \\
+\code{samples: Vec<i64>} & the annotation times, in samples \\
+\code{codes: Vec<i32>} & the annotation codes, such as \code{NORMAL} or \code{PVC} \\
+\code{symbols: Vec<Vec<u8>{}>} & the mnemonics of the codes, as \code{annstr} returns them,
+  such as \code{b"N"}, \code{b"V"} or \code{b"+"} \\
+\code{subtypes: Vec<i32>}, \code{chans: Vec<i32>}, \code{nums: Vec<i32>} & the subtype,
+  channel number and annotator number of each annotation \\
+\code{aux: Vec<Option<Vec<u8>{}>{}>} & the auxiliary text of each annotation, without its
+  length byte and up to its first NUL byte, or \code{None} where there is none \\
+\code{fn len(\&self) -> usize} & the number of annotations \\
+\code{fn is\_empty(\&self) -> bool} & \code{true} if there are no annotations \\
+\end{xltabular}
+
+\begin{table}[htbp]
+\centering
+\caption{The fields and methods of \code{CheckReport}, the result of \code{check\_record}}
+\label{tab:rust-checkreport}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\code{record: Vec<u8>} & the record name, as given \\
+\code{ok: bool} & \code{true} if no issue has the severity \code{Severity::Error} \\
+\code{issues: Vec<Issue>} & the problems, in the order of the checks \\
+\code{fn lines(\&self) -> Vec<String>} & the text form of the report: one line per issue
+  (the \code{Display} form of the \code{Issue}), or the one line \code{no problems
+  found} \\
+\code{Display} & the lines of \code{lines()}, joined by line feeds (no final line feed) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{The fields of \code{Issue}, a problem found by \code{check\_record}, and of
+  \code{Severity}}
+\label{tab:rust-issue}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\code{severity: Severity} & \code{Severity::Error}, \code{Severity::Warning} or
+  \code{Severity::Info}; \code{as\_str()} and \code{Display} give \code{"error"},
+  \code{"warning"} or \code{"info"} \\
+\code{code: \&'static str} & a stable identifier of the kind of problem, such as
+  \code{"checksum"} or \code{"gain\_missing"} (\cref{tab:python-issue-codes}) \\
+\code{r\#where: String} & where the problem is: \code{""} (the record),
+  \code{"signal N"}, \code{"segment SEG"}, \code{"segment SEG, signal N"} or
+  \code{"annotator ANN"} (the field is named \code{where}, a keyword of Rust, written
+  \code{r\#where}) \\
+\code{message: String} & the description of the problem \\
+\code{Display} & \code{SEVERITY: WHERE: MESSAGE}, or \code{SEVERITY: MESSAGE} when
+  \code{where} is empty \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{Siginfo} (C's \code{WFDB\_Siginfo}), the specification of a
+  signal}
+\label{tab:rust-siginfo} \\
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{fname: Option<Vec<u8>{}>} & the name of the signal file, as the header gives it \\
+\code{desc: Option<Vec<u8>{}>} & the signal description, such as \code{b"MLII"} \\
+\code{units: Option<Vec<u8>{}>} & the physical units, such as \code{b"mV"}; \code{None} if
+  not specified \\
+\code{gain: f64} & the gain, in ADC units per physical unit (0: uncalibrated) \\
+\code{initval: i32} & the value of the first sample \\
+\code{group: u32} & the signal group number (the signals of one group share one file) \\
+\code{fmt: i32} & the storage format, such as \code{16}, \code{212} or \code{516} \\
+\code{spf: i32} & the number of samples per frame (more than 1 for the faster signals of a
+  multi-frequency record) \\
+\code{bsize: i32} & the block size, in bytes (0 for ordinary files) \\
+\code{adcres: i32} & the ADC resolution, in bits (0: not specified) \\
+\code{adczero: i32} & the ADC output for an input of 0\,V \\
+\code{baseline: i32} & the ADC value that corresponds to 0 physical units \\
+\code{nsamp: i64} & the number of samples (0: not specified) \\
+\code{cksum: i32} & the 16-bit checksum of the samples \\
+\end{xltabular}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Warnings and errors}
+\label{sec:rust-warnings}
+
+\paragraph{Errors.} Each high-level function returns a \code{Result}; its error type is
+\code{wfdbx::record::Error}, the one public item of the high-level API that is not
+available at the root of the crate. \code{e.message()} and \code{Display} give the
+message, which describes the failed operation, such as ``can't read record REC''; the
+type implements \code{std::error::Error}, \code{Clone}, \code{Debug} and \code{PartialEq},
+so it converts to \code{Box<dyn std::error::Error>} with the \code{?} operator. There is
+one error type: the messages tell the cases apart (\cref{tab:rust-errors}). Each function
+checks its arguments before it creates or changes a file, so an invalid argument leaves
+the files as they were. The library may also print a message of its own on the standard
+error when it cannot open a file (as in \code{init: can't open header for record REC});
+\code{wfdberror()} returns the last such message, and \code{wfdbquiet()} turns these
+messages off (\cref{sec:rust-library}). \code{Record::at}, like the indexing of the
+result vectors, panics on an index out of range.
+
+\begin{table}[htbp]
+\centering
+\caption{The kinds of errors of the high-level API}
+\label{tab:rust-errors}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Kind & \tabhead Messages \\
+\midrule
+files & a record, header or annotation file cannot be found, read, created or written
+  completely (for example on a full disk): ``can't read record REC'', ``can't read header
+  for record REC'', ``can't write header for record REC'', ``write error on record REC'',
+  ``directory D does not exist'', \ldots; a signal or annotation file ends before its
+  header or its end-of-file marker says (``\ldots(getvec status S)'', ``\ldots(getann
+  status S)'') \\
+arguments & an invalid argument or option, reported before anything is written (most
+  messages of \code{write\_record} and \code{write\_annotations} begin with the function's
+  name); for the metadata functions, an invalid key or value, a record name that is empty
+  or \code{"-"}, a key that the header has more than once, a header without a record
+  line, or a header read from a URL to be changed without \code{dir} \\
+missing values & the operation needs a value that the record does not give: a time in
+  seconds without a sampling frequency (``sampling frequency of record REC is not
+  specified''), physical units without a gain (``signal N of record REC is
+  uncalibrated'') \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Warnings.} Warnings are printed on the standard error with the library's
+messages, through \code{wfdb\_error}: \code{wfdbquiet()} silences them, and
+\code{wfdberror()} returns the last one. There is no callback.
+
+\paragraph{Settings.} Whether a function returns a result or an error, the library's
+settings are those it had before the call: the input and output directories, network
+access and legacy mode (set for the call by the options), and, for \code{read\_record},
+\code{read\_header}, \code{read\_annotations}, \code{write\_record},
+\code{write\_record\_physical}, \code{write\_annotations}, their \code{\_with} forms and
+\code{check\_record}, the getvec mode (\code{getgvmode()}) and the time resolution of
+output annotators (\code{getafreq()}), which opening an EDF record sets (the
+\code{WFDB\_HIGHRES} bit, and the record's sampling frequency when no resolution is set)
+and \code{wfdbquit()} does not reset. A later \code{write\_annotations} therefore records
+no frequency that an EDF record read before it left behind; its own \code{fs} applies to
+its file only.
+
+\paragraph{The checksum warning.} When \code{read\_record} reads to the end of a record
+whose samples do not match the checksums of its header, it returns all the samples and
+prints the warning ``WFDB-x: checksum error in record REC: the signal data do not match
+the checksums in its header''. \code{checksum\_warning: false} turns the warning off;
+\code{checksum\_ok} of the result is \code{false} either way.
+
+\paragraph{The duplicate-key warning.} When a header holds two metadata entries whose keys
+differ only in letter case (written by other software), \code{read\_metadata},
+\code{get\_metadata} and \code{read\_header} use the first and print the warning ``WFDB-x:
+header of record REC has more than one entry for key KEY (lines L1, L2); the first is
+used'' (KEY spelled as in its first entry). \code{set\_metadata} and
+\code{update\_metadata} then refuse to change that key (an \code{Error}), and
+\code{remove\_metadata} removes all of its entries.
+
+\begin{lstlisting}[language=Rust,style=example]
+// A record whose last sample is changed after it was written: the checksum fails.
+let x: Vec<i32> = (0..100).collect();
+let opt = WriteOptions {
+    gains: vec![100.0],
+    adcres: vec![12],
+    units: vec![Some("mV".into())],
+    ..Default::default()
+};
+write_record("ck", &x, 1, 100.0, &opt)?;
+let mut dat = std::fs::read("ck.dat")?;
+let n = dat.len();
+dat[n - 2] = 0;
+dat[n - 1] = 0;
+std::fs::write("ck.dat", &dat)?;
+let rec = read_record("ck", &ReadOptions::default())?; // prints the checksum warning
+println!("{} {}", rec.nsamples(), rec.checksum_ok); // 100 false: all the samples
+let quiet = ReadOptions { checksum_warning: false, ..Default::default() };
+let rec = read_record("ck", &quiet)?; // no warning
+
+// Two entries for one key: the first is used, with a warning.
+let dup = WriteOptions {
+    gains: vec![0.0],
+    adcres: vec![12],
+    comments: vec![" Age: 63".into(), " AGE: 64".into()],
+    ..Default::default()
+};
+write_record("dup", &[0; 10], 1, 100.0, &dup)?;
+let age = get_metadata("dup", "age")?.unwrap_or_default(); // with a warning
+println!("{}", s(&age)); // 63
+if let Err(e) = set_metadata("dup", "Age", "65") {
+    println!("{e}");
+    // header of record dup has more than one entry for key Age (lines 3, 4); remove
+    // them first
+}
+println!("{}", remove_metadata("dup", "age")?); // 2
+
+match read_record("nosuchrecord", &ReadOptions::default()) {
+    Err(e) => println!("{}", e.message()), // can't read record nosuchrecord
+    Ok(_) => {}
+}
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The WFDB library functions in Rust}
+\label{sec:rust-library}
+
+Every function of the WFDB library is a method of \code{Wfdb} and a free function of the
+crate, under its C name, with the same arguments, in the same order, and the same return
+values, so that programs and documentation written for the C library carry over
+directly. The functions, their arguments and their results are documented once, for all
+the languages, in \cref{chap:library}; this section gives the rules by which the C
+declarations become Rust functions (see also \cref{sec:library-rust}). The doc comment of
+each function summarizes it, and says what WFDB-x changes in it.
+
+\subsection{Conventions}
+
+\paragraph{The library state.} The state of the C library (the open record, its signals,
+the annotators, the WFDB path, the time base, \ldots) is held by a \code{Wfdb} value
+(\code{Wfdb::new()}), and each C function is a method of it with the C name:
+\code{w.isigopen(...)}, \code{w.getvec(...)}. Each method is also a free function with
+the same name and arguments (\code{wfdbx::isigopen(...)}), which uses the default
+\code{Wfdb} value of the calling thread; a free function must not be called from inside a
+closure given to \code{wfdbx::with\_default}, which borrows that value. Separate
+\code{Wfdb} values share no state, unlike the C library. The functions that use no state
+are free functions only (\code{wfdbldflags}, \code{wfdbcflags}, \code{wfdbx\_write\_errors},
+\code{isann}, \ldots; \cref{sec:library-rust}).
+
+\paragraph{Names and modules.} The functions, the constants (\code{WFDB\_READ},
+\code{WFDB\_INVALID\_SAMPLE}, \code{WFDB\_HIGHRES}, \ldots), the structures and the
+annotation codes (\code{NORMAL}, \code{PVC}, \ldots, \cref{chap:formats}) keep their C
+names, and are available at the root of the crate (\code{use wfdbx::*;}). They are
+defined in the modules of \cref{tab:rust-modules}. The macros of
+\file{<wfdb/ecgmap.h>} are functions (\code{isann}, \code{isqrs}, \code{map1}, \ldots,
+and \code{wfdb\_isann}, \code{wfdb\_isqrs}, \ldots).
+
+\begin{table}[htbp]
+\centering
+\caption{The modules of the crate \code{wfdbx}}
+\label{tab:rust-modules}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Module & \tabhead Contents \\
+\midrule
+\code{record} & the high-level functions of reading and writing, their option and result
+  types, and \code{Error} \\
+\code{check} & \code{check\_record}, \code{check\_record\_with}, \code{CheckReport},
+  \code{Issue}, \code{Severity} \\
+\code{metadata} & the metadata functions, \code{MetadataOptions}, \code{Metadata} \\
+\code{signal} & signals and headers (port of \file{lib/signal.c}) \\
+\code{annot} & annotations (\file{lib/annot.c}) \\
+\code{calib} & the calibration list (\file{lib/calib.c}) \\
+\code{wfdbio} & file names, the input and output directories, network access, error
+  messages, \code{WfdbFile} (\file{lib/wfdbio.c}) \\
+\code{wfdbinit} & \code{wfdbinit}, \code{wfdbquit}, \code{wfdbflush}
+  (\file{lib/wfdbinit.c}) \\
+\code{ecgcodes} & the annotation codes and the functions of \file{<wfdb/ecgmap.h>} \\
+\code{types} & the types, constants and structures of \file{<wfdb/wfdb.h>} \\
+\code{wfdb} & the type \code{Wfdb}, \code{with\_default}, \code{OptBytes}, \code{NULL} \\
+\code{cstd} & the C standard functions that the tools use, such as a \code{printf} that
+  formats numbers exactly as the GNU C library does (\code{cformat!}, \code{cprintf!}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Arguments.} String arguments are byte strings: they accept \code{\&str},
+\code{\&[u8]} or \code{b"..."}, and a byte string ends at its first NUL byte, as a C
+string does. Where C accepts \code{NULL}, they are \code{impl OptBytes}, which also
+accepts \code{Option<\&[u8]>}, \code{Option<\&str>} and \code{\&Option<Vec<u8>{}>};
+\code{wfdbx::NULL} is a typed \code{None}: \code{sampfreq(NULL)} returns the frequency of
+the open record, and \code{getinfo(NULL)} continues with the info strings of the last
+record. Where C fills an array, the caller passes a mutable slice
+(\code{isigopen(record, \&mut si, n)}, \code{getvec(\&mut v)}); an empty slice stands for
+C's \code{NULL} (\code{isigopen(record, \&mut [], 0)}); \code{osigopen(record, \&mut [], 0)}
+closes the open output signals (unless the record name begins with \code{+}), reads the
+header, opens nothing and returns 0. Where C fills a structure, the
+caller passes a mutable reference (\code{getann(0, \&mut annot)}). \code{getseginfo}
+takes an \code{\&mut Option<Vec<Seginfo>{}>}, which receives a copy of the segment table.
+
+\paragraph{Strings} are returned by value, as \code{Vec<u8>}, or as
+\code{Option<Vec<u8>{}>} where the C function may return \code{NULL} (\code{anndesc},
+\code{getinfo}, \code{wfdbfile}, \ldots); unlike C's pointers to static buffers, they stay
+valid after later calls. Text is handled as bytes.
+
+\paragraph{Return values and errors.} The functions return what the C functions return:
+an \code{i32} status (negative on errors), a number of signals, an \code{f64}, a string
+or \code{None}. Errors are reported by these values and by a message on the standard
+error, as in C, never by \code{Result} or panics. \code{wfdberror()} returns the last
+message; \code{wfdbquiet()} turns the messages off and \code{wfdbverbose()} on again.
+\code{wfdb\_error(msg)} takes a message already formatted, with the macro
+\code{cformat!} (which formats as C's \code{printf}), and \code{wfdb\_error\_fmt(fmt,
+args)} formats it.
+
+\paragraph{State.} As in C, a \code{Wfdb} value keeps its state between calls: the open
+record, its input signals, the output signals and the annotators remain open until
+\code{wfdbquit()} closes them. \code{wfdbquit()} leaves the input and output directories
+and the network setting as they are, and so, as in C, the time resolution of output
+annotators (\code{getafreq()}), which opening an EDF record sets to its sampling frequency
+when none is set, and the getvec mode (\code{getgvmode()}), to which it adds
+\code{WFDB\_HIGHRES}. Dropping a \code{Wfdb} value flushes its output
+buffers, as C's \code{exit} does, but does not close its records (no annotation end
+marks, no header updates): a program calls \code{wfdbquit()} before it ends. The
+high-level functions of \cref{sec:rust-api} (except the metadata functions) call
+\code{wfdbquit()} on the \code{Wfdb} value they use, which closes anything opened with the
+library functions on that value, and leave those two settings as they were.
+
+\paragraph{Additions.} \code{getvecs(buffer, n)} reads up to \code{n} sample vectors at
+once, with exactly the result of \code{n} calls of \code{getvec}, but decoding whole
+blocks of the signal files; \code{getvecs\_status(buffer, n)} also gives the status of
+the last \code{getvec} call (\cref{sec:library-additions}):
+\begin{lstlisting}[language=Rust]
+pub fn getvecs(out: &mut [i32], n: i64) -> i64
+pub fn getvecs_status(out: &mut [i32], n: i64) -> (i64, i32)
+\end{lstlisting}
+\code{WfdbFile} is C's \code{FILE *} (or \code{WFDB\_FILE}): \code{wfdb\_open} and
+\code{wfdb\_fopen} return an \code{Option<WfdbFile>}, whose methods (\code{getc},
+\code{read}, \code{fgets}, \code{write}, \code{seek}, \code{close}, \ldots) are those of
+the C standard library.
+
+\subsection{The structures}
+\label{sec:rust-structures}
+
+The structures of the C library have the names of the C structures without the prefix
+\code{WFDB\_}, and the C field names, with C's zero values as \code{Default}
+(\cref{tab:rust-structures}).
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The C structures in Rust}
+\label{tab:rust-structures} \\
+\toprule
+\tabhead Structure & \tabhead Fields \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Structure & \tabhead Fields \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{Siginfo} & \code{fname}, \code{desc}, \code{units} (\code{Option<Vec<u8>{}>}),
+  \code{gain}, \code{initval}, \code{group}, \code{fmt}, \code{spf}, \code{bsize},
+  \code{adcres}, \code{adczero}, \code{baseline}, \code{nsamp}, \code{cksum}
+  (\cref{tab:rust-siginfo}) \\
+\code{Seginfo} & \code{recname} (the name of the segment, \code{Vec<u8>}), \code{nsamp}
+  (its number of samples, \code{i64}), \code{samp0} (the number of its first sample in the
+  record, \code{i64}) \\
+\code{Anninfo} & \code{name} (the annotator name, \code{Vec<u8>}), \code{stat}
+  (\code{i32}: \code{WFDB\_READ} or \code{WFDB\_WRITE} for the MIT format,
+  \code{WFDB\_AHA\_READ} or \code{WFDB\_AHA\_WRITE} for the AHA format) \\
+\code{Annotation} & \code{time} (\code{i64}, in sample intervals), \code{anntyp}
+  (\code{i8}), \code{subtyp} (\code{i8}), \code{chan} (\code{u8}), \code{num}
+  (\code{i8}), \code{aux} (\code{Option<Vec<u8>{}>}: absent, or bytes whose first byte is
+  the length of the text that follows, as in C) \\
+\code{Calinfo} & \code{low}, \code{high} (the levels of the calibration pulse, in physical
+  units, \code{f64}), \code{scale} (physical units per cm), \code{sigtype} and
+  \code{units} (\code{Option<Vec<u8>{}>}), \code{caltype} (\code{i32}) \\
+\end{xltabular}
+
+The integer types follow the C reference platform: \code{WFDB\_Sample} and C's
+\code{int} are \code{i32}, \code{WFDB\_Time}, \code{WFDB\_Date} and C's \code{long} are
+\code{i64}, \code{WFDB\_Frequency} and \code{WFDB\_Gain} are \code{f64}, C's \code{char}
+is \code{i8}, and \code{WFDB\_Signal}, \code{WFDB\_Group} and \code{WFDB\_Annotator} are
+\code{u32}. C's wrap-around arithmetic is reproduced.
+
+\subsection{The settings functions}
+\label{sec:rust-settings}
+
+The functions of \cref{tab:rust-settings} are additions of WFDB-x to the library: they
+set where files are read and written, network access and legacy mode, for the
+high-level functions, the library functions and the tools alike
+(\cref{chap:files,chap:behavior}), and give the path under which a program opens a file
+that it reads or creates itself, as the tools do (\code{wfdbx\_input\_path},
+\code{wfdbx\_output\_path}; \cref{sec:tool-files}). Like the other library functions, each is a method of
+\code{Wfdb} and a free function, except \code{wfdbx\_write\_errors} and
+\code{wfdbx\_note\_write\_error} (free functions only: the count belongs to the process).
+Each \code{set} function returns the previous setting, so that it can be restored. The C
+function \code{setwfdb(p)} sets the input directory too (\code{p} must name at most one
+directory), and \code{getwfdb()} returns it (\code{"."} if none is set); in legacy mode
+they set and return the WFDB path, as in C.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The settings functions (the signatures of the free functions)}
+\label{tab:rust-settings} \\
+\toprule
+\tabhead Function & \tabhead Effect and result \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Function & \tabhead Effect and result \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{wfdbx\_set\_input\_dir(dir: impl OptBytes) -> Option<Vec<u8>{}>} & sets the input
+  directory: a local directory, a \code{\textasciitilde} path or a URL; \code{NULL} or
+  \code{""} restores the default (\code{WFDBX\_INPUT\_DIR}, or else the current
+  directory). Returns the previous input directory, or \code{None} if none was set \\
+\code{wfdbx\_get\_input\_dir() -> Option<Vec<u8>{}>} & returns the input directory, or
+  \code{None} if none is set \\
+\code{wfdbx\_set\_output\_dir(dir: impl OptBytes) -> Option<Vec<u8>{}>} & sets the output
+  directory: a local directory or a \code{\textasciitilde} path (a URL is refused, with a
+  message, and the setting is unchanged); \code{NULL} or \code{""} restores the default
+  (\code{WFDBX\_OUTPUT\_DIR}, or else the current directory). Returns the previous output
+  directory, or \code{None} \\
+\code{wfdbx\_get\_output\_dir() -> Option<Vec<u8>{}>} & returns the output directory, or
+  \code{None} if none is set \\
+\code{wfdbx\_set\_network(on: i32) -> i32} & turns network access on ($> 0$) or off (0);
+  a negative number restores the default (on if \code{WFDBX\_NETWORK} is a nonzero
+  number). Returns the previous setting, 1 or 0 \\
+\code{wfdbx\_get\_network() -> i32} & returns 1 if network access is on, 0 otherwise \\
+\code{wfdbx\_set\_legacy(on: i32) -> i32} & turns legacy mode on (nonzero) or off (0).
+  Returns the previous setting \\
+\code{wfdbx\_get\_legacy() -> i32} & returns 1 if legacy mode is on, 0 otherwise \\
+\code{wfdbx\_legacy\_args(argv: \&mut Vec<Vec<u8>{}>) -> i32} & if \code{argv[1]} is
+  \code{"-{}-legacy"}, removes it from the arguments, turns legacy mode on and returns 1;
+  otherwise returns 0. It also enables the exit check of the tools in
+  \code{cstd::exit} (an exit status of 0 becomes 1 after a write error, outside legacy
+  mode) \\
+\code{wfdbx\_time\_needs\_freq(string: impl AsRef<[u8]>) -> i32} & returns 1 if
+  \code{strtim(string)} needs a sampling frequency, 0 otherwise \\
+\code{wfdbx\_write\_errors() -> i32} & returns the number of write errors since the
+  program started (output files that could not be written, flushed or closed) \\
+\code{wfdbx\_note\_write\_error()} & counts a write error, for a program that writes a file
+  itself \\
+\code{wfdbx\_input\_path(name: impl OptBytes) -> Option<Vec<u8>{}>} & returns the path
+  under which a program opens a file that it reads itself: in normal mode, a relative
+  name under the input directory, a \code{\textasciitilde} name expanded, an absolute name
+  as given; in legacy mode, the name as given. \code{NULL}, \code{""} and \code{"-"} are
+  returned as given; \code{None} for a URL, or a name that becomes one under the input
+  directory \\
+\code{wfdbx\_output\_path(name: impl OptBytes) -> Option<Vec<u8>{}>} & returns the path
+  under which a program creates a file that it writes itself: in normal mode, a relative
+  name under the output directory (whose missing directories are then created), a
+  \code{\textasciitilde} name expanded, an absolute name as given; in legacy mode, any
+  name under the output directory, as a plain prefix. \code{NULL}, \code{""} and
+  \code{"-"} are returned as given; \code{None} for a URL \\
+\end{xltabular}
+
+\subsection{Examples}
+
+Reading the samples and the annotations of a record, as a C program does (the record
+\code{100s} is read from the current directory):
+
+\begin{lstlisting}[language=Rust,style=example]
+use wfdbx::*;
+
+fn main() {
+    let mut si = vec![Siginfo::default(); 2]; // receives one Siginfo per signal
+    let nsig = isigopen("100s", &mut si, 2); // open 2 signals
+    let desc = si[0].desc.clone().unwrap_or_default();
+    println!("{} {} {} {}", nsig, String::from_utf8_lossy(&desc), si[0].fmt, si[0].gain);
+    // 2 MLII 212 200
+    println!("{}", sampfreq(NULL)); // 360: the frequency of the open record
+
+    let mut v = [0i32; 2]; // receives one sample per signal
+    isigsettime(strtim("0:30")); // skip to 30 seconds
+    getvec(&mut v);
+    println!("{} {} {}", v[0], v[1], aduphys(0, v[0])); // 947 968 -0.385
+
+    let mut frames = vec![0i32; 360 * 2]; // the next second, in one call
+    let (n, status) = getvecs_status(&mut frames, 360);
+    println!("{n} {status}"); // 360 2
+
+    let ai = Anninfo { name: b"atr".to_vec(), stat: WFDB_READ };
+    annopen("100s", &[ai], 1);
+    let mut a = Annotation::default();
+    let mut count = 0;
+    while getann(0, &mut a) == 0 {
+        // 0: an annotation was read; -1: the end
+        if count < 2 {
+            let t = mstimstr(a.time);
+            println!("{} {}", String::from_utf8_lossy(&t), String::from_utf8_lossy(&annstr(a.anntyp as i32)));
+        }
+        count += 1;
+    }
+    println!("{count} annotations"); // 75 annotations
+
+    wfdbquiet(); // no messages on the standard error
+    let stat = isigopen("nosuchrecord", &mut [], 0);
+    print!("{} {}", stat, String::from_utf8_lossy(&wfdberror()));
+    // -1 init: can't open header for record nosuchrecord
+    wfdbverbose();
+    wfdbquit(); // close everything
+}
+\end{lstlisting}
+
+Writing a record and an annotation file, sample by sample and annotation by annotation:
+
+\begin{lstlisting}[language=Rust,style=example]
+use wfdbx::*;
+
+fn main() {
+    let out = Siginfo {
+        fname: Some(b"ramp.dat".to_vec()),
+        desc: Some(b"ramp".to_vec()),
+        units: Some(b"mV".to_vec()),
+        gain: 200.0,
+        fmt: 16,
+        adcres: 12,
+        ..Default::default()
+    };
+    println!("{}", osigfopen(&[out], 1)); // 1: one output signal
+    setsampfreq(250.0);
+    for k in 0..500 {
+        putvec(&[k]);
+    }
+    println!("{}", newheader("ramp")); // 0: ramp.hea is written
+    let ai = Anninfo { name: b"qrs".to_vec(), stat: WFDB_WRITE };
+    annopen("ramp", &[ai], 1);
+    for t in [100, 350] {
+        let a = Annotation { time: t, anntyp: NORMAL as i8, ..Default::default() };
+        putann(0, &a);
+    }
+    wfdbquit(); // completes ramp.dat and ramp.qrs
+}
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The command-line tools in Rust}
+\label{sec:rust-tools}
+
+The 33 command-line tools (\code{rdsamp}, \code{rdann}, \code{wrsamp}, \code{xform},
+\ldots) are separate programs of the crate, one per file of \file{rust/src/bin}, built in
+\file{rust/target/release/} (or installed in \file{\textasciitilde/.cargo/bin} by
+\cmd{cargo install}), and run by their names. Each follows its C program line by line.
+The tools, their options, their output and their exit status are those of the C tools,
+and are documented in \cref{chap:tools}.
+
+\begin{lstlisting}[style=shell]
+export PATH=$PWD/rust/target/release:$PATH
+export WFDBX_INPUT_DIR=tests/data     # run from the root of the repository
+rdsamp -r 100s -t 10 -p     # the first 10 seconds of 100s, in physical units
+rdann -r 100s -a atr        # its annotations
+rdsamp --legacy -r 100s     # legacy mode: --legacy as the first argument
+\end{lstlisting}
+
+There is no launcher: a tool is run by its own name, and it has no \opt{-{}-version}
+option, like the C tools. The tools have the same names as the original WFDB tools: if
+both are installed, the one that comes first in the \code{PATH} runs. When an output file
+or the standard output cannot be written (a full disk, for example), a tool reports it
+(``PROGRAM: write error on standard output'') and exits with status 1; with
+\opt{-{}-legacy}, it keeps the original exit status. A tool whose standard output is a
+closed pipe ends with status 141, as a C program ended by \code{SIGPIPE}.
+
+\paragraph{Environment variables.} The tools, like the rest of the library, use the
+environment variables of \cref{tab:rust-environment}, also for the files that they read
+or create themselves (\cref{sec:tool-files}): the \opt{-i} file of \cmd{wrsamp},
+\cmd{edf2mit}, \cmd{wav2mit}, \cmd{a2m} and \cmd{ad2m}, the input files of
+\cmd{ahaecg2mit} and the \opt{-S} script of \cmd{xform} are read from the input directory,
+and the WAV file of \cmd{mit2wav}, the EDF file of \cmd{mit2edf}, the master header of
+\cmd{snip -m} and the \file{.des}, \file{.ecg}, \file{.key} and \file{.txt} files of
+\cmd{parsescp} are created in the output directory. Such a file cannot be read from a URL.
+In legacy mode, the files that a tool reads itself are opened as named, and the output
+directory, if set, is a plain prefix of every output name.
+
+\begin{table}[htbp]
+\centering
+\caption{The environment variables used by the Rust library}
+\label{tab:rust-environment}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Variable & \tabhead Meaning \\
+\midrule
+\code{WFDBX\_INPUT\_DIR} & the input directory (a directory, a \code{\textasciitilde}
+  path or a URL), when \code{wfdbx\_set\_input\_dir} does not set one \\
+\code{WFDBX\_OUTPUT\_DIR} & the output directory, when \code{wfdbx\_set\_output\_dir} does
+  not set one \\
+\code{WFDBX\_NETWORK} & network access is on if it is a nonzero number, when
+  \code{wfdbx\_set\_network} does not set it \\
+\code{WFDBANNSORT} & \code{0} to keep annotation files in the order written (no sorting
+  when they are closed) \\
+\code{WFDBGVMODE} & the default getvec mode (\code{setgvmode} with a negative mode) \\
+\code{WFDBCAL} & the calibration file read by \code{calopen(NULL)} (default
+  \file{wfdbcal}) \\
+\code{WFDB} & the WFDB path, used in legacy mode only (outside legacy mode, it is
+  ignored, with a message) \\
+\code{HOME} (\code{USERPROFILE} on Windows) & the home directory, for
+  \code{\textasciitilde} paths \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Tools that write signal parameters require them as options: \code{wrsamp} (with
+\opt{-o}) requires \opt{-F} (frequency), \opt{-G} (gain), \opt{-R} (ADC resolution) and,
+for calibrated signals, \opt{-U} (units); \code{wav2mit} requires \opt{-G}, and \opt{-U}
+unless the gain is 0; \code{ad2m} and \code{ahaecg2mit} require \opt{-F}, \opt{-G},
+\opt{-R}, and \opt{-U} unless the gain is 0; \code{a2m}, \code{rdann}, \code{ann2rr},
+\code{sortann} and \code{m2a} require \opt{-F} when the record's header gives no
+frequency (\cref{chap:tools}).
+
+% ==========================================================================================
+\section{Testing}
+\label{sec:rust-testing}
+
+The tests of the Rust implementation are the unit tests of the modules, the integration
+tests of \file{rust/tests} and the examples of the doc comments (which read the sample
+record \code{100s} from \file{tests/data}). From the directory \file{rust}:
+
+\begin{lstlisting}[style=shell]
+cargo test --release                       # all the tests, and the doc examples
+cargo test --release --test metadata       # one file of rust/tests
+cargo test --release shared_cases          # selected tests, by name
+cargo clippy --release --all-targets       # lints
+\end{lstlisting}
+
+The integration tests cover the WFDB library functions (\file{signals.rs},
+\file{annotations.rs}, \file{wfdbio.rs}, \file{bulk.rs}, the C standard functions in
+\file{cstd.rs}), finding files and the settings (\file{files.rs}), network access
+(\file{network.rs}), the high-level functions, the metadata functions (\file{metadata.rs},
+with the cases shared by the seven languages, in \file{tests/metadata}) and
+\code{check\_record} (\file{check.rs}). They run in temporary copies of the test records
+of \file{tests/data}. The tests of network access use a local HTTP server on 127.0.0.1
+only, and need \cmd{curl}. The tests of \code{check\_record} write the corpus of
+\file{python/tests/check\_corpus.py} with \cmd{python3} (or the program named by the
+environment variable \code{PYTHON}), NumPy and the Python package of \file{python/src},
+and compare the reports with its \file{expected.txt}.
+\cmd{cargo run -{}-release -{}-example check\_cases DIR} prints the reports for a corpus in
+\file{DIR}.
+
+The cross-language conformance suite runs every tool and compares its results, byte for
+byte, with those of the original C programs (1135 cases), and, with \opt{-{}-legacy}, in
+legacy mode (883 cases). It runs the tools of \file{rust/target/release}:
+
+\begin{lstlisting}[style=shell]
+cargo build --release --manifest-path rust/Cargo.toml
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl rust -j8
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl rust -j8 --legacy
+\end{lstlisting}

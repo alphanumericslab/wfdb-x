@@ -42,9 +42,11 @@
 # original always wrote 500 Hz); signals and reference beats that could not be
 # allocated, and samples beyond the end of a signal shorter than lead 0, are
 # read as absent or as zeros (undefined behavior in the original); an output
-# file that cannot be written is reported (wfdbx_fclose_output); --legacy, as
-# the first argument, restores the original behavior. Each change is marked
-# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# file that cannot be written is reported (wfdbx_fclose_output); the .des,
+# .ecg, .key and .txt files are created under the output directory, as the
+# library creates an output file; --legacy, as the first argument, restores the
+# original behavior. Each change is marked "WFDB-x:" in the code;
+# docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -560,6 +562,14 @@ function _scp_write_wfdb_record(s::_Scp)
     1
 end
 
+# WFDB-x: open an output file of this program, creating it where the library
+# creates an output file of that name (under the output directory, if one is
+# set; see wfdbx_output_path).
+function _scp_wfopen(name::Vector{UInt8}, mode::String)
+    p = wfdbx_output_path(name)
+    p === nothing ? nothing : cfopen(p, mode)
+end
+
 function _scp_write_output(s::_Scp)
     isempty(s.recname) && (s.recname = Vector{UInt8}(b"ecg"))  # default record name
     recname = s.recname
@@ -567,18 +577,18 @@ function _scp_write_output(s::_Scp)
     ename = append!(copy(recname), b".ecg")
     kname = append!(copy(recname), b".key")
     tname = append!(copy(recname), b".txt")
-    dfile = cfopen(dname, "wb")
+    dfile = _scp_wfopen(dname, "wb")         # WFDB-x: _scp_wfopen
     if dfile === nothing
         ceprintf("%s: can't create '%s'\n", s.pname, dname)
         return 0
     end
-    efile = cfopen(ename, "wb")
+    efile = _scp_wfopen(ename, "wb")
     if efile === nothing
         fclose(dfile)
         ceprintf("%s: can't create '%s'\n", s.pname, ename)
         return 0
     end
-    kfile = cfopen(kname, "wb")
+    kfile = _scp_wfopen(kname, "wb")
     if kfile === nothing
         fclose(dfile)
         fclose(efile)
@@ -587,7 +597,7 @@ function _scp_write_output(s::_Scp)
     end
     tfile = nothing
     if s.vflag != 0
-        tfile = cfopen(tname, "wb")
+        tfile = _scp_wfopen(tname, "wb")
         if tfile === nothing
             fclose(dfile)
             fclose(efile)

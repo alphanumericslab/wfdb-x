@@ -14,7 +14,7 @@
 
 cmake_minimum_required(VERSION 3.14)
 
-project(wfdbx VERSION 1.1.0
+project(wfdbx VERSION 1.2.0
   DESCRIPTION "A reimplementation of the WFDB Software Package (library and command-line tools) in C++, part of WFDB-x: the same package in seven languages, tested to give byte-for-byte identical results"
   HOMEPAGE_URL "https://github.com/alphanumericslab/wfdb-x"
   LANGUAGES CXX)
@@ -106,10 +106,12 @@ if(WFDBX_BUILD_TESTS)
     target_compile_definitions(wfdbx_tests PRIVATE
       WFDBX_PYTHON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../python")
     if(WFDBX_BUILD_TOOLS)
-      # (the legacy annotation sorting tests run the sortann tool)
+      # (the legacy annotation sorting tests run the sortann tool, and the
+      # tests of the files the tools open themselves run wrsamp, mit2wav and
+      # mit2edf)
       target_compile_definitions(wfdbx_tests PRIVATE
         WFDBX_TOOLS_DIR="${CMAKE_BINARY_DIR}/bin")
-      add_dependencies(wfdbx_tests sortann)
+      add_dependencies(wfdbx_tests sortann wrsamp mit2wav mit2edf)
     endif()
   endif()
 endif()

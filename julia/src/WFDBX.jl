@@ -34,6 +34,9 @@ You can use it in three ways:
   [`write_record_physical`](@ref), [`write_annotations`](@ref). They throw
   a [`WfdbError`](@ref) when an operation fails. [`check_record`](@ref)
   checks a record and its annotation files and reports every problem.
+  [`read_metadata`](@ref), [`get_metadata`](@ref), [`set_metadata`](@ref),
+  [`remove_metadata`](@ref) and [`update_metadata`](@ref) read and change
+  the `Key: value` entries (metadata) of a header.
 * Command-line tools such as `rdsamp`, `rdann` and `wrsamp`, run through
   the driver script `bin/wfdbx.jl`. [`WFDBX.tools`](@ref) lists them, and
   [`WFDBX.run_tool`](@ref) runs one inside a Julia session.
@@ -90,6 +93,7 @@ include("calib.jl")
 include("wfdbinit.jl")
 include("wfdb.jl")          # WfdbLib: assembles the states of the files above
 include("highlevel.jl")
+include("metadata.jl")       # header metadata (read_metadata, set_metadata, ...)
 include("check.jl")          # check_record
 
 # The command-line tools: every src/apps/*.jl file defines <tool>_main.

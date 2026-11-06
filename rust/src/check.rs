@@ -1023,13 +1023,17 @@ impl Wfdb {
         let mut rep = Report::default();
         let legacy = self.wfdbx_set_legacy(0);
         let printing = self.wfdbx_set_error_print(false);
-        self.with_input(opt, |w| {
-            w.wfdbquit();
-            let length = w.check_record_signals(record, &mut rep);
-            for a in annotators {
-                w.check_annotator(record, a.as_bytes(), length, &mut rep);
-            }
-            w.wfdbquit();
+        // (WFDB-x: the getvec mode and the time resolution of output
+        // annotators are restored, as by read_record)
+        self.with_settings(|w| {
+            w.with_input(opt, |w| {
+                w.wfdbquit();
+                let length = w.check_record_signals(record, &mut rep);
+                for a in annotators {
+                    w.check_annotator(record, a.as_bytes(), length, &mut rep);
+                }
+                w.wfdbquit();
+            })
         });
         self.wfdbx_set_error_print(printing);
         self.wfdbx_set_legacy(legacy);
@@ -1268,8 +1272,13 @@ fn check_layout(ssi: &[Siginfo], si: &[Siginfo], prefix: &str, rep: &mut Report)
 /// The header, the signal specifications, the signal files (all samples
 /// are read) and the annotation files of `annotators` (such as `&["atr"]`;
 /// `&[]` for none) are checked. Problems in the record are reported, never
-/// returned as errors. `record` is a name in the input directory, or a full
-/// path, `~` path or URL (as for [`read_record`](crate::read_record)). Uses
+/// returned as errors. `record` is the record name, without the `.hea`
+/// extension (a trailing `.hea` is also accepted): a full path, absolute
+/// (`"/data/mitdb/100"`) or in the home directory (`"~/Documents/100s"`),
+/// used as given; a relative path (`"100s"`, `"data/100s"`), read from the
+/// input directory if one is set, otherwise from the current directory; or
+/// a URL (`"https://physionet.org/files/mitdb/1.0.0/100"`), read only if
+/// network access is on (as for [`read_record`](crate::read_record)). Uses
 /// the default [`Wfdb`] value of the thread.
 ///
 /// The result is a [`CheckReport`]: `report.ok` is `true` if there is no
@@ -1286,7 +1295,9 @@ fn check_layout(ssi: &[Siginfo], si: &[Siginfo], prefix: &str, rep: &mut Report)
 /// (something is missing or unusual, and may give wrong results) and
 /// [`Severity::Info`] (a fact worth knowing). The checks run in normal
 /// mode, even if legacy mode is on, and the library prints no messages
-/// during the call.
+/// during the call. The time resolution of output annotators
+/// ([`Wfdb::getafreq`]) and the `getvec` mode ([`Wfdb::getgvmode`]) are
+/// left as they were (opening an EDF record sets both).
 ///
 /// ```
 /// // The sample record 100s, the first minute of record 100 of the MIT-BIH
@@ -1317,7 +1328,8 @@ pub fn check_record(record: impl AsRef<[u8]>, annotators: &[&str]) -> Result<Che
 
 /// Checks a record and its annotation files, as [`check_record`] does,
 /// with the `input_dir` and `network` options of `opt` (for this call
-/// only). The other options are not used. Uses the default [`Wfdb`] value
+/// only; the input directory applies to relative record names, not to full
+/// paths or URLs). The other options are not used. Uses the default [`Wfdb`] value
 /// of the thread.
 ///
 /// # Errors

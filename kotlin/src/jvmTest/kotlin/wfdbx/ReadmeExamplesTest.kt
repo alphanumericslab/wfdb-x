@@ -182,4 +182,16 @@ class ReadmeExamplesTest {
         assertEquals(21600, n)
         assertTrue(out.toString().startsWith("18 +\n77 N\n370 N\n"))
     }
+
+    @Test
+    fun headerMetadata() = example { d ->
+        writeFile(d.path("rec.hea"), "rec 1 360 10\r\nrec.dat 16 200/mV 12 0 0 0 0 ECG\r\n# Age: 63\r\n# Sex: F\r\n")
+        assertEquals(listOf("Age" to "63", "Sex" to "F"), readMetadata("rec"))
+        assertEquals("63", getMetadata("rec", "age"))
+        setMetadata("rec", "Age", "64")
+        assertEquals(1, removeMetadata("rec", "Sex"))
+        updateMetadata("rec", mapOf("Age" to "65", "Dx" to null))
+        assertEquals(listOf("Age" to "65"), readHeader("rec").metadata)
+        assertEquals("rec 1 360 10\r\nrec.dat 16 200/mV 12 0 0 0 0 ECG\r\n# Age: 65\r\n", d.read("rec.hea")!!.latin1())
+    }
 }

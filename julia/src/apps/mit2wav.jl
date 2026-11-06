@@ -17,7 +17,9 @@
 # the original program, but it is new code, not the original C code.
 #
 # Changes from the original: no built-in sampling frequency: the record must
-# give it (the original assumed 250 Hz); --legacy, as the first argument,
+# give it (the original assumed 250 Hz); the WAV file is completed where the
+# library created it, under the output directory (the original rewrote a file
+# of that name in the current directory); --legacy, as the first argument,
 # restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
@@ -201,14 +203,21 @@ function mit2wav_main(args::Vector{String})
     # Clean up.
     wfdbquit()
 
-    # Prepend the header and format chunks to the new signal file.
+    # Prepend the header and format chunks to the new signal file. (WFDB-x:
+    # the signal file is where the library created it, under the output
+    # directory if one is set; see wfdbx_output_path.)
+    opath = wfdbx_output_path(ofname)
+    if opath === nothing
+        ceprintf("%s: can't create %s\n", pname, ofname)
+        cexit(1)
+    end
     data = UInt8[]
-    f = cfopen(ofname, "rb")
+    f = cfopen(opath, "rb")
     if f !== nothing
         data = read_to_end(f)
         fclose(f)
     end
-    f = cfopen(ofname, "wb")
+    f = cfopen(opath, "wb")
     if f !== nothing
         fwrite(f, hdr)
         fwrite(f, data)

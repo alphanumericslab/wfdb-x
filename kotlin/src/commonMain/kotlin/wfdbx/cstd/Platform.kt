@@ -115,6 +115,18 @@ internal expect object Platform {
     /** C `remove`: deletes a file; false on failure. */
     fun remove(path: ByteArray): Boolean
 
+    /**
+     * Replaces the file [dest] with [data] in one step (WFDB-x: for the
+     * header metadata functions): the data are written to a new temporary
+     * file in the directory of dest (named `.NAME.XXXXXXXX.tmp`), flushed
+     * to the disk, given the permission bits of dest if it exists (where
+     * the platform has them; a new file otherwise has those of any new
+     * file: 0666 less the umask), and renamed to dest, replacing it. On any
+     * failure the temporary file is removed and false is returned (dest is
+     * then unchanged).
+     */
+    fun replaceFile(dest: ByteArray, data: ByteArray): Boolean
+
     /** The identity of the existing file [path] (following links), or null. */
     fun pathId(path: ByteArray): FileId?
 

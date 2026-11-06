@@ -232,6 +232,41 @@ The tools use the environment variables.
   `..`, an absolute path, a `~` path or a URL is rejected (`init: file ...
   named in the header of record ... is not in the header's directory`).
   The null segment `~` of multi-segment records keeps its meaning.
+* **Files that a tool reads or creates itself** follow the same rules as
+  the files of the library. Some tools open a file directly, by the name
+  given on the command line, instead of through the library: the C
+  programs opened it relative to the current directory, so that, with an
+  input or output directory set, a tool read its records from one place
+  and its own files from another (`mit2wav` even left a 44-byte header in
+  the current directory and the samples, without a header, in the output
+  directory). In WFDB-x such a file is found, or created, exactly where the
+  library finds, or creates, a file of that name: a relative name under the
+  input directory (for reading) or the output directory (for writing),
+  whose missing directories are created; an absolute name or a `~` name as
+  given (`~` expanded); `-` as before. A URL cannot be opened this way (the
+  tool says that it cannot read, or create, the file). Messages name the
+  file as it was given. The files are:
+
+  | Tool | Reads | Creates |
+  |---|---|---|
+  | `wrsamp`, `edf2mit`, `wav2mit`, `a2m`, `ad2m` | the `-i` file | |
+  | `ahaecg2mit` | the input files (`.ecg`, `.txt`) | |
+  | `xform` | the `-S` script | |
+  | `wfdbdesc` | the first signal file, to compute the length of a record whose header gives none: in the header's directory, where the library reads it | |
+  | `mit2wav` | | the WAV file (`-o`), completed where the library wrote its samples |
+  | `mit2edf` | | the EDF file (`-o`, or `RECORD.edf`) |
+  | `snip` | | the master header of a multi-segment excerpt (`-m`) |
+  | `parsescp` | | the `.des`, `.ecg`, `.key` and `.txt` files (`-w`, `-v`) |
+
+  The library functions `wfdbx_input_path(name)` and
+  `wfdbx_output_path(name)` return these locations, for any program. In
+  legacy mode, a tool opens its input files as named, as the original did,
+  and the output directory, if one is set, is a prefix of the names of the
+  files it creates, as of every output file of the library (see
+  [Additions](#additions)). Without an input or output directory, nothing
+  changes, except that a `~` name is expanded (normal mode) and that
+  `wfdbdesc` looks for the signal file of a record in another directory in
+  that directory.
 * **Network access is off by default.** A URL is opened only when it has
   been turned on (`wfdbx_set_network(1)`, `WFDBX_NETWORK=1`, or the
   `network` option); otherwise the library says once that network access is
@@ -533,7 +568,9 @@ have no legacy counterpart:
   duration of the call. `wfdbquit` does not reset it. It prefixes relative
   names only; absolute and `~` names are used as given. In legacy mode it
   applies too, as a plain prefix of every output name, absolute names
-  included, since the original has no notion of an output directory.
+  included, since the original has no notion of an output directory. The
+  files that the tools create themselves follow the same rules (see
+  [Files are found only where they are named](#what-wfdb-x-does-instead)).
 * **A record checker.** `check_record(record, annotators)` checks a
   record's header, signal files and annotation files, and reports each
   problem it finds with a severity (error, warning or information): missing
@@ -602,6 +639,49 @@ have no legacy counterpart:
   in legacy mode too, since the high-level functions are not part of the
   original package. The C-style functions and the tools report these as
   the original does.
+* **The high-level functions leave the annotation time resolution and the
+  getvec mode as they were** (version 1.2.0). Opening an EDF record sets
+  the time resolution of output annotators (`setafreq`) to the record's
+  sampling frequency when none is set, and adds `WFDB_HIGHRES` to the
+  getvec mode (`setgvmode`), as in C, and `wfdbquit` resets neither: with
+  the C-style functions, an annotation file written later in the same
+  process records that frequency (`## time resolution: 360`), even for a
+  record that has none, and later records are read in high resolution.
+  `read_record`, `read_header`, `read_annotations`, `write_record`,
+  `write_annotations` and `check_record` restore both previous values
+  (`getafreq`, `getgvmode`) when they return, also on errors, so that
+  `read_header("100s.edf")` changes nothing for a later
+  `write_annotations` or C-style `getvec`; the `fs` argument of
+  `write_annotations` applies to its own file only. (The time resolutions of input annotators belong to
+  the annotators, which are closed when these functions return.) The
+  C-style functions keep the behavior of C (see
+  [`KNOWN_C_BEHAVIORS.md`](KNOWN_C_BEHAVIORS.md)).
+* **Header metadata** (version 1.2.0). Many datasets store facts about a
+  recording in the info strings of its header, as `Key: value` lines such
+  as `# Age: 63`. `read_metadata`, `get_metadata`, `set_metadata`,
+  `remove_metadata` and `update_metadata` read and change these entries
+  without changing anything else in the header (camelCase in Kotlin:
+  `readMetadata`, ...); `read_header` returns them, and `write_record`
+  writes them (its `metadata` argument). The info strings are those that
+  the C function `getinfo` reads from the `.hea` file (comment lines after
+  the record line); an entry is one that contains a colon, its key the
+  text before the first colon and its value the rest, both without spaces
+  at either end, so `#Age:45` and `# Age : 45` both give `Age` and `45`.
+  Keys are compared without regard to letter case, and a header must not
+  hold two entries whose keys differ only in case: reading such a header
+  returns the first (with a warning), and changing that key is refused,
+  except to remove it. Entries are written as `# Key: value`. A changed
+  entry keeps its position, a new one goes after the last info string, and
+  every other byte (free comments, signal lines and their checksums, line
+  endings) is kept; the header is replaced in one step, through a
+  temporary file. The `.info` file is not read. The C package has no
+  counterpart: `getinfo`, `putinfo` and `setinfo`, and the tools, are
+  unchanged, and the C library reads the changed headers as before
+  (`tests/metadata/check_c.py` checks this with the original programs).
+  Metadata often holds information about patients: WFDB-x stores it as
+  plain text, exactly as given, and does not de-identify it.
+  [`tests/metadata/README.md`](../tests/metadata/README.md) gives the
+  complete rules, which the seven implementations follow identically.
 
 ## Legacy mode
 
@@ -633,8 +713,10 @@ described above.
   loses annotations as the original does, an output file may be one of
   the input files, the whole record name is checked when a header is
   written, and headers name records and files as given. The input directory and `WFDBX_NETWORK` are not used in
-  legacy mode, which reads no remote files; the output directory is used
-  (see [Additions](#additions)).
+  legacy mode, which reads no remote files, and the tools open the files
+  that they read themselves as named; the output directory is used, also
+  for the files that the tools create themselves (see
+  [Additions](#additions)).
 * **High-level API** (an addition of WFDB-x, not part of the C package).
   `read_record`, `read_header`, `read_annotations`, `write_record` and the
   related functions of each language take a legacy option. When the option
@@ -650,7 +732,7 @@ described above.
 
 Legacy mode reproduces the original package exactly, and it is tested
 against its results: the legacy suite of the conformance tests
-([`tests/conformance/legacy`](../tests/conformance/README.md), 877 cases, run
+([`tests/conformance/legacy`](../tests/conformance/README.md), 883 cases, run
 with `harness.py check --legacy`) runs the original package's cases with
 `--legacy` and compares them with results produced by the unmodified C
 package, and the library's legacy values are checked in

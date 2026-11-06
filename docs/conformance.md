@@ -113,6 +113,13 @@ Add calls to `case(tool, args, ...)` in `cases.py`, regenerate the golden
 results of the new cases (`harness.py golden --cbin ... CASE_IDS`), and check
 them in. A case must not depend on the current date or time.
 
+A case of the modern suite can run a tool in legacy mode by giving
+`--legacy` as its first argument, for legacy behavior that the original
+package does not have (the output directory of WFDB-x, used as a prefix in
+legacy mode: the `toolfiles-*-legacy-*` cases); its results, like those of
+every case of the modern suite, come from the C reference with the
+divergences. The legacy suite has 883 cases and the modern suite 1135.
+
 A case whose input makes the C tool crash, or fail in a way that depends on
 the machine, cannot have results from C. Such a case names, with
 `golden_impl`, the WFDB-x implementation whose results are recorded instead

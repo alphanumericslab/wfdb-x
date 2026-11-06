@@ -229,6 +229,98 @@ assert_eq(wfdbx.getcal([], []), -1, 'flushcal');
 
 write_annotations_write_error();
 signed_char_fields();
+highlevel_keeps_afreq();
+for previous = [wfdbx.WFDB_LOWRES(), wfdbx.WFDB_HIGHRES(), ...
+        wfdbx.WFDB_LOWRES() + wfdbx.WFDB_GVPAD()]
+    highlevel_keeps_gvmode(previous);
+end
+end
+
+function highlevel_keeps_afreq()
+% WFDB-x: the high-level functions leave the time resolution of output
+% annotators (getafreq) as it was, also after an EDF record, whose opening
+% sets it (as in C), and on errors; the C-style functions keep the
+% behavior of C
+wfdbx.setafreq(0);
+gvmode = wfdbx.getgvmode();     % (also set by opening an EDF record)
+q = onCleanup(@() settings_end(gvmode)); %#ok<NASGU>
+wfdbx.write_annotations('nohdr', 'a1', [10 20], 'symbols', 'N');
+expected = readfile('nohdr.a1');
+hdr = wfdbx.read_header('100s.edf');
+assert_eq([hdr.fs wfdbx.getafreq()], [360 0], 'read_header keeps afreq');
+wfdbx.write_annotations('nohdr', 'a2', [10 20], 'symbols', 'N');
+assert_eq(readfile('nohdr.a2'), expected, 'no time resolution: 360 Hz');
+wfdbx.read_record('100s.edf', 'sampto', 10);
+assert_eq(wfdbx.getafreq(), 0, 'read_record keeps afreq');
+r = wfdbx.check_record('100s.edf');
+assert_eq([isstruct(r) wfdbx.getafreq()], [1 0], 'check_record keeps afreq');
+wfdbx.wfdbquiet();
+failed = false;
+try
+    wfdbx.read_annotations('100s.edf', 'atr');     % (no annotation file)
+catch
+    failed = true;
+end
+wfdbx.wfdbverbose();
+assert_eq([failed wfdbx.getafreq()], [1 0], ...
+    'read_annotations keeps afreq on errors');
+% a value that was set is kept
+wfdbx.setafreq(1000);
+wfdbx.read_header('100s.edf');
+assert_eq(wfdbx.getafreq(), 1000, 'read_header keeps afreq 1000');
+wfdbx.write_annotations('nohdr', 'a3', [10 20], 'symbols', 'N', 'fs', 500);
+assert_eq(wfdbx.getafreq(), 1000, 'write_annotations fs keeps afreq 1000');
+wfdbx.setafreq(0);
+wfdbx.write_annotations('nohdr', 'a3', [10 20], 'symbols', 'N', 'fs', 500);
+assert_eq(wfdbx.getafreq(), 0, 'write_annotations fs keeps afreq 0');
+% the C-style functions: as in C, opening the EDF record sets it, and
+% wfdbquit does not reset it
+assert_eq(wfdbx.isigopen('100s.edf', 0) > 0, true, 'isigopen 100s.edf');
+wfdbx.wfdbquit();
+assert_eq(wfdbx.getafreq(), 360, 'isigopen of an EDF record sets afreq');
+end
+
+function highlevel_keeps_gvmode(previous)
+% WFDB-x: the high-level functions leave the getvec mode (getgvmode) as it
+% was, also after an EDF record, whose opening sets WFDB_HIGHRES (as in
+% C), and on errors; the C-style functions keep the behavior of C
+gvmode = wfdbx.getgvmode();
+q = onCleanup(@() settings_end(gvmode)); %#ok<NASGU>
+what = sprintf(' keeps gvmode %d', previous);
+wfdbx.setgvmode(previous);
+wfdbx.read_header('100s.edf');
+assert_eq(wfdbx.getgvmode(), previous, ['read_header' what]);
+wfdbx.wfdbquiet();
+try
+    wfdbx.read_annotations('100s.edf', 'atr');     % (no annotation file)
+catch
+end
+wfdbx.wfdbverbose();
+assert_eq(wfdbx.getgvmode(), previous, ['read_annotations (error)' what]);
+wfdbx.read_annotations('100s', 'atr');
+assert_eq(wfdbx.getgvmode(), previous, ['read_annotations' what]);
+wfdbx.read_record('100s.edf', 'sampto', 10);
+assert_eq(wfdbx.getgvmode(), previous, ['read_record' what]);
+r = wfdbx.check_record('100s.edf'); %#ok<NASGU>
+assert_eq(wfdbx.getgvmode(), previous, ['check_record' what]);
+wfdbx.write_annotations('nohdr', 'a1', [10 20], 'symbols', 'N');
+assert_eq(wfdbx.getgvmode(), previous, ['write_annotations' what]);
+wfdbx.write_record('kgv', [1 2; 3 4], 250, 'fmt', 16, 'gains', 200, ...
+    'units', 'mV', 'adcres', 12);
+assert_eq(wfdbx.getgvmode(), previous, ['write_record' what]);
+% the C-style functions: as in C, the EDF record sets WFDB_HIGHRES, and
+% wfdbquit does not reset it
+assert_eq(wfdbx.isigopen('100s.edf', 0) > 0, true, 'isigopen 100s.edf');
+wfdbx.wfdbquit();
+assert_eq(bitand(wfdbx.getgvmode(), wfdbx.WFDB_HIGHRES()) ~= 0, true, ...
+    'isigopen of an EDF record sets WFDB_HIGHRES');
+end
+
+function settings_end(gvmode)
+wfdbx.setafreq(0);
+wfdbx.wfdbquit();
+wfdbx.setgvmode(gvmode);
+wfdbx.wfdbverbose();
 end
 
 function signed_char_fields()

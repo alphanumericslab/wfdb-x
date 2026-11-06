@@ -11,7 +11,9 @@ Changes from the original: no built-in sampling frequency, gain, ADC resolution
 or units: an unspecified sampling frequency or ADC resolution is shown as "not
 specified" (lengths are then given in sample intervals only), a gain of 0 as
 "uncalibrated" (the original: "uncalibrated; assume 200"), and unspecified
-units as "adu/nd" (the original assumed 250 Hz, 12 bits and millivolts);
+units as "adu/nd" (the original assumed 250 Hz, 12 bits and millivolts); the
+size of a signal file of unknown length is measured in the header's directory,
+where the library reads it (the original looked in the current directory);
 --legacy, as the first argument, restores the original behavior. Each change is
 marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
@@ -33,7 +35,21 @@ from wfdbx._cstd import cdiv
 from ._common import Output, Exit, eprintf, legacy, run
 
 
+def _signal_file(record, fname):
+    """The path of the signal file fname named in the header of record, to
+    measure its length.  WFDB-x: in normal mode, where the library reads it,
+    i.e., in the directory of the header (the directory part of the record
+    name, under the input directory if one is set; see wfdbx_input_path);
+    None if it cannot be opened in this way (a URL).  In legacy mode, as
+    named, as the C program did (relative to the current directory)."""
+    if legacy() or fname == "-":
+        return fname
+    k = record.rfind("/")
+    return w.wfdbx_input_path(record[:k + 1] + fname)
+
+
 def _main(argv, out):
+
     pname = argv[0]
     argc = len(argv)
     msrec = 0
@@ -88,10 +104,12 @@ def _main(argv, out):
         done = True
     elif s[0].fmt:
         try:
-            nbytes = os.path.getsize(s[0].fname) if \
-                os.path.isfile(s[0].fname) else None
+            fpath = _signal_file(rec, s[0].fname)
+            nbytes = os.path.getsize(fpath) if \
+                fpath is not None and os.path.isfile(fpath) else None
         except OSError:
             nbytes = None
+
         if nbytes is not None:
             nbytes -= w.wfdbgetstart(0)
             framesize = 0

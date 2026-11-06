@@ -38,9 +38,11 @@
 // original always wrote 500 Hz); signals and reference beats that could not be
 // allocated, and samples beyond the end of a signal shorter than lead 0, are
 // read as absent or as zeros (undefined behavior in the original); an output
-// file that cannot be written is reported, and the exit status is then 1;
-// --legacy, as the first argument, restores the original behavior. Each change
-// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// file that cannot be written is reported, and the exit status is then 1; the
+// .des, .ecg, .key and .txt files are created under the output directory, as
+// the library creates an output file; --legacy, as the first argument, restores
+// the original behavior. Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -509,18 +511,21 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
         val ename = bcat(rn, ".ecg".latin1())
         val kname = bcat(rn, ".key".latin1())
         val tname = bcat(rn, ".txt".latin1())
-        val dfile = WfdbFile.fopen(dname, "wb")
+        // WFDB-x: the files are created where the library creates an output
+        // file of that name (see wfdbx_output_path)
+        fun create(name: ByteArray): WfdbFile? = wf.wfdbx_output_path(name)?.let { WfdbFile.fopen(it, "wb") }
+        val dfile = create(dname)
         if (dfile == null) {
             eprintf("%s: can't create '%s'\n", pname, dname)
             return 0
         }
-        val efile = WfdbFile.fopen(ename, "wb")
+        val efile = create(ename)
         if (efile == null) {
             dfile.close()
             eprintf("%s: can't create '%s'\n", pname, ename)
             return 0
         }
-        val kfile = WfdbFile.fopen(kname, "wb")
+        val kfile = create(kname)
         if (kfile == null) {
             dfile.close()
             efile.close()
@@ -529,7 +534,7 @@ private class Scp(val wf: Wfdb, val pname: ByteArray) {
         }
         var tfile: WfdbFile? = null
         if (vflag != 0) {
-            tfile = WfdbFile.fopen(tname, "wb")
+            tfile = create(tname)
             if (tfile == null) {
                 dfile.close()
                 efile.close()

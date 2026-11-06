@@ -11,9 +11,10 @@
 // Changes from the original: no built-in sampling frequency: the input record
 // must give it, for the header of the excerpt (the original assumed 250 Hz);
 // a master header that cannot be written is reported, and the exit status is
-// then 1; --legacy, as the first argument, restores the original behavior.
-// Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-// reasons.
+// then 1; the master header of -m is created under the output directory, as the
+// library creates an output file; --legacy, as the first argument, restores the
+// original behavior. Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/snip.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -144,7 +145,9 @@ private fun Wfdb.copySig(sn: Snip, nrec: ByteArray, irec: ByteArray, from: Long,
         val sfreq = sampfreq(null)
 
         val ohfname = bcat(nrec, ".hea".latin1())
-        val ohfile = WfdbFile.fopen(ohfname, "wb")
+        // WFDB-x: the master header is created where the library creates an
+        // output file of that name (see wfdbx_output_path)
+        val ohfile = wfdbx_output_path(ohfname)?.let { WfdbFile.fopen(it, "wb") }
         if (ohfile == null) {
             eprintf("%s: can't create master header\n", sn.pname)
             sn.exit(2)

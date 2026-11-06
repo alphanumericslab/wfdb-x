@@ -34,9 +34,10 @@
 // record name is checked; write errors are counted (wfdbx_write_errors);
 // additions: wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
 // wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
-// wfdbx_write_errors, wfdbx_note_write_error and wfdbx_fclose_output; legacy
-// mode (wfdbx_set_legacy) restores the original behavior (the WFDB path,
-// without network access). Each change is marked "WFDB-x:" in the code;
+// wfdbx_write_errors, wfdbx_note_write_error, wfdbx_fclose_output,
+// wfdbx_input_path and wfdbx_output_path (where a program opens the files that
+// it reads or creates itself); legacy mode (wfdbx_set_legacy) restores the
+// original behavior (the WFDB path, without network access). Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -1269,7 +1270,7 @@ pub(crate) fn wfdbx_dirname(s: &[u8]) -> Vec<u8> {
 /// that user (if there is no such user, `s` is unchanged), as Python's
 /// `os.path.expanduser` does. (The users' home directories are those of
 /// `/etc/passwd`.)
-fn expand_home(s: &[u8]) -> Vec<u8> {
+pub(crate) fn expand_home(s: &[u8]) -> Vec<u8> {
     if s.first() != Some(&b'~') {
         return s.to_vec();
     }
@@ -2067,6 +2068,117 @@ impl Wfdb {
         Some(self.resolve(&r, true))
     }
 
+    // WFDB-x: files that a program opens itself. Decided by Reza Sameni, Nov
+    // 2026: a file named to a tool is found, or created, where the library
+    // finds, or creates, a file of that name, so that the input and output
+    // directories apply to every file a tool reads or writes.
+
+    /// Returns the path under which a program opens a file that it reads
+    /// itself, rather than through the library.
+    ///
+    /// The file is found where [`Wfdb::wfdb_open`] finds a file of that name
+    /// (with an empty file type): in normal mode, a relative name under the
+    /// input directory, if one is set (see [`Wfdb::wfdbx_set_input_dir`]), a
+    /// `~` name expanded, and an absolute name as given; in legacy mode, the
+    /// name as given. The tools use it for the files named on their command
+    /// line that they read themselves, such as the `-i` file of `wrsamp`.
+    ///
+    /// `name` is a file name; `None`, `""` and `"-"` (the standard input, if
+    /// the program treats it so) are returned as given (`None` as `None`).
+    /// Returns `None` if `name` is a URL, or becomes one when the input
+    /// directory is prefixed to it: such a file cannot be opened in this way.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut w = wfdbx::Wfdb::new();
+    /// w.wfdbx_set_input_dir("data");
+    /// assert_eq!(w.wfdbx_input_path("samples.txt").as_deref(), Some(&b"data/samples.txt"[..]));
+    /// ```
+    ///
+    /// Part of WFDB-x; not in the original WFDB package (C:
+    /// wfdbx_input_path).
+    pub fn wfdbx_input_path(&mut self, name: impl OptBytes) -> Option<Vec<u8>> {
+        let name = cstd::cstr(name.opt_bytes()?);
+        if is_url(name) {
+            return None;
+        }
+        if name.is_empty() || name == b"-" || self.wfdbx_get_legacy() != 0 {
+            return Some(name.to_vec());
+        }
+        let r = self.resolve(name, false);
+        if is_url(&r) {
+            None
+        } else {
+            Some(r)
+        }
+    }
+
+    /// Returns the path under which a program creates a file that it writes
+    /// itself, rather than through the library.
+    ///
+    /// The file is created where [`Wfdb::wfdb_open`] creates a file of that
+    /// name (with an empty file type): in normal mode, a relative name under
+    /// the output directory, if one is set (see
+    /// [`Wfdb::wfdbx_set_output_dir`]), a `~` name expanded, and an absolute
+    /// name as given; in legacy mode, any name under the output directory, if
+    /// one is set, used as a plain prefix. When the output directory has been
+    /// prefixed to the name, the directories missing in the resulting path
+    /// are created (at each `/`, as for the output files of the library;
+    /// errors are ignored: opening the file then fails). The tools use it for
+    /// the files they create themselves, such as the WAV file of `mit2wav`.
+    ///
+    /// `name` is a file name; `None`, `""` and `"-"` (the standard output, if
+    /// the program treats it so) are returned as given (`None` as `None`).
+    /// Returns `None` if `name` is a URL (which cannot be written).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let mut w = wfdbx::Wfdb::new();
+    /// w.wfdbx_set_output_dir("out");   // (creates out if it is missing)
+    /// assert_eq!(w.wfdbx_output_path("notes.txt").as_deref(), Some(&b"out/notes.txt"[..]));
+    /// ```
+    ///
+    /// Part of WFDB-x; not in the original WFDB package (C:
+    /// wfdbx_output_path).
+    pub fn wfdbx_output_path(&mut self, name: impl OptBytes) -> Option<Vec<u8>> {
+        let name = cstd::cstr(name.opt_bytes()?);
+        if is_url(name) {
+            return None;
+        }
+        if name.is_empty() || name == b"-" {
+            return Some(name.to_vec());
+        }
+        self.init_output_dir();
+        let (r, prefixed) = if self.wfdbx_get_legacy() != 0 {
+            match &self.io.output_dir {
+                Some(d) => {
+                    let mut r = d.clone();
+                    r.push(DSEP);
+                    r.extend_from_slice(name);
+                    (r, true)
+                }
+                None => (name.to_vec(), false),
+            }
+        } else {
+            let prefixed = self.io.output_dir.is_some()
+                && name.first() != Some(&b'~')
+                && !is_absolute_path(name);
+            (self.resolve(name, true), prefixed)
+        };
+        if prefixed {
+            // create the missing directories (only at '/' separators, as for
+            // the output files of the library; errors are ignored)
+            for i in 1..r.len() {
+                if r[i] == b'/' {
+                    mkdir(&r[..i]);
+                }
+            }
+        }
+        Some(r)
+    }
+
     /// Records `msg` as the latest error (as `wfdb_error` does), without
     /// printing it (WFDB-x: for a message that a high-level function
     /// replaces with its own).
@@ -2709,6 +2821,25 @@ pub fn wfdbx_set_network(on: i32) -> i32 {
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn wfdbx_get_network() -> i32 {
     with_default(|w| w.wfdbx_get_network())
+}
+
+/// Returns the path under which a program opens a file that it reads
+/// itself, with the settings of the default `Wfdb` value of the thread (see
+/// [`Wfdb::wfdbx_input_path`]).
+///
+/// Part of WFDB-x; not in the original WFDB package (C: wfdbx_input_path).
+pub fn wfdbx_input_path(name: impl OptBytes) -> Option<Vec<u8>> {
+    with_default(|w| w.wfdbx_input_path(name))
+}
+
+/// Returns the path under which a program creates a file that it writes
+/// itself, with the settings of the default `Wfdb` value of the thread (see
+/// [`Wfdb::wfdbx_output_path`]); the missing directories are created when
+/// the output directory is prefixed.
+///
+/// Part of WFDB-x; not in the original WFDB package (C: wfdbx_output_path).
+pub fn wfdbx_output_path(name: impl OptBytes) -> Option<Vec<u8>> {
+    with_default(|w| w.wfdbx_output_path(name))
 }
 
 /// `wfdb_open(type, record, mode)` on the default instance.

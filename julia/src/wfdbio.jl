@@ -25,10 +25,11 @@
 # the tools exit with status 1 after one (see cli.jl); additions:
 # wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
 # wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
-# wfdbx_write_errors, wfdbx_note_write_error and wfdbx_fclose_output; legacy
-# mode (wfdbx_set_legacy) restores the original behavior (the WFDB path,
-# without network access). Each change is marked "WFDB-x:" in the code;
-# docs/DIVERGENCES.md gives the reasons.
+# wfdbx_write_errors, wfdbx_note_write_error, wfdbx_fclose_output,
+# wfdbx_input_path and wfdbx_output_path (where a program opens the files that
+# it reads or creates itself); legacy mode (wfdbx_set_legacy) restores the
+# original behavior (the WFDB path, without network access). Each change is
+# marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
@@ -1790,6 +1791,103 @@ function wfdbx_output_file(w::Wfdb, name::OptByteStr)
     _is_url(r) ? nothing : _resolve(w, r, true)
 end
 
+# WFDB-x: files that a program opens itself. Decided by Reza Sameni, Nov
+# 2026: a file named to a tool is found, or created, where the library finds,
+# or creates, a file of that name, so that the input and output directories
+# apply to every file a tool reads or writes.
+"""
+    wfdbx_input_path([w], name) -> Union{Vector{UInt8},Nothing}
+
+Return the path under which a program opens a file that it reads itself,
+rather than through the library.
+
+The file is found where [`wfdb_open`](@ref) finds a file of that name (with
+an empty file type): in normal mode, a relative name under the input
+directory, if one is set (see [`wfdbx_set_input_dir`](@ref)), a `~` name
+expanded, and an absolute name as given; in legacy mode, the name as given.
+The tools use it for the files named on their command line that they read
+themselves, such as the `-i` file of `wrsamp`.
+
+`name` is a file name; `nothing` is returned for `nothing`, and `""` and
+`"-"` (the standard input, if the program treats it so) are returned as
+given. The result is the path to open, as bytes, or `nothing` if `name` is a
+URL, or becomes one when the input directory is prefixed to it: such a file
+cannot be opened in this way.
+
+# Examples
+Reads a text file from the input directory:
+```julia-repl
+julia> wfdbx_set_input_dir("data");
+
+julia> String(wfdbx_input_path("samples.txt"))
+"data/samples.txt"
+```
+
+Part of WFDB-x; not in the original WFDB package.
+"""
+function wfdbx_input_path(w::Wfdb, name::OptByteStr)
+    name === nothing && return nothing
+    n = copy(cstr(bytes(name)))
+    _is_url(n) && return nothing
+    (isempty(n) || n == b"-" || _legacy(w)) && return n
+    r = _resolve(w, n, false)
+    _is_url(r) ? nothing : r
+end
+
+"""
+    wfdbx_output_path([w], name) -> Union{Vector{UInt8},Nothing}
+
+Return the path under which a program creates a file that it writes itself,
+rather than through the library.
+
+The file is created where [`wfdb_open`](@ref) creates a file of that name
+(with an empty file type): in normal mode, a relative name under the output
+directory, if one is set (see [`wfdbx_set_output_dir`](@ref)), a `~` name
+expanded, and an absolute name as given; in legacy mode, any name under the
+output directory, if one is set, used as a plain prefix. When the output
+directory has been prefixed to the name, the directories missing in the
+resulting path are created, as for the output files of the library. The
+tools use it for the files they create themselves, such as the WAV file of
+`mit2wav`.
+
+`name` is a file name; `nothing` is returned for `nothing`, and `""` and
+`"-"` (the standard output, if the program treats it so) are returned as
+given. The result is the path to create, as bytes, or `nothing` if `name` is
+a URL (which cannot be written).
+
+# Examples
+Writes a text file in the output directory:
+```julia-repl
+julia> wfdbx_set_output_dir("out");
+
+julia> write(String(wfdbx_output_path("notes.txt")), "checked\\n");   # out/notes.txt
+```
+
+Part of WFDB-x; not in the original WFDB package.
+"""
+function wfdbx_output_path(w::Wfdb, name::OptByteStr)
+    name === nothing && return nothing
+    n = copy(cstr(bytes(name)))
+    _is_url(n) && return nothing
+    (isempty(n) || n == b"-") && return n
+    _init_output_dir!(w)
+    d = w.io.output_dir
+    if _legacy(w)
+        (d === nothing || isempty(d)) && return n
+        r = UInt8[d; DSEP; n]
+    else
+        (d === nothing || isempty(d) || n[1] == UInt8('~') || _is_absolute_path(n)) &&
+            return _resolve(w, n, true)
+        r = _resolve(w, n, true)
+    end
+    # create the missing directories (only at '/' separators, as for the
+    # output files of the library; errors are ignored: opening then fails)
+    for i in 2:length(r)
+        r[i] == UInt8('/') && _mkdir(r[1:i-1])
+    end
+    r
+end
+
 # Open the file at location p for reading, trying both forms of its name
 # (_spr1 and _spr2) there (WFDB-x).
 function _open_at(w::Wfdb, p::Vector{UInt8}, s::Vector{UInt8})
@@ -2093,9 +2191,12 @@ wfdbx_set_network(on::Union{Nothing,Bool,Integer}) = wfdbx_set_network(lib(), on
 wfdbx_get_network() = wfdbx_get_network(lib())
 wfdbx_fclose_output(f::WfdbFile, pname::ByteStr, name::ByteStr) =
     wfdbx_fclose_output(lib(), f, pname, name)
+wfdbx_input_path(name::OptByteStr) = wfdbx_input_path(lib(), name)
+wfdbx_output_path(name::OptByteStr) = wfdbx_output_path(lib(), name)
 
 export wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir, wfdbx_get_output_dir,
-       wfdbx_set_network, wfdbx_get_network, wfdbx_write_errors, wfdbx_note_write_error
+       wfdbx_set_network, wfdbx_get_network, wfdbx_write_errors, wfdbx_note_write_error,
+       wfdbx_input_path, wfdbx_output_path
 
 # ---------------------------------------------------------------------------
 # Precompilation workload: file I/O and the WFDB path.
@@ -2136,6 +2237,14 @@ register_workload("wfdbio") do
             wfdbx_set_network(w, false); wfdbx_get_network(w); wfdbfile(w, "hea", "http://127.0.0.1/r")
             wfdbx_set_network(w, nothing); setwfdb(w, "a b"); setwfdb(w, ";"); resetwfdb(w)
             _in_header_dir(Vector{UInt8}("a/../b")); wfdbx_dirname(Vector{UInt8}("a/b"))
+            # WFDB-x: the files that a program opens itself
+            wfdbx_set_input_dir(w, "in"); wfdbx_input_path(w, "a.txt"); wfdbx_input_path(w, "-")
+            wfdbx_input_path(w, nothing); wfdbx_input_path(w, "http://127.0.0.1/a")
+            wfdbx_set_input_dir(w, nothing)
+            wfdbx_set_output_dir(w, "out"); wfdbx_output_path(w, "s/a.wav")
+            wfdbx_output_path(w, "~/a.wav"); wfdbx_output_path(w, nothing)
+            wfdbx_set_output_dir(w, nothing); wfdbx_output_path(w, "a.wav")
+            wfdbx_input_path(w, Vector{UInt8}("a.txt")); wfdbx_output_path(w, Vector{UInt8}("a.wav"))
         end
     end
 end

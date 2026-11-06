@@ -1,0 +1,404 @@
+% Part I, chapter 1: Introduction.
+\chapter{Introduction}
+\label{chap:introduction}
+
+\wfdbx{} is a reimplementation of the WFDB Software Package, version
+\wfdbversion{}: the C library and the command-line tools with which
+physiologic signal and annotation files in the WFDB format, such as those of
+the PhysioNet databases, are read, written and converted. \wfdbx{}
+reimplements the package in seven programming languages: Python, C++, Rust,
+Julia, R, MATLAB/Octave and Kotlin. In each of them it reads and writes the
+same files as the original C library, provides the same functions under
+their C names, and provides the same command-line tools, with the same
+options, output, messages and exit status. The seven implementations are
+tested to give identical results, byte for byte, to the original C programs
+and to each other.
+
+\wfdbx{} is an independent project. It is not part of the WFDB project
+(\url{https://wfdb.io/}) or of PhysioNet (\url{https://physionet.org/}), and
+is not endorsed by them. It follows the WFDB format and the behavior of the
+original C package, which serves as its specification: the expected results
+of all its tests were produced by the C programs.
+
+\section{What WFDB-x is}
+\label{sec:what}
+
+Each of the seven implementations
+\begin{itemize}
+\item reads and writes exactly the same files as the original C library:
+  headers (\file{.hea}), signal files in every WFDB storage format (8, 16,
+  61, 80, 160, 212, 310, 311, 24, 32, and the FLAC formats 508, 516 and
+  524), annotation files (in MIT and AHA format), EDF and EDF+ files,
+  calibration files, info files, and multi-segment records (see
+  \cref{chap:records});
+\item provides the same 33 command-line tools as the C package (listed in
+  \cref{sec:three-ways}), with the same options;
+\item provides the WFDB library functions under their C names
+  (\code{isigopen}, \code{getvec}, \code{getann}, \code{putann},
+  \code{strtim}, \ldots), with the behavior of the C functions, and a
+  high-level API in the idiom of the language;
+\item is written natively in its language: none of the implementations calls
+  the C library or another language. It needs nothing beyond the standard
+  library of its language, except NumPy for Python. FLAC files are read and
+  written without libFLAC. Records are read from URLs with the system
+  \cmd{curl} program in C++ and Rust (and in R and MATLAB/Octave when
+  \cmd{curl} is installed), and with the standard facilities of the
+  language otherwise (see \cref{sec:network}).
+\end{itemize}
+
+\wfdbx{} behaves exactly as the original package, with a few deliberate
+exceptions, which are the same in all seven languages and are tested like
+everything else: it never assumes a sampling frequency, gain, ADC resolution
+or units that a record does not give; it reads and writes files only where
+they are named, and opens URLs only when network access is turned on; it
+sorts annotation files itself, without losing annotations; a tool never
+writes a signal file over a signal file it is reading; and a tool that cannot
+write its output exits with status 1. \Cref{chap:behavior} describes each of
+them, and \emph{legacy mode}, which restores the original behavior exactly.
+
+The interactive viewer of the C package (WAVE), its plotting programs, and
+the analysis programs of its \file{psd/} directory are outside the scope of
+\wfdbx{}.
+
+The speed and memory use of the seven implementations, compared with those
+of the C library and tools, are measured in \file{docs/BENCHMARKS.md}. In
+short, Rust, Julia and C++ read an hour of a two-signal ECG in 4 to 6\,ms,
+4 to 7 times faster than the C library, which reads one frame per
+\code{getvec} call; the high-level functions of every language read whole
+blocks of samples, and are the fastest way to read a record in that
+language.
+
+\section{The seven implementations}
+\label{sec:implementations}
+
+All seven implement the complete library and all 33 tools. Each has a
+directory of the repository, with a \file{README.md} that gives its
+requirements, installation instructions and examples, and a chapter of
+\cref{part:languages}. \Cref{tab:implementations} shows how each is
+installed, from a copy of the repository (or from PyPI for Python), and how
+a tool is run in it. In code, the packages are named \code{wfdbx} (Python,
+MATLAB/Octave, Rust, R, Kotlin, and the C++ namespace) or \code{WFDBX}
+(Julia).
+
+\begin{table}[htbp]
+\caption{The seven implementations: installation, and how a tool is run.}
+\label{tab:implementations}
+\begin{tabularx}{\linewidth}{@{}P{2.3cm}P{1.5cm}LP{3.0cm}@{}}
+\toprule
+{\tabhead Language} & {\tabhead Directory} & {\tabhead Installation} &
+  {\tabhead Running a tool} \\
+\midrule
+Python & \file{python/} & \cmd{pip install wfdb-x} (PyPI), or
+  \cmd{pip install ./python} & \cmd{wfdbx rdsamp -r 100s} \\
+C++ & \file{cpp/} & \cmd{cmake -S cpp -B cpp/build \&\& cmake --build
+  cpp/build} & \cmd{rdsamp -r 100s} \\
+Rust & \file{rust/} & \cmd{cargo install --path rust} &
+  \cmd{rdsamp -r 100s} \\
+Julia & \file{julia/} & \cmd{using Pkg;
+  Pkg.develop(path="/path/to/wfdb-x/julia")} & \cmd{wfdbx rdsamp -r 100s} \\
+R & \file{r/} & \cmd{R CMD INSTALL r} & \cmd{wfdbx rdsamp -r 100s} \\
+MATLAB / GNU Octave & \file{matlab/} &
+  \cmd{addpath('/path/to/wfdb-x/matlab')} (tested with GNU Octave; MATLAB
+  untested) & \cmd{wfdbx rdsamp -r 100s} \\
+Kotlin (Android, iOS, JVM) & \file{kotlin/} & \cmd{cd kotlin \&\&
+  ./gradlew publishToMavenLocal}, then
+  \cmd{implementation("io.github.\allowbreak alphanumericslab:\allowbreak wfdbx:1.2.0")} (Gradle,
+  with \code{mavenLocal()}) & \cmd{kotlin/bin/wfdbx rdsamp -r 100s} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+In Julia, R and MATLAB/Octave, \cmd{wfdbx} is a short alias for the
+language's own launcher of the tools; the chapter of each language in
+\cref{part:languages} shows how to set it up. The Python package is
+distributed on PyPI as \code{wfdb-x} and installs the \cmd{wfdbx} command;
+\cmd{wfdbx --list} lists the tools, \cmd{wfdbx --version} prints the version,
+and \cmd{wfdbx --examples} copies the example notebooks of the package.
+
+The Kotlin implementation runs on the JVM, on Android, and on iOS through
+Kotlin Multiplatform; it is tested on the JVM. The MATLAB/Octave
+implementation is written for both MATLAB and GNU Octave, and is tested with
+GNU Octave.
+
+\paragraph{The sample record.} Record \code{100s}, the first minute of record
+100 of the MIT-BIH Arrhythmia Database (two ECG signals sampled at 360\,Hz,
+and its beat annotations), is in the directory \file{tests/data} of the
+repository, and the Python package includes a copy of it (in the directory
+that \code{wfdbx.sample\_data\_dir()} returns). The examples of this manual
+use it. To run them, run the tools in that directory, or set the input
+directory to it (see \cref{chap:files}), for example:
+\begin{lstlisting}[style=shell]
+cd /path/to/wfdb-x/tests/data
+wfdbx rdsamp -r 100s -t s3
+\end{lstlisting}
+which prints the first three samples of each signal, in ADC units:
+\begin{lstlisting}[style=text]
+              0	    995	   1011
+              1	    995	   1011
+              2	    995	   1011
+\end{lstlisting}
+
+\section{Three ways to use WFDB-x}
+\label{sec:three-ways}
+
+Every language offers the same three ways in, summarized in
+\cref{tab:three-ways}. All three are written natively in the language.
+
+\begin{table}[htbp]
+\caption{The three ways to use \wfdbx{}.}
+\label{tab:three-ways}
+\begin{tabularx}{\linewidth}{@{}P{2.8cm}LL@{}}
+\toprule
+& {\tabhead What it is} & {\tabhead Use it for} \\
+\midrule
+1.~The high-level API (recommended) &
+  A few functions in the idiom of the language: \code{read\_record},
+  \code{read\_header}, \code{read\_annotations}, \code{write\_record},
+  \code{write\_annotations}, \code{check\_record}, and the header metadata
+  functions \code{read\_metadata}, \code{get\_metadata},
+  \code{set\_metadata}, \code{remove\_metadata} and \code{update\_metadata}
+  (\code{readRecord}, \ldots{} in Kotlin). One call reads a whole record or
+  annotation file into arrays, with named options, errors reported as
+  exceptions or error values, and fast block reads. It has no counterpart in
+  the C package. &
+  New code, analysis, notebooks, machine learning: anything that needs a
+  record as arrays. \\
+\addlinespace
+2.~The WFDB library functions &
+  The C library API under its C names (\code{isigopen}, \code{getvec},
+  \code{getann}, \code{putann}, \code{strtim}, \ldots), with the C behavior,
+  frame by frame and annotation by annotation. &
+  Porting a program written for the C library, or processing a record as a
+  stream with the exact C semantics. \\
+\addlinespace
+3.~The command-line tools &
+  The 33 tools (\cmd{rdsamp}, \cmd{rdann}, \cmd{wrsamp}, \cmd{xform},
+  \ldots) with the options, output, messages and exit status of the C
+  tools, implemented in each language. &
+  Shell scripts and pipelines, and reproducing work done with the original
+  tools, without the C package. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The high-level API is built on the library functions, and returns exactly
+the samples and annotations that they, and the C library, give; the tools are
+built on the library functions too. The three can be mixed in one program,
+with one caution: the high-level readers and writers call \code{wfdbquit},
+which closes the files opened with the library functions.
+
+In Python, for example, the first three samples of record \code{100s} are
+read in physical units with the high-level API as follows:
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+rec = wfdbx.read_record("100s", sampto=3, physical=True)
+print(rec.fs, rec.names, rec.signals.shape)   # 360.0 ['MLII', 'V5'] (3, 2)
+print(rec.signals[0])                         # [-0.145 -0.065]
+\end{lstlisting}
+and the first sample of each signal is read in ADC units, and converted, with
+the library functions:
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+si = []
+n = wfdbx.isigopen("100s", si, 2)     # 2 signals, described in si
+v = [0] * n
+wfdbx.getvec(v)                       # v is [995, 1011]
+print(wfdbx.aduphys(0, v[0]))         # -0.145
+wfdbx.wfdbquit()
+\end{lstlisting}
+
+The 33 tools are those of the \file{app/} and \file{convert/} directories of
+the C package:
+\begin{itemize}
+\item signals and annotations: \cmd{rdsamp}, \cmd{wrsamp}, \cmd{rdann},
+  \cmd{wrann}, \cmd{sortann}, \cmd{ann2rr}, \cmd{rr2ann}, \cmd{wfdbdesc},
+  \cmd{wfdbtime}, \cmd{time2sec}, \cmd{sampfreq}, \cmd{signame},
+  \cmd{signum}, \cmd{sigamp}, \cmd{snip}, \cmd{xform}, \cmd{wfdbcat},
+  \cmd{wfdbwhich};
+\item format converters: \cmd{edf2mit}, \cmd{mit2edf}, \cmd{rdedfann},
+  \cmd{wav2mit}, \cmd{mit2wav}, \cmd{wfdb2mat}, \cmd{a2m}, \cmd{m2a},
+  \cmd{ad2m}, \cmd{md2a}, \cmd{ahaecg2mit}, \cmd{makeid}, \cmd{readid},
+  \cmd{revise}, \cmd{parsescp}.
+\end{itemize}
+\Cref{part:reference} describes each of them, and each library function.
+
+\section{How the results are checked}
+\label{sec:checked}
+
+For the same input, a \wfdbx{} tool produces byte for byte the same standard
+output, standard error (including its error messages), exit status and
+output files as the original C tool, and the library functions return the
+same values as their C counterparts. The exceptions are the deliberate
+differences of \cref{chap:behavior}; the reference results are produced by
+the C code with these changes applied, so that they are tested in the same
+way. This is verified by tests whose expected results were produced by the
+original C code, not written by hand:
+\begin{itemize}
+\item \textbf{The conformance suite} (\file{tests/conformance/}, described in
+  \file{docs/conformance.md}): 1135 command-line test cases, run by a
+  harness that does not depend on the language of the implementation. Their
+  expected results were produced by the C programs, built from the original
+  sources (\file{third\_party/wfdb-main.zip}) with FLAC support and with
+  the patch \file{tests/reference/divergences.patch}, which defines the
+  deliberate differences, applied. The exceptions are 20 cases whose input
+  makes the C programs crash; their expected results are the behavior that
+  \wfdbx{} defines for that input (\cref{sec:crashes}). A second suite, for
+  legacy mode, has 883 cases: the cases of the original package, run with
+  \opt{--legacy} and compared with the results of the unmodified C package.
+  Every implementation passes all the cases of both suites on the reference
+  platform, x86-64 Linux with glibc.
+\item \textbf{Test records} (\file{tests/data/}), written by the C library
+  itself (\file{tests/reference/gen\_records.c}). They cover every storage
+  format, multi-frequency records, multi-segment records of fixed and of
+  variable layout, skewed signals, byte offsets, block-structured files, EDF,
+  and annotation files that use every feature of the annotation format.
+\item \textbf{Unit tests} of the library and of the high-level functions, in
+  each language directory, with expected values printed by the C library
+  (\file{tests/reference/api\_expect.c}).
+\item \textbf{Metadata tests} (\file{tests/metadata/}): 49 cases of the
+  header metadata functions, which every implementation must pass with
+  byte-identical headers, and a check that the original C programs read the
+  changed headers as before (\cref{chap:metadata}).
+\end{itemize}
+Because all seven implementations must pass the same cases, each is also
+checked against the other six. The MATLAB/Octave code is tested with GNU
+Octave, also through the MATLAB driver \file{matlab/bin/wfdbx\_matlab.sh};
+MATLAB itself has not been available to run the tests.
+
+A few behaviors of the C code are undefined (crashes, reads of uninitialized
+memory), and a few depend on the platform. They are listed, with the
+behavior that \wfdbx{} chose, in \file{docs/KNOWN\_C\_BEHAVIORS.md} and
+summarized in \cref{sec:known-c}.
+
+\section{Versions}
+\label{sec:versions}
+
+\wfdbx{} has its own version numbers, shared by the seven implementations,
+which follow semantic versioning (\url{https://semver.org}): a new patch
+number (1.1.x) for corrections only, a new minor number (1.x.0) for new
+features that do not change existing behavior, and a new major number
+(x.0.0) for changes that can break existing code. This manual describes
+version \wfdbxversion{}. The file \file{CHANGELOG.md} lists the changes in
+each version:
+\begin{itemize}
+\item 1.0.0 (16 October 2026): the WFDB library, its 33 command-line tools
+  and a high-level API in Python, C++, MATLAB/Octave, Rust, Julia and R;
+\item 1.0.1 (27 October 2026): the Kotlin Multiplatform implementation, the
+  seventh language;
+\item 1.1.0 (28 October 2026): faster reading and writing of records, signal
+  names without surrounding spaces in the high-level readers, and write
+  errors and frame checks in the high-level writers;
+\item 1.2.0: the header metadata functions (\cref{chap:metadata}), this
+  manual, and the reference to cite (\cref{sec:cite}). No existing function
+  or tool changes behavior, except for three corrections: the files that a
+  tool reads or creates itself follow the input and output directories,
+  \code{osigopen(record, NULL, 0)} returns 0 in every language, and the
+  high-level functions leave the annotation time resolution and the getvec
+  mode as they were (\cref{sec:corrections-1-2-0}).
+\end{itemize}
+
+The version numbers of \wfdbx{} are independent of the version of the WFDB
+Software Package that it implements, \wfdbversion{}, in every version. The
+library reports that version as the C library does: \code{wfdbversion()}
+returns \code{"10.7.0"}, and \code{wfdberror()}, before any error, returns
+\code{"WFDB library version 10.7.0 (Jun 10 2022).\textbackslash{}n"}.
+
+\section{How this manual is organized}
+\label{sec:organization}
+
+\begin{itemize}
+\item \textbf{\Cref{part:concepts}, Concepts}, describes what the seven
+  implementations share: this introduction; the WFDB records and their files
+  (\cref{chap:records}); where files are read and written, network access
+  and the environment variables (\cref{chap:files}); the differences from
+  the original package, legacy mode, and the reporting of errors
+  (\cref{chap:behavior}); and the header metadata (\cref{chap:metadata}).
+\item \textbf{\Cref{part:languages}, The seven languages}, has one chapter
+  for the users of each language: installation, the high-level API with
+  every function, its arguments, results, errors and examples, and how the
+  library functions and the tools are used in that language
+  (\cref{chap:python,chap:cpp,chap:rust,chap:julia,chap:r,chap:matlab,chap:kotlin}).
+\item \textbf{\Cref{part:reference}, Reference}, describes the WFDB library
+  functions and the command-line tools, which are the same in every
+  language, and the storage formats and annotation codes
+  (\cref{chap:formats}).
+\end{itemize}
+
+\section{Typographic conventions}
+\label{sec:conventions}
+
+\begin{itemize}
+\item \code{read\_record}, \code{WFDB\_INVALID\_SAMPLE}, \code{"0:10"}:
+  identifiers, values and code, in a typewriter font.
+\item \cmd{rdsamp -r 100s}: a command line; \opt{-r}: an option of a tool;
+  \file{tests/data/100s.hea}: a file or a directory.
+\item The WFDB library functions and the tools are named by their C names,
+  which are their names in every language.
+\item Listings of code and of command lines are set on a shaded background.
+  A listing on a white background, with a bold blue rule, is the call syntax
+  of a function, copied from the code. The Python examples marked as
+  examples are run, as part of the checks of this manual, in a directory
+  that holds a copy of \file{tests/data}, which is the current directory and
+  the input directory; their results are given in comments.
+\end{itemize}
+Three kinds of boxes set off remarks:
+\begin{note}
+A note gives details that matter in some cases, such as a behavior of the C
+package that \wfdbx{} reproduces.
+\end{note}
+\begin{tip}
+A tip gives a way to do something faster or more simply.
+\end{tip}
+\begin{phibox}
+A box of this kind concerns data that can identify patients, such as names,
+dates or ages stored in a header.
+\end{phibox}
+
+\section{How to cite}
+\label{sec:cite}
+
+To refer to \wfdbx{} in a publication, cite the preprint that describes it:
+\begin{quote}
+Reza Sameni. \emph{WFDB-x: Conformance-Tested Implementations of the WFDB
+Software Package in Seven Programming Languages.} arXiv:2611.01358, 2026.\\
+DOI: \href{https://doi.org/10.48550/arXiv.2611.01358}{10.48550/ARXIV.2611.01358}.\\
+\url{https://arxiv.org/abs/2611.01358}
+\end{quote}
+As a BibTeX entry:
+\begin{lstlisting}[style=text]
+@misc{wfdb-x,
+  doi = {10.48550/ARXIV.2611.01358},
+  url = {https://arxiv.org/abs/2611.01358},
+  author = {Sameni,  Reza},
+  title = {{WFDB-x: Conformance-Tested Implementations of the WFDB Software Package in Seven Programming Languages}},
+  publisher = {arXiv},
+  year = {2026},
+  copyright = {Creative Commons Attribution Share Alike 4.0 International}
+}
+\end{lstlisting}
+The same reference is in the file \file{CITATION.cff} of the repository.
+Work that uses the WFDB format or PhysioNet data should also cite the WFDB
+Software Package and PhysioNet, as PhysioNet asks.
+
+\section{Authors and license}
+\label{sec:license}
+
+The WFDB Software Package was written by George B.~Moody, Benjamin Moody and
+the WFDB contributors; it is Copyright \textcopyright{} 1983--2022 George
+B.~Moody and the WFDB contributors. WFDB was originally developed at MIT by
+George B.~Moody, and builds on decades of work by him, Roger G.~Mark and the
+broader research community. The authors of the C code that each part of
+\wfdbx{} translates are credited, file by file, in each \wfdbx{} source file
+and in \file{docs/AUTHORS.md}.
+
+\wfdbx{} was developed by Reza Sameni (2026). It is an independent
+reimplementation of the WFDB Software Package: its code in each language is a
+translation of the package's C code, written for \wfdbx{}, not code by the
+original WFDB developers.
+
+\wfdbx{} is distributed under the GNU General Public License, version 3 or
+(at the user's option) any later version (GPL-3.0-or-later; see the file
+\file{LICENSE}). The original C sources, kept unmodified in
+\file{third\_party/}, keep their own licenses: the GNU Library General Public
+License, version 2 or later, for the library, and the GNU General Public
+License, version 2 or later, for the tools.

@@ -14,8 +14,10 @@
 # assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 # millivolts); the options precede the input files, in any order; the
 # short-format part of a long-format file (skipped by -s) is located from -F;
-# --legacy, as the first argument, restores the original behavior. Each change
-# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# the input files are found under the input directory, as the library finds an
+# input file; --legacy, as the first argument, restores the original behavior.
+# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
+# reasons.
 #
 # Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 #   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source has
@@ -128,13 +130,17 @@ app_ahaecg2mit <- function(args = character(0)) {
       i <- i + 1L
       next
     }
-    if (file.access(argv[i], 4L) != 0L || dir.exists(argv[i])) {
+    # WFDB-x: the file is found where the library finds an input file of
+    # that name (see wfdbx_input_path)
+    ipath <- wfdbx_input_path(argv[i])
+    if (!is.null(ipath)) ipath <- .rfile_name(ipath)
+    if (is.null(ipath) || file.access(ipath, 4L) != 0L || dir.exists(ipath)) {
       # (sic: argv[1], which the loop may have modified, not the file)
       ceprintf("%s: can't open '%s'\n", argv[1L], argv[2L])
       i <- i + 1L
       next
     }
-    data <- readBin(argv[i], "raw", file.size(argv[i]))
+    data <- readBin(ipath, "raw", file.size(ipath))
     stem <- name[seq_len(n - 4L)]
     argv[i] <- rawToChar(stem)            # (*p = '\0' strips the extension)
     ns <- length(stem)

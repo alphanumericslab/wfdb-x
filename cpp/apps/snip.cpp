@@ -9,8 +9,10 @@
 //
 // Changes from the original: no built-in sampling frequency: the input record
 // must give it, for the header of the excerpt (the original assumed 250 Hz);
-// --legacy, as the first argument, restores the original behavior. Each change
-// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// the master header of -m is created under the output directory, as the
+// library creates an output file; --legacy, as the first argument, restores the
+// original behavior. Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/snip.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -305,7 +307,10 @@ static void copy_sig(const char *nrec, const char *irec, WFDB_Time from,
         std::vector<WFDB_Seginfo> seginfo(seginfop, seginfop + maxseg);
 
         std::string ohfname = std::string(nrec) + ".hea";
-        ohfile = std::fopen(ohfname.c_str(), "wb");
+        // WFDB-x: the master header is created where the library creates an
+        // output file of that name (see wfdbx_output_path)
+        std::optional<std::string> ohpath = wfdbx_output_path(ohfname.c_str());
+        ohfile = ohpath ? std::fopen(ohpath->c_str(), "wb") : nullptr;
         if (ohfile == nullptr) {
             std::fprintf(stderr, "%s: can't create master header\n", pname);
             std::exit(2);

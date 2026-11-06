@@ -13,9 +13,11 @@
 // descriptions; it also declares the additions of WFDB-x: wfdbx_set_legacy,
 // wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq, getvecs, the
 // input and output directories and network access (wfdbx_set_input_dir,
-// wfdbx_set_output_dir, wfdbx_set_network, ...), and the count of write
-// errors (wfdbx_write_errors, wfdbx_note_write_error). Each change is marked
-// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// wfdbx_set_output_dir, wfdbx_set_network, ...), the count of write errors
+// (wfdbx_write_errors, wfdbx_note_write_error), and the paths of the files
+// that a program opens itself (wfdbx_input_path, wfdbx_output_path). Each
+// change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
+// reasons.
 //
 // Original C code: lib/wfdb.h, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2013 George B. Moody; revised 2010-2020 by
@@ -696,6 +698,46 @@ int wfdbx_set_network(int on);
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 int wfdbx_get_network();
+/// The path under which a program opens a file that it reads itself, rather
+/// than through the library.  The file is found where wfdb_open() finds a
+/// file of that name (with an empty file type): in normal mode, a relative
+/// name under the input directory, if one is set (see wfdbx_set_input_dir()),
+/// a "~" name expanded, and an absolute name as given; in legacy mode, the
+/// name as given.  The tools use it for the files named on their command line
+/// that they read themselves, such as the -i file of wrsamp.
+///
+/// `name` is a file name; "" and "-" (the standard input, if the program
+/// treats it so) are returned as given.  Returns std::nullopt if `name` is
+/// nullptr or a URL, or becomes one when the input directory is prefixed to
+/// it: such a file cannot be opened in this way.
+///
+///     wfdbx_set_input_dir("data");
+///     std::FILE *f = std::fopen(wfdbx_input_path("samples.txt")->c_str(),
+///                               "rb");    // data/samples.txt
+///
+/// Part of WFDB-x; not in the original WFDB package.
+std::optional<std::string> wfdbx_input_path(const char *name);
+/// The path under which a program creates a file that it writes itself,
+/// rather than through the library.  The file is created where wfdb_open()
+/// creates a file of that name (with an empty file type): in normal mode, a
+/// relative name under the output directory, if one is set (see
+/// wfdbx_set_output_dir()), a "~" name expanded, and an absolute name as
+/// given; in legacy mode, any name under the output directory, if one is
+/// set, used as a plain prefix.  When the output directory has been prefixed
+/// to the name, the directories missing in the resulting path are created,
+/// as for the output files of the library.  The tools use it for the files
+/// they create themselves, such as the WAV file of mit2wav.
+///
+/// `name` is a file name; "" and "-" (the standard output, if the program
+/// treats it so) are returned as given.  Returns std::nullopt if `name` is
+/// nullptr or a URL (which cannot be written).
+///
+///     wfdbx_set_output_dir("out");
+///     std::FILE *f = std::fopen(wfdbx_output_path("notes.txt")->c_str(),
+///                               "wb");    // out/notes.txt
+///
+/// Part of WFDB-x; not in the original WFDB package.
+std::optional<std::string> wfdbx_output_path(const char *name);
 /// Julian date `d` as " dd/mm/yyyy" (with a leading space).
 ///
 /// Translation of the C function datstr() (lib/signal.c, WFDB 10.7.0): same

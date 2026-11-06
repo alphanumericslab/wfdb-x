@@ -19,7 +19,9 @@ function status = ahaecg2mit(args)
 %   WFDB-x: -F, -G, -R and -U are new and required (-U unless the gain is
 %   0); the C program assumed the parameters of the AHA database (250 Hz,
 %   400 adu/mV, 12 bits, millivolts): use -F 250 -G 400 -R 12 -U mV for
-%   the AHA DVD files; see docs/DIVERGENCES.md.
+%   the AHA DVD files.  The input files are found under the input
+%   directory, as the library finds an input file (see
+%   wfdbx.wfdbx_input_path); see docs/DIVERGENCES.md.
 %
 %   Example (1001.ecg, a synthetic file in the format of the AHA DVD, is in
 %   the folder tests/data of a copy of the WFDB-x repository; the example
@@ -47,8 +49,10 @@ function status = ahaecg2mit(args)
 % assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 % millivolts); the options precede the input files, in any order; the
 % short-format part of a long-format file (skipped by -s) is located from -F;
-% --legacy, as the first argument, restores the original behavior. Each change
-% is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% the input files are found under the input directory, as the library finds an
+% input file; --legacy, as the first argument, restores the original behavior.
+% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
+% reasons.
 %
 % Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 %   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source has
@@ -158,7 +162,13 @@ while i < argc
         i = i + 1;
         continue;
     end
-    fid = fopen(name, 'rb');
+    % WFDB-x: the file is found where the library finds an input file of
+    % that name (see wfdbx.wfdbx_input_path)
+    ipath = wfdbx.wfdbx_input_path(name);
+    fid = -1;
+    if ischar(ipath)
+        fid = fopen(wfdbx.internal.literal_path(ipath), 'rb');
+    end
     if fid < 0
         ep('%s: can''t open ''%s''\n', argv{1}, argv{2});
         i = i + 1;

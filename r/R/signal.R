@@ -2060,6 +2060,10 @@ isigopen <- function(record, nsig = 0) .isigopen(record, nsig, TRUE)
 
 .openosig <- function(func, si_in, nsig, want_si = FALSE) {
   st <- .sig
+  # WFDB-x: no signals to open (osigopen(record, 0), for example): nothing
+  # is done, and 0 is returned (C read before the start of an array; see
+  # docs/KNOWN_C_BEHAVIORS.md)
+  if (nsig == 0) return(list(stat = 0, si = list()))
   if (st$obsize <= 0) st$obsize <- .BUFSIZ
   ga <- st$nogroup
   while (length(st$ogd) < st$nogroup + si_in[[nsig]]$group + 1)

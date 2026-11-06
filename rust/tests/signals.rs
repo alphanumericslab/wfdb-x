@@ -2870,3 +2870,117 @@ fn read_record_errors_close_signals() {
     .unwrap();
     assert_closed(w);
 }
+
+// ---------------------------------------------------------------------------
+// WFDB-x: wfdbx_input_path and wfdbx_output_path, where a program opens the
+// files that it reads or creates itself (expected values from the t_toolpaths
+// section of tests/reference/api_expect.c)
+
+#[test]
+fn toolpaths() {
+    let _d = DataDir::new();
+    let keys = ["HOME", "WFDB", "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR"];
+    let saved: Vec<_> = keys.iter().map(|&k| (k, std::env::var_os(k))).collect();
+    for k in keys {
+        std::env::remove_var(k);
+    }
+    std::env::set_var("HOME", "thome");
+    let mut w = Wfdb::new();
+    let s = |p: Option<Vec<u8>>| p.map(|v| String::from_utf8(v).unwrap());
+    let some = |p: &str| Some(p.to_string());
+    let isdir = |p: &str| std::path::Path::new(p).is_dir();
+    w.wfdbx_set_input_dir(NULL);
+    w.wfdbx_set_output_dir(NULL);
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), some("a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("~/a.txt")), some("thome/a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("-")), some("-"));
+    assert_eq!(s(w.wfdbx_input_path("")), some(""));
+    assert_eq!(s(w.wfdbx_input_path(NULL)), None);
+    assert_eq!(s(w.wfdbx_input_path("http://127.0.0.1:1/a")), None);
+    assert_eq!(s(w.wfdbx_output_path("a.wav")), some("a.wav"));
+    assert_eq!(s(w.wfdbx_output_path("~/a.wav")), some("thome/a.wav"));
+    assert_eq!(s(w.wfdbx_output_path("https://127.0.0.1:1/a")), None);
+    w.wfdbx_set_input_dir("tin");
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), some("tin/a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("../a.txt")), some("tin/../a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("/a.txt")), some("/a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("-")), some("-"));
+    w.wfdbx_set_input_dir("~/tin/");
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), some("thome/tin/a.txt"));
+    w.wfdbx_set_input_dir("http://127.0.0.1:1/d");
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), None);
+    w.wfdbx_set_input_dir(NULL);
+    w.wfdbx_set_output_dir("tout/deep");
+    assert_eq!(s(w.wfdbx_output_path("a.wav")), some("tout/deep/a.wav"));
+    assert!(isdir("tout/deep"));
+    assert_eq!(s(w.wfdbx_output_path("s/a.wav")), some("tout/deep/s/a.wav"));
+    assert!(isdir("tout/deep/s"));
+    assert_eq!(s(w.wfdbx_output_path("/a.wav")), some("/a.wav"));
+    assert_eq!(s(w.wfdbx_output_path("~/m/a.wav")), some("thome/m/a.wav"));
+    assert!(!std::path::Path::new("thome/m").exists());
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), some("a.txt"));
+    w.wfdbx_set_legacy(1);
+    w.wfdbx_set_input_dir("tin");
+    w.wfdbx_set_output_dir("tlout");
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), some("a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("~/a.txt")), some("~/a.txt"));
+    assert_eq!(s(w.wfdbx_output_path("a.wav")), some("tlout/a.wav"));
+    assert_eq!(s(w.wfdbx_output_path("/a.wav")), some("tlout//a.wav"));
+    assert_eq!(s(w.wfdbx_output_path("~/a.wav")), some("tlout/~/a.wav"));
+    assert_eq!(s(w.wfdbx_output_path("-")), some("-"));
+    assert!(isdir("tlout/~"));
+    w.wfdbx_set_output_dir(NULL);
+    assert_eq!(s(w.wfdbx_output_path("a.wav")), some("a.wav"));
+    w.wfdbx_set_input_dir(NULL);
+    w.wfdbx_set_legacy(0);
+    // the free functions use the default instance
+    assert_eq!(s(wfdbx::wfdbx_input_path("-")), some("-"));
+    assert_eq!(s(wfdbx::wfdbx_output_path(NULL)), None);
+    for (k, v) in saved {
+        match v {
+            Some(v) => std::env::set_var(k, v),
+            None => std::env::remove_var(k),
+        }
+    }
+}
+
+/// Three format-16 output signals in file `fname`.
+fn fmt16_spec(fname: &str) -> Vec<Siginfo> {
+    (0..3)
+        .map(|i| Siginfo {
+            fname: Some(fname.into()),
+            desc: Some(format!("s{i}").into_bytes()),
+            units: Some(b"mV".to_vec()),
+            gain: 100.0,
+            group: 0,
+            fmt: 16,
+            adcres: 12,
+            ..Default::default()
+        })
+        .collect()
+}
+
+#[test]
+fn osigopen_no_signals() {
+    // osigopen(record, NULL, 0) opens no signals and returns 0, after closing
+    // the output signals already open (unless the record name begins with
+    // '+'); a header that cannot be read is still an error. (C reads before
+    // the start of an array: see docs/KNOWN_C_BEHAVIORS.md.)
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.setsampfreq(360.0);
+    assert_eq!(w.osigfopen(&fmt16_spec("o16.dat"), 3), 3);
+    assert_eq!(w.osigopen("+100s", &mut [], 0), 0);
+    assert_eq!(w.putvec(&[1, 2, 3]), 3); // still open
+    assert_eq!(w.osigopen("100s", &mut [], 0), 0);
+    assert_eq!(w.putvec(&[1, 2, 3]), 0); // closed: no signals
+    let mut so = vec![Siginfo::default(); 2];
+    assert_eq!(w.osigopen("100s.hea", &mut so, 0), 0);
+    assert_eq!(so, vec![Siginfo::default(); 2]); // nothing filled in
+    w.wfdbquiet();
+    assert_eq!(w.osigopen("nosuch", &mut [], 0), -1);
+    assert_eq!(w.osigopen("100s", &mut [], 3), -3); // (2 signals)
+    w.wfdbverbose();
+    w.wfdbquit();
+    assert_eq!(std::fs::metadata("o16.dat").unwrap().len(), 6);
+}

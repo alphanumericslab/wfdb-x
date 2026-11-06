@@ -1005,7 +1005,8 @@ if (.mode == "source") {
   h <- read_header("bt1")
   check(inherits(h, "wfdbx_header") && is.list(h), "read_header: class wfdbx_header")
   expect_equal(names(h), c("name", "fs", "counter_freq", "base_counter", "nsamples", "nsig",
-                           "siginfo", "base_time", "base_time_ms", "base_date", "comments"),
+                           "siginfo", "base_time", "base_time_ms", "base_date", "comments",
+                           "metadata"),
                "read_header: fields")
   check(h$name == "bt1" && h$fs == 250 && h$counter_freq == 250 && h$base_counter == 0 &&
           h$nsamples == 10 && h$nsig == 1 && length(h$siginfo) == 1 &&
@@ -1315,4 +1316,87 @@ if (.mode == "source") {
   expect_equal(c(nrow(g$v), g$stat), c(8192, -3), "FLAC: a truncated file")
   expect_equal(wfdberror(), "getvec: unable to decode FLAC (lost sync)\n", "FLAC: truncated: message")
   writeBin(b, "flac16.dat")
+
+  # ---- wfdbx_input_path and wfdbx_output_path, where a program opens the
+  # files that it reads or creates itself (port of t_toolpaths in
+  # tests/reference/api_expect.c, python test_api.py::test_toolpaths)
+  tp_env <- Sys.getenv(c("HOME", "WFDB", "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR"), unset = NA)
+  Sys.unsetenv(c("WFDB", "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR"))
+  Sys.setenv(HOME = "thome")
+  wfdbio_reset()
+  ip <- wfdbx_input_path
+  op <- wfdbx_output_path
+  wfdbx_set_input_dir(NULL)
+  wfdbx_set_output_dir(NULL)
+  expect_equal(ip("a.txt"), "a.txt", "t_toolpaths: wfdbx_input_path a.txt")
+  expect_equal(ip("~/a.txt"), "thome/a.txt", "t_toolpaths: wfdbx_input_path ~/a.txt")
+  expect_equal(ip("-"), "-", "t_toolpaths: wfdbx_input_path -")
+  expect_equal(ip(""), "", "t_toolpaths: wfdbx_input_path empty")
+  expect_equal(ip(NULL), NULL, "t_toolpaths: wfdbx_input_path NULL")
+  expect_equal(ip("http://127.0.0.1:1/a"), NULL, "t_toolpaths: wfdbx_input_path URL")
+  expect_equal(op("a.wav"), "a.wav", "t_toolpaths: wfdbx_output_path a.wav")
+  expect_equal(op("~/a.wav"), "thome/a.wav", "t_toolpaths: wfdbx_output_path ~/a.wav")
+  expect_equal(op("https://127.0.0.1:1/a"), NULL, "t_toolpaths: wfdbx_output_path URL")
+  wfdbx_set_input_dir("tin")
+  expect_equal(ip("a.txt"), "tin/a.txt", "t_toolpaths: wfdbx_input_path a.txt (tin)")
+  expect_equal(ip("../a.txt"), "tin/../a.txt", "t_toolpaths: wfdbx_input_path ../a.txt (tin)")
+  expect_equal(ip("/a.txt"), "/a.txt", "t_toolpaths: wfdbx_input_path /a.txt (tin)")
+  expect_equal(ip("-"), "-", "t_toolpaths: wfdbx_input_path - (tin)")
+  wfdbx_set_input_dir("~/tin/")
+  expect_equal(ip("a.txt"), "thome/tin/a.txt", "t_toolpaths: wfdbx_input_path a.txt (~/tin/)")
+  wfdbx_set_input_dir("http://127.0.0.1:1/d")
+  expect_equal(ip("a.txt"), NULL, "t_toolpaths: wfdbx_input_path a.txt (URL)")
+  wfdbx_set_input_dir(NULL)
+  wfdbx_set_output_dir("tout/deep")
+  expect_equal(op("a.wav"), "tout/deep/a.wav", "t_toolpaths: wfdbx_output_path a.wav (tout/deep)")
+  check(dir.exists("tout/deep"), "t_toolpaths: tout/deep created")
+  expect_equal(op("s/a.wav"), "tout/deep/s/a.wav",
+               "t_toolpaths: wfdbx_output_path s/a.wav (tout/deep)")
+  check(dir.exists("tout/deep/s"), "t_toolpaths: tout/deep/s created")
+  expect_equal(op("/a.wav"), "/a.wav", "t_toolpaths: wfdbx_output_path /a.wav (tout/deep)")
+  expect_equal(op("~/m/a.wav"), "thome/m/a.wav",
+               "t_toolpaths: wfdbx_output_path ~/m/a.wav (tout/deep)")
+  check(!file.exists("thome/m"), "t_toolpaths: thome/m not created")
+  expect_equal(ip("a.txt"), "a.txt", "t_toolpaths: wfdbx_input_path a.txt (output dir only)")
+  wfdbx_set_legacy(TRUE)
+  wfdbx_set_input_dir("tin")
+  wfdbx_set_output_dir("tlout")
+  expect_equal(ip("a.txt"), "a.txt", "t_toolpaths: legacy wfdbx_input_path a.txt")
+  expect_equal(ip("~/a.txt"), "~/a.txt", "t_toolpaths: legacy wfdbx_input_path ~/a.txt")
+  expect_equal(op("a.wav"), "tlout/a.wav", "t_toolpaths: legacy wfdbx_output_path a.wav")
+  expect_equal(op("/a.wav"), "tlout//a.wav", "t_toolpaths: legacy wfdbx_output_path /a.wav")
+  expect_equal(op("~/a.wav"), "tlout/~/a.wav", "t_toolpaths: legacy wfdbx_output_path ~/a.wav")
+  expect_equal(op("-"), "-", "t_toolpaths: legacy wfdbx_output_path -")
+  check(dir.exists("tlout/~"), "t_toolpaths: tlout/~ created")
+  wfdbx_set_output_dir(NULL)
+  expect_equal(op("a.wav"), "a.wav", "t_toolpaths: legacy wfdbx_output_path a.wav (no output dir)")
+  wfdbx_set_input_dir(NULL)
+  wfdbx_set_legacy(FALSE)
+  for (k in names(tp_env))
+    if (is.na(tp_env[[k]])) Sys.unsetenv(k) else do.call(Sys.setenv, as.list(tp_env[k]))
+  wfdbio_reset()
+  wfdbquiet()
+  setwfdb(".")
+  wfdbverbose()
+
+  # ---- osigopen(record, 0) opens no signals and returns 0, after closing
+  # the output signals already open (unless the record name begins with
+  # '+'); a header that cannot be read is still an error.  (C reads before
+  # the start of an array: see docs/KNOWN_C_BEHAVIORS.md; python
+  # test_api.py::test_osigopen_no_signals.)
+  wfdbquit()
+  setsampfreq(360)
+  o16 <- lapply(0:2, function(k) siginfo(fname = "o16.dat", fmt = 16, group = 0, gain = 200,
+                                         adcres = 16))
+  expect_equal(osigfopen(o16, 3), 3, "osigopen 0: osigfopen")
+  r <- osigopen("+100s", 0)
+  check(identical(r$nsig, 0) && length(r$si) == 0L, "osigopen(+record, 0): 0, no signals")
+  expect_equal(putvec(c(1, 2, 3)), 3, "osigopen(+record, 0): the output signals stay open")
+  expect_equal(osigopen("100s", 0)$nsig, 0, "osigopen(record, 0): 0")
+  expect_equal(putvec(c(1, 2, 3)), 0, "osigopen(record, 0): the output signals are closed")
+  wfdbquiet()
+  expect_equal(osigopen("nosuch", 0)$nsig, -1, "osigopen(record, 0): no header")
+  wfdbverbose()
+  wfdbquit()
+  expect_equal(file.size("o16.dat"), 6, "osigopen(record, 0): the samples written before")
 }

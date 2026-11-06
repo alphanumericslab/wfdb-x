@@ -1,0 +1,644 @@
+% Part I, chapter 4: Differences from the original package.
+\chapter{Differences from the original package}
+\label{chap:behavior}
+
+\wfdbx{} reproduces the WFDB Software Package \wfdbversion{} exactly, with
+the deliberate exceptions described in this chapter. It has no built-in
+signal parameters; it finds files only where they are named, and opens URLs
+only when network access is on; it sorts out-of-order annotation files
+itself, without losing annotations; it never writes a signal file over a
+signal file it is reading; its tools report write errors in their exit
+status; and it gives a defined result for input on which the C package
+crashes. It also adds features that the C package does not have.
+
+These exceptions are the same in all seven implementations, and are tested
+like everything else: the reference results of the conformance suite come
+from the C package with the patch \file{tests/reference/divergences.patch}
+applied, which is the precise definition of the differences. The original
+behavior remains available in every case, on request, in \emph{legacy mode}
+(\cref{sec:legacy}). The file \file{docs/DIVERGENCES.md} gives the reasons
+for each difference in more detail, and \cref{sec:corrections-1-2-0} lists
+the corrections of version 1.2.0.
+
+\section{No built-in sampling frequency, gain, ADC resolution or units}
+\label{sec:no-defaults}
+
+The C package falls back on built-in values for four parameters of a
+signal whenever a record or the user does not give them
+(\cref{tab:c-defaults}). These values describe the equipment with which the
+first PhysioNet databases were recorded, and do not describe modern
+recordings. A silently assumed value corrupts every time, interval,
+resampled signal and physical value computed from it, and nothing in the
+output says that it was assumed. \wfdbx{} therefore never assumes any of
+these four parameters: it uses the values given in the record, or values
+given explicitly by the user, and reports an error when an operation needs a
+value that is not available. Where an output must still show missing units,
+it shows \code{nd} (``not defined'', a notation that the C package already
+used for empty units) rather than \code{mV}.
+
+\begin{table}[htbp]
+\caption{The values that the C package assumes.}
+\label{tab:c-defaults}
+\begin{tabularx}{\linewidth}{@{}P{3cm}L@{}}
+\toprule
+{\tabhead Parameter} & {\tabhead Built-in value in C} \\
+\midrule
+sampling frequency & 250\,Hz (\code{WFDB\_DEFFREQ}); 500\,Hz in
+  \cmd{parsescp} \\
+gain & 200\,adu/mV (\code{WFDB\_DEFGAIN}); 400\,adu/mV for AHA files; 12.5 or
+  6400\,adu/mV for WAV files \\
+ADC resolution & 12 bits (\code{WFDB\_DEFRES}), or the storage width of the
+  format \\
+units & millivolts \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Library.}
+\begin{itemize}
+\item A header that does not give a sampling frequency leaves it
+  unspecified: \code{sampfreq} returns 0 (C: 250), unless a frequency was set
+  with \code{setsampfreq} before the record was opened (as in C).
+\item A header that does not give an ADC resolution leaves it unspecified
+  (0); C inferred it from the format or assumed 12 bits. Missing units remain
+  unspecified (\code{NULL}), as in C, but are never taken to be millivolts.
+\item The time conversions that need the frequency fail when it is
+  unspecified: \code{strtim} reports \code{strtim: sampling frequency is not
+  specified} and returns 0 for the time strings other than sample numbers
+  (\code{s\ldots}), \code{e}, \code{i} and \code{o} (and counter values when
+  there is no counter frequency); \code{timstr} and \code{mstimstr} report
+  the same error and return the time as a sample number (\code{s} followed
+  by the number). C used 1 sample per second. The new function
+  \code{wfdbx\_time\_needs\_freq(string)} tells whether \code{strtim} needs
+  the frequency for a string (\cref{sec:times}).
+\item \code{setifreq} fails if the input frequency is unspecified
+  (\code{setifreq: sampling frequency is not specified}).
+\item \code{aduphys}, \code{physadu}, \code{adumuv} and \code{muvadu} fail
+  for an uncalibrated signal (gain 0) or an invalid signal number: they
+  report the error and return NaN (\code{aduphys}) or
+  \code{WFDB\_INVALID\_SAMPLE} (the others). C assumed a gain of 200, and a
+  baseline of 0 for invalid signal numbers.
+\item The constants \code{WFDB\_DEFFREQ}, \code{WFDB\_DEFGAIN} and
+  \code{WFDB\_DEFRES} remain defined, for compatibility, but the library does
+  not use them (except in legacy mode).
+\end{itemize}
+
+\paragraph{Tools.} A tool that writes these parameters into a record
+requires them; a tool that needs a parameter missing from its input stops
+with an error only when the requested operation needs it:
+\begin{itemize}
+\item \cmd{wrsamp} requires \opt{-F}, \opt{-G} and the new option
+  \opt{-R BITS} when it writes a record (\opt{-o}), and the new option
+  \opt{-U UNITS} for calibrated signals unless the input gives the units;
+  \opt{-G 0} declares the signals uncalibrated. \opt{-G}, \opt{-R} and
+  \opt{-U} take one value per signal (the last applies to the rest).
+\item \cmd{wav2mit} has the new options \opt{-G GAIN} (required) and
+  \opt{-U UNITS} (required unless the gain is 0); \cmd{ad2m} and
+  \cmd{ahaecg2mit} the new options \opt{-F FREQ}, \opt{-G GAIN},
+  \opt{-R BITS} and \opt{-U UNITS}, all required (\opt{-U} unless the gain
+  is 0).
+\item \cmd{a2m}, \cmd{rr2ann}, \cmd{rdann}, \cmd{ann2rr}, \cmd{sortann} and
+  \cmd{m2a} take \opt{-F FREQ} (new except in \cmd{rr2ann}), used when the
+  record has no header or its header has no frequency, and required then
+  when times are converted.
+\item \cmd{rdsamp} needs the frequency for time arguments, time columns and
+  XML output, and the gain of each selected signal for physical units
+  (\opt{-p}); \cmd{sigamp}, \cmd{snip}, \cmd{wfdb2mat}, \cmd{mit2wav},
+  \cmd{wfdbtime}, \cmd{xform} and \cmd{mit2edf} need the frequency (and
+  \cmd{mit2edf} the gain and ADC resolution of every signal).
+\item \cmd{wfdbdesc} prints \code{not specified} for an unspecified
+  frequency and ADC resolution, \code{uncalibrated} for a gain of 0 (C:
+  \code{uncalibrated; assume 200}), and \code{adu/nd} for unspecified units;
+  \cmd{sampfreq} prints 0 for a record whose header gives no frequency (C:
+  250); \cmd{parsescp} writes the frequency given in the SCP file (C always
+  wrote 500\,Hz).
+\end{itemize}
+The messages are \code{TOOL: sampling frequency of record RECORD is not
+specified} (followed by \code{ (use -F)} for the tools that have that
+option), \code{TOOL: signal N of record RECORD is uncalibrated},
+\code{TOOL: ADC resolution of signal N of record RECORD is not specified},
+and \code{TOOL: the \ldots{} must be specified (-X)} for a missing required
+option. \Cref{part:reference} gives the options of each tool.
+
+\paragraph{High-level API.} \code{write\_record} requires the sampling
+frequency (greater than 0), the gains, the ADC resolutions, and the units of
+the calibrated signals; a gain of 0 declares a signal uncalibrated, which is
+allowed only for samples in ADC units. \code{read\_record} reports an
+unspecified frequency as 0, and fails for time strings that need it; with
+physical units, it fails if a selected signal is uncalibrated.
+\code{read\_annotations} takes an optional sampling frequency, used, like
+the \opt{-F} option of the tools, when the record has no header or its
+header gives none.
+
+\paragraph{Reproducing the results of the original package.} The results of
+the original tools are obtained by giving the values they assumed,
+explicitly. For example, \cmd{wrsamp} writes a record as the original did
+with \opt{-F 250 -G 200 -U mV} and \opt{-R} with the storage width of the
+output format (\opt{-R 12} for format 212, \opt{-R 16} for formats 16, 61,
+160 and 516, \opt{-R 8} for 8, 80 and 508, \opt{-R 10} for 310 and 311,
+\opt{-R 24} for 24 and 524, \opt{-R 32} for 32); \cmd{wav2mit} with
+\opt{-G 12.5 -U mV} for 8-bit files and \opt{-G 6400 -U mV} for 16-bit
+files; \cmd{ad2m} and \cmd{ahaecg2mit} with \opt{-F 250 -G 400 -R 12 -U mV};
+the annotation tools with \opt{-F 250} for a record without a frequency; and
+a library program calls \code{setsampfreq(250)} before it opens a record
+whose header gives no frequency. One difference remains by construction: a
+header written with \opt{-U mV} says \code{200/mV} where the C tools wrote
+\code{200}.
+
+\paragraph{What does not change.} Values defined by a data format, not by an
+assumption about the signal (the record lengths and time offsets of the AHA
+database formats, and \cmd{md2a}'s default length); values read from the
+input (the sampling frequency and resolution of a WAV file, the parameters
+of an EDF file); and analysis settings that are documented options, such as
+the measurement windows of \cmd{sigamp}. \cmd{parsescp} writes a gain of
+200\,adu/mV because it rescales the SCP samples to units of 5\,$\mu$V, so
+that value is exact, not assumed.
+
+\section{Files are found only where they are named}
+\label{sec:named-files}
+
+The C library found a file by searching the WFDB path, a list of places
+tried in order until the file was found, by default the current directory,
+\file{/usr/local/database} and, in builds with network support, PhysioNet.
+That was convenient, but:
+\begin{itemize}
+\item a search opens the first copy it finds, so a stale or partial copy in
+  a directory earlier on the path is read instead of the intended one, and
+  a signal file missing next to its header is replaced by a file of the same
+  name found anywhere else on the path;
+\item whether a record is read from disk or downloaded, and from where,
+  depends on the environment, not on the program, and a missing local file
+  turns into a network request instead of an error;
+\item for every record it read, the library also asked the last entry of the
+  path, PhysioNet, for an optional \file{.info} file when there was no local
+  one, with the full local path of an absolute record name in the request;
+\item a header could make the library read any local file
+  (\code{../../.ssh/id\_rsa}) or contact a third-party server, through the
+  names of its signal files;
+\item the default URL is no longer where PhysioNet serves its files.
+\end{itemize}
+\wfdbx{} reads and writes every file at the one location that its name
+designates, as \cref{chap:files} describes: under the input or output
+directory for a relative name, as given for an absolute path, a
+\code{\textasciitilde} path or a URL, and relative to the header for the
+files that a header names, which must stay in the header's directory. URLs
+are opened only when network access is on. A name containing \code{..} is
+accepted. \code{setwfdb} and \code{getwfdb} set and return the input
+directory, and the \code{WFDB} environment variable is used only in legacy
+mode. Reading PhysioNet records must therefore be asked for explicitly
+(\cref{sec:network}); in return, every program reads exactly the files it
+names, the same on every machine.
+
+The files that a tool opens itself, by the name given on its command line,
+rather than through the library (the \opt{-i} file of \cmd{wrsamp}, the WAV
+file of \cmd{mit2wav}, and the others of \cref{tab:tool-files}), follow the
+same rules: the C tools opened them relative to the current directory, so
+that, with an input or output directory set, a tool read its records from
+one place and its own files from another. In \wfdbx{} such a file is found,
+or created, where the library finds, or creates, a file of that name
+(\cref{sec:tool-files}); a URL is not accepted for these files. In legacy
+mode, the files that a tool reads itself are opened as named, and the
+output directory, if one is set, is a plain prefix of the names of the
+files that it creates itself.
+
+\section{Out-of-order annotation files are sorted in the library}
+\label{sec:sorting}
+
+When an annotation file written by the library is not in canonical order
+(\cref{sec:annotations}), the C library sorted it when the file was closed by
+running the \cmd{sortann} program through the shell, unless the environment
+variable \code{WFDBANNSORT} was 0. The result then depended on which
+\cmd{sortann} was found on the \code{PATH}, and a record or annotator name
+with a space or a shell character broke the command.
+
+\wfdbx{} sorts the file itself, in the same process. The file it writes is
+byte for byte the one that \cmd{sortann} writes, in the same order (by time,
+then annotation number, then channel; a later annotation with the same
+time, number and channel replaces the earlier one), with the same treatment
+of \code{NOTQRS} annotations (they are dropped) and of the time resolution,
+and the same encoding. The messages and status of the library are the same:
+\code{Rearranging annotations for output annotator ANN ...done!}, or the
+advice \code{Use the command: sortann -r REC -a ANN} when sorting is turned
+off or fails; only the messages that the separate \cmd{sortann} printed
+itself are gone. \code{WFDBANNSORT=0} turns sorting off, and the
+\code{sort} option of the high-level \code{write\_annotations} decides for
+its call alone (sort, or leave the file as written), whatever
+\code{WFDBANNSORT} says.
+
+\paragraph{Sorting does not lose annotations.} The original \cmd{sortann}
+silently loses annotations: when an annotation at time 0, with annotation
+number 0 and channel 0, arrives after later ones, it is dropped, and so are
+the annotations later inserted directly behind it (input sample times 5, 0,
+3 give a file that contains only 5), because the search for the insertion
+point mistakes the empty head entry of its list for an annotation. \wfdbx{}
+puts such an annotation at the beginning of the list, where it belongs (5,
+0, 3 give 0, 3, 5). Nothing else about the sorting changes. This applies to
+the \cmd{sortann} tool and to the sorting done by the library.
+
+\begin{note}
+In legacy mode, the library runs \cmd{sortann} as the original does (with
+its own \cmd{sortann} tool, started with \opt{--legacy}, without a shell),
+and both lose these annotations as the original does. Legacy mode should not
+be used to sort annotation files unless reproducing the original results,
+losses included, is the point: nothing in the output says that annotations
+were dropped.
+\end{note}
+
+\section{An output signal file is never one of the input signal files}
+\label{sec:output-input}
+
+The files of records can be shared: the segments of a multi-segment record
+are other records, so that \cmd{xform -i vlay -o fmt16} reads
+\file{fmt16.dat} (a segment of \code{vlay}) and writes \file{fmt16.dat}
+(the output record \code{fmt16}). The original opens the output file, which
+truncates it, while still reading it: the input is destroyed, and what is
+read depends on how much of it the C library had read ahead, so that the
+result differs between platforms.
+
+\wfdbx{} refuses to create an output signal file that is the same file as a
+signal file of the record open for reading (the same file, not the same
+name: links and different spellings of a path are recognized), with the
+message \code{osigfopen: output file NAME is also an input file}
+(\code{osigopen:} when the file is opened by \code{osigopen}); nothing is
+written. The check is in the library, so every tool and every program that
+uses the library functions is protected. The high-level \code{write\_record}
+reads nothing: it closes any open record first, and simply replaces
+existing files of the same name. The check covers signal files only: for
+example, \cmd{snip -i 100s -n 100s} still writes the header of its output
+record over that of its input record, in C and in \wfdbx{} alike; the output
+record needs a name of its own.
+
+\section{Write errors give a nonzero exit status}
+\label{sec:write-errors}
+
+The original tools report a file that cannot be written (a full disk, for
+example) only through the library's messages, such as \code{osigclose:
+write error in signal group 0} or \code{oannclose: write error on annotation
+file atr}, and then exit with status 0; they say nothing at all when the
+standard output cannot be written, or when a file that a tool writes itself
+fails. The tools of \wfdbx{} follow the convention of the standard Unix
+tools: when an output file or the standard output cannot be written, the
+exit status is 1. The library's messages are unchanged; a standard output
+that cannot be written is reported as \code{PROGRAM: write error on standard
+output}, and a file that \cmd{snip}, \cmd{mit2edf} or \cmd{parsescp} writes
+itself as \code{PROGRAM: write error on FILE}. A tool that exits with
+another nonzero status for another reason keeps that status, and the tools
+keep running after a write error, as the original ones do.
+
+The library counts the output files that it could not write, flush or close;
+\code{wfdbx\_write\_errors()} returns that count, and
+\code{wfdbx\_note\_write\_error()} adds one, for a program that writes a file
+itself.
+
+\section{Input on which the C package crashes}
+\label{sec:crashes}
+
+Some malformed or unusual input makes the C package crash, run out of
+memory, loop forever, or give a result that depends on the machine (reads of
+uninitialized memory). A crash cannot be reproduced, so \wfdbx{} gives each
+such input one defined, safe result, the same in all seven implementations,
+and legacy mode gives the same result. For example:
+\begin{itemize}
+\item a header with a negative or impossibly large number of signals
+  (\code{n -1 250 10}), for which C tries to allocate memory for 4,294,967,295
+  signals, gives \code{init: unexpected EOF in header file for record n}, as
+  C does for a header with fewer signal lines than it declares;
+\item an EDF file whose signals have 0 samples per data record, on which C
+  crashes with a floating-point exception, reads as a record with no
+  samples;
+\item a FLAC signal file with 3 or more samples per frame whose FLAC block
+  size is not a multiple of them, for which C writes past the end of a
+  buffer, is read correctly;
+\item \cmd{wfdb2mat} with a one-character record name, for which C
+  overwrites the header of its input record, names its output record as for
+  longer names (\code{mm} for \code{m});
+\item \cmd{edf2mit} with a file shorter than the 256-byte fixed part of the
+  EDF header prints \code{edf2mit: incomplete EDF header in FILE} and exits
+  with status 2, creating no files;
+\item \cmd{signame -s N}, where \code{N} is the number of signals, prints
+  \code{[INVALID]}, as its manual page says;
+\item \code{osigopen(record, NULL, 0)}, for which C reads before the start of
+  an array, closes the output signals already open (unless the record name
+  begins with \code{+}), reads the header (an error if it cannot be read),
+  opens nothing and returns 0.
+\end{itemize}
+The complete list, with the C behavior and the \wfdbx{} choice for each, is
+the table ``Undefined behaviors (not reproduced)'' of
+\file{docs/KNOWN\_C\_BEHAVIORS.md}. The conformance suite checks most of
+these choices, with reference results recorded from \wfdbx{} instead of C.
+
+\section{Additions}
+\label{sec:additions}
+
+These are new features, not changes of the original behavior, so they have
+no legacy counterpart.
+\begin{itemize}
+\item \textbf{The high-level API}: in every language, a few functions that
+  read and write whole records and annotation files as arrays, in one call,
+  with named options and errors reported in the language's way
+  (\cref{part:languages}).
+\item \textbf{An output directory} (\code{wfdbx\_set\_output\_dir},
+  \code{WFDBX\_OUTPUT\_DIR}, and the \code{dir} option of the high-level
+  writers), in which output files are created, and an input directory
+  (\code{wfdbx\_set\_input\_dir}, \code{WFDBX\_INPUT\_DIR}); see
+  \cref{chap:files}.
+\item \textbf{A record checker}, \code{check\_record(record, annotators)},
+  which checks a record's header, signal files and annotation files, and
+  reports each problem it finds with a severity (error, warning or
+  information): missing or inconsistent signal specifications, ADC
+  resolutions and ranges that the storage format cannot hold, samples outside
+  the ADC range, checksum and length mismatches, problematic names,
+  inconsistent segments of multi-segment records, and annotations that are
+  out of order, undefined or after the end of the signals. Its report,
+  including the text of every message, is identical in all seven
+  implementations. It looks for problems similar to those found by Benjamin
+  Moody's separate C program \cmd{wfdbcheck}, but was written independently.
+\item \textbf{Fast reading and writing.} The high-level functions read and
+  write whole blocks of samples, and \code{write\_annotations} encodes a whole
+  MIT annotation file at once. The multi-frame readers added to the library
+  functions (\code{getframes} in Python, R and MATLAB/Octave, \code{getvecs}
+  in C++, Rust, Julia and Kotlin) decode whole blocks as well, including
+  multi-frequency and multi-segment records. The samples and files are
+  exactly those of the frame-by-frame functions.
+\item \textbf{Signal names without surrounding spaces.} Some headers end a
+  signal's description with spaces (\code{"ABP "}). The high-level readers
+  give the names without white space at either end, and \code{read\_record}
+  finds a channel by that name; the library functions and the tools keep the
+  descriptions as the C library does.
+\item \textbf{The header and the start time as numbers.} \code{read\_header}
+  returns the header of a record without opening its signal files: the
+  sampling and counter frequencies, the base counter value, the number of
+  samples, the signal specifications, the info strings, the metadata, and the
+  start time and date. \code{read\_header} and \code{read\_record} give the
+  start time as text (\code{base\_time}), in milliseconds after midnight
+  (\code{base\_time\_ms}, which keeps the milliseconds of a start time such
+  as \code{14:00:03.500}), and the start date as year, month and day
+  (\code{base\_date}).
+\item \textbf{Write errors and frame checks in the high-level writers.}
+  \code{write\_record} and \code{write\_annotations} raise an error
+  (\code{write error on record REC}, \code{write error on annotator ANN for
+  record REC}) when a file cannot be written completely. \code{write\_record}
+  also refuses, before creating any file, frame sizes that are not integers
+  of at least 1 (\code{samps\_per\_frame must hold integers >= 1}) and
+  signals whose number of columns is not the number of samples in a frame
+  (\code{signals has N columns, but samps\_per\_frame adds up to M}).
+\item \textbf{Read errors in the high-level readers.} \code{read\_record}
+  raises an error (\code{can't read signal data of record REC (getvec status
+  S)}) when a signal file ends before the length its header gives, or cannot
+  be read, instead of returning the samples read so far. A checksum error is
+  a warning instead (\cref{sec:errors}).
+\item \textbf{Header metadata} (version 1.2.0): the functions
+  \code{read\_metadata}, \code{get\_metadata}, \code{set\_metadata},
+  \code{remove\_metadata} and \code{update\_metadata} read and change the
+  \code{Key: value} info strings of a header without changing anything else
+  in it, \code{read\_header} returns them, and \code{write\_record} writes
+  them (\cref{chap:metadata}). The library functions \code{getinfo},
+  \code{putinfo} and \code{setinfo}, and the tools, are unchanged, and the C
+  library reads the changed headers as before.
+\item \textbf{The high-level functions leave the annotation time resolution
+  and the getvec mode as they were} (version 1.2.0). Opening an EDF record
+  sets the time resolution of output annotators (\code{setafreq}) to the
+  record's sampling frequency when none is set, and adds
+  \code{WFDB\_HIGHRES} to the getvec mode (\code{setgvmode}), as in C, and
+  \code{wfdbquit} resets neither. \code{read\_record}, \code{read\_header},
+  \code{read\_annotations}, \code{write\_record}, \code{write\_annotations}
+  and \code{check\_record} restore both previous values (\code{getafreq},
+  \code{getgvmode}) when they return, also after an error, so that
+  \code{read\_header("100s.edf")} changes nothing for a later
+  \code{write\_annotations} or \code{getvec}; the \code{fs} argument of
+  \code{write\_annotations} applies to its own file only. The library
+  functions keep the behavior of C (\cref{sec:known-c}).
+\item \textbf{Library functions} for these settings: \code{wfdbx\_set\_legacy},
+  \code{wfdbx\_get\_legacy} and \code{wfdbx\_legacy\_args} (legacy mode),
+  \code{wfdbx\_time\_needs\_freq}, \code{wfdbx\_write\_errors} and
+  \code{wfdbx\_note\_write\_error}, the functions of the input and output
+  directories and of network access, and \code{wfdbx\_input\_path} and
+  \code{wfdbx\_output\_path} (version 1.2.0), which give the path under
+  which a program opens a file that it reads or creates itself
+  (\cref{sec:tool-files}).
+\end{itemize}
+The high-level functions behave identically in all seven implementations,
+in legacy mode too, since they are not part of the original package.
+
+\section{Corrections of version 1.2.0}
+\label{sec:corrections-1-2-0}
+
+Version 1.2.0 changes the behavior of WFDB-x in three points, which were
+errors of the earlier versions:
+\begin{itemize}
+\item \textbf{The files that a tool reads or creates itself follow the input
+  and output directories} (\cref{sec:tool-files}). The \opt{-i} file of
+  \cmd{wrsamp}, \cmd{edf2mit}, \cmd{wav2mit}, \cmd{a2m} and \cmd{ad2m}, the
+  input files of \cmd{ahaecg2mit} and the \opt{-S} script of \cmd{xform} are
+  read from the input directory; the WAV file of \cmd{mit2wav}, the EDF file
+  of \cmd{mit2edf}, the master header of \cmd{snip -m} and the \file{.des},
+  \file{.ecg}, \file{.key} and \file{.txt} files of \cmd{parsescp} are
+  created in the output directory; \cmd{wfdbdesc} measures a signal file of
+  unknown length in the header's directory. They were opened relative to the
+  current directory: with \code{WFDBX\_OUTPUT\_DIR} set, \cmd{mit2wav} left a
+  WAV header without samples in the current directory and the samples
+  without a header in the output directory. In legacy mode, input files are
+  opened as named, and the output directory is a prefix of every output
+  name. New library functions: \code{wfdbx\_input\_path} and
+  \code{wfdbx\_output\_path} (\cref{sec:library-additions}).
+\item \textbf{\code{osigopen(record, NULL, 0)}} returns 0 in every language
+  (\cref{sec:crashes}); the Python implementation raised an
+  \code{IndexError}.
+\item \textbf{The high-level functions leave the annotation time resolution
+  and the getvec mode as they were} (\cref{sec:additions}). After
+  \code{read\_header("100s.edf")}, or any high-level function that opens an
+  EDF record, a later \code{write\_annotations} in the same process no longer
+  records the EDF record's sampling frequency as the time resolution of its
+  file, and the getvec mode no longer stays in high resolution. The library
+  functions keep the behavior of C.
+\end{itemize}
+
+\section{Legacy mode}
+\label{sec:legacy}
+
+Legacy mode makes \wfdbx{} behave exactly as the original package, for
+reproducing old results. The default is the behavior described in the rest
+of this manual. It is turned on in three ways:
+\begin{itemize}
+\item \textbf{Tools}: \opt{--legacy} as the \emph{first} argument of any tool
+  (\cmd{rdsamp --legacy -r 100s -t 10}; in Python \cmd{wfdbx rdsamp --legacy
+  -r 100s -t 10}). It is removed before the options are parsed, and the tool
+  then behaves exactly as the original one: same options (the options added
+  by \wfdbx{}, such as \opt{-F} in \cmd{rdann} or \opt{-R} in \cmd{wrsamp},
+  are unrecognized), outputs, messages, help texts and exit statuses.
+  \opt{--legacy} anywhere else is not recognized.
+\item \textbf{Library}: \code{wfdbx\_set\_legacy(1)} turns legacy mode on,
+  and \code{wfdbx\_set\_legacy(0)} off; each returns the previous setting,
+  and \code{wfdbx\_get\_legacy()} returns the current one. The setting applies
+  to the whole library. \code{wfdbx\_legacy\_args} is the function that the
+  tools call to recognize and remove \opt{--legacy}.
+\item \textbf{High-level API}: the \code{legacy} option of \code{read\_record},
+  \code{read\_header}, \code{read\_annotations}, \code{write\_record},
+  \code{write\_annotations} and the related functions turns the library's
+  legacy mode on for the duration of the call, and restores the previous
+  setting afterwards. The functions also follow the original rules when the
+  library is in legacy mode.
+\end{itemize}
+No environment variable turns legacy mode on.
+
+In legacy mode, every library difference of this chapter behaves as in the
+original: a header without a frequency means 250\,Hz; a missing ADC
+resolution is inferred from the format or taken as 12 bits; the time
+conversions use 1 sample per second when no frequency is known;
+\code{setifreq} reports \code{no open input record}; the unit conversions
+assume a gain of 200 (and a baseline of 0 for invalid signal numbers); files
+are found through the WFDB search path, without network access
+(\cref{sec:resolve}); out-of-order annotation files are sorted by running
+\cmd{sortann}, which loses annotations as the original does; an output file
+may be one of the input files; the whole record name is checked when a header
+is written, and headers name records and files as given. The input directory
+and \code{WFDBX\_NETWORK} are not used, no remote file is read, and the
+tools open the files that they read themselves as named; the output
+directory is used, also for the files that the tools create themselves. The tools exit with the original status after a
+write error, and print no new messages. In \code{write\_record}, legacy mode
+gives a gain of 200 and makes the units optional; its default ADC
+resolution is the storage width of the format (8 bits for formats 80 and
+508, 10 for 310 and 311, 12 for 212, 24 for 24 and 524, 32 for 32) and 16
+bits for every other format, which differs from \cmd{wrsamp --legacy} only
+for format 8 (12 bits there, as in the original \cmd{wrsamp}).
+
+Legacy mode is tested against the unmodified C package by the legacy suite
+of the conformance tests (883 cases, each run with \opt{--legacy}), and the
+library's legacy values by the unit tests.
+
+\begin{note}
+Legacy mode is kept for compatibility only. The values it assumes are
+exactly the silent defaults that \wfdbx{} removed, so results produced with
+it carry the same risks: a time, interval, resampled signal or physical value
+computed from an assumed frequency, gain, resolution or unit is wrong if the
+assumption is, and nothing in the output says so.
+\end{note}
+
+\section{Errors and warnings}
+\label{sec:errors}
+
+\paragraph{The library functions} report errors as the C library does, in
+every language: a function returns an error status (a negative number, a
+null pointer, \ldots, as its C counterpart does), and the library prints a
+message on the standard error output, such as \code{init: can't open header
+for record 100}. \code{wfdbquiet()} stops the messages from being printed,
+and \code{wfdbverbose()} prints them again; \code{wfdberror()} returns the
+last message (before any error, \code{WFDB library version 10.7.0 (Jun 10
+2022).}), and \code{wfdb\_error(format, \ldots)} reports a message as the
+library does. The messages are those of the C library, byte for byte, so
+that the tools print what the C tools print.
+
+\paragraph{The high-level functions} report errors in the usual way of each
+language, with a message that says which operation failed, such as
+\code{can't read record 100s}; the library's own message, if any, is printed
+too, unless \code{wfdbquiet()} was called, and returned by
+\code{wfdberror()}.
+\begin{itemize}
+\item Python raises \code{OSError} (\code{IOError}) when a file cannot be
+  read or written, \code{ValueError} for an invalid argument,
+  \code{TypeError} for an argument of the wrong type, and
+  \code{FileNotFoundError} when an output directory (\code{dir}) does not
+  exist.
+\item C++ throws \code{wfdbx::Error}, or, in the metadata functions, one
+  of its subclasses \code{ArgumentError} and \code{FileError} (in the
+  namespace \code{wfdbx}).
+\item Rust returns a \code{Result} whose error type is
+  \code{wfdbx::record::Error}.
+\item Julia throws a \code{WfdbError}.
+\item R signals an R error.
+\item MATLAB/Octave throws an error, with an identifier such as
+  \code{wfdbx:read\_record}.
+\item Kotlin throws a \code{WfdbException}.
+\end{itemize}
+The chapters of \cref{part:languages} list the errors of each function.
+
+\paragraph{The checksum warning.} When a high-level reader has read every
+sample of a signal but their sum differs from the checksum of the header,
+it returns every frame, the last one included, with the warning
+\begin{lstlisting}[style=text]
+checksum error in record REC: the signal data do not match the checksums in its header
+\end{lstlisting}
+in each language's usual way: Python \code{warnings} (a
+\code{RuntimeWarning}), R \code{warning()}, Julia \code{@warn},
+MATLAB/Octave \code{warning()} (identifier \code{wfdbx:checksum}), and the
+standard error output in C++, Rust and Kotlin (also silenced by
+\code{wfdbquiet()}; in Kotlin, an \code{onWarning} callback can receive it
+instead). The \code{checksum\_warning} option (\code{checksumWarning} in
+Kotlin) turns it off, and the record's \code{checksum\_ok} field is false in
+either case, so that a program can test for it. The library function
+\code{getvec} reports such an error as in C: \code{getvec: checksum error in
+signal N}, and the status $-4$ for the last frame; the tools, such as
+\cmd{rdsamp}, therefore stop before printing that frame, as the C tools do.
+
+\section{Known C behaviors that WFDB-x reproduces}
+\label{sec:known-c}
+
+\wfdbx{} reproduces the C package exactly, including behaviors that may look
+surprising; where the documentation of the C package and its code disagree,
+\wfdbx{} follows the code. The file \file{docs/KNOWN\_C\_BEHAVIORS.md} lists
+them, and says for each whether the official documentation describes it.
+Among them:
+\begin{itemize}
+\item \textbf{Checksums.} \code{getvec} returns $-4$ for the frame at which a
+  checksum mismatch is found, so that programs that loop while
+  \code{getvec(\ldots) >= 0}, such as \cmd{rdsamp}, stop before printing the
+  last frame.
+\item \textbf{Modification labels.} \code{annopen} consumes the \code{NOTE}
+  annotations at time 0 (subtype 0) at the beginning of an annotation file,
+  so \code{getann} does not return them; a file whose table redefines
+  mnemonics makes every annotation file written later in the same process
+  repeat the table.
+\item \textbf{The time resolution note.} A program that calls
+  \code{setafreq} with a positive value (as \cmd{wrann} does) writes a
+  \code{\#\# time resolution:} note at the beginning of its output files.
+\item \textbf{Duplicates at time 0.} An annotation at time 0 that follows
+  another at time 0 counts as in order, so that annotations written twice at
+  a time-0 location are not sorted, and both are kept.
+\item \textbf{State that survives \code{wfdbquit}}: the counter frequency
+  and base counter value, the output annotation time resolution, the buffer
+  sizes, and the mnemonic and description tables are not reset.
+\item \textbf{Opening an EDF record} sets the time resolution of output
+  annotators to the record's sampling frequency, when \code{setafreq} has not
+  set one, and adds \code{WFDB\_HIGHRES} to the getvec mode; \code{wfdbquit}
+  resets neither, so that an annotation file written later by the same
+  process begins with a time-resolution note (\code{\#\# time resolution:
+  360} after \code{100s.edf}), and later records are read in high
+  resolution. The library functions do the same; the high-level functions
+  restore both settings (\cref{sec:additions}).
+\item \textbf{Tools.} \cmd{sortann} keeps only the last of several
+  annotations with the same time, \code{num} and \code{chan}; \cmd{wrann}
+  turns an unrecognized mnemonic into a \code{NOTE} whose aux string starts
+  with the mnemonic, and keeps the subtype, \code{chan} and \code{num} of the
+  previous line when a line omits them; \cmd{rr2ann} repeats the previous
+  interval for an empty line; \cmd{revise} rejects an old-style header of
+  exactly 32 signals; \cmd{edf2mit} adds stray bytes to a 16-character signal
+  label; \cmd{ahaecg2mit} writes the annotations of \file{.ecg} input one
+  sample early; \cmd{mit2edf} uses the current date and time for a record
+  that has no start time.
+\item \textbf{Documentation and code disagree} on a few points, and \wfdbx{}
+  follows the code: \code{wfdbquit} does not reset the counter frequency;
+  the variable that turns sorting off is \code{WFDBANNSORT}, not
+  \code{WFDBNOSORT}; \cmd{wrsamp}'s \opt{-c} has no effect and \opt{-l} is
+  obsolete; its default field separators are space, tab, CR, LF and comma;
+  \cmd{edf2mit} and \cmd{wav2mit} name their default output records after
+  the input file name.
+\item \textbf{Build-specific values.} \code{wfdbversion}, \code{wfdbldflags},
+  \code{wfdbcflags} and \code{wfdbdefwfdb} return the values of a release
+  build of 10.7.0 installed in \file{/usr/local}: \code{"10.7.0"},
+  \code{""}, \code{""}, and the default WFDB path of the C package,
+  \code{". /usr/local/\allowbreak database
+  http://\allowbreak physionet.org/\allowbreak physiobank/\allowbreak database"};
+  \code{wfdbdefwfdbcal} returns \code{"wfdbcal"}.
+\end{itemize}
+
+\paragraph{Behaviors that depend on the platform.} The reference results were
+produced on x86-64 Linux with glibc, where \code{char} is signed, \code{long}
+is 64 bits, and \code{WFDB\_Time} is 64 bits. \wfdbx{} reproduces that
+platform's behavior where C's would differ elsewhere; for example,
+floating-point operations are never contracted into fused multiply-adds
+(which some compilers do by default, and which can change results such as
+the baselines that \cmd{edf2mit} computes). One case remains: when an output
+file is also an input file in legacy mode (\cref{sec:output-input}), what is
+read depends on how far the runtime reads ahead, as in C; the R
+implementation on macOS reads further ahead than glibc, and fails one legacy
+conformance case for that reason.

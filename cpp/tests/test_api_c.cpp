@@ -1809,3 +1809,99 @@ WFDBX_TEST(c_legacy_sort_in_output_dir)
     CHECK(r.samples == (std::vector<WFDB_Time>{50, 100, 200, 300}));
     CHECK(r.symbols.size() == 4 && r.symbols[1] == "A");
 }
+
+// t_toolpaths (api_expect.c): wfdbx_input_path and wfdbx_output_path, where a
+// program opens the files that it reads or creates itself (HOME is set to the
+// subdirectory thome, so that ~ names are reproducible), in normal and legacy
+// mode.
+WFDBX_TEST(c_toolpaths)
+{
+    DataDir d;
+    EnvVar in_env("WFDBX_INPUT_DIR", nullptr);
+    EnvVar out_env("WFDBX_OUTPUT_DIR", nullptr);
+    EnvVar home("HOME", "thome");
+    using O = std::optional<std::string>;
+    auto ip = [](const char *n) { return wfdbx_input_path(n); };
+    auto op = [](const char *n) { return wfdbx_output_path(n); };
+    wfdbx_set_input_dir(nullptr);
+    wfdbx_set_output_dir(nullptr);
+    CHECK(ip("a.txt") == O("a.txt"));
+    CHECK(ip("~/a.txt") == O("thome/a.txt"));
+    CHECK(ip("-") == O("-"));
+    CHECK(ip("") == O(""));
+    CHECK(!ip(nullptr));
+    CHECK(!ip("http://127.0.0.1:1/a"));
+    CHECK(op("a.wav") == O("a.wav"));
+    CHECK(op("~/a.wav") == O("thome/a.wav"));
+    CHECK(!op("https://127.0.0.1:1/a"));
+    wfdbx_set_input_dir("tin");
+    CHECK(ip("a.txt") == O("tin/a.txt"));
+    CHECK(ip("../a.txt") == O("tin/../a.txt"));
+    CHECK(ip("/a.txt") == O("/a.txt"));
+    CHECK(ip("-") == O("-"));
+    wfdbx_set_input_dir("~/tin/");
+    CHECK(ip("a.txt") == O("thome/tin/a.txt"));
+    wfdbx_set_input_dir("http://127.0.0.1:1/d");
+    CHECK(!ip("a.txt"));
+    wfdbx_set_input_dir(nullptr);
+    wfdbx_set_output_dir("tout/deep");
+    CHECK(op("a.wav") == O("tout/deep/a.wav"));
+    CHECK(fs::is_directory("tout/deep"));
+    CHECK(op("s/a.wav") == O("tout/deep/s/a.wav"));
+    CHECK(fs::is_directory("tout/deep/s"));
+    CHECK(op("/a.wav") == O("/a.wav"));
+    CHECK(op("~/m/a.wav") == O("thome/m/a.wav"));
+    CHECK(!fs::exists("thome/m"));
+    CHECK(ip("a.txt") == O("a.txt"));
+    {
+        LegacyOn legacy;
+        wfdbx_set_input_dir("tin");
+        wfdbx_set_output_dir("tlout");
+        CHECK(ip("a.txt") == O("a.txt"));
+        CHECK(ip("~/a.txt") == O("~/a.txt"));
+        CHECK(op("a.wav") == O("tlout/a.wav"));
+        CHECK(op("/a.wav") == O("tlout//a.wav"));
+        CHECK(op("~/a.wav") == O("tlout/~/a.wav"));
+        CHECK(op("-") == O("-"));
+        CHECK(fs::is_directory("tlout/~"));
+        wfdbx_set_output_dir(nullptr);
+        CHECK(op("a.wav") == O("a.wav"));
+        wfdbx_set_input_dir(nullptr);
+    }
+}
+
+// osigopen(record, nullptr, 0) opens no signals and returns 0, after closing
+// the output signals already open (unless the record name begins with '+');
+// a header that cannot be read is still an error.  (C reads before the start
+// of an array: see docs/KNOWN_C_BEHAVIORS.md; the Python counterpart is
+// test_osigopen_no_signals.)
+WFDBX_TEST(c_osigopen_no_signals)
+{
+    DataDir d;
+    wfdbx_tests::StderrCapture err;
+    WFDB_Siginfo si[3];
+    for (int i = 0; i < 3; i++) {
+        si[i].fname = "o16.dat";
+        si[i].desc = "s" + std::to_string(i);
+        si[i].units = "mV";
+        si[i].gain = 100;
+        si[i].group = 0;
+        si[i].fmt = 16;
+        si[i].adcres = 12;
+    }
+    setsampfreq(360.0);
+    CHECK_EQ(osigfopen(si, 3), 3);
+    WFDB_Sample v[3] = {1, 2, 3};
+    CHECK_EQ(osigopen("+100s", nullptr, 0), 0);
+    CHECK_EQ(putvec(v), 3);             // still open
+    CHECK_EQ(osigopen("100s", nullptr, 0), 0);
+    CHECK_EQ(putvec(v), 0);             // closed: no signals
+    WFDB_Siginfo none[1];
+    CHECK_EQ(osigopen("100s", none, 0), 0);
+    wfdbquiet();
+    CHECK_EQ(osigopen("nosuch", nullptr, 0), -1);
+    wfdbverbose();
+    wfdbquit();
+    CHECK(fs::file_size("o16.dat") == 6);
+    CHECK_EQ(err.text(), "");
+}

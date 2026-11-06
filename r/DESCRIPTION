@@ -1,7 +1,7 @@
 Package: wfdbx
 Type: Package
 Title: Read and Write Physiologic Signal and Annotation Files (WFDB)
-Version: 1.1.0
+Version: 1.2.0
 Authors@R: c(
     person("George B.", "Moody", role = c("aut", "cph"),
            comment = "original C library and tools (WFDB Software Package)"),

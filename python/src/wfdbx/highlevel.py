@@ -26,7 +26,9 @@ WFDB package. See
 https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DIVERGENCES.md#legacy-mode
 
 These functions call ``wfdbquit()``, which closes anything opened with
-the WFDB library functions.
+the WFDB library functions. They leave the time resolution of output
+annotators (``getafreq()``) and the getvec mode (``getgvmode()``) as they
+were, also after reading an EDF record (whose opening sets both, as in C).
 
 Example, with the sample record 100s, included with WFDB-x (the first minute
 of record 100 of the MIT-BIH Arrhythmia Database, in the directory
@@ -96,6 +98,7 @@ from . import _annot as ann
 from . import _wfdbinit as init
 from . import _wfdbio as wio
 from ._wfdbio import WFDB_READ, WFDB_WRITE
+from . import metadata as _meta
 
 __all__ = ["Record", "Header", "Annotations", "read_record",
            "read_annotations", "write_record", "write_annotations",
@@ -175,6 +178,9 @@ class Header:
       base_date     start date as (year, month, day), or None if the header
                     gives none
       comments      list of the info strings of the header
+      metadata      list of the (key, value) pairs of the "Key: value"
+                    entries of the header, in file order, as read_metadata()
+                    returns them (see help(wfdbx.metadata))
     """
 
     def __init__(self, **kw):
@@ -266,6 +272,29 @@ def _legacy_option(func):
             return func(*args, **kw)
         finally:
             sig.wfdbx_set_legacy(previous)
+    return wrapper
+
+
+def _keep_settings(func):
+    """Decorator of the high-level functions that open a record (WFDB-x):
+    the time resolution of output annotators (getafreq, setafreq) and the
+    getvec mode (getgvmode, setgvmode) are restored when the function
+    returns (also on errors).  Opening an EDF record sets both, as in C (the
+    time resolution to the record's sampling frequency when none is set,
+    and the WFDB_HIGHRES bit of the getvec mode), and wfdbquit resets
+    neither; without this, a later write_annotations in the same process
+    would record that frequency, and later reading would be in high
+    resolution.  (The input annotators, and their frequencies, are closed
+    by wfdbquit.)  The C-style functions keep the behavior of C."""
+    @functools.wraps(func)
+    def wrapper(*args, **kw):
+        afreq = ann.getafreq()
+        gvmode = sig.getgvmode()
+        try:
+            return func(*args, **kw)
+        finally:
+            sig.setgvmode(gvmode)
+            ann.setafreq(afreq)
     return wrapper
 
 
@@ -447,6 +476,7 @@ def _info_strings(record):
     return comments
 
 
+@_keep_settings
 @_legacy_option
 @_input_options
 def read_header(record, *, input_dir=None, network=None, legacy=False):
@@ -455,11 +485,17 @@ def read_header(record, *, input_dir=None, network=None, legacy=False):
     The signal files are not opened.
 
     Arguments:
-      record     record name: a name in the input directory, or a full path,
-                 ~ path or URL
-      input_dir  input directory for this call only: a local directory, a
-                 ~ path or a URL. Default: the current setting (see
-                 wfdbx_set_input_dir).
+      record     record name, without the .hea extension (a trailing ".hea" is
+                 also accepted): a full path, absolute ("/data/mitdb/100") or
+                 in the home directory ("~/Documents/100s"), used as given; a
+                 relative path ("100s", "data/100s"), read from the input
+                 directory if one is set, otherwise from the current directory;
+                 or a URL ("https://physionet.org/files/mitdb/1.0.0/100"), read
+                 only if network access is on
+      input_dir  input directory for this call only (optional): a local
+                 directory, a ~ path or a URL, under which relative record
+                 names are read. It does not apply to full paths or URLs.
+                 Default: the current setting (see wfdbx_set_input_dir).
       network    True to allow reading URLs for this call only, False to
                  forbid it. Default: the current setting (see
                  wfdbx_set_network).
@@ -471,6 +507,9 @@ def read_header(record, *, input_dir=None, network=None, legacy=False):
 
     Raises:
       IOError    if the header cannot be found or read
+
+    The time resolution of output annotators (getafreq) and the getvec mode
+    (getgvmode) are left as they were (opening an EDF record sets both).
 
     Example (100s is the sample record included with WFDB-x: the first
     minute of record 100 of the MIT-BIH Arrhythmia Database, in the
@@ -499,11 +538,17 @@ def read_header(record, *, input_dir=None, network=None, legacy=False):
                  nsamples=s_.msnsamples if s_.in_msrec else s_.nsamples,
                  nsig=len(si), siginfo=si, base_time=base_time,
                  base_time_ms=base_time_ms, base_date=base_date,
-                 comments=_info_strings(record))
+                 comments=_info_strings(record), metadata=[])
+    edf = s_.isedf
     init.wfdbquit()
+    # The entries of the .hea file only, not of a .info file. An EDF record
+    # and a header read from the standard input have none.
+    if not edf and record != "-":
+        hdr.metadata = _meta.header_metadata(record)
     return hdr
 
 
+@_keep_settings
 @_legacy_option
 @_input_options
 @_gvmode_option
@@ -513,8 +558,13 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
     """Read the signals of a record, or part of it, into a NumPy array.
 
     Arguments:
-      record     record name: a name in the input directory, or a full path,
-                 ~ path or URL
+      record     record name, without the .hea extension (a trailing ".hea" is
+                 also accepted): a full path, absolute ("/data/mitdb/100") or
+                 in the home directory ("~/Documents/100s"), used as given; a
+                 relative path ("100s", "data/100s"), read from the input
+                 directory if one is set, otherwise from the current directory;
+                 or a URL ("https://physionet.org/files/mitdb/1.0.0/100"), read
+                 only if network access is on
       channels   list of the signals to read, by number (int) or name (str,
                  as in Record.names), in the order you want them. Default:
                  all signals.
@@ -532,9 +582,10 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                  averaged to one sample per frame.
       pad        True to replace each invalid sample by the previous valid
                  sample of the same signal
-      input_dir  input directory for this call only: a local directory, a
-                 ~ path or a URL. Default: the current setting (see
-                 wfdbx_set_input_dir).
+      input_dir  input directory for this call only (optional): a local
+                 directory, a ~ path or a URL, under which relative record
+                 names are read. It does not apply to full paths or URLs.
+                 Default: the current setting (see wfdbx_set_input_dir).
       network    True to allow reading URLs for this call only, False to
                  forbid it. Default: the current setting (see
                  wfdbx_set_network).
@@ -565,7 +616,9 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                   physical=True and a signal you read has no gain
 
     Whatever happens, the input signals are closed (wfdbquit) before the
-    function returns.
+    function returns, and the time resolution of output annotators
+    (getafreq) and the getvec mode (getgvmode) are left as they were
+    (opening an EDF record sets both).
 
     Warns:
       RuntimeWarning  "checksum error in record REC: the signal data do not
@@ -730,6 +783,7 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
     return rec
 
 
+@_keep_settings
 @_legacy_option
 @_input_options
 def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
@@ -737,8 +791,14 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
     """Read an annotation file into NumPy arrays.
 
     Arguments:
-      record     record name. Its header, if there is one, gives the sampling
-                 frequency.
+      record     record name, without the .hea extension (a trailing ".hea" is
+                 also accepted): a full path, absolute ("/data/mitdb/100") or
+                 in the home directory ("~/Documents/100s"), used as given; a
+                 relative path ("100s", "data/100s"), read from the input
+                 directory if one is set, otherwise from the current directory;
+                 or a URL ("https://physionet.org/files/mitdb/1.0.0/100"), read
+                 only if network access is on. Its header, if there is one,
+                 gives the sampling frequency.
       annotator  annotator name: the suffix of the annotation file. "atr"
                  reads the file record.atr.
       sampfrom   first time to read: a sample number or a time string (see
@@ -747,7 +807,10 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
                  read. Default: the end of the file.
       fs         sampling frequency (> 0) to use when the record has no
                  header, or its header gives none. It is ignored otherwise.
-      input_dir  input directory for this call only (see read_record)
+      input_dir  input directory for this call only (optional): a local
+                 directory, a ~ path or a URL, under which relative record
+                 names are read. It does not apply to full paths or URLs.
+                 Default: the current setting (see wfdbx_set_input_dir).
       network    True to allow reading URLs for this call only (see
                  read_record)
       legacy     True to behave as the original WFDB package (see the module
@@ -763,6 +826,9 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
                   file ANN of record REC (getann status -3)")
       ValueError  if fs is given and is not > 0, or if a time string needs
                   the sampling frequency and none is known
+
+    The time resolution of output annotators (getafreq) and the getvec mode
+    (getgvmode) are left as they were (opening an EDF record sets both).
 
     Example (100s is the sample record included with WFDB-x: the first
     minute of record 100 of the MIT-BIH Arrhythmia Database, in the
@@ -828,12 +894,14 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
     return res
 
 
+@_keep_settings
 @_legacy_option
 @_output_dir_option
 def write_record(record, signals, fs, fmt=16, gains=None,
                  baselines=None, adczeros=0, adcres=None, units=None,
                  names=None, base_time=None, comments=None, physical=False,
-                 samps_per_frame=None, *, dir=None, legacy=False):
+                 samps_per_frame=None, *, metadata=None, dir=None,
+                 legacy=False):
     """Write signals as a new record: a header and one signal file.
 
     The files are named ``record + ".hea"`` and ``record + ".dat"``. All
@@ -847,7 +915,17 @@ def write_record(record, signals, fs, fmt=16, gains=None,
     signal.
 
     Arguments:
-      record     record name
+      record     record name, without the .hea extension: a plain name ("rec")
+                 or a relative path ("data/rec"), created in the output
+                 directory if one is set (see wfdbx_set_output_dir), otherwise
+                 in the current directory, missing directories included; or a
+                 full path, absolute or in the home directory
+                 ("~/Documents/rec"), used as given. With a path, the files are
+                 created in that directory, and the header names the record and
+                 its signal file without the path ("rec", "rec.dat"), so that
+                 the record opens under any path that leads to it (in legacy
+                 mode, as in the original, the header gives the name with its
+                 path). A URL cannot be written.
       signals    array with one row per sample and one column per signal.
                  A 1-D array is one signal. The values are integer ADC units
                  (integers, or floats with whole values, within the range of
@@ -868,6 +946,12 @@ def write_record(record, signals, fs, fmt=16, gains=None,
       base_time  start time, with an optional date: "hh:mm:ss dd/mm/yyyy".
                  Default: none.
       comments   list of info strings, written to the header
+      metadata   "Key: value" entries to write to the header, after the
+                 comments, as "# Key: value": a mapping from key to value
+                 (strings), or a sequence of (key, value) pairs. The keys
+                 and values follow the rules of set_metadata; no two keys
+                 may differ only in letter case, nor be the key of an entry
+                 in comments. Default: none.
       physical   True if ``signals`` are in physical units. They are
                  converted to ADC units as round(x * gain) + baseline, and
                  NaN becomes an invalid sample. Infinite values, and values
@@ -877,9 +961,10 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                  record. ``signals`` then has sum(samps_per_frame) columns,
                  and each row holds one frame: the samples of signal 0, then
                  those of signal 1, and so on.
-      dir        directory in which to create the files. It must exist, and
-                 ``record`` must then be a plain name. The record opens from
-                 that directory under its plain name.
+      dir        directory (which must exist) in which to create the files, for
+                 this call only. ``record`` must then be a plain name, without
+                 a directory, and the record opens from that directory under
+                 its plain name.
       legacy     True to behave as the original WFDB package (see the module
                  help)
 
@@ -887,6 +972,9 @@ def write_record(record, signals, fs, fmt=16, gains=None,
       None
 
     Raises:
+      TypeError          if metadata is neither a mapping nor a sequence of
+                         (key, value) pairs, or holds a key or value that is
+                         not a string
       ValueError         if record is empty, if signals has no signals ("at
                          least one signal is required"), if fs, a gain, an
                          ADC resolution or the units of a calibrated signal
@@ -898,7 +986,8 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                          sample is not valid (see signals and physical), if
                          the signals do not all have the same format, if a
                          samps_per_frame value is not an integer >= 1 or the
-                         number of columns of signals is not their sum, or if
+                         number of columns of signals is not their sum, if
+                         an entry of metadata is not valid, or if
                          record contains a directory and dir is given
       FileNotFoundError  if dir does not exist
       IOError            if the signal file or the header cannot be created,
@@ -906,7 +995,9 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                          the disk is full: "write error on record R")
 
     The arguments are checked before any file is created. Whatever happens,
-    the output signals are closed (wfdbquit) before the function returns.
+    the output signals are closed (wfdbquit) before the function returns,
+    and the time resolution of output annotators (getafreq) and the getvec
+    mode (getgvmode) are left as they were.
 
     Example (writes a record of random numbers, rand, in the output
     directory: the files rand.hea and rand.dat)::
@@ -1020,6 +1111,8 @@ def write_record(record, signals, fs, fmt=16, gains=None,
         raise ValueError("all signals of a record written by write_record "
                          "must have the same format")
     comments = list(comments or [])
+    if metadata is not None:
+        comments += _meta.info_lines(metadata, comments)
     init.wfdbquit()
     errors = wio.wfdbx_write_errors()
     # (the output signals are closed however this ends)
@@ -1045,6 +1138,7 @@ def write_record(record, signals, fs, fmt=16, gains=None,
 
 
 @_legacy_option
+@_keep_settings
 @_output_dir_option
 def write_annotations(record, annotator, samples, symbols=None, codes=None,
                       subtypes=0, chans=0, nums=0, aux=None, fs=None, *,
@@ -1057,7 +1151,14 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
     WFDBANNSORT environment variable decides: sorting is on unless it is 0.
 
     Arguments:
-      record     record name
+      record     record name, without the .hea extension (a trailing ".hea" is
+                 also accepted): a plain name or a relative path ("data/100s")
+                 is created in the output directory if one is set (see
+                 wfdbx_set_output_dir), otherwise in the current directory; a
+                 full path, absolute or in the home directory
+                 ("~/Documents/100s"), is used as given. The file is
+                 RECORD.ANNOTATOR at that place ("data/100s.qrs"). A URL cannot
+                 be written.
       annotator  annotator name: the suffix of the file. An existing file is
                  overwritten.
       samples    annotation times, in samples: integers within the range
@@ -1082,8 +1183,9 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
       sort       True to always sort, False to keep the order you gave
                  (without the library's advice to run sortann), None (the
                  default) to follow WFDBANNSORT
-      dir        directory in which to create the file. It must exist, and
-                 ``record`` must then be a plain name.
+      dir        directory (which must exist) in which to create the file, for
+                 this call only. ``record`` must then be a plain name, without
+                 a directory: the file is DIR/RECORD.ANNOTATOR.
       legacy     True to behave as the original WFDB package (see the module
                  help)
 
@@ -1105,7 +1207,9 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
                          for record R")
 
     The arguments are checked before the file is created. Whatever happens,
-    the annotator is closed (wfdbquit) before the function returns.
+    the annotator is closed (wfdbquit) before the function returns, and the
+    time resolution of output annotators (getafreq) and the getvec mode
+    (getgvmode) are left as they were (fs applies to this file only).
 
     Example (writes the annotation file rand.test, for the record rand
     written in the example of write_record, in the output directory)::
@@ -1231,8 +1335,8 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
             ann._a.sort_override = None
     finally:
         init.wfdbquit()
-        if afs is not None:
-            ann.setafreq(0.0)
+        # (the previous time resolution is restored by _keep_settings)
+
     if wio.wfdbx_write_errors() > errors:
         raise IOError("write error on annotator %s for record %s" %
                       (annotator, record))

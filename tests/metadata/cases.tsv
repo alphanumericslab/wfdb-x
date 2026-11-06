@@ -1,0 +1,50 @@
+# name	header	op	key	value	changes	error	warnings	result	output
+read_basic	basic	read	-	-		-	0	x416765:x3633,x536578:x46,x4478:x3136343838393030332c203539313138303031,x4e6f746573:x,x5265636f72646564206279:x486f6c746572206d6f6e69746f722c206d6f64656c2058	-
+read_lf	lf	read	-	-		-	0		-
+read_dups	dups	read	-	-		-	1	x616765:x3430,x536578:x4d,x486569676874:x313830	-
+read_blank	blank	read	-	-		-	0		-
+read_bytes	bytes	read	-	-		-	0	x4e616d65:x4a6f73e9,x43697479:x5ac3bc72696368	-
+read_interleaved	interleaved	read	-	-		-	0	x4c656164:x4d4c4949207468656e205635,x53697465:x41	-
+read_odd	odd	read	-	-		-	0	x546162206b6579:x76616c756520776974682074616273,x54696d65:x31323a33303a3030,x50726f64756365642062792078666f726d2066726f6d207265636f7264203130302c20626567696e6e696e672061742030:x30	-
+read_multi	multi	read	-	-		-	0		-
+get_basic_case	basic	get	x616765	-		-	0	x3633	-
+get_basic_spaces	basic	get	x2020447820	-		-	0	x3136343838393030332c203539313138303031	-
+get_basic_empty	basic	get	x4e6f746573	-		-	0	x	-
+get_basic_missing	basic	get	x576569676874	-		-	0	-	-
+get_basic_before_record	basic	get	x436f6e766572746564206f6e	-		-	0	-	-
+get_dups	dups	get	x416765	-		-	1	x3430	-
+get_bad_key	basic	get	x613a62	-		argument	0	-	-
+set_basic_replace	basic	set	x414745	x3634		-	0	-	expected/set_basic_replace.hea
+set_basic_add	basic	set	x576569676874	x20203732206b6720		-	0	-	expected/set_basic_add.hea
+set_basic_empty	basic	set	x4478	x		-	0	-	expected/set_basic_empty.hea
+set_basic_sentence	basic	set	x4e6f746573	x53696e75732072687974686d2c206f63636173696f6e616c20505643733b206e6f20706163696e672e		-	0	-	expected/set_basic_sentence.hea
+set_basic_same	basic	set	x416765	x3633		-	0	-	expected/set_basic_same.hea
+set_lf_add	lf	set	x416765	x3435		-	0	-	expected/set_lf_add.hea
+set_blank_add	blank	set	x536578	x46		-	0	-	expected/set_blank_add.hea
+set_interleaved_add	interleaved	set	x416765	x31		-	0	-	expected/set_interleaved_add.hea
+set_interleaved_replace	interleaved	set	x6c656164	x4949		-	0	-	expected/set_interleaved_replace.hea
+set_odd_add	odd	set	x44617465206f66206269727468	x313938302d30312d3031		-	0	-	expected/set_odd_add.hea
+set_odd_tab	odd	set	x746162206b6579	x78		-	0	-	expected/set_odd_tab.hea
+set_multi_add	multi	set	x416765	x3730		-	0	-	expected/set_multi_add.hea
+set_bytes_replace	bytes	set	x6e616d65	x4a6f73e9204d6172ed61		-	0	-	expected/set_bytes_replace.hea
+set_dups_dup	dups	set	x414745	x3530		argument	0	-	-
+set_dups_other	dups	set	x686569676874	x313831		-	0	-	expected/set_dups_other.hea
+set_err_empty_key	basic	set	x2020	x78		argument	0	-	-
+set_err_colon_key	basic	set	x613a62	x78		argument	0	-	-
+set_err_hash_key	basic	set	x2361	x78		argument	0	-	-
+set_err_newline_key	basic	set	x610a62	x78		argument	0	-	-
+set_err_newline_value	basic	set	x61	x780a79		argument	0	-	-
+set_err_cr_value	basic	set	x61	x780d79		argument	0	-	-
+set_err_nul_value	basic	set	x61	x780079		argument	0	-	-
+remove_basic	basic	remove	x736578	-		-	0	1	expected/remove_basic.hea
+remove_basic_missing	basic	remove	x576569676874	-		-	0	0	expected/remove_basic_missing.hea
+remove_basic_last	basic	remove	x5265636f72646564206279	-		-	0	1	expected/remove_basic_last.hea
+remove_dups	dups	remove	x416765	-		-	0	2	expected/remove_dups.hea
+remove_lf_missing	lf	remove	x416765	-		-	0	0	expected/remove_lf_missing.hea
+remove_odd_last	odd	remove	x70726f64756365642062792078666f726d2066726f6d207265636f7264203130302c20626567696e6e696e672061742030	-		-	0	1	expected/remove_odd_last.hea
+update_basic	basic	update	-	-	x616765:x3634,x536578:-,x576569676874:x3732,x486569676874:x313730	-	0	-	expected/update_basic.hea
+update_dups_remove_then_set	dups	update	-	-	x416765:-,x486569676874:x313831	-	0	-	expected/update_dups_remove_then_set.hea
+update_dups_err	dups	update	-	-	x486569676874:x313831,x616765:x3530	argument	0	-	-
+update_err_same_key	basic	update	-	-	x416765:x31,x414745:x32	argument	0	-	-
+update_err_bad_value	basic	update	-	-	x416765:x31,x42:x780a79	argument	0	-	-
+update_empty	basic	update	-	-		-	0	-	expected/update_empty.hea

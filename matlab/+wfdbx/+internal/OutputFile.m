@@ -3,6 +3,9 @@ classdef OutputFile < handle
 %   F = wfdbx.internal.OutputFile(NAME, PNAME) creates the file NAME for
 %   binary writing, as C's fopen(NAME, "wb"); F.fid is -1 if it cannot be
 %   created.  PNAME is the program name, for the message of close().
+%   WFDB-x: the file is created where the library creates an output file
+%   of that name (under the output directory, if one is set: see
+%   wfdbx.wfdbx_output_path); a URL cannot be created (F.fid is -1).
 %   F = wfdbx.internal.OutputFile(NAME, PNAME, MACHINEFMT) opens it with
 %   the machine format MACHINEFMT (e.g. 'ieee-le').
 %
@@ -11,10 +14,10 @@ classdef OutputFile < handle
 %     ST = F.close()      fclose: 0, or -1 if the file could not be flushed
 %                         or closed
 %
-%   WFDB-x: in normal mode, close() prints "PNAME: write error on NAME" and
-%   counts a write error (wfdbx.wfdbx_note_write_error) if a write, the
-%   final flush or the close failed (as C's wfdbx_fclose_output).  Legacy
-%   mode: silent.
+%   WFDB-x: in normal mode, close() prints "PNAME: write error on NAME"
+%   (the name as given) and counts a write error
+%   (wfdbx.wfdbx_note_write_error) if a write, the final flush or the close
+%   failed (as C's wfdbx_fclose_output).  Legacy mode: silent.
 %
 %   See also wfdbx.wfdbx_write_errors, wfdbx.internal.WFDBFile.
 %
@@ -46,10 +49,15 @@ classdef OutputFile < handle
     methods
         function obj = OutputFile(name, pname, machinefmt)
             %OUTPUTFILE Create the file NAME for writing.
-            if nargin < 3
-                obj.fid = fopen(name, 'wb');
+            % WFDB-x: where the library creates an output file of that
+            % name (see wfdbx.wfdbx_output_path)
+            path = wfdbx.wfdbx_output_path(name);
+            if ~ischar(path)
+                obj.fid = -1;
+            elseif nargin < 3
+                obj.fid = fopen(wfdbx.internal.literal_path(path), 'wb');
             else
-                obj.fid = fopen(name, 'wb', machinefmt);
+                obj.fid = fopen(wfdbx.internal.literal_path(path), 'wb', machinefmt);
             end
             obj.name = name;
             obj.pname = pname;

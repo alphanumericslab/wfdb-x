@@ -1309,7 +1309,8 @@ WFDBX_TEST(write_annotations_byte_fields)
 WFDBX_TEST(edf_no_samples_per_record)
 {
     DataDir d;
-    const int prev = getgvmode();   // (opening an EDF record changes it)
+    const int prev = getgvmode();   // (opening an EDF record changes it,
+    const WFDB_Frequency afreq = getafreq();    // and this, with isigopen)
     std::string edf = slurp("fmt16.edf");
     REQUIRE(edf.size() > 256);
     int ns = std::atoi(edf.substr(252, 4).c_str());
@@ -1329,6 +1330,7 @@ WFDBX_TEST(edf_no_samples_per_record)
         wfdbquit();
     }
     setgvmode(prev);
+    setafreq(afreq);
 }
 
 // ---------------------------------------------------------------------------
@@ -1572,4 +1574,89 @@ WFDBX_TEST(read_record_errors_close_signals)
     CHECK(library_clean());
     CHECK_EQ(getgvmode(), mode);
     CHECK_EQ(wfdbx_get_legacy(), 0);
+}
+
+// The high-level functions leave the time resolution of output annotators
+// (getafreq) as it was, also after an EDF record, whose opening sets it (as
+// in C), and on errors; the C-style functions keep the behavior of C.  (The
+// Python counterpart is test_highlevel_keeps_afreq.)
+WFDBX_TEST(highlevel_keeps_afreq)
+{
+    DataDir d;
+    setafreq(0.0);
+    const int gvmode = getgvmode();     // (also set by opening an EDF record)
+    Annotations a;
+    a.samples = {10, 20};
+    a.symbols = {"N", "N"};
+    write_annotations("nohdr", "a1", a);
+    const std::string expected = slurp("nohdr.a1");
+    Header h = read_header("100s.edf");
+    CHECK(h.fs == 360.0 && getafreq() == 0.0);
+    write_annotations("nohdr", "a2", a);
+    CHECK(slurp("nohdr.a2") == expected);   // no time resolution: 360 Hz
+    ReadOptions o;
+    o.to = 10;
+    read_record("100s.edf", o);
+    CHECK_EQ(getafreq(), 0.0);
+    check_record("100s.edf");
+    CHECK_EQ(getafreq(), 0.0);
+    wfdbquiet();
+    CHECK(!error_of([] { read_annotations("100s.edf", "atr"); }).empty());
+    wfdbverbose();      // (no annotation file)
+    CHECK_EQ(getafreq(), 0.0);
+    // a value that was set is kept
+    setafreq(1000.0);
+    read_header("100s.edf");
+    CHECK_EQ(getafreq(), 1000.0);
+    write_annotations("nohdr", "a3", a, 500);
+    CHECK_EQ(getafreq(), 1000.0);
+    setafreq(0.0);
+    write_annotations("nohdr", "a3", a, 500);
+    CHECK_EQ(getafreq(), 0.0);
+    // the C-style functions: as in C, opening the EDF record sets it, and
+    // wfdbquit does not reset it
+    CHECK(isigopen("100s.edf", nullptr, 0) > 0);
+    wfdbquit();
+    CHECK_EQ(getafreq(), 360.0);
+    setafreq(0.0);
+    setgvmode(gvmode);
+}
+
+// The high-level functions leave the getvec mode (getgvmode) as it was, also
+// after an EDF record, whose opening sets WFDB_HIGHRES (as in C), and on
+// errors; the C-style functions keep the behavior of C.  (The Python
+// counterpart is test_highlevel_keeps_gvmode.)
+WFDBX_TEST(highlevel_keeps_gvmode)
+{
+    const int gvmode = getgvmode();
+    for (int previous : {WFDB_LOWRES, WFDB_HIGHRES, WFDB_LOWRES | WFDB_GVPAD}) {
+        DataDir d;
+        setgvmode(previous);
+        read_header("100s.edf");
+        CHECK_EQ(getgvmode(), previous);
+        wfdbquiet();
+        CHECK(!error_of([] { read_annotations("100s.edf", "atr"); }).empty());
+        wfdbverbose();  // (no annotation file)
+        CHECK_EQ(getgvmode(), previous);
+        read_annotations("100s", "atr");
+        CHECK_EQ(getgvmode(), previous);
+        ReadOptions o;
+        o.to = 10;
+        read_record("100s.edf", o);
+        CHECK_EQ(getgvmode(), previous);
+        check_record("100s.edf");
+        CHECK_EQ(getgvmode(), previous);
+        Annotations a;
+        a.samples = {10, 20};
+        a.symbols = {"N", "N"};
+        write_annotations("nohdr", "a1", a);
+        CHECK_EQ(getgvmode(), previous);
+        // the C-style functions: as in C, the EDF record sets WFDB_HIGHRES,
+        // and wfdbquit does not reset it
+        CHECK(isigopen("100s.edf", nullptr, 0) > 0);
+        wfdbquit();
+        CHECK(getgvmode() & WFDB_HIGHRES);
+        setafreq(0.0);
+    }
+    setgvmode(gvmode);
 }

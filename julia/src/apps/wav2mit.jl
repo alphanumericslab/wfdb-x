@@ -21,9 +21,10 @@
 # Changes from the original: no built-in gain or units: the new options -G GAIN
 # (required) and -U UNITS (required unless the gain is 0) give them (the
 # original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
-# millivolts); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-# reasons.
+# millivolts); the -i file is found under the input directory, as the library
+# finds an input file; --legacy, as the first argument, restores the original
+# behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+# gives the reasons.
 #
 # Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 2003-2004 George B. Moody.
@@ -175,8 +176,10 @@ function wav2mit_main(args::Vector{String})
     # If the record name was not specified, generate it from ifname.
     record === nothing && (record = ifname[1:end-4])
 
-    # Open the input file.
-    ifile = cfopen(ifname, "rb")
+    # Open the input file. (WFDB-x: it is found where the library finds an
+    # input file of that name; see wfdbx_input_path.)
+    ipath = wfdbx_input_path(ifname)
+    ifile = ipath === nothing ? nothing : cfopen(ipath, "rb")
     if ifile === nothing
         ceprintf("%s: can't open %s\n", pname, ifname)
         cexit(2)

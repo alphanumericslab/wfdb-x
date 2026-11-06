@@ -33,6 +33,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "wfdbx/wfdb.hpp"
@@ -201,6 +202,10 @@ bool wfdbx_in_header_dir(const std::string &name);
 // WFDB-x: the directory part of a file name or URL, including its final
 // separator ("" if it has none).
 std::string wfdbx_dirname(const std::string &path);
+// WFDB-x: the name `path` with a leading "~" or "~user" replaced by the home
+// directory, as the library expands such names (for the `dir` option of the
+// header metadata functions).
+std::string wfdbx_expand_home(const std::string &path);
 // WFDB-x: install the exit check of the tools (see wfdbio.cpp), once;
 // `argv0` gives the program name.  Called by wfdbx_legacy_args.
 void wfdbx_exit_check_init(const char *argv0);
@@ -211,6 +216,16 @@ std::string wfdbx_quote_arg(const std::string &a);
 // the URL last), the URL quoted with wfdbx_quote_arg if `quote` (as on
 // MS-Windows).
 std::vector<std::string> wfdbx_curl_args(const std::string &url, bool quote);
+
+// metadata.cpp
+// WFDB-x: the info strings (as putinfo() takes them, without the '#') of the
+// header metadata `metadata`, for write_record: " Key: value".  Throws
+// ArgumentError if an entry is not valid, if two keys differ only in letter
+// case, or if one of `comments` (the other info strings) is an entry for one
+// of these keys.
+std::vector<std::string> wfdbx_metadata_info_lines(
+    const std::vector<std::pair<std::string, std::string>> &metadata,
+    const std::vector<std::string> &comments);
 
 // signal.cpp
 void wfdb_sampquit();

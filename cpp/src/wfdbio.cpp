@@ -19,10 +19,12 @@
 // record name is checked; write errors are counted (wfdbx_write_errors), and
 // the tools exit with status 1 after one; additions: wfdbx_set_input_dir,
 // wfdbx_get_input_dir, wfdbx_set_output_dir, wfdbx_get_output_dir,
-// wfdbx_set_network, wfdbx_get_network, wfdbx_write_errors and
-// wfdbx_note_write_error; legacy mode (wfdbx_set_legacy) restores the original
-// behavior (the WFDB path, without network access). Each change is marked
-// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// wfdbx_set_network, wfdbx_get_network, wfdbx_write_errors,
+// wfdbx_note_write_error, and wfdbx_input_path and wfdbx_output_path (where a
+// program opens the files that it reads or creates itself); legacy mode
+// (wfdbx_set_legacy) restores the original behavior (the WFDB path, without
+// network access). Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by
@@ -866,6 +868,11 @@ FilePtr wfdbx_open_in(const std::optional<std::string> &dir, const char *s,
     return open_at(*dir + name, s);
 }
 
+std::string wfdbx_expand_home(const std::string &path)
+{
+    return expand_home(path);
+}
+
 std::string wfdbx_dirname(const std::string &path)
 {
     size_t p = path.size();
@@ -1217,6 +1224,44 @@ int wfdbx_get_network()
         st.network = st.env_network;
     }
     return st.network;
+}
+
+// WFDB-x: files that a program opens itself.  Decided by Reza Sameni, Nov
+// 2026: a file named to a tool is found, or created, where the library finds,
+// or creates, a file of that name, so that the input and output directories
+// apply to every file a tool reads or writes (see wfdb.hpp).
+std::optional<std::string> wfdbx_input_path(const char *name)
+{
+    if (name == nullptr || is_url(name)) return std::nullopt;
+    if (*name == '\0' || std::strcmp(name, "-") == 0 || wfdbx_get_legacy())
+        return std::string(name);
+    std::string r = resolve(name, false);
+    if (is_url(r)) return std::nullopt;
+    return r;
+}
+
+std::optional<std::string> wfdbx_output_path(const char *name)
+{
+    if (name == nullptr || is_url(name)) return std::nullopt;
+    if (*name == '\0' || std::strcmp(name, "-") == 0) return std::string(name);
+    IOState &st = io();
+    init_output_dir();
+    std::string r;
+    bool prefixed;
+    if (wfdbx_get_legacy()) {
+        prefixed = st.output_dir.has_value();
+        r = prefixed ? *st.output_dir + DSEP + name : std::string(name);
+    } else {
+        prefixed = st.output_dir && name[0] != '~' && !is_absolute_path(name);
+        r = resolve(name, true);
+    }
+    if (prefixed) {
+        // create the missing directories (only at '/' separators, as
+        // wfdb_fopen does; errors are ignored: opening then fails)
+        for (size_t i = 1; i < r.size(); i++)
+            if (r[i] == '/') (void)MKDIR(r.substr(0, i).c_str());
+    }
+    return r;
 }
 
 // WFDB-x: write errors.  wfdbx_write_errors returns the number of write

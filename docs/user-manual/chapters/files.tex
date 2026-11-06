@@ -1,0 +1,416 @@
+% Part I, chapter 3: Where files are read and written.
+\chapter{Where files are read and written}
+\label{chap:files}
+
+\wfdbx{} reads and writes a file exactly where its name says, and nowhere
+else. A full path, a \code{\textasciitilde} path or a URL is used as given;
+any other name is read from the \emph{input directory} and written to the
+\emph{output directory}, which are both the current directory unless they
+are set. Nothing is searched, and URLs are opened only when network access
+has been turned on. This differs from the C library, which searched a list
+of places, the WFDB path, for every file it read (see
+\cref{sec:named-files} for the reasons); legacy mode restores the search
+(\cref{sec:legacy}).
+
+\section{The input and output directories}
+\label{sec:directories}
+
+\Cref{tab:directories} shows the three settings that decide where files
+are read and written. Each can be set by a library function, which has the
+same name in every language, and by an environment variable; a call of the
+function overrides the environment variable.
+
+\begin{table}[htbp]
+\caption{The settings that locate files.}
+\label{tab:directories}
+\begin{tabularx}{\linewidth}{@{}P{3.1cm}LP{2.6cm}P{2.2cm}@{}}
+\toprule
+{\tabhead Setting} & {\tabhead Functions} & {\tabhead Environment variable}
+  & {\tabhead Default} \\
+\midrule
+input directory (a directory, a \code{\textasciitilde} path, or a URL) &
+  \code{wfdbx\_set\_input\_dir}, \code{wfdbx\_get\_input\_dir} &
+  \code{WFDBX\_INPUT\_DIR} & the current directory \\
+output directory (a local directory or a \code{\textasciitilde} path) &
+  \code{wfdbx\_set\_output\_dir}, \code{wfdbx\_get\_output\_dir} &
+  \code{WFDBX\_OUTPUT\_DIR} & the current directory \\
+network access & \code{wfdbx\_set\_network}, \code{wfdbx\_get\_network} &
+  \code{WFDBX\_NETWORK} & off \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{itemize}
+\item \code{wfdbx\_set\_input\_dir(d)} sets the input directory, and returns
+  the previous one (or none, if none was set). \code{d} is a local
+  directory, a \code{\textasciitilde} path, or the URL of a directory, such
+  as \code{https://physionet.org/files/mitdb/1.0.0/}; reading from a URL also
+  needs network access. None (null, \code{NULL}, \ldots, depending on the
+  language) or an empty string restores the default: the value of
+  \code{WFDBX\_INPUT\_DIR} if it is set, and otherwise the current directory.
+  \code{wfdbx\_get\_input\_dir()} returns the input directory, or none.
+\item \code{wfdbx\_set\_output\_dir(d)} sets the output directory in the
+  same way, and returns the previous one; the default is the value of
+  \code{WFDBX\_OUTPUT\_DIR}, or the current directory. The output directory
+  must be local: a URL (given to the function, or in the environment
+  variable) is refused with the message \code{wfdbx\_set\_output\_dir: the
+  output directory must be a local directory}, and the setting does not
+  change.
+\item \code{wfdbx\_set\_network(on)} turns network access on (1, or true) or
+  off (0, or false), and returns the previous setting (1 or 0); none or a
+  negative number restores the default: on if \code{WFDBX\_NETWORK} is set
+  to a nonzero number (such as \code{1}), off otherwise.
+  \code{wfdbx\_get\_network()} returns 1 or 0.
+\end{itemize}
+In Kotlin, these functions are also available under camelCase names
+(\code{wfdbxSetInputDir}, \ldots). The settings apply to the whole library:
+to the high-level functions, the library functions and the tools, which use
+the environment variables, also for the files that they open themselves
+(\cref{sec:tool-files}). \code{wfdbquit} does not reset them.
+
+The high-level functions also take these settings as options, which apply
+for the duration of one call, after which the previous settings are
+restored: the readers take an input directory (\code{input\_dir}) and a
+network permission (\code{network}), and the writers an output directory
+(\code{dir}). Each of these options is optional; \code{input\_dir} applies
+to relative record names only, and \code{dir} to plain record names
+(\cref{sec:record-paths}). In Kotlin the options are \code{inputDir},
+\code{network} and \code{dir}.
+
+\paragraph{The C functions setwfdb and getwfdb.} In \wfdbx{},
+\code{setwfdb} and \code{getwfdb} set and return the input directory.
+\code{setwfdb} splits its argument as the C library splits a WFDB path (at
+spaces, semicolons, and colons that are not part of a URL), and accepts a
+single directory (\code{setwfdb(".")}); a path of several directories is an
+error (\code{setwfdb: WFDB-x reads from a single input directory; use
+wfdbx\_set\_input\_dir (or legacy mode for the WFDB search path)}), and
+nothing changes. A directory whose name contains a space must therefore be
+set with \code{wfdbx\_set\_input\_dir}, which takes the name as it is.
+\code{getwfdb} returns \code{.} when no input directory is set.
+\code{resetwfdb} restores the directory set by the last \code{setwfdb}.
+
+\section{Record names}
+\label{sec:record-paths}
+
+A record name is given without the extension \file{.hea} of its header
+(\code{100s}, not \code{100s.hea}; the functions that read a record also
+accept a trailing \file{.hea}). It is one of:
+\begin{itemize}
+\item a full path, absolute (\code{/data/mitdb/100}) or in the home
+  directory (\code{\textasciitilde/Documents/100s}), used as given;
+\item a relative path (\code{100s}, \code{data/100s}), read from the input
+  directory if one is set, otherwise from the current directory, and
+  written to the output directory if one is set, otherwise to the current
+  directory (missing directories are created);
+\item a URL (\code{https://physionet.org/files/mitdb/1.0.0/100}), read only
+  if network access is on (\cref{sec:network}); a URL cannot be written.
+\end{itemize}
+The \code{input\_dir} option of the high-level readers is optional: it sets
+the input directory for one call, under which relative record names are
+read, and it does not apply to full paths or URLs. A writer given a record
+name with a path (\code{out/rec}) creates the files in that directory, and
+the header names the record and its signal file without the path
+(\code{rec}, \code{rec.dat}), so that the record opens under any path that
+leads to it; in legacy mode, as in the original package, the header gives
+the name with its path (\code{out/rec}, \code{out/rec.dat}). With the
+\code{dir} option of a writer, the record name must be a plain name
+(\code{rec}), without a directory: the files are created in \code{dir},
+which must exist, and the record opens from that directory under its plain
+name. The characters allowed in record names are given in
+\cref{sec:record-names}.
+
+\section{How a name is resolved}
+\label{sec:resolve}
+
+The name of a file is the record name followed by a dot and the file type
+(\file{100s.hea}, \file{100s.atr}), or a file name given by itself (a signal
+file named in a header, a calibration file). It designates exactly one
+location, as \cref{tab:resolve} shows.
+
+\begin{table}[htbp]
+\caption{Where a name is read from and written to.}
+\label{tab:resolve}
+\begin{tabularx}{\linewidth}{@{}P{4.4cm}LL@{}}
+\toprule
+{\tabhead The name is} & {\tabhead Read from} & {\tabhead Written to} \\
+\midrule
+an absolute path: \code{/data/100}; on MS-Windows also
+  \code{C:\textbackslash{}data\textbackslash{}100}, \code{C:/data/100} or
+  \code{\textbackslash\textbackslash{}server\textbackslash{}share\textbackslash{}100} &
+  that path & that path \\
+a home path: \code{\textasciitilde/data/100}, \code{\textasciitilde
+  user/data/100} & the home directory (expanded by \wfdbx{}) & the same \\
+a URL: \code{http://\ldots} or \code{https://\ldots} & that URL, if network
+  access is on & (not possible) \\
+\code{-} (as a record name) & the standard input & the standard output \\
+anything else: \code{100}, \code{mitdb/100}, \code{../other/100} & the input
+  directory followed by the name & the output directory followed by the
+  name \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{itemize}
+\item A leading \code{\textasciitilde} or \code{\textasciitilde/} is
+  replaced by the home directory (the environment variable \code{HOME}, or
+  the home directory of the current user if it is not set; on MS-Windows,
+  \code{USERPROFILE}), and, on POSIX systems, \code{\textasciitilde
+  user} by the home directory of that user. The input and output
+  directories may themselves be \code{\textasciitilde} paths.
+\item The input or output directory and the name are joined with one
+  directory separator (\code{/} in a URL). \code{..} means one level up;
+  the C library refused every name that contains \code{..}.
+\item Nothing else is tried: a file that is not at that location is not
+  found, and the operation fails (for example, \code{init: can't open header
+  for record 100}). The only other name tried at the same location is the
+  one whose file type is cut to its first three characters, as in C.
+\item When an output file cannot be created because a directory of its path
+  does not exist, the missing directories are created, as in C.
+\end{itemize}
+A record written under a path, such as \code{out/rec}, gets its files in
+\file{out/} (under the output directory, if it is relative). Only the
+record's own name, the last component, must be made of the characters of
+record names (\cref{sec:record-names}); the directories may contain any
+character. The header names the record, its signal files and its segments
+relative to its own directory (\code{rec}, \code{rec.dat}), which is where
+they are read from; the C library wrote the names as given
+(\code{out/rec.dat} in \file{out/rec.hea}), as legacy mode does, so that
+such a record could not be read back by finding its files relative to its
+header.
+
+\subsection{Files named in a header}
+\label{sec:header-files}
+
+The files that a header names, the signal files of a record and the headers
+of the segments of a multi-segment record, are found relative to the
+directory of the header, as they are written in it (\code{100s.dat}, or
+\code{data/100s.dat}): on disk, or at the URL from which the header was read.
+A file missing there is an error, not a search elsewhere. Such a name must
+stay inside the header's directory: a header that names a file with a
+\code{..} component, an absolute path, a \code{\textasciitilde} path or a
+URL (or, on MS-Windows, a drive letter) is rejected, with the message
+\begin{lstlisting}[style=text]
+init: file NAME named in the header of record REC is not in the header's directory
+\end{lstlisting}
+The signal file name \code{-} (the standard input) is accepted, and the null
+segment \code{\textasciitilde} of a multi-segment record keeps its meaning.
+For a header read from the standard input, which has no directory, the
+files it names are resolved as any relative name, under the input
+directory. This rule keeps a downloaded or crafted header from making the
+library read other local files or contact another server.
+
+\subsection{Files that a tool opens itself}
+\label{sec:tool-files}
+
+A few tools open a file themselves, by the name given on the command line,
+instead of through the library. Such a file is found, or created, exactly
+where the library finds, or creates, a file of that name: a relative name
+under the input directory (a file that the tool reads) or the output
+directory (a file that it creates, whose missing directories under the
+output directory are created), a \code{\textasciitilde} name expanded, and
+an absolute name as given; \code{-}, where the tool takes it for the
+standard input or output, keeps that meaning. A URL is not accepted for
+these files, also when the input directory is a URL: the tool reports that
+it cannot read, or create, the file, as for a file that does not exist.
+Messages name the file as it was given. \Cref{tab:tool-files} lists these
+files.
+
+\begin{table}[htbp]
+\caption{The files that the tools open themselves.}
+\label{tab:tool-files}
+\begin{tabularx}{\linewidth}{@{}P{3.4cm}LL@{}}
+\toprule
+{\tabhead Tool} & {\tabhead Reads} & {\tabhead Creates} \\
+\midrule
+\cmd{wrsamp}, \cmd{edf2mit}, \cmd{wav2mit}, \cmd{a2m}, \cmd{ad2m} & the
+  \opt{-i} file & \\
+\cmd{ahaecg2mit} & the input files (\file{.ecg}, \file{.txt}) & \\
+\cmd{xform} & the script of \opt{-S} & \\
+\cmd{wfdbdesc} & the first signal file, to compute the length of a record
+  whose header gives none: in the header's directory, where the library
+  reads it & \\
+\cmd{mit2wav} & & the WAV file (\opt{-o}), completed where the library
+  wrote its samples \\
+\cmd{mit2edf} & & the EDF file (\opt{-o}, or \textit{RECORD}\file{.edf}) \\
+\cmd{snip} & & the master header of a multi-segment excerpt (\opt{-m}) \\
+\cmd{parsescp} & & the \file{.des}, \file{.ecg}, \file{.key} and
+  \file{.txt} files \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The library functions \code{wfdbx\_input\_path} and
+\code{wfdbx\_output\_path} (\cref{sec:library-additions}) return these
+locations, for any program that opens a file itself. The C tools opened
+these files relative to the current directory, so that, with an input or
+output directory set, a tool read its records from one place and its own
+files from another (\cmd{mit2wav} left the WAV header in the current
+directory and the samples, without a header, in the output directory).
+Without an input or output directory, nothing changes, except that a
+\code{\textasciitilde} name is expanded and that \cmd{wfdbdesc} looks for
+the signal file of a record in another directory in that directory.
+
+\subsection{Legacy mode}
+
+In legacy mode (\cref{sec:legacy}), files are found as by the original
+reference build of the C library, which has no network support: an input
+file is searched for in each entry of the WFDB path in turn, given by the
+\code{WFDB} environment variable or \code{setwfdb} (by default
+\code{. /usr/local/database http://physionet.org/physiobank/database}), with
+the \code{\%r} substitution of the record name and \code{@file} indirect
+paths; absolute names are joined to the entries of the path (an empty entry,
+as in \code{WFDB=";"}, makes names be used as given); names that contain
+\code{..} are refused, and URLs are not opened. The input directory and
+\code{WFDBX\_NETWORK} are not used. The output directory is used, as a plain
+prefix of every output name, absolute names included. The tools open the
+files that they read themselves (\cref{sec:tool-files}) as named, relative
+to the current directory, as the original tools do, and the output
+directory, if one is set, is a plain prefix of the names of the files that
+they create themselves, as of every other output file.
+
+\section{Network access}
+\label{sec:network}
+
+Network access is off by default. A URL is opened only when it has been
+turned on, by \code{wfdbx\_set\_network(1)}, by \code{WFDBX\_NETWORK=1}, or
+by the \code{network} option of a high-level reader. Otherwise the library
+says once, the first time it is asked to open a URL:
+\begin{lstlisting}[style=text]
+WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or call wfdbx_set_network(1) to open URL
+\end{lstlisting}
+and the file is not found. The files of PhysioNet are reached in the same
+way as any other remote files: by setting the input directory to the URL of
+the database, \code{https://\allowbreak physionet.org/\allowbreak files/}\emph{database}\code{/}%
+\emph{version}\code{/}, and turning network access on. No URL is built in:
+\wfdbx{} never contacts a server it was not told to contact. For example, to
+print the first 10 seconds of record 100 of the MIT-BIH Arrhythmia Database:
+\begin{lstlisting}[style=shell]
+export WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/
+export WFDBX_NETWORK=1
+rdsamp -r 100 -t 10
+\end{lstlisting}
+or, in Python:
+\begin{lstlisting}[language=Python]
+import wfdbx
+wfdbx.wfdbx_set_network(1)
+wfdbx.wfdbx_set_input_dir("https://physionet.org/files/mitdb/1.0.0/")
+rec = wfdbx.read_record("100", sampto="0:10")
+\end{lstlisting}
+or, for one call only:
+\begin{lstlisting}[language=Python]
+rec = wfdbx.read_record("100", input_dir="https://physionet.org/files/mitdb/1.0.0/",
+                        network=True)
+\end{lstlisting}
+
+Remote files can only be read. Each is downloaded in full the first time it
+is opened, and kept for the rest of the process (a failure is remembered
+too). Redirects are followed, and an HTTP status of 400 or more is a
+failure. A download gives up if connecting takes 30 seconds, or if no data
+arrive for 30 seconds; there is no limit on its total time. Each language
+downloads with its own means:
+\begin{itemize}
+\item Python: its standard \code{urllib};
+\item C++ and Rust: the system \cmd{curl} program, which they run without a
+  shell (a missing \cmd{curl} is reported when a URL is opened);
+\item Julia: its standard \code{Downloads};
+\item R and MATLAB/Octave: \cmd{curl} when it is installed, and otherwise
+  R's \code{url()} or MATLAB's \code{webread} and \code{websave};
+\item Kotlin: \code{java.net.HttpURLConnection} on the JVM and Android, and
+  \code{NSURLSession} on iOS.
+\end{itemize}
+A header read from a URL can be read but not changed by the metadata
+functions, except into a local directory (\cref{chap:metadata}).
+
+\section{The standard input and output}
+\label{sec:stdio}
+
+The record name \code{-} stands for the standard input, when a file is read,
+and for the standard output, when one is written, whatever the type of the
+file: a header, an annotation file or a signal file. A signal file named
+\code{-} in a header is the standard input (or output). The tools follow the
+C tools in this, so that, for example, \cmd{wrsamp} reads its text input from
+the standard input unless \opt{-i} is given. The metadata functions refuse
+the record name \code{-}.
+
+\section{Environment variables}
+\label{sec:environment}
+
+\Cref{tab:environment} lists every environment variable that \wfdbx{} reads.
+The library reads each one when it needs it.
+
+\begin{xltabular}{\linewidth}{@{}P{3.9cm}L@{}}
+\caption{The environment variables used by \wfdbx{}.}
+\label{tab:environment}\\
+\toprule
+{\tabhead Variable} & {\tabhead Meaning} \\
+\midrule
+\endfirsthead
+\toprule
+{\tabhead Variable} & {\tabhead Meaning} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{WFDBX\_INPUT\_DIR} & The input directory (\cref{sec:directories}):
+  a local directory, a \code{\textasciitilde} path or a URL. Not used in
+  legacy mode. \\
+\code{WFDBX\_OUTPUT\_DIR} & The output directory: a local directory or a
+  \code{\textasciitilde} path. \\
+\code{WFDBX\_NETWORK} & Network access is on if this is a nonzero number
+  (\code{WFDBX\_NETWORK=1}). Not used in legacy mode. \\
+\code{WFDB} & The WFDB path, used only in legacy mode. Outside legacy mode
+  it is ignored, and if it is set the library says so once:
+  \code{WFDB-x: the WFDB environment variable is ignored; set
+  WFDBX\_INPUT\_DIR instead (or use legacy mode)}. In legacy mode,
+  \code{setwfdb} sets it (and sets \code{WFDBCAL}, \code{WFDBANNSORT} and
+  \code{WFDBGVMODE} to their defaults if they are not set), as the C library
+  does, so that the programs it starts inherit them. \\
+\code{WFDBANNSORT} & If it is \code{0}, an output annotation file that is
+  not in canonical order is not sorted when it is closed; the library then
+  prints the advice \code{Use the command: sortann \ldots} (\cref{sec:sorting}).
+  The \code{sort} option of the high-level \code{write\_annotations} decides
+  for its call, whatever this variable says. (\code{WFDBNOSORT}, named by
+  an old manual page of \cmd{sortann}, is not used, as in C.) \\
+\code{WFDBCAL} & The name of the calibration file that \code{calopen} reads
+  when it is given no name; \file{wfdbcal} if it is not set
+  (\cref{sec:calibration}). \\
+\code{WFDBGVMODE} & The \code{getvec} mode used when \code{setgvmode} is
+  given a negative mode, and by \cmd{sigamp} when its options do not set the
+  mode: \code{0} for low resolution, \code{1} for high resolution, plus
+  \code{2} to replace invalid samples by the previous valid ones
+  (\cref{sec:frames}). \\
+\code{WFDB\_FLAC\_CHECK\_MD5} & If it is set to a nonempty value, the MD5
+  signature of each FLAC signal file that is read is verified when the file
+  is closed; a mismatch gives \code{isigclose: warning: incorrect MD5 hash
+  in FLAC input}. \\
+\code{HOME}, \code{USERPROFILE} & The home directory, for names that begin
+  with \code{\textasciitilde} (\code{USERPROFILE} on MS-Windows). \\
+\code{PATH} & Where the system \cmd{curl} program is found (C++, Rust, and
+  R and MATLAB/Octave), and, in legacy mode, the \cmd{sortann} program that
+  the library runs to sort an annotation file (C++ and Rust look first in
+  the directory of the running program). \\
+\code{TZ} & On POSIX systems, the time zone of the local time, which the
+  library uses where the C library does: for the current date and time
+  (\code{setbasetime} with an empty string, and \cmd{mit2edf} for a record
+  without a start time). \\
+\code{WFDBX\_DEBUG} & (R and Kotlin tools.) If it is set, a tool that stops
+  on an internal error (reported as \code{wfdbx: error: \ldots}) also prints
+  the call stack. \\
+\code{WFDBX\_STDIN} & (R, for the tests.) The name of a file that the R
+  implementation reads as its standard input. \\
+\end{xltabular}
+
+No environment variable turns legacy mode on: it is turned on for a tool by
+its \opt{--legacy} option, and in a program by \code{wfdbx\_set\_legacy(1)}
+or the \code{legacy} option of a high-level function (\cref{sec:legacy}).
+The other variables that the C library reads are not used by \wfdbx{}: those
+of its libcurl code (\code{WFDB\_PAGESIZE}, \code{WFDBPASSWORD},
+\code{CURL\_CA\_BUNDLE}, \code{WFDB\_NET\_DEBUG}) and those that tune
+libFLAC's encoder (\code{WFDB\_FLAC\_COMPRESSION\_LEVEL},
+\code{WFDB\_FLAC\_BLOCK\_SIZE}, and the other \code{WFDB\_FLAC\_\ldots}
+variables).
+
+The conformance suite runs every case with \code{LC\_ALL=C} and \code{TZ=UTC},
+and without the variables \code{WFDB}, \code{WFDBCAL}, \code{WFDBANNSORT},
+\code{WFDBGVMODE}, \code{WFDBX\_INPUT\_DIR}, \code{WFDBX\_OUTPUT\_DIR} and
+\code{WFDBX\_NETWORK}, so that its results do not depend on them.

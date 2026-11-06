@@ -1,0 +1,1811 @@
+% The Python chapter of the WFDB-x user's manual. It is the template of the chapters of
+% the other languages, which follow the same sections in the same order. Each \apientry
+% of the section "The high-level API" is checked by check_manual.py against the code
+% (python/src/wfdbx): its signature listing must equal the name of the function followed
+% by str(inspect.signature(...)), its params must name every parameter and no other, and
+% every listing of style "example" is run (in a copy of tests/data).
+\chapter{Python}
+\label{chap:python}
+\chapterlanguage{python}
+
+The Python implementation of WFDB-x is the package \code{wfdbx}, published on PyPI as
+\code{wfdb-x}. It is the reference implementation: the six other languages are
+translations of it, and its results are those that they must reproduce. It is written in
+Python alone, on top of NumPy, and never calls the C library.
+
+It offers WFDB-x in three ways:
+\begin{itemize}
+\item \textbf{The high-level API} (\cref{sec:python-api}): functions that read and write
+  whole records, headers, annotation files and header metadata as NumPy arrays and Python
+  objects, in one call, with keyword arguments, and that raise exceptions on errors. They
+  read signal files in large blocks, and are the fastest way to read a record. They are an
+  addition of WFDB-x: the C package has no equivalent. They are the recommended interface
+  for new code, analysis and notebooks.
+\item \textbf{The WFDB library functions} under their C names (\code{isigopen},
+  \code{getvec}, \code{getann}, \code{putann}, \ldots), with the behavior of the C library
+  (\cref{sec:python-library}). They are documented once, for all the languages, in
+  \cref{chap:library}.
+\item \textbf{The command-line tools} (\code{rdsamp}, \code{rdann}, \code{wrsamp},
+  \code{xform} and 29 others), with the options, output and exit status of the C tools,
+  run through the \code{wfdbx} command (\cref{sec:python-tools}). They are documented in
+  \cref{chap:tools}.
+\end{itemize}
+The high-level functions return exactly the samples and annotations that the library
+functions (and the C library) give.
+
+% ==========================================================================================
+\section{Installation and requirements}
+\label{sec:python-install}
+
+\subsection{Requirements}
+
+WFDB-x for Python needs Python 3.9 or later and NumPy 1.17 or later, its only dependency.
+The package is pure Python: it has no compiled code and needs no C compiler, no WFDB
+library and no libFLAC (the FLAC formats 508, 516 and 524 are read and written by
+WFDB-x's own codec). It runs on Linux, macOS and Windows.
+
+Two sets of optional dependencies are declared:
+\begin{itemize}
+\item \code{examples}: matplotlib and Jupyter, to run the example notebooks;
+\item \code{test}: pytest, nbformat, nbclient and ipykernel, to run the tests
+  (\cref{sec:python-testing}).
+\end{itemize}
+
+\subsection{Installing from PyPI}
+
+\begin{lstlisting}[style=shell]
+pip install wfdb-x                # the package and the wfdbx command
+pip install "wfdb-x[examples]"    # also matplotlib and Jupyter, for the notebooks
+\end{lstlisting}
+
+The package is imported as \code{wfdbx} (\code{import wfdbx}); the installation also
+creates the command \cmd{wfdbx}, which runs the command-line tools. The installed version
+is \code{wfdbx.\_\_version\_\_}, or the output of \cmd{wfdbx -{}-version}:
+
+\begin{lstlisting}[style=shell]
+python -c "import wfdbx; print(wfdbx.__version__)"    # 1.2.0
+wfdbx --version                                       # WFDB-x 1.2.0
+\end{lstlisting}
+
+\subsection{Installing from the repository}
+
+From the root of a copy of the repository, the package is in the directory
+\file{python}:
+
+\begin{lstlisting}[style=shell]
+pip install ./python                  # install the package
+pip install -e "./python[test]"       # or: editable, with the test dependencies
+\end{lstlisting}
+
+Without installation, the package can also be used from its source directory by adding
+\file{python/src} to \code{PYTHONPATH}; the command-line tools are then run as
+\cmd{python -m wfdbx.cli} (\cref{sec:python-tools}).
+
+\subsection{The sample record and the example notebooks}
+\label{sec:python-resources}
+
+The package includes the sample record \code{100s}, the sample record of the WFDB
+Software Package: the first minute of record 100 of the MIT-BIH Arrhythmia Database, two
+ECG signals (\code{MLII} and \code{V5}) sampled at 360\,Hz, with the reference beat
+annotations (annotator \code{atr}). Its files (\file{100s.hea}, \file{100s.dat},
+\file{100s.atr}) are in the directory returned by \code{wfdbx.sample\_data\_dir()}, so
+that the examples and the notebooks run without a network connection. Work that uses the
+MIT-BIH Arrhythmia Database cites it as described on PhysioNet.
+
+The package also includes seven Jupyter notebooks (\cref{tab:python-notebooks}), in the
+directory returned by \code{wfdbx.examples\_dir()}. Each runs without a network
+connection (\code{06\_physionet\_records} reads record 100 from PhysioNet when it can,
+and the sample record otherwise). The function \code{copy\_examples}, or the command
+\cmd{wfdbx -{}-examples DIR}, copies them to a directory where they can be opened and run:
+
+\begin{lstlisting}[style=shell]
+wfdbx --examples my-examples      # without DIR: ./wfdbx-examples
+cd my-examples
+jupyter lab
+\end{lstlisting}
+
+\begin{table}[htbp]
+\centering
+\caption{The example notebooks of the Python package}
+\label{tab:python-notebooks}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Notebook & \tabhead Contents \\
+\midrule
+\code{01\_getting\_started} & reading headers and signals; ADC and physical units \\
+\code{02\_annotations\_and\_heart\_rate} & reading annotations; RR intervals and heart
+  rate \\
+\code{03\_writing\_records} & writing records and annotations \\
+\code{04\_command\_line\_tools} & running the tools \\
+\code{05\_c\_library\_api} & the WFDB library functions \\
+\code{06\_physionet\_records} & reading a record from PhysioNet \\
+\code{07\_legacy\_mode} & the original package's behavior, on request \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ==========================================================================================
+\section{Quick start}
+\label{sec:python-quickstart}
+
+This example reads the header, ten seconds of the signals and the annotations of the
+sample record \code{100s}, from the package's data directory (\code{input\_dir}), and
+computes the mean heart rate. It then writes the first ten seconds as a new record,
+\code{first10}, in the current directory, with two metadata entries in its header.
+
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+sample = wfdbx.sample_data_dir()        # the directory of the sample record 100s
+
+# The header only: no samples are read.
+hdr = wfdbx.read_header("100s", input_dir=sample)
+print(hdr.nsig, hdr.fs, hdr.nsamples)   # 2 360.0 21600
+print([s.desc for s in hdr.siginfo])    # ['MLII', 'V5']
+
+# Seconds 10 to 20 of both signals, in physical units (float64): one row per sample,
+# one column per signal.
+rec = wfdbx.read_record("100s", sampfrom="0:10", sampto="0:20", physical=True,
+                        input_dir=sample)
+print(rec.signals.shape, rec.signals.dtype)    # (3600, 2) float64
+print(rec.signals[0])                          # [-0.39  -0.275]
+
+# The beat annotations, and the mean heart rate.
+ann = wfdbx.read_annotations("100s", "atr", input_dir=sample)
+print(len(ann), ann.symbols[:3], ann.samples[:3])    # 75 ['+', 'N', 'N'] [ 18  77 370]
+beats = ann.samples[[bool(wfdbx.isqrs(c)) for c in ann.codes]]
+rr = np.diff(beats) / ann.fs                         # RR intervals, in seconds
+print(len(beats), "beats,", round(60 / rr.mean(), 1), "beats per minute")   # 74 beats, 73.9 ...
+
+# Write the first 10 seconds, in ADC units, as the record "first10" (first10.hea and
+# first10.dat, in the current directory), with the signal specifications of 100s.
+x = wfdbx.read_record("100s", sampto="0:10", input_dir=sample)
+wfdbx.write_record("first10", x.signals, fs=x.fs, fmt=16, gains=x.gains,
+                   baselines=x.baselines, adczeros=[s.adczero for s in x.siginfo],
+                   adcres=[s.adcres for s in x.siginfo], units="mV", names=x.names,
+                   metadata={"Source": "MIT-BIH record 100"})
+
+# Header metadata: "# Key: value" lines of the header.
+wfdbx.set_metadata("first10", "Age", "69")
+print(wfdbx.read_metadata("first10"))   # [('Source', 'MIT-BIH record 100'), ('Age', '69')]
+print(wfdbx.check_record("first10"))    # no problems found
+\end{lstlisting}
+
+The header \file{100s.hea} gives no units: the example writes \code{"mV"} explicitly,
+since WFDB-x never assumes units, a gain, an ADC resolution or a sampling frequency that
+a record does not give (\cref{chap:behavior}).
+
+% ==========================================================================================
+\section{The high-level API}
+\label{sec:python-api}
+
+The high-level API is made of the functions of this section, all available at the top
+level of the package (\code{wfdbx.read\_record}, \ldots), and of the classes of their
+results (\cref{sec:python-results}). They are defined in the modules
+\code{wfdbx.highlevel}, \code{wfdbx.metadata}, \code{wfdbx.check} and
+\code{wfdbx.resources}; \code{help()} gives the documentation of each.
+
+\subsection{Conventions}
+\label{sec:python-conventions}
+
+\paragraph{Record names and directories.} A record is named as in the other parts of
+WFDB-x (\cref{chap:records,sec:record-paths}), without the \file{.hea} extension (the
+readers also accept a trailing \code{".hea"}). A record name is one of:
+\begin{itemize}
+\item a full path, absolute (\code{"/data/mitdb/100"}) or in the home directory
+  (\code{"\textasciitilde/Documents/100s"}), used as given;
+\item a relative path (\code{"100s"}, \code{"data/100s"}), read from the input directory
+  if one is set, otherwise from the current directory, and written to the output
+  directory if one is set, otherwise to the current directory (missing directories are
+  created);
+\item a URL (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network
+  access is on; a URL cannot be written.
+\end{itemize}
+The input and output directories are set with \code{wfdbx\_set\_input\_dir} and
+\code{wfdbx\_set\_output\_dir} (\cref{sec:python-settings}) or with the environment
+variables \code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}. The functions that read
+take the optional keyword arguments \code{input\_dir} and \code{network}, and those that
+write take \code{dir}: they apply to that one call, and the previous settings are
+restored when it returns, also after an error. \code{input\_dir} applies to relative
+names only, not to full paths or URLs. A writer given a name with a path creates the
+files in that directory, and the header names the record and its signal file without the
+path (\code{rec}, \code{rec.dat}), so that the record opens under any path that leads to
+it; in legacy mode, as in the original, the header gives the name with its path. With
+\code{dir}, the name must be a plain name (\code{"rec"}): the files are created in
+\code{dir}, and the record opens from that directory under its plain name. The signal
+files that a header names are read from the header's directory.
+
+\paragraph{Times.} The arguments \code{sampfrom} and \code{sampto} are sample numbers
+(whole numbers) or WFDB time strings, as \code{strtim} reads them: \code{"0:10"} (10
+seconds), \code{"1:02:03.5"}, \code{"s3600"} (sample 3600), \code{"e"} (the end of the
+record), or a time of day in brackets, \code{"[14:00:00]"}. A time in seconds needs the
+sampling frequency; when the record does not give it, such a time raises
+\code{ValueError}.
+
+\paragraph{Per-signal and per-annotation arguments.} The arguments that describe each
+signal (\code{fmt}, \code{gains}, \code{units}, \ldots) or each annotation
+(\code{subtypes}, \code{chans}, \ldots) take one value for all, or a list (or tuple, or
+NumPy array) with exactly one value per signal or per annotation.
+
+\paragraph{Signal parameters.} No sampling frequency, gain, ADC resolution or units is
+ever assumed. Where one is needed and the record does not give it, it must be given as an
+argument; otherwise the function raises \code{ValueError}. A record whose header gives no
+sampling frequency has \code{fs = 0}.
+
+\paragraph{Legacy mode.} With \code{legacy=True}, a function behaves as in the original
+WFDB package, with its assumed signal parameters and its search for files
+(\cref{chap:behavior}); the library's legacy mode is on for the duration of the call
+only. With \code{legacy=False} (the default), the current setting of
+\code{wfdbx\_set\_legacy} applies, which is off unless it was turned on.
+
+\paragraph{State.} The functions that read and write records and annotation files close
+anything opened with the WFDB library functions (they call \code{wfdbquit()}) before
+they start, and close their own files before they return, whatever the outcome.
+\code{read\_record} sets the getvec mode for its own reading only. \code{read\_record},
+\code{read\_header}, \code{read\_annotations}, \code{write\_record},
+\code{write\_annotations} and \code{check\_record} leave the time resolution of output
+annotators (\code{getafreq()}) and the getvec mode (\code{getgvmode()}) as they were, also
+after reading an EDF record, whose opening sets both (as in C; the library functions keep
+that behavior). The metadata functions open no signals and leave the library's state as
+it is.
+
+\paragraph{The examples} of this section read the test records of WFDB-x (among them
+\code{100s}) from the current directory, and write records of their own there. To run
+them elsewhere, copy the sample record to the current directory first, for example with
+\code{shutil.copytree(wfdbx.sample\_data\_dir(), ".", dirs\_exist\_ok=True)}.
+
+% ------------------------------------------------------------------------------------------
+\subsection{Reading records}
+\label{sec:python-reading}
+
+\apientry{read\_record}{Read the signals of a record}
+\begin{lstlisting}[language=Python,style=signature]
+read_record(record, channels=None, sampfrom=0, sampto=None, physical=False, highres=False, pad=False, *, input_dir=None, network=None, legacy=False, checksum_warning=True)
+\end{lstlisting}
+Reads the signals of a record, or part of it, into a NumPy array with one row per sample
+and one column per signal, together with the description of the record. The samples are
+those that \code{getvec} returns (\cref{chap:library}), read in large blocks. Invalid
+samples are \code{wfdbx.WFDB\_INVALID\_SAMPLE} ($-32768$) in ADC units, and NaN in
+physical units. When the read reaches the end of the record, the samples are compared
+with the checksums of the header (\cref{sec:python-warnings}).
+\begin{params}
+\item[record] Record name (a string), without the \file{.hea} extension (a trailing
+  \code{".hea"} is also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in
+  the home directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative
+  path (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[channels] The signals to read, in the order in which they are returned: a list of
+  signal numbers (\code{int}, from 0) or signal descriptions (\code{str}, as in
+  \code{Record.names}, such as \code{"MLII"}), which may be mixed. Default \code{None}:
+  all the signals, in the order of the header.
+\item[sampfrom] The first sample to read: a sample number (a whole number $\ge 0$) or a
+  time string. Default \code{0}: the beginning of the record.
+\item[sampto] The sample after the last one to read: a sample number (a whole number) or
+  a time string. A value at or before \code{sampfrom} reads no samples. Default
+  \code{None}: the end of the record.
+\item[physical] \code{False} (the default) to return ADC units, as \code{int32};
+  \code{True} to return physical units, as \code{float64}, computed as
+  $(\mathit{adc} - \mathit{baseline}) / \mathit{gain}$. Every signal read must then have a
+  gain.
+\item[highres] \code{False} (the default) to read a multi-frequency record at its frame
+  frequency, with the samples of the faster signals averaged to one per frame;
+  \code{True} to read every sample, at the highest sampling frequency of the record (the
+  samples of the slower signals are repeated). \code{Record.fs} is then that frequency.
+\item[pad] \code{True} to replace each invalid sample by the previous valid sample of the
+  same signal. Default \code{False}.
+\item[input\_dir] The input directory for this call only (optional): a local directory, a
+  \code{\textasciitilde} path or the URL of a directory, under which relative record names
+  are read. It does not apply to full paths or URLs. Default \code{None}: the current
+  setting (\code{wfdbx\_set\_input\_dir}).
+\item[network] \code{True} to allow reading URLs for this call only, \code{False} to forbid
+  it. Default \code{None}: the current setting (\code{wfdbx\_set\_network}).
+\item[legacy] \code{True} to behave as the original WFDB package (legacy mode, for this
+  call only). Default \code{False}.
+\item[checksum\_warning] \code{True} (the default) to issue a \code{RuntimeWarning} when
+  the samples do not match the checksums of the header; \code{False} for no warning. The
+  samples are returned either way, and \code{checksum\_ok} of the result is \code{False}.
+\end{params}
+\returns{A \code{Record} (\cref{tab:python-record}).}
+\raises{\code{IOError} (that is, \code{OSError}) if the header or a signal file cannot be
+read, if the record has no signals, if \code{sampfrom} is beyond the end of the record,
+or if a signal file is shorter than its header says (``can't read signal data of record
+REC (getvec status -3)''); \code{ValueError} if \code{sampfrom} is negative, if
+\code{sampfrom} or \code{sampto} is not a whole number (a fraction, NaN or an infinite
+value), if a channel is not in the record, if a time string needs the sampling frequency
+and the header gives none, or if \code{physical=True} and a signal read has no gain.
+Warns with a \code{RuntimeWarning} on a checksum error (see \code{checksum\_warning}).}
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+# Seconds 10 to 20 of lead MLII, in physical units.
+rec = wfdbx.read_record("100s", channels=["MLII"], sampfrom="0:10", sampto="0:20",
+                        physical=True)
+print(rec.signals.shape, rec.signals.dtype)   # (3600, 1) float64
+print(rec.names, rec.fs, rec.sampfrom)        # ['MLII'] 360.0 3600
+
+# The first 3 samples of both signals, in ADC units, V5 first.
+rec = wfdbx.read_record("100s", channels=[1, 0], sampto=3)
+print(rec.signals.tolist())     # [[1011, 995], [1011, 995], [1011, 995]]
+print(rec.names, rec.gains, rec.baselines, rec.units)
+# ['V5', 'MLII'] [200.0, 200.0] [1024, 1024] [None, None]
+
+# The whole record: the checksums are verified.
+rec = wfdbx.read_record("100s")
+print(rec.signals.shape, rec.checksum_ok)     # (21600, 2) True
+\end{lstlisting}
+A multi-frequency record (here the test record \code{mfreq}, whose signals have 1, 2
+and 4 samples per frame at a frame frequency of 100\,Hz) is read at its frame frequency,
+or at its highest sampling frequency:
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+rec = wfdbx.read_record("mfreq")
+print(rec.fs, rec.signals.shape)       # 100.0 (600, 3)
+rec = wfdbx.read_record("mfreq", highres=True)
+print(rec.fs, rec.signals.shape)       # 400.0 (2400, 3)
+print([s.spf for s in rec.siginfo])    # [1, 2, 4]
+\end{lstlisting}
+
+\apientry{read\_header}{Read the header of a record}
+\begin{lstlisting}[language=Python,style=signature]
+read_header(record, *, input_dir=None, network=None, legacy=False)
+\end{lstlisting}
+Reads the header of a record, without opening its signal files. The result describes the
+record and each of its signals, and holds the info strings and the metadata entries of the
+header. For a multi-segment record, the master header is read, and \code{nsamples} is the
+length of the whole record.
+\begin{params}
+\item[record] Record name (a string), as for \code{read\_record}: a full path (absolute or
+  \code{\textasciitilde}), used as given; a relative path, read from the input directory
+  if one is set, otherwise from the current directory; or a URL, read only if network
+  access is on.
+\item[input\_dir] The input directory for this call only (optional; as for
+  \code{read\_record}), under which relative record names are read; it does not apply to
+  full paths or URLs. Default \code{None}: the current setting.
+\item[network] \code{True} to allow reading URLs for this call only, \code{False} to forbid
+  it. Default \code{None}: the current setting.
+\item[legacy] \code{True} to read the header as the original WFDB package does. Default
+  \code{False}.
+\end{params}
+\returns{A \code{Header} (\cref{tab:python-header}).}
+\raises{\code{IOError} if the header cannot be found or read.}
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+hdr = wfdbx.read_header("100s")
+print(hdr.name, hdr.fs, hdr.nsig, hdr.nsamples)    # 100s 360.0 2 21600
+for s in hdr.siginfo:
+    print(s.desc, s.fname, s.fmt, s.gain, s.adcres, s.units)
+# MLII 100s.dat 212 200.0 11 None
+# V5 100s.dat 212 200.0 11 None
+print(hdr.comments[0])          # " 69 M 1085 1629 x1": the first info string
+print(hdr.base_time)            # None: the header gives no start time
+\end{lstlisting}
+
+\apientry{read\_annotations}{Read an annotation file}
+\begin{lstlisting}[language=Python,style=signature]
+read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *, input_dir=None, network=None, legacy=False)
+\end{lstlisting}
+Reads the annotations of an annotation file, in file order, into NumPy arrays and lists.
+The sampling frequency, needed to convert times in seconds, is that of the record's
+header, or, for a record without a header or whose header gives none, the argument
+\code{fs}.
+\begin{params}
+\item[record] Record name (a string), as for \code{read\_record}: a full path (absolute or
+  \code{\textasciitilde}), used as given; a relative path, read from the input directory
+  if one is set, otherwise from the current directory; or a URL, read only if network
+  access is on. Its header, if there is one, gives the sampling frequency.
+\item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
+  file \file{RECORD.atr}.
+\item[sampfrom] The first time to read: a sample number or a time string. Default
+  \code{0}: the beginning of the file.
+\item[sampto] The time at which to stop: annotations at or after it are not read. A
+  sample number or a time string. Default \code{None}: the end of the file.
+\item[fs] The sampling frequency, in Hz (a number $> 0$), to use when the record has no
+  header or its header gives none; it is ignored otherwise. Default \code{None}: none.
+\item[input\_dir] The input directory for this call only (optional; as for
+  \code{read\_record}), under which relative record names are read; it does not apply to
+  full paths or URLs. Default \code{None}: the current setting.
+\item[network] \code{True} to allow reading URLs for this call only, \code{False} to forbid
+  it. Default \code{None}: the current setting.
+\item[legacy] \code{True} to behave as the original WFDB package (which assumes 250\,Hz
+  for a record without a frequency). Default \code{False}.
+\end{params}
+\returns{An \code{Annotations} object (\cref{tab:python-annotations}). Its \code{fs} is
+the frequency in which the times are counted: the one written in the annotation file, if
+there is one, or else the sampling frequency; it is 0 if none of them is known.}
+\raises{\code{IOError} if the annotation file cannot be opened or read, or if it ends
+before its end-of-file marker (``can't read annotation file ANN of record REC (getann
+status -3)''); \code{ValueError} if \code{fs} is given and is not $> 0$, or if a time
+string needs the sampling frequency and none is known.}
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+ann = wfdbx.read_annotations("100s", "atr", sampfrom="0:10", sampto="0:30")
+print(len(ann), ann.fs)                   # 24 360.0
+print(ann.samples[:3], ann.symbols[:3])   # [3862 4170 4466] ['N', 'N', 'N']
+
+# The whole file: the first annotation is a rhythm change, with an aux string.
+ann = wfdbx.read_annotations("100s", "atr")
+print(ann.symbols[0], ann.codes[0] == wfdbx.RHYTHM, ann.aux[0])   # + True (N
+print(sorted(set(ann.symbols)))           # ['+', 'A', 'N']
+\end{lstlisting}
+For a record without a header, \code{fs} gives the frequency in which times in seconds
+are converted (the library reports on the standard error that it cannot open the
+header):
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+wfdbx.write_annotations("beats", "qrs", [100, 460, 820], symbols="N")   # no header
+ann = wfdbx.read_annotations("beats", "qrs", sampto="0:02", fs=360)
+print(ann.samples, ann.fs)                # [100 460] 360.0
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Writing records}
+\label{sec:python-writing}
+
+\apientry{write\_record}{Write a header and a signal file}
+\begin{lstlisting}[language=Python,style=signature]
+write_record(record, signals, fs, fmt=16, gains=None, baselines=None, adczeros=0, adcres=None, units=None, names=None, base_time=None, comments=None, physical=False, samps_per_frame=None, *, metadata=None, dir=None, legacy=False)
+\end{lstlisting}
+Writes signals as a new record: the header \file{RECORD.hea} and one signal file,
+\file{RECORD.dat}, which holds all the signals (so they share one format). Existing files
+of these names are overwritten. The sampling frequency, the gain and ADC resolution of
+each signal, and the units of each calibrated signal must be given: there are no
+defaults. The per-signal arguments (\code{fmt}, \code{gains}, \code{baselines},
+\code{adczeros}, \code{adcres}, \code{units}, \code{names}) take one value for all the
+signals, or a list with one value per signal. All the arguments are checked before any
+file is created.
+\begin{params}
+\item[record] Record name (a non-empty string), without the \file{.hea} extension: a
+  plain name (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output
+  directory if one is set, otherwise in the current directory, missing directories
+  included; or a full path, absolute or in the home directory
+  (\code{"\textasciitilde/Documents/rec"}), used as given. With a path, the files are
+  created in that directory, and the header names the record and its signal file without
+  the path (\code{rec}, \code{rec.dat}), so that the record opens under any path that
+  leads to it (in legacy mode, as in the original, the header gives the name with its
+  path). A URL cannot be written.
+\item[signals] The samples: an array (or anything \code{numpy.asarray} accepts) with one
+  row per sample and one column per signal; a 1-D array is one signal. In ADC units
+  (the default), the values are integers, or floats with whole values, within the range of
+  a 32-bit integer; with \code{physical=True}, they are in physical units.
+\item[fs] The sampling frequency, in Hz: a finite number $> 0$. Required.
+\item[fmt] The storage format, such as \code{16}, \code{212}, \code{24} or \code{516}
+  (FLAC); one value, or one per signal, all equal (\cref{chap:formats}). Default
+  \code{16}.
+\item[gains] The gain of each signal, in ADC units per physical unit: a finite number;
+  \code{0} marks an uncalibrated signal, which is allowed only for samples given in ADC
+  units. Negative gains are allowed. Required (default \code{None}: not given).
+\item[baselines] The ADC value that corresponds to 0 physical units. Default
+  \code{None}: the ADC zero of the signal.
+\item[adczeros] The ADC value at the middle of the ADC range. Default \code{0}.
+\item[adcres] The ADC resolution, in bits (an integer $\ge 1$). Required (default
+  \code{None}: not given).
+\item[units] The physical units, such as \code{"mV"}. Required for each signal whose gain
+  is not 0. Default \code{None}: not given.
+\item[names] The signal descriptions, such as \code{"MLII"}. Default \code{None}: no
+  descriptions.
+\item[base\_time] The start time, with an optional date:
+  \code{"hh:mm:ss"} or \code{"hh:mm:ss dd/mm/yyyy"}, with optional decimals of the
+  seconds. Default \code{None}: no start time.
+\item[comments] A list of info strings, written to the header as comment lines
+  (\code{"\#"} followed by the string). Default \code{None}: none.
+\item[physical] \code{True} if \code{signals} are in physical units. They are converted
+  to ADC units as $\mathrm{round}(x \cdot \mathit{gain}) + \mathit{baseline}$ (halves
+  rounded away from zero); NaN becomes an invalid sample, and infinite values and values
+  beyond the range of 32-bit ADC units are errors. Default \code{False}: ADC units.
+\item[samps\_per\_frame] For a multi-frequency record, the number of samples per frame of
+  each signal (integers $\ge 1$). \code{signals} then has one row per frame and
+  \code{sum(samps\_per\_frame)} columns: the samples of signal 0, then those of signal 1,
+  and so on. \code{fs} is then the frame frequency. Default \code{None}: one sample per
+  frame for every signal.
+\item[metadata] Metadata entries (\cref{chap:metadata}) to write to the header after the
+  comments, as \code{\# Key: value}: a mapping from key to value (strings), or a sequence
+  of (key, value) pairs. Keys and values follow the rules of \code{set\_metadata}; no two
+  keys may differ only in letter case, nor be the key of an entry in \code{comments}.
+  Default \code{None}: none.
+\item[dir] The directory (which must exist) in which to create the files, for this call
+  only. \code{record} must then be a plain name, without a directory, and the record opens
+  from that directory under its plain name. Default \code{None}: the output directory.
+\item[legacy] \code{True} to behave as the original WFDB package: the gain defaults to
+  200, and the ADC resolution to one based on the format. Default \code{False}.
+\end{params}
+\returns{\code{None}.}
+\raises{\code{ValueError} if \code{record} is empty; if \code{signals} has no signals
+(``at least one signal is required''); if \code{fs}, a gain, an ADC resolution or the
+units of a calibrated signal is missing or invalid (\code{fs} and the gains must be
+finite, and \code{fs} $> 0$); if \code{base\_time} cannot be parsed; if a list of
+per-signal values does not have one value per signal; if a signal in physical units has a
+gain of 0; if a sample is not valid (see \code{signals} and \code{physical}); if the
+signals do not all have the same format; if a \code{samps\_per\_frame} value is not an
+integer $\ge 1$, or the number of columns of \code{signals} is not their sum; if an entry
+of \code{metadata} is not valid; or if \code{record} contains a directory and \code{dir}
+is given. \code{TypeError} if \code{metadata} is neither a mapping nor a sequence of
+pairs, or a key or value is not a string. \code{FileNotFoundError} if \code{dir} does not
+exist. \code{IOError} if the signal file or the header cannot be created, or cannot be
+written completely, for example on a full disk (``write error on record REC'').}
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+# Two signals of random numbers, in millivolts, at 360 Hz: the record "rand"
+# (rand.hea and rand.dat).
+x = np.random.default_rng(1).standard_normal((3600, 2))
+wfdbx.write_record("rand", x, fs=360, fmt=16, physical=True, gains=1000, adcres=16,
+                   units="mV", names=["A", "B"], base_time="14:00:03 21/06/2024",
+                   comments=["random numbers"], metadata=[("Generator", "numpy")])
+rec = wfdbx.read_record("rand", physical=True)
+print(rec.signals.shape, rec.base_time)       # (3600, 2) [14:00:03 21/06/2024]
+print(np.abs(rec.signals - x).max() <= 0.0005)        # True: rounded to 1/1000 mV
+print(wfdbx.read_header("rand").comments)     # ['random numbers', ' Generator: numpy']
+
+# An uncalibrated signal (gain 0, no units), in ADC units, in the directory "out".
+import os
+os.makedirs("out", exist_ok=True)
+wfdbx.write_record("counts", np.arange(1000), fs=100, gains=0, adcres=12, dir="out")
+print(wfdbx.read_record("out/counts").signals[:3, 0])    # [0 1 2]
+\end{lstlisting}
+A multi-frequency record: signal \code{fast} has 2 samples per frame, signal
+\code{slow} one; each row of \code{signals} is one frame, with the two samples of
+\code{fast} and then the sample of \code{slow}:
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+frames = 100                                    # 1 second at 100 frames per second
+fast = np.arange(2 * frames).reshape(frames, 2)     # 200 samples per second
+slow = np.full((frames, 1), 500)                    # 100 samples per second
+wfdbx.write_record("mf", np.hstack([fast, slow]), fs=100, gains=200, adcres=12,
+                   units="mV", names=["fast", "slow"], samps_per_frame=[2, 1])
+rec = wfdbx.read_record("mf", highres=True)
+print(rec.fs, rec.signals[:3].tolist())    # 200.0 [[0, 500], [1, 500], [2, 500]]
+\end{lstlisting}
+
+\apientry{write\_annotations}{Write an annotation file}
+\begin{lstlisting}[language=Python,style=signature]
+write_annotations(record, annotator, samples, symbols=None, codes=None, subtypes=0, chans=0, nums=0, aux=None, fs=None, *, sort=None, dir=None, legacy=False)
+\end{lstlisting}
+Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
+that name is overwritten. The record need not have a header. The annotation types are
+given as \code{symbols} or as \code{codes} (\cref{chap:formats}). Each per-annotation
+argument is one value for all the annotations, or a list with exactly one value per
+annotation. If the annotations are not in time order, the file is sorted when it is
+written, unless \code{sort=False}. All the arguments are checked before the file is
+created.
+\begin{params}
+\item[record] Record name (a string), without the \file{.hea} extension (a trailing
+  \code{".hea"} is also accepted): a plain name or a relative path (\code{"data/100s"}),
+  created in the output directory if one is set, otherwise in the current directory; or a
+  full path, absolute or in the home directory (\code{"\textasciitilde/Documents/100s"}),
+  used as given. The file is \file{RECORD.ANNOTATOR} at that place
+  (\file{data/100s.qrs}). A URL cannot be written.
+\item[annotator] Annotator name: the suffix of the file, made of letters, digits,
+  \code{\_}, \code{-} and \code{\textasciitilde}.
+\item[samples] The annotation times, in samples: a sequence of integers within the range
+  of a 64-bit integer, one per annotation.
+\item[symbols] The mnemonics of the annotation types, such as \code{"N"} or \code{"V"}:
+  one per annotation, or one string for all. An unknown mnemonic becomes code 0
+  (\code{NOTQRS}). Default \code{None}: the types are given by \code{codes}.
+\item[codes] The annotation codes (\code{wfdbx.NORMAL}, \code{wfdbx.PVC}, \ldots),
+  instead of \code{symbols}: one per annotation, or one value for all. If both are given
+  (as \code{read\_annotations} returns them), each symbol must be that of its code (an
+  empty symbol is not checked). Default \code{None}.
+\item[subtypes] The subtype of each annotation, stored as a signed byte (other values wrap
+  around to $-128 \ldots 127$, as in C). Default \code{0}.
+\item[chans] The channel number of each annotation, stored as an unsigned byte (other
+  values wrap around to $0 \ldots 255$). Default \code{0}.
+\item[nums] The annotator number of each annotation, stored as a signed byte. Default
+  \code{0}.
+\item[aux] The auxiliary text of each annotation, with \code{None} where there is none:
+  a list, or one text for all. Texts longer than 255 bytes are cut. Default \code{None}:
+  none.
+\item[fs] If given (a finite number $> 0$), the frequency in which the times are
+  counted, written to the file; it applies to this file only. Default \code{None}: none is
+  written.
+\item[sort] \code{True} to always sort the file, \code{False} to keep the given order
+  (without the library's advice to run \code{sortann}), for this call only. Default
+  \code{None}: the environment variable \code{WFDBANNSORT} decides (sorting is on unless
+  it is \code{0}).
+\item[dir] The directory (which must exist) in which to create the file, for this call
+  only. \code{record} must then be a plain name, without a directory: the file is
+  \file{DIR/RECORD.ANNOTATOR}. Default \code{None}: the output directory.
+\item[legacy] \code{True} to behave as the original WFDB package. Default \code{False}.
+\end{params}
+\returns{\code{None}.}
+\raises{\code{ValueError} if neither \code{symbols} nor \code{codes} is given; if both are
+given and disagree (``symbols and codes disagree at annotation K''); if a list of
+per-annotation values does not have one value per annotation; if a time is not an integer
+within the range of a 64-bit integer (NaN, an infinite value, a fraction or a huge
+value); if a sample, code, subtype, channel or annotator number is NaN or \code{None}; if
+\code{fs} is not finite and $> 0$; or if \code{record} contains a directory and
+\code{dir} is given. \code{FileNotFoundError} if \code{dir} does not exist.
+\code{IOError} if the annotation file cannot be created, or cannot be written completely
+(``write error on annotator ANN for record REC'').}
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+# Three beats and a rhythm change, by symbol, with an aux string for the rhythm.
+wfdbx.write_annotations("100s", "test", [18, 77, 370, 662],
+                        symbols=["+", "N", "V", "N"], aux=["(N", None, None, None])
+ann = wfdbx.read_annotations("100s", "test")
+print(ann.symbols, ann.aux)     # ['+', 'N', 'V', 'N'] ['(N', None, None, None]
+
+# A copy of the reference annotations, as read_annotations returns them.
+a = wfdbx.read_annotations("100s", "atr")
+wfdbx.write_annotations("100s", "copy", a.samples, symbols=a.symbols, codes=a.codes,
+                        subtypes=a.subtypes, chans=a.chans, nums=a.nums, aux=a.aux)
+b = wfdbx.read_annotations("100s", "copy")
+print((b.samples == a.samples).all(), b.symbols == a.symbols, b.aux == a.aux)
+# True True True
+
+# Annotations out of time order are sorted when the file is written (the library
+# reports it on the standard error).
+wfdbx.write_annotations("100s", "unsorted", [500, 100], codes=wfdbx.NORMAL)
+print(wfdbx.read_annotations("100s", "unsorted").samples)      # [100 500]
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Checking records}
+\label{sec:python-checking}
+
+\apientry{check\_record}{Check a record and its annotation files}
+\begin{lstlisting}[language=Python,style=signature]
+check_record(record, annotators=(), *, input_dir=None, network=None)
+\end{lstlisting}
+Checks the header of a record, its signal specifications, every sample of its signal
+files, each segment of a multi-segment record, and the annotation files named, and
+reports each problem found. A problem in the record never raises an exception: it is
+reported, with a severity (\code{"error"}: the record is damaged or does not follow the
+WFDB format, and programs will read wrong data or fail; \code{"warning"}: the record can
+be read, but something is missing or unusual, and may give wrong results; \code{"info"}:
+a fact worth knowing, such as invalid samples). The problems, their codes and their
+messages are the same in the seven languages (\cref{tab:python-issue-codes}). The checks
+run in normal mode, even if legacy mode is on, and the library prints no messages during
+the call. They are similar to those of Benjamin Moody's \code{wfdbcheck}.
+\begin{params}
+\item[record] Record name (a string), as for \code{read\_record}: a full path (absolute or
+  \code{\textasciitilde}), used as given; a relative path, read from the input directory
+  if one is set, otherwise from the current directory; or a URL, read only if network
+  access is on.
+\item[annotators] The annotator names whose files are checked, such as \code{["atr"]}; one
+  name may be given as a string. Default \code{()}: none.
+\item[input\_dir] The input directory for this call only (optional; as for
+  \code{read\_record}), under which relative record names are read; it does not apply to
+  full paths or URLs. Default \code{None}: the current setting.
+\item[network] \code{True} to allow reading URLs for this call only, \code{False} to forbid
+  it. Default \code{None}: the current setting.
+\end{params}
+\returns{A \code{CheckReport} (\cref{tab:python-checkreport}): \code{report.ok} is
+\code{True} if no problem is an error, \code{report.issues} lists the problems
+(\code{Issue} objects, \cref{tab:python-issue}), and \code{print(report)} prints one line
+per problem, or \code{no problems found}.}
+\raises{\code{TypeError} if \code{record} or an annotator name is not a string;
+\code{ValueError} if \code{record} is empty. A record that cannot be read is reported
+(code \code{header\_unreadable}), not raised.}
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+report = wfdbx.check_record("100s", ["atr"])
+print(report.ok)          # True: no errors
+print(report)
+# warning: signal 0: the units are not specified
+# warning: signal 1: the units are not specified
+
+# A damaged record: one sample of a 12-bit signal is overwritten with 2048.
+wfdbx.write_record("damaged", np.arange(100), fs=100, gains=100, adcres=12, units="mV",
+                   names="ramp")
+with open("damaged.dat", "r+b") as f:
+    f.seek(20)                    # sample 10 (2 bytes per sample in format 16)
+    f.write(b"\x00\x08")          # 0x0800 = 2048, little-endian
+report = wfdbx.check_record("damaged")
+print(report.ok)          # False
+for issue in report.issues:
+    print(issue.severity, issue.code, issue.where)
+# error sample_range signal 0
+# error checksum signal 0
+print(report.lines()[0])
+# error: signal 0: 1 sample is outside the ADC range (-2048 to 2047): sample 10 (value 2048)
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Header metadata}
+\label{sec:python-metadata}
+
+These functions read and change the metadata of a header: its info strings of the form
+\code{\# Key: value}, such as \code{\# Age: 63} (\cref{chap:metadata}). In short: keys are
+compared without regard to letter case; a key must not be empty and must not contain
+\code{:}, \code{\#}, a line break or a NUL character, and a value must not contain a line
+break or a NUL character; spaces at either end of keys and values are removed; text is
+one byte per character (Latin-1), and \code{bytes} are also accepted, as given. A change
+rewrites the header in one step, through a temporary file, keeping every other byte of
+it; all the arguments are checked first, so an error leaves the header unchanged. Only
+the \file{.hea} file is read (not a \file{.info} file); for a multi-segment record, it is
+the master header, unless a segment is named. Metadata often holds information about
+patients: WFDB-x stores it as plain text, exactly as given, and does not de-identify it.
+
+\begin{phibox}
+A header can hold identifying data about a patient (a name, a date of birth, a medical
+record number). The metadata functions read and write such data as given. Records that
+are shared must be de-identified first.
+\end{phibox}
+
+\apientry{read\_metadata}{Read the metadata of a record}
+\begin{lstlisting}[language=Python,style=signature]
+read_metadata(record, *, input_dir=None, network=None)
+\end{lstlisting}
+Reads the metadata entries of the header of a record, in file order. An info string is an
+entry if it contains a colon: the key is the text before the first colon, the value the
+rest of the line, both without spaces at either end. Info strings without a colon are free
+comments, which are not returned.
+\begin{params}
+\item[record] Record name (a string), without the \file{.hea} extension (a trailing
+  \code{".hea"} is also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in
+  the home directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative
+  path (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[input\_dir] The input directory for this call only (optional): a local directory, a
+  \code{\textasciitilde} path or a URL, under which relative record names are read. It
+  does not apply to full paths or URLs. Default \code{None}: the current setting.
+\item[network] \code{True} to allow reading URLs for this call only, \code{False} to
+  forbid it. Default \code{None}: the current setting.
+\end{params}
+\returns{A list of (key, value) pairs of strings, in file order. A key that appears more
+than once (ignoring letter case) is returned once, with its first value, and a
+\code{UserWarning} is issued (\cref{sec:python-warnings}).}
+\raises{\code{IOError} if the header cannot be found or read; \code{ValueError} if
+\code{record} is empty or \code{"-"} (the standard input).}
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+wfdbx.write_record("pat", np.zeros(360, dtype=int), fs=360, gains=200, adcres=12,
+                   units="mV", names="ECG", comments=["recorded at rest"],
+                   metadata={"Age": "63", "Sex": "F"})
+print(wfdbx.read_metadata("pat"))      # [('Age', '63'), ('Sex', 'F')]
+print(wfdbx.read_header("pat").comments)
+# ['recorded at rest', ' Age: 63', ' Sex: F']: the free comment is not an entry
+\end{lstlisting}
+
+\apientry{get\_metadata}{Return the value of a metadata entry}
+\begin{lstlisting}[language=Python,style=signature]
+get_metadata(record, key, *, input_dir=None, network=None)
+\end{lstlisting}
+Returns the value of one metadata entry of the header of a record.
+\begin{params}
+\item[record] Record name (as for \code{read\_metadata}).
+\item[key] The key, such as \code{"Age"}. Letter case is ignored, and spaces at either end
+  are removed.
+\item[input\_dir] The input directory for this call only (optional; as for
+  \code{read\_metadata}): it applies to relative record names only. Default \code{None}:
+  the current setting.
+\item[network] \code{True} to allow reading URLs for this call only, \code{False} to
+  forbid it. Default \code{None}: the current setting.
+\end{params}
+\returns{The value, a string (\code{""} for an entry with an empty value), or
+\code{None} if the header has no entry for \code{key}. If it has more than one, the first
+is returned, and a \code{UserWarning} is issued.}
+\raises{\code{IOError} if the header cannot be found or read; \code{ValueError} if
+\code{record} is empty or \code{"-"}, or if \code{key} is not a valid key;
+\code{TypeError} if \code{key} is not a string (or \code{bytes}).}
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+wfdbx.write_record("pat", np.zeros(360, dtype=int), fs=360, gains=200, adcres=12,
+                   units="mV", metadata={"Age": "63", "Sex": "F"})
+print(wfdbx.get_metadata("pat", "age"))      # 63
+print(wfdbx.get_metadata("pat", "Height"))   # None
+\end{lstlisting}
+
+\apientry{set\_metadata}{Set the value of a metadata entry}
+\begin{lstlisting}[language=Python,style=signature]
+set_metadata(record, key, value, *, input_dir=None, network=None, dir=None)
+\end{lstlisting}
+Sets the value of a metadata entry in the header of a record. If the header has an entry
+for \code{key} (ignoring letter case), its line is replaced by \code{\# Key: value}, at
+the same position, with the spelling of \code{key} given here; otherwise the entry is
+added after the last info string of the header (or, if it has none, after its last line
+that is not blank). The entry is written as \code{\# Key: value}, or \code{\# Key:} if
+the value is empty. Every other line is kept, byte for byte, including its line ending.
+\begin{params}
+\item[record] Record name (as for \code{read\_metadata}). The header is changed where it
+  was read, unless \code{dir} is given; a header read from a URL can only be written
+  elsewhere, with \code{dir}.
+\item[key] The key, such as \code{"Age"} or \code{"Date of birth"}. Spaces at either end
+  are removed. It must not be empty, and must not contain \code{:}, \code{\#}, a line
+  break or a NUL character.
+\item[value] The value: a string, which may be a sentence. Spaces at either end are
+  removed. It must not contain a line break or a NUL character; it may be empty.
+\item[input\_dir] The input directory in which the header is read, for this call only
+  (optional; as for \code{read\_metadata}): it applies to relative record names only.
+  Default \code{None}: the current setting.
+\item[network] \code{True} to allow reading the header from a URL, for this call only,
+  \code{False} to forbid it. Default \code{None}: the current setting.
+\item[dir] A directory, which must exist, in which to write the changed header, under the
+  same file name, instead of changing the header itself; the signal files are not copied.
+  Default \code{None}: the header itself is changed.
+\end{params}
+\returns{\code{None}.}
+\raises{\code{IOError} if the header cannot be read, or the changed header cannot be
+written; \code{ValueError} if \code{key} or \code{value} is not valid, if the header has
+more than one entry for \code{key}, if it has no record line, if it was read from a URL
+and \code{dir} is not given, or if \code{record} is empty or \code{"-"};
+\code{TypeError} if \code{key} or \code{value} is not a string (or \code{bytes});
+\code{FileNotFoundError} if \code{dir} does not exist.}
+\begin{lstlisting}[language=Python,style=example]
+import os
+import numpy as np
+import wfdbx
+
+wfdbx.write_record("pat", np.zeros(360, dtype=int), fs=360, gains=200, adcres=12,
+                   units="mV", metadata={"Age": "63", "Sex": "F"})
+wfdbx.set_metadata("pat", "AGE", "64")              # replaces "# Age: 63"
+wfdbx.set_metadata("pat", "Diagnosis", "sinus rhythm, no ectopy")   # a new entry
+print(wfdbx.read_metadata("pat"))
+# [('AGE', '64'), ('Sex', 'F'), ('Diagnosis', 'sinus rhythm, no ectopy')]
+
+# Write the changed header to another directory; pat.hea is left unchanged.
+os.makedirs("changed", exist_ok=True)
+wfdbx.set_metadata("pat", "Sex", "M", dir="changed")
+print(wfdbx.get_metadata("pat", "Sex"), wfdbx.get_metadata("changed/pat", "Sex"))   # F M
+\end{lstlisting}
+
+\apientry{remove\_metadata}{Remove a metadata entry}
+\begin{lstlisting}[language=Python,style=signature]
+remove_metadata(record, key, *, input_dir=None, network=None, dir=None)
+\end{lstlisting}
+Removes every entry for \code{key} (ignoring letter case) from the header of a record, so
+it also repairs a header that has more than one. Other lines are kept, byte for byte.
+Nothing is written if the header has no entry for \code{key}, unless \code{dir} is given.
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}).
+\item[key] The key (as for \code{set\_metadata}).
+\item[input\_dir] The input directory in which the header is read, for this call only
+  (optional; as for \code{read\_metadata}): it applies to relative record names only.
+  Default \code{None}: the current setting.
+\item[network] \code{True} to allow reading the header from a URL, for this call only,
+  \code{False} to forbid it. Default \code{None}: the current setting.
+\item[dir] A directory, which must exist, in which to write the changed header instead of
+  changing the header itself. Default \code{None}: the header itself is changed.
+\end{params}
+\returns{The number of lines removed (an \code{int}; 0 if the header has no entry for
+\code{key}).}
+\raises{As \code{set\_metadata}, except that more than one entry for \code{key} is not an
+error.}
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+wfdbx.write_record("pat", np.zeros(360, dtype=int), fs=360, gains=200, adcres=12,
+                   units="mV", metadata={"Age": "63", "Sex": "F"})
+print(wfdbx.remove_metadata("pat", "sex"))      # 1
+print(wfdbx.remove_metadata("pat", "Sex"))      # 0: there is no such entry now
+print(wfdbx.read_metadata("pat"))               # [('Age', '63')]
+\end{lstlisting}
+
+\apientry{update\_metadata}{Make several changes to the metadata}
+\begin{lstlisting}[language=Python,style=signature]
+update_metadata(record, changes, *, input_dir=None, network=None, dir=None)
+\end{lstlisting}
+Makes several changes to the metadata of a record, in one write of the header. Each
+change is applied in order, as \code{set\_metadata} does, or, for a value of
+\code{None}, as \code{remove\_metadata} does. All the changes are checked first: if one is
+not valid, none is made.
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}).
+\item[changes] A mapping from key to value, or a sequence of (key, value) pairs; a value
+  of \code{None} removes the entry. No two keys may differ only in letter case.
+\item[input\_dir] The input directory in which the header is read, for this call only
+  (optional; as for \code{read\_metadata}): it applies to relative record names only.
+  Default \code{None}: the current setting.
+\item[network] \code{True} to allow reading the header from a URL, for this call only,
+  \code{False} to forbid it. Default \code{None}: the current setting.
+\item[dir] A directory, which must exist, in which to write the changed header instead of
+  changing the header itself. Default \code{None}: the header itself is changed.
+\end{params}
+\returns{\code{None}.}
+\raises{As \code{set\_metadata}; also \code{ValueError} if two keys of \code{changes}
+differ only in letter case, and \code{TypeError} if \code{changes} is neither a mapping
+nor a sequence of pairs.}
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+wfdbx.write_record("pat", np.zeros(360, dtype=int), fs=360, gains=200, adcres=12,
+                   units="mV", metadata={"Age": "63", "Sex": "F"})
+wfdbx.update_metadata("pat", {"Age": "64", "Sex": None, "Dx": "164889003"})
+print(wfdbx.read_metadata("pat"))      # [('Age', '64'), ('Dx', '164889003')]
+try:
+    wfdbx.update_metadata("pat", [("Dx", "426783006"), ("dx", None)])
+except ValueError as e:
+    print(e)        # metadata key 'dx' is given more than once (...)
+print(wfdbx.get_metadata("pat", "Dx"))  # 164889003: nothing was changed
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{The sample record and the example notebooks}
+\label{sec:python-resource-functions}
+
+\apientry{sample\_data\_dir}{The directory of the sample record}
+\begin{lstlisting}[language=Python,style=signature]
+sample_data_dir()
+\end{lstlisting}
+Returns the directory, within the installed package, that holds the sample record
+\code{100s} (\cref{sec:python-resources}): its header, signal file and reference
+annotations.
+The function has no parameters.
+\returns{The absolute path of the directory, a string.}
+\raises{Nothing.}
+\begin{lstlisting}[language=Python,style=example]
+import os
+import wfdbx
+
+d = wfdbx.sample_data_dir()
+print(sorted(f for f in os.listdir(d) if f.startswith("100s")))
+# ['100s.atr', '100s.dat', '100s.hea']
+rec = wfdbx.read_record("100s", sampto=10, input_dir=d)
+print(rec.signals.shape)        # (10, 2)
+\end{lstlisting}
+
+\apientry{examples\_dir}{The directory of the example notebooks}
+\begin{lstlisting}[language=Python,style=signature]
+examples_dir()
+\end{lstlisting}
+Returns the directory, within the installed package, that holds the example notebooks
+(\file{*.ipynb}, \cref{tab:python-notebooks}). The notebooks are meant to be copied
+elsewhere (\code{copy\_examples}) before they are run.
+The function has no parameters.
+\returns{The absolute path of the directory, a string.}
+\raises{Nothing.}
+\begin{lstlisting}[language=Python,style=example]
+import os
+import wfdbx
+
+print(sorted(os.listdir(wfdbx.examples_dir()))[0])     # 01_getting_started.ipynb
+\end{lstlisting}
+
+\apientry{copy\_examples}{Copy the example notebooks}
+\begin{lstlisting}[language=Python,style=signature]
+copy_examples(dest)
+\end{lstlisting}
+Copies the example notebooks to a directory, created if needed, where they can be opened
+and run. Existing files of the same names are replaced. The command \cmd{wfdbx -{}-examples
+DIR} does the same (\cref{sec:python-tools}).
+\begin{params}
+\item[dest] The directory into which the notebooks are copied (a path).
+\end{params}
+\returns{The list of the paths of the copied notebooks (\code{os.path.join(dest, name)}),
+in the order of their names.}
+\raises{\code{OSError} if the directory cannot be created or a notebook cannot be
+written.}
+\begin{lstlisting}[language=Python,style=example]
+import os
+import wfdbx
+
+paths = wfdbx.copy_examples("notebooks")
+print(len(paths), os.path.basename(paths[0]))    # 7 01_getting_started.ipynb
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{The result classes}
+\label{sec:python-results}
+
+The readers return objects of the classes \code{Record}, \code{Header} and
+\code{Annotations}, whose attributes are listed in
+\cref{tab:python-record,tab:python-header,tab:python-annotations}; \code{check\_record}
+returns a \code{CheckReport}, which holds \code{Issue} objects
+(\cref{tab:python-checkreport,tab:python-issue}). The signals of a record are described
+by \code{Siginfo} objects (\cref{tab:python-siginfo}), which are those of the WFDB library
+(\cref{sec:python-library}). All these classes are available at the top level of the
+package (\code{wfdbx.Record}, \ldots). The attributes of \code{Record}, \code{Header} and
+\code{Annotations} are plain Python attributes, which may be changed.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The attributes of \code{Record}, the result of \code{read\_record}}
+\label{tab:python-record} \\
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{name} & the record name, as given to \code{read\_record} \\
+\code{fs} & the sampling frequency in Hz (a \code{float}), or 0 if the header gives none;
+  with \code{highres=True}, the highest sampling frequency of a multi-frequency record \\
+\code{signals} & a NumPy array with one row per sample and one column per signal read:
+  \code{int32} ADC units, or \code{float64} physical units with \code{physical=True};
+  invalid samples are \code{WFDB\_INVALID\_SAMPLE}, or NaN in physical units \\
+\code{siginfo} & a list of \code{Siginfo} objects, one per signal read, in the order of
+  the columns; \code{desc} has no white space at either end, and \code{adcres} is 0 if
+  the header does not give it \\
+\code{names} & the description of each signal, such as \code{"MLII"}, without the white
+  space that a header may put at either end of it \\
+\code{units} & the physical units of each signal, or \code{None} where the header gives
+  none \\
+\code{gains} & the gain of each signal, in ADC units per physical unit (\code{float}); 0
+  means that the signal is uncalibrated \\
+\code{baselines} & the ADC value of each signal that corresponds to 0 physical units \\
+\code{base\_time} & the start time and date as text, to the second, such as
+  \code{"[14:00:03 21/06/2024]"} (\code{"[14:00:03]"} without a date), or \code{None} if
+  the header gives none \\
+\code{base\_time\_ms} & the start time in milliseconds after midnight, such as
+  \code{50403500} for 14:00:03.500, or \code{None} if \code{base\_time} is \code{None} \\
+\code{base\_date} & the start date as a tuple \code{(year, month, day)}, or \code{None}
+  if the header gives none \\
+\code{sampfrom} & the number of the first sample returned \\
+\code{comments} & the list of the info strings of the header (without the \code{\#}) \\
+\code{checksum\_ok} & \code{False} if the samples do not match the checksums of the
+  header; checksums are checked only when a read reaches the end of the record, so a
+  shorter read gives \code{True} \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The attributes of \code{Header}, the result of \code{read\_header}}
+\label{tab:python-header} \\
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{name} & the record name, as given to \code{read\_header} \\
+\code{fs} & the sampling frequency in Hz, or 0 if the header gives none \\
+\code{counter\_freq} & the counter frequency, as \code{getcfreq()} returns it (the
+  sampling frequency if the header gives none) \\
+\code{base\_counter} & the base counter value, as \code{getbasecount()} returns it \\
+\code{nsamples} & the number of samples per signal, or 0 if the header does not give it \\
+\code{nsig} & the number of signals \\
+\code{siginfo} & a list of \code{Siginfo} objects, one per signal; \code{desc} has no white
+  space at either end, and \code{adcres} is 0 if the header does not give it \\
+\code{base\_time}, \code{base\_time\_ms}, \code{base\_date} & the start time and date, as
+  in \code{Record} \\
+\code{comments} & the list of the info strings of the header (without the \code{\#}) \\
+\code{metadata} & the list of the (key, value) pairs of the metadata entries of the
+  header, in file order, as \code{read\_metadata} returns them \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The attributes of \code{Annotations}, the result of \code{read\_annotations}.
+  \code{len(ann)} is the number of annotations, which are in file order.}
+\label{tab:python-annotations} \\
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{record} & the record name, as given \\
+\code{annotator} & the annotator name, such as \code{"atr"} \\
+\code{samples} & the annotation times, in samples (an \code{int64} array) \\
+\code{codes} & the annotation codes (an \code{int64} array), such as \code{wfdbx.NORMAL}
+  or \code{wfdbx.PVC} \\
+\code{symbols} & the list of the mnemonics of the codes, such as \code{"N"}, \code{"V"}
+  or \code{"+"} \\
+\code{subtypes} & the subtype of each annotation (an \code{int64} array) \\
+\code{chans} & the channel number of each annotation (an \code{int64} array) \\
+\code{nums} & the annotator number of each annotation (an \code{int64} array) \\
+\code{aux} & the list of the auxiliary texts of the annotations (strings), with
+  \code{None} where there is none \\
+\code{fs} & the frequency in which \code{samples} are counted, normally the sampling
+  frequency of the record; 0 if neither the record, nor the file, nor the argument
+  \code{fs} of \code{read\_annotations} gives one \\
+\end{xltabular}
+
+\begin{table}[htbp]
+\centering
+\caption{The attributes and methods of \code{CheckReport}, the result of
+  \code{check\_record}}
+\label{tab:python-checkreport}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\code{record} & the record name, as given \\
+\code{ok} & \code{True} if no issue has the severity \code{"error"} \\
+\code{issues} & the list of the \code{Issue} objects, in the order of the checks \\
+\code{lines()} & the text form of the report, as a list of lines: one line per issue
+  (\code{str(issue)}), or the one line \code{no problems found} \\
+\code{str(report)} & the lines of \code{lines()}, joined by line feeds (what
+  \code{print(report)} prints) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{The attributes of \code{Issue}, a problem found by \code{check\_record}}
+\label{tab:python-issue}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\code{severity} & \code{"error"}, \code{"warning"} or \code{"info"} \\
+\code{code} & a stable identifier of the kind of problem, such as \code{"checksum"} or
+  \code{"gain\_missing"} (\cref{tab:python-issue-codes}) \\
+\code{where} & where the problem is: \code{""} (the record), \code{"signal N"},
+  \code{"segment SEG"}, \code{"segment SEG, signal N"} or \code{"annotator ANN"} \\
+\code{message} & the description of the problem \\
+\code{str(issue)} & \code{"SEVERITY: WHERE: MESSAGE"}, or \code{"SEVERITY: MESSAGE"}
+  when \code{where} is empty \\
+\bottomrule
+\end{tabularx}
+\end{table}
+Two \code{Issue} objects are equal (\code{==}) when their four attributes are.
+
+\begin{xltabular}{\linewidth}{@{}llL@{}}
+\caption{The codes of the issues reported by \code{check\_record}}
+\label{tab:python-issue-codes} \\
+\toprule
+\tabhead Code & \tabhead Severity & \tabhead Problem \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Code & \tabhead Severity & \tabhead Problem \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\multicolumn{3}{@{}l}{\textit{The header}} \\
+\code{header\_unreadable} & error & the header cannot be read \\
+\code{header\_line\_long} & error & a line of the header is longer than 255 characters \\
+\code{header\_not\_ascii} & warning & a line of the header contains non-ASCII characters \\
+\code{header\_name} & warning & the header names a record other than its file name \\
+\code{fs\_missing} & warning & the sampling frequency is not specified \\
+\code{length\_missing} & warning & the record length is not specified \\
+\code{length\_large} & info & the record has more than 2147483647 samples \\
+\code{no\_signals} & info & the record has no signals \\
+\multicolumn{3}{@{}l}{\textit{The signal specifications}} \\
+\code{desc\_missing} & warning & the signal has no description \\
+\code{desc\_number} & warning & the description is only a number \\
+\code{desc\_control} & error & the description contains control characters \\
+\code{desc\_duplicate} & warning & several signals have the same description \\
+\code{gain\_missing} & warning & the signal is uncalibrated (no gain is given) \\
+\code{gain\_negative} & info & the gain is negative \\
+\code{units\_missing} & warning & the units are not specified \\
+\code{units\_control} & error & the units contain control characters \\
+\code{adcres\_missing} & warning & the ADC resolution is not specified \\
+\code{adcres\_too\_large} & error & the ADC resolution exceeds what the format can store \\
+\code{adc\_range} & error & the ADC range does not fit in the format \\
+\code{format\_difference} & warning & format 8 (first differences) cannot follow steep
+  slopes \\
+\code{filename} & warning & the signal file name contains characters other than letters,
+  digits, \code{\_}, \code{-} and \code{.} \\
+\multicolumn{3}{@{}l}{\textit{The signal files}} \\
+\code{file\_unreadable} & error & a signal file cannot be read \\
+\code{file\_large} & warning & a signal file has more than 2147483647 bytes \\
+\code{read\_error} & error & the signal data cannot be read after some frames \\
+\code{sample\_range} & error & samples are outside the ADC range \\
+\code{invalid\_samples} & info & samples are invalid (missing data) \\
+\code{checksum} & error & the checksum of a signal does not match its samples \\
+\code{length\_short} & error & the signal files end before the length given in the
+  header \\
+\code{length\_long} & warning & the signal files hold more than the length given in the
+  header \\
+\code{length\_unspecified\_frames} & info & the number of frames that the signal files
+  hold, when the header does not give the length \\
+\multicolumn{3}{@{}l}{\textit{The segments of a multi-segment record}} \\
+\code{segment\_unreadable} & error & a segment cannot be read \\
+\code{nested} & error & a segment is itself a multi-segment record \\
+\code{segment\_fs} & error & the sampling frequency of a segment differs from the
+  record's \\
+\code{segment\_lengths} & warning & the segment lengths do not add up to the length in
+  the master header \\
+\code{layout\_signals} & error & a segment has more signals than the record \\
+\code{layout\_mismatch} & error & a signal of a segment differs from the record's
+  signal \\
+\code{layout\_missing\_signal} & error & a signal of a segment is not in the layout \\
+\multicolumn{3}{@{}l}{\textit{The annotation files}} \\
+\code{annotator\_name} & warning & the annotator name consists only of digits \\
+\code{annotations\_unreadable} & error & the annotation file cannot be read \\
+\code{annotations\_truncated} & error & the annotation file ends unexpectedly \\
+\code{annotations\_order} & error & annotations are out of order \\
+\code{annotation\_code} & error & annotations have an invalid code \\
+\code{annotation\_null} & warning & annotations have code 0 (\code{NOTQRS}) \\
+\code{annotation\_undefined} & warning & annotations have a code without a defined
+  mnemonic \\
+\code{annotations\_after\_end} & warning & annotations are after the end of the
+  record \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The attributes of \code{Siginfo}, the specification of a signal}
+\label{tab:python-siginfo} \\
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Attribute & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{fname} & the name of the signal file, as the header gives it \\
+\code{desc} & the signal description, such as \code{"MLII"}, or \code{None} \\
+\code{units} & the physical units, such as \code{"mV"}, or \code{None} if not specified \\
+\code{gain} & the gain, in ADC units per physical unit (a \code{float}; 0: uncalibrated) \\
+\code{initval} & the value of the first sample \\
+\code{group} & the signal group number (the signals of one group share one file) \\
+\code{fmt} & the storage format, such as \code{16}, \code{212} or \code{516} \\
+\code{spf} & the number of samples per frame (more than 1 for the faster signals of a
+  multi-frequency record) \\
+\code{bsize} & the block size, in bytes (0 for ordinary files) \\
+\code{adcres} & the ADC resolution, in bits (0: not specified) \\
+\code{adczero} & the ADC output for an input of 0\,V \\
+\code{baseline} & the ADC value that corresponds to 0 physical units \\
+\code{nsamp} & the number of samples (0 if unknown) \\
+\code{cksum} & the 16-bit checksum of the samples \\
+\end{xltabular}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Warnings and errors}
+\label{sec:python-warnings}
+
+\paragraph{Exceptions.} The high-level functions report errors by exceptions of the
+standard classes (\cref{tab:python-exceptions}). Each function checks its arguments
+before it creates or changes a file, so an invalid argument leaves the files as they
+were. The library may also print a message on the standard error when it cannot open a
+file (as in \code{init: can't open header for record REC}); \code{wfdbquiet()} turns these
+messages off (\cref{sec:python-library}).
+
+\begin{table}[htbp]
+\centering
+\caption{The exceptions of the high-level API}
+\label{tab:python-exceptions}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Exception & \tabhead Raised when \\
+\midrule
+\code{IOError} (\code{OSError}) & a header, signal file or annotation file cannot be
+  found, read, created or written completely (for example on a full disk); a signal or
+  annotation file ends before its header or its end-of-file marker says \\
+\code{FileNotFoundError} & the directory given as \code{dir} does not exist (a subclass of
+  \code{OSError}) \\
+\code{ValueError} & an argument is invalid, or the operation needs a value that the
+  record does not give (a time in seconds without a sampling frequency, physical units
+  without a gain) \\
+\code{TypeError} & an argument has the wrong type (a record or annotator name that is
+  not a string in \code{check\_record}; a metadata key or value that is not a string;
+  metadata that is neither a mapping nor a sequence of pairs) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{The checksum warning.} When \code{read\_record} reads to the end of a record
+whose samples do not match the checksums of its header, it returns all the samples and
+issues a \code{RuntimeWarning}: ``checksum error in record REC: the signal data do not
+match the checksums in its header''. \code{checksum\_warning=False} turns the warning off;
+\code{checksum\_ok} of the result is \code{False} either way.
+
+\paragraph{The duplicate-key warning.} When a header holds two metadata entries whose keys
+differ only in letter case (written by other software), \code{read\_metadata},
+\code{get\_metadata} and \code{read\_header} use the first and issue a \code{UserWarning}:
+``header of record REC has more than one entry for key KEY (lines L1, L2); the first is
+used''. \code{set\_metadata} and \code{update\_metadata} then refuse to change that key
+(\code{ValueError}), and \code{remove\_metadata} removes all of its entries.
+
+Both warnings are issued with the module \code{warnings} of Python, so they can be
+filtered, recorded or turned into errors (\code{warnings.simplefilter("error",
+RuntimeWarning)}) as any other warning:
+
+\begin{lstlisting}[language=Python,style=example]
+import warnings
+import numpy as np
+import wfdbx
+
+# A record whose last sample is changed after it was written: the checksum fails.
+wfdbx.write_record("ck", np.arange(100), fs=100, gains=100, adcres=12, units="mV")
+with open("ck.dat", "r+b") as f:
+    f.seek(-2, 2)
+    f.write(b"\x00\x00")
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    rec = wfdbx.read_record("ck")
+print(rec.signals.shape, rec.checksum_ok)    # (100, 1) False: all the samples
+print(caught[0].category.__name__)           # RuntimeWarning
+rec = wfdbx.read_record("ck", checksum_warning=False)    # no warning
+
+# Two entries for one key: the first is used, with a warning.
+wfdbx.write_record("dup", np.zeros(10, dtype=int), fs=100, gains=0, adcres=12,
+                   comments=[" Age: 63", " AGE: 64"])
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    print(wfdbx.get_metadata("dup", "age"))      # 63
+print(caught[0].category.__name__)               # UserWarning
+try:
+    wfdbx.set_metadata("dup", "Age", "65")
+except ValueError as e:
+    print("ValueError:", e)
+print(wfdbx.remove_metadata("dup", "age"))       # 2
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,style=example]
+import numpy as np
+import wfdbx
+
+try:
+    wfdbx.read_record("nosuchrecord")
+except OSError as e:                  # IOError is OSError
+    print("OSError:", e)              # OSError: can't read record nosuchrecord
+
+wfdbx.write_record("raw", np.arange(10), fs=100, gains=0, adcres=12)   # uncalibrated
+try:
+    wfdbx.read_record("raw", physical=True)
+except ValueError as e:
+    print("ValueError:", e)           # ValueError: signal 0 of record raw is uncalibrated
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The WFDB library functions in Python}
+\label{sec:python-library}
+
+Every function of the WFDB library is available at the top level of the package under its
+C name, with the same arguments, in the same order, and the same return values, so that
+programs and documentation written for the C library carry over directly. The functions,
+their arguments and their results are documented once, for all the languages, in
+\cref{chap:library}; this section gives the rules by which the C declarations become
+Python functions. \code{help(wfdbx.NAME)} gives the documentation of each function,
+including what WFDB-x changes in it.
+
+\subsection{Conventions}
+
+\paragraph{Names.} The functions, the constants (\code{WFDB\_READ},
+\code{WFDB\_INVALID\_SAMPLE}, \code{WFDB\_HIGHRES}, \ldots) and the annotation codes
+(\code{NORMAL}, \code{PVC}, \ldots, \cref{chap:formats}) keep their C names. The macros of
+\file{<wfdb/ecgmap.h>} are functions, under both their macro names and the names of the
+functions behind them: \code{isqrs} and \code{wfdb\_isqrs}, \code{map1} and
+\code{wfdb\_map1}, and so on. The structures are classes
+(\cref{sec:python-structures}).
+
+\paragraph{NULL is \code{None}.} A \code{NULL} pointer argument or result is
+\code{None}: \code{sampfreq(None)} returns the frequency of the open record,
+\code{getinfo(None)} continues with the info strings of the last record, and
+\code{getinfo} returns \code{None} after the last one. Some trailing arguments have
+defaults (\code{nann=None} and \code{nsig=None}: all the entries of the list):
+\begin{lstlisting}[language=Python]
+isigopen(record, siarray=None, nsig=0)
+osigopen(record, siarray=None, nsig=0)
+osigfopen(siarray, nsig=None)
+setheader(record, siarray, nsig=None)
+annopen(record, aiarray, nann=None)
+\end{lstlisting}
+
+\paragraph{Arrays and output arguments.} Where a C function fills an array that the caller
+passes, the Python function fills a list that the caller passes:
+\begin{itemize}
+\item \code{isigopen} and \code{osigopen} empty the list \code{siarray} and append one
+  \code{Siginfo} object (a copy) per signal; \code{siarray} may be \code{None}. With
+  \code{nsig} $\le 0$, \code{isigopen} reads the header only, and returns the number of
+  signals of the record; \code{osigopen(record, None, 0)} closes the open output signals,
+  reads the header, opens nothing and returns 0.
+\item \code{getvec}, \code{getframe} and \code{putvec} take a list (or a NumPy array) of
+  integers, one per signal (\code{getframe} and \code{putvec}: one per sample of a
+  frame); \code{getvec} and \code{getframe} replace its first entries, and it must have
+  room for them (\code{[0] * nsig}), or \code{IndexError} is raised.
+\item A C function that fills a structure through a pointer replaces the attributes of
+  the object passed: \code{getann(n, annot)} fills an \code{Annotation},
+  \code{getcal(desc, units, cal)} a \code{Calinfo}. \code{putann(n, annot)} and
+  \code{putcal(cal)} read them.
+\item An array of structures passed in is a list of objects: \code{annopen(record,
+  [Anninfo("atr", WFDB\_READ)])}, \code{osigfopen([Siginfo(...), ...])}.
+\item \code{getseginfo()} returns a list of \code{Seginfo} objects (empty if the open
+  record is not a multi-segment record), instead of a pointer to an array.
+\end{itemize}
+
+\paragraph{Strings} are \code{str}. Text and binary data are handled as ISO-8859-1
+(Latin-1), one character per byte, so every byte sequence round-trips unchanged. The
+\code{aux} attribute of an annotation is \code{None}, or \code{bytes} whose first byte is
+the length of the text that follows, as in C; \code{Annotation.aux\_string()} returns the
+text (up to its first NUL byte), or \code{None}.
+
+\paragraph{Return values and errors.} The functions return what the C functions return:
+an \code{int} status (negative on errors), a number of signals, a \code{float}, a string
+or \code{None}. Errors are reported by these values and by a message on the standard
+error, as in C, never by exceptions (only a misuse of Python, such as a vector that is too
+short, raises one). \code{wfdberror()} returns the last message; \code{wfdbquiet()} turns
+the messages off and \code{wfdbverbose()} on again.
+
+\paragraph{State.} As in C, the library keeps its state in the process (module-level
+state): the open record, its input signals, the output signals and the annotators remain
+open between calls, until \code{wfdbquit()} closes them. \code{wfdbquit()} leaves the
+input and output directories and the network setting as they are, and so, as in C, the
+time resolution of output annotators (\code{getafreq()}), which opening an EDF record sets
+to its sampling frequency when none is set, and the getvec mode (\code{getgvmode()}), to
+which it adds \code{WFDB\_HIGHRES}. The high-level functions of \cref{sec:python-api} call
+\code{wfdbquit()}, which closes anything opened with the library functions, and leave
+those two settings as they were.
+
+\paragraph{Additions.} \code{getframes(n)} reads up to \code{n} frames at once, as
+\code{n} calls of \code{getvec} would, but decoding whole blocks of the signal files. It
+returns a tuple \code{(array, stat)}: an \code{int64} NumPy array with one row per frame
+read and one column per signal, and the \code{getvec} status of the first frame that
+could not be read, or the number of signals if all \code{n} frames were read.
+
+\subsection{Module layout}
+
+All the functions, classes and constants are imported by \code{import wfdbx}. They are
+defined in these modules of the package:
+
+\begin{table}[htbp]
+\centering
+\caption{The modules of the package \code{wfdbx}}
+\label{tab:python-modules}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Module & \tabhead Contents \\
+\midrule
+\code{wfdbx.\_wfdbio} & file lookup, the input and output directories, network access,
+  error messages (\file{lib/wfdbio.c}); the settings functions \\
+\code{wfdbx.\_signal} & headers, signal files in every format, time and date
+  conversions, unit conversions (\file{lib/signal.c}); legacy mode \\
+\code{wfdbx.\_annot} & annotation files, in the MIT and AHA formats
+  (\file{lib/annot.c}) \\
+\code{wfdbx.\_calib} & the calibration list (\file{lib/calib.c}) \\
+\code{wfdbx.\_wfdbinit} & \code{wfdbinit}, \code{wfdbquit}, \code{wfdbflush}
+  (\file{lib/wfdbinit.c}) \\
+\code{wfdbx.\_ecgcodes} & the annotation codes and the mapping functions
+  (\file{lib/ecgcodes.h}, \file{lib/ecgmap.h}) \\
+\code{wfdbx.\_flac} & the FLAC codec of the formats 508, 516 and 524 \\
+\code{wfdbx.\_cstd} & the exact behavior of the C standard library functions that the WFDB
+  library relies on (\code{strtol}, \code{sscanf}, \code{printf}, \ldots) \\
+\code{wfdbx.highlevel} & \code{read\_record}, \code{read\_header},
+  \code{read\_annotations}, \code{write\_record}, \code{write\_annotations} and their
+  result classes \\
+\code{wfdbx.metadata} & the header metadata functions \\
+\code{wfdbx.check} & \code{check\_record}, \code{CheckReport}, \code{Issue} \\
+\code{wfdbx.resources} & \code{sample\_data\_dir}, \code{examples\_dir},
+  \code{copy\_examples} \\
+\code{wfdbx.cli} & the command \code{wfdbx} \\
+\code{wfdbx.apps} & the command-line tools, one module per tool
+  (\code{wfdbx.apps.rdsamp}, \ldots) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The modules whose names begin with an underscore are internal: their functions are used
+through the top level of the package (\code{wfdbx.isigopen}, not
+\code{wfdbx.\_signal.isigopen}).
+
+\subsection{The structures}
+\label{sec:python-structures}
+
+The structures of the C library are classes whose attributes have the names of the
+fields of the C structures (\cref{tab:python-structures}). Their constructors take the
+attributes as arguments, in this order, all with defaults:
+\begin{lstlisting}[language=Python]
+Siginfo(fname=None, desc=None, units=None, gain=0.0, initval=0, group=0, fmt=0, spf=1,
+        bsize=0, adcres=0, adczero=0, baseline=0, nsamp=0, cksum=0)
+Seginfo(recname="", nsamp=0, samp0=0)
+Anninfo(name=None, stat=WFDB_READ)
+Annotation(time=0, anntyp=0, subtyp=0, chan=0, num=0, aux=None)
+Calinfo(low=0.0, high=0.0, scale=0.0, sigtype=None, units=None, caltype=0)
+\end{lstlisting}
+\code{Siginfo}, \code{Annotation} and
+\code{Calinfo} have a method \code{copy()}; \code{Annotation} also has
+\code{assign(other)}, which copies the attributes of another annotation, and
+\code{aux\_string()}.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The classes of the C structures}
+\label{tab:python-structures} \\
+\toprule
+\tabhead Class (C structure) & \tabhead Attributes \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Class (C structure) & \tabhead Attributes \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{Siginfo} (\code{WFDB\_Siginfo}) & \code{fname}, \code{desc}, \code{units},
+  \code{gain}, \code{initval}, \code{group}, \code{fmt}, \code{spf}, \code{bsize},
+  \code{adcres}, \code{adczero}, \code{baseline}, \code{nsamp}, \code{cksum}
+  (\cref{tab:python-siginfo}) \\
+\code{Seginfo} (\code{WFDB\_Seginfo}) & \code{recname} (the name of the segment),
+  \code{nsamp} (its number of samples), \code{samp0} (the number of its first sample in
+  the record) \\
+\code{Anninfo} (\code{WFDB\_Anninfo}) & \code{name} (the annotator name, the suffix of the
+  file), \code{stat} (\code{WFDB\_READ} or \code{WFDB\_WRITE} for the MIT format,
+  \code{WFDB\_AHA\_READ} or \code{WFDB\_AHA\_WRITE} for the AHA format) \\
+\code{Annotation} (\code{WFDB\_Annotation}) & \code{time} (in sample intervals),
+  \code{anntyp} (the annotation code), \code{subtyp}, \code{chan}, \code{num},
+  \code{aux} (\code{None}, or \code{bytes} whose first byte is the length of the text
+  that follows) \\
+\code{Calinfo} (\code{WFDB\_Calinfo}) & \code{low}, \code{high} (the levels of the
+  calibration pulse, in physical units), \code{scale} (physical units per cm),
+  \code{sigtype} (matched against the beginning of a signal description), \code{units},
+  \code{caltype} (\code{WFDB\_AC\_COUPLED} or \code{WFDB\_DC\_COUPLED}, or-ed with
+  \code{WFDB\_CAL\_SQUARE}, \code{WFDB\_CAL\_SINE} or \code{WFDB\_CAL\_SAWTOOTH}) \\
+\end{xltabular}
+
+\subsection{The settings functions}
+\label{sec:python-settings}
+
+The functions of \cref{tab:python-settings} are additions of WFDB-x to the library: they
+set where files are read and written, network access and legacy mode, for the high-level
+functions, the library functions and the tools alike (\cref{chap:files,chap:behavior}),
+and give the path under which a program opens a file that it reads or creates itself, as
+the tools do (\code{wfdbx\_input\_path}, \code{wfdbx\_output\_path};
+\cref{sec:tool-files}). Each \code{set} function returns the previous setting, so that it
+can be restored. The
+C function \code{setwfdb(p)} sets the input directory too (\code{p} must name at most one
+directory), and \code{getwfdb()} returns it (\code{"."} if none is set); in legacy mode
+they set and return the WFDB path, as in C.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The settings functions}
+\label{tab:python-settings} \\
+\toprule
+\tabhead Function & \tabhead Effect and result \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Function & \tabhead Effect and result \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{wfdbx\_set\_input\_dir(d)} & sets the input directory: a local directory, a
+  \code{\textasciitilde} path or a URL; \code{None} or \code{""} restores the default
+  (\code{WFDBX\_INPUT\_DIR}, or else the current directory). Returns the previous input
+  directory, or \code{None} if none was set \\
+\code{wfdbx\_get\_input\_dir()} & returns the input directory, or \code{None} if none is
+  set \\
+\code{wfdbx\_set\_output\_dir(d)} & sets the output directory: a local directory or a
+  \code{\textasciitilde} path (a URL is refused, with a message); \code{None} or
+  \code{""} restores the default (\code{WFDBX\_OUTPUT\_DIR}, or else the current
+  directory). Returns the previous output directory, or \code{None} \\
+\code{wfdbx\_get\_output\_dir()} & returns the output directory, or \code{None} if none
+  is set \\
+\code{wfdbx\_set\_network(on)} & turns network access on (\code{True} or 1) or off
+  (\code{False} or 0); \code{None} or a negative number restores the default (on if
+  \code{WFDBX\_NETWORK} is a nonzero number). Returns the previous setting, 1 or 0 \\
+\code{wfdbx\_get\_network()} & returns 1 if network access is on, 0 otherwise \\
+\code{wfdbx\_set\_legacy(on)} & turns legacy mode on (\code{True} or 1) or off, for the
+  whole library. Returns the previous setting, 1 or 0 \\
+\code{wfdbx\_get\_legacy()} & returns 1 if legacy mode is on, 0 otherwise \\
+\code{wfdbx\_legacy\_args(argv)} & if \code{argv[1]} (\code{argv}: the argument list,
+  program name first) is \code{"-{}-legacy"}, removes it from the list, turns legacy mode on
+  and returns 1; otherwise returns 0 \\
+\code{wfdbx\_time\_needs\_freq(string)} & returns 1 if \code{strtim(string)} needs a
+  sampling frequency, 0 otherwise \\
+\code{wfdbx\_write\_errors()} & returns the number of write errors since the program
+  started (output files that could not be written, flushed or closed) \\
+\code{wfdbx\_note\_write\_error()} & counts a write error, for a program that writes a
+  file itself \\
+\code{wfdbx\_input\_path(name)} & returns the path under which a program opens a file
+  that it reads itself: in normal mode, a relative name under the input directory, a
+  \code{\textasciitilde} name expanded, an absolute name as given; in legacy mode, the
+  name as given. \code{None}, \code{""} and \code{"-"} are returned as given; \code{None}
+  for a URL, or a name that becomes one under the input directory \\
+\code{wfdbx\_output\_path(name)} & returns the path under which a program creates a file
+  that it writes itself: in normal mode, a relative name under the output directory (whose
+  missing directories are then created), a \code{\textasciitilde} name expanded, an
+  absolute name as given; in legacy mode, any name under the output directory, as a plain
+  prefix. \code{None}, \code{""} and \code{"-"} are returned as given; \code{None} for a
+  URL \\
+\end{xltabular}
+
+\subsection{Examples}
+
+Reading the samples and the annotations of a record, as a C program does (the record
+\code{100s} is read from the package's data directory):
+
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+previous = wfdbx.wfdbx_set_input_dir(wfdbx.sample_data_dir())
+
+si = []                                  # receives one Siginfo per signal
+nsig = wfdbx.isigopen("100s", si, 2)     # open 2 signals
+print(nsig, [(s.desc, s.fmt, s.gain) for s in si])   # 2 [('MLII', 212, 200.0), ...]
+print(wfdbx.sampfreq(None))              # 360.0: the frequency of the open record
+
+v = [0] * nsig                           # receives one sample per signal
+wfdbx.isigsettime(wfdbx.strtim("0:30"))  # skip to 30 seconds
+wfdbx.getvec(v)
+print(v, [wfdbx.aduphys(k, v[k]) for k in range(nsig)])
+
+frames, stat = wfdbx.getframes(360)      # the next second, as a NumPy array
+print(frames.shape, stat)                # (360, 2) 2
+
+a = wfdbx.Annotation()
+wfdbx.annopen("100s", [wfdbx.Anninfo("atr", wfdbx.WFDB_READ)])
+n = 0
+while wfdbx.getann(0, a) == 0:           # 0: an annotation was read; -1: the end
+    if n < 2:
+        print(wfdbx.mstimstr(a.time), wfdbx.annstr(a.anntyp), a.aux_string())
+    n += 1
+print(n, "annotations")                  # 75 annotations
+
+wfdbx.wfdbquiet()                        # no messages on the standard error
+print(wfdbx.isigopen("nosuchrecord", None, 0), wfdbx.wfdberror().strip())
+wfdbx.wfdbverbose()
+
+wfdbx.wfdbquit()                         # close everything
+wfdbx.wfdbx_set_input_dir(previous)      # restore the input directory
+\end{lstlisting}
+
+Writing a record and an annotation file, sample by sample and annotation by annotation:
+
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+
+out = [wfdbx.Siginfo(fname="ramp.dat", desc="ramp", units="mV", gain=200.0, fmt=16,
+                     adcres=12)]
+print(wfdbx.osigfopen(out))         # 1: one output signal
+wfdbx.setsampfreq(250.0)
+for k in range(500):
+    wfdbx.putvec([k])
+print(wfdbx.newheader("ramp"))      # 0: ramp.hea is written
+wfdbx.annopen("ramp", [wfdbx.Anninfo("qrs", wfdbx.WFDB_WRITE)])
+for t in (100, 350):
+    wfdbx.putann(0, wfdbx.Annotation(time=t, anntyp=wfdbx.NORMAL))
+wfdbx.wfdbquit()                    # completes ramp.dat and ramp.qrs
+
+print(open("ramp.hea").read().splitlines()[0])        # ramp 1 250 500
+print(wfdbx.read_annotations("ramp", "qrs").samples)  # [100 350]
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The command-line tools in Python}
+\label{sec:python-tools}
+
+The 33 command-line tools (\code{rdsamp}, \code{rdann}, \code{wrsamp}, \code{xform},
+\ldots) are run through the command \cmd{wfdbx}, installed with the package, followed by
+the name of the tool and its arguments. The tools, their options, their output and their
+exit status are those of the C tools, and are documented in \cref{chap:tools}.
+
+\begin{lstlisting}[style=shell]
+export WFDBX_INPUT_DIR=$(python -c "import wfdbx; print(wfdbx.sample_data_dir())")
+wfdbx rdsamp -r 100s -t 10 -p     # the first 10 seconds of 100s, in physical units
+wfdbx rdann -r 100s -a atr        # its annotations
+wfdbx rdsamp --legacy -r 100s     # legacy mode: --legacy as the first argument
+\end{lstlisting}
+
+The command \cmd{wfdbx} also takes these options, instead of a tool:
+
+\begin{table}[htbp]
+\centering
+\caption{The options of the command \code{wfdbx}}
+\label{tab:python-wfdbx-options}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Command & \tabhead Effect \\
+\midrule
+\cmd{wfdbx TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with its
+  status \\
+\cmd{wfdbx -{}-list} & lists the names of the tools, one per line \\
+\cmd{wfdbx -{}-examples [DIR]} & copies the example notebooks to the directory
+  \code{DIR} (default \file{wfdbx-examples}), and prints their paths \\
+\cmd{wfdbx -{}-version} & prints the version, \code{WFDB-x 1.2.0} \\
+\cmd{wfdbx -{}-help}, \cmd{wfdbx -h} & prints the usage \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Without arguments, \cmd{wfdbx} prints the usage and exits with status 1; an unknown tool
+is an error (status 1). When an output file or the standard output cannot be written (a
+full disk, for example), a tool reports it and exits with status 1.
+
+\paragraph{Without the \cmd{wfdbx} command.} The package has no module
+\code{wfdbx.\_\_main\_\_}, so \cmd{python -m wfdbx} is not supported. The command is the
+module \code{wfdbx.cli}, and each tool is a module of \code{wfdbx.apps}, so that, with
+\file{python/src} on \code{PYTHONPATH} for example:
+
+\begin{lstlisting}[style=shell]
+python -m wfdbx.cli rdsamp -r 100s -t 10     # as wfdbx rdsamp -r 100s -t 10
+python -m wfdbx.apps.rdsamp -r 100s -t 10    # the tool's module itself
+\end{lstlisting}
+
+From Python, \code{wfdbx.cli.main(argv)} runs the command with the argument list
+\code{argv} (without the program name), and the function \code{main(argv)} of a tool's
+module runs the tool with \code{argv}, the complete argument list, program name first, as
+in C. Both return the exit status; the tool writes to the standard output and error.
+
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx.cli
+from wfdbx.apps import rdsamp
+
+status = wfdbx.cli.main(["rdsamp", "-r", "100s", "-t", "s2"])   # the first 2 samples
+print(status)                                                   # 0
+status = rdsamp.main(["rdsamp", "-r", "100s", "-f", "s10", "-t", "s11", "-p"])
+\end{lstlisting}
+
+\paragraph{Environment variables.} The tools, like the rest of the package, use the
+environment variables of \cref{tab:python-environment}, also for the files that they read
+or create themselves (\cref{sec:tool-files}): the \opt{-i} file of \cmd{wrsamp},
+\cmd{edf2mit}, \cmd{wav2mit}, \cmd{a2m} and \cmd{ad2m}, the input files of
+\cmd{ahaecg2mit} and the \opt{-S} script of \cmd{xform} are read from the input directory,
+and the WAV file of \cmd{mit2wav}, the EDF file of \cmd{mit2edf}, the master header of
+\cmd{snip -m} and the \file{.des}, \file{.ecg}, \file{.key} and \file{.txt} files of
+\cmd{parsescp} are created in the output directory. Such a file cannot be read from a URL.
+In legacy mode, the files that a tool reads itself are opened as named, and the output
+directory, if set, is a plain prefix of every output name.
+
+\begin{table}[htbp]
+\centering
+\caption{The environment variables used by the Python package}
+\label{tab:python-environment}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Variable & \tabhead Meaning \\
+\midrule
+\code{WFDBX\_INPUT\_DIR} & the input directory (a directory, a \code{\textasciitilde}
+  path or a URL), when \code{wfdbx\_set\_input\_dir} does not set one \\
+\code{WFDBX\_OUTPUT\_DIR} & the output directory, when \code{wfdbx\_set\_output\_dir} does
+  not set one \\
+\code{WFDBX\_NETWORK} & network access is on if it is a nonzero number, when
+  \code{wfdbx\_set\_network} does not set it \\
+\code{WFDBANNSORT} & \code{0} to keep annotation files in the order written (no sorting
+  when they are closed) \\
+\code{WFDBGVMODE} & the default getvec mode (\code{setgvmode} with a negative mode) \\
+\code{WFDBCAL} & the calibration file read by \code{calopen(None)} (default
+  \file{wfdbcal}) \\
+\code{WFDB} & the WFDB path, used in legacy mode only (outside legacy mode, it is
+  ignored, with a message) \\
+\code{WFDB\_FLAC\_CHECK\_MD5} & if set, the MD5 signature of FLAC signal files is
+  verified when they are read \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ==========================================================================================
+\section{Testing}
+\label{sec:python-testing}
+
+The tests of the Python package are in \file{python/tests}. From the root of the
+repository:
+
+\begin{lstlisting}[style=shell]
+pip install -e "./python[test]"       # the package and pytest, nbformat, nbclient, ipykernel
+pytest python/tests
+\end{lstlisting}
+
+This runs the unit tests of the library, the high-level functions, the metadata functions
+(with the cases shared by the seven languages, in \file{tests/metadata}) and
+\code{check\_record}; it runs the example notebooks (when nbformat, nbclient and ipykernel
+are installed); and it runs the cross-language conformance suite, which compares the
+output of the tools with that of the original C programs, case by case (1135 cases, a few
+minutes). The tests run against \file{python/src} when they are run from the repository,
+in a temporary copy of the test records of \file{tests/data}. The tests that write to
+\file{/dev/full} (write errors) are skipped where it does not exist, on macOS and Windows.
+
+The environment variable \code{WFDBX\_CONFORMANCE} selects the conformance cases that
+\cmd{pytest} runs: \code{0} skips the suite, and a list of tools, such as
+\code{WFDBX\_CONFORMANCE=rdsamp,rdann}, runs the cases of those tools only.
+
+\begin{lstlisting}[style=shell]
+WFDBX_CONFORMANCE=0 pytest python/tests            # the unit tests only
+WFDBX_CONFORMANCE=rdsamp,rdann pytest python/tests/test_conformance.py
+\end{lstlisting}
+
+The conformance suite can also be run on its own, with more options (the number of
+parallel jobs, the legacy suite of 883 cases, which runs each tool with \opt{-{}-legacy},
+verbose output, selected cases):
+
+\begin{lstlisting}[style=shell]
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl python -j4
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl python --legacy
+\end{lstlisting}

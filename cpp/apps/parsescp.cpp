@@ -12,9 +12,11 @@
 // given in the SCP file, and is not written if the file gives none (the
 // original always wrote 500 Hz); signals and reference beats that could not be
 // allocated, and samples beyond the end of a signal shorter than lead 0, are
-// read as absent or as zeros (undefined behavior in the original); --legacy,
-// as the first argument, restores the original behavior. Each change is marked
-// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// read as absent or as zeros (undefined behavior in the original); the .des,
+// .ecg, .key and .txt files are created under the output directory, as the
+// library creates an output file; --legacy, as the first argument, restores the
+// original behavior. Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -57,6 +59,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -607,6 +610,15 @@ static int write_wfdb_record()
     return 1;
 }
 
+// WFDB-x: wfopen opens an output file of this program, creating it where the
+// library creates an output file of that name (under the output directory, if
+// one is set; see wfdbx_output_path).
+static std::FILE *wfopen(const std::string &name, const char *mode)
+{
+    std::optional<std::string> p = wfdbx_output_path(name.c_str());
+    return p ? std::fopen(p->c_str(), mode) : nullptr;
+}
+
 static int write_output()
 {
     std::string dname, ename, kname, tname;
@@ -618,22 +630,22 @@ static int write_output()
     ename = recname + ".ecg";
     kname = recname + ".key";
     tname = recname + ".txt";
-    if ((dfile = std::fopen(dname.c_str(), "wb")) == nullptr) {
+    if ((dfile = wfopen(dname, "wb")) == nullptr) {    // WFDB-x: wfopen
         std::fprintf(stderr, "%s: can't create '%s'\n", pname, dname.c_str());
         return 0;
     }
-    if ((efile = std::fopen(ename.c_str(), "wb")) == nullptr) {
+    if ((efile = wfopen(ename, "wb")) == nullptr) {
         std::fclose(dfile);
         std::fprintf(stderr, "%s: can't create '%s'\n", pname, ename.c_str());
         return 0;
     }
-    if ((kfile = std::fopen(kname.c_str(), "wb")) == nullptr) {
+    if ((kfile = wfopen(kname, "wb")) == nullptr) {
         std::fclose(dfile);
         std::fclose(efile);
         std::fprintf(stderr, "%s: can't create '%s'\n", pname, kname.c_str());
         return 0;
     }
-    if (vflag && (tfile = std::fopen(tname.c_str(), "wb")) == nullptr) {
+    if (vflag && (tfile = wfopen(tname, "wb")) == nullptr) {
         std::fclose(dfile);
         std::fclose(efile);
         std::fclose(kfile);

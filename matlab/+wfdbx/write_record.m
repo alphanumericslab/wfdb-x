@@ -5,6 +5,17 @@ function write_record(record, signals, fs, varargin)
 %   per sample and one column per signal, in ADC units (or in physical units
 %   with 'physical').  FS is the sampling frequency in Hz.
 %
+%   RECORD is the record name, without the .hea extension: a plain name
+%   ('rec') or a relative path ('data/rec'), created in the output directory
+%   if one is set (see wfdbx.wfdbx_set_output_dir), otherwise in the
+%   current folder, missing directories included; or a full path, absolute
+%   or in the home directory ('~/Documents/rec'), used as given.  With a
+%   path, the files are created in that directory, and the header names
+%   the record and its signal file without the path ('rec', 'rec.dat'), so
+%   that the record opens under any path that leads to it (in legacy mode,
+%   as in the original, the header gives the name with its path).  A URL
+%   cannot be written.
+%
 %   You must give the gain and ADC resolution of each signal, and the units
 %   of each calibrated signal; there are no defaults.  Per-signal options
 %   take one value for all signals, or a vector or cell array with one value
@@ -24,6 +35,13 @@ function write_record(record, signals, fs, varargin)
 %     'names'       signal descriptions (default: none)
 %     'base_time'   start time and date, such as '12:00:00 01/02/2003'
 %     'comments'    cell array of info strings
+%     'metadata'    "Key: value" entries to write to the header, after the
+%                   comments, as "# Key: value" ("# Key:" for an empty
+%                   value): an N-by-2 cell array with one entry per row,
+%                   {KEY, VALUE}.  The keys and values follow the rules of
+%                   wfdbx.set_metadata; no two keys may be equal without
+%                   regard to letter case, nor be the key of an entry in
+%                   'comments', and a value must not be [].  Default: none.
 %     'physical'    true if SIGNALS are in physical units; they are converted
 %                   with the gains and baselines, and NaN becomes an invalid
 %                   sample; infinite values, and values beyond the range of
@@ -32,8 +50,11 @@ function write_record(record, signals, fs, varargin)
 %                   multi-frequency record.  Each row of SIGNALS then holds
 %                   one frame: the samples of signal 0, then those of
 %                   signal 1, and so on.
-%     'dir'         folder in which to create the files (default: the output
-%                   directory).  RECORD must then be a plain name.
+%     'dir'         directory (which must exist) in which to create the
+%                   files, for this call only (default: the output
+%                   directory).  RECORD must then be a plain name, without
+%                   a directory, and the record opens from that directory
+%                   under its plain name.
 %     'legacy'      true to behave as the original WFDB package (default
 %                   false; see wfdbx.wfdbx_set_legacy)
 %
@@ -50,7 +71,8 @@ function write_record(record, signals, fs, varargin)
 %   signal, if samples in ADC units are not integers or lie outside the
 %   range of a 32-bit integer, if samples in physical units are infinite or
 %   their ADC values lie outside that range, if 'physical' is true and a
-%   gain is 0, if 'dir' does not exist, if the files cannot be created, or
+%   gain is 0, if an entry of 'metadata' is not valid, if 'dir' does not
+%   exist, if the files cannot be created, or
 %   if they cannot be written completely, for example when the disk is full
 %   ("write error on record RECORD", after the library's messages; in
 %   legacy mode too).  The arguments are checked before any file is
@@ -59,7 +81,8 @@ function write_record(record, signals, fs, varargin)
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
 %   WFDB library functions; it also closes the output signals when it
-%   fails.
+%   fails.  the getvec mode (wfdbx.getgvmode) and the time
+%   resolution of output annotators (wfdbx.getafreq) are left as they were.
 %
 %   Examples:
 %       x = round(1000 * sin(2 * pi * (0:999)' / 100));
@@ -73,7 +96,7 @@ function write_record(record, signals, fs, varargin)
 %           'physical', true, 'gains', 200, 'adcres', 16, 'units', 'mV', ...
 %           'base_time', '12:00:00 01/02/2003');
 %
-%   See also wfdbx.read_record, wfdbx.write_annotations.
+%   See also wfdbx.read_record, wfdbx.write_annotations, wfdbx.set_metadata.
 %
 %   Part of WFDB-x; not in the original WFDB package.
 
@@ -91,6 +114,10 @@ function write_record(record, signals, fs, varargin)
 % any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
+% WFDB-x: the getvec mode and the time resolution of output annotators are
+% restored when the function returns (also on errors; opening an EDF record
+% sets both)
+keep_settings = wfdbx.internal.hl_settings(); %#ok<NASGU>
 if ~ischar(record) || isempty(record)
     error('wfdbx:write_record', 'the record name must not be empty');
 end
@@ -98,7 +125,7 @@ end
 opt = struct('fmt', 16, 'gains', [], 'baselines', [], 'adczeros', 0, ...
     'adcres', [], 'units', [], 'names', [], 'base_time', [], ...
     'comments', [], 'physical', false, 'samps_per_frame', [], ...
-    'dir', [], 'legacy', false);
+    'metadata', [], 'dir', [], 'legacy', false);
 opt = wfdbx.internal.hl_options(opt, varargin, 'write_record');
 % WFDB-x: the 'dir' option (the library's output directory, for this
 % call), checked before the other arguments
@@ -225,6 +252,12 @@ elseif isempty(comments)
 end
 if ~iscell(comments) || ~all(cellfun(@is_text, comments(:)))
     error('wfdbx:write_record', 'comments must be a cell array of strings');
+end
+% WFDB-x: the metadata entries, written after the comments (checked before
+% any file is created)
+if ~(isa(opt.metadata, 'double') && isempty(opt.metadata))
+    comments = [reshape(comments, 1, []), wfdbx.internal.meta_info_lines( ...
+        opt.metadata, comments, wfdbx.internal.meta_id('write_record'))];
 end
 si = wfdbx.siginfo(nsig);
 for k = 1:nsig

@@ -12,8 +12,10 @@
 # resolution: the record must give the sampling frequency, and the gain and ADC
 # resolution of every signal (the original assumed 250 Hz and 200 adu/mV, and
 # guessed the resolution from the storage format); unspecified units are
-# written as "nd" (the original wrote "mV"); --legacy, as the first argument,
-# restores the original behavior. Each change is marked "WFDB-x:" in the code;
+# written as "nd" (the original wrote "mV"); the EDF file is created under the
+# output directory, as the library creates an output file; --legacy, as the
+# first argument, restores the original behavior. Each change is marked
+# "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
@@ -166,6 +168,8 @@ app_mit2edf <- function(args = character(0)) {
     # guessed it from the storage format).
     if (si[[k]]$adcres < 1) .app_noadcres(pname, k - 1, record, 3)
   }
+  # WFDB-x: created under the output directory, as the library creates an
+  # output file of that name (see .app_fopen and wfdbx_output_path)
   ofile <- .app_fopen(ofname, pname)
   if (is.null(ofile)) {
     ceprintf("%s: can't create %s\n", pname, ofname)

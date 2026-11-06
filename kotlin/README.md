@@ -8,6 +8,9 @@
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+> · [User's manual (PDF)](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/user-manual/wfdb-x-user-manual.pdf)
+> (chapter "Kotlin" for this language)
+> · [How to cite WFDB-x](https://github.com/alphanumericslab/wfdb-x#how-to-cite)
 
 `wfdbx` reads and writes physiological signal records in the WFDB format used
 by [PhysioNet](https://physionet.org). It is a complete Kotlin implementation
@@ -35,7 +38,10 @@ All three are written in Kotlin; none of them calls the C library.
 
 1. **The high-level functions (recommended).** `readRecord`, `readHeader`,
    `readAnnotations`, `writeRecord`, `writeAnnotations` and `checkRecord`
-   read and write whole records and annotation files in one call, with
+   read and write whole records and annotation files in one call
+   (`readMetadata`, `setMetadata` and the other
+   [header metadata](#header-metadata) functions read and change the
+   `Key: value` entries of a header), with
    named arguments: the samples are an `IntArray` (and a `DoubleArray` in
    physical units), frame by frame, and errors throw a `WfdbException`.
    They read signal files in large blocks, so they are the fastest way to
@@ -59,14 +65,14 @@ the library functions (and the C library) give.
 
 The library is built from a copy of the repository and installed in the
 local Maven repository (below); its Gradle coordinates are
-`io.github.alphanumericslab:wfdbx:1.1.0`. In a Gradle project (an Android
+`io.github.alphanumericslab:wfdbx:1.2.0`. In a Gradle project (an Android
 app, a JVM program, or the common source set of a Kotlin Multiplatform
 project) that lists `mavenLocal()` among its repositories, add it to the
 dependencies:
 
 ```kotlin
 dependencies {
-    implementation("io.github.alphanumericslab:wfdbx:1.1.0")
+    implementation("io.github.alphanumericslab:wfdbx:1.2.0")
 }
 ```
 
@@ -157,7 +163,7 @@ rec.physical!![0]     // its first sample, in mV
 
 | Argument | Meaning | Default |
 |---|---|---|
-| `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
+| `record` | record name, without `.hea` (a trailing `.hea` is also accepted): a full path, absolute or `~/...`, used as given; a relative path, read from the input directory if one is set, otherwise from the current directory; or a URL, read only if network access is on (see [Record names](#record-names)) | |
 | `channels` | signals to read, by number (`"0"`) or name (`"MLII"`, as in `names`) | all signals |
 | `from`, `to` | first sample, and the sample after the last one: a `TimeSpec` (see below; `from` is not negative) | the whole record |
 | `physical` | also return the samples in physical units (`Record.physical`) | `false` |
@@ -165,7 +171,7 @@ rec.physical!![0]     // its first sample, in mV
 | `pad` | replace invalid samples by the previous valid one | `false` |
 | `checksumWarning` | warn when the data do not match the header's checksums | `true` |
 | `onWarning` | receives the warning, instead of the standard error | `null` |
-| `inputDir`, `network` | input directory and network access for this call only | the current settings |
+| `inputDir`, `network` | input directory (a local directory, `~/...` or a URL, under which relative record names are read; it does not apply to full paths or URLs) and network access, for this call only | the current settings |
 | `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) | `false` |
 
 A `TimeSpec` is a sample number, `TimeSpec(3600)`, or a WFDB time string,
@@ -207,8 +213,14 @@ units.
 `readHeader(record)` reads the header of a record without opening its
 signal files. It returns a `Header` with these fields: `name`, `fs`,
 `counterFreq`, `baseCounter`, `nsamples` (0 if the header does not give the
-length), `nsig`, `siginfo`, `baseTime`, `baseTimeMs`, `baseDate` and
-`comments`. They have the same meaning as in `Record`.
+length), `nsig`, `siginfo`, `baseTime`, `baseTimeMs`, `baseDate`,
+`comments` and `metadata`. `metadata` is the list of the `Key: value`
+entries of the header (of the `.hea` file only, not of a `.info` file), in
+file order, as `readMetadata` returns them (see
+[Header metadata](#header-metadata); it is empty for an EDF file). The
+others have the same meaning as in `Record`. `record`, `inputDir`, `network`
+and `legacy` work as in `readRecord`, and `onWarning` receives the warning
+about a key that the header gives more than once.
 
 ```kotlin
 val hdr = readHeader("100s")
@@ -227,6 +239,7 @@ val ann = readAnnotations("100s", "atr", from = TimeSpec("0:10"), to = TimeSpec(
 val beats = (0 until ann.size).filter { isqrs(ann.codes[it]) != 0 }.map { ann.samples[it] }
 ```
 
+`record`, `inputDir`, `network` and `legacy` work as in `readRecord`.
 `annotator` is the file suffix (`"atr"` reads `100s.atr`). The optional `fs`
 gives the sampling frequency when the record has no header, or its header
 gives none. The result is an `Annotations` object, in file order:
@@ -249,7 +262,14 @@ writeRecord("rand", x, nsig = 2, fs = 360.0, fmt = 16, gains = doubleArrayOf(100
             adcres = intArrayOf(16), units = listOf("mV"), names = listOf("A", "B"))
 ```
 
-This writes the header `rand.hea` and the signal file `rand.dat`. The
+This writes the header `rand.hea` and the signal file `rand.dat`, in the
+output directory if one is set, otherwise in the current directory. The
+record name is a plain name (`rec`) or a relative path (`data/rec`), created
+in the output directory (missing directories included), or a full path,
+absolute or `~/...`, used as given; with a path, the header names the record
+and its signal file without the path (`rec`, `rec.dat`), so that the record
+opens under any path that leads to it (in legacy mode, as in the original,
+the header gives the name with its path). A URL cannot be written. The
 sampling frequency (finite and > 0), the gain (finite) and ADC resolution
 of each signal, and the units of each calibrated signal are required; there
 are no defaults. The record name must not be empty, there must be at least
@@ -273,8 +293,9 @@ whatever happens.
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `baseTime`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
 | `sampsPerFrame` | samples per frame of each signal, for a multi-frequency record |
-| `dir` | directory in which to create the files |
+| `dir` | directory (which must exist) in which to create the files, for this call only; the record name must then be a plain name, and the record opens from that directory under it |
 | `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) |
+| `metadata` | `Key: value` entries, written after the comments as `# Key: value`: a list of pairs, `listOf("Age" to "63")` (a map converts with `toList()`; see [Header metadata](#header-metadata)). The keys must be unique, ignoring letter case, and none may be the key of an entry in `comments`; this is checked before any file is created |
 
 ### Writing annotations: `writeAnnotations`
 
@@ -282,6 +303,9 @@ whatever happens.
 writeAnnotations("rand", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N", "N", "V"))
 ```
 
+The file `RECORD.ANNOTATOR` is created where `writeRecord` would create the
+record (a trailing `.hea` of the record name is also accepted); with `dir`,
+the record name must be a plain name, and the file is `DIR/RECORD.ANNOTATOR`.
 Give the annotation types as `symbols` or as `codes`. Both may be given (as
 `readAnnotations` returns them) if they agree: the code of each symbol must
 be the code at its position (an empty symbol agrees with any code), or
@@ -297,10 +321,81 @@ keeps the given order (without the library's advice to run `sortann`) and
 `sort = true` always sorts, for that call only. Without `sort`, the
 `WFDBANNSORT` environment variable decides (sorting is on unless it is `0`).
 
+### Header metadata
+
+Many datasets store facts about a recording in the header, as comment
+lines of the form `# Key: value`, such as `# Age: 63` or `# Dx: 164889003`.
+These functions read and change them, without touching the rest of the
+header:
+
+```kotlin
+readMetadata("rec")                     // [(Age, 63), (Sex, F)]
+getMetadata("rec", "age")               // "63" (null if there is none)
+setMetadata("rec", "Age", "64")         // replaces the line, or adds "# Age: 64"
+removeMetadata("rec", "Sex")            // 1: the number of lines removed
+updateMetadata("rec", mapOf("Age" to "65", "Dx" to null))   // several changes; null removes
+```
+
+* **Reading.** An entry is a comment line after the record line (an info
+  string, as the C function `getinfo` reads it) that contains a colon. The
+  key is the text before the first colon, the value the rest of the line,
+  both without spaces at either end: `#Age:45`, `# Age: 45` and
+  `#  Age : 45` all give `("Age", "45")`. Comment lines without a colon are
+  free comments: they are not returned, and never changed. Only the `.hea`
+  file is read (not a `.info` file). `readMetadata` returns a
+  `List<Pair<String, String>>`, in file order; text is one character per
+  byte (ISO-8859-1), as elsewhere in the high-level API.
+* **Keys** are compared without regard to letter case: `"age"` finds
+  `Age`. A key must not be empty, and must not contain `:`, `#` or a line
+  break; it may contain spaces (`"Date of birth"`). If a header holds two
+  entries whose keys differ only in letter case (written by other
+  software), reading returns the first, with a warning ("header of record
+  REC has more than one entry for key KEY (lines 3, 7); the first is
+  used"), printed on the standard error as `WFDB-x: ` followed by the
+  message unless `wfdbquiet()` was called, or given to
+  `onWarning = { msg -> ... }`; `setMetadata` and `updateMetadata` refuse
+  to change that key, and `removeMetadata` removes both.
+* **Values** are text, which may be a whole sentence, without a line break.
+  Spaces at either end are removed; an empty value is allowed.
+* **Writing.** An entry is written as `# Key: value` (`# Key:` if the value
+  is empty), with the spelling of the key given. A changed entry keeps its
+  position; a new one goes after the last comment line of the header. Every
+  other byte of the header is kept, including its line endings. The header
+  is replaced in one step (through a temporary file in its directory,
+  renamed over it, keeping its permissions), and all the arguments are
+  checked first, so an error leaves it unchanged. If nothing changes,
+  nothing is written.
+* **Changes.** `updateMetadata` takes a list of pairs,
+  `listOf("Age" to "65", "Dx" to null)`, or a map; the changes are applied
+  in order, and a `null` value removes the entry. No two keys may differ
+  only in letter case.
+* **Files.** The header is found as `readHeader` finds it (`record`,
+  `inputDir` and `network` work the same way, for one call; see
+  [Record names](#record-names)). A change is written to the
+  header itself, or, with `dir = ...`, to a header of the same name in that
+  directory, which must exist (the signal files are not copied). A header
+  read from a URL can only be written elsewhere, with `dir`. For a
+  multi-segment record, the master header is read or changed, unless a
+  segment is named.
+* **Errors.** An invalid argument (a key or value that breaks these rules,
+  a key given twice, a header with two entries for the key to set, a header
+  without a record line, a header read from a URL without `dir`, an empty
+  record name or `"-"`) throws a `WfdbArgumentException` (a subclass of
+  `WfdbException`), such as "metadata key 'a:b' must not contain ':'". A
+  header that cannot be read or written, or a `dir` that does not exist,
+  throws a `WfdbException`: "can't read header for record REC", "can't
+  write header for record REC", "directory DIR does not exist".
+
+Metadata often holds information about patients. WFDB-x stores it as plain
+text, exactly as given, and does not de-identify it. The KDoc comments of
+`Metadata.kt` give the full rules.
+
 ### Errors and warnings
 
 * Every error of a high-level function throws a `WfdbException`, whose
-  message says what failed, such as "can't read record 100s".
+  message says what failed, such as "can't read record 100s". The header
+  metadata functions, and the `metadata` argument of `writeRecord`, throw
+  its subclass `WfdbArgumentException` for an invalid argument.
 * A signal file that is shorter than its header says throws "can't read
   signal data of record REC (getvec status -3)".
 * An annotation file that ends before its end-of-file marker throws "can't
@@ -331,7 +426,11 @@ keeps the given order (without the library's advice to run `sortann`) and
   1"), and the number of samples must be a multiple of the frame size.
 
 The high-level functions call `wfdbquit()`, which closes anything opened
-with the WFDB library functions on the same `Wfdb` state.
+with the WFDB library functions on the same `Wfdb` state. They leave the
+time resolution of output annotators (`getafreq()`) and the getvec mode
+(`getgvmode()`) as they were, also after reading an EDF record, whose
+opening sets both (as in C); `fs` of `writeAnnotations` applies to that file
+only.
 
 ### Checking a record: `checkRecord`
 
@@ -342,8 +441,9 @@ println(report)
 
 `checkRecord(record, annotators)` checks the header of a record, its signal
 specifications, every sample of its signal files, and the annotation files
-named. It reports each problem it finds. It never throws an exception for a
-problem in the record. It checks for problems similar to those found by
+named (`record`, `inputDir` and `network` work as in `readRecord`). It
+reports each problem it finds. It never throws an exception for a problem
+in the record. It checks for problems similar to those found by
 Benjamin Moody's [wfdbcheck](https://github.com/bemoody/wfdbcheck).
 
 The result is a `CheckReport`. `report.ok` is `true` if there is no error.
@@ -400,6 +500,7 @@ WFDB-x, under the naming conventions of each:
 | `writeRecord` (`DoubleArray`) | `write_record(..., physical=True)` (Python, R, MATLAB), `write_record_physical` (C++, Rust, Julia) |
 | `writeAnnotations` | `write_annotations` |
 | `checkRecord` | `check_record` |
+| `readMetadata`, `getMetadata`, `setMetadata`, `removeMetadata`, `updateMetadata` | `read_metadata`, `get_metadata`, `set_metadata`, `remove_metadata`, `update_metadata` |
 | `wfdbxSetInputDir`, `wfdbxGetInputDir` | `wfdbx_set_input_dir`, `wfdbx_get_input_dir` |
 | `wfdbxSetOutputDir`, `wfdbxGetOutputDir` | `wfdbx_set_output_dir`, `wfdbx_get_output_dir` |
 | `wfdbxSetNetwork`, `wfdbxGetNetwork` | `wfdbx_set_network`, `wfdbx_get_network` |
@@ -407,6 +508,7 @@ WFDB-x, under the naming conventions of each:
 | `from`, `to` (`TimeSpec`) | `sampfrom`, `sampto` (Python, R, MATLAB); `from`, `to` (C++, Rust, Julia) |
 | `inputDir`, `checksumWarning`, `sampsPerFrame`, `baseTime` | `input_dir`, `checksum_warning`, `samps_per_frame`, `base_time` |
 | `Record.checksumOk`, `baseTimeMs`, `baseDate` | `checksum_ok`, `base_time_ms`, `base_date` |
+| `WfdbArgumentException` (a `WfdbException`) | `ValueError` (Python) for the header metadata functions |
 | `WfdbException` | `IOError`/`ValueError` (Python), `wfdbx::Error` (C++), `wfdbx::record::Error` (Rust), `WfdbError` (Julia), an R error, a MATLAB error |
 
 The WFDB library functions (`isigopen`, `getvec`, ...) have their C names in
@@ -458,6 +560,28 @@ writeAnnotations("100", "qrs", longArrayOf(100, 460), symbols = listOf("N", "N")
 The signal files that a header names are read from the header's directory.
 
 ### Record names
+
+A record name is given without the `.hea` extension (the readers, and
+`writeAnnotations`, also accept a trailing `.hea`; `writeRecord` does not).
+It is one of:
+
+* a full path, absolute (`/data/mitdb/100`) or in the home directory
+  (`~/Documents/100s`), used as given;
+* a relative path (`100s`, `data/100s`), read from the input directory if
+  one is set, otherwise from the current directory, and written to the
+  output directory if one is set, otherwise to the current directory
+  (missing directories are created);
+* a URL (`https://physionet.org/files/mitdb/1.0.0/100`), read only if
+  network access is on; a URL cannot be written.
+
+The `inputDir` option is optional, and applies to relative names only, not
+to full paths or URLs. A writer given a name with a path creates the files
+in that directory, and the header names the record and its signal file
+without the path (`rec`, `rec.dat`), so that the record opens under any
+path that leads to it; in legacy mode, as in the original, the header gives
+the name with its path. With the `dir` option, the name must be a plain
+name (`rec`): the files are created in `dir`, and the record opens from that
+directory under its plain name.
 
 A record name is made of letters, digits, `_`, `-` and `~`. `/` separates
 directories, and the names of directories may contain any characters, such
@@ -529,8 +653,18 @@ described in the *WFDB Applications Guide*
   `wfdb2mat`, `a2m`, `m2a`, `ad2m`, `md2a`, `ahaecg2mit`, `makeid`, `readid`,
   `revise`, `parsescp`
 
-The tools use the environment variables of the table above. To read record
-100 of the MIT-BIH Arrhythmia Database from PhysioNet:
+The tools use the environment variables of the table above, also for the
+files that they read or create themselves: the `-i` file of `wrsamp`,
+`edf2mit`, `wav2mit`, `a2m` and `ad2m`, the input files of `ahaecg2mit` and
+the `-S` script of `xform` are read from the input directory, and the WAV
+file of `mit2wav`, the EDF file of `mit2edf`, the master header of `snip -m`
+and the `.des`, `.ecg`, `.key` and `.txt` files of `parsescp` are created in
+the output directory, as the records they read and write are. Such a file
+cannot be read from a URL. `wfdbx_input_path(name)` and
+`wfdbx_output_path(name)` return the path where a program of its own should
+open such a file.
+
+To read record 100 of the MIT-BIH Arrhythmia Database from PhysioNet:
 
 ```sh
 export WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/
@@ -607,6 +741,20 @@ Differences from C that come from the language:
   the number of frames it read, or the `getvec` status if it read none.
 * Errors are reported by return values, as in C. `wfdberror()` returns the
   last message, and `wfdbquiet()` stops the messages from being printed.
+* `wfdbquit()` closes the open record and annotators; the directory and
+  network settings are kept, and so are the time resolution of output
+  annotators (`getafreq()`), which opening an EDF record sets to its
+  sampling frequency when none is set, and the getvec mode (`getgvmode()`),
+  to which it adds `WFDB_HIGHRES`, as in C. The high-level functions
+  (`readRecord`, `readHeader`, `readAnnotations`, `writeRecord`,
+  `writeAnnotations`, `checkRecord`) leave both as they were.
+* `wfdbx_input_path(name)` and `wfdbx_output_path(name)` (WFDB-x) return
+  the path under which a program opens a file that it reads or creates
+  itself, where the library would: under the input or output directory
+  (the missing directories of an output path are created), `~` expanded,
+  a full path as given; `null` for a URL; `"-"` as given. In legacy mode,
+  an input name is used as given, and the output directory is a prefix of
+  any output name.
 * `wfdbx_write_errors()` returns the number of write errors since the
   program started: the output files that the library could not write, flush
   or close (found when they are closed, as by `wfdbquit()`).
@@ -633,7 +781,10 @@ old results:
   `../../kotlin/bin/wfdbx rdsamp --legacy -r 100s`, run in the directory of
   the sample record `100s` (`tests/data` in a copy of the repository).
   Legacy mode finds files through the WFDB path, which begins with the
-  current directory, and does not use the input directory;
+  current directory, and does not use the input directory (the files that
+  a tool reads itself are opened as named, relative to the current
+  directory); the output directory, if set, is a prefix of every output
+  name, those of the files that a tool creates itself included;
 * high-level functions: `legacy = true`;
 * the whole library: `wfdbxSetLegacy(true)`, or `w.wfdbxSetLegacy(true)`
   for one `Wfdb` object.
@@ -681,7 +832,8 @@ From the `kotlin` directory of the repository:
 
 The unit tests check the library functions with expected values printed by
 the C library, the high-level functions, the bulk paths against the
-per-frame paths, and `checkRecord` against the reports of the Python
+per-frame paths, the header metadata functions against the cases shared by
+all the languages (`tests/metadata`), and `checkRecord` against the reports of the Python
 implementation on the corpus made by `python/tests/check_corpus.py` (this
 test is skipped, with a message, when `python3` with NumPy is not
 available). Network access is tested against a local HTTP server. To run

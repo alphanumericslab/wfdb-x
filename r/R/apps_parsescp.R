@@ -13,9 +13,11 @@
 # given in the SCP file, and is not written if the file gives none (the
 # original always wrote 500 Hz); signals and reference beats that could not be
 # allocated, and samples beyond the end of a signal shorter than lead 0, are
-# read as absent or as zeros (undefined behavior in the original); --legacy, as
-# the first argument, restores the original behavior. Each change is marked
-# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# read as absent or as zeros (undefined behavior in the original); the .des,
+# .ecg, .key and .txt files are created under the output directory, as the
+# library creates an output file; --legacy, as the first argument, restores the
+# original behavior. Each change is marked "WFDB-x:" in the code;
+# docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -379,6 +381,8 @@ app_parsescp <- function(args = character(0)) {
   nf <- if (P$vflag) 4L else 3L
   cons <- vector("list", nf)
   for (k in seq_len(nf)) {
+    # WFDB-x: created under the output directory, as the library creates an
+    # output file of that name (see .app_fopen and wfdbx_output_path)
     cons[[k]] <- .app_fopen(names[k], P$pname)
     if (is.null(cons[[k]])) {
       for (c in cons[seq_len(k - 1L)]) .app_fclose(c)

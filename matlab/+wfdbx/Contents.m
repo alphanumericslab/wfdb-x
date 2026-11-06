@@ -1,5 +1,5 @@
 % WFDB-x: read and write WFDB records in MATLAB and GNU Octave
-% Version 1.1.0
+% Version 1.2.0
 %
 % Call the functions with the package name, such as wfdbx.read_record.
 % Text arguments are char vectors or MATLAB strings.  Samples, times and
@@ -14,6 +14,13 @@
 %   write_annotations - Write an annotation file from arrays.
 %   check_record      - Check a record and its annotation files.
 %
+% Header metadata ("# Key: value" lines of a header)
+%   read_metadata     - All the entries of a header, as an N-by-2 cell array.
+%   get_metadata      - The value of one entry ([] if there is none).
+%   set_metadata      - Change the value of an entry, or add the entry.
+%   remove_metadata   - Remove an entry (returns the number of lines removed).
+%   update_metadata   - Several changes in one write ([] removes an entry).
+%
 % Settings
 %   wfdbx_set_input_dir, wfdbx_get_input_dir
 %                     - Directory from which input files are read.
@@ -25,6 +32,8 @@
 %                     - Turn legacy mode on or off.
 %   wfdbx_write_errors, wfdbx_note_write_error
 %                     - Count of the output files that could not be written.
+%   wfdbx_input_path, wfdbx_output_path
+%                     - Where a program opens a file it reads or writes itself.
 %
 % Files
 %   getwfdb           - The input directory (legacy mode: the WFDB path).

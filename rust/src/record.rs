@@ -9,10 +9,17 @@
 //! | [`write_record`], [`write_record_physical`] | writes a record from samples in ADC units or in physical units |
 //! | [`write_annotations`], [`write_annotations_with`] | writes an annotation file |
 //!
+//! The `Key: value` entries of a header are read and changed by the
+//! functions of [`crate::metadata`]; [`Header::metadata`] and
+//! [`WriteOptions::metadata`] hold them.
+//!
 //! Each function returns a [`Result`] whose error type is [`Error`]. Each is
 //! a free function, which uses the default [`Wfdb`] value of the thread,
 //! and a method of [`Wfdb`]. A call closes the records and annotators open
-//! in the [`Wfdb`] value it uses.
+//! in the [`Wfdb`] value it uses (`wfdbquit`). It leaves the time resolution
+//! of output annotators ([`Wfdb::getafreq`]) and the `getvec` mode
+//! ([`Wfdb::getgvmode`]) as they were, also after reading an EDF record
+//! (whose opening sets both, as in C).
 //!
 //! Text read from files, such as signal descriptions, units and annotation
 //! mnemonics, is given as bytes (`Vec<u8>`). You can set a `Vec<u8>` field
@@ -47,6 +54,31 @@
 //! ADC resolution has `adcres` 0, and a signal without units has `units`
 //! `None`. An operation that needs a missing value returns an [`Error`].
 //! See `docs/DIVERGENCES.md` in the repository.
+//!
+//! # Record names
+//!
+//! A record name is given without the `.hea` extension (the readers, and
+//! [`write_annotations`], also accept a trailing `.hea`; [`write_record`]
+//! does not). It is one of:
+//!
+//! * a full path, absolute (`/data/mitdb/100`) or in the home directory
+//!   (`~/Documents/100s`), used as given;
+//! * a relative path (`100s`, `data/100s`), read from the input directory if
+//!   one is set, otherwise from the current directory, and written to the
+//!   output directory if one is set, otherwise to the current directory
+//!   (missing directories are created);
+//! * a URL (`https://physionet.org/files/mitdb/1.0.0/100`), read only if
+//!   network access is on; a URL cannot be written.
+//!
+//! The input directory of [`ReadOptions::input_dir`] applies to relative
+//! names only, not to full paths or URLs. A writer given a name with a path
+//! creates the files in that directory, and the header names the record and
+//! its signal file without the path (`rec`, `rec.dat`), so that the record
+//! opens under any path that leads to it; in legacy mode, as in the
+//! original, the header gives the name with its path. With
+//! [`WriteOptions::dir`] or [`AnnWriteOptions::dir`], the name must be a
+//! plain name (`rec`): the files are created in that directory, and the
+//! record opens from it under its plain name.
 //!
 //! # Input and output directories
 //!
@@ -362,6 +394,12 @@ pub struct Header {
     pub base_date: Option<[i32; 3]>,
     /// Info strings, as in [`Record::comments`].
     pub comments: Vec<Vec<u8>>,
+    /// The `Key: value` entries of the header, as `(key, value)` pairs in
+    /// file order, as [`read_metadata`](crate::read_metadata) returns them
+    /// (from the `.hea` file only, not from a `.info` file; none for an
+    /// EDF record, which has no `.hea` file, or a header read from the
+    /// standard input, `-`). See [`crate::metadata`].
+    pub metadata: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 /// Options of [`write_annotations_with`]. The default writes to the output
@@ -370,7 +408,8 @@ pub struct Header {
 pub struct AnnWriteOptions {
     /// An existing directory in which to create the file, for this call
     /// only. The record name must then be a plain name, without a
-    /// directory. `None`: the output directory.
+    /// directory: the file is `DIR/RECORD.ANNOTATOR`. `None`: the output
+    /// directory.
     pub dir: Option<PathBuf>,
     /// Whether annotations that are not in time order are sorted when the
     /// file is written. `Some(true)` always sorts, and `Some(false)` keeps
@@ -406,9 +445,11 @@ pub struct ReadOptions {
     /// parameters (see [`Wfdb::wfdbx_set_legacy`]). Use it only to
     /// reproduce old results. Default: `false`.
     pub legacy: bool,
-    /// The input directory for this call only: a local directory, a `~`
-    /// path or a URL (see [`Wfdb::wfdbx_set_input_dir`]). An empty string
-    /// means the default. `None`: the current setting.
+    /// The input directory for this call only (optional): a local
+    /// directory, a `~` path or a URL, under which relative record names are
+    /// read. It does not apply to full paths or URLs. An empty string means
+    /// the default. `None`: the current setting (see
+    /// [`Wfdb::wfdbx_set_input_dir`]).
     pub input_dir: Option<String>,
     /// Turn network access on (`Some(true)`) or off (`Some(false)`) for
     /// this call only (see [`Wfdb::wfdbx_set_network`]). `None`: the current
@@ -514,14 +555,22 @@ pub struct WriteOptions {
     pub base_time: Option<Vec<u8>>,
     /// Info strings (comment lines), written at the end of the header.
     pub comments: Vec<Vec<u8>>,
+    /// `Key: value` entries (metadata), written to the header after
+    /// `comments`, through `putinfo`, as `# Key: value` (`# Key:` for an
+    /// empty value). The keys and values follow the rules of
+    /// [`set_metadata`](crate::set_metadata) (spaces at either end are
+    /// removed); no two keys may differ only in letter case, nor be the key
+    /// of an entry in `comments`. Checked before any file is created.
+    /// Default: none. See [`crate::metadata`].
+    pub metadata: Vec<(Vec<u8>, Vec<u8>)>,
     /// Behave as the original WFDB package, including its assumed signal
     /// parameters (see [`Wfdb::wfdbx_set_legacy`]). Use it only to
     /// reproduce old results. Default: `false`.
     pub legacy: bool,
-    /// An existing directory in which to create the files, for this call
-    /// only. The record name must then be a plain name, without a
-    /// directory. The record can then be read from that directory under its
-    /// plain name. Default: `None`, the output directory.
+    /// An existing directory (which must exist) in which to create the
+    /// files, for this call only. The record name must then be a plain name,
+    /// without a directory, and the record opens from that directory under
+    /// its plain name. Default: `None`, the output directory.
     pub dir: Option<PathBuf>,
 }
 
@@ -538,6 +587,7 @@ impl Default for WriteOptions {
             samps_per_frame: Vec::new(),
             base_time: None,
             comments: Vec::new(),
+            metadata: Vec::new(),
             legacy: false,
             dir: None,
         }
@@ -760,13 +810,22 @@ impl Wfdb {
         r
     }
 
-    /// Runs `f`, restoring the `getvec` mode ([`Wfdb::setgvmode`])
-    /// afterwards (also when `f` fails): `read_record` sets it, and opening
-    /// an EDF record changes it.
-    fn with_gvmode<T>(&mut self, f: impl FnOnce(&mut Wfdb) -> T) -> T {
-        let previous = self.getgvmode();
+    /// WFDB-x: runs `f`, restoring the `getvec` mode ([`Wfdb::setgvmode`])
+    /// and then the time resolution of output annotators
+    /// ([`Wfdb::setafreq`]) afterwards (also when `f` fails). `read_record`
+    /// sets the `getvec` mode, and opening an EDF record sets both, as in C
+    /// (the time resolution to the record's sampling frequency when none is
+    /// set, and the [`WFDB_HIGHRES`] bit of the `getvec` mode), and
+    /// `wfdbquit` resets neither; without this, a later `write_annotations`
+    /// would record that frequency, and later reading would be in high
+    /// resolution. (The input annotators, and their frequencies, are closed
+    /// by `wfdbquit`.) The C-style functions keep the behavior of C.
+    pub(crate) fn with_settings<T>(&mut self, f: impl FnOnce(&mut Wfdb) -> T) -> T {
+        let gvmode = self.getgvmode();
+        let afreq = self.getafreq();
         let r = f(self);
-        self.setgvmode(previous);
+        self.setgvmode(gvmode);
+        self.setafreq(afreq);
         r
     }
 
@@ -888,7 +947,7 @@ impl Wfdb {
         opt: &ReadOptions,
     ) -> Result<Header, Error> {
         let record = record.as_ref();
-        self.with_gvmode(|w| {
+        self.with_settings(|w| {
             w.with_legacy(opt.legacy, |w| {
                 w.with_input(opt, |w| w.read_header_impl(record))
             })
@@ -920,9 +979,18 @@ impl Wfdb {
             base_time_ms,
             base_date,
             comments: self.info_strings(record),
+            metadata: Vec::new(),
         };
+        let edf = self.wfdbx_is_edf();
         self.wfdbquit();
-        Ok(h)
+        // WFDB-x: the entries of the .hea file only, not of a .info file. An
+        // EDF record (which has no .hea file) and a header read from the
+        // standard input have none.
+        if edf || cstd::cstr(record) == b"-" {
+            return Ok(h);
+        }
+        let metadata = self.header_metadata(record)?;
+        Ok(Header { metadata, ..h })
     }
 
     /// Reads the signals of a record, using this `Wfdb` value (see
@@ -939,7 +1007,7 @@ impl Wfdb {
         opt: &ReadOptions,
     ) -> Result<Record, Error> {
         let record = record.as_ref();
-        self.with_gvmode(|w| {
+        self.with_settings(|w| {
             w.with_legacy(opt.legacy, |w| {
                 w.with_input(opt, |w| w.read_record_impl(record, opt))
             })
@@ -1165,9 +1233,11 @@ impl Wfdb {
     ) -> Result<Annotations, Error> {
         let (record, annotator) = (record.as_ref(), annotator.as_ref());
         let (from, to) = (opt.from.clone(), opt.to.clone());
-        self.with_legacy(opt.legacy, |w| {
-            w.with_input(opt, |w| {
-                w.read_annotations_impl(record, annotator, from, to, fs)
+        self.with_settings(|w| {
+            w.with_legacy(opt.legacy, |w| {
+                w.with_input(opt, |w| {
+                    w.read_annotations_impl(record, annotator, from, to, fs)
+                })
             })
         })
     }
@@ -1281,6 +1351,8 @@ impl Wfdb {
     ) -> Result<(), Error> {
         let legacy = self.wfdbx_get_legacy() != 0;
         check_write_args(record, nsig, fs, opt, legacy)?;
+        // WFDB-x: the metadata, written after the comments
+        let info = crate::metadata::info_lines(&opt.metadata, &opt.comments)?;
         let mut si = vec![Siginfo::default(); nsig];
         let mut frame = 0usize;
         let mut fname = record.to_vec();
@@ -1331,7 +1403,7 @@ impl Wfdb {
         if self.newheader(record) < 0 {
             return self.hl_fail(format!("can't create header for record {}", lossy(record)));
         }
-        for c in &opt.comments {
+        for c in opt.comments.iter().chain(&info) {
             self.putinfo(c);
         }
         self.wfdbquit();
@@ -1362,8 +1434,10 @@ impl Wfdb {
     ) -> Result<(), Error> {
         let record = record.as_ref();
         check_write_spf(opt)?;
-        self.with_output_dir(opt.dir.as_deref(), record, |w| {
-            w.with_legacy(opt.legacy, |w| w.write_adc(record, samples, nsig, fs, opt))
+        self.with_settings(|w| {
+            w.with_output_dir(opt.dir.as_deref(), record, |w| {
+                w.with_legacy(opt.legacy, |w| w.write_adc(record, samples, nsig, fs, opt))
+            })
         })
     }
 
@@ -1385,9 +1459,11 @@ impl Wfdb {
     ) -> Result<(), Error> {
         let record = record.as_ref();
         check_write_spf(opt)?;
-        self.with_output_dir(opt.dir.as_deref(), record, |w| {
-            w.with_legacy(opt.legacy, |w| {
-                w.write_physical(record, samples, nsig, fs, opt)
+        self.with_settings(|w| {
+            w.with_output_dir(opt.dir.as_deref(), record, |w| {
+                w.with_legacy(opt.legacy, |w| {
+                    w.write_physical(record, samples, nsig, fs, opt)
+                })
             })
         })
     }
@@ -1492,11 +1568,13 @@ impl Wfdb {
     ) -> Result<(), Error> {
         let record = record.as_ref();
         let annotator = annotator.as_ref();
-        self.with_output_dir(opt.dir.as_deref(), record, |w| {
-            let previous = std::mem::replace(&mut w.ann.sort_override, opt.sort);
-            let r = w.write_ann(record, annotator, ann, fs);
-            w.ann.sort_override = previous;
-            r
+        self.with_settings(|w| {
+            w.with_output_dir(opt.dir.as_deref(), record, |w| {
+                let previous = std::mem::replace(&mut w.ann.sort_override, opt.sort);
+                let r = w.write_ann(record, annotator, ann, fs);
+                w.ann.sort_override = previous;
+                r
+            })
         })
     }
 
@@ -1554,9 +1632,7 @@ impl Wfdb {
             stat: WFDB_WRITE,
         };
         if self.annopen(record, &[ai], 1) < 0 {
-            if fs > 0.0 {
-                self.setafreq(0.0);
-            }
+            // (the previous time resolution is restored by with_settings)
             return self.hl_fail(format!(
                 "can't create annotator {} for record {}",
                 lossy(annotator),
@@ -1594,9 +1670,7 @@ impl Wfdb {
             self.putann(0, &a);
         }
         self.wfdbquit();
-        if fs > 0.0 {
-            self.setafreq(0.0);
-        }
+        // (the previous time resolution is restored by with_settings)
         if wfdbx_write_errors() > errors {
             return Err(Error::new(format!(
                 "write error on annotator {} for record {}",
@@ -1616,8 +1690,14 @@ impl Wfdb {
 ///
 /// # Arguments
 ///
-/// * `record`: the record name or path. A relative name is read from the
-///   input directory (see [`Wfdb::wfdbx_set_input_dir`]).
+/// * `record`: the record name, without the `.hea` extension (a trailing
+///   `.hea` is also accepted): a full path, absolute (`"/data/mitdb/100"`)
+///   or in the home directory (`"~/Documents/100s"`), used as given; a
+///   relative path (`"100s"`, `"data/100s"`), read from the input directory
+///   if one is set (see [`Wfdb::wfdbx_set_input_dir`]), otherwise from the
+///   current directory; or a URL
+///   (`"https://physionet.org/files/mitdb/1.0.0/100"`), read only if network
+///   access is on (see [`Wfdb::wfdbx_set_network`]).
 /// * `opt`: the signals, the part of the record and other options (see
 ///   [`ReadOptions`]).
 ///
@@ -1663,6 +1743,11 @@ impl Wfdb {
 /// returned, [`Record::checksum_ok`] is `false`, and a warning is printed
 /// unless [`ReadOptions::checksum_warning`] is `false`.
 ///
+/// Whatever happens, the input signals are closed before the function
+/// returns, and the time resolution of output annotators
+/// ([`Wfdb::getafreq`]) and the `getvec` mode ([`Wfdb::getgvmode`]) are left
+/// as they were (opening an EDF record sets both).
+///
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record, Error> {
     with_default(|w| w.read_record(record, opt))
@@ -1672,14 +1757,22 @@ pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record
 ///
 /// # Arguments
 ///
-/// * `record`: the record name or path. A relative name is read from the
-///   input directory (see [`Wfdb::wfdbx_set_input_dir`]).
+/// * `record`: the record name, without the `.hea` extension (a trailing
+///   `.hea` is also accepted): a full path, absolute (`"/data/mitdb/100"`)
+///   or in the home directory (`"~/Documents/100s"`), used as given; a
+///   relative path (`"100s"`, `"data/100s"`), read from the input directory
+///   if one is set (see [`Wfdb::wfdbx_set_input_dir`]), otherwise from the
+///   current directory; or a URL
+///   (`"https://physionet.org/files/mitdb/1.0.0/100"`), read only if network
+///   access is on (see [`Wfdb::wfdbx_set_network`]).
 /// * `legacy`: behave as the original WFDB package (see
 ///   [`ReadOptions::legacy`]). Normally `false`.
 ///
 /// Returns a [`Header`]: the sampling frequency, counter frequency, base
 /// counter value, number of samples, start time and date, the
-/// specifications of each signal and the info strings. Uses the default
+/// specifications of each signal, the info strings and the `Key: value`
+/// entries of the header ([`Header::metadata`], as
+/// [`read_metadata`](crate::read_metadata) returns them). Uses the default
 /// [`Wfdb`] value of the thread; [`Wfdb::read_header`] uses a given one.
 ///
 /// # Examples
@@ -1704,6 +1797,13 @@ pub fn read_record(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<Record
 ///
 /// If the header cannot be read: "can't read header for record REC".
 ///
+/// A key that appears more than once in the header's entries gives a
+/// warning (see [`read_metadata`](crate::read_metadata)).
+///
+/// The time resolution of output annotators ([`Wfdb::getafreq`]) and the
+/// `getvec` mode ([`Wfdb::getgvmode`]) are left as they were (opening an EDF
+/// record sets both).
+///
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn read_header(record: impl AsRef<[u8]>, legacy: bool) -> Result<Header, Error> {
     with_default(|w| w.read_header(record, legacy))
@@ -1726,8 +1826,15 @@ pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<H
 ///
 /// # Arguments
 ///
-/// * `record`: the record name or path. A relative name is read from the
-///   input directory (see [`Wfdb::wfdbx_set_input_dir`]).
+/// * `record`: the record name, without the `.hea` extension (a trailing
+///   `.hea` is also accepted): a full path, absolute (`"/data/mitdb/100"`)
+///   or in the home directory (`"~/Documents/100s"`), used as given; a
+///   relative path (`"100s"`, `"data/100s"`), read from the input directory
+///   if one is set (see [`Wfdb::wfdbx_set_input_dir`]), otherwise from the
+///   current directory; or a URL
+///   (`"https://physionet.org/files/mitdb/1.0.0/100"`), read only if network
+///   access is on (see [`Wfdb::wfdbx_set_network`]). Its header, if there is
+///   one, gives the sampling frequency.
 /// * `annotator`: the file suffix: `"atr"` reads `100s.atr` for record
 ///   `100s`.
 /// * `from`, `to`: read only the annotations from time `from` up to, but not
@@ -1772,6 +1879,10 @@ pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<H
 ///   (getann status S)".
 /// * A time string needs the sampling frequency, and none is known:
 ///   "sampling frequency of record REC is not specified".
+///
+/// The time resolution of output annotators ([`Wfdb::getafreq`]) and the
+/// `getvec` mode ([`Wfdb::getgvmode`]) are left as they were (opening an EDF
+/// record sets both).
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn read_annotations(
@@ -1826,9 +1937,17 @@ pub fn read_annotations_with(
 ///
 /// # Arguments
 ///
-/// * `record`: the record name. A relative name is written to the output
-///   directory (see [`Wfdb::wfdbx_set_output_dir`]), or to
-///   [`WriteOptions::dir`].
+/// * `record`: the record name, without the `.hea` extension: a plain name
+///   (`"rec"`) or a relative path (`"data/rec"`), created in the output
+///   directory if one is set (see [`Wfdb::wfdbx_set_output_dir`]), otherwise
+///   in the current directory, missing directories included; or a full
+///   path, absolute or in the home directory (`"~/Documents/rec"`), used as
+///   given. With a path, the files are created in that directory, and the
+///   header names the record and its signal file without the path (`rec`,
+///   `rec.dat`), so that the record opens under any path that leads to it
+///   (in legacy mode, as in the original, the header gives the name with its
+///   path). A URL cannot be written. With [`WriteOptions::dir`], a plain
+///   name, created in that directory.
 /// * `samples`: the samples, frame by frame: `nsig` values per frame (signal
 ///   0, signal 1, ...). In a multi-frequency record, a frame holds
 ///   `samps_per_frame` values of each signal.
@@ -1881,6 +2000,12 @@ pub fn read_annotations_with(
 ///   signal: "OPTION must have one value per signal" (`gains` or `adcres`
 ///   with fewer values: as missing values, except in legacy mode).
 /// * The number of samples is not a multiple of the frame size.
+/// * An entry of [`WriteOptions::metadata`] is not valid (as for
+///   [`set_metadata`](crate::set_metadata)), two of its keys differ only
+///   in letter case ("metadata key 'KEY' is given more than once (keys are
+///   compared without regard to letter case)"), or one of its keys is the
+///   key of an entry in `comments` ("metadata key 'KEY' is also given in
+///   comments"); these messages begin with "write_record: ".
 /// * With [`WriteOptions::dir`], the directory does not exist or `record`
 ///   contains a directory.
 /// * The signal file or the header cannot be created.
@@ -1889,7 +2014,9 @@ pub fn read_annotations_with(
 ///   in legacy mode).
 ///
 /// The arguments are checked before any file is created; whatever happens,
-/// the output signals are closed before the function returns.
+/// the output signals are closed before the function returns, and the time
+/// resolution of output annotators ([`Wfdb::getafreq`]) and the `getvec`
+/// mode ([`Wfdb::getgvmode`]) are left as they were.
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn write_record(
@@ -1908,8 +2035,8 @@ pub fn write_record(
 /// Each value is converted to ADC units as `round(value * gain) + baseline`,
 /// with halves rounded away from zero. NaN becomes an invalid sample; an
 /// infinite value, or one whose ADC value is beyond the range of `i32`, is
-/// an error (before anything is written). Uses
-/// the default [`Wfdb`] value of the thread; [`Wfdb::write_record_physical`]
+/// an error (before anything is written). `record` is as for
+/// [`write_record`]. Uses the default [`Wfdb`] value of the thread; [`Wfdb::write_record_physical`]
 /// uses a given one.
 ///
 /// # Examples
@@ -1951,8 +2078,13 @@ pub fn write_record_physical(
 ///
 /// # Arguments
 ///
-/// * `record`: the record name. A relative name is written to the output
-///   directory (see [`Wfdb::wfdbx_set_output_dir`]), or to `dir`.
+/// * `record`: the record name, without the `.hea` extension (a trailing
+///   `.hea` is also accepted): a plain name or a relative path
+///   (`"data/100s"`) is created in the output directory if one is set (see
+///   [`Wfdb::wfdbx_set_output_dir`]), otherwise in the current directory; a
+///   full path, absolute or in the home directory (`"~/Documents/100s"`), is
+///   used as given. The file is `RECORD.ANNOTATOR` at that place
+///   (`data/100s.qrs`). A URL cannot be written.
 /// * `annotator`: the file suffix: `"qrs"` writes `RECORD.qrs`.
 /// * `ann`: the annotations. Each of `symbols`, `codes`, `subtypes`,
 ///   `chans`, `nums` and `aux` is empty, or has one entry per annotation
@@ -1969,7 +2101,8 @@ pub fn write_record_physical(
 /// * `fs`: if not 0, stored in the file as the frequency of its sample
 ///   numbers (finite, > 0). `ann.fs` is not used.
 /// * `dir`: an existing directory in which to create the file, for this call
-///   only. The record name must then be a plain name, without a directory.
+///   only. The record name must then be a plain name, without a directory:
+///   the file is `DIR/RECORD.ANNOTATOR`.
 ///
 /// If the annotations are not in time order, the file is sorted when it is
 /// written, unless the environment variable `WFDBANNSORT` is 0.
@@ -1993,7 +2126,10 @@ pub fn write_record_physical(
 /// ```
 ///
 /// The arguments are checked before the file is created; whatever happens,
-/// the annotator is closed before the function returns.
+/// the annotator is closed before the function returns, and the time
+/// resolution of output annotators ([`Wfdb::getafreq`]) and the `getvec`
+/// mode ([`Wfdb::getgvmode`]) are left as they were (`fs` applies to this
+/// file only).
 ///
 /// # Errors
 ///

@@ -8,9 +8,11 @@ by George B. Moody. The translation follows the logic and behavior of the
 original program, but it is new code, not the original C code.
 
 Changes from the original: no built-in sampling frequency: the input record
-must give it, for the header of the excerpt (the original assumed 250 Hz);
---legacy, as the first argument, restores the original behavior. Each change is
-marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+must give it, for the header of the excerpt (the original assumed 250 Hz); the
+master header of -m is created under the output directory, as the library
+creates an output file; --legacy, as the first argument, restores the original
+behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+gives the reasons.
 
 Original C program: app/snip.c, WFDB Software Package 10.7.0.
   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by Benjamin Moody.

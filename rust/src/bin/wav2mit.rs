@@ -23,7 +23,8 @@
 // Changes from the original: no built-in gain or units: the new options -G
 // GAIN (required) and -U UNITS (required unless the gain is 0) give them (the
 // original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
-// millivolts); --legacy, as the first argument, restores the original
+// millivolts); the -i file is found under the input directory, as the library
+// finds an input file; --legacy, as the first argument, restores the original
 // behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
@@ -202,8 +203,10 @@ fn main() {
     // If the record name was not specified, generate it from ifname.
     let record = record.unwrap_or_else(|| ifname[..ifname.len() - b".wav".len()].to_vec());
 
-    // Open the input file.
-    let Some(mut ifile) = WfdbFile::fopen(&ifname, b"rb") else {
+    // Open the input file. WFDB-x: the file is found where the library finds
+    // an input file of that name (see wfdbx_input_path).
+    let Some(mut ifile) = wfdbx::wfdbx_input_path(&ifname).and_then(|p| WfdbFile::fopen(&p, b"rb"))
+    else {
         ceprintf!(b"%s: can't open %s\n", pname, ifname);
         cstd::exit(2);
     };

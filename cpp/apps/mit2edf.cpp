@@ -12,9 +12,10 @@
 // resolution: the record must give the sampling frequency, and the gain and
 // ADC resolution of every signal (the original assumed 250 Hz and 200 adu/mV,
 // and guessed the resolution from the storage format); unspecified units are
-// written as "nd" (the original wrote "mV"); --legacy, as the first argument,
-// restores the original behavior. Each change is marked "WFDB-x:" in the code;
-// docs/DIVERGENCES.md gives the reasons.
+// written as "nd" (the original wrote "mV"); the EDF file is created under the
+// output directory, as the library creates an output file; --legacy, as the
+// first argument, restores the original behavior. Each change is marked
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2002-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -37,6 +38,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -190,8 +192,10 @@ int main(int argc, char **argv)
         }
     }
 
-    // Open the output (EDF) file.
-    if ((ofile = std::fopen(ofname, "wb")) == nullptr) {
+    // Open the output (EDF) file.  (WFDB-x: it is created where the library
+    // creates an output file of that name; see wfdbx_output_path)
+    std::optional<std::string> opath = wfdbx_output_path(ofname);
+    if (!opath || (ofile = std::fopen(opath->c_str(), "wb")) == nullptr) {
         std::fprintf(stderr, "%s: can't create %s\n", pname, ofname);
         std::exit(4);
     }

@@ -11,9 +11,10 @@
 # FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
 # resolution and units, and are required (-U unless the gain is 0; the original
 # assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
-# millivolts); the -f and -t times are converted at the -F frequency; --legacy,
-# as the first argument, restores the original behavior. Each change is marked
-# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# millivolts); the -f and -t times are converted at the -F frequency; the -i
+# file is found under the input directory, as the library finds an input file;
+# --legacy, as the first argument, restores the original behavior. Each change
+# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1983-2007 George B. Moody.
@@ -165,7 +166,10 @@ app_ad2m <- function(args = character(0)) {
   }
   n <- nchar(ifname, type = "bytes")
   if (!cflag && n > 4L && substr(ifname, n - 3L, n) %in% c(".CMP", ".cmp")) cflag <- TRUE
-  if (!stdin_freopen(ifname)) {
+  # WFDB-x: the file is found where the library finds an input file of that
+  # name (see wfdbx_input_path)
+  ipath <- wfdbx_input_path(ifname)
+  if (is.null(ipath) || !stdin_freopen(.rfile_name(ipath))) {
     ceprintf("%s: can't read input file `%s'\n", pname, ifname)
     cexit(2)
   }

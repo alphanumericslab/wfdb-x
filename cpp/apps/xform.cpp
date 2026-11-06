@@ -16,9 +16,11 @@
 // the input (or the previous output signal) and suits the output format;
 // unspecified units are shown as "nd" (the original assumed 250 Hz, 200
 // adu/mV, a resolution based on the format, and millivolts); when an output
-// signal file would be one of the input files, the message says so; --legacy,
-// as the first argument, restores the original behavior. Each change is marked
-// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// signal file would be one of the input files, the message says so; the -S
+// script is found under the input directory, as the library finds an input
+// file; --legacy, as the first argument, restores the original behavior. Each
+// change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
+// reasons.
 //
 // Original C program: app/xform.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2010 George B. Moody; revised 2017-2020 by
@@ -431,7 +433,12 @@ int main(int argc, char **argv)
         int format = 0;
         std::FILE *ttyin;
 
-        ttyin = std::fopen(script ? script : "/dev/tty", "r");
+        // WFDB-x: the script is found where the library finds an input file
+        // of that name (see wfdbx_input_path)
+        std::optional<std::string> spath =
+            script ? wfdbx_input_path(script) : std::nullopt;
+        ttyin = script ? (spath ? std::fopen(spath->c_str(), "r") : nullptr)
+                       : std::fopen("/dev/tty", "r");
         if (ttyin == nullptr) ttyin = stdin;
         if (nrec == nullptr) {
             do {

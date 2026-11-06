@@ -107,7 +107,7 @@ end
 The entry point of the command-line driver `bin/wfdbx.jl TOOL ARGS...`:
 run the tool `args[1]` with the arguments `args[2:end]`, writing to the
 process's standard output and error, and return its exit status. With
-`--version`, print the version of WFDB-x (such as "WFDB-x 1.1.0") and
+`--version`, print the version of WFDB-x (such as "WFDB-x 1.2.0") and
 return 0. With no arguments or an unknown tool name, print a message on the
 standard error and return 1.
 

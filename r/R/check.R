@@ -752,10 +752,23 @@
 #' in normal mode, even if legacy mode is on, and the library prints no
 #' messages during the call (the settings are restored afterwards).
 #'
-#' record: a record name (relative to the input directory, or a full path,
-#' ~ path or URL, as for read_record).  annotators: a character vector of
-#' annotator names to check (default: none).  input_dir, network: see
-#' read_record.
+#' record: the record name, without the .hea extension (a trailing ".hea"
+#' is also accepted): a full path, absolute ("/data/mitdb/100") or in the
+#' home directory ("~/Documents/100s"), used as given; a relative path
+#' ("100s", "data/100s"), read from the input directory if one is set,
+#' otherwise from the current directory; or a URL
+#' ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+#' access is on (WFDB-x).
+#' annotators: a character vector of annotator names to check (default:
+#' none).
+#' input_dir: the input directory for this call only (optional): a local
+#' directory, a ~ path or a URL, under which relative record names are
+#' read.  It does not apply to full paths or URLs.  Default: the current
+#' setting (see wfdbx_set_input_dir).
+#' network: see read_record.
+#' The getvec mode (getgvmode) and the time resolution of output
+#' annotators (getafreq) are left as they were, also after an error
+#' (opening an EDF record sets both, as in C; WFDB-x).
 #'
 #' Returns an object of class "wfdbx_check_report": a list with record (as
 #' given), ok (TRUE if no issue has the severity "error") and issues (a
@@ -781,6 +794,7 @@ check_record <- function(record, annotators = character(0), input_dir = NULL,
     printing <- .wfdb_io$error_print
     .wfdb_io$error_print <- FALSE
     gvmode <- getgvmode()
+    afreq <- getafreq()          # (WFDB-x: restored, as by read_record)
     tryCatch({
       wfdbquit()
       len <- .chk_record_signals(record, rep)
@@ -788,6 +802,7 @@ check_record <- function(record, annotators = character(0), input_dir = NULL,
     }, finally = {
       wfdbquit()
       setgvmode(gvmode)         # (the mode before the call: WFDB-x)
+      setafreq(afreq)
       .wfdb_io$error_print <- printing
       wfdbx_set_legacy(legacy)
     })

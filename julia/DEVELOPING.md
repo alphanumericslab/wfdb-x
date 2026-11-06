@@ -34,12 +34,14 @@ suite checks this).
 | `src/signal.jl`, `src/annot.jl`, `src/calib.jl`, `src/wfdbinit.jl`, `src/flac.jl` | the other library files (states `SigState`, `AnnState`, `CalState`) |
 | `src/wfdb.jl` | `WfdbLib`, the concrete `Wfdb` (assembles the states), the default instance `lib()` |
 | `src/highlevel.jl` | high-level API (`read_header`, `read_record`, `read_annotations`, `write_record`, `write_record_physical`, `write_annotations`) |
+| `src/metadata.jl` | header metadata: `read_metadata`, `get_metadata`, `set_metadata`, `remove_metadata`, `update_metadata` (the `Key: value` info strings of a header; also the `metadata` of `read_header` and `write_record`). The rules are those of `tests/metadata/README.md` |
 | `src/check.jl` | `check_record`: checks a record and its annotation files and reports every problem |
 | `src/cli.jl` | the driver (`main_cli`), `run_tool`, `tool_function`, `tools()` |
 | `src/apps/<tool>.jl` | the command-line tools: `<tool>_main(args)` and the tool's precompilation workload; every `.jl` file in `src/apps/` is included automatically |
 | `src/precompile.jl` | the precompilation workload registry and helpers |
 | `bin/wfdbx.jl` | command-line driver: `julia --startup-file=no --project=julia julia/bin/wfdbx.jl TOOL ARGS...` |
 | `test/runtests.jl` | unit tests (`Test` standard library) |
+| `test/test_metadata.jl` | tests of the metadata functions, including the shared cases of `tests/metadata/` (from `cases.tsv`) |
 
 Each file starts with a comment saying what it is, then that it is part
 of WFDB-x, an independent reimplementation of the WFDB Software Package in
@@ -153,7 +155,10 @@ sampfreq(record::OptByteStr) = sampfreq(lib(), record)
 
 `wfdbquit` does not reset the counter frequency, `setafreq`'s resolution,
 the buffer sizes, the mnemonic tables, the `EcgMaps` (see
-[`docs/KNOWN_C_BEHAVIORS.md`](../docs/KNOWN_C_BEHAVIORS.md)).
+[`docs/KNOWN_C_BEHAVIORS.md`](../docs/KNOWN_C_BEHAVIORS.md)). The
+high-level functions and `check_record` save `getgvmode` and `getafreq` on
+entry and restore them when they return, also on errors (`_keep_settings`
+in `highlevel.jl`): opening an EDF record sets both.
 
 ## C standard library emulation (`cstd.jl`)
 
@@ -213,6 +218,13 @@ the buffer sizes, the mnemonic tables, the `EcgMaps` (see
   that or a counted write error (`wfdbx_write_errors`, held in `CProc`, so
   that each `run_tool` starts from 0). Files that a tool writes itself are
   closed with `wfdbx_fclose_output`.
+* **Files that a tool opens itself** (not through `wfdb_open`: the `-i`
+  file of `wrsamp`, the WAV file of `mit2wav`, ...) are opened at
+  `wfdbx_input_path(name)` (for reading) or `wfdbx_output_path(name)` (for
+  writing; it creates the missing directories under the output directory),
+  which locate them as `wfdb_open` locates a file of that name, under the
+  input or output directory; `nothing` (a URL) is a failure to open.
+  Messages name the file as the user gave it.
 * **exit**: `cexit(status)` throws `CExit(status)`, which the driver
   catches: it then flushes every open output file and the standard output
   (as C's `exit` does, without closing records: no annotation end marks, no
@@ -356,6 +368,17 @@ frames that fill a buffer and every frame of the other formats go through
 `putvec`, so that the files, checksums and library state are identical
 (`WFDBX._BULK_WRITE[] = false` turns it off). `rdsamp` formats its lines in
 raw units into a preallocated buffer (`_rdsamp_put_integer!`).
+
+The metadata functions (`metadata.jl`) read the header as bytes through
+`wfdb_open` (type `hea`), split it into lines that keep their line endings,
+and write a changed header to a temporary file (`mktemp`) in the directory
+of the destination, which then replaces it (`rename`), with the
+destination's permission bits; the temporary file is removed on any
+failure. Invalid arguments throw an `ArgumentError` (as `check_record`
+does), and a header that cannot be read or written a `WfdbError`;
+`write_record` reports invalid `metadata` as a `WfdbError`
+("write_record: ...") like its other arguments. A key that appears more than
+once is reported with `@warn`, as the checksum warning of `read_record`.
 
 Changing any source file invalidates the package image: the next process
 precompiles again (with the workloads; parallel processes wait for it).

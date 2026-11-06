@@ -789,11 +789,20 @@ def check_record(record, annotators=(), *, input_dir=None, network=None):
     record never raise an exception: they are reported.
 
     Arguments:
-      record      record name: a name in the input directory, or a full
-                  path, ~ path or URL (as for read_record)
+      record      record name, without the .hea extension (a trailing ".hea" is
+                  also accepted): a full path, absolute ("/data/mitdb/100") or
+                  in the home directory ("~/Documents/100s"), used as given; a
+                  relative path ("100s", "data/100s"), read from the input
+                  directory if one is set, otherwise from the current
+                  directory; or a URL
+                  ("https://physionet.org/files/mitdb/1.0.0/100"), read only if
+                  network access is on (as for read_record)
       annotators  annotator names to check, such as ["atr"] (one name may
                   be given as a string). Default: none.
-      input_dir   input directory for this call only (see read_record)
+      input_dir   input directory for this call only (optional): a local
+                  directory, a ~ path or a URL, under which relative record
+                  names are read. It does not apply to full paths or URLs.
+                  Default: the current setting (see wfdbx_set_input_dir).
       network     True to allow reading URLs for this call only (see
                   read_record)
 
@@ -811,7 +820,9 @@ def check_record(record, annotators=(), *, input_dir=None, network=None):
     format), "warning" (something is missing or unusual, and may give wrong
     results) and "info" (a fact worth knowing). The checks run in normal
     mode, even if legacy mode is on, and the library prints no messages
-    during the call.
+    during the call. The time resolution of output annotators (getafreq)
+    and the getvec mode (getgvmode) are left as they were (opening an EDF
+    record sets both).
 
     Raises:
       TypeError   if record is not a string, or an annotator name is not a
@@ -847,6 +858,8 @@ def check_record(record, annotators=(), *, input_dir=None, network=None):
     legacy = sig.wfdbx_set_legacy(0)
     printing = wio._io.error_print
     wio._io.error_print = False
+    afreq = ann.getafreq()      # (WFDB-x: restored, as by read_record)
+    gvmode = sig.getgvmode()
     try:
         init.wfdbquit()
         length = _check_record_signals(record, rep)
@@ -854,6 +867,8 @@ def check_record(record, annotators=(), *, input_dir=None, network=None):
             _check_annotator(record, a, length, rep)
     finally:
         init.wfdbquit()
+        sig.setgvmode(gvmode)
+        ann.setafreq(afreq)
         wio._io.error_print = printing
         sig.wfdbx_set_legacy(legacy)
     return CheckReport(record, rep.issues)

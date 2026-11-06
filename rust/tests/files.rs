@@ -467,3 +467,177 @@ fn legacy_mode_unchanged() {
     w.wfdbx_set_legacy(0);
     assert_eq!(w.getwfdb(), b"nosuch"); // normal mode: the input directory
 }
+
+// ---------------------------------------------------------------------------
+// WFDB-x: the files that a program reads or creates itself
+
+#[test]
+fn tool_file_paths() {
+    // wfdbx_input_path and wfdbx_output_path: where a program opens the files
+    // that it reads or creates itself (the counterparts of the files of
+    // wfdb_open with an empty file type)
+    let d = Dir::new("toolpaths");
+    let mut w = quiet();
+    let cwd = String::from_utf8(d.path("")).unwrap();
+    let cwd = cwd.trim_end_matches('/').to_string();
+    let home = format!("{cwd}/home");
+    let s = |p: Option<Vec<u8>>| p.map(|v| String::from_utf8(v).unwrap());
+    let some = |p: &str| Some(p.to_string());
+    let exists = |p: &str| std::path::Path::new(p).exists();
+    let isdir = |p: &str| std::path::Path::new(p).is_dir();
+    // no directories set: names as given (~ expanded), URLs refused
+    for output in [false, true] {
+        let mut f = |n: Option<&str>| {
+            s(if output {
+                w.wfdbx_output_path(n)
+            } else {
+                w.wfdbx_input_path(n)
+            })
+        };
+        assert_eq!(f(Some("a.txt")), some("a.txt"));
+        assert_eq!(f(Some("sub/a.txt")), some("sub/a.txt"));
+        assert_eq!(
+            f(Some(&format!("{cwd}/a.txt"))),
+            some(&format!("{cwd}/a.txt"))
+        );
+        assert_eq!(f(Some("~/a.txt")), some(&format!("{home}/a.txt")));
+        assert_eq!(f(Some("-")), some("-"));
+        assert_eq!(f(Some("")), some(""));
+        assert_eq!(f(None), None);
+        assert_eq!(f(Some("http://127.0.0.1:1/a.txt")), None);
+        assert_eq!(f(Some("https://127.0.0.1:1/a.txt")), None);
+    }
+    assert!(!exists("sub"));
+    // the input directory
+    w.wfdbx_set_input_dir("sub");
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), some("sub/a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("../a.txt")), some("sub/../a.txt"));
+    let abs = format!("{cwd}/a.txt");
+    assert_eq!(s(w.wfdbx_input_path(&abs)), some(&abs));
+    assert_eq!(
+        s(w.wfdbx_input_path("~/a.txt")),
+        some(&format!("{home}/a.txt"))
+    );
+    assert_eq!(s(w.wfdbx_input_path("-")), some("-"));
+    assert_eq!(s(w.wfdbx_output_path("a.txt")), some("a.txt"));
+    w.wfdbx_set_input_dir("~/in/");
+    assert_eq!(
+        s(w.wfdbx_input_path("a.txt")),
+        some(&format!("{home}/in/a.txt"))
+    );
+    w.wfdbx_set_input_dir("http://127.0.0.1:1/d");
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), None); // (a URL)
+    assert_eq!(s(w.wfdbx_input_path(&abs)), some(&abs));
+    w.wfdbx_set_input_dir(NULL);
+    // the output directory: its missing directories are created
+    w.wfdbx_set_output_dir("out/deep");
+    assert_eq!(s(w.wfdbx_output_path("a.wav")), some("out/deep/a.wav"));
+    assert!(isdir("out/deep"));
+    assert_eq!(std::fs::read_dir("out/deep").unwrap().count(), 0);
+    assert_eq!(s(w.wfdbx_output_path("s/a.wav")), some("out/deep/s/a.wav"));
+    assert!(isdir("out/deep/s"));
+    let nabs = format!("{cwd}/n/a.wav");
+    assert_eq!(s(w.wfdbx_output_path(&nabs)), some(&nabs));
+    assert_eq!(
+        s(w.wfdbx_output_path("~/m/a.wav")),
+        some(&format!("{home}/m/a.wav"))
+    );
+    assert!(!exists("n") && !exists("home/m"));
+    assert_eq!(s(w.wfdbx_output_path("-")), some("-"));
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), some("a.txt"));
+    w.wfdbx_set_output_dir("~/o");
+    assert_eq!(
+        s(w.wfdbx_output_path("a.wav")),
+        some(&format!("{home}/o/a.wav"))
+    );
+    assert!(isdir("home/o"));
+    // legacy mode: inputs as named; the output directory as a plain prefix
+    w.wfdbx_set_legacy(1);
+    w.wfdbx_set_input_dir("sub");
+    w.wfdbx_set_output_dir("lout");
+    assert_eq!(s(w.wfdbx_input_path("a.txt")), some("a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("~/a.txt")), some("~/a.txt"));
+    assert_eq!(s(w.wfdbx_input_path("http://127.0.0.1:1/a.txt")), None);
+    assert_eq!(s(w.wfdbx_output_path("a.wav")), some("lout/a.wav"));
+    let lwav = format!("{cwd}/a.wav");
+    assert_eq!(
+        s(w.wfdbx_output_path(&lwav)),
+        some(&format!("lout/{cwd}/a.wav"))
+    );
+    assert!(isdir(&format!("lout{cwd}")));
+    assert_eq!(s(w.wfdbx_output_path("~/a.wav")), some("lout/~/a.wav"));
+    assert_eq!(s(w.wfdbx_output_path("-")), some("-"));
+    w.wfdbx_set_output_dir(NULL);
+    assert_eq!(s(w.wfdbx_output_path("a.wav")), some("a.wav"));
+    assert_eq!(s(w.wfdbx_output_path("~/a.wav")), some("~/a.wav"));
+}
+
+/// Runs the tool `exe` (built by Cargo) in the current directory, with the
+/// environment variables `env` (and no WFDB or WFDBX_ variables); returns
+/// its exit status.
+fn tool(exe: &str, args: &[&str], env: &[(&str, &str)]) -> i32 {
+    let mut c = std::process::Command::new(exe);
+    c.args(args);
+    for k in [
+        "WFDB",
+        "WFDBX_INPUT_DIR",
+        "WFDBX_OUTPUT_DIR",
+        "WFDBX_NETWORK",
+    ] {
+        c.env_remove(k);
+    }
+    for (k, v) in env {
+        c.env(k, v);
+    }
+    let out = c.output().unwrap();
+    out.status.code().unwrap_or(-1)
+}
+
+#[test]
+fn tool_files() {
+    // The tools read and create their own files under the input and output
+    // directories (see the toolfiles-* cases of the conformance suite).
+    let d = Dir::new("toolfiles");
+    for f in ["100s.hea", "100s.dat", "fmt16.hea", "fmt16.dat"] {
+        d.copy(f, f);
+    }
+    let text: String = (0..50).map(|i| format!("{} {}\n", i, -i)).collect();
+    d.write("sub/in.txt", text.as_bytes());
+    let args = [
+        "-i", "in.txt", "-o", "w1", "-F", "250", "-G", "200", "-R", "16", "-U", "mV",
+    ];
+    let env = [("WFDBX_INPUT_DIR", "sub"), ("WFDBX_OUTPUT_DIR", "out")];
+    assert_eq!(tool(env!("CARGO_BIN_EXE_wrsamp"), &args, &env), 0);
+    assert!(d.dir.join("out/w1.hea").exists() && d.dir.join("out/w1.dat").exists());
+    let list = || {
+        let mut v: Vec<_> = std::fs::read_dir(&d.dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        v.sort();
+        v
+    };
+    let before = list();
+    let out = [("WFDBX_OUTPUT_DIR", "out")];
+    assert_eq!(
+        tool(
+            env!("CARGO_BIN_EXE_mit2wav"),
+            &["-r", "100s", "-o", "x.wav"],
+            &out
+        ),
+        0
+    );
+    assert_eq!(
+        tool(
+            env!("CARGO_BIN_EXE_mit2edf"),
+            &["-r", "fmt16", "-o", "x.edf"],
+            &out
+        ),
+        0
+    );
+    assert_eq!(list(), before); // nothing in .
+    let wav = std::fs::read(d.dir.join("out/x.wav")).unwrap();
+    assert_eq!(&wav[..4], b"RIFF");
+    assert_eq!(wav.len(), 44 + 2 * 2 * 21600);
+    assert!(std::fs::metadata(d.dir.join("out/x.edf")).unwrap().len() > 0);
+}

@@ -802,6 +802,31 @@ for tool, args, cid, kw in [
     case(tool, args, cid=cid, **kw)
 
 # ---------------------------------------------------------------------------
+# Files that a tool reads or creates itself, rather than through the library:
+# opened as named, relative to the current directory, whatever the input
+# directory (WFDBX_INPUT_DIR is ignored), and ~ is not expanded; wfdbdesc
+# looks for a signal file of unknown length in the current directory.  (The
+# output directory of WFDB-x, a prefix of every output name in legacy mode,
+# is tested by the toolfiles-*-legacy-* cases of the modern suite, since the
+# original has none.)  Compare the toolfiles-* cases of the modern suite.
+_IN = {"WFDBX_INPUT_DIR": "sub"}
+_NL = {"sub/nl.hea": "nl 1 360\nnl.dat 16 200 16 0 0 0 0 s\n",
+       "sub/nl.dat": _rd("fmt16.dat")}
+for tool, args, cid, kw in [
+        ("wrsamp", "-i in.txt -o w1", "toolfiles-wrsamp-inputdir-ignored",
+         {"files": {"in.txt": _TXT, "sub/in.txt": "1 2\n"}, "env": _IN}),
+        ("wrsamp", "-i ~/in.txt -o w1", "toolfiles-wrsamp-home",
+         {"files": {"home/in.txt": _TXT}}),
+        ("edf2mit", "-i fmt16.edf -r e2m", "toolfiles-edf2mit-inputdir-ignored",
+         {"files": {"sub/fmt16.edf": b"x"}, "env": _IN}),
+        ("xform", "-i 100s -S xs1.txt -t 30",
+         "toolfiles-xform-script-inputdir-ignored",
+         {"files": {"sub/xs1.txt": "\n"}, "env": _IN}),
+        ("wfdbdesc", "sub/nl", "toolfiles-wfdbdesc-subdir", {"files": _NL}),
+        ("mit2edf", "-r fmt16 -o ~/h.edf", "toolfiles-mit2edf-home", {})]:
+    case(tool, args, cid=cid, **kw)
+
+# ---------------------------------------------------------------------------
 # Write errors (output files that are links to /dev/full, and the standard
 # output sent there): the original reports the errors of the library and
 # exits with status 0.

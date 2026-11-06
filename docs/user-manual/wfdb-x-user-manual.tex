@@ -1,0 +1,67 @@
+% WFDB-x: User's manual.
+% Built with pdflatex (latexmk; see README.md). The source is ASCII: special characters are
+% written as LaTeX commands. Every change to WFDB-x is reflected here (see
+% docs/porting-guide.md), and check_manual.py checks this manual against the code.
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\input{preamble}
+
+\begin{document}
+
+% ---- Title page --------------------------------------------------------------------------
+\begin{titlepage}
+  \thispagestyle{empty}
+  \vspace*{0.18\textheight}
+  {\sffamily\color{accent}\large\bfseries USER'S MANUAL\par}
+  \vspace{0.6em}
+  {\color{accent}\rule{\linewidth}{1.2pt}\par}
+  \vspace{1.0em}
+  {\sffamily\bfseries\color{titlecolor}\fontsize{40}{44}\selectfont WFDB-x\par}
+  \vspace{0.8em}
+  {\sffamily\Large\color{titlecolor}The WFDB Software Package in Python, C++, Rust, Julia,
+    R, MATLAB/Octave and Kotlin\par}
+  \vspace{2.2em}
+  {\sffamily\large\color{mutedtext}Version \wfdbxversion\quad\textbar\quad \wfdbxdate\par}
+  \vfill
+  {\sffamily\large\color{titlecolor}Reza Sameni\par}
+  \vspace{0.3em}
+  {\sffamily\small\color{mutedtext}\url{https://github.com/alphanumericslab/wfdb-x}\par}
+  \vspace{1.2em}
+  {\small\color{mutedtext}
+  WFDB-x implements version \wfdbversion{} of the WFDB Software Package. It is distributed
+  under the GNU General Public License, version 3 or later. To cite WFDB-x, see
+  \cref{sec:cite}.\par}
+\end{titlepage}
+
+\frontmatter
+\tableofcontents
+
+\mainmatter
+
+% ---- Part I: Concepts --------------------------------------------------------------------
+\part{Concepts}
+\label{part:concepts}
+\input{chapters/introduction}
+\input{chapters/records}
+\input{chapters/files}
+\input{chapters/behavior}
+\input{chapters/metadata}
+
+% ---- Part II: The languages --------------------------------------------------------------
+\part{The seven languages}
+\label{part:languages}
+\input{chapters/python}
+\input{chapters/cpp}
+\input{chapters/rust}
+\input{chapters/julia}
+\input{chapters/r}
+\input{chapters/matlab}
+\input{chapters/kotlin}
+
+% ---- Part III: Reference -----------------------------------------------------------------
+\part{Reference}
+\label{part:reference}
+\input{chapters/library}
+\input{chapters/tools}
+\input{chapters/formats}
+
+\end{document}

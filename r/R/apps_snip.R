@@ -9,8 +9,10 @@
 #
 # Changes from the original: no built-in sampling frequency: the input record
 # must give it, for the header of the excerpt (the original assumed 250 Hz);
-# --legacy, as the first argument, restores the original behavior. Each change
-# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# the master header of -m is created under the output directory, as the library
+# creates an output file; --legacy, as the first argument, restores the
+# original behavior. Each change is marked "WFDB-x:" in the code;
+# docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/snip.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -110,6 +112,8 @@ app_snip <- function(args = character(0)) {
     # irec has multiple segments
     sfreq <- sampfreq(NULL)
     ohfname <- paste0(nrec, ".hea")
+    # WFDB-x: created under the output directory, as the library creates an
+    # output file of that name (see .app_fopen and wfdbx_output_path)
     ohfile <- .app_fopen(ohfname, pname)
     if (is.null(ohfile)) {
       ceprintf("%s: can't create master header\n", pname)

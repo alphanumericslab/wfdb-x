@@ -898,6 +898,97 @@ private fun Wfdb.resolve(name: ByteArray, output: Boolean): ByteArray {
     return if (dir == null) name else join(expandHome(dir), name, if (output) DSEP else '/'.code)
 }
 
+// WFDB-x: files that a program opens itself. Decided by Reza Sameni, Nov
+// 2026: a file named to a tool is found, or created, where the library
+// finds, or creates, a file of that name, so that the input and output
+// directories apply to every file a tool reads or writes.
+
+/**
+ * Returns the path under which a program opens a file that it reads
+ * itself, rather than through the library.
+ *
+ * The file is found where [wfdb_open] finds a file of that name (with an
+ * empty file type): in normal mode, a relative name under the input
+ * directory, if one is set (see [wfdbx_set_input_dir]), a ~ name expanded,
+ * and an absolute name as given; in legacy mode, the name as given. The
+ * tools use it for the files named on their command line that they read
+ * themselves, such as the -i file of wrsamp.
+ *
+ * [name] is a file name; null, "" and "-" (the standard input, if the
+ * program treats it so) are returned as given (a copy). Returns the path to
+ * open, or null if name is a URL, or becomes one when the input directory
+ * is prefixed to it: such a file cannot be opened in this way.
+ *
+ * Example (reads a text file from the input directory):
+ * ```
+ * wfdbx_set_input_dir("data")
+ * val f = WfdbFile.fopen(wfdbx_input_path("samples.txt")!!, "rb")   // data/samples.txt
+ * ```
+ *
+ * Part of WFDB-x; not in the original WFDB package (C: wfdbx_input_path).
+ */
+fun Wfdb.wfdbx_input_path(name0: ByteArray?): ByteArray? {
+    val name = name0?.let { cstr(it).copyOf() } ?: return null
+    if (isUrl(name)) return null
+    if (name.isEmpty() || beq(name, "-") || legacy) return name
+    val r = resolve(name, false)
+    return if (isUrl(r)) null else r
+}
+
+/** [wfdbx_input_path] with a string. */
+fun Wfdb.wfdbx_input_path(name: String): ByteArray? = wfdbx_input_path(name.latin1())
+
+/**
+ * Returns the path under which a program creates a file that it writes
+ * itself, rather than through the library.
+ *
+ * The file is created where [wfdb_open] creates a file of that name (with
+ * an empty file type): in normal mode, a relative name under the output
+ * directory, if one is set (see [wfdbx_set_output_dir]), a ~ name expanded,
+ * and an absolute name as given; in legacy mode, any name under the output
+ * directory, if one is set, used as a plain prefix. When the output
+ * directory has been prefixed to the name, the directories missing in the
+ * resulting path are created, as for the output files of the library
+ * (errors are ignored: opening the file then fails). The tools use it for
+ * the files they create themselves, such as the WAV file of mit2wav.
+ *
+ * [name] is a file name; null, "" and "-" (the standard output, if the
+ * program treats it so) are returned as given (a copy). Returns the path to
+ * create, or null if name is a URL (which cannot be written).
+ *
+ * Example (writes a text file in the output directory):
+ * ```
+ * wfdbx_set_output_dir("out")
+ * val f = WfdbFile.fopen(wfdbx_output_path("notes.txt")!!, "wb")    // out/notes.txt
+ * ```
+ *
+ * Part of WFDB-x; not in the original WFDB package (C: wfdbx_output_path).
+ */
+fun Wfdb.wfdbx_output_path(name0: ByteArray?): ByteArray? {
+    val name = name0?.let { cstr(it).copyOf() } ?: return null
+    if (isUrl(name)) return null
+    if (name.isEmpty() || beq(name, "-")) return name
+    initOutputDir()
+    val dir = io.outputDir
+    val r: ByteArray
+    if (legacy) {
+        if (dir == null || dir.isEmpty()) return name
+        r = bcat(dir, byteArrayOf(DSEP.toByte()), name)
+    } else {
+        if (dir == null || dir.isEmpty() || name.at(0) == '~'.code || isAbsolutePath(name)) return resolve(name, true)
+        r = resolve(name, true)
+    }
+    // Create the missing directories (only at '/' separators, as for the
+    // output files of the library; errors are ignored: opening then fails).
+    for (i in 1 until r.size) {
+        if (r[i] == '/'.code.toByte()) Platform.mkdir(r.copyOf(i))
+    }
+    return r
+}
+
+/** [wfdbx_output_path] with a string. */
+fun Wfdb.wfdbx_output_path(name: String): ByteArray? = wfdbx_output_path(name.latin1())
+
 /**
  * The name of the file most recently opened by [wfdb_open] (C's wfdb_filename).
  *
@@ -1408,6 +1499,28 @@ fun wfdb_addtopath(s: ByteArray) = wfdbDefault().wfdb_addtopath(s)
 
 /** The name of the file most recently opened by wfdb_open on the default instance. */
 fun wfdb_filename(): ByteArray = wfdbDefault().wfdb_filename()
+
+/**
+ * The path under which a program opens a file that it reads itself, on the
+ * default instance (see [Wfdb.wfdbx_input_path]).
+ *
+ * Part of WFDB-x; not in the original WFDB package.
+ */
+fun wfdbx_input_path(name: ByteArray?): ByteArray? = wfdbDefault().wfdbx_input_path(name)
+
+/** [wfdbx_input_path] with a string, on the default instance. */
+fun wfdbx_input_path(name: String): ByteArray? = wfdbDefault().wfdbx_input_path(name)
+
+/**
+ * The path under which a program creates a file that it writes itself, on
+ * the default instance (see [Wfdb.wfdbx_output_path]).
+ *
+ * Part of WFDB-x; not in the original WFDB package.
+ */
+fun wfdbx_output_path(name: ByteArray?): ByteArray? = wfdbDefault().wfdbx_output_path(name)
+
+/** [wfdbx_output_path] with a string, on the default instance. */
+fun wfdbx_output_path(name: String): ByteArray? = wfdbDefault().wfdbx_output_path(name)
 
 /** `wfdbx_open_in(dir, type, name, record)` on the default instance. */
 fun wfdbx_open_in(dir: ByteArray?, s: ByteArray?, name: ByteArray, record: ByteArray): WfdbFile? =

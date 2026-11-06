@@ -973,4 +973,79 @@ expect_equal(readBin("100s.sub2", "raw", 100), c_bytes, "putann: C bytes")
 a <- read_annotations("100s", "sub")
 expect_equal(c(a$subtype, a$chan, a$num), c(44, 0, 0, 56, 0, 0, 44, 0, 0, 0, 0, 0, 44, 0, 0),
              "signed char fields read back")
+
+# The high-level functions leave the time resolution of output annotators
+# (getafreq) as it was, also after an EDF record, whose opening sets it (as
+# in C), and on errors; the C-style functions keep the behavior of C
+# (python test_highlevel_keeps_afreq).
+wfdbquit()
+setafreq(0)
+gv0 <- getgvmode()                     # (also set by opening an EDF record)
+quiet_err <- function(expr) {
+  wfdbquiet()
+  on.exit(wfdbverbose())
+  tryCatch({
+    expr
+    FALSE
+  }, error = function(e) TRUE)
+}
+write_annotations("nohdr", "a1", c(10, 20), symbol = "N")
+expected <- rf("nohdr.a1")
+h <- read_header("100s.edf")
+check(h$fs == 360 && getafreq() == 0, "keeps afreq: read_header of an EDF record")
+write_annotations("nohdr", "a2", c(10, 20), symbol = "N")
+expect_equal(rf("nohdr.a2"), expected, "keeps afreq: no time resolution written")
+read_record("100s.edf", sampto = 10)
+expect_equal(getafreq(), 0, "keeps afreq: read_record")
+check(!is.null(check_record("100s.edf")), "keeps afreq: check_record runs")
+expect_equal(getafreq(), 0, "keeps afreq: check_record")
+check(quiet_err(read_annotations("100s.edf", "atr")), "keeps afreq: no annotation file")
+expect_equal(getafreq(), 0, "keeps afreq: read_annotations error")
+# a value that was set is kept
+setafreq(1000)
+read_header("100s.edf")
+expect_equal(getafreq(), 1000, "keeps afreq: a value set is kept")
+write_annotations("nohdr", "a3", c(10, 20), symbol = "N", fs = 500)
+expect_equal(getafreq(), 1000, "keeps afreq: write_annotations fs restores the value")
+setafreq(0)
+write_annotations("nohdr", "a3", c(10, 20), symbol = "N", fs = 500)
+expect_equal(getafreq(), 0, "keeps afreq: write_annotations fs restores 0")
+# the C-style functions: as in C, opening the EDF record sets it, and
+# wfdbquit does not reset it
+check(isigopen("100s.edf", 0)$nsig > 0, "keeps afreq: isigopen EDF")
+wfdbquit()
+expect_equal(getafreq(), 360, "keeps afreq: C-style functions as in C")
+setafreq(0)
+setgvmode(gv0)
+
+# The high-level functions leave the getvec mode (getgvmode) as it was,
+# also after an EDF record, whose opening sets WFDB_HIGHRES (as in C), and
+# on errors; the C-style functions keep the behavior of C (python
+# test_highlevel_keeps_gvmode).
+for (previous in c(WFDB_LOWRES, WFDB_HIGHRES, bitwOr(WFDB_LOWRES, WFDB_GVPAD))) {
+  lab <- paste0("keeps gvmode (", previous, "): ")
+  setgvmode(previous)
+  read_header("100s.edf")
+  expect_equal(getgvmode(), previous, paste0(lab, "read_header"))
+  check(quiet_err(read_annotations("100s.edf", "atr")), paste0(lab, "no annotation file"))
+  expect_equal(getgvmode(), previous, paste0(lab, "read_annotations error"))
+  read_annotations("100s", "atr")
+  expect_equal(getgvmode(), previous, paste0(lab, "read_annotations"))
+  read_record("100s.edf", sampto = 10)
+  expect_equal(getgvmode(), previous, paste0(lab, "read_record"))
+  check_record("100s.edf")
+  expect_equal(getgvmode(), previous, paste0(lab, "check_record"))
+  write_annotations("nohdr", "a1", c(10, 20), symbol = "N")
+  expect_equal(getgvmode(), previous, paste0(lab, "write_annotations"))
+  write_record("kgv", 1:3, 100, gains = 200, adcres = 16, units = "mV")
+  expect_equal(getgvmode(), previous, paste0(lab, "write_record"))
+  # the C-style functions: as in C, the EDF record sets WFDB_HIGHRES, and
+  # wfdbquit does not reset it
+  check(isigopen("100s.edf", 0)$nsig > 0, paste0(lab, "isigopen EDF"))
+  wfdbquit()
+  check(bitwAnd(getgvmode(), WFDB_HIGHRES) != 0, paste0(lab, "C-style functions as in C"))
+}
+wfdbquit()
+setafreq(0)
+setgvmode(gv0)
 }

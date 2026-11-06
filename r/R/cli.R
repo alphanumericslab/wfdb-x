@@ -50,7 +50,7 @@ cli_main <- function(args) {
       return(0)
     }
     if (tool == "--version") {
-      cout("WFDB-x 1.1.0\n")
+      cout("WFDB-x 1.2.0\n")
       cout()
       return(0)
     }
@@ -176,15 +176,39 @@ cli_main <- function(args) {
 .app_help_text <- function(h, added) if (wfdbx_get_legacy()) h[!(h %in% added)] else h
 
 # ---------------------------------------------------------------------------
+# Files that the tools read themselves (wrsamp, edf2mit, wav2mit,
+# ahaecg2mit, xform).
+
+# The contents (raw) of the file `name` that a tool reads itself, or NULL if
+# it cannot be read (or is a directory: dir is then returned, so that a tool
+# that reads a directory as an empty file can do so); n: the number of bytes
+# to read (default: all).  WFDB-x: the file is found where the library finds
+# an input file of that name (see wfdbx_input_path); a URL cannot be read
+# in this way (NULL).
+.app_read_input <- function(name, n = NULL, dir = NULL) {
+  path <- wfdbx_input_path(name)
+  if (is.null(path) || !nzchar(path)) return(NULL)
+  rn <- .rfile_name(path)
+  if (!file.exists(rn)) return(NULL)
+  if (dir.exists(rn)) return(dir)
+  if (is.null(n)) n <- file.size(rn)
+  tryCatch(readBin(rn, "raw", n), error = function(e) NULL)
+}
+
+# ---------------------------------------------------------------------------
 # Files that the tools write themselves (snip, mit2edf, parsescp).
 
 # Create the file `name` for writing, as C's fopen(name, "wb") (NULL if it
-# cannot be created); pname is the program name for .app_fclose.  A failed
-# write is remembered; WFDB-x: in normal mode, .app_fclose() then prints
-# "PNAME: write error on NAME" and counts a write error (see
-# wfdbx_write_errors).
+# cannot be created); pname is the program name for .app_fclose.  WFDB-x:
+# it is created where the library creates an output file of that name
+# (under the output directory, if one is set: see wfdbx_output_path); a URL
+# cannot be created (NULL).  A failed write is remembered; WFDB-x: in
+# normal mode, .app_fclose() then prints "PNAME: write error on NAME" (the
+# name as given) and counts a write error (see wfdbx_write_errors).
 .app_fopen <- function(name, pname) {
-  con <- tryCatch(file(name, "wb"), error = function(e) NULL)
+  path <- wfdbx_output_path(name)
+  if (is.null(path) || !nzchar(path)) return(NULL)
+  con <- tryCatch(suppressWarnings(file(.rfile_name(path), "wb")), error = function(e) NULL)
   if (is.null(con)) return(NULL)
   of <- new.env(parent = emptyenv())
   of$con <- con

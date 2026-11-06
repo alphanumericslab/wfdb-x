@@ -2,7 +2,16 @@ function ann = read_annotations(record, annotator, varargin)
 %READ_ANNOTATIONS Read an annotation file into arrays.
 %   ANN = wfdbx.read_annotations(RECORD, ANNOTATOR) reads all annotations of
 %   the record RECORD from the annotation file with the suffix ANNOTATOR:
-%   wfdbx.read_annotations('100s', 'atr') reads 100s.atr.
+%   wfdbx.read_annotations('100s', 'atr') reads 100s.atr.  RECORD is the
+%   record name,
+%   without the .hea extension (a trailing '.hea' is also accepted): a full
+%   path, absolute ('/data/mitdb/100') or in the home directory
+%   ('~/Documents/100s'), used as given; a relative path ('100s',
+%   'data/100s'), read from the input directory if one is set (see
+%   wfdbx.wfdbx_set_input_dir), otherwise from the current folder; or a URL
+%   ('https://physionet.org/files/mitdb/1.0.0/100'), read only if network
+%   access is on (see wfdbx.wfdbx_set_network).  Its header, if there
+%   is one, gives the sampling frequency.
 %
 %   ANN = wfdbx.read_annotations(RECORD, ANNOTATOR, NAME, VALUE, ...) takes
 %   these options:
@@ -12,7 +21,12 @@ function ann = read_annotations(record, annotator, varargin)
 %     'sampto'    read the annotations before this time (default: all)
 %     'fs'        sampling frequency in Hz, used when the record has no
 %                 header or its header gives none (default: none)
-%     'input_dir', 'network', 'legacy'
+%     'input_dir' input directory for this call only (optional): a
+%                 local directory, a ~ path or a URL, under which relative
+%                 record names are read.  It does not apply to full paths
+%                 or URLs.  Default: the current setting (see
+%                 wfdbx.wfdbx_set_input_dir).
+%     'network', 'legacy'
 %                 as in wfdbx.read_record
 %
 %   wfdbx.read_annotations(RECORD, ANNOTATOR, SAMPFROM, SAMPTO) is also
@@ -36,7 +50,9 @@ function ann = read_annotations(record, annotator, varargin)
 %   frequency and none is known.
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
-%   WFDB library functions.
+%   WFDB library functions; the getvec mode (wfdbx.getgvmode) and the time
+%   resolution of output annotators (wfdbx.getafreq) are left as they were
+%   (opening an EDF record sets both).
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -64,6 +80,10 @@ function ann = read_annotations(record, annotator, varargin)
 % any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
+% WFDB-x: the getvec mode and the time resolution of output annotators are
+% restored when the function returns (also on errors; opening an EDF record
+% sets both)
+keep_settings = wfdbx.internal.hl_settings(); %#ok<NASGU>
 annotator = wfdbx.internal.strarg(annotator);
 varargin = wfdbx.internal.strarg(varargin);
 opt = struct('sampfrom', 0, 'sampto', [], 'fs', [], 'input_dir', [], ...

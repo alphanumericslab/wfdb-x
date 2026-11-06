@@ -884,3 +884,80 @@ end
         end
     end
 end
+
+# WFDB-x: the high-level functions leave the time resolution of output
+# annotators (getafreq) as it was, also after an EDF record, whose opening
+# sets it (as in C), and on errors; the C-style functions keep the behavior
+# of C (as test_highlevel_keeps_afreq in test_annotations.py).
+@testset "high-level functions keep afreq" begin
+    with_data("afreq") do w
+        nn = W.Annotations(samples=[10, 20], symbols=[b"N", b"N"])
+        W.setafreq(w, 0.0)
+        W.write_annotations(w, "nohdr", "a1", nn)
+        expected = read("nohdr.a1")
+        h = W.read_header(w, "100s.edf")
+        @test h.fs == 360.0 && W.getafreq(w) == 0.0
+        W.write_annotations(w, "nohdr", "a2", nn)
+        @test read("nohdr.a2") == expected      # no time resolution: 360 Hz
+        W.read_record(w, "100s.edf"; to=10)
+        @test W.getafreq(w) == 0.0
+        @test W.check_record(w, "100s.edf") isa W.CheckReport
+        @test W.getafreq(w) == 0.0
+        W.wfdbquiet(w)
+        @test_throws W.WfdbError W.read_annotations(w, "100s.edf", "atr")  # (no file)
+        W.wfdbverbose(w)
+        @test W.getafreq(w) == 0.0
+        # a value that was set is kept
+        W.setafreq(w, 1000.0)
+        W.read_header(w, "100s.edf")
+        @test W.getafreq(w) == 1000.0
+        W.write_annotations(w, "nohdr", "a3", nn; fs=500)
+        @test W.getafreq(w) == 1000.0
+        W.setafreq(w, 0.0)
+        W.write_annotations(w, "nohdr", "a3", nn; fs=500)
+        @test W.getafreq(w) == 0.0
+        # the C-style functions: as in C, opening the EDF record sets it,
+        # and wfdbquit does not reset it
+        @test W.isigopen(w, "100s.edf", nothing, 0) > 0
+        W.wfdbquit(w)
+        @test W.getafreq(w) == 360.0
+    end
+end
+
+# WFDB-x: the high-level functions leave the getvec mode (getgvmode) as it
+# was, also after an EDF record, whose opening sets WFDB_HIGHRES (as in C),
+# and on errors; the C-style functions keep the behavior of C (as
+# test_highlevel_keeps_gvmode in test_annotations.py).
+@testset "high-level functions keep the getvec mode" begin
+    for previous in (W.WFDB_LOWRES, W.WFDB_HIGHRES, W.WFDB_LOWRES | W.WFDB_GVPAD)
+        with_data("gvmode") do w
+            W.setgvmode(w, previous)
+            W.read_header(w, "100s.edf")
+            @test W.getgvmode(w) == previous
+            W.wfdbquiet(w)
+            @test_throws W.WfdbError W.read_annotations(w, "100s.edf", "atr")  # (no file)
+            W.wfdbverbose(w)
+            @test W.getgvmode(w) == previous
+            W.read_annotations(w, "100s", "atr")
+            @test W.getgvmode(w) == previous
+            W.read_record(w, "100s.edf"; to=10)
+            @test W.getgvmode(w) == previous
+            W.check_record(w, "100s.edf")
+            @test W.getgvmode(w) == previous
+            W.write_annotations(w, "nohdr", "a1", W.Annotations(samples=[10, 20],
+                                                                symbols=[b"N", b"N"]))
+            @test W.getgvmode(w) == previous
+            W.write_record(w, "wr", Int32[1 2; 3 4], 100.0; gains=[200.0, 200.0], adcres=12,
+                           units="mV")
+            @test W.getgvmode(w) == previous
+            W.write_record_physical(w, "wp", [0.5 1.0; 1.5 2.0], 100.0; gains=[200.0, 200.0],
+                                    adcres=12, units="mV")
+            @test W.getgvmode(w) == previous
+            # the C-style functions: as in C, the EDF record sets
+            # WFDB_HIGHRES, and wfdbquit does not reset it
+            @test W.isigopen(w, "100s.edf", nothing, 0) > 0
+            W.wfdbquit(w)
+            @test W.getgvmode(w) & W.WFDB_HIGHRES != 0
+        end
+    end
+end

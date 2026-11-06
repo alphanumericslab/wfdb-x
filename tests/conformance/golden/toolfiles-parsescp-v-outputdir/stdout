@@ -1,0 +1,248 @@
+CRC = 1643, expected length = 34144 bytes
+Record length: 34144 bytes
+Top-level CRC: correct (1643)
+
+Section 0 length: 136 bytes
+ Section 0 CRC: correct (21978)
+ Section version number: 20
+ Protocol version number: 20
+ Contents:  Pointers to data areas in the record
+  Section  0:   136 bytes beginning at byte      7
+  Section  1:   168 bytes beginning at byte    143
+  Section  2:    18 bytes beginning at byte    311
+  Section  3:   126 bytes beginning at byte    329
+  Section  4:    22 bytes beginning at byte    455
+  Section  5:  3342 bytes beginning at byte    477
+  Section  6: 30084 bytes beginning at byte   3819
+  Section  7:   242 bytes beginning at byte  33903
+  Section  8:     0 bytes beginning at byte      0
+  Section  9:     0 bytes beginning at byte      0
+  Section 10:     0 bytes beginning at byte      0
+  Section 11:     0 bytes beginning at byte      0
+
+Section 1 length: 168 bytes
+ Section 1 CRC: correct (24375)
+ Section version number: 20
+ Protocol version number: 20
+ Contents:  Header information - Patient data/ECG acquisition data
+
+  Last name
+   Tag  0 ( 6 bytes): [Clark]
+  Patient ID number
+   Tag  2 ( 8 bytes): [SBJ-123]
+  Date of birth
+   Tag  5 ( 4 bytes): 1953/05/08
+  Sex
+   Tag  8 ( 1 bytes): 1
+  Race
+   Tag  9 ( 1 bytes): 1
+  ID of the acquiring device
+   Institution number: 0
+   Department number: 11
+   Device ID: 51
+   Device type: 1 (system or host)
+   Manufacturer code: 255
+   Text model description: [69]   SCP-ECG protocol revision number: 2
+   SCP-ECG protocol compatibility level: 192
+   Language support code: 0
+   Device capabilities: 8
+   AC mains frequency environment: 0 (unspecified)
+   Analyzing program revision number: [unknown]
+   Serial number of acquisition device: [unknown]
+   Acquisition device system software ID: [unknown]
+   Acquisition device SCP implementation ID: [ECGConversion]
+   Manufacturer of acquisition device: [ECGConversion]
+   Tag 14 (88 bytes): \000\000\013\0003\000\001\377ELI250\024\300\000\010\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\010unknown\000unknown\000unknown\000ECGConversion\000ECGConversion\000
+
+  Date of acquisition
+   Tag 25 ( 4 bytes): 2002/11/22
+  Time of acquisition
+   Tag 26 ( 3 bytes): 09:10:00
+  Baseline filter
+   Tag 27 ( 2 bytes): 0
+  Low-pass filter
+   Tag 28 ( 2 bytes): 0
+Section 2 length: 18 bytes
+ Section 2 CRC: correct (22179)
+ Section version number: 20
+ Protocol version number: 20
+ Contents:  Huffman tables used in encoding of ECG data
+  Using standard Huffman table only
+
+Section 3 length: 126 bytes
+ Section 3 CRC: correct (45638)
+ Section version number: 20
+ Protocol version number: 20
+ Contents:  ECG lead definition
+  Number of leads: 12
+  Flag byte: 64H
+   Reference beat subtraction not used for compression
+   All leads recorded simultaneously
+  I: ID 1, samples 1 to 5000
+  II: ID 2, samples 1 to 5000
+  V1: ID 3, samples 1 to 5000
+  V2: ID 4, samples 1 to 5000
+  V3: ID 5, samples 1 to 5000
+  V4: ID 6, samples 1 to 5000
+  V5: ID 7, samples 1 to 5000
+  V6: ID 8, samples 1 to 5000
+  III: ID 61, samples 1 to 5000
+  aVR: ID 62, samples 1 to 5000
+  aVL: ID 63, samples 1 to 5000
+  aVF: ID 64, samples 1 to 5000
+
+Section 4 length: 22 bytes
+ Section 4 CRC: correct (4777)
+ Section version number: 20
+ Protocol version number: 20
+ Contents:  QRS locations
+  Length of reference beat type 0 data: 1198 msec
+  Sample # of fiducial relative to start of ref beat type 0: 0
+  Number of QRS complexes in the entire record: 0
+
+Section 5 length: 3342 bytes
+ Section 5 CRC: correct (43502)
+ Section version number: 20
+ Protocol version number: 20
+ Contents:  Encoded reference beat data
+  Amplitude value multiplier: 2500 nanovolts per unit
+  Sample time interval: 2000 microseconds
+  Encoding type: 7 <undefined, assuming second differences>
+  Lead 0:  272 bytes
+  Lead 1:  270 bytes
+  Lead 2:  258 bytes
+  Lead 3:  282 bytes
+  Lead 4:  266 bytes
+  Lead 5:  270 bytes
+  Lead 6:  260 bytes
+  Lead 7:  276 bytes
+  Lead 8:  322 bytes
+  Lead 9:  242 bytes
+  Lead 10:  288 bytes
+  Lead 11:  290 bytes
+  Lead 0 data
+ f3 cd e2 92 89 b9 f7 f9 b6 54
+   Warning: 3 extra bits in lead 0
+
+  Lead 1 data
+ ff 8d 3f e3 29 2c bb 96 e2 d9
+   Warning: 11 extra bits in lead 1
+
+  Lead 2 data
+ ff 84 bf e1 0c 59 2e e4 b6 2c
+   Warning: 4 extra bits in lead 2
+
+  Lead 3 data
+ ff 8d bf e3 5a 85 89 46 6a 15
+   Warning: 14 extra bits in lead 3
+
+  Lead 4 data
+ ff 86 7f e1 9b be 36 22 89 57
+   Warning: 2 extra bits in lead 4
+
+  Lead 5 data
+ ff bb bf ee fd 62 a4 b7 1d e5
+   Warning: 15 extra bits in lead 5
+
+  Lead 6 data
+ c9 91 bb 24 93 ba c6 e4 a6 6d
+   Warning: 12 extra bits in lead 6
+
+  Lead 7 data
+ ff 85 3f e1 4b dc e5 b1 72 de
+   Warning: 13 extra bits in lead 7
+
+  Lead 8 data
+ ff 8c 3f e2 ee 6d cb b1 71 b2
+   Warning: 5 extra bits in lead 8
+
+  Lead 9 data
+ ff b9 3f ee 59 d8 8b 26 cb 96
+   Warning: 14 extra bits in lead 9
+
+  Lead 10 data
+ ff ba bf ee bd c5 89 4b 96 7e
+   Warning: 11 extra bits in lead 10
+
+  Lead 11 data
+ ff 8c bf e3 0c a9 76 2e 2d 9c
+   Warning: 13 extra bits in lead 11
+
+
+Section 6 length: 30084 bytes
+ Section 6 CRC: correct (61490)
+ Section version number: 20
+ Protocol version number: 20
+ Contents:  Residual signal after reference beat subtraction (if reference beats
+  are stored);  otherwise, encoded rhythm data
+  Amplitude value multiplier: 2500 nanovolts per unit
+  Sample time interval: 2000 microseconds
+  Encoding type: 7 <undefined, assuming second differences>
+  Compression type: 2 <undefined, assuming bimodal>
+  Lead 0: 2510 bytes
+  Lead 1: 2426 bytes
+  Lead 2: 2354 bytes
+  Lead 3: 2468 bytes
+  Lead 4: 2412 bytes
+  Lead 5: 2356 bytes
+  Lead 6: 2450 bytes
+  Lead 7: 2634 bytes
+  Lead 8: 3002 bytes
+  Lead 9: 2162 bytes
+  Lead 10: 2668 bytes
+  Lead 11: 2596 bytes
+  Lead 0 data
+ dd 2b 3b 93 b7 92 3d df 12 b3
+   Warning: 10 extra bits in lead 0
+
+  Lead 1 data
+ fe ff 40 6f 9b 36 ef e7 6e 13
+   Warning: 15 extra bits in lead 1
+
+  Lead 2 data
+ ff 8a ff e2 b1 62 ef 97 3b 3b
+   Warning: 6 extra bits in lead 2
+
+  Lead 3 data
+ ff 8d ff e3 51 bc 8a 92 e7 dc
+   Warning: 3 extra bits in lead 3
+
+  Lead 4 data
+ ff 8a 3f e2 82 ef 3b c6 6d b9
+   Warning: 1 extra bit in lead 4
+
+  Lead 5 data
+ ff 87 3f e1 c1 d9 c5 59 27 dc
+   Warning: 12 extra bits in lead 5
+
+  Lead 6 data
+ ff 85 ff e1 72 c6 f2 eb 37 06
+   Warning: 1 extra bit in lead 6
+
+  Lead 7 data
+ ff bd ff a3 77 1d c8 66 90 d8
+   Warning: 1 extra bit in lead 7
+
+  Lead 8 data
+ fb f4 8d e6 f7 f9 77 bb bf f0
+   Warning: 7 extra bits in lead 8
+
+  Lead 9 data
+ f3 c2 54 a6 76 25 e6 db 15 2d
+   Warning: 1 extra bit in lead 9
+
+  Lead 10 data
+ 90 b1 64 ed ce 47 dd f9 65 67
+   Warning: 7 extra bits in lead 10
+
+  Lead 11 data
+ fd fd 25 4b df cb 7b 77 fc de
+   Warning: 4 extra bits in lead 11
+
+
+Section 7 length: 242 bytes
+ Section 7 CRC: correct (26535)
+ Section version number: 20
+ Protocol version number: 20
+ Contents:  Global measurements
+  [skipped]

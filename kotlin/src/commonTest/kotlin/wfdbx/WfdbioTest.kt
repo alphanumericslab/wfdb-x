@@ -585,4 +585,94 @@ class WfdbioTest {
         assertNull(wfdbx_set_output_dir("x"))
         assertEquals("x", str(wfdbx_set_output_dir(null as ByteArray?)))
     }
+
+    /**
+     * t_toolpaths (tests/reference/api_expect.c): wfdbx_input_path and
+     * wfdbx_output_path, where a program opens the files that it reads or
+     * creates itself, in normal and legacy mode. (The tests cannot change the
+     * current directory: HOME and the directories that are created are in a
+     * scratch directory; the other names are relative, as in C.)
+     */
+    @Test
+    fun toolPaths() = withCleanEnv {
+        val d = makeTempDir("toolpaths")
+        val home = getenv("HOME")
+        setenv("HOME", "$d/thome")
+        val w = quiet()
+        fun ip(n: String?) = str(if (n == null) w.wfdbx_input_path(null as ByteArray?) else w.wfdbx_input_path(n))
+        fun op(n: String?) = str(if (n == null) w.wfdbx_output_path(null as ByteArray?) else w.wfdbx_output_path(n))
+        fun isDir(p: String) = wfdbx.cstd.Platform.isDirectory(b(p))
+        try {
+            w.wfdbx_set_input_dir(null as ByteArray?)
+            w.wfdbx_set_output_dir(null as ByteArray?)
+            // no directories set: names as given (~ expanded), URLs refused
+            for (f in listOf(::ip, ::op)) {
+                assertEquals("a.txt", f("a.txt"))
+                assertEquals("sub/a.txt", f("sub/a.txt"))
+                assertEquals("$d/a.txt", f("$d/a.txt"))
+                assertEquals("$d/thome/a.txt", f("~/a.txt"))
+                assertEquals("-", f("-"))
+                assertEquals("", f(""))
+                assertNull(f(null))
+                assertNull(f("http://127.0.0.1:1/a"))
+                assertNull(f("https://127.0.0.1:1/a"))
+            }
+            // the input directory
+            w.wfdbx_set_input_dir("tin")
+            assertEquals("tin/a.txt", ip("a.txt"))
+            assertEquals("tin/../a.txt", ip("../a.txt"))
+            assertEquals("/a.txt", ip("/a.txt"))
+            assertEquals("-", ip("-"))
+            assertEquals("a.txt", op("a.txt"))
+            w.wfdbx_set_input_dir("~/tin/")
+            assertEquals("$d/thome/tin/a.txt", ip("a.txt"))
+            w.wfdbx_set_input_dir("http://127.0.0.1:1/d")
+            assertNull(ip("a.txt")) // (a URL)
+            assertEquals("$d/a.txt", ip("$d/a.txt"))
+            w.wfdbx_set_input_dir(null as ByteArray?)
+            // the output directory: its missing directories are created
+            w.wfdbx_set_output_dir("$d/tout/deep")
+            assertEquals("$d/tout/deep/a.wav", op("a.wav"))
+            assertTrue(isDir("$d/tout/deep"))
+            assertEquals(emptyList(), listFiles("$d/tout/deep"))
+            assertEquals("$d/tout/deep/s/a.wav", op("s/a.wav"))
+            assertTrue(isDir("$d/tout/deep/s"))
+            assertEquals("/a.wav", op("/a.wav"))
+            assertEquals("$d/n/a.wav", op("$d/n/a.wav"))
+            assertEquals("$d/thome/m/a.wav", op("~/m/a.wav"))
+            assertFalse(isDir("$d/n"))
+            assertFalse(isDir("$d/thome/m"))
+            assertEquals("-", op("-"))
+            assertEquals("a.txt", ip("a.txt"))
+            w.wfdbx_set_output_dir("~/o")
+            assertEquals("$d/thome/o/a.wav", op("a.wav"))
+            assertTrue(isDir("$d/thome/o"))
+            // legacy mode: inputs as named; the output directory as a plain prefix
+            w.wfdbx_set_legacy(1)
+            w.wfdbx_set_input_dir("tin")
+            w.wfdbx_set_output_dir("$d/tlout")
+            assertEquals("a.txt", ip("a.txt"))
+            assertEquals("~/a.txt", ip("~/a.txt"))
+            assertNull(ip("http://127.0.0.1:1/a.txt"))
+            assertEquals("$d/tlout/a.wav", op("a.wav"))
+            assertEquals("$d/tlout//a.wav", op("/a.wav"))
+            assertEquals("$d/tlout/$d/a.wav", op("$d/a.wav"))
+            assertTrue(isDir("$d/tlout$d"))
+            assertEquals("$d/tlout/~/a.wav", op("~/a.wav"))
+            assertTrue(isDir("$d/tlout/~"))
+            assertEquals("-", op("-"))
+            w.wfdbx_set_output_dir(null as ByteArray?)
+            assertEquals("a.wav", op("a.wav"))
+            assertEquals("~/a.wav", op("~/a.wav"))
+            // the default instance
+            val prev = wfdbx_set_input_dir("$d/tin")
+            assertEquals("$d/tin/a.txt", str(wfdbx_input_path("a.txt")))
+            assertEquals("a.wav", str(wfdbx_output_path("a.wav")))
+            wfdbx_set_input_dir(prev)
+        } finally {
+            w.wfdbx_set_legacy(0)
+            if (home == null) unsetenv("HOME") else setenv("HOME", home)
+            removeTree(d)
+        }
+    }
 }

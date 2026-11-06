@@ -10,7 +10,8 @@
 // Changes from the original: no built-in gain or units: the new options -G
 // GAIN (required) and -U UNITS (required unless the gain is 0) give them (the
 // original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
-// millivolts); --legacy, as the first argument, restores the original
+// millivolts); the -i file is found under the input directory, as the library
+// finds an input file; --legacy, as the first argument, restores the original
 // behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
@@ -38,6 +39,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -178,7 +180,10 @@ int main(int argc, char **argv)
     }
 
     // Open the input file.
-    if ((ifile = std::fopen(ifname, "rb")) == nullptr) {
+    // WFDB-x: the file is found where the library finds an input file of
+    // that name (see wfdbx_input_path)
+    std::optional<std::string> ipath = wfdbx_input_path(ifname);
+    if (!ipath || (ifile = std::fopen(ipath->c_str(), "rb")) == nullptr) {
         std::fprintf(stderr, "%s: can't open %s\n", pname, ifname);
         std::exit(2);
     }

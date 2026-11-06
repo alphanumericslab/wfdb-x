@@ -1,0 +1,1569 @@
+% The command-line tools: how to run them, their conventions, and one reference entry per
+% tool. The option lists are those of the Python implementation (python/src/wfdbx/apps),
+% which check_manual.py compares with the usage text of each tool.
+\chapter{The command-line tools}
+\label{chap:tools}
+
+\wfdbx{} includes the 33 command-line tools of the WFDB Software Package \wfdbversion{}
+that read, write and convert records and annotation files. Each of the seven
+implementations has all of them, with the options, output, messages and exit status of the
+C tools, so that a script written for the WFDB tools runs unchanged with \wfdbx{}. The
+exceptions are the deliberate divergences of \cref{chap:behavior}: no built-in signal
+parameters (hence the options \opt{-F}, \opt{-G}, \opt{-R} and \opt{-U} added to some
+tools), files found only where they are named, annotation files sorted without loss, an
+output signal file never written over an input file, and write errors reported in the exit
+status. The original behavior remains available with \opt{-{}-legacy}
+(\cref{sec:tools-legacy}).
+
+Every implementation is checked against the C tools by the same conformance suite (1135
+cases): the standard output, the standard error, the exit status and the files written are
+compared byte for byte. The examples of this chapter were produced by the Python
+implementation, run in a copy of the directory \file{tests/data} of the repository, which
+holds the sample record \code{100s} (the first minute of record 100 of the MIT-BIH
+Arrhythmia Database) and the other test inputs; every other implementation gives the same
+output.
+
+\section{Running the tools}
+\label{sec:tools-running}
+
+The tools are separate programs in C++ and Rust, and subcommands of a launcher in the other
+languages, as in \cref{tab:tools-launchers}. The arguments that follow the tool's name are
+those of the C tool: \cmd{wfdbx rdsamp -r 100s -t 10} (Python, Julia, R, MATLAB/Octave and
+Kotlin, with the alias \cmd{wfdbx}) and \cmd{rdsamp -r 100s -t 10} (C++ and Rust) do the
+same thing. The tool sees its own name as its program name, so its messages begin with
+\code{rdsamp:}, as those of the C tool do.
+
+\begin{xltabular}{\linewidth}{@{}P{2.5cm}L@{}}
+\caption{How each implementation runs a tool (here \code{rdsamp}).}
+\label{tab:tools-launchers}\\
+\toprule
+{\leavevmode\tabhead Language} & {\leavevmode\tabhead Command} \\
+\midrule
+\endfirsthead
+\toprule
+{\leavevmode\tabhead Language} & {\leavevmode\tabhead Command} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Python & \cmd{wfdbx rdsamp ...}: the command \cmd{wfdbx} is installed with the package
+  (\cmd{pip install}); without it, \cmd{python -m wfdbx.cli rdsamp ...} or
+  \cmd{python -m wfdbx.apps.rdsamp ...}. In a program, \code{wfdbx.apps.rdsamp.main(argv)}
+  runs the tool (\code{argv} is the whole argument list, the program name first) and
+  returns its exit status. \\
+C++ & \cmd{rdsamp ...}: one program per tool, built in \file{cpp/build/bin/} (or the
+  \file{bin} directory of the installation). \\
+Rust & \cmd{rdsamp ...}: one program per tool, installed by
+  \cmd{cargo install -{}-path rust}. \\
+Julia & \cmd{julia -{}-startup-file=no -{}-project=JULIADIR JULIADIR/bin/wfdbx.jl rdsamp ...},
+  where \code{JULIADIR} is the directory \file{julia} of the repository; a shell script
+  named \cmd{wfdbx} that runs this command makes it \cmd{wfdbx rdsamp ...}. In a session,
+  \code{WFDBX.run\_tool("rdsamp", ["-r", "100s"]; dir=...)} returns the exit status and the
+  bytes written to the standard output and the standard error, and \code{WFDBX.tools()}
+  the names of the tools. \\
+R & \cmd{Rscript r/inst/bin/wfdbx.R rdsamp ...} (in an installed package, the script is
+  \code{system.file("bin", "wfdbx.R", package = "wfdbx")}); with the alias
+  \cmd{alias wfdbx='Rscript .../wfdbx.R'}, \cmd{wfdbx rdsamp ...}. In a session,
+  \code{wfdbx\_tool("rdsamp", c("-r", "100s"))} runs the tool and returns its exit status,
+  and \code{wfdbx\_tools()} lists the tools. \\
+MATLAB/Octave & Octave: \cmd{octave-cli -{}-no-gui -{}-norc -q matlab/bin/wfdbx\_cli.m rdsamp ...}
+  (with an alias \cmd{wfdbx}, \cmd{wfdbx rdsamp ...}); MATLAB:
+  \cmd{matlab/bin/wfdbx\_matlab.sh rdsamp ...}, which runs \cmd{matlab -batch} (or the
+  program named by the environment variable \code{WFDBX\_MATLAB}). In a session,
+  \code{status = wfdbx.apps.rdsamp(\{'-r', '100s'\})}; \cmd{help wfdbx.apps.rdsamp} shows
+  the usage. \\
+Kotlin & \cmd{kotlin/bin/wfdbx rdsamp ...}, a POSIX shell script that runs
+  \cmd{java -cp build/libs/wfdbx-all.jar wfdbx.cli.MainKt rdsamp ...} (the jar is built by
+  \cmd{./gradlew fatJar}); a link to \file{bin/wfdbx} named after a tool runs that tool. \\
+\end{xltabular}
+
+The launchers also take a few arguments of their own, in place of the tool's name:
+\opt{-{}-list} prints the names of the tools, one per line (Python, R, MATLAB/Octave and
+Kotlin); \opt{-{}-version} prints the version of WFDB-x, as \code{WFDB-x} followed by the
+version number (Python, Julia, R, MATLAB/Octave and Kotlin); \opt{-h} or \opt{-{}-help}
+prints the launcher's usage (Python, R, MATLAB/Octave and Kotlin), and the Python launcher
+also has \opt{-{}-examples} \textit{DIR}, which copies the example notebooks to \textit{DIR}
+(by default \file{wfdbx-examples}). Without arguments, or with an unknown tool name, a
+launcher prints a message on the standard error and exits with status 1. The programs of
+C++ and Rust, like the C tools, have no \opt{-{}-version} option.
+
+\section{Conventions}
+\label{sec:tools-conventions}
+
+\subsection{Records and files}
+\label{sec:tools-files}
+
+A record is named as in \cref{chap:records}, without the suffix of its header
+(\code{100s}, not \code{100s.hea}), and an annotation file by its record and its
+annotator (\opt{-r 100s -a atr} is the file \file{100s.atr}). The tools find every file
+that they read through the library, as \cref{chap:files} describes: a relative name is
+taken relative to the \emph{input directory}, set by the environment variable
+\code{WFDBX\_INPUT\_DIR} (by default the current directory), an absolute name, a \code{\textasciitilde}
+name or a URL is used as given, and nothing is searched for. A URL is opened only when
+network access is turned on, by \code{WFDBX\_NETWORK=1}. Files written through the library
+(headers, signal files, annotation files) are created in the \emph{output directory},
+\code{WFDBX\_OUTPUT\_DIR} (by default the current directory). For example, to read record
+100 of the MIT-BIH Arrhythmia Database from PhysioNet:
+\begin{lstlisting}[style=shell]
+export WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/
+export WFDBX_NETWORK=1
+wfdbx rdsamp -r 100 -t 0:05
+\end{lstlisting}
+
+A few files are opened by the tools themselves, not through the library: the input files
+named by \opt{-i} in \cmd{wrsamp}, \cmd{edf2mit}, \cmd{wav2mit}, \cmd{a2m} and \cmd{ad2m},
+the input files of \cmd{ahaecg2mit}, the script of \cmd{xform -S}, and the signal file
+whose size \cmd{wfdbdesc} measures; and the output files that a tool writes itself: the WAV
+file of \cmd{mit2wav}, the EDF file of \cmd{mit2edf}, the master header of \cmd{snip -m},
+and the \file{.des}, \file{.ecg}, \file{.key} and \file{.txt} files of \cmd{parsescp}.
+They follow the same rules as the files of the library (\cref{sec:tool-files}): a relative
+name is read from the input directory, or created in the output directory (with its
+missing directories), a \code{\textasciitilde} name is expanded, an absolute name is used
+as given, and \code{-} keeps its meaning. A URL is not accepted for these files: the tool
+reports that it cannot read, or create, the file. In legacy mode, the input files are
+opened as named, relative to the current directory, and the output directory, if one is
+set, is a plain prefix of the names of the output files.
+
+\subsection{Time arguments}
+\label{sec:tools-times}
+
+Options that take a time (\opt{-f}, \opt{-t}, \opt{-l} and others) accept the time strings
+of the library function \code{strtim}:
+\begin{itemize}
+\item an elapsed time from the beginning of the record, \code{hh:mm:ss}, \code{mm:ss} or
+  \code{ss}, with an optional fraction of a second (\code{1:30.5}, \code{10});
+\item a sample number, \code{s} followed by the number (\code{s21600});
+\item a time of day, in brackets: \code{[hh:mm:ss]}, \code{[hh:mm:ss dd/mm/yyyy]}, or
+  \code{[hh:mm:ss d]} with a number of days after the start (it needs the base time of the
+  record);
+\item \code{e}, the end of the record; \code{c} followed by a counter value; \code{f}
+  followed by a frame number.
+\end{itemize}
+Elapsed times and times of day need the sampling frequency of the record. When a record
+does not give one, \wfdbx{} reports an error instead of assuming 250\,Hz
+(\cref{chap:behavior}); sample numbers and \code{e} need no frequency. The annotation tools
+\cmd{rdann}, \cmd{ann2rr}, \cmd{sortann}, \cmd{a2m} and \cmd{m2a} take \opt{-F}
+\textit{FREQ} for that case, and \cmd{rr2ann} already had it.
+
+\subsection{Help, options and arguments}
+\label{sec:tools-help}
+
+The options are those of the C tools: one letter after a hyphen, given separately
+(\opt{-v -p}, not \opt{-vp}), their arguments as the next command-line arguments. As in
+C, only the first letter after the hyphen is read in most tools, so that \opt{-pd} is
+\opt{-p} with the time format \code{d}, and an argument that is not an option where an
+option is expected is an error (\code{unrecognized argument}). Options that take a list
+(\opt{-s} \textit{SIGNAL} \code{[}\textit{SIGNAL} \code{...]}, \opt{-p} \textit{TYPE} \code{...}) take
+every following argument that does not begin with a hyphen.
+
+\opt{-h} prints the tool's usage summary on the standard error. A tool that needs an
+argument that was not given (often the record name) prints the same summary. The exit
+status after \opt{-h} is that of the C tool, 0 or 1 depending on the tool (each entry says
+which). Help texts longer than 23 lines (\cmd{ann2rr}, \cmd{wrsamp}) pause after 23 lines,
+print \code{-{}-More-{}-} and read a line from the standard input, as the C tools do. The usage
+line of each tool is given at the start of its entry below.
+
+\subsection{Legacy mode}
+\label{sec:tools-legacy}
+
+\opt{-{}-legacy}, as the \emph{first} argument of a tool (\cmd{rdsamp -{}-legacy -r 100s},
+\cmd{wfdbx rdann -{}-legacy -r 100s -a atr}), is removed before the options are read, and the
+tool then behaves exactly as the original one: the options added by \wfdbx{} (such as
+\opt{-F} of \cmd{rdann} or \opt{-R} of \cmd{wrsamp}) are unrecognized, the help texts and
+messages are those of the original, the built-in values of the original (250\,Hz,
+200\,adu/mV, ...) are used, files are found through the WFDB path (the environment variable
+\code{WFDB}; the files that a tool reads itself are opened as named), and the exit status
+is the original one. \opt{-{}-legacy} anywhere else is not
+recognized: it is treated as any other argument. Legacy mode is meant for reproducing results of the original package;
+\cref{chap:behavior} explains why it is not the default.
+
+\subsection{Standard input and output}
+\label{sec:tools-stdio}
+
+Text output goes to the standard output, and messages, prompts and help texts to the
+standard error. Some tools read the standard input (\cmd{wrsamp} without \opt{-i},
+\cmd{wrann}, \cmd{rr2ann}, \cmd{parsescp}, \cmd{readid}) and some write binary data to the
+standard output (\cmd{wfdbcat}, \cmd{makeid}, and \cmd{wrsamp} without \opt{-o}).
+
+\subsection{Exit status}
+\label{sec:tools-status}
+
+The exit status is that of the C tool: 0 on success, 1 for an error in the arguments
+(including a required option that is missing), 2 when the record or a file cannot be read,
+and, in some tools, other values that their entries give. In addition, \wfdbx{} follows the
+convention of the standard Unix tools: when an output file or the standard output cannot be
+written (a full disk, for example), a tool that would have exited with status 0 exits with
+status 1, and reports a standard output that could not be written as
+\code{PROGRAM: write error on standard output}, and a file that \cmd{snip}, \cmd{mit2edf}
+or \cmd{parsescp} writes itself as \code{PROGRAM: write error on FILE}
+(\cref{chap:behavior}). The original tools exited with status 0 in both cases; legacy
+mode does too.
+
+\section{Summary of the tools}
+\label{sec:tools-summary}
+
+\begin{xltabular}{\linewidth}{@{}P{2.3cm}L@{}}
+\caption{The 33 tools of \wfdbx{}.}
+\label{tab:tools}\\
+\toprule
+{\leavevmode\tabhead Tool} & {\leavevmode\tabhead What it does} \\
+\midrule
+\endfirsthead
+\toprule
+{\leavevmode\tabhead Tool} & {\leavevmode\tabhead What it does} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\multicolumn{2}{@{}l}{\textit{Signal tools} (\cref{sec:tools-signal})} \\
+\code{rdsamp} & print the samples of a record (text, CSV or XML; ADC or physical units) \\
+\code{wrsamp} & write a record from a text file of samples \\
+\code{wfdbdesc} & describe the signals of a record (the contents of its header) \\
+\code{wfdbtime} & convert times to sample numbers, elapsed times and times of day \\
+\code{time2sec} & convert a time to seconds \\
+\code{sampfreq} & print the sampling frequency of a record \\
+\code{signame} & print the names of the signals of a record \\
+\code{signum} & print the numbers of the signals with given names \\
+\code{sigamp} & measure signal amplitudes (peak-to-peak near beats, or RMS) \\
+\code{snip} & copy a segment of a record to a new record \\
+\code{xform} & convert a record: storage format, sampling frequency, gain, signals \\
+\code{wfdbcat} & copy WFDB files to the standard output \\
+\code{wfdbwhich} & print the path of a WFDB file \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Annotation tools} (\cref{sec:tools-annotation})} \\
+\code{rdann} & print the annotations of an annotation file \\
+\code{wrann} & write an annotation file from text in the format of \code{rdann} \\
+\code{sortann} & sort an annotation file into canonical order \\
+\code{ann2rr} & print the intervals between annotations (RR intervals) \\
+\code{rr2ann} & write an annotation file from a list of RR intervals \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Format converters} (\cref{sec:tools-converters})} \\
+\code{edf2mit} & convert an EDF or EDF+ file to a WFDB record \\
+\code{mit2edf} & convert a WFDB record to an EDF or EDF+ file \\
+\code{rdedfann} & print the annotations of an EDF+ file as \code{rdann} text \\
+\code{wav2mit} & make a WAV file readable as a WFDB record \\
+\code{mit2wav} & convert a WFDB record to a WAV file \\
+\code{wfdb2mat} & convert a WFDB record to a MATLAB/Octave \file{.mat} file \\
+\code{a2m} & convert an AHA-format annotation file to WFDB (MIT) format \\
+\code{m2a} & convert a WFDB annotation file to AHA format \\
+\code{ad2m} & convert an AHA-format signal file (tape or CD-ROM) to a WFDB record \\
+\code{md2a} & convert a WFDB record to an AHA-format signal file \\
+\code{ahaecg2mit} & convert AHA DVD files (binary or text) to WFDB records \\
+\code{makeid} & write an AHA-format record ID block \\
+\code{readid} & read an AHA-format record ID block \\
+\code{revise} & convert an obsolete-format header to the current format \\
+\code{parsescp} & read an SCP-ECG file, describe it, and convert it to a record \\
+\end{xltabular}
+
+% ==========================================================================================
+\section{Signal tools}
+\label{sec:tools-signal}
+
+% ------------------------------------------------------------------------------------------
+\apientry{rdsamp}{Print the samples of a record}
+\begin{lstlisting}[style=signature,language={}]
+usage: rdsamp -r RECORD [OPTIONS ...]
+\end{lstlisting}
+Reads the signals of a record and prints one line per sample interval: the sample number
+(or, with \opt{-p}, the time) and the sample of each selected signal, in ADC units, or in
+physical units with \opt{-p}. The output is plain text in columns (tab-separated), CSV
+(\opt{-c}) or WFDB-XML (\opt{-X}), which \cmd{wrsamp} reads back. An invalid sample is
+printed as \code{-} in physical units, and as the value $-32768$ in ADC units.
+\begin{params}
+\item[-r] The input record, \textit{RECORD} (required).
+\item[-c] Use the CSV (comma-separated value) output format: the column headings of
+  \opt{-v} are quoted (\code{'sample \#','MLII','V5'}), and the columns are separated by
+  commas.
+\item[-f] Begin at the time that follows (\cref{sec:tools-times}); by default, the beginning
+  of the record.
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-H] Read multifrequency records in high-resolution mode: one line per sample of the
+  signals with the most samples per frame, the samples of the other signals repeated (by
+  default, one line per frame, the samples of a frame averaged).
+\item[-l] Stop after the time interval that follows (\code{hh:mm:ss}, or \code{s} followed
+  by a number of samples), counted from the beginning time; a \opt{-t} time before the end
+  of that interval still applies.
+\item[-p] Print times and samples in physical units, with 3 decimal places (times in
+  seconds by default). A letter appended to the option chooses the time column:
+  \opt{-pd} the time of day and the date, when the record has a base time (elapsed time
+  otherwise), \opt{-pe} the elapsed time as \code{hh:mm:ss.mmm}, \opt{-ph} hours,
+  \opt{-pm} minutes, \opt{-ps} seconds (the default), \opt{-pS} the sample number.
+\item[-P] As \opt{-p}, with 8 decimal places (columns 15 characters wide); \opt{-Pd},
+  \opt{-Pe}, \opt{-Ph}, \opt{-Pm}, \opt{-Ps} and \opt{-PS} choose the time column.
+\item[-s] Print only the signals that follow, given by number (0, 1, ...) or by name, in
+  the order given: \opt{-s} \textit{SIGNAL} \code{[}\textit{SIGNAL} \code{...]}. A signal that
+  the record does not have is an error.
+\item[-S] Begin at the first valid sample of the signal that follows (a number or a name),
+  at or after the \opt{-f} time.
+\item[-t] Stop at the time that follows (by default, the end of the record).
+\item[-v] Print column headings (the signal names, and with \opt{-p} the units).
+\item[-X] Print WFDB-XML (an XML prolog, the sampling frequency, the number of signals,
+  the headings and the samples); implies \opt{-c} and \opt{-v}.
+\end{params}
+The first four samples of \code{100s}, in ADC units, then four samples from 1 second in
+physical units (\code{100s} gives no units, so they are shown as \code{nd}), and the CSV
+format:
+\begin{lstlisting}[style=text]
+$ rdsamp -r 100s -t s4
+              0     995    1011
+              1     995    1011
+              2     995    1011
+              3     995    1011
+$ rdsamp -r 100s -f 1 -t s364 -p -v
+   Elapsed time    MLII      V5
+      (seconds)    (nd)    (nd)
+          1.000  -0.535  -0.205
+          1.003  -0.505  -0.080
+          1.006  -0.415   0.015
+          1.008  -0.300   0.065
+$ rdsamp -r 100s -t s3 -c -v
+'sample #','MLII','V5'
+0,995,1011
+1,995,1011
+2,995,1011
+\end{lstlisting}
+\returns{Exit status 0 when the samples have been printed (also when a read error or a
+checksum error ends the output early, as in C).}
+\raises{Exit status 1 for an error in the arguments (or a missing \opt{-r}); 2 if the record
+cannot be opened, a signal of \opt{-s} or \opt{-S} cannot be found, or the sampling
+frequency or a gain that the output needs is not specified.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the sampling frequency is
+required for time arguments other than sample numbers, for time columns (\opt{-p} without
+\opt{-pS}, or with \opt{-v}) and for \opt{-X}; the gain of each selected signal is required
+for physical units (\code{rdsamp: signal N of record R is uncalibrated}, status 2);
+unspecified units are shown as \code{nd} (C: \code{mV}). The C tool assumed 250\,Hz and
+200\,adu/mV. The quotes and backslashes of signal names are escaped in CSV headings, where
+the C tool did not terminate.
+
+% ------------------------------------------------------------------------------------------
+\apientry{wrsamp}{Write a record from a text file of samples}
+\begin{lstlisting}[style=signature,language={}]
+usage: wrsamp [OPTIONS ...] [COLUMN ...]
+\end{lstlisting}
+Reads a text file with a sample of each signal on each line, and writes the samples to a
+signal file and, with \opt{-o}, a header. Fields are separated by tabs, spaces, commas or
+any combination of these (consecutive separators count as one). If the first line contains
+letters, it gives the signal names; if the second line also contains letters, it gives the
+units (with or without parentheses). WFDB-XML, as written by \cmd{rdsamp -X}, is read as
+well. Non-numeric fields are written as invalid samples. Samples are rounded to the nearest
+integer after scaling (\opt{-x}).
+\begin{params}
+\item[COLUMN] The fields to copy, by number (the leftmost field is column 0), in the order
+  of the output signals; by default, all fields in order (see \opt{-z}).
+\item[-c] Accepted for compatibility; it has no effect (as in the C tool).
+\item[-d] Add dither (random noise of up to one unit) to the samples before rounding.
+\item[-f] Start copying at the input line that follows (a number, $\ge 1$; the first line
+  of samples is line 0).
+\item[-F] The sampling frequency to write in the header (Hz). Required with \opt{-o}.
+\item[-G] The gain (adu per physical unit) to write in the header; a quoted list of values
+  (\opt{-G "100 50"}) gives one per signal, the last applying to the remaining signals. A
+  gain of 0 declares the signals uncalibrated. Required with \opt{-o}.
+\item[-h] Print the usage summary, and exit with status 1.
+\item[-i] Read the input from the file that follows (by default, or with \code{-}, the
+  standard input). The file is read from the input directory (\cref{sec:tools-files}).
+\item[-o] Write the record that follows: the signal file \textit{RECORD}\file{.dat} and the
+  header \textit{RECORD}\file{.hea}. Without \opt{-o}, the samples are written to the
+  standard output (in format 16 unless \opt{-O} is given) and no header is written.
+\item[-O] The storage format of the output (default 16); any format of
+  \cref{tab:formats}.
+\item[-r] The character that follows separates input lines (records), instead of the
+  line feed.
+\item[-R] The ADC resolution in bits; a quoted list gives one per signal, as for \opt{-G}.
+  Required with \opt{-o}.
+\item[-s] Any character of the string that follows separates input fields (by default:
+  space, tab, carriage return or comma).
+\item[-t] Stop copying at the input line that follows (a number, $\ge 1$).
+\item[-U] The units of the signals; a quoted list gives one per signal, as for \opt{-G}.
+  Required with \opt{-o} for calibrated signals, unless the input gives the units.
+\item[-x] Multiply the input values by the scale factor that follows; a quoted list gives
+  one per signal.
+\item[-z] Do not copy column 0 (usually a sample number), unless it is selected by a
+  \textit{COLUMN} argument.
+\end{params}
+The obsolete option \opt{-l} (and its argument) is ignored, with a message, as in C. For
+example, a record written from the output of \cmd{rdsamp} (column 0, the sample number, is
+skipped by \opt{-z}):
+\begin{lstlisting}[style=text]
+$ rdsamp -r 100s -t s5 > s.txt
+$ wrsamp -i s.txt -o rec -F 360 -G 200 -R 11 -U mV -z
+$ cat rec.hea
+rec 2 360 5
+rec.dat 16 200/mV 11 0 995 4975 0 col 1
+rec.dat 16 200/mV 11 0 1011 5055 0 col 2
+$ wrsamp -i s.txt -o rec2
+wrsamp: the sampling frequency must be specified (-F)
+\end{lstlisting}
+\returns{Exit status 0 when the record has been written.}
+\raises{Exit status 1 for an error in the arguments, a missing \opt{-F}, \opt{-G}, \opt{-R}
+or \opt{-U} (\code{wrsamp: the ... must be specified (-X)}), or an XML input without
+samples; 2 if the input file cannot be read or the output cannot be opened; 3 if the input
+contains no line separator.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): when a record is written
+(\opt{-o}), the sampling frequency (\opt{-F}), the gains (\opt{-G}), the ADC resolutions
+(the new option \opt{-R}) and, for calibrated signals, the units (the new option \opt{-U})
+must be given; the C tool assumed 250\,Hz, 200\,adu/mV, a resolution based on the format,
+and millivolts. A header written with \opt{-U mV} says \code{200/mV} where the C tool
+wrote \code{200}. The \opt{-i} file is read from the input directory (C: from the current
+directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{wfdbdesc}{Describe the signals of a record}
+\begin{lstlisting}[style=signature,language={}]
+usage: wfdbdesc RECORD [-readable]
+\end{lstlisting}
+Prints the contents of a record's header in readable form: the info strings (\code{Notes}),
+the starting time, the length, the sampling frequency, and for each signal its file,
+description, gain and units, initial value, storage format, ADC resolution and zero,
+baseline and checksum. For a multi-segment record, it also describes the segments.
+\begin{params}
+\item[RECORD] The record to describe.
+\item[-readable] Describe only the signals whose files can be opened (by default, every
+  signal named in the header, without opening the files). Any abbreviation of
+  \opt{-readable} is accepted.
+\end{params}
+\begin{lstlisting}[style=text]
+$ wfdbdesc 100s
+Record 100s
+Notes
+=====
+ 69 M 1085 1629 x1
+ Aldomet, Inderal
+Produced by xform from record 100, beginning at 0:0
+=====
+
+Starting time: not specified
+Length:     1:00.000 (21600 sample intervals)
+Sampling frequency: 360 Hz
+2 signals
+Group 0, Signal 0:
+ File: 100s.dat
+ Description: MLII
+ Gain: 200 adu/nd
+ Initial value: 995
+ Storage format: 212
+ I/O: can be unbuffered
+ ADC resolution: 11 bits
+ ADC zero: 1024
+ Baseline: 1024
+ Checksum: 21537
+Group 0, Signal 1:
+ ...
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 without a record name; 2 if the header cannot be read, or the record
+has no signals.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): an unspecified sampling
+frequency or ADC resolution is shown as \code{not specified} (lengths are then given in
+sample intervals only), a gain of 0 as \code{uncalibrated} (C:
+\code{uncalibrated; assume 200}), and unspecified units as \code{adu/nd}; the C tool assumed
+250\,Hz, 12 bits and millivolts. For a record whose header gives no length, the size of the
+first signal file, from which the length is computed, is measured in the header's
+directory, where the library reads the file (C: in the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{wfdbtime}{Convert times and sample numbers}
+\begin{lstlisting}[style=signature,language={}]
+usage: wfdbtime [ -r RECORD [ TIME ] ]
+\end{lstlisting}
+Converts each time argument, at the sampling frequency of the record, and prints three
+columns: the sample number (\code{s} followed by the number), the elapsed time from the
+beginning of the record, and the time of day (the elapsed time again if the record has no
+base time).
+\begin{params}
+\item[-r] The record, \textit{RECORD}, whose sampling frequency and base time are used. A
+  later \opt{-r} switches to another record for the times that follow it.
+\item[TIME] A time to convert, in any form of \cref{sec:tools-times}; any number of times
+  may follow the record.
+\end{params}
+\begin{lstlisting}[style=text]
+$ wfdbtime -r 100s 1:00 s100
+         s21600        1:00.000        1:00.000
+           s100        0:00.278        0:00.278
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 without \opt{-r} (also for \opt{-h}, which prints the usage); 2 if
+the record cannot be opened or its header gives no sampling frequency.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the record must give its
+sampling frequency (C: 250\,Hz assumed).
+
+% ------------------------------------------------------------------------------------------
+\apientry{time2sec}{Convert a time to seconds}
+\begin{lstlisting}[style=signature,language={}]
+usage: time2sec [-r RECORD] TIME
+\end{lstlisting}
+Prints a time interval in seconds. Without \opt{-r}, \textit{TIME} is converted at
+1000 samples per second and printed with up to 12 significant digits; with \opt{-r}, it is
+converted at the sampling frequency of the record and printed with at most three decimals
+(milliseconds). A time of day in brackets (\code{[9:0:0]}) gives the elapsed time from the
+beginning of the record.
+\begin{params}
+\item[-r] The record, \textit{RECORD}, whose sampling frequency (and base time) are used.
+\item[TIME] The time to convert (\cref{sec:tools-times}).
+\end{params}
+\begin{lstlisting}[style=text]
+$ time2sec 1:30.5
+90.5
+$ time2sec -r 100s s1000
+2.778
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for other arguments (also for \opt{-h}), after the usage summary.}
+\textit{Differences from the C tool}: none, apart from \opt{-{}-legacy}.
+
+% ------------------------------------------------------------------------------------------
+\apientry{sampfreq}{Print the sampling frequency of a record}
+\begin{lstlisting}[style=signature,language={}]
+usage: sampfreq [OPTION] RECORD
+\end{lstlisting}
+Prints the sampling frequency (frame rate) of a record, in Hz. With \opt{-a}, prints the
+name and sampling frequency of each signal, tab-separated; with \opt{-H}, the highest
+sampling frequency of a multifrequency record.
+\begin{params}
+\item[RECORD] The record.
+\item[-a] List all signals and their sampling frequencies.
+\item[-h] Listed in the usage summary, which is printed (status 1) when no argument is
+  given; as in C, \cmd{sampfreq -h} alone takes \code{-h} as a record name.
+\item[-H] Print the maximum sampling frequency of a multifrequency record.
+\end{params}
+\begin{lstlisting}[style=text]
+$ sampfreq 100s
+360
+$ sampfreq -a mfreq
+slow    100
+medium  200
+fast    400
+$ sampfreq -H mfreq
+400
+\end{lstlisting}
+\returns{Exit status 0; a header that cannot be read prints the library's message and
+\code{-1}.}
+\raises{Exit status 1 without arguments.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): for a header that does not
+give a sampling frequency, the library reports 0, which is printed (C: 250).
+
+% ------------------------------------------------------------------------------------------
+\apientry{signame}{Print the names of the signals of a record}
+\begin{lstlisting}[style=signature,language={}]
+usage: signame -r RECORD [OPTIONS ...]
+\end{lstlisting}
+Prints the name (description) of each signal of the record, one per line, or of the signals
+whose numbers follow \opt{-s}. A number that is not that of a signal prints
+\code{[INVALID]}.
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required).
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-s] Print the names of the signals whose numbers follow:
+  \opt{-s} \textit{SIGNAL} \code{[}\textit{SIGNAL} \code{...]}.
+\end{params}
+\begin{lstlisting}[style=text]
+$ signame -r 100s -s 1 0 2
+V5
+MLII
+[INVALID]
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments; 2 if the record cannot be opened or
+has no signals.}
+\textit{Differences from the C tool}: none, apart from \opt{-{}-legacy} (the C tool also
+read past the end of its array for the number equal to the number of signals; \wfdbx{}
+prints \code{[INVALID]}).
+
+% ------------------------------------------------------------------------------------------
+\apientry{signum}{Print the numbers of the signals with given names}
+\begin{lstlisting}[style=signature,language={}]
+usage: signum -r RECORD [OPTIONS ...]
+\end{lstlisting}
+For each name that follows \opt{-s}, prints the numbers of the signals of the record with
+that exact name (tab-separated, when several have it), or \code{X} if none has it, one line
+per name.
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required).
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-s] The signal names to look for (required):
+  \opt{-s} \textit{SIGNAL} \code{[}\textit{SIGNAL} \code{...]}.
+\end{params}
+\begin{lstlisting}[style=text]
+$ signum -r 100s -s V5 MLII ABP
+1
+0
+X
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments, or without \opt{-r} or \opt{-s};
+2 if the record cannot be opened.}
+\textit{Differences from the C tool}: none, apart from \opt{-{}-legacy}.
+
+% ------------------------------------------------------------------------------------------
+\apientry{sigamp}{Measure signal amplitudes}
+\begin{lstlisting}[style=signature,language={}]
+usage: sigamp -r RECORD [OPTIONS ...]
+\end{lstlisting}
+Measures the amplitude of each signal, up to \textit{NMAX} times, and prints the trimmed
+mean of the measurements (the largest and smallest 5\% excluded), one tab-separated column
+per signal. With an annotator (\opt{-a}), each measurement is the peak-to-peak amplitude in
+a window around a beat annotation (an annotation that \code{map1} maps to \code{NORMAL});
+without one, it is the RMS amplitude over consecutive windows of 1 second (\opt{-w}). The
+amplitudes are in ADC units, or in physical units with \opt{-p}.
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required).
+\item[-a] Measure peak-to-peak amplitudes near the beat annotations of the annotator that
+  follows. \opt{-a} and \opt{-w} cannot be used together (\opt{-w} is then ignored, with a
+  message).
+\item[-d] The window of the peak-to-peak measurements, \textit{DT1} \textit{DT2}: the time
+  before and the time after each annotation (default 0.05 seconds each); used only with
+  \opt{-a}.
+\item[-f] Begin at the time that follows.
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-H] Read multifrequency records in high-resolution mode.
+\item[-n] Make up to the number of measurements that follows per signal (default 300).
+\item[-p] Print the amplitudes in physical units. A letter appended chooses the time
+  format of the individual measurements (\opt{-q}, \opt{-v}): \opt{-pd} the time of day,
+  \opt{-pe} \code{hh:mm:ss}, \opt{-ph} hours, \opt{-pm} minutes, \opt{-ps} seconds (the
+  default), \opt{-pS} sample numbers.
+\item[-q] Quick mode: print the individual measurements only, each with its time.
+\item[-t] Stop at the time that follows.
+\item[-v] Verbose mode: print the individual measurements, then the trimmed means
+  (\code{Trimmed mean}).
+\item[-w] The window of the RMS measurements, \textit{DTW} (default 1 second).
+\end{params}
+The environment variable \code{WFDBGVMODE} sets the resolution mode when \opt{-H} is not
+given, as in C.
+\begin{lstlisting}[style=text]
+$ sigamp -r 100s
+        32.97   23.7155
+$ sigamp -r 100s -a atr -n 4 -v
+0.213889        265     176
+1.027778        295     193
+1.838889        306     216
+2.627778        301     216
+Trimmed mean    291.75  200.25
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments; 2 if the record or the annotator cannot
+be opened, the record gives no sampling frequency, or a signal is uncalibrated with
+\opt{-p}.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the record must give its
+sampling frequency (the windows are in seconds), and, with \opt{-p}, the gain of each signal
+(C: 250\,Hz and 200\,adu/mV assumed).
+
+% ------------------------------------------------------------------------------------------
+\apientry{snip}{Copy a segment of a record to a new record}
+\begin{lstlisting}[style=signature,language={}]
+usage: snip -i IREC -n NREC [OPTIONS ...]
+\end{lstlisting}
+Copies the samples of a record between two times to a new record, with the same signals,
+storage format and signal specifications, and optionally its annotations, with times
+relative to the beginning of the excerpt. The header of the new record keeps the info
+strings of the input and adds \code{Produced by snip from record IREC, beginning at TIME}.
+To change the sampling frequency, gains or signals, \cmd{xform} is the tool to use.
+\begin{params}
+\item[-i] The input record, \textit{IREC} (required; \opt{-r} is accepted as a synonym).
+\item[-n] The new record, \textit{NREC} (required). It must differ from \textit{IREC}: the
+  header of the new record is written over that of a record of the same name.
+\item[-a] Copy the annotations of the annotators that follow:
+  \opt{-a} \textit{ANNOTATOR} \code{[}\textit{ANNOTATOR} \code{...]}.
+\item[-f] Begin at the time that follows (default 0).
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-l] Copy only the duration that follows (\code{hh:mm:ss} or \code{s} followed by a
+  number of samples); overrides \opt{-t}.
+\item[-m] Keep the segments of a multi-segment input record, if possible. The master
+  header of the new record is created in the output directory, as the other files are.
+\item[-O] Write the samples in the storage format that follows (by default, the best fit
+  to the ADC resolution).
+\item[-s] Do not copy the info strings of the input header.
+\item[-t] Stop at the time that follows (default: the end of the record).
+\end{params}
+\begin{lstlisting}[style=text]
+$ snip -i 100s -n ex -f 10 -t 20 -a atr
+$ cat ex.hea
+ex 2 360 3600
+ex.dat 212 200 11 1024 946 -16262 0 MLII
+ex.dat 212 200 11 1024 969 18142 0 V5
+# 69 M 1085 1629 x1
+# Aldomet, Inderal
+#Produced by xform from record 100, beginning at 0:0
+#Produced by snip from record 100s, beginning at 10
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments or an improper interval; 2 if a header
+cannot be read or written, or the input record gives no sampling frequency.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the input record must give its
+sampling frequency, for the new header (C: 250\,Hz assumed); an output signal file is never
+one of the input files; when the last frame to copy cannot be read and no frame was read
+before it, 0 is written (C: uninitialized values); the master header of \opt{-m} is created
+in the output directory (C: in the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{xform}{Convert a record (format, frequency, gain, signals)}
+\begin{lstlisting}[style=signature,language={}]
+usage: xform -i IREC [OPTIONS ...]
+\end{lstlisting}
+Copies the signals of a record to a new one, converting them: to another storage format,
+sampling frequency (by interpolation), gain, ADC resolution or zero level, and to a subset
+or another order of the signals; annotations can be copied too, with their times converted.
+The output is described either by an existing header (\opt{-o}) or by answers to prompts
+(printed on the standard error and read from the terminal, the standard input, or a script
+given by \opt{-S}): the output record name (unless \opt{-n} gives it), the number of
+signals, the sampling frequency, the directory of the signal files, the storage format,
+whether all signals go in one file, and for each signal its gain, ADC resolution and ADC
+zero (and with \opt{-N} its description and units). Samples out of the range of the output
+format wrap around unless \opt{-c} is given. While it converts, it prints
+\code{Checking input signals ...} and progress dots.
+\begin{params}
+\item[-i] The input record, \textit{IREC} (required).
+\item[-a] Copy the annotations of the annotators that follow:
+  \opt{-a} \textit{ANNOTATOR} \code{[}\textit{ANNOTATOR} \code{...]}.
+\item[-c] Clip the output samples to the range of the format (by default, they wrap around).
+\item[-d] Add dither to the input if the sampling frequency or the gain changes.
+\item[-f] Begin at the time that follows.
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-H] Open the input record in high-resolution mode.
+\item[-M] Process a multifrequency record without changing the frequencies of its signals.
+\item[-n] Create a header for the record \textit{NREC} that follows, with the signal
+  descriptions of \textit{IREC}.
+\item[-N] As \opt{-n}, but with the signal descriptions of \textit{OREC} (or asked for).
+\item[-o] Write the output signal files as the existing header of the record \textit{OREC}
+  that follows describes them (no prompts).
+\item[-s] Write only the input signals that follow, by number or name, in that order:
+  \opt{-s} \textit{SIGNAL} \code{[}\textit{SIGNAL} \code{...]}. A signal that the record does not
+  have is skipped, with a warning.
+\item[-S] Take the answers to the prompts from the text file \textit{SCRIPT} that follows,
+  one answer per line (an empty line takes the default answer). The file is read from the
+  input directory (\cref{sec:tools-files}).
+\item[-t] Stop at the time that follows.
+\item[-u] Adjust annotation times, if needed, to make them unique.
+\end{params}
+For example, a copy of the first 2 seconds of \code{100s} in format 16, with the answers in
+the file \file{ans.txt} (empty lines, except \code{16} on the fourth: the default number
+of signals, frequency and directory, then format 16, then the default answers):
+\begin{lstlisting}[style=text]
+$ xform -i 100s -n x16 -S ans.txt -t 2 2>/dev/null
+$ cat x16.hea
+x16 2 360 720
+x16.dat 16 200 11 1024 995 -26770 0 MLII
+x16.dat 16 200 11 1024 1011 -12260 0 V5
+# 69 M 1085 1629 x1
+# Aldomet, Inderal
+#Produced by xform from record 100, beginning at 0:0
+#Produced by xform from record 100s, beginning at 0:0
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments, identical \opt{-n} and \opt{-o} names,
+\opt{-M} with a change of frequency, an output frequency of 0, a missing ADC resolution, a
+\opt{-t} time before the \opt{-f} time, or the end of a script before the last answer; 2 if
+a record cannot be opened or written, a sampling frequency is not specified, or a requested
+rescaling is impossible.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the input record (and the
+record of \opt{-o}) must give a sampling frequency, and an output frequency of 0 is refused
+(C: 250\,Hz); rescaling an uncalibrated signal to a given gain, and rescaling by ADC
+resolution when a resolution is unspecified, are refused; an ADC resolution is offered as
+the default only if it comes from the input (or the previous output signal) and suits the
+output format, and must be given otherwise; unspecified units are shown as \code{nd} in the
+prompts; an output signal file that would be one of the input files is refused
+(\code{osigfopen: output file NAME is also an input file}). With \opt{-M} and an output
+frame larger than the input frame, the samples beyond the input frame are 0 (C: a crash).
+The script of \opt{-S} is read from the input directory (C: from the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{wfdbcat}{Copy WFDB files to the standard output}
+\begin{lstlisting}[style=signature,language={}]
+usage: wfdbcat FILE [FILE ...]
+\end{lstlisting}
+Copies each file, found as the library finds files (\cref{sec:tools-files}: relative to the
+input directory, or as a full path or a URL), to the standard output, byte for byte. A file
+that cannot be found is reported (\code{wfdbcat: `FILE' not found}) and skipped.
+\begin{params}
+\item[FILE] A file to copy, named with its suffix (\code{100s.hea}).
+\end{params}
+\begin{lstlisting}[style=text]
+$ wfdbcat 100s.hea
+100s 2 360 21600
+100s.dat 212 200 11 1024 995 21537 0 MLII
+100s.dat 212 200 11 1024 1011 -3962 0 V5
+# 69 M 1085 1629 x1
+# Aldomet, Inderal
+#Produced by xform from record 100, beginning at 0:0
+\end{lstlisting}
+\returns{Exit status 0, also when a file was not found.}
+\raises{Exit status 1 without arguments, or with \opt{-h} alone.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): each file is read from where it
+is named, not found by a search of the WFDB path.
+
+% ------------------------------------------------------------------------------------------
+\apientry{wfdbwhich}{Print the path of a WFDB file}
+\begin{lstlisting}[style=signature,language={}]
+usage: wfdbwhich [-r RECORD ] FILENAME
+ -or-  wfdbwhich FILE-TYPE RECORD
+\end{lstlisting}
+Prints the path by which the library opens a file: a file named by \textit{FILENAME}, or
+the file of type \textit{FILE-TYPE} (a suffix such as \code{hea}, \code{dat} or \code{atr})
+of a record. A file that cannot be found is reported with the input directory
+(\code{(WFDB path = ...)}).
+\begin{params}
+\item[-r] Open the record \textit{RECORD} first.
+\item[FILENAME] The name of the file to find.
+\item[FILE-TYPE] The type (suffix) of the file of the record to find.
+\item[RECORD] The record.
+\end{params}
+\begin{lstlisting}[style=text]
+$ wfdbwhich hea 100s
+100s.hea
+$ wfdbwhich 100x.dat
+`100x.dat' not found
+(WFDB path = .)
+\end{lstlisting}
+\returns{Exit status 0 when the file is found.}
+\raises{Exit status 1 for other arguments (also \opt{-h}); 2 if the file is not found.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the file is looked for only
+where it is named (the input directory, a full path or a URL), not by a search of the WFDB
+path, and the path printed in the message is the input directory.
+
+% ==========================================================================================
+\section{Annotation tools}
+\label{sec:tools-annotation}
+
+% ------------------------------------------------------------------------------------------
+\apientry{rdann}{Print the annotations of an annotation file}
+\begin{lstlisting}[style=signature,language={}]
+usage: rdann -r RECORD -a ANNOTATOR [OPTIONS ...]
+\end{lstlisting}
+Prints one line per annotation: the time (elapsed time, or time of day in brackets when the
+record has a base time), the sample number, the mnemonic of the annotation type, the
+subtype, channel and number fields, and the auxiliary information (after a tab), if any.
+Options select the annotations to print and the time format. This text is the input format
+of \cmd{wrann}. The old syntax of the C tool, \cmd{rdann} \textit{ANNOTATOR RECORD}
+\code{[}\textit{FROM} \code{[}\textit{TO} \code{[}\textit{TYPE} \code{...]]]}, is accepted too.
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required).
+\item[-a] The annotator, \textit{ANNOTATOR} (required).
+\item[-c] Print only the annotations with the channel number that follows (from $-128$
+  to 127).
+\item[-e] Print the times as elapsed times, even for a record with a base time. Only one of
+  \opt{-e} and \opt{-x} can be used (the last one given applies).
+\item[-f] Start at the time that follows; also \code{a} followed by a number (from that
+  annotation number), or \code{b} or \code{\#} followed by a number (from that beat number).
+\item[-F] The sampling frequency, used if the record has no header or its header gives
+  none.
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-n] Print only the annotations with the \code{num} value that follows.
+\item[-p] Print only the annotations of the types that follow, given by their mnemonics:
+  \opt{-p} \textit{TYPE} \code{[}\textit{TYPE} \code{...]} (\opt{-p N V}).
+\item[-s] Print only the annotations with the subtype that follows.
+\item[-t] Stop at the time that follows; also \code{a}, \code{b} or \code{\#} followed by a
+  number, as for \opt{-f} (\code{\#}: that number of beats).
+\item[-v] Print column headings.
+\item[-x] Print the times in seconds, minutes and hours (with enough decimal places to
+  resolve the time resolution of the file).
+\end{params}
+\begin{lstlisting}[style=text]
+$ rdann -r 100s -a atr -t 3 -v
+      Time   Sample #  Type  Sub Chan  Num      Aux
+    0:00.050       18     +    0    0    0      (N
+    0:00.214       77     N    0    0    0
+    0:01.028      370     N    0    0    0
+    0:01.839      662     N    0    0    0
+    0:02.628      946     N    0    0    0
+$ rdann -r 100s -a atr -t 2 -x
+    0.050   0.00083 0.0000139     +    0    0    0      (N
+    0.214   0.00356 0.0000594     N    0    0    0
+    1.028   0.01713 0.0002855     N    0    0    0
+    1.839   0.03065 0.0005108     N    0    0    0
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments, or if the sampling frequency is not
+specified (\code{rdann: sampling frequency of record R is not specified (use -F)}); 2 if the
+annotation file cannot be opened or a starting annotation or beat number is beyond its end.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the new option \opt{-F} gives
+the sampling frequency of a record without a header (or whose header gives none), and is
+then required; the C tool assumed 250\,Hz.
+
+% ------------------------------------------------------------------------------------------
+\apientry{wrann}{Write an annotation file from text}
+\begin{lstlisting}[style=signature,language={}]
+usage: wrann -r RECORD -a ANNOTATOR <TEXT-FILE
+\end{lstlisting}
+Reads annotations from the standard input, in the format printed by \cmd{rdann}, and writes
+the annotation file \textit{RECORD}\file{.}\textit{ANNOTATOR}. The time column is skipped and
+the sample number is used, except on lines that begin with a time of day in brackets, whose
+time is converted. A mnemonic that is not an annotation code is written as a \code{NOTE}
+(comment) annotation whose auxiliary information begins with that mnemonic. Text after a
+tab is the auxiliary information. The time resolution recorded in the file is the sampling
+frequency of the record, if its header gives one. Annotations that are not in canonical
+order are sorted when the file is closed (\cref{chap:behavior}).
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required).
+\item[-a] The output annotator, \textit{ANNOTATOR} (required).
+\end{params}
+\opt{-h}, not listed in the usage, prints it and exits with status 0.
+\begin{lstlisting}[style=text]
+$ rdann -r 100s -a atr | wrann -r 100s -a copy
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments; 2 if the output file cannot be opened.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): an out-of-order file is sorted
+by the library itself, without losing annotations, instead of by running \cmd{sortann}.
+
+% ------------------------------------------------------------------------------------------
+\apientry{sortann}{Sort an annotation file}
+\begin{lstlisting}[style=signature,language={}]
+usage: sortann -r RECORD -a ANNOTATOR [OPTIONS ...]
+\end{lstlisting}
+Rearranges the annotations of a file in canonical order: by time, then annotation number,
+then channel. A later annotation with the same time, number and channel replaces an
+earlier one, and \code{NOTQRS} annotations are dropped. The sorted file replaces the input
+if \opt{-o} is not given and the input is not already sorted; an already sorted input is
+reported (\code{sortann: input is already ordered -{}- no output written}) and nothing is
+written.
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required). As in C, \opt{-r}\textit{DIR} (the
+  directory attached to the option) sets the input directory before the record name.
+\item[-a] The input annotator, \textit{ANNOTATOR} (required).
+\item[-f] Copy only the annotations from the time that follows (requires \opt{-o}).
+\item[-F] The sampling frequency, used if the record has no header or its header gives
+  none; then required for \opt{-f} and \opt{-t}.
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-o] Write the output as the annotator \textit{OUTANN} that follows (it must differ
+  from the input annotator); required with \opt{-f} or \opt{-t}.
+\item[-t] Copy only the annotations before the time that follows (requires \opt{-o}).
+\end{params}
+\begin{lstlisting}[style=text]
+$ sortann -r 100s -a atr
+sortann: input is already ordered -- no output written
+\end{lstlisting}
+\returns{Exit status 0, also for an input that is already sorted.}
+\raises{Exit status 1 for an error in the arguments, a missing \opt{-o}, identical input
+and output annotators, or a sampling frequency that is needed and not specified; 2 if an
+annotation file cannot be opened.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the new option \opt{-F}; an
+out-of-order annotation at time 0 (with number and channel 0) is no longer lost, nor are
+those inserted after it (the C tool dropped them; legacy mode does too).
+
+% ------------------------------------------------------------------------------------------
+\apientry{ann2rr}{Print the intervals between annotations}
+\begin{lstlisting}[style=signature,language={}]
+usage: ann2rr -r RECORD -a ANNOTATOR [OPTIONS ...]
+\end{lstlisting}
+Prints the intervals between consecutive beat (QRS) annotations, one per line, in sample
+intervals by default, optionally with the times and types of the annotations that begin and
+end each interval. The first interval begins at the starting time.
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required).
+\item[-a] The annotator, \textit{ANNOTATOR} (required).
+\item[-A] Print all intervals between annotations, not only RR intervals (overrides \opt{-c}
+  and \opt{-p}).
+\item[-c] Print only intervals between consecutive valid annotations.
+\item[-f] Start at the time that follows.
+\item[-F] The sampling frequency, used if the record has no header or its header gives
+  none; then required for times and for intervals in units of time.
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-i] Print the intervals in the format that follows: \code{h} (hours), \code{m}
+  (minutes), \code{s} (seconds), each optionally followed by a number of decimal places from
+  0 to 15 (default 3; \opt{-i s8}), or \code{t} (\code{hh:mm:ss}).
+\item[-p] Print only intervals that end with annotations of the types that follow:
+  \opt{-p} \textit{TYPE} \code{[}\textit{TYPE} \code{...]}, given by mnemonics such as
+  \code{N} or \code{V}.
+\item[-P] Print only intervals that begin with annotations of the types that follow.
+\item[-t] Stop at the time that follows.
+\item[-v] Print the time of the end of each interval, in the format that follows, if any:
+  \code{h}, \code{m} or \code{s} (with decimal places, as for \opt{-i}), \code{t}, or
+  \code{T} (date and time, if available); without a format, in sample intervals.
+\item[-V] Print the time of the beginning of each interval, as for \opt{-v}.
+\item[-w] Print the annotations that end the intervals.
+\item[-W] Print the annotations that begin the intervals.
+\end{params}
+\begin{lstlisting}[style=text]
+$ ann2rr -r 100s -a atr -t 4 -i s -V s -w
+0.000   0.214   N
+0.214   0.814   N
+1.028   0.811   N
+1.839   0.789   N
+2.628   0.792   N
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments, or a sampling frequency that is needed
+and not specified; 2 if the annotation file cannot be opened.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the new option \opt{-F}; the C
+tool assumed 250\,Hz.
+
+% ------------------------------------------------------------------------------------------
+\apientry{rr2ann}{Write an annotation file from RR intervals}
+\begin{lstlisting}[style=signature,language={}]
+usage: rr2ann -r RECORD -a ANNOTATOR [OPTIONS ...] <TEXT-FILE
+\end{lstlisting}
+Reads a column of RR intervals (or of times of occurrence, with \opt{-T}) in sample
+intervals from the standard input, and writes an annotation file of \code{N} (normal beat)
+annotations at the corresponding times, or of the types of a second column (\opt{-w}). The
+first token of a line is the interval; empty lines, non-numeric tokens, and negative or zero
+intervals are skipped. If the record has no header, one is created.
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required).
+\item[-a] The output annotator, \textit{ANNOTATOR} (required).
+\item[-F] The sampling frequency, used (and required) if the header does not exist or does
+  not give one; otherwise ignored, with a warning.
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-T] The input contains times of occurrence, not RR intervals.
+\item[-x] Multiply the input values by the factor that follows (default 1) to obtain sample
+  intervals.
+\item[-w] Take the annotation type of each line from its second column (a mnemonic).
+\end{params}
+\begin{lstlisting}[style=text]
+$ ann2rr -r 100s -a atr | rr2ann -r 100s -a rr
+$ rdann -r 100s -a rr -t 2
+    0:00.214       77     N    0    0    0
+    0:01.028      370     N    0    0    0
+    0:01.839      662     N    0    0    0
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments, or a sampling frequency that is needed
+and not given; 2 if the header cannot be created; 3 if the annotation file cannot be
+opened.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): \opt{-F} is required when the
+record has no header or its header gives no frequency (C: 250\,Hz assumed); a header is
+created only when there is none.
+
+% ==========================================================================================
+\section{Format converters}
+\label{sec:tools-converters}
+
+% ------------------------------------------------------------------------------------------
+\apientry{edf2mit}{Convert an EDF or EDF+ file to a WFDB record}
+\begin{lstlisting}[style=signature,language={}]
+usage: edf2mit [OPTIONS ...]
+\end{lstlisting}
+Reads a European Data Format file (EDF or EDF+) and writes a WFDB record with the same
+data: a header and a signal file in format 16, with the sampling frequencies, gains,
+baselines, units and start time of the EDF header. The signals \code{EDF Annotations} of an
+EDF+ file are copied as signals (\cmd{rdedfann} reads them). Unknown options are ignored.
+\begin{params}
+\item[-i] The EDF file to read, \textit{EDFILE} (required); \code{-} reads the standard
+  input. It is read from the input directory (\cref{sec:tools-files}).
+\item[-b] The input is in big-endian byte order (by default, little-endian).
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-r] The record to create, \textit{RECORD} (by default, the input file name up to its
+  first dot, with every character other than a letter or digit replaced by \code{\_}).
+\item[-s] Copy only the signals that follow, by number (from 0):
+  \opt{-s} \textit{SIGNAL} \code{[}\textit{SIGNAL} \code{...]}.
+\item[-v] Print the fields of the EDF header (debugging output) on the standard output.
+\end{params}
+\begin{lstlisting}[style=text]
+$ edf2mit -i edfp.edf -r edfp2
+$ cat edfp2.hea
+edfp2 2 10 20 13:24:35 02/03/2002
+edfp2.dat 16x10 4.095/uV 11 0 0 26823 0 EEG Fpz-Cz
+edfp2.dat 16x3 32767.5 15 0 12331 14629 0 EDF Annotations
+\end{lstlisting}
+\begin{phibox}
+The patient and recording identification fields of an EDF header can identify a person;
+\opt{-v} prints them.
+\end{phibox}
+\returns{Exit status 0.}
+\raises{Exit status 1 for a missing or unreadable input file or an invalid record name;
+2 if the input is not EDF, or is shorter than the 256-byte fixed part of an EDF header
+(\code{edf2mit: incomplete EDF header in FILE}; no file is created).}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the \opt{-i} file is read from
+the input directory (C: from the current directory); otherwise none, apart from
+\opt{-{}-legacy}, except for input on which the C tool fails: a file shorter than the fixed
+part of the header (C: fields from uninitialized memory), and signals with 0 samples per
+data record (C: a crash).
+
+% ------------------------------------------------------------------------------------------
+\apientry{mit2edf}{Convert a WFDB record to an EDF file}
+\begin{lstlisting}[style=signature,language={}]
+usage: mit2edf -r RECORD [OPTIONS ...]
+\end{lstlisting}
+Reads a record and writes an EDF file with the same data: 16-bit samples in data records
+(blocks) of 10 seconds, or shorter if a block would exceed 61440 bytes. The record name is
+written as the patient identification, and the base date and time, if any, as the start
+date and time (\code{Startdate not recorded} otherwise). An empty line is printed on the
+standard output when the file is complete. Unknown options are ignored.
+\begin{params}
+\item[-r] The input record, \textit{RECORD} (required).
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-o] The EDF file to write, \textit{EDFILE} (default: \textit{RECORD}\file{.edf},
+  without the directory part of the record name), created in the output directory
+  (\cref{sec:tools-files}).
+\item[-p] Write an EDF+ file (its name must end in \file{.edf} or \file{.EDF}); warnings say
+  what EDF+ requires that the record does not give.
+\item[-v] Verbose mode: print the sizes of the header, the blocks and the file, and a dot
+  per minute of data.
+\end{params}
+\begin{lstlisting}[style=text]
+$ mit2edf -r 100s -o 100s.edf -v
+Converting record 100s to 100s.edf (EDF mode)
+ Header block size: 768 bytes
+ Data block size: 10 seconds (3600 frames or 14400 bytes)
+ Recording length: 1:00 (7 data blocks, 25200 frames, 100800 bytes)
+ Total length of file to be written: 101568 bytes
+.
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments or an invalid EDF+ file name; 2 if the
+record cannot be opened; 3 if its signals cannot be read, or the sampling frequency, a gain
+or an ADC resolution is not specified; 4 if the output file cannot be created; 5 if a frame
+does not fit in an EDF block.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the record must give the
+sampling frequency and the gain and ADC resolution of every signal (an EDF file stores
+physical and digital ranges); the C tool assumed 250\,Hz and 200\,adu/mV and guessed the
+resolution from the storage format. Unspecified units are written as \code{nd} (C:
+\code{mV}). The EDF file is created in the output directory (C: in the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{rdedfann}{Print the annotations of an EDF+ file}
+\begin{lstlisting}[style=signature,language={}]
+usage: rdedfann -r RECORD [OPTIONS ...]
+\end{lstlisting}
+Reads the \code{EDF Annotations} signal of an EDF+ file, read as a record
+(\cref{chap:records}), and prints its annotations as text in the format of \cmd{rdann},
+which \cmd{wrann} can convert to an annotation file. The annotation text is printed in place
+of the mnemonic (by default) or as the auxiliary information (\opt{-x}), followed by the
+duration, if any.
+\begin{params}
+\item[-r] The EDF+ file, read as a record, \textit{RECORD} (required): \opt{-r edfp.edf}.
+\item[-F] Compute the sample numbers at the frequency \textit{FREQ} that follows, in Hz
+  (a value that is not positive gives 1).
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-v] Print column headings.
+\item[-x] Print the annotation text in the auxiliary information, with the type
+  \code{\textquotedbl} (\code{NOTE}).
+\end{params}
+\begin{lstlisting}[style=text]
+$ rdedfann -r edfp.edf -v
+      Time   Sample #  Type  Sub Chan  Num      Aux
+    0:00.500       50 Sleep_stage_W    0    0    0              duration: 1.5
+    0:01.250      125 Arousal    0    0    0            duration: 1.5
+    0:01.250      125 Spindle_onset    0    0    0              duration: 1.5
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments; 2 if the record cannot be opened; 3 if
+it has no EDF annotations.}
+\textit{Differences from the C tool}: none, apart from \opt{-{}-legacy}.
+
+% ------------------------------------------------------------------------------------------
+\apientry{wav2mit}{Make a WAV file readable as a record}
+\begin{lstlisting}[style=signature,language={}]
+usage: wav2mit -i FILE.wav -r RECORD [ OPTIONS ... ]
+\end{lstlisting}
+Writes a header for a WAV file (PCM, 8 or 16 bits per sample), so that the WAV file itself
+is read as the signal file of a record: format 16 (or 80 for 8-bit files) after a 44-byte
+prolog, with the sampling frequency, number of signals and resolution of the WAV file.
+\begin{params}
+\item[-i] The WAV file, \textit{FILE.wav} (required; the name must end in \file{.wav}),
+  read from the input directory (\cref{sec:tools-files}).
+\item[-G] The gain in adu per physical unit (required; 0 declares the signals
+  uncalibrated).
+\item[-h] Print the usage summary, and exit with status 1.
+\item[-r] The record to create, \textit{RECORD}: its header is \textit{RECORD}\file{.hea}
+  (default: the WAV file name without \file{.wav}).
+\item[-U] The physical units (required unless the gain is 0).
+\end{params}
+\begin{lstlisting}[style=text]
+$ wav2mit -i 100s.wav -r w2 -G 200 -U mV
+$ cat w2.hea
+w2 2 360 21600
+100s.wav 16+44 200/mV 16 0 0 0 0
+100s.wav 16+44 200/mV 16 0 0 0 0
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments or a missing \opt{-G} or \opt{-U};
+2 if the WAV file cannot be opened; 3 if it is not a supported WAV file (not PCM, more
+than 16 bits per sample, inconsistent chunk lengths); 4 if the header cannot be written.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the new options \opt{-G}
+(required) and \opt{-U} (required unless the gain is 0); the C tool wrote 12.5\,adu/mV for
+8-bit and 6400\,adu/mV for 16-bit files, in millivolts. The \opt{-i} file is read from the
+input directory (C: from the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{mit2wav}{Convert a record to a WAV file}
+\begin{lstlisting}[style=signature,language={}]
+usage: mit2wav -o FILE.wav -r RECORD [ OPTIONS ... ]
+\end{lstlisting}
+Writes the signals of a record to a WAV file (16-bit PCM, one channel per signal, at the
+sampling frequency of the record), the samples shifted left to 16 bits. With \opt{-n}, it
+also writes a header that describes the WAV file as a record, with the gains and baselines
+adjusted to the shift.
+\begin{params}
+\item[-o] The WAV file to write, \textit{FILE.wav} (required; the name must end in
+  \file{.wav}), created in the output directory (\cref{sec:tools-files}).
+\item[-r] The input record, \textit{RECORD} (required).
+\item[-h] Print the usage summary, and exit with status 1.
+\item[-n] Write a header for the WAV file, as the record \textit{NEWREC} that follows (it
+  must differ from \textit{RECORD}).
+\end{params}
+\begin{lstlisting}[style=text]
+$ mit2wav -r 100s -o 100s.wav -n wavrec
+$ cat wavrec.hea
+wavrec 2 360 21600
+100s.wav 16+44 6400 16 0 -928 -31712 0 MLII
+100s.wav 16+44 6400 16 0 -416 4288 0 V5
+\end{lstlisting}
+The samples are written through the library, then the WAV header is put in front of them,
+in the same file: the file that the library created, in the output directory if one is set.
+(The C tool, with temporary files, rewrites the file of that name in the current directory;
+before version 1.2.0, with an output directory set, the WAV header was therefore left in the
+current directory, and the samples, without a header, in the output directory.)
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments; 2 if the record cannot be opened; 3 if
+its signals cannot be read, it gives no sampling frequency, or the header of \opt{-n}
+cannot be written; 4 if the output file cannot be opened.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the record must give its
+sampling frequency (C: 250\,Hz assumed); a signal of more than 16 bits is shifted right to
+16 bits and gets a gain multiplier of 0 (C: undefined shift, samples written as 0); the WAV
+header is put in front of the samples in the file that the library created, in the output
+directory (C: in the file of that name in the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{wfdb2mat}{Convert a record to a MATLAB/Octave file}
+\begin{lstlisting}[style=signature,language={}]
+usage: wfdb2mat -r RECORD [OPTIONS ...]
+\end{lstlisting}
+Writes the samples of a record (in ADC units, less the ADC zero) as a MATLAB/Octave
+\file{.mat} file (MATLAB 5 format) holding a matrix \code{val} of one row per signal, and a
+header that describes the \file{.mat} file as a record: format 80, 16 or 32 (the smallest
+that holds the input formats) after a 192-byte prolog. Both are named after the record
+with an \code{m} appended: \file{100sm.mat} and \file{100sm.hea} for \code{100s} (the help
+text, that of the C tool, says \textit{RECORD}\file{.mat}). A summary of the conversion is
+printed on the standard output.
+\begin{params}
+\item[-r] The input record, \textit{RECORD} (required).
+\item[-f] Begin at the time that follows.
+\item[-h] Print the usage summary, and exit with status 0.
+\item[-H] Read multifrequency records in high-resolution mode.
+\item[-l] Stop after the time interval that follows (as in \cmd{rdsamp}).
+\item[-s] Convert only the signals that follow, by number or name:
+  \opt{-s} \textit{SIGNAL} \code{[}\textit{SIGNAL} \code{...]}.
+\item[-S] Begin at the first valid sample of the signal that follows, at or after the
+  \opt{-f} time.
+\item[-t] Stop at the time that follows.
+\end{params}
+\begin{lstlisting}[style=text]
+$ wfdb2mat -r 100s -t 2
+Source: record 100s
+val has 2 rows (signals) and 720 columns (samples/signal)
+Duration:     0:02
+Sampling frequency: 360 Hz  Sampling interval: 0.002777777778 sec
+Row     Signal  Gain    Base    Units
+1       MLII    200     0       nd
+2       V5      200     0       nd
+
+To convert from raw units to the physical units shown
+above, call the 'rdmat.m' function from the wfdb-matlab
+toolbox: https://physionet.org/physiotools/matlab/wfdb-app-matlab/
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments, an output larger than 2\,GB, or an
+output file that cannot be opened; 2 if the record or a signal cannot be opened, or the
+record gives no sampling frequency.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the record must give its
+sampling frequency (C: 250\,Hz); uncalibrated signals stay uncalibrated in the output
+header (C: 200\,adu/mV); unspecified units are written as \code{nd} (C: \code{mV}); a
+one-character record name \code{m} gives the output \code{mm} (C wrote over the input
+header).
+
+% ------------------------------------------------------------------------------------------
+\apientry{a2m}{Convert AHA-format annotations to WFDB format}
+\begin{lstlisting}[style=signature,language={}]
+usage: a2m -i AHAFILE [ OPTIONS ... ]
+\end{lstlisting}
+Converts an AHA-format annotation file (\cref{sec:formats-aha-annotations}) to an MIT-format
+annotation file. Four kinds of input are read: files in AHA format written by WFDB tools
+(type 0, times in sample intervals), short-format and long-format AHA tape files (types 1
+and 2, times in milliseconds), and the compressed files of the AHA Database CD-ROMs and
+diskettes (type 3, 6 bytes per annotation, times in milliseconds). The annotation times are
+shifted by an offset (\opt{-s}).
+\begin{params}
+\item[-i] The AHA-format input file, \textit{AHAFILE} (required). It is read from the
+  input directory (\cref{sec:tools-files}).
+\item[-a] The output annotator (default \code{atr}).
+\item[-F] The sampling frequency, used (and then required) if the record header does not
+  give one (AHA Database: 250).
+\item[-h] Print the usage summary, and exit with status 1.
+\item[-r] The output record, \textit{RECORD} (default: the input file name without its
+  directory and suffix).
+\item[-s] Shift the annotations by the time that follows (default: 0 for type 0, 5:0 for
+  type 1, 2:30:0 for type 2, and for type 3 5:0 or 2:30:0 for the records \code{x2xx} and
+  \code{x3xx}, or \code{x0xx} and \code{x1xx}).
+\item[-t] The type of the input, from 0 to 3, as above (default: 3 if the file name ends
+  in \file{.ANO} or \file{.ano}, 0 otherwise).
+\end{params}
+\begin{lstlisting}[style=text]
+$ a2m -i 1201.ANO -F 250
+init: can't open header for record 1201
+$ rdann -r 1201 -a atr -F 250 -t 5:3
+init: can't open header for record 1201
+    5:01.000    75250     N    0    0    0
+    5:01.812    75453     N    0    0    0
+    5:02.628    75657     V    0    0    0
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments or a sampling frequency that is not
+specified; 2 if the input or the annotation files cannot be opened.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the new option \opt{-F}
+(the C tool assumed 250\,Hz with a header, or 1 sample per second without one), and
+annotation times in milliseconds (types 1 to 3) are converted at the record's sampling
+frequency (C: 4\,ms per sample, whatever the frequency); the \opt{-i} file is read from the
+input directory (C: from the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{m2a}{Convert WFDB annotations to AHA format}
+\begin{lstlisting}[style=signature,language={}]
+usage: m2a -r RECORD -a MIT-ANNOTATOR AHA-ANNOTATOR [ OPTIONS ... ]
+\end{lstlisting}
+Copies an MIT-format annotation file to an AHA-format annotation file of the same record
+(\cref{sec:formats-aha-annotations}), the annotation types mapped by \code{mamap}. With
+\opt{-s}, the annotations before the shift are dropped, and the times of the others are
+shifted back and converted to milliseconds, as in the AHA tape files.
+\begin{params}
+\item[-r] The record, \textit{RECORD} (required).
+\item[-a] The input (MIT) and output (AHA) annotators, \textit{MIT-ANNOTATOR}
+  \textit{AHA-ANNOTATOR} (required).
+\item[-F] The sampling frequency, used if the record header gives none; then required
+  for \opt{-s}.
+\item[-h] Print the usage summary, and exit with status 1.
+\item[-s] Shift the annotation times back by the time that follows, and convert them to
+  milliseconds.
+\end{params}
+\begin{lstlisting}[style=text]
+$ m2a -r 100s -a atr aha
+\end{lstlisting}
+\returns{Exit status 0 (the file \file{100s.aha} is written).}
+\raises{Exit status 1 for an error in the arguments or a sampling frequency that is needed
+and not specified; 2 if an annotation file cannot be opened.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the new option \opt{-F}; the C
+tool assumed 250\,Hz.
+
+% ------------------------------------------------------------------------------------------
+\apientry{ad2m}{Convert an AHA-format signal file to a WFDB record}
+\begin{lstlisting}[style=signature,language={}]
+usage: ad2m -i AHAFILE [ OPTIONS ... ]
+\end{lstlisting}
+Converts the two signals of an AHA Database signal file, in the old tape format (format 16
+with an end-of-data marker) or in the compressed format of the CD-ROMs (\opt{-c}), to a
+WFDB record in format 212: \textit{RECORD}\file{.dat} and \textit{RECORD}\file{.hea}.
+\begin{params}
+\item[-i] The AHA-format input file, \textit{AHAFILE} (required). It is read from the
+  input directory (\cref{sec:tools-files}).
+\item[-c] The input is compressed (the default if the name ends in \file{.CMP} or
+  \file{.cmp}; otherwise the old tape format is assumed).
+\item[-f] Begin at the time that follows (default 0, the beginning of the input file).
+\item[-F] The sampling frequency in Hz (required; AHA Database: 250).
+\item[-G] The gain in adu per physical unit (required; AHA Database: 400; 0 declares the
+  signals uncalibrated).
+\item[-h] Print the usage summary, and exit with status 1.
+\item[-r] The output record, \textit{RECORD} (default: the input file name without its
+  directory and suffix).
+\item[-R] The ADC resolution in bits, from 1 to 32 (required; AHA Database: 12).
+\item[-t] Stop at the time that follows (default: 35 minutes after the beginning for the
+  records \code{x2xx} and \code{x3xx}, 3 hours for \code{x0xx} and \code{x1xx}, otherwise
+  the end of the input, with a warning).
+\item[-U] The physical units (required unless the gain is 0; AHA: \code{mV}).
+\end{params}
+\begin{lstlisting}[style=text]
+$ ad2m -i 1201.CMP -F 250 -G 400 -R 12 -U mV
+$ cat 1201.hea
+1201 2 250 800
+1201.dat 212 400/mV 12 0 0 32104 0
+1201.dat 212 400/mV 12 0 90 -31586 0
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments, a missing \opt{-F}, \opt{-G},
+\opt{-R} or \opt{-U}, or an end time not after the start time; 2 if the input cannot be
+read; 3 if the output signal file cannot be opened.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the new options \opt{-F},
+\opt{-G}, \opt{-R} and \opt{-U}, all required (\opt{-U} unless the gain is 0); the C tool
+assumed the parameters of the AHA Database (250\,Hz, 400\,adu/mV, 12 bits, millivolts).
+The \opt{-f} and \opt{-t} times are converted at the \opt{-F} frequency. The \opt{-i} file
+is read from the input directory (C: from the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{md2a}{Convert a record to an AHA-format signal file}
+\begin{lstlisting}[style=signature,language={}]
+usage: md2a -o AHAFILE -r RECORD [ OPTIONS ... ]
+\end{lstlisting}
+Writes the signals of a record to an AHA-format signal file: format 16, the signals
+interleaved, followed by an end-of-data marker. With \opt{-n}, it also writes a header that
+describes the output file as a record.
+\begin{params}
+\item[-o] The output file, \textit{AHAFILE} (required).
+\item[-r] The input record, \textit{RECORD} (required).
+\item[-h] Print the usage summary, and exit with status 1.
+\item[-n] Write a header for the output file, as the record \textit{NEWREC} that follows.
+\end{params}
+\begin{lstlisting}[style=text]
+$ md2a -r 100s -o 100s.ah -n ahrec
+$ cat ahrec.hea
+ahrec 2 360 21600
+100s.ah 16 200 11 1024 995 21537 0
+100s.ah 16 200 11 1024 1011 -3962 0
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments; 2 if the record cannot be opened; 3 if
+the header of \opt{-n} cannot be created; 4 if the output file cannot be opened.}
+\textit{Differences from the C tool}: none, apart from \opt{-{}-legacy} (the samples of a
+frame beyond those of the record are 0, where the C tool used uninitialized values).
+
+% ------------------------------------------------------------------------------------------
+\apientry{ahaecg2mit}{Convert AHA DVD files to WFDB records}
+\begin{lstlisting}[style=signature,language={}]
+usage: ahaecg2mit [-s] -F FREQ -G GAIN -R BITS -U UNITS RECORD.XXX [RECORD.XXX]...
+\end{lstlisting}
+Converts the files of the AHA Database DVD, in binary (\file{.ecg}) or text (\file{.txt})
+form, to WFDB records: for each input file \textit{RECORD}\file{.XXX}, it writes
+\textit{RECORD}\file{.hea}, \textit{RECORD}\file{.dat} (format 212) and
+\textit{RECORD}\file{.atr}, and reports \code{wrote ...} on the standard error. Files with
+another suffix are ignored, with a message. The options come first, in any order.
+\begin{params}
+\item[-s] Make short-format (35-minute) records from long-format (2.5-hour) files: the
+  first 145 minutes are skipped (located from the \opt{-F} frequency), and the second digit
+  of the output record name is incremented by 2.
+\item[-F] The sampling frequency in Hz (required; AHA DVD: 250).
+\item[-G] The gain in adu per physical unit (required; AHA DVD: 400).
+\item[-R] The ADC resolution in bits, from 1 to 32 (required; AHA DVD: 12).
+\item[-U] The physical units (required unless the gain is 0; AHA DVD: \code{mV}).
+\item[RECORD.XXX] An input file; \textit{RECORD} is a 4-digit AHA Database record name, and
+  \textit{XXX} is \code{ecg} or \code{txt}. Several files may be converted in one run. The
+  files are read from the input directory (\cref{sec:tools-files}).
+\end{params}
+\begin{lstlisting}[style=text]
+$ ahaecg2mit -F 250 -G 400 -R 12 -U mV 1001.ecg
+Rearranging annotations for output annotator atr ...done!
+wrote 1001.atr, 1001.dat, and 1001.hea
+$ cat 1001.hea
+1001 2 250 700
+1001.dat 212 400/mV 12 0 0 1213 0 ECG0
+1001.dat 212 400/mV 12 0 300 -1026 0 ECG1
+\end{lstlisting}
+\returns{Exit status 0 (also when an input file is ignored or cannot be opened).}
+\raises{Exit status 1 without input files, with \opt{-h} (the usage), or for a missing or
+invalid \opt{-F}, \opt{-G}, \opt{-R} or \opt{-U}.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the new options \opt{-F},
+\opt{-G}, \opt{-R} and \opt{-U}, required (\opt{-U} unless the gain is 0), which precede the
+input files in any order (the C tool had only \opt{-s}, as the first argument, and assumed
+250\,Hz, 400\,adu/mV, 12 bits and millivolts); the input files are read from the input
+directory (C: from the current directory).
+
+% ------------------------------------------------------------------------------------------
+\apientry{makeid}{Write an AHA-format record ID block}
+\begin{lstlisting}[style=signature,language={}]
+usage: makeid annotator record
+\end{lstlisting}
+Writes the 512-byte ID block of the AHA tape format for a record (with two signals) and an
+annotator to the standard output: the record ID (8 bytes), the number of annotations, the
+first and last samples of the annotated segment, the number of 512-byte blocks of samples,
+the times of the first and last annotations, and the number of blocks of annotations, as
+16- and 32-bit integers. It describes these values on the standard error. The record name
+must have at most 8 characters.
+\begin{params}
+\item[annotator] The annotator.
+\item[record] The record.
+\end{params}
+\begin{lstlisting}[style=text]
+$ makeid atr 100s > 100s.id
+100s
+75 annotations
+Annotated segment begins at sample 0
+Annotated segment ends at sample 21600
+169 blocks of sample data
+First annotation is at sample 18
+Last annotation is at sample 21423
+3 blocks of annotations
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 with fewer than two arguments or a record name longer than 8
+characters; 2 if the record or the annotator cannot be opened.}
+\textit{Differences from the C tool}: none, apart from \opt{-{}-legacy}.
+
+% ------------------------------------------------------------------------------------------
+\apientry{readid}{Read an AHA-format record ID block}
+\begin{lstlisting}[style=signature,language={}]
+usage: readid data-block-size annot-block-size
+\end{lstlisting}
+Reads an ID block (as written by \cmd{makeid}) from the standard input, and prints the
+record ID, the number of data blocks and the number of annotation blocks, recounted in
+blocks of the given sizes (in bytes).
+\begin{params}
+\item[data-block-size] The size of a block of samples, in bytes (at least 1).
+\item[annot-block-size] The size of a block of annotations, in bytes (at least 1).
+\end{params}
+\begin{lstlisting}[style=text]
+$ readid 512 16 < 100s.id
+100s 169 96
+\end{lstlisting}
+\returns{Exit status 0.}
+\raises{Exit status 1 with fewer than two arguments.}
+\textit{Differences from the C tool}: none, apart from \opt{-{}-legacy} (a record ID of
+more than 8 characters, which overflows a buffer in the C tool, is printed whole).
+
+% ------------------------------------------------------------------------------------------
+\apientry{revise}{Convert an obsolete-format header}
+\begin{lstlisting}[style=signature,language={}]
+usage: revise record
+\end{lstlisting}
+Reads the obsolete-format header of a record, \textit{record}\file{.header} (one value per
+line, as written by early versions of the WFDB library), and writes a header in the current
+format, \textit{record}\file{.hea}.
+\begin{params}
+\item[record] The record (a \code{header.} prefix is removed).
+\end{params}
+\returns{Exit status 0.}
+\raises{Exit status 1 without an argument; 2 if the old header cannot be read.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): a missing ADC resolution stays
+unspecified (C: 12 bits).
+
+% ------------------------------------------------------------------------------------------
+\apientry{parsescp}{Read and convert an SCP-ECG file}
+\begin{lstlisting}[style=signature,language={}]
+usage: parsescp -o RECORD [OPTIONS ...] <SCPFILE
+\end{lstlisting}
+Reads an SCP-ECG file from the standard input, checks its CRCs, decodes its sections
+(patient and acquisition data, Huffman tables, leads, QRS locations, reference beats,
+rhythm data, measurements, diagnoses) and the ECG, derives the missing limb leads, and
+writes: \textit{RECORD}\file{.des}, a description (the patient data, acquisition data and
+measurements), \textit{RECORD}\file{.key}, the patient's name and medical record number,
+and \textit{RECORD}\file{.ecg}, the 12-lead ECG in a binary layout of its own; with
+\opt{-w}, a WFDB record of 12 signals, \textit{RECORD}\file{.hea} and
+\textit{RECORD}\file{.dat} (format 16, 200\,adu/mV); with \opt{-v}, the samples as text,
+\textit{RECORD}\file{.txt}, and an analysis of the file on the standard output. All these
+files are created in the output directory (\cref{sec:tools-files}).
+\begin{params}
+\item[-o] The record name, \textit{RECORD}, of at most 11 characters (default \code{ecg}).
+\item[-a] Anonymize the input and copy it to the standard output (the CRC recomputed);
+  no other output.
+\item[-f] Parse a file with CRC errors.
+\item[-h] Print the usage summary, and exit with status 1.
+\item[-l] Low-pass filter (smooth) the output waveforms.
+\item[-v] Print a (very) detailed analysis of the input on the standard output, and write
+  \textit{RECORD}\file{.txt}; given twice, the text file has column headings.
+\item[-w] Write a WFDB-format record.
+\item[-z] Make the signals zero-mean.
+\item[-b] (Debugging) Show the baseline (residuals), without the reference beats.
+\item[-s] (Debugging) Shift the reference beats by the number of samples that follows
+  before adding them.
+\item[-S] (Debugging) Skip the parsing of the section whose number follows (\code{-} for
+  all sections).
+\item[-t] (Debugging) Show the reference beats only, without the baseline.
+\item[-x] (Debugging) Show hex dumps (implies \opt{-v}).
+\end{params}
+\begin{lstlisting}[style=text]
+$ parsescp -o scp -w < example.scp
+$ head -3 scp.hea
+scp 12 500 5000     0:22
+scp.dat 16 200/mV 16 0 -1 -2500 0 I
+scp.dat 16 200/mV 16 0 -3 -2034 0 II
+\end{lstlisting}
+\begin{phibox}
+The \file{.key} file holds the patient's name and medical record number, the \file{.des}
+file and the header the age and sex, and \opt{-v} prints all the patient data of the file;
+\opt{-a} writes a copy of the input with these fields removed.
+\end{phibox}
+\returns{Exit status 0.}
+\raises{Exit status 1 for an error in the arguments, an input shorter than 6 bytes, or a
+reference-beat subtraction zone larger than the template; 2 if the declared length of the
+input cannot be allocated; 3 if the input is shorter than its declared length.}
+\textit{Differences from the C tool} (\cref{chap:behavior}): the record is written with the
+sampling frequency given in the SCP file, and is not written if the file gives none
+(\code{parsescp: sampling frequency not specified; record R not written}); the C tool
+always wrote 500\,Hz. The \file{.des}, \file{.ecg}, \file{.key} and \file{.txt} files are
+created in the output directory, as the record is (C: in the current directory). Signals and
+reference beats that cannot be allocated, and samples
+beyond the end of a signal shorter than lead 0, are read as absent or as zeros (undefined
+behavior in the C tool).

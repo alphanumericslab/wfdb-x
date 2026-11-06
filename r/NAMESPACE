@@ -7,7 +7,8 @@ export(getwfdb, setwfdb, resetwfdb, wfdbquiet, wfdbverbose, wfdberror, wfdb_erro
        wfdbfile, wfdbmemerr, wfdb_me_fatal, wfdbversion, wfdbldflags, wfdbcflags,
        wfdbdefwfdb, wfdbdefwfdbcal, wfdbx_set_output_dir, wfdbx_get_output_dir,
        wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_network, wfdbx_get_network,
-       wfdbx_write_errors, wfdbx_note_write_error)
+       wfdbx_write_errors, wfdbx_note_write_error, wfdbx_input_path,
+       wfdbx_output_path)
 export(WFDB_READ, WFDB_WRITE, WFDB_AHA_READ, WFDB_AHA_WRITE, WFDB_APPEND)
 
 # ecgcodes.R
@@ -37,6 +38,9 @@ export(WFDB_INVALID_SAMPLE, WFDB_DEFFREQ, WFDB_DEFGAIN, WFDB_DEFRES,
        WFDB_FMT_LIST)
 export(wfdbinit, wfdbquit, wfdbflush)
 export(read_record, read_header, write_record)
+
+# metadata.R
+export(read_metadata, get_metadata, set_metadata, remove_metadata, update_metadata)
 
 # annot.R
 export(annopen, getann, ungetann, putann, iannsettime, iannclose, oannclose,

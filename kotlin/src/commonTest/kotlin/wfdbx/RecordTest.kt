@@ -531,6 +531,21 @@ class RecordTest {
         assertFailsWith<WfdbException> { w.readRecord("100s") }
     }
 
+    /** The readers, and writeAnnotations, also accept a record name with a trailing ".hea" (as their help says). */
+    @Test
+    fun recordNamesWithHea() = withData("namehea") { d, w ->
+        val h = w.readHeader("100s")
+        assertEquals(h.copy(name = "100s.hea"), w.readHeader("100s.hea"))
+        assertEquals(w.readAnnotations("100s", "atr").samples.toList(), w.readAnnotations("100s.hea", "atr").samples.toList())
+        assertEquals(w.checkRecord("100s", listOf("atr")).issues, w.checkRecord("100s.hea", listOf("atr")).issues)
+        assertEquals(w.readMetadata("100s"), w.readMetadata("100s.hea"))
+        w.writeAnnotations("100s.hea", "zz", longArrayOf(10, 20), symbols = listOf("N", "N"))
+        assertTrue(fileExists(d.path("100s.zz")))
+        // a relative path is created under the output directory, missing directories included
+        w.writeAnnotations("new/dir/100s", "zz", longArrayOf(10, 20), symbols = listOf("N", "N"))
+        assertTrue(fileExists(d.path("new/dir/100s.zz")))
+    }
+
     // -----------------------------------------------------------------------
     // Read errors and checksums
 

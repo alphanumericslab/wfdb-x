@@ -22,9 +22,10 @@
 // ADC resolution of every signal (the original assumed 250 Hz and 200 adu/mV,
 // and guessed the resolution from the storage format); unspecified units are
 // written as "nd" (the original wrote "mV"); an EDF file that cannot be
-// written is reported, and the exit status is then 1; --legacy, as the first
-// argument, restores the original behavior. Each change is marked "WFDB-x:" in
-// the code; docs/DIVERGENCES.md gives the reasons.
+// written is reported, and the exit status is then 1; the EDF file is created
+// under the output directory, as the library creates an output file; --legacy,
+// as the first argument, restores the original behavior. Each change is marked
+// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2002-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -190,7 +191,9 @@ fun Wfdb.mit2edfMain(argv0: Array<ByteArray>): Int {
     }
     val ns = nsig
 
-    val ofile = WfdbFile.fopen(ofname, "wb")
+    // WFDB-x: the file is created where the library creates an output file of
+    // that name (see wfdbx_output_path)
+    val ofile = wfdbx_output_path(ofname)?.let { WfdbFile.fopen(it, "wb") }
     if (ofile == null) {
         eprintf("%s: can't create %s\n", pname, ofname)
         exit(4)

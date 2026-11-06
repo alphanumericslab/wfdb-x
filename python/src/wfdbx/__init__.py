@@ -11,7 +11,10 @@ You can use it in three ways:
 * High-level functions that read and write whole records and annotation
   files as NumPy arrays: ``read_record``, ``read_header``,
   ``read_annotations``, ``write_record`` and ``write_annotations``. See
-  ``help(wfdbx.highlevel)``. ``check_record`` checks a record and its
+  ``help(wfdbx.highlevel)``. ``read_metadata``, ``get_metadata``,
+  ``set_metadata``, ``remove_metadata`` and ``update_metadata`` read and
+  change the "Key: value" entries of a header, such as "# Age: 63"
+  (``help(wfdbx.metadata)``). ``check_record`` checks a record and its
   annotation files, and reports each problem (``help(wfdbx.check)``).
 * Command-line tools such as ``rdsamp``, ``rdann`` and ``wrsamp``, run
   through the ``wfdbx`` command, as in ``wfdbx rdsamp -r 100s -t 10``
@@ -50,7 +53,7 @@ Foundation, either version 3 of the License, or (at your option) any later
 version. See LICENSE.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 from ._wfdbio import (
     WFDB_READ, WFDB_WRITE, WFDB_AHA_READ, WFDB_AHA_WRITE, WFDB_APPEND,
@@ -60,6 +63,7 @@ from ._wfdbio import (
     wfdbdefwfdb, wfdbdefwfdbcal, wfdbx_set_input_dir, wfdbx_get_input_dir,
     wfdbx_set_output_dir, wfdbx_get_output_dir, wfdbx_set_network,
     wfdbx_get_network, wfdbx_write_errors, wfdbx_note_write_error,
+    wfdbx_input_path, wfdbx_output_path,
 )
 from ._signal import (
     Siginfo, Seginfo, WFDB_INVALID_SAMPLE, WFDB_DEFFREQ, WFDB_DEFGAIN,
@@ -92,5 +96,7 @@ from ._wfdbinit import wfdbinit, wfdbquit, wfdbflush
 from .highlevel import (Record, Header, Annotations, read_record,
                         read_annotations, write_record, write_annotations,
                         read_header)
+from .metadata import (read_metadata, get_metadata, set_metadata,
+                       remove_metadata, update_metadata)
 from .check import CheckReport, Issue, check_record
 from .resources import sample_data_dir, examples_dir, copy_examples

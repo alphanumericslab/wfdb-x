@@ -15,9 +15,11 @@
 # shown as "not specified" (lengths are then given in sample intervals only), a
 # gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"), and
 # unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
-# millivolts); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-# reasons.
+# millivolts); the size of a signal file of unknown length is measured in the
+# header's directory, where the library reads it (the original looked in the
+# current directory); --legacy, as the first argument, restores the original
+# behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+# gives the reasons.
 #
 # Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1989-2012 George B. Moody; revised 2018-2020 by
@@ -28,6 +30,17 @@
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. See LICENSE.
+
+# The path of the signal file fname named in the header of record, to measure
+# its length. WFDB-x: in normal mode, where the library reads it, i.e., in the
+# directory of the header (the directory part of the record name, under the
+# input directory if one is set; see wfdbx_input_path); nothing if it cannot
+# be opened in this way (a URL). In legacy mode, as named, as the C program
+# did (relative to the current directory).
+function _wfdbdesc_signal_file(record::Vector{UInt8}, fname::Vector{UInt8})
+    (wfdbx_get_legacy() != 0 || fname == b"-") && return fname
+    wfdbx_input_path(UInt8[wfdbx_dirname(record); fname])
+end
 
 # The size of a regular file (C: stat, fopen, fseek to the end, ftell), or
 # nothing.
@@ -113,7 +126,9 @@ function wfdbdesc_main(args::Vector{String})
         cprintf("%s (%lld sample intervals)\n", t > 0 ? mstimstr(t) : "0", t)
     else
         fname = s[1].fname
-        size = (fname !== nothing && s[1].fmt != 0) ? _wfdbdesc_file_size(cstr(fname)) : nothing
+        fpath = (fname !== nothing && s[1].fmt != 0) ?
+                _wfdbdesc_signal_file(rec, cstr(fname)) : nothing
+        size = fpath === nothing ? nothing : _wfdbdesc_file_size(fpath)
         if size !== nothing
             framesize = Int64(0)
             nbytes = size - wfdbgetstart(0)

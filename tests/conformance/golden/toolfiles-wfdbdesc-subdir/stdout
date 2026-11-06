@@ -1,0 +1,15 @@
+Record sub/nl
+Starting time: not specified
+Length:     0:12.500 (4500 sample intervals) [from signal file size]
+Sampling frequency: 360 Hz
+1 signal
+Group 0, Signal 0:
+ File: nl.dat
+ Description: s
+ Gain: 200 adu/nd
+ Initial value: 0
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 16 bits
+ ADC zero: 0
+ Baseline: 0

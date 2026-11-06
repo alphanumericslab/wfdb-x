@@ -7,8 +7,10 @@ It is a Python translation of convert/edf2mit.c from the WFDB Software Package
 10.7.0, by George B. Moody. The translation follows the logic and behavior of
 the original program, but it is new code, not the original C code.
 
-Changes from the original: none, apart from the language and the --legacy
-option (as the first argument, it restores the original behavior).
+Changes from the original: the -i file is found under the input directory, as
+the library finds an input file; --legacy, as the first argument, restores the
+original behavior. Each change is marked "WFDB-x:" in the code;
+docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/edf2mit.c, WFDB Software Package 10.7.0.
   Copyright (C) 1996-2004 George B. Moody.
@@ -136,9 +138,15 @@ def _main(argv, out):
                     if argv[i] == "-":
                         ifile = sys.stdin.buffer
                     else:
+                        # WFDB-x: the file is found where the library finds
+                        # an input file of that name (see wfdbx_input_path)
+                        ipath = w.wfdbx_input_path(argv[i])
                         try:
-                            ifile = open(argv[i], "rb")
+                            if ipath is None:
+                                raise OSError
+                            ifile = open(ipath, "rb")
                         except OSError:
+
                             eprintf("%s: can't read %s\n", pname, argv[i])
                             raise Exit(1)
                         if record == "":

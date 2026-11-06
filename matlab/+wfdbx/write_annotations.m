@@ -2,7 +2,14 @@ function write_annotations(record, annotator, samples, varargin)
 %WRITE_ANNOTATIONS Write an annotation file from arrays.
 %   wfdbx.write_annotations(RECORD, ANNOTATOR, SAMPLES, NAME, VALUE, ...)
 %   writes the annotation file RECORD.ANNOTATOR, with one annotation at each
-%   of the sample numbers SAMPLES.  The other fields are given as options:
+%   of the sample numbers SAMPLES.  RECORD is the record name, without the
+%   .hea extension (a trailing '.hea' is also accepted): a plain name or a
+%   relative path ('data/100s') is created in the output directory if one
+%   is set (see wfdbx.wfdbx_set_output_dir), otherwise in the current
+%   folder; a full path, absolute or in the home directory
+%   ('~/Documents/100s'), is used as given.  The file is RECORD.ANNOTATOR
+%   at that place ('data/100s.qrs').  A URL cannot be written.  The other
+%   fields are given as options:
 %
 %     'symbols'   cell array of mnemonics ('N', 'V', ...), or a char vector
 %                 of one-character mnemonics ('NNV'), one per annotation
@@ -19,8 +26,10 @@ function write_annotations(record, annotator, samples, varargin)
 %                 none), or one char vector for all
 %     'fs'        time resolution to record in the file, in ticks per second
 %                 (finite, > 0)
-%     'dir'       folder in which to create the file (default: the output
-%                 directory).  RECORD must then be a plain name.
+%     'dir'       directory (which must exist) in which to create the file,
+%                 for this call only (default: the output directory).
+%                 RECORD must then be a plain name, without a directory:
+%                 the file is DIR/RECORD.ANNOTATOR.
 %     'sort'      true to always sort the file, false to keep the order given
 %                 (without the library's advice to run sortann; default []:
 %                 the environment variable WFDBANNSORT decides)
@@ -48,6 +57,9 @@ function write_annotations(record, annotator, samples, varargin)
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
 %   WFDB library functions; it also closes the annotator when it fails.
+%   the getvec mode (wfdbx.getgvmode) and the time
+%   resolution of output annotators (wfdbx.getafreq) are left as they were ('fs'
+%   applies to this file only).
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -77,6 +89,10 @@ function write_annotations(record, annotator, samples, varargin)
 % any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
+% WFDB-x: the getvec mode and the time resolution of output annotators are
+% restored when the function returns (also on errors; opening an EDF record
+% sets both)
+keep_settings = wfdbx.internal.hl_settings(); %#ok<NASGU>
 annotator = wfdbx.internal.strarg(annotator);
 opt = struct('symbols', [], 'codes', [], 'subtypes', 0, 'chans', 0, ...
     'nums', 0, 'aux', [], 'fs', [], 'dir', [], 'sort', [], 'legacy', false);
@@ -213,15 +229,10 @@ try
 catch err
     st.sort_override = [];
     wfdbx.wfdbquit();
-    if ~isempty(opt.fs)
-        wfdbx.setafreq(0);
-    end
     rethrow(err);
 end
 st.sort_override = [];
-if ~isempty(opt.fs)
-    wfdbx.setafreq(0);
-end
+% (WFDB-x: the previous time resolution is restored by keep_settings)
 if wfdbx.wfdbx_write_errors() > errors
     error('wfdbx:write_annotations', ...
         'write error on annotator %s for record %s', annotator, record);

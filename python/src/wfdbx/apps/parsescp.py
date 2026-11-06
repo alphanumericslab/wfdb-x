@@ -16,9 +16,10 @@ Changes from the original: the record is written with the sampling frequency
 given in the SCP file, and is not written if the file gives none (the original
 always wrote 500 Hz); signals and reference beats that could not be allocated,
 and samples beyond the end of a signal shorter than lead 0, are read as absent
-or as zeros (undefined behavior in the original); --legacy, as the first
-argument, restores the original behavior. Each change is marked "WFDB-x:" in
-the code; docs/DIVERGENCES.md gives the reasons.
+or as zeros (undefined behavior in the original); the .des, .ecg, .key and .txt
+files are created under the output directory, as the library creates an output
+file; --legacy, as the first argument, restores the original behavior. Each
+change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 
 Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised 2016-2020

@@ -25,8 +25,9 @@ function status = a2m(args)
 %   250 Hz, if a header without a frequency existed, and 1 sample per
 %   second if there was no header).  Annotation times in milliseconds (types
 %   1, 2 and 3) are converted at the record's sampling frequency (the C
-%   program assumed 4 ms per sample, i.e., 250 Hz); see
-%   docs/DIVERGENCES.md.
+%   program assumed 4 ms per sample, i.e., 250 Hz).  The -i file is found
+%   under the input directory, as the library finds an input file (see
+%   wfdbx.wfdbx_input_path); see docs/DIVERGENCES.md.
 %
 %   Examples (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -58,7 +59,8 @@ function status = a2m(args)
 % then required (the original assumed 250 Hz, or 1 sample per second without a
 % header); annotation times given in milliseconds (AHA file types 1 to 3) are
 % converted at the record's sampling frequency (the original assumed 4 ms per
-% sample); --legacy, as the first argument, restores the original behavior.
+% sample); the -i file is found under the input directory, as the library finds
+% an input file; --legacy, as the first argument, restores the original behavior.
 % Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
@@ -337,7 +339,14 @@ ok = true;
 if strcmp(ifname, '-')
     return;
 end
-fid = fopen(ifname, 'rb');
+% WFDB-x: the file is found where the library finds an input file of that
+% name (see wfdbx.wfdbx_input_path)
+ipath = wfdbx.wfdbx_input_path(ifname);
+if ~ischar(ipath)
+    ok = false;
+    return;
+end
+fid = fopen(wfdbx.internal.literal_path(ipath), 'rb');
 if fid < 0
     ok = false;
     return;

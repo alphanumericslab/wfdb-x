@@ -16,7 +16,10 @@ function status = wfdbdesc(args)
 %   only; an uncalibrated signal's gain is printed as "uncalibrated",
 %   unspecified units as "nd" and an unspecified ADC resolution as "not
 %   specified" (the C program assumed 250 Hz, 200 adu/mV, millivolts and
-%   12 bits); see docs/DIVERGENCES.md.
+%   12 bits).  When the header does not give the length of the record, it
+%   is computed from the size of the first signal file, found where the
+%   library reads it (the C program looked in the current directory); see
+%   docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -43,9 +46,11 @@ function status = wfdbdesc(args)
 % shown as "not specified" (lengths are then given in sample intervals only), a
 % gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"), and
 % unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
-% millivolts); --legacy, as the first argument, restores the original behavior.
-% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-% reasons.
+% millivolts); the size of a signal file of unknown length is measured in the
+% header's directory, where the library reads it (the original looked in the
+% current directory); --legacy, as the first argument, restores the original
+% behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+% gives the reasons.
 %
 % Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2012 George B. Moody; revised 2018-2020 by
@@ -141,7 +146,7 @@ elseif nsig < 1 || t > 0
     end
     done = true;
 elseif s(1).fmt
-    nbytes = file_size(s(1).fname);
+    nbytes = file_size(signal_file(rec, s(1).fname));
     if ~isempty(nbytes)
         nbytes = nbytes - wfdbx.wfdbgetstart(0);
         framesize = 0;
@@ -271,12 +276,32 @@ if ~ischar(s)
 end
 end
 
+function p = signal_file(record, fname)
+% The path of the signal file FNAME named in the header of RECORD, to
+% measure its length.  WFDB-x: in normal mode, where the library reads it,
+% i.e., in the directory of the header (the directory part of the record
+% name, under the input directory if one is set; see
+% wfdbx.wfdbx_input_path); [] if it cannot be opened in this way (a URL).
+% In legacy mode, as named, as the C program did (relative to the current
+% directory).
+if ~ischar(fname) || wfdbx.wfdbx_get_legacy() || strcmp(fname, '-')
+    p = fname;
+    return;
+end
+k = find(record == '/', 1, 'last');
+if isempty(k)
+    k = 0;
+end
+p = wfdbx.wfdbx_input_path([record(1:k) fname]);
+end
+
 function n = file_size(name)
 % Size of the regular file NAME (relative to the current directory), or [].
 n = [];
 if ~ischar(name) || isempty(name) || any(name == '*') || any(name == '?')
     return;
 end
+name = wfdbx.internal.literal_path(name);   % (a '~' name as named, as in C)
 if isfolder(name)
     return;
 end

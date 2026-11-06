@@ -706,3 +706,78 @@ def test_write_annotations_signed_char_fields(datadir):
     assert a.subtypes.tolist() == [44, 0, 0, 56, 0]
     assert a.chans.tolist() == [0, 44, 0, 0, 0]
     assert a.nums.tolist() == [0, 0, 44, 0, 0]
+
+
+def test_highlevel_keeps_afreq(datadir):
+    """The high-level functions leave the time resolution of output
+    annotators (getafreq) as it was, also after an EDF record, whose
+    opening sets it (as in C), and on errors; the C-style functions keep
+    the behavior of C."""
+    w.setafreq(0.0)
+    gvmode = w.getgvmode()      # (also set by opening an EDF record)
+    try:
+        w.write_annotations("nohdr", "a1", [10, 20], symbols="N")
+        with open("nohdr.a1", "rb") as f:
+            expected = f.read()
+        hdr = w.read_header("100s.edf")
+        assert hdr.fs == 360.0 and w.getafreq() == 0.0
+        w.write_annotations("nohdr", "a2", [10, 20], symbols="N")
+        with open("nohdr.a2", "rb") as f:
+            assert f.read() == expected     # no time resolution: 360 Hz
+        w.read_record("100s.edf", sampto=10)
+        assert w.getafreq() == 0.0
+        assert w.check_record("100s.edf") is not None
+        assert w.getafreq() == 0.0
+        with pytest.raises(IOError):        # (no annotation file)
+            w.read_annotations("100s.edf", "atr")
+        assert w.getafreq() == 0.0
+        # a value that was set is kept
+        w.setafreq(1000.0)
+        w.read_header("100s.edf")
+        assert w.getafreq() == 1000.0
+        w.write_annotations("nohdr", "a3", [10, 20], symbols="N", fs=500)
+        assert w.getafreq() == 1000.0
+        w.setafreq(0.0)
+        w.write_annotations("nohdr", "a3", [10, 20], symbols="N", fs=500)
+        assert w.getafreq() == 0.0
+        # the C-style functions: as in C, opening the EDF record sets it,
+        # and wfdbquit does not reset it
+        assert w.isigopen("100s.edf", None, 0) > 0
+        w.wfdbquit()
+        assert w.getafreq() == 360.0
+    finally:
+        w.setafreq(0.0)
+        w.wfdbquit()
+        w.setgvmode(gvmode)
+
+
+@pytest.mark.parametrize("previous", [w.WFDB_LOWRES, w.WFDB_HIGHRES,
+                                      w.WFDB_LOWRES | w.WFDB_GVPAD])
+def test_highlevel_keeps_gvmode(datadir, previous):
+    """The high-level functions leave the getvec mode (getgvmode) as it
+    was, also after an EDF record, whose opening sets WFDB_HIGHRES (as in
+    C), and on errors; the C-style functions keep the behavior of C."""
+    gvmode = w.getgvmode()
+    try:
+        w.setgvmode(previous)
+        w.read_header("100s.edf")
+        assert w.getgvmode() == previous
+        with pytest.raises(IOError):        # (no annotation file)
+            w.read_annotations("100s.edf", "atr")
+        assert w.getgvmode() == previous
+        w.read_annotations("100s", "atr")
+        assert w.getgvmode() == previous
+        w.read_record("100s.edf", sampto=10)
+        assert w.getgvmode() == previous
+        w.check_record("100s.edf")
+        assert w.getgvmode() == previous
+        w.write_annotations("nohdr", "a1", [10, 20], symbols="N")
+        assert w.getgvmode() == previous
+        # the C-style functions: as in C, the EDF record sets WFDB_HIGHRES,
+        # and wfdbquit does not reset it
+        assert w.isigopen("100s.edf", None, 0) > 0
+        w.wfdbquit()
+        assert w.getgvmode() & w.WFDB_HIGHRES
+    finally:
+        w.wfdbquit()
+        w.setgvmode(gvmode)

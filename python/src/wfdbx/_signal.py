@@ -2116,6 +2116,12 @@ def _is_input_file(fname):
 
 def _openosig(func, si_out, si_in, nsig):
     s_ = _s
+    # WFDB-x: no signals to open (osigopen(record, None, 0), for example):
+    # nothing is done, and 0 is returned (C read before the start of an
+    # array; see docs/KNOWN_C_BEHAVIORS.md)
+    if nsig == 0:
+        return 0
+
     if s_.obsize <= 0:
         s_.obsize = BUFSIZ
     ga = s_.nogroup

@@ -17,9 +17,10 @@
 // option -R BITS are required, and the new option -U UNITS for calibrated
 // signals unless the input gives the units (the original assumed 250 Hz, 200
 // adu/mV, a resolution based on the format, and millivolts); -G 0 declares the
-// signals uncalibrated; -G, -R and -U take one value per signal; --legacy, as
-// the first argument, restores the original behavior. Each change is marked
-// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// signals uncalibrated; -G, -R and -U take one value per signal; the -i file is
+// found under the input directory, as the library finds an input file;
+// --legacy, as the first argument, restores the original behavior. Each change
+// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1993-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -320,7 +321,9 @@ fun Wfdb.wrsampMain(argv0: Array<ByteArray>): Int {
                         ifileIsStdin = true
                     }
                 } else {
-                    val f = WfdbFile.fopen(argv[i], "r")
+                    // WFDB-x: the file is found where the library finds an
+                    // input file of that name (see wfdbx_input_path)
+                    val f = wfdbx_input_path(argv[i])?.let { WfdbFile.fopen(it, "r") }
                     if (f == null) {
                         eprintf("%s: can't read `%s'\n", pname, argv[i])
                         exit(2)

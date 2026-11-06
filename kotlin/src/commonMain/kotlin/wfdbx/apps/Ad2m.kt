@@ -22,7 +22,8 @@
 // FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
 // resolution and units, and are required (-U unless the gain is 0; the
 // original assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
-// millivolts); the -f and -t times are converted at the -F frequency;
+// millivolts); the -f and -t times are converted at the -F frequency; the -i
+// file is found under the input directory, as the library finds an input file;
 // --legacy, as the first argument, restores the original behavior. Each change
 // is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
@@ -294,7 +295,10 @@ fun Wfdb.ad2mMain(argv0: Array<ByteArray>): Int {
 
     // Attach the input file to the standard input.
     // (C reads a directory forever; WFDB-x reports it as unreadable)
-    if (!beq(ifname, "-") && (Platform.isDirectory(ifname) || !freopen_stdin(ifname))) {
+    // WFDB-x: the file is found where the library finds an input file of that
+    // name (see wfdbx_input_path)
+    val ipath = if (beq(ifname, "-")) ifname else wfdbx_input_path(ifname)
+    if (!beq(ifname, "-") && (ipath == null || Platform.isDirectory(ipath) || !freopen_stdin(ipath))) {
         eprintf("%s: can't read input file `%s'\n", pname, ifname)
         exit(2)
     }

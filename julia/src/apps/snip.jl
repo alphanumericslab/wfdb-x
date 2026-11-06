@@ -9,9 +9,11 @@
 #
 # Changes from the original: no built-in sampling frequency: the input record
 # must give it, for the header of the excerpt (the original assumed 250 Hz); a
-# master header that cannot be written is reported (wfdbx_fclose_output);
-# --legacy, as the first argument, restores the original behavior. Each change
-# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# master header that cannot be written is reported (wfdbx_fclose_output); the
+# master header of -m is created under the output directory, as the library
+# creates an output file; --legacy, as the first argument, restores the
+# original behavior. Each change is marked "WFDB-x:" in the code;
+# docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/snip.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -142,7 +144,10 @@ function _snip_copy_sig(sn::_SnipState, nrec::Vector{UInt8}, irec::Vector{UInt8}
         sfreq = sampfreq(nothing)
 
         ohfname = cformat("%s.hea", nrec)
-        ohfile = cfopen(ohfname, "wb")
+        # WFDB-x: the master header is created where the library creates an
+        # output file of that name (see wfdbx_output_path)
+        ohpath = wfdbx_output_path(ohfname)
+        ohfile = ohpath === nothing ? nothing : cfopen(ohpath, "wb")
         if ohfile === nothing
             ceprintf("%s: can't create master header\n", sn.pname)
             cexit(2)

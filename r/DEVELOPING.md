@@ -23,7 +23,7 @@ identically (the conformance suite checks this).
 | Path | Contents |
 |---|---|
 | `DESCRIPTION`, `NAMESPACE` | package metadata; exports |
-| `R/*.R` | the library: `cstd.R` (C emulation, stdio), `wfdbfile.R` (WFDB_FILE objects), `wfdbio.R`, `signal.R`, `wfdbinit.R`, `annot.R`, `calib.R`, `flac.R`, `ecgcodes.R`, `highlevel.R`, ... |
+| `R/*.R` | the library: `cstd.R` (C emulation, stdio), `wfdbfile.R` (WFDB_FILE objects), `wfdbio.R`, `signal.R`, `wfdbinit.R`, `annot.R`, `calib.R`, `flac.R`, `ecgcodes.R`, `highlevel.R`, `metadata.R`, ... |
 | `R/apps_<tool>.R` | the command-line tools: `app_<tool>(args)` |
 | `R/cli.R` | `cli_main(args)` (the dispatcher), `wfdbx_tool()`, `wfdbx_tools()` |
 | `inst/bin/wfdbx.R` | command-line driver: `Rscript r/inst/bin/wfdbx.R TOOL ARGS...` |
@@ -189,8 +189,11 @@ position) where C would call `fflush` (`.wf_sync`, used by `wf_flush`,
 `wf_seek` and `wf_tell`), and these warnings are muffled (with
 `withCallingHandlers`) and set the file's error flag. `app_run` reports a
 failed standard output and turns the exit status 0 into 1; the files that
-the tools write themselves go through `.app_fopen`, `.app_fwrite` and
-`.app_fclose` (`cli.R`).
+the tools write themselves go through `.app_fopen` (which creates them under
+the output directory, with `wfdbx_output_path`), `.app_fwrite` and
+`.app_fclose` (`cli.R`); the files that they read themselves are read with
+`.app_read_input` (under the input directory, with `wfdbx_input_path`), or
+opened at the path that `wfdbx_input_path` gives.
 
 ## Performance
 
@@ -328,7 +331,9 @@ containment check), `.in_header_dir(name)`, `.dirname(name)`, `.fetch(url)`,
 `wfdbmemerr`, `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
 `wfdbdefwfdbcal`, `wfdbx_set_input_dir`, `wfdbx_get_input_dir`,
 `wfdbx_set_output_dir`, `wfdbx_get_output_dir`, `wfdbx_set_network`,
-`wfdbx_get_network`, `wfdbx_write_errors`, `wfdbx_note_write_error`.  The
+`wfdbx_get_network`, `wfdbx_write_errors`, `wfdbx_note_write_error`,
+`wfdbx_input_path`, `wfdbx_output_path` (where a program opens the files
+that it reads or creates itself, as `wfdb_open` would).  The
 resolution rules and the settings are those of the C reference and the
 Python port (docs/DIVERGENCES.md); `signal.R` opens headers with
 `.open_header` (noting `hdr_dir`, the directory of the header, and
@@ -510,6 +515,50 @@ annotation), `ann`, `ann_tt`, `pann` (pushback), `buf`, `index`,
   argument sets `.ann$sort_override` for the duration of the call, after
   the `wfdbquit()` that closes the annotators opened before it;
   `oannclose` uses it instead of `WFDBANNSORT` when it is not `NULL`).
+
+## Header metadata (`metadata.R`)
+
+`read_metadata`, `get_metadata`, `set_metadata`, `remove_metadata` and
+`update_metadata` (WFDB-x, version 1.2.0) read and change the `Key: value`
+info strings of a header. The rules are those of
+[`tests/metadata/README.md`](../tests/metadata/README.md); the Python
+implementation (`python/src/wfdbx/metadata.py`) is the reference, and the
+R functions follow its algorithm step by step:
+
+* The header is opened with `wfdb_open("hea", ...)` (after
+  `wfdb_striphea`), read whole as a raw vector (`wf_readall`), and parsed
+  by `.md_parse` into lines (content and line ending, as raw vectors), the
+  index of the record line, the info strings and the entries. After each
+  change the header is joined (`.md_bytes`) and parsed again, as in
+  Python. Keys are folded with `.md_fold` (A-Z only, on bytes).
+* The entries are returned as a named character vector (names: keys), in
+  file order; `update_metadata` and `write_record(metadata = )` take a
+  named list or named character vector (`NULL` or `NA`: remove, an error in
+  `write_record`), checked by `.md_check_changes`. Keys and values are
+  `charToRaw` of a character string, or a raw vector as given.
+* `.md_change` reads the header (with `.hl_input` for `input_dir` and
+  `network`), finds the destination (`.md_destination`: the file read, or
+  the file of the same name in `dir`), checks every change, applies them,
+  and writes only if the bytes differ (or `dir` is given). `.md_write`
+  writes a temporary file in the destination's directory (`tempfile`),
+  gives it the permission bits of the destination (`Sys.chmod`), and
+  renames it over the destination (`file.rename`); the temporary file is
+  removed on any failure. Base R has no `fsync`, so the data are not
+  synchronized to the disk before the rename.
+* Errors are conditions of class `wfdbx_argument_error` (Python's
+  `ValueError` and `TypeError`) or `wfdbx_file_error` (Python's
+  `IOError`), raised by `.md_stop`; the messages are Python's. The warning
+  for a duplicated key is an R `warning(call. = FALSE)`, as the checksum
+  warning of `read_record`.
+* `read_header` adds `metadata` with `.md_header_metadata` (an empty named
+  character vector for an EDF file, which has no `.hea` file, and for the
+  standard input, `"-"`, which cannot be read again);
+  `write_record` gets the info strings from `.md_info_lines` before any
+  file is created, and writes them with `putinfo` after the comments.
+
+`tests/unit/test_metadata.R` runs the 49 shared cases of
+`tests/metadata/cases.tsv`, each in a new temporary directory, and the other
+tests of `python/tests/test_metadata.py` (a URL served on 127.0.0.1).
 
 ## FLAC signal groups (`flac.R`)
 
