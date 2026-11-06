@@ -1504,6 +1504,71 @@ static void t_alias(void)
     wfdbverbose();
 }
 
+/* wfdb-x: wfdbx_input_path and wfdbx_output_path (where a program opens the
+   files that it reads or creates itself), with relative names only (HOME is
+   set to the subdirectory thome, so that ~ names are reproducible), in normal
+   and legacy mode. */
+static void ppath(const char *label, char *p)
+{
+    pstr(label, p);
+    free(p);
+}
+
+static void t_toolpaths(void)
+{
+    struct stat st;
+
+    setenv("HOME", "thome", 1);
+    wfdbx_set_input_dir(NULL);
+    wfdbx_set_output_dir(NULL);
+    ppath("wfdbx_input_path a.txt", wfdbx_input_path("a.txt"));
+    ppath("wfdbx_input_path ~/a.txt", wfdbx_input_path("~/a.txt"));
+    ppath("wfdbx_input_path -", wfdbx_input_path("-"));
+    ppath("wfdbx_input_path empty", wfdbx_input_path(""));
+    ppath("wfdbx_input_path NULL", wfdbx_input_path(NULL));
+    ppath("wfdbx_input_path URL", wfdbx_input_path("http://127.0.0.1:1/a"));
+    ppath("wfdbx_output_path a.wav", wfdbx_output_path("a.wav"));
+    ppath("wfdbx_output_path ~/a.wav", wfdbx_output_path("~/a.wav"));
+    ppath("wfdbx_output_path URL", wfdbx_output_path("https://127.0.0.1:1/a"));
+    wfdbx_set_input_dir("tin");
+    ppath("wfdbx_input_path a.txt (tin)", wfdbx_input_path("a.txt"));
+    ppath("wfdbx_input_path ../a.txt (tin)", wfdbx_input_path("../a.txt"));
+    ppath("wfdbx_input_path /a.txt (tin)", wfdbx_input_path("/a.txt"));
+    ppath("wfdbx_input_path - (tin)", wfdbx_input_path("-"));
+    wfdbx_set_input_dir("~/tin/");
+    ppath("wfdbx_input_path a.txt (~/tin/)", wfdbx_input_path("a.txt"));
+    wfdbx_set_input_dir("http://127.0.0.1:1/d");
+    ppath("wfdbx_input_path a.txt (URL)", wfdbx_input_path("a.txt"));
+    wfdbx_set_input_dir(NULL);
+    wfdbx_set_output_dir("tout/deep");
+    ppath("wfdbx_output_path a.wav (tout/deep)", wfdbx_output_path("a.wav"));
+    printf("tout/deep created: %d\n", stat("tout/deep", &st) == 0);
+    ppath("wfdbx_output_path s/a.wav (tout/deep)",
+	  wfdbx_output_path("s/a.wav"));
+    printf("tout/deep/s created: %d\n", stat("tout/deep/s", &st) == 0);
+    ppath("wfdbx_output_path /a.wav (tout/deep)", wfdbx_output_path("/a.wav"));
+    ppath("wfdbx_output_path ~/m/a.wav (tout/deep)",
+	  wfdbx_output_path("~/m/a.wav"));
+    printf("thome/m created: %d\n", stat("thome/m", &st) == 0);
+    ppath("wfdbx_input_path a.txt (output dir only)",
+	  wfdbx_input_path("a.txt"));
+    wfdbx_set_legacy(1);
+    wfdbx_set_input_dir("tin");
+    wfdbx_set_output_dir("tlout");
+    ppath("legacy wfdbx_input_path a.txt", wfdbx_input_path("a.txt"));
+    ppath("legacy wfdbx_input_path ~/a.txt", wfdbx_input_path("~/a.txt"));
+    ppath("legacy wfdbx_output_path a.wav", wfdbx_output_path("a.wav"));
+    ppath("legacy wfdbx_output_path /a.wav", wfdbx_output_path("/a.wav"));
+    ppath("legacy wfdbx_output_path ~/a.wav", wfdbx_output_path("~/a.wav"));
+    ppath("legacy wfdbx_output_path -", wfdbx_output_path("-"));
+    printf("tlout/~ created: %d\n", stat("tlout/~", &st) == 0);
+    wfdbx_set_output_dir(NULL);
+    ppath("legacy wfdbx_output_path a.wav (no output dir)",
+	  wfdbx_output_path("a.wav"));
+    wfdbx_set_input_dir(NULL);
+    wfdbx_set_legacy(0);
+}
+
 int main(void)
 {
     printf("# expected values for the wfdb-x API unit tests (from the C "
@@ -1531,5 +1596,6 @@ int main(void)
     t_outdir();
     t_files();
     t_alias();
+    t_toolpaths();
     return 0;
 }

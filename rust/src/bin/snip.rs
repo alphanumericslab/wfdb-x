@@ -9,10 +9,11 @@
 //
 // Changes from the original: no built-in sampling frequency: the input record
 // must give it, for the header of the excerpt (the original assumed 250 Hz);
-// a master header that cannot be written is reported, and the exit status is
-// then 1; --legacy, as the first argument, restores the original behavior.
-// Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-// reasons.
+// the master header of -m is created under the output directory, as the
+// library creates an output file; a master header that cannot be written is
+// reported, and the exit status is then 1; --legacy, as the first argument,
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: app/snip.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -170,13 +171,16 @@ impl Snip {
 
             let mut ohfname = nrec.to_vec();
             ohfname.extend_from_slice(b".hea");
-            let ohfile = match WfdbFile::fopen(&ohfname, b"wb") {
-                Some(f) => f,
-                None => {
-                    ceprintf!(b"%s: can't create master header\n", self.pname);
-                    self.exit(2);
-                }
-            };
+            // WFDB-x: the master header is created where the library creates
+            // an output file of that name (see wfdbx_output_path)
+            let ohfile =
+                match wfdbx::wfdbx_output_path(&ohfname).and_then(|p| WfdbFile::fopen(&p, b"wb")) {
+                    Some(f) => f,
+                    None => {
+                        ceprintf!(b"%s: can't create master header\n", self.pname);
+                        self.exit(2);
+                    }
+                };
             self.open_files.push(ohfile);
             let oh = self.open_files.len() - 1;
 

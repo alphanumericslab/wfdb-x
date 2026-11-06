@@ -13,7 +13,9 @@
 //!   [`read_annotations`], [`write_record`], [`write_record_physical`],
 //!   [`write_annotations`]. They return a [`Result`] whose error type is
 //!   [`record::Error`]. [`check_record`] checks a record and reports every
-//!   problem it finds.
+//!   problem it finds. [`read_metadata`], [`get_metadata`],
+//!   [`set_metadata`], [`remove_metadata`] and [`update_metadata`] read and
+//!   change the `Key: value` entries of a header (see [`metadata`]).
 //! * **Command-line tools** such as `rdsamp`, `rdann` and `wrsamp`, each a
 //!   separate program of this crate.
 //! * **The WFDB library functions** under their C names ([`isigopen`],
@@ -109,6 +111,7 @@
 //! | [`annot`] | annotations |
 //! | [`calib`] | the calibration list |
 //! | [`check`] | [`check_record`]: checking a record |
+//! | [`metadata`] | the `Key: value` entries (metadata) of a header |
 //! | [`wfdbio`] | file names, the input and output directories, network access, error messages, [`WfdbFile`] |
 //! | [`wfdbinit`](mod@wfdbinit) | `wfdbinit`, `wfdbquit`, `wfdbflush` |
 //! | [`ecgcodes`] | annotation codes and the `<ecgmap.h>` functions |
@@ -139,6 +142,7 @@ pub mod calib;
 pub mod check;
 pub mod ecgcodes;
 pub(crate) mod flac;
+pub mod metadata;
 pub mod record;
 pub mod signal;
 pub mod types;
@@ -150,6 +154,11 @@ pub use annot::*;
 pub use calib::*;
 pub use check::{check_record, check_record_with, CheckReport, Issue, Severity};
 pub use ecgcodes::*;
+pub use metadata::{
+    get_metadata, get_metadata_with, read_metadata, read_metadata_with, remove_metadata,
+    remove_metadata_with, set_metadata, set_metadata_with, update_metadata, update_metadata_with,
+    Metadata, MetadataOptions,
+};
 pub use record::{
     read_annotations, read_annotations_with, read_header, read_header_with, read_record,
     write_annotations, write_annotations_with, write_record, write_record_physical,

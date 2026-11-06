@@ -516,7 +516,7 @@ index 329b9c1..19336b8 100644
  
      for (i = 1; i < argc; i++) {
 diff --git a/app/snip.c b/app/snip.c
-index 86f3f45..969cf0e 100644
+index 86f3f45..e354712 100644
 --- a/app/snip.c
 +++ b/app/snip.c
 @@ -47,6 +47,10 @@ char *argv[];
@@ -546,7 +546,29 @@ index 86f3f45..969cf0e 100644
  
      /* Evaluate the time limits. */
      if ((from = strtim(startp)) < 0L)
-@@ -379,7 +392,7 @@ void copy_sig(char *nrec, char *irec, WFDB_Time from, WFDB_Time to, int recurse)
+@@ -276,7 +289,7 @@ void copy_sig(char *nrec, char *irec, WFDB_Time from, WFDB_Time to, int recurse)
+ 
+     if (recurse && (maxseg = getseginfo(&seginfo)) > 0) {
+ 	/* irec has multiple segments */
+-	char *ohfname, *orseg;
++	char *ohfname, *ohpath, *orseg;
+ 	int first_seg, last_seg, nseg;
+ 	WFDB_Frequency sfreq = sampfreq(NULL);
+ 	FILE *ohfile;
+@@ -288,7 +301,11 @@ void copy_sig(char *nrec, char *irec, WFDB_Time from, WFDB_Time to, int recurse)
+ 
+ 	ohfname = malloc((strlen(nrec)+5) * sizeof(char));
+ 	sprintf(ohfname, "%s.hea", nrec);
+-	ohfile = fopen(ohfname, "wb");
++	/* wfdb-x: the master header is created where the library creates an
++	   output file of that name (see wfdbx_output_path in lib/wfdbio.c) */
++	ohpath = wfdbx_output_path(ohfname);
++	ohfile = ohpath ? fopen(ohpath, "wb") : NULL;
++
+ 	if (ohfile == NULL) {
+ 	    fprintf(stderr, "%s: can't create master header\n", pname);
+ 	    exit(2);
+@@ -379,7 +396,7 @@ void copy_sig(char *nrec, char *irec, WFDB_Time from, WFDB_Time to, int recurse)
  	    }
  	    fprintf(ohfile, "%s %"WFDB_Pd_TIME"\r\n", orseg, len);
  	}
@@ -748,10 +770,44 @@ index 135ea7e..95364b0 100644
      if (argc < 2 || (argc == 2 && strcmp(argv[1], "-h") == 0)) {
  	(void)fprintf(stderr, "usage: %s FILE [FILE ...]\n", pname);
 diff --git a/app/wfdbdesc.c b/app/wfdbdesc.c
-index bd0526b..18423ab 100644
+index bd0526b..868b42a 100644
 --- a/app/wfdbdesc.c
 +++ b/app/wfdbdesc.c
-@@ -39,6 +39,11 @@ char *argv[];
+@@ -30,6 +30,33 @@ Guide.
+ #include <stdio.h>
+ #include <wfdb/wfdb.h>
+ 
++/* wfdb-x: open_signal_file opens, for reading, the signal file fname named in
++   the header of record, to measure its length: in normal mode, where the
++   library reads it, i.e., in the directory of the header (the directory part
++   of the record name, under the input directory if one is set; see
++   wfdbx_input_path in lib/wfdbio.c); in legacy mode, as named, as the C
++   program did (relative to the current directory). */
++static FILE *open_signal_file(const char *record, const char *fname)
++{
++    const char *q;
++    char *name, *path;
++    FILE *f;
++    int n;
++
++    if (wfdbx_get_legacy() || strcmp(fname, "-") == 0)
++	return (fopen(fname, "rb"));
++    q = strrchr(record, '/');
++    n = q ? (int)(q - record + 1) : 0;
++    if ((name = malloc(n + strlen(fname) + 1)) == NULL)
++	return (NULL);
++    sprintf(name, "%.*s%s", n, record, fname);
++    path = wfdbx_input_path(name);
++    f = path ? fopen(path, "rb") : NULL;
++    free(name);
++    free(path);
++    return (f);
++}
++
+ main(argc, argv)
+ int argc;
+ char *argv[];
+@@ -39,6 +66,11 @@ char *argv[];
      FILE *ifile;
      WFDB_Siginfo *s;
      WFDB_Time t;
@@ -763,7 +819,7 @@ index bd0526b..18423ab 100644
  
      pname = prog_name(argv[0]);
      if (argc < 2) {
-@@ -82,10 +87,16 @@ char *argv[];
+@@ -82,13 +114,20 @@ char *argv[];
         } while (info = getinfo((char *)NULL));
         (void)printf("=====\n");
      }
@@ -781,8 +837,13 @@ index bd0526b..18423ab 100644
 +    else if (nsig < 1 || t > 0L)
  	(void)printf("%s (%"WFDB_Pd_TIME" sample intervals)\n",
  		     t > 0L ? mstimstr(t) : "0", t);
-     else if (s[0].fmt && (ifile = fopen(s[0].fname, "rb")) &&
-@@ -123,7 +134,10 @@ char *argv[];
+-    else if (s[0].fmt && (ifile = fopen(s[0].fname, "rb")) &&
++    else if (s[0].fmt && (ifile = open_signal_file(argv[1], s[0].fname)) &&
++
+ 	     (fseek(ifile, 0L, 2) == 0)) {
+ 	int framesize = 0;
+ 	long nbytes = ftell(ifile) - wfdbgetstart(0);
+@@ -123,7 +162,10 @@ char *argv[];
  	    t = -1;
  	    break;
  	}
@@ -794,7 +855,7 @@ index bd0526b..18423ab 100644
  	    printf("%s (%"WFDB_Pd_TIME" sample intervals)"
  		   " [from signal file size]\n",
  		   mstimstr(t), t);
-@@ -131,25 +145,39 @@ char *argv[];
+@@ -131,25 +173,39 @@ char *argv[];
  	    printf("not specified\n");
      }
      else (void)printf("not specified\n");
@@ -841,7 +902,7 @@ index bd0526b..18423ab 100644
          (void)printf(" Initial value: %d\n", s[i].initval);
  	if (s[i].fmt != 0)
  	    (void)printf(" Storage format: %d", s[i].fmt);
-@@ -160,7 +188,10 @@ char *argv[];
+@@ -160,7 +216,10 @@ char *argv[];
          (void)printf(" I/O: ");
          if (s[i].bsize == 0) (void)printf("can be unbuffered\n");
          else (void)printf("%d-byte blocks\n", s[i].bsize);
@@ -912,23 +973,24 @@ index fe5dc45..9df9403 100644
  
      /* Interpret command-line options. */
 diff --git a/app/wrsamp.c b/app/wrsamp.c
-index 08ced06..78e2fd0 100644
+index 08ced06..a8bf88c 100644
 --- a/app/wrsamp.c
 +++ b/app/wrsamp.c
-@@ -192,9 +192,10 @@ char *argv[];
+@@ -192,9 +192,11 @@ char *argv[];
  {
      char **ap, *cp, **desc, *gain = "", *ifname = "(stdin)",
  	*line = NULL, ofname[40], *p, *record = NULL, rsep = '\n',
 -	*scale = "", sflag = 0, trim = 0, Xflag = 0, **units, *prog_name();
 +	*scale = "", sflag = 0, trim = 0, Xflag = 0, **units, *prog_name(),
-+	*res = "", *uopt = NULL;	/* wfdb-x: -R and -U */
++	*res = "", *uopt = NULL,	/* wfdb-x: -R and -U */
++	*ipath;		/* wfdb-x: the location of the -i file */
      static char btime[25], **dstrings, **ustrings;
 -    double freq = WFDB_DEFFREQ, *scalef, v;
 +    double freq = 0.0, *scalef, v;	/* wfdb-x: no default frequency */
  #ifndef atof
      double atof();
  #endif
-@@ -209,7 +210,13 @@ char *argv[];
+@@ -209,7 +211,13 @@ char *argv[];
      WFDB_Siginfo *si;
      void help();
  
@@ -942,7 +1004,7 @@ index 08ced06..78e2fd0 100644
  
      for (i = 1; i < argc && *argv[i] == '-'; i++) {
  	switch (*(argv[i]+1)) {
-@@ -246,6 +253,25 @@ char *argv[];
+@@ -246,6 +254,25 @@ char *argv[];
  	    help();
  	    exit(1);
  	    break;
@@ -968,7 +1030,20 @@ index 08ced06..78e2fd0 100644
  	  case 'i':
  	    if (++i >= argc) {
  		(void)fprintf(stderr, "%s: input file name must follow -i\n",
-@@ -318,12 +344,37 @@ char *argv[];
+@@ -256,7 +283,11 @@ char *argv[];
+ 		(void)fclose(ifile);
+ 	    if (strcmp(argv[i], "-") == 0)
+ 		ifile = stdin;
+-	    else if ((ifile = fopen(argv[i], "r")) == NULL) {
++	    /* wfdb-x: the file is found where the library finds an input
++	       file of that name (see wfdbx_input_path in lib/wfdbio.c) */
++	    else if ((ipath = wfdbx_input_path(argv[i])) == NULL ||
++		     (ifile = fopen(ipath, "r")) == NULL) {
++
+ 		(void)fprintf(stderr, "%s: can't read `%s'\n", pname, argv[i]);
+ 		exit(2);
+ 	    }
+@@ -318,12 +349,37 @@ char *argv[];
  	    zflag = 1;
  	    break;
  	  default:
@@ -1006,7 +1081,7 @@ index 08ced06..78e2fd0 100644
      nosig = argc - i;	/* any remaining arguments are column numbers */
  
      /* Determine the number of input columns, and (if present) the signal
-@@ -467,7 +518,22 @@ char *argv[];
+@@ -467,7 +523,22 @@ char *argv[];
  	    (void)sprintf(tdesc, "col %d", fv[i]);
  	    SSTRCPY(si[i].desc, tdesc);
  	}
@@ -1030,7 +1105,7 @@ index 08ced06..78e2fd0 100644
  	    SSTRCPY(si[i].units, ustrings[fv[i]]);
  	}
  	else
-@@ -476,35 +542,64 @@ char *argv[];
+@@ -476,35 +547,64 @@ char *argv[];
  	si[i].fmt = format;
  	si[i].spf = 1;
  	si[i].bsize = 0;
@@ -1114,7 +1189,7 @@ index 08ced06..78e2fd0 100644
  	while (*scale == ' ')
  	    scale++;
  	if (sscanf(scale, "%lf", &(scalef[i])) < 1)
-@@ -601,6 +696,54 @@ char *s;
+@@ -601,6 +701,54 @@ char *s;
  }
  
  static char *help_strings[] = {
@@ -1169,7 +1244,7 @@ index 08ced06..78e2fd0 100644
   "usage: %s [OPTIONS ...] [COLUMN ...]\n",
   "where COLUMN selects a field to be copied (leftmost field is column 0),",
   "and OPTIONS may include:",
-@@ -645,10 +788,11 @@ NULL
+@@ -645,10 +793,11 @@ NULL
  void help()
  {
      int i;
@@ -1185,7 +1260,7 @@ index 08ced06..78e2fd0 100644
  	    char b[5];
  	    (void)fprintf(stderr, "--More--");
 diff --git a/app/xform.c b/app/xform.c
-index b8ae037..c4d6261 100644
+index b8ae037..ec948ec 100644
 --- a/app/xform.c
 +++ b/app/xform.c
 @@ -67,6 +67,10 @@ char *argv[];
@@ -1230,7 +1305,27 @@ index b8ae037..c4d6261 100644
  	(void)setsampfreq(ifreq/spf);
  
  	if (ifreq != ofreq) {
-@@ -384,7 +405,15 @@ char *argv[];
+@@ -337,11 +358,17 @@ char *argv[];
+ 	static int formats[WFDB_NFMTS] = WFDB_FMT_LIST;	/* see <wfdb/wfdb.h> */
+ 	int format;
+ 	FILE *ttyin;
++	/* wfdb-x: the script is found where the library finds an input file
++	   of that name (see wfdbx_input_path in lib/wfdbio.c) */
++	char *spath = script ? wfdbx_input_path(script) : NULL;
+ #ifndef MSDOS
+-	ttyin = fopen(script ? script : "/dev/tty", "r");
++	ttyin = script ? (spath ? fopen(spath, "r") : NULL) :
++	    fopen("/dev/tty", "r");
+ #else
+-	ttyin = fopen(script ? script : "CON", "rt");
++	ttyin = script ? (spath ? fopen(spath, "rt") : NULL) :
++	    fopen("CON", "rt");
+ #endif
++
+ 	if (ttyin == NULL) ttyin = stdin;
+ 	if (nrec == NULL) {
+ 	    do {
+@@ -384,7 +411,15 @@ char *argv[];
  	    script_fgets(answer, sizeof(answer), ttyin);
  	    (void)sscanf(answer, "%lf", &ofreq);
  	} while (ofreq < 0);
@@ -1247,7 +1342,7 @@ index b8ae037..c4d6261 100644
  	if (nosig > 0) {
  	    (void)fprintf(stderr,
  		"Specify the name of the directory in which the output\n");
-@@ -493,48 +522,89 @@ char *argv[];
+@@ -493,48 +528,89 @@ char *argv[];
  		dfout[i].units = *units[i] ? units[i] : NULL;
  	    }
  	    (void)fprintf(stderr, " Signal %d gain (adu/%s) [%g]: ",
@@ -1369,7 +1464,7 @@ index b8ae037..c4d6261 100644
  	    } while (dfout[i].adcres < 8 || dfout[i].adcres > 32);
  	    (void)fprintf(stderr, " Signal %d ADC zero level (adu) [%d]: ",
  			  i, dfout[i].adczero);
-@@ -656,7 +726,18 @@ char *argv[];
+@@ -656,7 +732,18 @@ char *argv[];
         sampling frequency differences. */
      wfdbquiet();
      if (orec && (osigopen(orec, dfout, (unsigned)nosig) != nosig)) {
@@ -1389,7 +1484,7 @@ index b8ae037..c4d6261 100644
  	exit(2);
      }
      wfdbverbose();
-@@ -697,51 +778,75 @@ char *argv[];
+@@ -697,51 +784,75 @@ char *argv[];
  	       appropriate number of bits will be dropped from or added to each
  	       signal.
  	   2.  If the output gain has been specified, the signal is scaled by
@@ -1501,11 +1596,17 @@ index b8ae037..c4d6261 100644
  	    gain[i] = dfout[i].gain/dfin[j].gain;
  
 diff --git a/convert/a2m.c b/convert/a2m.c
-index b76fb76..2cdd7a0 100644
+index b76fb76..88904bb 100644
 --- a/convert/a2m.c
 +++ b/convert/a2m.c
-@@ -80,11 +80,16 @@ char *argv[];
-     char *ifname = NULL, *oann = "atr", *p, *record = NULL, *prog_name();
+@@ -77,14 +77,21 @@ main(argc, argv)
+ int argc;
+ char *argv[];
+ {
+-    char *ifname = NULL, *oann = "atr", *p, *record = NULL, *prog_name();
++    char *ifname = NULL, *oann = "atr", *p, *record = NULL, *prog_name(),
++	*ipath;		/* wfdb-x */
++
      int i, type = -1, getcann();
      long offset = 0L;
 +    double Ffreq = 0.;
@@ -1521,7 +1622,7 @@ index b76fb76..2cdd7a0 100644
      /* Read and interpret command-line arguments. */
      pname = prog_name(argv[0]);
      for (i = 1; i < argc; i++) {
-@@ -98,6 +103,17 @@ char *argv[];
+@@ -98,6 +105,17 @@ char *argv[];
  	    }
  	    oann = argv[i];
  	    break;
@@ -1539,7 +1640,7 @@ index b76fb76..2cdd7a0 100644
  	  case 'h':	/* help requested */
  	    help();
  	    exit(1);
-@@ -140,6 +156,7 @@ char *argv[];
+@@ -140,6 +158,7 @@ char *argv[];
  	    }
  	    break;
  	  default:
@@ -1547,7 +1648,23 @@ index b76fb76..2cdd7a0 100644
  	    (void)fprintf(stderr, "%s: unrecognized option %s\n", pname,
  			  argv[i]);
  	    exit(1);
-@@ -191,8 +208,24 @@ char *argv[];
+@@ -157,8 +176,13 @@ char *argv[];
+ 	exit(1);
+     }
+ 		 
+-    /* Attach the input file to the standard input. */
+-    if (strcmp(ifname, "-") != 0 && freopen(ifname, RB, stdin) == NULL) {
++    /* Attach the input file to the standard input.  (wfdb-x: the file is
++       found where the library finds an input file of that name; see
++       wfdbx_input_path in lib/wfdbio.c) */
++    if (strcmp(ifname, "-") != 0 &&
++	((ipath = wfdbx_input_path(ifname)) == NULL ||
++	 freopen(ipath, RB, stdin) == NULL)) {
++
+ 	(void)fprintf(stderr, "%s: can't read input file `%s'\n", pname,
+ 		      ifname);
+ 	exit(2);
+@@ -191,8 +215,24 @@ char *argv[];
  	exit(2);
  
      /* Set the time shift. */
@@ -1574,7 +1691,7 @@ index b76fb76..2cdd7a0 100644
      if (offset) offset = strtim(argv[offset]);
      else {
  	switch (type) {
-@@ -227,16 +260,27 @@ char *argv[];
+@@ -227,16 +267,27 @@ char *argv[];
  		break;
  	}
  	break;
@@ -1604,7 +1721,7 @@ index b76fb76..2cdd7a0 100644
  	    (void)putann(0, &annot);
  	}
  	break;
-@@ -309,6 +353,30 @@ char *s;
+@@ -309,6 +360,30 @@ char *s;
  }
  
  static char *help_strings[] = {
@@ -1635,7 +1752,7 @@ index b76fb76..2cdd7a0 100644
    "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
    "where AHAFILE is the name of the AHA-format input annotation file,",
    "and OPTIONS may include:",
-@@ -332,8 +400,9 @@ static char *help_strings[] = {
+@@ -332,8 +407,9 @@ static char *help_strings[] = {
  void help()
  {
      int i;
@@ -1649,14 +1766,18 @@ index b76fb76..2cdd7a0 100644
 +	(void)fprintf(stderr, "%s\n", hs[i]);
  }
 diff --git a/convert/ad2m.c b/convert/ad2m.c
-index c693660..dc9cc54 100644
+index c693660..2d327d6 100644
 --- a/convert/ad2m.c
 +++ b/convert/ad2m.c
-@@ -51,13 +51,28 @@ int argc;
+@@ -50,14 +50,31 @@ main(argc, argv)
+ int argc;
  char *argv[];
  {
-     char dfname[FNLEN], *ifname = NULL, *p, *record = NULL, *prog_name();
+-    char dfname[FNLEN], *ifname = NULL, *p, *record = NULL, *prog_name();
 -    int cflag = 0, i, v[2], getcvec();
++    char dfname[FNLEN], *ifname = NULL, *p, *record = NULL, *prog_name(),
++	*ipath;		/* wfdb-x */
++
 +    char *Uunits = NULL, *fstr = NULL, *tstr = NULL;
 +    double Ffreq = 0., Ggain = 0.;
 +    int cflag = 0, i, v[2], getcvec(), Gset = 0, Rres = 0;
@@ -1683,7 +1804,7 @@ index c693660..dc9cc54 100644
      for (i = 1; i < argc; i++) {
  	if (*argv[i] == '-') switch (*(argv[i]+1)) {
  	  case 'c':
-@@ -69,7 +84,10 @@ char *argv[];
+@@ -69,7 +86,10 @@ char *argv[];
  			      "%s: start time must follow -f\n", pname);
  		exit(1);
  	    }
@@ -1695,7 +1816,7 @@ index c693660..dc9cc54 100644
  	    break;
  	  case 'h':	/* help requested */
  	    help();
-@@ -98,9 +116,56 @@ char *argv[];
+@@ -98,9 +118,56 @@ char *argv[];
  			"%s: end time must follow -t\n", pname);
  		exit(1);
  	    }
@@ -1715,7 +1836,7 @@ index c693660..dc9cc54 100644
 +			      pname);
 +		exit(1);
 +	    }
- 	    break;
++	    break;
 +	  case 'G':	/* gain in adu per physical unit (wfdb-x) */
 +	    if (wfdbx_get_legacy())	/* not an option of the original */
 +		goto unrecognized;
@@ -1746,14 +1867,14 @@ index c693660..dc9cc54 100644
 +		exit(1);
 +	    }
 +	    Uunits = argv[i];
-+	    break;
+ 	    break;
 +
  	  default:
 +	  unrecognized:	/* wfdb-x: also the wfdb-x options, in legacy mode */
  	    (void)fprintf(stderr, "%s: unrecognized option %s\n", pname,
  			  argv[i]);
  	    exit(1);
-@@ -111,7 +176,39 @@ char *argv[];
+@@ -111,7 +178,39 @@ char *argv[];
  	    exit(1);
  	}
      }
@@ -1794,7 +1915,23 @@ index c693660..dc9cc54 100644
  	help();
  	exit(1);
      }
-@@ -160,9 +257,10 @@ char *argv[];
+@@ -122,8 +221,13 @@ char *argv[];
+ 	    cflag = 1;
+     }
+ 
+-    /* Attach the input file to the standard input. */
+-    if (strcmp(ifname, "-") != 0 && freopen(ifname, RB, stdin) == NULL) {
++    /* Attach the input file to the standard input.  (wfdb-x: the file is
++       found where the library finds an input file of that name; see
++       wfdbx_input_path in lib/wfdbio.c) */
++    if (strcmp(ifname, "-") != 0 &&
++	((ipath = wfdbx_input_path(ifname)) == NULL ||
++	 freopen(ipath, RB, stdin) == NULL)) {
++
+ 	(void)fprintf(stderr, "%s: can't read input file `%s'\n", pname,
+ 		      ifname);
+ 	exit(2);
+@@ -160,9 +264,10 @@ char *argv[];
      (void)sprintf(dfname, "%s.dat", record);
      dfarray[0].fname = dfarray[1].fname = dfname;
      dfarray[0].desc = dfarray[1].desc = "";
@@ -1807,7 +1944,7 @@ index c693660..dc9cc54 100644
      if (osigfopen(dfarray, 2) < 0) exit(3);
  
      if (!cflag) {	/* process tape-format input file */
-@@ -250,6 +348,28 @@ char *s;
+@@ -250,6 +355,28 @@ char *s;
  }
  
  static char *help_strings[] = {
@@ -1836,7 +1973,7 @@ index c693660..dc9cc54 100644
      "usage: %s -i AHAFILE [ OPTIONS ... ]\n",
      "where AHAFILE is the name of the AHA-format input signal file,",
      "and OPTIONS may include:",
-@@ -269,8 +389,9 @@ static char *help_strings[] = {
+@@ -269,8 +396,9 @@ static char *help_strings[] = {
  void help()
  {
      int i;
@@ -1850,7 +1987,7 @@ index c693660..dc9cc54 100644
 +	(void)fprintf(stderr, "%s\n", hs[i]);
  }
 diff --git a/convert/ahaecg2mit.c b/convert/ahaecg2mit.c
-index 3a2cdb7..13fc578 100644
+index 3a2cdb7..5c5c65b 100644
 --- a/convert/ahaecg2mit.c
 +++ b/convert/ahaecg2mit.c
 @@ -4,10 +4,23 @@ Convert *.ecg or *.txt files from an AHA Database DVD to WFDB-compatible format
@@ -1877,8 +2014,12 @@ index 3a2cdb7..13fc578 100644
  FILE *ifile;
  WFDB_Annotation a;
  WFDB_Sample v[2];
-@@ -59,9 +72,17 @@ main(int argc, char **argv)
-     char *p, *record;
+@@ -56,12 +69,20 @@ int readtxtdata(void)
+ 	
+ main(int argc, char **argv)
+ {
+-    char *p, *record;
++    char *p, *record, *ipath;	/* wfdb-x: ipath */
      int i, sflag = 0;
  
 +    /* wfdb-x: --legacy as the first argument selects legacy mode (the
@@ -1907,8 +2048,11 @@ index 3a2cdb7..13fc578 100644
 +		" (adu per physical\n unit), ADC resolution (bits) and units"
 +		" of the signals; for the AHA DVD\n files, use -F 250 -G 400"
 +		" -R 12 -U mV.\n");
-+	exit(1);
-+    }
+ 	exit(1);
+     }
+-    if (strcmp(argv[i = 1], "-s") == 0) {
+-	sflag = 1;	/* produce short-format (35-minute) records */
+-	i = 2;
 +    /* wfdb-x: options (-s and the signal parameters) precede the input
 +       files, in any order. */
 +    pname = argv[0];
@@ -1973,11 +2117,8 @@ index 3a2cdb7..13fc578 100644
 +	(void)fprintf(stderr,
 +		      "%s: the sampling frequency must be specified (-F)\n",
 +		      pname);
- 	exit(1);
-     }
--    if (strcmp(argv[i = 1], "-s") == 0) {
--	sflag = 1;	/* produce short-format (35-minute) records */
--	i = 2;
++	exit(1);
++    }
 +    if (!Gset) {
 +	(void)fprintf(stderr, "%s: the gain must be specified (-G)\n", pname);
 +	exit(1);
@@ -1995,7 +2136,19 @@ index 3a2cdb7..13fc578 100644
      }
      for ( ; i < argc; i++) {
  	p = argv[i] + strlen(argv[i]) - 4;    /* pointer to '.ecg' or '.txt' */
-@@ -98,12 +202,14 @@ main(int argc, char **argv)
+@@ -91,19 +195,25 @@ main(int argc, char **argv)
+ 	    fprintf(stderr, "%s: ignoring '%s'\n", argv[0], argv[i]);
+ 	    continue;	/* not an .ecg or .txt file */
+ 	}
+-	if ((ifile = fopen(argv[i], "rb")) == NULL) {
++	/* wfdb-x: the file is found where the library finds an input file of
++	   that name (see wfdbx_input_path in lib/wfdbio.c) */
++	if ((ipath = wfdbx_input_path(argv[i])) == NULL ||
++	    (ifile = fopen(ipath, "rb")) == NULL) {
++
+ 	    fprintf(stderr, "%s: can't open '%s'\n", argv[0], argv[1]);
+ 	    continue;
+ 	}
  	*p = '\0';	/* strip off extension */
  	record = p - 4;	/* AHA record names are 4 (ASCII) digits */
  	if (sflag) {/* skip first 145 minutes if making a short-format record */
@@ -2012,7 +2165,7 @@ index 3a2cdb7..13fc578 100644
  		    (void)readtxtdata();
  	    }		
  	    record[1] += 2;	/* fix record name (n0nn->n2nn, n1nn->n3nn) */
-@@ -122,14 +228,14 @@ void process(char *record)
+@@ -122,14 +232,14 @@ void process(char *record)
      static WFDB_Siginfo si[2];
      static WFDB_Anninfo ai;
  
@@ -2032,10 +2185,18 @@ index 3a2cdb7..13fc578 100644
      si[1].desc = "ECG1";
      ai.name = "atr";
 diff --git a/convert/edf2mit.c b/convert/edf2mit.c
-index 9bf0ee7..fdd96b8 100644
+index 9bf0ee7..656ad4f 100644
 --- a/convert/edf2mit.c
 +++ b/convert/edf2mit.c
-@@ -44,6 +44,10 @@ char **argv;
+@@ -36,6 +36,7 @@ char **argv;
+     char buf[81], record[WFDB_MAXRNL+1], **vi, **vin;
+     double *sigpmax, *sigpmin, *sampfreq, spr, sps, gcd();
+     FILE *ifile = NULL;
++    char *ipath;	/* wfdb-x */
+     int big_endian = 0, fpb, h, i, j, k, l, nsig, nosig = 0, *siglist = NULL,
+ 	*spb, tspb = 0, ispf = 0, tspf = 0, vflag = 0,
+ 	day, month, year, hour, minute, second;
+@@ -44,6 +45,10 @@ char **argv;
      WFDB_Siginfo *si, *so;
      void help();
  
@@ -2046,6 +2207,20 @@ index 9bf0ee7..fdd96b8 100644
      pname = argv[0];
      record[0] = '\0';
      for (i = 1; i < argc; i++) {
+@@ -59,7 +64,12 @@ char **argv;
+ 		if (!strcmp(argv[i], "-"))
+ 		    ifile = stdin;
+ 		else {
+-		    ifile = fopen(argv[i], "rb");
++		    /* wfdb-x: the file is found where the library finds an
++		       input file of that name (see wfdbx_input_path in
++		       lib/wfdbio.c) */
++		    ipath = wfdbx_input_path(argv[i]);
++		    ifile = ipath ? fopen(ipath, "rb") : NULL;
++
+ 		    if (ifile == NULL) {
+ 			fprintf(stderr, "%s: can't read %s\n", pname, argv[i]);
+ 			exit(1);
 diff --git a/convert/m2a.c b/convert/m2a.c
 index 814ce16..821e7ea 100644
 --- a/convert/m2a.c
@@ -2180,10 +2355,20 @@ index 6d275c9..d38beb7 100644
      for (i = 1; i < argc; i++) {
  	if (*argv[i] == '-') switch (*(argv[i]+1)) {
 diff --git a/convert/mit2edf.c b/convert/mit2edf.c
-index 715848d..64177af 100644
+index 715848d..3176554 100644
 --- a/convert/mit2edf.c
 +++ b/convert/mit2edf.c
-@@ -48,6 +48,10 @@ char **argv;
+@@ -35,7 +35,8 @@ int argc;
+ char **argv;
+ {
+     char buf[100];
+-    char *header, *ofname = NULL, *p, *block, **blockp, *record = NULL;
++    char *header, *ofname = NULL, *p, *block, **blockp, *record = NULL,
++	*opath;		/* wfdb-x */
+     double *pmax, *pmin, frames_per_second, seconds_per_block;
+     FILE *ofile = NULL;
+     int *dmax, *dmin, i, j, k, nsig, samples_per_frame, start_date_recorded,
+@@ -48,6 +49,10 @@ char **argv;
  				   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
      void help();
  
@@ -2194,10 +2379,12 @@ index 715848d..64177af 100644
      /* Interpret the command line. */
      pname = argv[0];
      for (i = 1; i < argc; i++) {
-@@ -115,6 +119,30 @@ char **argv;
+@@ -115,8 +120,36 @@ char **argv;
      if ((nsig = isigopen(record, si, nsig)) <= 0)
  	exit(3);
  
+-    /* Open the output (EDF) file. */
+-    if ((ofile = fopen(ofname, "wb")) == NULL) {
 +    /* wfdb-x: an EDF file needs the sampling frequency and the gain of each
 +       signal (the C program assumed 250 Hz and 200 adu/mV if the header did
 +       not specify them, as legacy mode does). */
@@ -2222,10 +2409,16 @@ index 715848d..64177af 100644
 +	}
 +    }
 +
-     /* Open the output (EDF) file. */
-     if ((ofile = fopen(ofname, "wb")) == NULL) {
++    /* Open the output (EDF) file.  (wfdb-x: it is created where the library
++       creates an output file of that name; see wfdbx_output_path in
++       lib/wfdbio.c) */
++    if ((opath = wfdbx_output_path(ofname)) == NULL ||
++	(ofile = fopen(opath, "wb")) == NULL) {
++
  	(void)fprintf(stderr, "%s: can't create %s\n", pname, ofname);
-@@ -201,7 +229,10 @@ char **argv;
+ 	exit(4);
+     }
+@@ -201,7 +234,10 @@ char **argv;
  
      /* Calculate physical and digital extrema. */
      for (i = 0; i < nsig; i++) {
@@ -2237,7 +2430,7 @@ index 715848d..64177af 100644
  	    switch (si[i].fmt) { /* guess ADC resolution based on format */
  	      case 524:
  	      case 24: si[i].adcres = 24; break;
-@@ -313,7 +344,8 @@ char **argv;
+@@ -313,7 +349,8 @@ char **argv;
  
      /* Physical dimension (e.g., uV or degreeC). */
      for (i = 0; i < nsig; i++, p += 8) {
@@ -2247,7 +2440,7 @@ index 715848d..64177af 100644
  	else if (strlen(si[i].units) > 8) si[i].units[8] = '\0';
  	strncpy(p, si[i].units, strlen(si[i].units));
      }
-@@ -413,7 +445,7 @@ char **argv;
+@@ -413,7 +450,7 @@ char **argv;
  	    if (n % blocks_per_hour == 0) printf("\n");
  	}
      }
@@ -2257,10 +2450,30 @@ index 715848d..64177af 100644
  
      if (edfplusflag) {
 diff --git a/convert/mit2wav.c b/convert/mit2wav.c
-index 4fc7431..901d6a7 100644
+index 4fc7431..e185e86 100644
 --- a/convert/mit2wav.c
 +++ b/convert/mit2wav.c
-@@ -140,6 +140,10 @@ main(int argc, char **argv)
+@@ -117,6 +117,7 @@ Bytes 44 - L-1: sample data, consisting of:
+ 
+ #include <stdio.h>
+ #include <wfdb/wfdb.h>
++
+ #ifdef NOMKSTEMP
+ #define mkstemp mktemp
+ #endif
+@@ -131,7 +132,10 @@ void help(void);
+ 
+ main(int argc, char **argv)
+ {
+-    char buf[80], *nrec = NULL, *ofname, *record = NULL, tfname[10];
++    char *nrec = NULL, *ofname, *record = NULL, *tfname,
++	*opath, *cmd, *q;	/* wfdb-x: tfname allocated; opath, cmd, q
++				   (and cmd in place of buf) */
++
+     double sps;
+     FILE *sfile;
+     int bitspersample = 0, bytespersecond, framelen, i, mag, nsig, *offset,
+@@ -140,6 +144,10 @@ main(int argc, char **argv)
      static WFDB_Sample *x, *y;
      static WFDB_Siginfo *s;
  
@@ -2271,7 +2484,7 @@ index 4fc7431..901d6a7 100644
      /* Interpret the command line. */
      pname = prog_name(argv[0]);
      for (i = 1; i < argc; i++) {
-@@ -215,6 +219,13 @@ main(int argc, char **argv)
+@@ -215,6 +223,13 @@ main(int argc, char **argv)
      }
      if ((nsig = isigopen(record, s, nsig)) <= 0)
  	exit(3);
@@ -2285,11 +2498,89 @@ index 4fc7431..901d6a7 100644
  
      /* Check that the new record name is legal before proceeding.  Note that
         this step creates a header file, which is overwritten after the
+@@ -250,8 +265,21 @@ main(int argc, char **argv)
+     for (i = 0; i < nsig; i++)
+ 	wfdbsetstart(i, 44L);
+ 
++    /* wfdb-x: the signal file was created by the library where it creates an
++       output file named ofname (under the output directory, if one is set):
++       that file (opath; see wfdbx_output_path in lib/wfdbio.c) is the one
++       completed below, and the temporary file is created in its directory
++       (the C program used ofname, and the current directory). */
++    if ((opath = wfdbx_output_path(ofname)) == NULL ||
++	(tfname = malloc(strlen(opath) + 10)) == NULL ||
++	(cmd = malloc(3 * strlen(opath) + 32)) == NULL) {
++	(void)fprintf(stderr, "%s: can't create %s\n", pname, ofname);
++	exit(1);
++    }
++    q = strrchr(opath, '/');
++    sprintf(tfname, "%.*swavXXXXXX", q ? (int)(q - opath + 1) : 0, opath);
++
+     /* Create a temporary file for use below. */
+-    (void)strcpy(tfname, "wavXXXXXX");
+     (void)mkstemp(tfname);
+     if ((ofile = fopen(tfname, "wb")) == NULL) {
+ 	(void)fprintf(stderr, "%s: can't create temporary file %s\n",
+@@ -295,12 +323,13 @@ main(int argc, char **argv)
+     wfdbquit();
+ 
+     /* Prepend the temporary file to the new signal file. */
+-    sprintf(buf, "mv %s %s.1", ofname, ofname);
+-    system(buf);
+-    sprintf(buf, "cat %s %s.1 >%s", tfname, ofname, ofname);
+-    system(buf);
+-    sprintf(buf, "rm -f %s %s.1", tfname, ofname);
+-    system(buf);
++    sprintf(cmd, "mv %s %s.1", opath, opath);
++    system(cmd);
++    sprintf(cmd, "cat %s %s.1 >%s", tfname, opath, opath);
++    system(cmd);
++    sprintf(cmd, "rm -f %s %s.1", tfname, opath);
++    system(cmd);
++
+ 
+     exit(0);	/*NOTREACHED*/
+ }
 diff --git a/convert/parsescp.c b/convert/parsescp.c
-index 1b46863..ca68aa0 100644
+index 1b46863..d7a93c8 100644
 --- a/convert/parsescp.c
 +++ b/convert/parsescp.c
-@@ -602,7 +602,7 @@ int write_output()
+@@ -504,6 +504,18 @@ int ncompare(const void *a, const void *b)
+     return (*(const short *)a - *(const short *)b);
+ }
+ 
++/* wfdb-x: wfopen opens an output file of this program, creating it where the
++   library creates an output file of that name (under the output directory,
++   if one is set; see wfdbx_output_path in lib/wfdbio.c). */
++static FILE *wfopen(const char *name, const char *mode)
++{
++    char *p = wfdbx_output_path(name);
++    FILE *f = p ? fopen(p, mode) : NULL;
++
++    free(p);
++    return (f);
++}
++
+ int write_output()
+ {
+     char dname[16];		/* name of .des file */
+@@ -523,10 +535,11 @@ int write_output()
+     sprintf(ename, "%s.ecg", recname);
+     sprintf(kname, "%s.key", recname);
+     if (vflag) sprintf(tname, "%s.txt", recname);
+-    if ((dfile = fopen(dname, "wt")) == NULL ||
+-	(efile = fopen(ename, "wb")) == NULL ||
+-	(kfile = fopen(kname, "wt")) == NULL ||
+-	(vflag && ((tfile = fopen(tname, "wt")) == NULL))) {
++    if ((dfile = wfopen(dname, "wt")) == NULL ||	/* wfdb-x: wfopen */
++	(efile = wfopen(ename, "wb")) == NULL ||
++	(kfile = wfopen(kname, "wt")) == NULL ||
++	(vflag && ((tfile = wfopen(tname, "wt")) == NULL))) {
++
+ 	if (dfile) fclose(dfile);
+ 	else {
+ 	    fprintf(stderr, "%s: can't create '%s'\n", pname, dname);
+@@ -602,7 +615,7 @@ int write_output()
      fprintf(dfile, "T axis: %d\n", Taxis);
  
      precgmeas(dfile);
@@ -2298,7 +2589,7 @@ index 1b46863..ca68aa0 100644
  
      /* Generate the key file.  The patient's name and ID number should
         appear only in this file (and in the debugging output, if
-@@ -611,7 +611,7 @@ int write_output()
+@@ -611,7 +624,7 @@ int write_output()
      fprintf(kfile, "Record: %s (%s %s)\n", recname, recdate, rectime);
      fprintf(kfile, "Name: %s\n", patient_name);
      fprintf(kfile, "MRN: %s\n", patient_id);
@@ -2307,7 +2598,7 @@ index 1b46863..ca68aa0 100644
  
      /* If the -z option was selected, then for each signal:
           1. Calculate the median amplitude of the first 5000 samples in the
-@@ -679,7 +679,7 @@ int write_output()
+@@ -679,7 +692,7 @@ int write_output()
  	    fprintf(tfile, "%7d", ecg[     V6][i]);
  	    fprintf(tfile, "\n");
  	}
@@ -2316,7 +2607,7 @@ index 1b46863..ca68aa0 100644
      }
  
      /* Finally, output the ECG in vector (binary) form.
-@@ -709,7 +709,7 @@ int write_output()
+@@ -709,7 +722,7 @@ int write_output()
      fwriteswapped(ecg[     V3]+2500, 2, 1250, efile);
      fwriteswapped(ecg[     V6]+3750, 2, 1250, efile);
      fwriteswapped(ecg[ leadII]     , 2, 5000, efile);
@@ -2325,7 +2616,7 @@ index 1b46863..ca68aa0 100644
   
      return (1);
  }
-@@ -736,16 +736,30 @@ int write_wfdb_record()
+@@ -736,16 +749,30 @@ int write_wfdb_record()
      }
      sprintf(filename, "%s.dat", recname);
  
@@ -2358,7 +2649,7 @@ index 1b46863..ca68aa0 100644
  	s[i].adcres = 16;	/* FIXME: we should calculate this! */
      }
      if (osigfopen(s, 12) < 12)
-@@ -822,6 +836,10 @@ main(int argc, char **argv)
+@@ -822,6 +849,10 @@ main(int argc, char **argv)
      FILE *ofile, *vfile;
      char *prog_name();
  
@@ -2369,7 +2660,7 @@ index 1b46863..ca68aa0 100644
      pname = prog_name(argv[0]);
  
      for (i = 1; i < argc; i++) {
-@@ -1954,10 +1972,12 @@ int Huffdecode(unsigned char *p, long len, int section)
+@@ -1954,10 +1985,12 @@ int Huffdecode(unsigned char *p, long len, int section)
  	       code in main() */
  	sfreq = 1.0e6/sampint;
      }
@@ -2448,14 +2739,16 @@ index 12619f9..016977b 100644
  	    /* Determine the ADC zero. */
  	    siarray[s].adczero = (p = strtok((char *)NULL, sep)) ? atoi(p) : 0;
 diff --git a/convert/wav2mit.c b/convert/wav2mit.c
-index 6fdf1b5..49e1223 100644
+index 6fdf1b5..aa686f0 100644
 --- a/convert/wav2mit.c
 +++ b/convert/wav2mit.c
-@@ -86,15 +86,32 @@ void help(void);
+@@ -85,16 +85,33 @@ void help(void);
+ 
  main(int argc, char **argv)
  {
-     char buf[80], *ifname, *record = NULL;
+-    char buf[80], *ifname, *record = NULL;
 -    double sps, wgain;
++    char buf[80], *ifname, *record = NULL, *ipath;	/* wfdb-x: ipath */
 +    char *Uunits = NULL;
 +    double sps, Ggain = 0.;
 +    int Gset = 0;
@@ -2523,7 +2816,20 @@ index 6fdf1b5..49e1223 100644
  
      /* If the record name was not specified, generate it from ifname. */
      if (record == NULL) {
-@@ -198,11 +238,11 @@ main(int argc, char **argv)
+@@ -148,7 +188,11 @@ main(int argc, char **argv)
+     }
+ 
+     /* Open the input file. */
+-    if ((ifile = fopen(ifname, "rb")) == NULL) {
++    /* wfdb-x: the file is found where the library finds an input file of
++       that name (see wfdbx_input_path in lib/wfdbio.c) */
++    if ((ipath = wfdbx_input_path(ifname)) == NULL ||
++	(ifile = fopen(ipath, "rb")) == NULL) {
++
+ 	fprintf(stderr, "%s: can't open %s\n", pname, ifname);
+ 	exit(2);
+     }
+@@ -198,11 +242,11 @@ main(int argc, char **argv)
      bitspersample = in16();
      if (bitspersample <= 8) {
  	wres = 8;
@@ -2537,7 +2843,7 @@ index 6fdf1b5..49e1223 100644
      }
      else {
  	fprintf(stderr, "%s: unsupported resolution (%d bits/sample) in %s\n",
-@@ -233,8 +273,8 @@ main(int argc, char **argv)
+@@ -233,8 +277,8 @@ main(int argc, char **argv)
      for (i = 0; i < nsig; i++) {
  	s[i].fname = ifname;
  	s[i].desc = NULL;
@@ -2548,7 +2854,7 @@ index 6fdf1b5..49e1223 100644
  	s[i].initval = 0;
  	s[i].group = 0;
  	s[i].fmt = (wres == 16) ? 16 : 80;
-@@ -304,6 +344,18 @@ char *prog_name(char *s)
+@@ -304,6 +348,18 @@ char *prog_name(char *s)
  }
  
  static char *help_strings[] = {
@@ -2567,7 +2873,7 @@ index 6fdf1b5..49e1223 100644
      "usage: %s -i FILE.wav -r RECORD [ OPTIONS ... ]\n",
      "where FILE.wav is the name of the wav-format input signal file,",
      "and OPTIONS may include:",
-@@ -315,8 +367,9 @@ static char *help_strings[] = {
+@@ -315,8 +371,9 @@ static char *help_strings[] = {
  void help()
  {
      int i;
@@ -4143,10 +4449,10 @@ index 901efc2..a1d739b 100644
  	SFREE(dsbuf);
  	dsbi = -1;
 diff --git a/lib/wfdb.h0 b/lib/wfdb.h0
-index 271babb..984099e 100644
+index 271babb..927ad2b 100644
 --- a/lib/wfdb.h0
 +++ b/lib/wfdb.h0
-@@ -464,6 +464,20 @@ extern FINT wfdb_setannpos(int code, int newval);
+@@ -464,6 +464,22 @@ extern FINT wfdb_setannpos(int code, int newval);
  extern FSTRING timstr(WFDB_Time t);
  extern FSTRING mstimstr(WFDB_Time t);
  extern FSITIME strtim(const char *time_string);
@@ -4164,10 +4470,12 @@ index 271babb..984099e 100644
 +extern FSTRING wfdbx_get_output_dir(void);			/* wfdb-x */
 +extern FINT wfdbx_set_network(int on);				/* wfdb-x */
 +extern FINT wfdbx_get_network(void);				/* wfdb-x */
++extern FSTRING wfdbx_input_path(const char *name);		/* wfdb-x */
++extern FSTRING wfdbx_output_path(const char *name);		/* wfdb-x */
  extern FSTRING datstr(WFDB_Date d);
  extern FDATE strdat(const char *date_string);
  extern FINT adumuv(WFDB_Signal s, WFDB_Sample a);
-@@ -538,11 +552,17 @@ extern FINT annopen(), isigopen(), osigopen(), wfdbinit(), findsig(), getspf(),
+@@ -538,11 +554,19 @@ extern FINT annopen(), isigopen(), osigopen(), wfdbinit(), findsig(), getspf(),
      adumuv(), newheader(), setheader(), setmsheader(), getseginfo(),
      wfdbputprolog(), setsampfreq(), setbasetime(), putinfo(), setinfo(),
      setibsize(), setobsize(), calopen(), getcal(), putcal(), newcal(),
@@ -4183,7 +4491,9 @@ index 271babb..984099e 100644
 -    datstr(), getwfdb(), getinfo(), wfdberror(), wfdbfile();
 +    datstr(), getwfdb(), getinfo(), wfdberror(), wfdbfile(),
 +    wfdbx_set_input_dir(), wfdbx_get_input_dir(), wfdbx_set_output_dir(),
-+    wfdbx_get_output_dir();	/* wfdb-x */
++    wfdbx_get_output_dir(), wfdbx_input_path(), wfdbx_output_path();
++				/* wfdb-x */
++
  extern FSITIME strtim(), tnextvec();
  extern FDATE strdat();
  extern FVOID setafreq(), setgvmode(), wfdb_freeinfo(), wfdbquit(), wfdbquiet(),
@@ -4205,7 +4515,7 @@ index 41a154d..f1eac11 100644
      wfdb_freeinfo();	/* release info strings */
  }
 diff --git a/lib/wfdbio.c b/lib/wfdbio.c
-index 10644e2..88e8104 100644
+index 10644e2..df1295e 100644
 --- a/lib/wfdbio.c
 +++ b/lib/wfdbio.c
 @@ -38,6 +38,12 @@ This file contains definitions of the following WFDB library functions:
@@ -4773,7 +5083,7 @@ index 10644e2..88e8104 100644
  /* wfdb_open is used by other WFDB library functions to open a database file
  for reading or writing.  wfdb_open accepts two string arguments and an integer
  argument.  The first string specifies the file type ("hea", "atr", etc.),
-@@ -1004,6 +1422,55 @@ Pre-10.0.1 versions of this library that were compiled for environments other
+@@ -1004,6 +1422,130 @@ Pre-10.0.1 versions of this library that were compiled for environments other
  than MS-DOS used file names in the format TYPE.RECORD.  This file name format
  is no longer supported. */
  
@@ -4826,10 +5136,85 @@ index 10644e2..88e8104 100644
 +    return (p);
 +}
 +
++/* wfdb-x: wfdbx_input_path and wfdbx_output_path (wfdb-x additions) return,
++   in allocated memory (which the caller may free), the name under which a
++   program opens a file that it reads or creates itself, rather than through
++   the library (the -i file of wrsamp, or the WAV file of mit2wav, for
++   example), so that it is found, or created, where wfdb_open finds, or
++   creates, a file of that name with an empty file type.  NULL or an empty
++   name, and "-" (the standard input or output, if the program treats it so),
++   are returned as given; a URL (also after the input directory is prefixed
++   to the name) cannot be opened in this way, and NULL is returned for it.
++
++   wfdbx_input_path: in normal mode, a relative name is found under the input
++   directory, if one is set, a ~ name is expanded, and an absolute name is
++   used as given (see resolve); in legacy mode, the name is used as given,
++   as the original programs did.
++
++   wfdbx_output_path: in normal mode, a relative name is created under the
++   output directory, if one is set, a ~ name is expanded, and an absolute
++   name is used as given; in legacy mode, the output directory, if one is
++   set, is prefixed to any name, as wfdb_open does.  When the output
++   directory has been prefixed to the name, the directories missing in the
++   resulting path are created, as wfdb_fopen does for output files. */
++FSTRING wfdbx_input_path(const char *name)
++{
++    char *r = NULL;
++
++    if (name == NULL || is_url(name))
++	return (NULL);
++    if (*name == '\0' || strcmp(name, "-") == 0 || wfdbx_get_legacy()) {
++	SSTRCPY(r, name);
++	return (r);
++    }
++    r = resolve(name, 0);
++    if (r && is_url(r))
++	SFREE(r);
++    return (r);
++}
++
++FSTRING wfdbx_output_path(const char *name)
++{
++    char *r = NULL, *p;
++    int prefixed = 0;
++
++    if (name == NULL || is_url(name))
++	return (NULL);
++    if (*name == '\0' || strcmp(name, "-") == 0) {
++	SSTRCPY(r, name);
++	return (r);
++    }
++    init_output_dir();
++    if (wfdbx_get_legacy()) {
++	if (output_dir) {
++	    wfdb_asprintf(&r, "%s%c%s", output_dir, DSEP, name);
++	    prefixed = 1;
++	}
++	else
++	    SSTRCPY(r, name);
++    }
++    else {
++	prefixed = (output_dir && *name != '~' && !is_absolute_path(name));
++	r = resolve(name, 1);
++    }
++    if (prefixed && r) {
++	/* create the missing directories (only Unix-style separators, as in
++	   wfdb_fopen; errors are ignored: fopen then fails) */
++	for (p = r + 1; *p; p++)
++	    if (*p == '/') {
++		*p = '\0';
++		(void)MKDIR(r, 0755);
++		*p = '/';
++	    }
++    }
++    return (r);
++}
++
++
  WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
  {
      char *wfdb, *p, *q, *r, *buf = NULL;
-@@ -1037,43 +1504,45 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+@@ -1037,43 +1579,45 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
  
  	    wfdb_stdout.type = WFDB_LOCAL;
  	    wfdb_stdout.fp = stdout;
@@ -4899,7 +5284,7 @@ index 10644e2..88e8104 100644
      }
  
      /* Parse the WFDB path if not done previously. */
-@@ -1190,12 +1659,67 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+@@ -1190,12 +1734,67 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
      return (NULL);
  }
  
@@ -4967,7 +5352,7 @@ index 10644e2..88e8104 100644
      do {
  	if (('0' <= *p && *p <= '9') || *p == '_' || *p == '~' || *p== '-' ||
  	    *p == DSEP ||
-@@ -2163,29 +2687,306 @@ int wfdb_putc(int c, WFDB_FILE *wp)
+@@ -2163,29 +2762,306 @@ int wfdb_putc(int c, WFDB_FILE *wp)
      return (putc(c, wp->fp));
  }
  
@@ -5277,7 +5662,7 @@ index 10644e2..88e8104 100644
  #if WFDB_NETFILES
  	if (wp->netfp = nf_fopen(fname, mode)) {
  	    wp->type = WFDB_NET;
-@@ -2197,6 +2998,7 @@ WFDB_FILE *wfdb_fopen(char *fname, const char *mode)
+@@ -2197,6 +3073,7 @@ WFDB_FILE *wfdb_fopen(char *fname, const char *mode)
      }
      if (wp->fp = fopen(fname, mode)) {
  	wp->type = WFDB_LOCAL;

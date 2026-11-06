@@ -1,0 +1,640 @@
+% Part I, chapter 2: WFDB records.
+\chapter{WFDB records}
+\label{chap:records}
+
+A WFDB \emph{record} is a recording of one or more signals, such as the
+leads of an ECG, and the files that describe and annotate it: a
+\emph{header file}, which describes the record and its signals; one or more
+\emph{signal files}, which hold the samples; and any number of
+\emph{annotation files}, which label events of the signals, such as beats.
+A record may also have an \emph{info file} of comments. This chapter
+describes these files as \wfdbx{} reads and writes them, which is as the
+WFDB library 10.7.0 does, except where \cref{chap:behavior} says otherwise.
+The exact layout of each storage format, and the annotation codes, are in
+\cref{chap:formats}.
+
+\section{Records and record names}
+\label{sec:record-names}
+
+A record is designated by its \emph{record name}, such as \code{100s}. The
+files of a record are found from it:
+\begin{itemize}
+\item the header is the file \emph{record}\file{.hea} (\file{100s.hea});
+\item the signal files are named in the header (\file{100s.dat});
+\item an annotation file is the file \emph{record}\code{.}\emph{annotator},
+  where the \emph{annotator name} says which set of annotations it holds
+  (\file{100s.atr}, the reference annotations of record \code{100s},
+  annotator \code{atr});
+\item the info file is \emph{record}\file{.info}.
+\end{itemize}
+
+A record name may include a directory (\code{mitdb/100},
+\code{/data/mitdb/100}), and is then found as \cref{chap:files} describes. A
+trailing \file{.hea} is removed from a record name by the library functions
+that open a record, so \code{100s.hea} designates record \code{100s}. A name
+that ends with \code{/} stands for a record of the same name in that
+directory: \code{abc/123/} is \code{abc/123/123}. A record name that ends
+with another extension, such as \code{100s.edf}, names an EDF file
+(\cref{sec:edf}). The record name \code{-} stands for the standard input or
+output (\cref{sec:stdio}).
+
+When a header or an annotation file is created, the record name, and the
+annotator name, may contain only letters, digits, \code{\_}, \code{-},
+\code{\textasciitilde} and \code{/}; any other character is an error (for
+example, \code{init: illegal character 46 in record name}). In a record name
+written under a path, such as \code{out.d/rec}, only the last component, the
+record's own name, is checked (the C library checked the whole name; see
+\cref{sec:resolve}).
+
+\section{The header file}
+\label{sec:header}
+
+A header is a text file of lines separated by line feeds; a carriage return
+may precede each line feed. Its fields are separated by spaces or tabs. The
+lines are of four kinds:
+\begin{itemize}
+\item the \emph{record line}, the first line that is neither empty nor a
+  comment;
+\item one \emph{signal specification line} per signal, for an ordinary
+  record, or one \emph{segment specification line} per segment, for a
+  multi-segment record (\cref{sec:multisegment});
+\item \emph{comment lines}, whose first character is \code{\#}; those that
+  follow the record line are the \emph{info strings} of the record;
+\item empty lines, which are ignored.
+\end{itemize}
+Comment lines and empty lines may appear anywhere. If the first line of a
+header begins with \code{\#wfdb} followed by a version number, such as
+\code{\#wfdb 10.7.1}, a library older than that version refuses the header
+(\code{init: reading record REC requires WFDB library version 10.7.1 or
+later}); \wfdbx{} has the version of the C library that it implements,
+10.7.0.
+
+\subsection{The record line}
+
+The record line gives the fields of \cref{tab:record-line}, in this order,
+separated by spaces or tabs. Only the record name and the number of signals
+are required; each optional field may be given only if the fields before it
+are.
+
+\begin{table}[htbp]
+\caption{The fields of the record line.}
+\label{tab:record-line}
+\begin{tabularx}{\linewidth}{@{}P{3.5cm}L@{}}
+\toprule
+{\tabhead Field} & {\tabhead Meaning} \\
+\midrule
+record name & The name of the record. It must match the last component of
+  the name under which the header is opened, or the header is refused
+  (\code{init: record name in record REC header is incorrect}). \\
+\code{/}\emph{segments} & (Optional, attached to the record name.) The
+  number of segments of a multi-segment record, as in \code{multi/3}. \\
+number of signals & An integer; 0 is allowed. Several signals can share one
+  signal file. \\
+sampling frequency & (Optional.) The number of frames per second, a
+  floating-point number greater than 0 (\code{360}, \code{360.0} and
+  \code{3.6e2} are equivalent). \wfdbx{} assumes none: if it is missing,
+  the frequency is unspecified (0), unless one was set with
+  \code{setsampfreq} before the record was opened (the C library assumed
+  250\,Hz; see \cref{sec:no-defaults}). \\
+\code{/}\emph{counter frequency} & (Optional, attached to the sampling
+  frequency.) The frequency of a counter, such as the page numbers of a
+  chart recording, used by the time strings that begin with \code{c}
+  (\cref{sec:times}). If it is absent or not positive, it is the sampling
+  frequency. \\
+\code{(}\emph{base counter}\code{)} & (Optional, attached to the counter
+  frequency.) The counter value of sample 0; 0 if absent. \\
+number of samples & (Optional.) The number of samples per signal. 0 or a
+  missing value means that the length is unspecified, and then the
+  checksums of the signals are not verified. \\
+base time & (Optional.) The time of day of sample 0, as
+  \code{hh:mm:ss}, with optional milliseconds (\code{12:34:56.789}). \\
+base date & (Optional, after the base time.) The date of sample 0, as
+  \code{dd/mm/yyyy}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Signal specification lines}
+
+Each signal specification line gives the fields of
+\cref{tab:signal-line}, in this order; again each optional field may be
+given only if the fields before it are. The lines of the signals that share
+a signal file must be consecutive; such signals form a \emph{signal group},
+and must have the same format and block size (otherwise
+\code{init: error in specification of signal N or M}).
+
+\begin{table}[htbp]
+\caption{The fields of a signal specification line, and the values that
+\wfdbx{} uses when a field is missing.}
+\label{tab:signal-line}
+\begin{tabularx}{\linewidth}{@{}P{3.3cm}L@{}}
+\toprule
+{\tabhead Field} & {\tabhead Meaning, and value when missing} \\
+\midrule
+file name & The signal file, relative to the directory of the header
+  (\cref{sec:header-files}); \code{-} is the standard input. \\
+format & The storage format (\cref{sec:signal-files}), an integer such as
+  \code{212}. Required. \\
+\code{x}\emph{spf} & (Attached to the format.) The number of samples per
+  frame (\cref{sec:frames}); 1 if missing (or less than 1). \\
+\code{:}\emph{skew} & (Attached.) The number of samples of the signal that
+  precede sample 0, to correct a skew between signals; 0 if missing. \\
+\code{+}\emph{offset} & (Attached.) The number of bytes at the beginning of
+  the signal file that precede the samples (a prolog); 0 if missing. \\
+gain & The number of ADC units per physical unit, a floating-point number.
+  0, or a missing field, means that the signal is \emph{uncalibrated}
+  (\cref{sec:units}). \\
+\code{(}\emph{baseline}\code{)} & (Attached to the gain.) The ADC value
+  that corresponds to 0 physical units; the ADC zero if missing. \\
+\code{/}\emph{units} & (Attached to the gain or baseline.) The physical
+  units, such as \code{mV}, without spaces (at most 50 characters). If
+  missing, the units are unspecified; \wfdbx{} never takes them to be
+  millivolts, and its tools show them as \code{nd}. \\
+ADC resolution & The resolution of the analog-to-digital converter, in
+  bits. If missing, it is unspecified (0); the C library inferred it from the
+  format or assumed 12 bits. \\
+ADC zero & The ADC value at the middle of the ADC's input range; 0 if
+  missing. \\
+initial value & The value of sample 0, used by the difference format 8;
+  the ADC zero if missing. \\
+checksum & The sum of all the samples of the signal, as a 16-bit signed
+  integer, verified when the end of the signal is read (if the record line
+  gives the number of samples); 0 if missing. \\
+block size & For signal files that must be read in blocks of a given size
+  (character special files); 0 (none) if missing. \\
+description & The rest of the line, which may contain spaces (at most 100
+  characters), such as \code{MLII}. If missing:
+  \code{record REC, signal N}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Info strings and info files}
+\label{sec:info-strings}
+
+The \emph{info strings} of a record are the comment lines of its header
+that follow the record line, without their initial \code{\#}, as the
+library function \code{getinfo} reads them: every line after the record line
+whose first character is \code{\#} is an info string, even one between two
+signal lines. A line that begins with a space before its \code{\#} is not
+an info string. The comment lines before the record line are not info
+strings. \code{getinfo} then returns the comment lines of the record's info
+file, \emph{record}\file{.info}, if there is one. \code{putinfo} writes an
+info string, as \code{\#} followed by the string and a CR LF line ending,
+into the header being written, or into the info file opened by
+\code{setinfo}. \Cref{chap:metadata} describes the info strings of the form
+\code{Key: value}, which hold the metadata of a record.
+
+\subsection{An example: the header of record 100s}
+
+The header of the sample record \code{100s}, \file{tests/data/100s.hea}, is:
+\begin{lstlisting}[style=text]
+100s 2 360 21600
+100s.dat 212 200 11 1024 995 21537 0 MLII
+100s.dat 212 200 11 1024 1011 -3962 0 V5
+# 69 M 1085 1629 x1
+# Aldomet, Inderal
+#Produced by xform from record 100, beginning at 0:0
+\end{lstlisting}
+\begin{itemize}
+\item The record line says that record \code{100s} has 2 signals, sampled at
+  360 frames per second, of 21600 samples each (60 seconds). It gives no
+  base time or date.
+\item Each signal line says that the signal is in the file
+  \file{100s.dat} (both signals share it: they form signal group 0), in
+  format 212, with a gain of 200 ADC units per physical unit, no units, an
+  ADC resolution of 11 bits, an ADC zero of 1024, an initial value of 995
+  (signal 0) or 1011 (signal 1), a checksum of 21537 or $-3962$, a block
+  size of 0, and the description \code{MLII} or \code{V5}. The baseline is
+  not given, so it is the ADC zero, 1024. A sample of 995 ADC units in
+  signal 0 is thus $(995 - 1024)/200 = -0.145$ physical units.
+\item The last three lines are the info strings
+  \code{" 69 M 1085 1629 x1"}, \code{" Aldomet, Inderal"} and
+  \code{"Produced by xform from record 100, beginning at 0:0"}. The first
+  two are free text; the third contains a colon, and is therefore read as a
+  metadata entry (\cref{chap:metadata}).
+\end{itemize}
+
+\section{Signal files and storage formats}
+\label{sec:signal-files}
+
+A signal file holds the samples of the signals of one signal group, as a
+sequence of frames (\cref{sec:frames}): the samples of each frame are stored
+one signal after the other. The \emph{storage format} of the group says how
+each sample is encoded. \Cref{tab:formats-summary} summarizes the formats;
+\cref{chap:formats} gives their exact layout.
+
+\begin{table}[htbp]
+\caption{The storage formats (summary).}
+\label{tab:formats-summary}
+\begin{tabularx}{\linewidth}{@{}P{1.4cm}LP{2.6cm}@{}}
+\toprule
+{\tabhead Format} & {\tabhead Encoding} & {\tabhead Invalid sample} \\
+\midrule
+0 & no signal file: a null signal, whose samples are all invalid & (all) \\
+8 & 8-bit first differences, from the initial value of the header & --- \\
+16 & 16-bit two's complement, least significant byte first & $-32768$ \\
+24 & 24-bit two's complement, least significant byte first & $-2^{23}$ \\
+32 & 32-bit two's complement, least significant byte first & $-2^{31}$ \\
+61 & 16-bit two's complement, most significant byte first & $-32768$ \\
+80 & 8-bit offset binary (128 is subtracted from each byte) & $-128$ \\
+160 & 16-bit offset binary, least significant byte first & $-32768$ \\
+212 & 12-bit two's complement, two samples packed in 3 bytes & $-2048$ \\
+310 & 10-bit two's complement, three samples packed in 4 bytes (two 16-bit
+  words) & $-512$ \\
+311 & 10-bit two's complement, three samples packed in a 32-bit word & $-512$ \\
+508, 516, 524 & FLAC-compressed, with 8, 16 or 24 bits per sample (at most
+  8 signals per file, all with the same number of samples per frame) &
+  $-128$, $-32768$, $-2^{23}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The last column is the value that marks an invalid (missing) sample in the
+file: the most negative value of the format. The library returns an invalid
+sample, whatever its format, as \code{WFDB\_INVALID\_SAMPLE} ($-32768$), and
+the high-level readers give it as NaN in physical units. A file in format
+212, 310 or 311 may end with a partial group of samples. FLAC files are read
+and written by \wfdbx{} without libFLAC: the files it writes decode to the
+same samples as those of the C library, but their compressed bytes differ.
+
+Three fields of the signal line change how a signal file is read: the
+\emph{byte offset} skips a prolog at the beginning of the file; the
+\emph{skew} discards the first samples of a signal, to align it with the
+others (the skipped samples are counted in the checksum); and the
+\emph{block size} makes the file be read in blocks of that size.
+
+\section{ADC units and physical units}
+\label{sec:units}
+
+A signal file stores samples as integers, in \emph{ADC units} (adu), the
+output of the analog-to-digital converter. The header gives, for each
+signal, the values that relate them to \emph{physical units}, such as
+millivolts:
+\begin{description}
+\item[gain] $g$, the number of ADC units per physical unit (0: the signal
+  is uncalibrated);
+\item[baseline] $b$, the ADC value that corresponds to 0 physical units;
+\item[units] the physical units, such as \code{mV} (unspecified if the
+  header does not give them);
+\item[ADC resolution] $r$, in bits, and \textbf{ADC zero} $z$, the value at
+  the middle of the ADC's range. Together they give the range of the ADC:
+  from $z - 2^{r-1}$ to $z + 2^{r-1} - 1$.
+\end{description}
+
+The conversions are those of the C library, and of the high-level
+functions:
+\begin{itemize}
+\item From ADC units to physical units (\code{aduphys(s, a)}, and
+  \code{read\_record} with physical units): $v = (a - b)/g$, as a
+  floating-point number. An invalid sample becomes NaN in the high-level
+  readers.
+\item From physical units to ADC units (\code{physadu(s, v)}, and
+  \code{write\_record} with physical units): $a = \mathrm{round}(v g) + b$,
+  where $\mathrm{round}(x)$ is $\lfloor x + 0.5\rfloor$ for $x \ge 0$ and
+  $\lceil x - 0.5\rceil$ for $x < 0$ (halves are rounded away from zero).
+  In \code{write\_record}, NaN becomes an invalid sample.
+\item \code{adumuv(s, a)} converts $a$ ADC units to microvolts, as
+  $\mathrm{round}(1000\,a/g)$, and \code{muvadu(s, v)} converts $v$
+  microvolts to ADC units, as $\mathrm{round}(g\,v/1000)$. Neither uses the
+  baseline; both take the physical units to be millivolts.
+\end{itemize}
+In these functions, $g$ and $b$ are those of input signal \code{s} of the
+open record. \wfdbx{} assumes no gain: for an uncalibrated signal (gain 0)
+or a signal number that is not that of an input signal, the four functions
+report an error (\code{aduphys: signal 0 is uncalibrated},
+\code{aduphys: invalid signal number 5}) and return NaN (\code{aduphys}) or
+\code{WFDB\_INVALID\_SAMPLE} (the other three); the C library assumed a gain
+of 200 (\cref{sec:no-defaults}).
+
+\section{Frames, samples per frame and multi-frequency records}
+\label{sec:frames}
+
+A \emph{frame} is the set of samples of all the signals that belong to one
+sampling interval of the record. The sampling frequency of the record line
+is the frequency of the frames. Usually each signal has one sample per
+frame. A signal sampled at an integer multiple $n$ of that frequency has
+$n$ samples per frame (the \code{x}\emph{n} suffix of its format), and its
+own sampling frequency is $n$ times that of the frames. A record with such
+signals is a \emph{multi-frequency} record. For example, the test record
+\file{tests/data/mfreq.hea}:
+\begin{lstlisting}[style=text]
+mfreq 3 100 600
+mfreq.dat 16 200/mV 16 0 138 -16869 0 slow
+mfreq.dat 16x2 200/mV 16 0 218 5410 0 medium
+mfreq.dat 16x4 200/mV 16 0 219 -15996 0 fast
+\end{lstlisting}
+has 600 frames at 100 frames per second; the signals are sampled at 100,
+200 and 400\,Hz, and each frame of its signal file holds 1 + 2 + 4 = 7
+samples.
+
+The library reads such a record in one of two modes, set by
+\code{setgvmode}:
+\begin{itemize}
+\item \textbf{Low resolution} (\code{WFDB\_LOWRES}, the default):
+  \code{getvec} returns one sample per signal per frame. The samples of a
+  signal that has more than one per frame are averaged: their mean is
+  rounded to the nearest integer, halves upward, and is invalid if one of
+  them is invalid. \code{sampfreq} returns the frame frequency.
+\item \textbf{High resolution} (\code{WFDB\_HIGHRES}): \code{getvec}
+  returns as many sample vectors per frame as the largest number of samples
+  per frame (4 for \code{mfreq}). Each holds the next sample of each signal
+  that has that many samples per frame; the samples of the other signals
+  are repeated. \code{sampfreq} returns the frame frequency times that
+  number (400\,Hz for \code{mfreq}), and times (\cref{sec:times}) count
+  these sample vectors.
+\end{itemize}
+\code{WFDB\_GVPAD}, which can be combined with either mode, replaces each
+invalid sample by the previous valid sample of the same signal.
+\code{getframe} returns all the samples of a frame. In the high-level API,
+\code{read\_record} reads in low resolution by default, and in high
+resolution with its \code{highres} option; its \code{pad} option is
+\code{WFDB\_GVPAD}. For \code{mfreq}, the first frame is read as
+\code{138 1459 499} in low resolution (1459 is the mean of 218 and 2699,
+rounded up), and as these four rows in high resolution:
+\begin{lstlisting}[style=text]
+138   218    219
+138   218  -1316
+138  2699   1120
+138  2699   1973
+\end{lstlisting}
+The library can also resample all the signals of a record to another
+frequency, by linear interpolation (\code{setifreq}).
+
+\section{Multi-segment records}
+\label{sec:multisegment}
+
+A multi-segment record is a sequence of ordinary records, its
+\emph{segments}, read as if their signals were continuous. Its header (the
+\emph{master header}) has a record line whose record name is followed by
+\code{/} and the number of segments, and then one segment specification
+line per segment: the record name of the segment and its length in samples.
+The segments' own headers and signal files are found in the directory of the
+master header (\cref{sec:header-files}). A segment cannot itself be a
+multi-segment record (\code{init: record REC cannot be nested in another
+multi-segment record}), and the sampling frequency must be the same in all
+segments. If the record line gives a number of samples that differs from the
+sum of the segment lengths, the library warns
+(\code{warning (init): in record REC, stated record length (N)} \ldots).
+
+In a \emph{fixed-layout} record, every segment has the same signals, in
+the same order, with the same gains and baselines (their storage formats
+can differ). The test record \file{tests/data/multi.hea} is one: two copies
+of record \code{100s} with a null record between them.
+\begin{lstlisting}[style=text]
+multi/3 2 360 45000
+100s 21600
+null 1800
+100s 21600
+\end{lstlisting}
+
+In a \emph{variable-layout} record, the signals may differ from segment to
+segment. Segment 0, of length 0, is then the \emph{layout segment}: its
+header, whose signal file names are \code{\textasciitilde}, gives the
+signals of the record, with their gains, baselines and units. When the
+record is read, the signals of each segment are rearranged, shifted and
+rescaled to the gains and baselines of the layout (the results rounded to
+the nearest integer, halves upward); a signal absent from a segment reads as
+invalid samples. If a segment's gain is
+larger than that of the layout, the library warns
+(\code{sigmap\_init: loss of precision in signal N in segment SEG}). A
+segment whose record name is \code{\textasciitilde} is a \emph{null
+segment}: it has no files, and all its samples are invalid. The test record
+\file{tests/data/vlay.hea} and its layout segment \file{vlay\_0.hea}:
+\begin{lstlisting}[style=text]
+vlay/4 3 250 3201
+vlay_0 0
+fmt16 1500
+~ 200
+fmt212 1501
+\end{lstlisting}
+\begin{lstlisting}[style=text]
+vlay_0 3 250 0
+~ 0 400(10)/mV 12 0 0 0 0 sig0 fmt16
+~ 0 400/uV 12 0 0 0 0 sig1 fmt212
+~ 0 100/mmHg 16 0 0 0 0 sig2 fmt16
+\end{lstlisting}
+
+\section{Annotation files}
+\label{sec:annotations}
+
+An annotation file holds a sequence of \emph{annotations}, each of which
+labels a point of the record, such as a beat. It is the file
+\emph{record}\code{.}\emph{annotator}. Each annotation has the fields of
+\cref{tab:annotation-fields}, those of the C structure
+\code{WFDB\_Annotation}.
+
+\begin{table}[htbp]
+\caption{The fields of an annotation.}
+\label{tab:annotation-fields}
+\begin{tabularx}{\linewidth}{@{}P{2.2cm}L@{}}
+\toprule
+{\tabhead Field} & {\tabhead Meaning} \\
+\midrule
+\code{time} & The time of the annotation, in sample intervals from the
+  beginning of the record (a 64-bit integer). \\
+\code{anntyp} & The \emph{annotation code}, from 1 to \code{ACMAX} (49),
+  such as \code{NORMAL} (1) or \code{PVC} (5). Each code has a
+  \emph{mnemonic}, such as \code{N} or \code{V}, and a description
+  (\code{annstr}, \code{anndesc}); \cref{chap:formats} lists them. \\
+\code{subtyp} & The subtype, a signed 8-bit integer ($-128$ to 127). \\
+\code{chan} & The channel (signal) number, an unsigned 8-bit integer (0 to
+  255). \\
+\code{num} & The annotator number, a signed 8-bit integer. \\
+\code{aux} & Optional auxiliary data, up to 255 bytes, such as the rhythm
+  \code{(N} of a \code{RHYTHM} annotation, or the text of a \code{NOTE}. In
+  the library functions, its first byte is its length, as in C. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The high-level \code{read\_annotations} returns these fields as arrays:
+the times (\code{samples}), the codes, their mnemonics (\code{symbols}),
+the subtypes, the channels, the annotator numbers and the aux strings.
+
+Annotation files are in one of two binary formats, which the library tells
+apart when it opens a file (with a warning, \code{file appears to be in AHA
+format}, if the caller asked for the other):
+\begin{itemize}
+\item \textbf{MIT format}, the usual one: each annotation is a 16-bit word,
+  least significant byte first, whose 6 high bits are the code and 10 low
+  bits the interval from the previous annotation, followed by optional
+  words for the fields that change (pseudo-codes \code{SKIP} for a long
+  interval, \code{NUM}, \code{SUB}, \code{CHN} and \code{AUX}); a word of 0
+  ends the file.
+\item \textbf{AHA format}: 16 bytes per annotation, as in the distribution
+  files of the AHA database.
+\end{itemize}
+
+An annotation file is in \emph{canonical order} when its annotations are
+sorted by time, then annotator number, then channel. An output file that is
+not is sorted when it is closed (\cref{sec:sorting}). When a program has set
+a time resolution with \code{setafreq} (as \cmd{wrann} does), the library
+writes it at the beginning of the file, as a \code{NOTE} annotation whose
+aux string is \code{\#\# time resolution: F}. Annotation files can also
+begin with \emph{modification labels}, \code{NOTE} annotations at time 0
+that redefine the mnemonics and descriptions of codes; the library reads
+them when it opens the file, so \code{getann} does not return them.
+
+\section{Times and dates}
+\label{sec:times}
+
+Times are counted in \emph{sample intervals} from the beginning of the
+record (in high resolution, in intervals of the fastest signal;
+\cref{sec:frames}). The library function \code{strtim} converts a time
+string to a number of sample intervals, and \code{timstr} and
+\code{mstimstr} convert back; the tools take their time arguments
+(\opt{-f}, \opt{-t}, \ldots) as \code{strtim} strings, and the high-level
+readers accept them for \code{sampfrom} and \code{sampto}.
+
+\subsection{Time strings}
+
+\code{strtim} first skips spaces, tabs, line feeds and carriage returns, and
+then reads the string according to its first character, as in
+\cref{tab:strtim}. In the table, $f$ is the sampling frequency (the one set
+by \code{setifreq}, if any), and a number is rounded to an integer by adding
+0.5 and truncating toward zero.
+
+\begin{table}[htbp]
+\caption{The time strings that \code{strtim} accepts.}
+\label{tab:strtim}
+\begin{tabularx}{\linewidth}{@{}P{3.6cm}L@{}}
+\toprule
+{\tabhead String} & {\tabhead Value (sample intervals)} \\
+\midrule
+\code{s}\emph{n}, as \code{s123} & Sample number $n$. \\
+\code{e} & The end of the record: its number of samples (times the number
+  of samples per frame of the fastest signal, in high resolution); 0 if it
+  is not known. \\
+\code{i} & The time of the next sample to be read from the input
+  signals. \\
+\code{o} & The time of the next sample to be written to the output
+  signals. \\
+\code{c}\emph{x}, as \code{c350.5} & Counter value $x$: $(x - x_0)\,f/f_c$,
+  with the counter frequency $f_c$ and base counter $x_0$ of the header.
+  With no counter frequency, $x$ is read as a sample number. \\
+\code{f}\emph{n}, as \code{f100} & Frame number $n$: $n f/f_0$, where $f_0$
+  is the frame frequency (in high resolution, the number of the first sample
+  of that frame). \\
+\code{[}\emph{time}\code{]}, as \code{[13:06:00]} & A time of day: the
+  value is the \emph{negated} number of sample intervals from the base time
+  of the record to that time, so that it is 0 or negative. \\
+\code{[}\emph{time} \emph{d}\code{]}, as \code{[8:00:00 1]} & A time of day
+  $d$ days after the base date. \\
+\code{[}\emph{time} \emph{date}\code{]}, as \code{[12:00:00 1/3/1992]} & A
+  time of day on a date (\code{dd/mm/yyyy}). \\
+\emph{s}, as \code{143} or \code{14.875} & An elapsed time of $s$ seconds:
+  $s f$. \\
+\emph{m}\code{:}\emph{s}, as \code{2:14.875} & $m$ minutes and $s$
+  seconds. \\
+\emph{h}\code{:}\emph{m}\code{:}\emph{s}, as \code{4:02:01} & $h$ hours, $m$
+  minutes and $s$ seconds. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A string that cannot be read gives 0, which is also a valid result
+(\code{strtim("0")}). The high-level readers make the value of a time of day
+positive, so that it is the number of the sample at that time. For record
+\code{100s} (360\,Hz), \code{"0:10"} and \code{"10"} are 3600, \code{"s123"}
+is 123, \code{"1:02:03.5"} is 1340460, \code{"e"} is 21600, and
+\code{"[00:00:10]"} is $-3600$.
+
+\wfdbx{} assumes no sampling frequency: when none is known (no record is
+open, or its header gives none, and none was set with \code{setsampfreq}),
+\code{strtim} reports \code{strtim: sampling frequency is not specified} and
+returns 0 for every string that needs one, that is, for all the strings of
+\cref{tab:strtim} except those that begin with \code{s}, \code{e},
+\code{i} or \code{o}, and those that begin with \code{c} when there is no
+counter frequency. The function \code{wfdbx\_time\_needs\_freq(string)}
+returns 1 if \code{strtim} needs the frequency for a string, and 0
+otherwise. The C library used 1 sample per second instead
+(\cref{sec:no-defaults}).
+
+\subsection{Formatted times}
+
+\code{timstr(t)} converts a time $t$ to text:
+\begin{itemize}
+\item if $t > 0$, or if the record has no base time or date, as an elapsed
+  time $|t|/f$, truncated to whole seconds: \code{h:mm:ss}, or, under one
+  hour, \code{mm:ss}, right-aligned in 8 characters (\code{"    0:10"} for
+  10 seconds);
+\item if $t \le 0$ and the record has a base time or date, as the time of
+  day at $-t$ sample intervals after the base time, in brackets:
+  \code{[hh:mm:ss dd/mm/yyyy]}, with the date if the record has a base date
+  (or the number of days after the base time if it has none).
+\end{itemize}
+\code{mstimstr(t)} does the same with milliseconds (\code{"    0:10.003"},
+\code{[12:34:56.789 31/12/1999]}). Without a sampling frequency, both report
+\code{timstr: sampling frequency is not specified} (or \code{mstimstr: \ldots})
+and return the time as a sample number, \code{s} followed by $|t|$, which
+\code{strtim} reads back.
+
+\subsection{Base time and dates}
+
+The base time and date of a record come from its header, or from
+\code{setbasetime}, which takes a string \code{hh:mm:ss}, with optional
+milliseconds and an optional date \code{dd/mm/yyyy} after a space (an empty
+string sets the current local date and time). \code{strdat} and
+\code{datstr} convert between dates \code{dd/mm/yyyy} and day numbers. The
+high-level readers give the base time as text (\code{base\_time}, as
+\code{timstr(0)} gives it, to the second), as a number of milliseconds after
+midnight (\code{base\_time\_ms}), and the base date as year, month and day
+(\code{base\_date}).
+
+\section{Calibration files}
+\label{sec:calibration}
+
+A calibration file lists, for types of signals, the calibration pulses with
+which they were recorded and their customary plotting scale. Each line that
+is not a comment (\code{\#}) has six fields:
+\begin{lstlisting}[style=text]
+DESC<tab>LOW HIGH TYPE SCALE UNITS
+\end{lstlisting}
+\code{DESC} is a signal type, matched against the beginning of a signal's
+description (\code{*} matches any signal); \code{LOW} and \code{HIGH} are
+the levels of the calibration pulse in physical units (\code{-} for
+\code{LOW}: the signal is AC-coupled; \code{-} for \code{HIGH}: not
+defined); \code{TYPE} is \code{sine}, \code{square}, \code{sawtooth} or
+\code{undefined}; \code{SCALE} is in physical units per centimeter; and
+\code{UNITS} are the physical units. For example:
+\begin{lstlisting}[style=text]
+ECG	- 1 sine 1 mV
+BP	0 100 square 100 mmHg
+\end{lstlisting}
+\code{calopen(name)} reads a calibration file into the library's
+calibration list (emptied first, unless the name begins with \code{+});
+without a name, it reads the file named by the environment variable
+\code{WFDBCAL}, or \file{wfdbcal}. The file is found as any other file
+(\cref{chap:files}). \code{getcal} finds the first entry for a signal's
+description and units, \code{putcal} adds one, and \code{newcal} writes the
+list to a file. The file \file{tests/data/wfdbcal} is the default
+calibration file of the C package.
+
+\section{EDF and EDF+ records}
+\label{sec:edf}
+
+The library reads EDF and EDF+ files (and BDF files, with 24-bit samples)
+directly, as records. A record name with an extension other than
+\file{.hea}, such as \code{100s.edf}, is opened as an EDF file: its header
+is read from the EDF header, and its samples from the data records that
+follow. Each EDF data record is one frame, so a signal has as many samples
+per frame as it has samples per data record, and the frame frequency is the
+inverse of the duration of a data record. The signals are in format 16 (24
+for BDF). The gain of a signal is
+$(d_{\max} - d_{\min})/(p_{\max} - p_{\min})$, from its digital and physical
+ranges (0 if the physical range is empty), its baseline is
+$d_{\max} - p_{\max} \times \mathrm{gain}$ rounded to the nearest integer,
+and its ADC zero is the middle of the digital range. The record's base time
+and date are the start time and date of the EDF file.
+
+Because frames are data records, the library opens an EDF file in high
+resolution (\cref{sec:frames}): the sample intervals are those of the
+fastest signal, and \code{sampfreq} gives its frequency. A program that sets
+another mode reads one sample per data record per signal; the high-level
+\code{read\_record}, which sets the mode, returns every sample of an EDF file
+only with its \code{highres} option.
+
+The command-line tools \cmd{edf2mit} and \cmd{mit2edf} convert EDF files to
+WFDB records and back, and \cmd{rdedfann} prints the annotations of an EDF+
+file in the format of \cmd{rdann}.

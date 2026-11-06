@@ -748,11 +748,18 @@ Severities: `"error"` (the record is damaged or does not follow the WFDB
 format), `"warning"` (something is missing or unusual, and may give wrong
 results) and `"info"` (a fact worth knowing). The checks run in normal
 mode, even if legacy mode is on, and the library prints no messages during
-the call.
+the call. The time resolution of output annotators ([`getafreq`](@ref)) and
+the getvec mode ([`getgvmode`](@ref)) are left as they were (opening an EDF
+record sets both).
 
 # Arguments
-- `record`: the record name: a name in the input directory, or a full
-  path, `~` path or URL (as for [`read_record`](@ref)).
+- `record`: the record name, without the `.hea` extension (a trailing
+  `".hea"` is also accepted): a full path, absolute (`"/data/mitdb/100"`)
+  or in the home directory (`"~/Documents/100s"`), used as given; a
+  relative path (`"100s"`, `"data/100s"`), read from the input directory
+  if one is set, otherwise from the current directory; or a URL
+  (`"https://physionet.org/files/mitdb/1.0.0/100"`), read only if network
+  access is on (as for [`read_record`](@ref)).
 - `annotators`: the annotator names to check, such as `["atr"]` (one name
   may be given as a string). The default is none.
 $_INPUT_DOC
@@ -794,6 +801,8 @@ function check_record(w::Wfdb, record::ByteStr; annotators=String[],
         legacy = wfdbx_set_legacy(w, false)
         printing = w.io.error_print
         w.io.error_print = false
+        afreq = getafreq(w)     # (WFDB-x: restored, as by read_record)
+        gvmode = getgvmode(w)
         try
             wfdbquit(w)
             len = _check_record_signals(w, rec, rep)
@@ -802,6 +811,8 @@ function check_record(w::Wfdb, record::ByteStr; annotators=String[],
             end
         finally
             wfdbquit(w)
+            setgvmode(w, gvmode)
+            setafreq(w, afreq)
             w.io.error_print = printing
             wfdbx_set_legacy(w, legacy)
         end

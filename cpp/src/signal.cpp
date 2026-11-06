@@ -2495,6 +2495,9 @@ int openosig(const char *func, WFDB_Siginfo *si_out, const WFDB_Siginfo *si_in,
     WFDB_Signal s;
     unsigned int ga;
 
+    // WFDB-x: no signals to open (osigopen(record, nullptr, 0), for example):
+    // nothing is done, and 0 is returned (C read before the start of an
+    // array; see docs/KNOWN_C_BEHAVIORS.md)
     if (nsig == 0) return 0;
 
     // Allocate workspace for output signals and signal groups.

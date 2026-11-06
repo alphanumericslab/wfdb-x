@@ -205,6 +205,10 @@ wfdbflush()
     \samp{osigfopen: output file NAME is also an input file} (or
     \samp{osigopen: ...}) and returns -3, without creating or truncating
     the file (not in legacy mode; identical in all seven implementations).
+    \code{osigopen(record, 0)} reads the header (an error if it cannot be
+    read), closes the open output signals (unless the record name begins
+    with \code{"+"}), opens nothing and returns 0 (WFDB-x: as in C++; the C
+    library reads before the start of an array).
     \code{putvec} writes one sample vector,
     \code{putframes} one per row of a matrix (exactly as many calls of
     \code{putvec}).  \code{newheader} then writes the header file of the

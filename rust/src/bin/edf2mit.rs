@@ -23,8 +23,10 @@
 // 10.7.0, by George B. Moody. The translation follows the logic and behavior
 // of the original program, but it is new code, not the original C code.
 //
-// Changes from the original: none, apart from the language and the --legacy
-// option (as the first argument, it restores the original behavior).
+// Changes from the original: the -i file is found under the input directory, as
+// the library finds an input file; --legacy, as the first argument, restores the
+// original behavior. Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/edf2mit.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1996-2004 George B. Moody.
@@ -158,7 +160,12 @@ fn main() {
                         if cstd::cstr(&argv[i]) == b"-" {
                             ifile = Some(WfdbFile::stdin());
                         } else {
-                            let Some(f) = WfdbFile::fopen(&argv[i], b"rb") else {
+                            // WFDB-x: the file is found where the library
+                            // finds an input file of that name (see
+                            // wfdbx_input_path)
+                            let Some(f) = wfdbx::wfdbx_input_path(&argv[i])
+                                .and_then(|p| WfdbFile::fopen(&p, b"rb"))
+                            else {
                                 ceprintf!(b"%s: can't read %s\n", pname, argv[i]);
                                 cstd::exit(1);
                             };

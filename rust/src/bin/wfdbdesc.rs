@@ -15,7 +15,9 @@
 // shown as "not specified" (lengths are then given in sample intervals only),
 // a gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"),
 // and unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
-// millivolts); --legacy, as the first argument, restores the original
+// millivolts); the size of a signal file of unknown length is measured in the
+// header's directory, where the library reads it (the original looked in the
+// current directory); --legacy, as the first argument, restores the original
 // behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
@@ -55,6 +57,24 @@ fn regular_file_size(name: &[u8]) -> Option<i64> {
     let n = f.tell();
     f.close();
     Some(n)
+}
+
+/// The path of the signal file `fname` named in the header of `record`, to
+/// measure its length. WFDB-x: in normal mode, where the library reads it,
+/// i.e., in the directory of the header (the directory part of the record
+/// name, under the input directory if one is set; see wfdbx_input_path);
+/// `None` if it cannot be opened in this way (a URL). In legacy mode, or for
+/// the name `-`, as named, as the C program did (relative to the current
+/// directory).
+fn signal_file(record: &[u8], fname: &[u8], legacy: bool) -> Option<Vec<u8>> {
+    let fname = cstd::cstr(fname);
+    if legacy || fname == b"-" {
+        return Some(fname.to_vec());
+    }
+    let k = record.iter().rposition(|&c| c == b'/').map_or(0, |k| k + 1);
+    let mut name = record[..k].to_vec();
+    name.extend_from_slice(fname);
+    wfdbx::wfdbx_input_path(&name)
 }
 
 fn main() {
@@ -146,7 +166,9 @@ fn main() {
         cprintf!(b"%s (%lld sample intervals)\n", ts, t);
     } else {
         let size = match (&s[0].fname, s[0].fmt) {
-            (Some(f), fmt) if fmt != 0 => regular_file_size(f),
+            (Some(f), fmt) if fmt != 0 => {
+                signal_file(&rec, f, legacy).and_then(|p| regular_file_size(&p))
+            }
             _ => None,
         };
         if let Some(size) = size {

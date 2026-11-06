@@ -8,7 +8,9 @@
 // of the original program, but it is new code, not the original C code.
 //
 // Changes from the original: no built-in sampling frequency: the record must
-// give it (the original assumed 250 Hz); --legacy, as the first argument,
+// give it (the original assumed 250 Hz); the WAV file is completed where the
+// library created it, under the output directory (the original rewrote a file
+// of that name in the current directory); --legacy, as the first argument,
 // restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
@@ -33,6 +35,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -223,15 +226,23 @@ int main(int argc, char **argv)
     wfdbquit();
 
     // Prepend the header and format chunks to the new signal file.
+    // WFDB-x: the signal file is where the library created it, under the
+    // output directory if one is set (see wfdbx_output_path); every later use
+    // of the file uses that path.
+    std::optional<std::string> opath = wfdbx_output_path(ofname);
+    if (!opath) {
+        std::fprintf(stderr, "%s: can't create %s\n", pname, ofname);
+        std::exit(1);
+    }
     std::string data;
-    if (std::FILE *f = std::fopen(ofname, "rb")) {
+    if (std::FILE *f = std::fopen(opath->c_str(), "rb")) {
         char buf[1 << 16];
         size_t n;
         while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0)
             data.append(buf, n);
         std::fclose(f);
     }
-    if (std::FILE *f = std::fopen(ofname, "wb")) {
+    if (std::FILE *f = std::fopen(opath->c_str(), "wb")) {
         std::fwrite(hdr.data(), 1, hdr.size(), f);
         std::fwrite(data.data(), 1, data.size(), f);
         std::fclose(f);

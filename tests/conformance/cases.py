@@ -972,6 +972,113 @@ for tool, args, cid, kw in [
     case(tool, args, cid=cid, **kw)
 
 # ---------------------------------------------------------------------------
+# Files that a tool reads or creates itself, rather than through the library
+# (WFDB-x).  A file named on the command line that a tool reads (the -i file
+# of wrsamp, edf2mit, wav2mit, a2m and ad2m, the input files of ahaecg2mit,
+# the -S script of xform) is found where the library finds an input file of
+# that name: under the input directory (WFDBX_INPUT_DIR), absolute and ~
+# names as given; a URL cannot be opened in this way.  A file that a tool
+# creates (the WAV file of mit2wav, the EDF file of mit2edf, the master
+# header of snip -m, the .des, .ecg, .key and .txt files of parsescp) is
+# created where the library creates an output file of that name: under the
+# output directory (WFDBX_OUTPUT_DIR), whose missing directories are
+# created, absolute and ~ names as given; nothing is written in the current
+# directory.  wfdbdesc measures a signal file of unknown length where the
+# library reads it, in the header's directory.  In legacy mode (--legacy),
+# input files are opened as named (see the legacy suite) and the output
+# directory is a prefix of every output name, as in the library.
+_IN = {"WFDBX_INPUT_DIR": "sub"}
+_OUT = {"WFDBX_OUTPUT_DIR": "out"}
+_INOUT = dict(_IN, **_OUT)
+_WR = " -o w1 -F 250 -G 200 -R 16 -U mV"
+_INTXT = {"sub/in.txt": _TXT}
+_NL = {"sub/nl.hea": "nl 1 360\nnl.dat 16 200 16 0 0 0 0 s\n",
+       "sub/nl.dat": _rd("fmt16.dat")}
+
+
+def _sub(*names):   # copies of input files in sub/
+    return {"sub/" + n: _rd(n) for n in names}
+
+
+for tool, args, cid, kw in [
+        ("wrsamp", "-i in.txt" + _WR, "toolfiles-wrsamp-inputdir",
+         {"files": _INTXT, "env": _IN}),
+        ("wrsamp", "-i in.txt" + _WR, "toolfiles-wrsamp-inputdir-outputdir",
+         {"files": _INTXT, "env": _INOUT}),
+        ("wrsamp", "-i in.txt" + _WR, "toolfiles-wrsamp-inputdir-missing",
+         {"files": {"in.txt": _TXT}, "env": _IN}),
+        ("wrsamp", "-i {cwd}/in.txt" + _WR, "toolfiles-wrsamp-abs",
+         {"files": {"in.txt": _TXT}, "env": _IN}),
+        ("wrsamp", "-i ~/in.txt" + _WR, "toolfiles-wrsamp-home",
+         {"files": {"home/in.txt": _TXT}}),
+        ("wrsamp", "-i - " + _WR, "toolfiles-wrsamp-stdin",
+         {"stdin": _TXT, "env": _INOUT}),
+        ("wrsamp", "-i {url}in.txt" + _WR, "toolfiles-wrsamp-url",
+         {"files": {"in.txt": _TXT}, "env": _NET}),
+        ("wrsamp", "-i in.txt" + _WR, "toolfiles-wrsamp-inputdir-url",
+         {"files": {"in.txt": _TXT},
+          "env": dict(_NET, WFDBX_INPUT_DIR="{url}")}),
+        ("edf2mit", "-i fmt16.edf -r e2m", "toolfiles-edf2mit",
+         {"files": _sub("fmt16.edf"), "env": _INOUT}),
+        ("edf2mit", "-i fmt16.edf -r e2m", "toolfiles-edf2mit-missing",
+         {"env": _IN}),
+        ("wav2mit", "-i t16.wav -r w16 -G 6400 -U mV", "toolfiles-wav2mit",
+         {"files": _sub("t16.wav"), "env": _INOUT}),
+        ("wav2mit", "-i t16.wav -r w16 -G 6400 -U mV",
+         "toolfiles-wav2mit-missing", {"env": _IN}),
+        ("a2m", "-i 1201.ANO -F 250", "toolfiles-a2m",
+         {"files": _sub("1201.ANO"), "env": _INOUT}),
+        ("a2m", "-i 1201.ANO -F 250", "toolfiles-a2m-missing", {"env": _IN}),
+        ("ad2m", "-i 1201.CMP -F 250 -G 400 -R 12 -U mV", "toolfiles-ad2m",
+         {"files": _sub("1201.CMP"), "env": _INOUT}),
+        ("ad2m", "-i 1201.CMP -F 250 -G 400 -R 12 -U mV",
+         "toolfiles-ad2m-missing", {"env": _IN}),
+        ("ahaecg2mit", "-F 250 -G 400 -R 12 -U mV 1001.ecg",
+         "toolfiles-ahaecg2mit",
+         {"files": _sub("1001.ecg"), "env": _INOUT}),
+        ("ahaecg2mit", "-F 250 -G 400 -R 12 -U mV 1001.ecg",
+         "toolfiles-ahaecg2mit-missing", {"env": _IN}),
+        ("xform", "-i 100s -S xs1.txt -t 30", "toolfiles-xform-script",
+         {"files": _sub("100s.hea", "100s.dat", "xs1.txt"), "env": _INOUT}),
+        ("xform", "-i 100s -S xs1.txt -t 30",
+         "toolfiles-xform-script-missing",
+         {"files": _sub("100s.hea", "100s.dat"), "env": _IN}),
+        ("wfdbdesc", "nl", "toolfiles-wfdbdesc-inputdir",
+         {"files": _NL, "env": _IN}),
+        ("wfdbdesc", "sub/nl", "toolfiles-wfdbdesc-subdir", {"files": _NL}),
+        ("mit2wav", "-r 100s -o x.wav -n xw", "toolfiles-mit2wav-outputdir",
+         {"env": _OUT}),
+        ("mit2wav", "-r 100s -o x.wav", "toolfiles-mit2wav-outputdir-abs",
+         {"env": {"WFDBX_OUTPUT_DIR": "{cwd}/out/deep"}}),
+        ("mit2wav", "-r sr -o x.wav -n xw",
+         "toolfiles-mit2wav-inputdir-outputdir",
+         {"files": _SR, "env": _INOUT}),
+        ("mit2wav", "--legacy -r 100s -o x.wav -n xw",
+         "toolfiles-mit2wav-legacy-outputdir", {"env": _OUT}),
+        ("mit2edf", "-r fmt16", "toolfiles-mit2edf-outputdir", {"env": _OUT}),
+        ("mit2edf", "-r fmt16 -o x.edf", "toolfiles-mit2edf-outputdir-mkdir",
+         {"env": {"WFDBX_OUTPUT_DIR": "out/deep"}}),
+        ("mit2edf", "-r fmt16 -o {cwd}/abs.edf", "toolfiles-mit2edf-abs",
+         {"env": _OUT}),
+        ("mit2edf", "-r fmt16 -o ~/h.edf", "toolfiles-mit2edf-home",
+         {"env": _OUT}),
+        ("mit2edf", "-r fmt16 -o {url}x.edf", "toolfiles-mit2edf-url",
+         {"env": _NET}),
+        ("mit2edf", "--legacy -r fmt16 -o x.edf",
+         "toolfiles-mit2edf-legacy-outputdir", {"env": _OUT}),
+        ("snip", "-i multi -n snp -m -f 50 -t 100",
+         "toolfiles-snip-m-outputdir", {"env": _OUT}),
+        ("snip", "--legacy -i multi -n snp -m -f 50 -t 100",
+         "toolfiles-snip-m-legacy-outputdir", {"env": _OUT}),
+        ("parsescp", "-w -o ex", "toolfiles-parsescp-outputdir",
+         {"stdin": _rd("example.scp"), "env": _OUT}),
+        ("parsescp", "-v -w -o ex -S 7", "toolfiles-parsescp-v-outputdir",
+         {"stdin": _rd("example.scp"), "env": _OUT}),
+        ("parsescp", "--legacy -w -o ex", "toolfiles-parsescp-legacy-outputdir",
+         {"stdin": _rd("example.scp"), "env": _OUT})]:
+    case(tool, args, cid=cid, **kw)
+
+# ---------------------------------------------------------------------------
 # Out-of-order annotations written by wrann, rearranged when the file is
 # closed (WFDB-x: in the same process; the C library ran sortann): ties in
 # time, num and chan, duplicates (the last one is kept), aux strings, an

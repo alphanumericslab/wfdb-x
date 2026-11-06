@@ -34,7 +34,9 @@ function status = wrsamp(args)
 %   signals unless the input gives their units (the C program assumed
 %   250 Hz, 200 adu/mV, a resolution based on the format, and
 %   millivolts); see docs/DIVERGENCES.md.  To reproduce the C program's
-%   output, use -F 250 -G 200 -R 16 -U mV (for format 16).
+%   output, use -F 250 -G 200 -R 16 -U mV (for format 16).  The -i file is
+%   found under the input directory, as the library finds an input file
+%   (see wfdbx.wfdbx_input_path).
 %
 %   Example (data.txt stands for a text file of samples in the current
 %   folder; the example writes the record rec there):
@@ -60,9 +62,10 @@ function status = wrsamp(args)
 % -R BITS are required, and the new option -U UNITS for calibrated signals
 % unless the input gives the units (the original assumed 250 Hz, 200 adu/mV, a
 % resolution based on the format, and millivolts); -G 0 declares the signals
-% uncalibrated; -G, -R and -U take one value per signal; --legacy, as the first
-% argument, restores the original behavior. Each change is marked "WFDB-x:" in
-% the code; docs/DIVERGENCES.md gives the reasons.
+% uncalibrated; -G, -R and -U take one value per signal; the -i file is found
+% under the input directory, as the library finds an input file; --legacy, as
+% the first argument, restores the original behavior. Each change is marked
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1993-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -385,7 +388,13 @@ while i < argc && strncmp(argv{i + 1}, '-', 1)
                 infile = [];
                 have_infile = false;
             else
-                fid = fopen(argv{i + 1}, 'rb');
+                % WFDB-x: the file is found where the library finds an
+                % input file of that name (see wfdbx.wfdbx_input_path)
+                ipath = wfdbx.wfdbx_input_path(argv{i + 1});
+                fid = -1;
+                if ischar(ipath)
+                    fid = fopen(wfdbx.internal.literal_path(ipath), 'rb');
+                end
                 if fid < 0
                     wfdbx.internal.ceprintf('%s: can''t read `%s''\n', pname, argv{i + 1});
                     status = 2;

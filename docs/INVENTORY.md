@@ -37,11 +37,11 @@ macOS; the tests of the repository do not compile the native code (see
 |---|---|---:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **Signals** | | | | | | | | | |
 | `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 328 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrsamp` | write a record from text (columns, scaling, any storage format) | 72 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbdesc` | describe the signals of a record (header contents) | 54 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrsamp` | write a record from text (columns, scaling, any storage format) | 80 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbdesc` | describe the signals of a record (header contents) | 56 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 51 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `snip` | copy a segment of a record (any format) to a new record | 43 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `xform` | convert records: format, sampling frequency, gain, signal selection | 59 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `snip` | copy a segment of a record (any format) to a new record | 45 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `xform` | convert records: format, sampling frequency, gain, signal selection | 61 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sampfreq` | print the sampling (or counter) frequency of a record | 24 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signame` | print signal names | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signum` | print the number of a named signal | 7 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -57,22 +57,22 @@ macOS; the tests of the repository do not compile the native code (see
 | `ann2rr` | print RR intervals from annotations | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rr2ann` | write an annotation file from RR intervals | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Format converters** | | | | | | | | | |
-| `edf2mit` | convert EDF/EDF+ to a WFDB record | 18 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mit2edf` | convert a WFDB record to EDF | 22 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `edf2mit` | convert EDF/EDF+ to a WFDB record | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mit2edf` | convert a WFDB record to EDF | 28 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rdedfann` | print EDF+ annotations (as `rdann` text) | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wav2mit` | convert a WAV file to a WFDB record | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mit2wav` | convert a WFDB record to a WAV file | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wav2mit` | convert a WAV file to a WFDB record | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mit2wav` | convert a WFDB record to a WAV file | 16 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdb2mat` | convert a WFDB record to a MATLAB/Octave .mat file | 32 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `a2m` | convert AHA-format annotations to WFDB format | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `a2m` | convert AHA-format annotations to WFDB format | 16 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `m2a` | convert WFDB annotations to AHA format | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `ad2m` | convert AHA-format signals (tape/CD) to a WFDB record | 15 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ad2m` | convert AHA-format signals (tape/CD) to a WFDB record | 17 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `md2a` | convert a WFDB record to AHA-format signals | 5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `ahaecg2mit` | convert AHA DVD-format ECG files (binary or text) to WFDB | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `parsescp` | convert SCP-ECG files to WFDB records (and describe them) | 32 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ahaecg2mit` | convert AHA DVD-format ECG files (binary or text) to WFDB | 11 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `parsescp` | convert SCP-ECG files to WFDB records (and describe them) | 35 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `makeid` | write a record ID block (for AHA conversions) | 5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `readid` | read a record ID block | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `revise` | convert an old-style header to the current format | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Total** | 33 tools | **1098** | 1098 | 1098 | 1098 | 1098 | 1098 | 1098 | 1098 |
+| **Total** | 33 tools | **1135** | 1135 | 1135 | 1135 | 1135 | 1135 | 1135 | 1135 |
 
 ## Library functions
 
@@ -146,12 +146,14 @@ The C library functions keep their C names in every implementation
 | `wfdbx_set_output_dir`, `wfdbx_get_output_dir` | the output directory: every relative name written is created under it (`WFDBX_OUTPUT_DIR`; the high-level writers' `dir` option); addition, see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_set_input_dir`, `wfdbx_get_input_dir` | the input directory (a directory, `~...` or a URL): every relative name read is found under it (`WFDBX_INPUT_DIR`; the high-level readers' `input_dir` option); addition, see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbx_set_network`, `wfdbx_get_network` | network access, off by default (`WFDBX_NETWORK`; the high-level readers' `network` option); addition, see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbx_input_path`, `wfdbx_output_path` | the path at which a tool opens a file named on its command line, or creates one: under the input or output directory, as the library opens its own files; addition (1.2.0), see [`DIVERGENCES.md`](DIVERGENCES.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`, `wfdbdefwfdbcal` | version and configuration strings | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **High-level API (additions; each function takes a legacy option; in Kotlin: `readRecord`, `readHeader`, `readAnnotations`, `writeRecord`, `writeAnnotations`, `checkRecord`)** | | | | | | | | |
-| `read_record`, `read_header` | read a record (or part of one) into an array; read a record's header (frequencies, length, start time and date, signal specifications, info strings) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `read_record`, `read_header` | read a record (or part of one) into an array; read a record's header (frequencies, length, start time and date, signal specifications, info strings, metadata) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `read_annotations` | read an annotation file into arrays | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `write_record`, `write_annotations` | write a record or an annotation file | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `check_record` | check a record (header, signal files, annotation files) and report its problems with a severity | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `read_metadata`, `get_metadata`, `set_metadata`, `remove_metadata`, `update_metadata` | read and change the `Key: value` info strings of a header (version 1.2.0; `readMetadata`, ... in Kotlin; no legacy option) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 In R, the C function `sample` is exported as `wfdb_sample` (so as not to
 mask R's `sample`).

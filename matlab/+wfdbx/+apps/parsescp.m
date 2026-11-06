@@ -28,7 +28,9 @@ function status = parsescp(args)
 %   WFDB record RECORD (RECORD.hea, RECORD.dat).  WFDB-x: the record's
 %   sampling frequency is the one given in SCPFILE, and no record is
 %   written if SCPFILE does not give one (the C program always wrote
-%   500 Hz); see docs/DIVERGENCES.md.
+%   500 Hz).  The .des, .ecg, .key and .txt files are created under the
+%   output directory, as the library creates an output file (see
+%   wfdbx.wfdbx_output_path); see docs/DIVERGENCES.md.
 %
 %   See also wfdbx.apps.rdsamp, wfdbx.apps.wfdbdesc.
 %
@@ -48,9 +50,11 @@ function status = parsescp(args)
 % given in the SCP file, and is not written if the file gives none (the
 % original always wrote 500 Hz); signals and reference beats that could not be
 % allocated, and samples beyond the end of a signal shorter than lead 0, are
-% read as absent or as zeros (undefined behavior in the original); --legacy, as
-% the first argument, restores the original behavior. Each change is marked
-% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% read as absent or as zeros (undefined behavior in the original); the .des,
+% .ecg, .key and .txt files are created under the output directory, as the
+% library creates an output file; --legacy, as the first argument, restores the
+% original behavior. Each change is marked "WFDB-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -468,6 +472,8 @@ names = {[recname '.des'], [recname '.ecg'], [recname '.key'], ...
 nf = 3 + (P.vflag ~= 0);
 files = cell(1, nf);
 for k = 1:nf
+    % WFDB-x: created where the library creates an output file of that
+    % name (see wfdbx.wfdbx_output_path)
     files{k} = wfdbx.internal.OutputFile(names{k}, P.pname, 'ieee-le');
     if files{k}.fid < 0
         for kk = 1:k - 1

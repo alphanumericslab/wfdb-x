@@ -180,6 +180,20 @@ marked *bug* are almost certainly unintended by the C authors.
   that was returned by the first call to getwfdb" (comment in `wfdbio.c`),
   so only if `getwfdb` was called before any `setwfdb`; it restores the
   string only and does not re-parse the search path.
+- **Opening an EDF record sets the output annotation time resolution and
+  the getvec mode.** Reading the header of an EDF record (`edfparse`,
+  called by `isigopen`, `sampfreq` and the other functions that read a
+  header) sets the time resolution of output annotators to the record's
+  sampling frequency when `setafreq` has not been called (or was called
+  with 0), and adds `WFDB_HIGHRES` to the getvec mode; `wfdbquit` resets
+  neither (see above). An annotation file written later by the same
+  process, for any record, then begins with a time-resolution record
+  (`## time resolution: 360` after the test record `100s.edf`), even when
+  that record gives no frequency, and later records are read in high
+  resolution unless `setgvmode` is called. WFDB-x's C-style functions do
+  the same; its high-level functions restore both previous values when
+  they return (see
+  [`DIVERGENCES.md`](DIVERGENCES.md#additions)).
 - **`setisqrs` and the other `ecgmap.h` setters** store the new value in a
   `char`, so `wfdb_setisqrs(2, 300)` returns 44. (WPG only says that *x* "is
   the value to be returned when the corresponding mapping macro is
@@ -323,6 +337,7 @@ whether the WFDB-x choice matches it.
 | `a2m`, `ad2m` without `-r`, with an input file name ending in `/` | the extension search starts past the end of the (empty) record name | the record name is empty |
 | `ad2m` with a record name of more than 7 characters | the signal file name overflows its 12-byte buffer | the full name (`RECORD.dat`) is used |
 | A header that gives no description for a signal, with a record name (or path) longer than about 85 characters | `readheader` writes the default description "record NAME, signal N" into a 101-byte buffer (`lib/signal.c`), overflowing the heap; the C tools crash (`malloc(): invalid next size`) | the full description is used |
+| `osigopen(record, NULL, 0)` (no output signals to open) | `openosig` reads the group number of the signal before the first one (`si_in[nsig-1]`, with `nsig` 0) in an array allocated for no element: a read out of bounds | the output signals already open are closed (unless the record name begins with `+`), the header is read (an error if it cannot be), nothing is opened, and 0 is returned |
 | `a2m`, `ad2m` with a directory as input file (`-i DIR`) | reads forever | `can't read input file`, exit status 2 |
 | `mit2edf`, `makeid` | uninitialized variables in rare cases (e.g. a single annotation) | 0 is used |
 | `parsescp -v`/`-x` with a section 7 (global measurements) | the dump of the remaining bytes of section 7 reads one byte past its end (past the end of the input if section 7 is the last section) | bytes beyond the end of the input are read as 0 |

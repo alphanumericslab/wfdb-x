@@ -17,14 +17,22 @@ check_record(record, annotators = character(0), input_dir = NULL,
 \method{print}{wfdbx_check_report}(x, \dots)
 }
 \arguments{
-  \item{record}{the record name, such as \code{"100s"}.  A full path, a
-    \code{~} path or a URL is used as given; any other name is read from
-    the input directory (see \code{\link{wfdbx_set_input_dir}}).}
+  \item{record}{the record name, without the \code{.hea} extension (a
+    trailing \code{".hea"} is also accepted): a full path, absolute
+    (\code{"/data/mitdb/100"}) or in the home directory
+    (\code{"~/Documents/100s"}), used as given; a relative path
+    (\code{"100s"}, \code{"data/100s"}), read from the input directory if
+    one is set (see \code{\link{wfdbx_set_input_dir}}), otherwise from the
+    current directory; or a URL
+    (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if
+    network access is on.}
   \item{annotators}{a character vector of the annotators to check, such
     as \code{"atr"}.  By default none.}
-  \item{input_dir}{the input directory for this call only: a local
-    directory, a \code{~} path or a URL.  \code{NULL}, the default, keeps
-    the current setting.}
+  \item{input_dir}{the input directory for this call only (optional): a
+    local directory, a \code{~} path or a URL, under which relative record
+    names are read.  It does not apply to full paths or URLs.
+    \code{NULL}, the default, keeps the current setting (see
+    \code{\link{wfdbx_set_input_dir}}).}
   \item{network}{\code{TRUE} to allow reading URLs for this call only,
     \code{FALSE} to forbid it.  \code{NULL}, the default, keeps the
     current setting.}
@@ -51,7 +59,10 @@ check_record(record, annotators = character(0), input_dir = NULL,
   \code{\link{wfdbx_set_legacy}}), and the library prints no messages
   during the call; both settings are restored afterwards.  Each call
   closes anything opened with the WFDB library functions, as
-  \code{\link{wfdbquit}} does.
+  \code{\link{wfdbquit}} does.  The getvec mode
+  (\code{\link{getgvmode}}) and the time resolution of output annotators
+  (\code{\link{getafreq}}) are left as they were, also after an error
+  (opening an EDF record sets both, as in C).
 
   It checks for problems similar to those found by Benjamin Moody's
   wfdbcheck (\url{https://github.com/bemoody/wfdbcheck}).

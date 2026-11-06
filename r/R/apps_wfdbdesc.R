@@ -12,9 +12,11 @@
 # shown as "not specified" (lengths are then given in sample intervals only), a
 # gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"), and
 # unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
-# millivolts); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-# reasons.
+# millivolts); the size of a signal file of unknown length is measured in the
+# header's directory, where the library reads it (the original looked in the
+# current directory); --legacy, as the first argument, restores the original
+# behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+# gives the reasons.
 #
 # Original C program: app/wfdbdesc.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1989-2012 George B. Moody; revised 2018-2020 by
@@ -28,6 +30,17 @@
 
 app_wfdbdesc <- function(args = character(0)) {
   app_run(.wfdbdesc_main, c("wfdbdesc", args))
+}
+
+# The path of the signal file fname named in the header of record, to
+# measure its length.  WFDB-x: in normal mode, where the library reads it,
+# i.e., in the directory of the header (the directory part of the record
+# name, under the input directory if one is set; see wfdbx_input_path); NULL
+# if it cannot be opened in this way (a URL).  In legacy mode, as named, as
+# the C program did (relative to the current directory).
+.wfdbdesc_signal_file <- function(record, fname) {
+  if (wfdbx_get_legacy() || fname == "-") return(fname)
+  wfdbx_input_path(paste0(.dirname(record), fname))
 }
 
 .wfdbdesc_main <- function(argv) {
@@ -93,6 +106,8 @@ app_wfdbdesc <- function(args = character(0)) {
     done <- TRUE
   } else if (s[[1L]]$fmt) {
     fn <- s[[1L]]$fname
+    if (!is.null(fn)) fn <- .wfdbdesc_signal_file(rec, fn)
+    if (!is.null(fn)) fn <- .rfile_name(fn)
     nbytes <- if (!is.null(fn) && file.exists(fn) && !dir.exists(fn))
       suppressWarnings(file.size(fn)) else NA
     if (!is.na(nbytes)) {

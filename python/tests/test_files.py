@@ -321,6 +321,100 @@ def test_output_names(settings):
     assert os.path.exists("lout" + cwd + "/labs.x")
 
 
+def test_tool_file_paths(settings):
+    """wfdbx_input_path and wfdbx_output_path: where a program opens the
+    files that it reads or creates itself (the counterparts of the files of
+    wfdb_open with an empty file type)."""
+    cwd = os.path.realpath(settings)
+    home = os.environ["HOME"]
+    # no directories set: names as given (~ expanded), URLs refused
+    for f in (w.wfdbx_input_path, w.wfdbx_output_path):
+        assert f("a.txt") == "a.txt"
+        assert f("sub/a.txt") == "sub/a.txt"
+        assert f(cwd + "/a.txt") == cwd + "/a.txt"
+        assert f("~/a.txt") == home + "/a.txt"
+        assert f("-") == "-" and f("") == "" and f(None) is None
+        assert f("http://127.0.0.1:1/a.txt") is None
+        assert f("https://127.0.0.1:1/a.txt") is None
+    assert not os.path.exists("sub")
+    # the input directory
+    w.wfdbx_set_input_dir("sub")
+    assert w.wfdbx_input_path("a.txt") == "sub/a.txt"
+    assert w.wfdbx_input_path("../a.txt") == "sub/../a.txt"
+    assert w.wfdbx_input_path(cwd + "/a.txt") == cwd + "/a.txt"
+    assert w.wfdbx_input_path("~/a.txt") == home + "/a.txt"
+    assert w.wfdbx_input_path("-") == "-"
+    assert w.wfdbx_output_path("a.txt") == "a.txt"
+    w.wfdbx_set_input_dir("~/in/")
+    assert w.wfdbx_input_path("a.txt") == home + "/in/a.txt"
+    w.wfdbx_set_input_dir("http://127.0.0.1:1/d")
+    assert w.wfdbx_input_path("a.txt") is None      # (a URL)
+    assert w.wfdbx_input_path(cwd + "/a.txt") == cwd + "/a.txt"
+    w.wfdbx_set_input_dir(None)
+    # the output directory: its missing directories are created
+    w.wfdbx_set_output_dir("out/deep")
+    assert w.wfdbx_output_path("a.wav") == "out/deep/a.wav"
+    assert os.path.isdir("out/deep") and os.listdir("out/deep") == []
+    assert w.wfdbx_output_path("s/a.wav") == "out/deep/s/a.wav"
+    assert os.path.isdir("out/deep/s")
+    assert w.wfdbx_output_path(cwd + "/n/a.wav") == cwd + "/n/a.wav"
+    assert w.wfdbx_output_path("~/m/a.wav") == home + "/m/a.wav"
+    assert not os.path.exists("n") and not os.path.exists("home/m")
+    assert w.wfdbx_output_path("-") == "-"
+    assert w.wfdbx_input_path("a.txt") == "a.txt"
+    w.wfdbx_set_output_dir("~/o")
+    assert w.wfdbx_output_path("a.wav") == home + "/o/a.wav"
+    assert os.path.isdir("home/o")
+    # legacy mode: inputs as named; the output directory as a plain prefix
+    w.wfdbx_set_legacy(1)
+    w.wfdbx_set_input_dir("sub")
+    w.wfdbx_set_output_dir("lout")
+    assert w.wfdbx_input_path("a.txt") == "a.txt"
+    assert w.wfdbx_input_path("~/a.txt") == "~/a.txt"
+    assert w.wfdbx_input_path("http://127.0.0.1:1/a.txt") is None
+    assert w.wfdbx_output_path("a.wav") == "lout/a.wav"
+    assert w.wfdbx_output_path(cwd + "/a.wav") == "lout/" + cwd + "/a.wav"
+    assert os.path.isdir("lout" + cwd)
+    assert w.wfdbx_output_path("~/a.wav") == "lout/~/a.wav"
+    assert w.wfdbx_output_path("-") == "-"
+    w.wfdbx_set_output_dir(None)
+    assert w.wfdbx_output_path("a.wav") == "a.wav"
+    assert w.wfdbx_output_path("~/a.wav") == "~/a.wav"
+
+
+def tool(name, *args, **env):
+    """Run a tool in a fresh process (with the given environment variables,
+    in the current directory); return its exit status."""
+    e = dict(os.environ, PYTHONPATH=SRC)
+    for k in ("WFDB", "WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR", "WFDBX_NETWORK"):
+        e.pop(k, None)
+    e.update(env)
+    return subprocess.run([sys.executable, "-m", "wfdbx.apps." + name] +
+                          list(args), capture_output=True, env=e).returncode
+
+
+def test_tool_files(settings):
+    """The tools read and create their own files under the input and output
+    directories (see the toolfiles-* cases of the conformance suite)."""
+    os.makedirs("sub")
+    with open("sub/in.txt", "w") as f:
+        f.write("".join("%d %d\n" % (i, -i) for i in range(50)))
+    assert tool("wrsamp", "-i", "in.txt", "-o", "w1", "-F", "250", "-G",
+                "200", "-R", "16", "-U", "mV", WFDBX_INPUT_DIR="sub",
+                WFDBX_OUTPUT_DIR="out") == 0
+    assert os.path.exists("out/w1.hea") and os.path.exists("out/w1.dat")
+    before = set(os.listdir("."))
+    assert tool("mit2wav", "-r", "100s", "-o", "x.wav",
+                WFDBX_OUTPUT_DIR="out") == 0
+    assert tool("mit2edf", "-r", "fmt16", "-o", "x.edf",
+                WFDBX_OUTPUT_DIR="out") == 0
+    assert set(os.listdir(".")) == before          # nothing in .
+    with open("out/x.wav", "rb") as f:
+        wav = f.read()
+    assert wav[:4] == b"RIFF" and len(wav) == 44 + 2 * 2 * 21600
+    assert os.path.getsize("out/x.edf") > 0
+
+
 # ---------------------------------------------------------------------------
 # Files named in headers
 

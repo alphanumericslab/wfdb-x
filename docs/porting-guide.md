@@ -5,6 +5,32 @@ details of the C implementation that an implementation must reproduce to pass
 the conformance suite. The Python implementation (`python/src/wfdbx/`) is the
 template for the others.
 
+## Every change updates the documentation
+
+Every change to WFDB-x, in any language, is reflected in the same commit
+(or pull request) in:
+
+* the code comments and help text of the functions and tools changed (the
+  docstring, doc comment, `.Rd` page or MATLAB help);
+* the README of each language affected, and the front page (`README.md`)
+  if the change is visible there;
+* the user's manual ([`docs/user-manual/`](user-manual/); the PDF is
+  [`wfdb-x-user-manual.pdf`](user-manual/wfdb-x-user-manual.pdf)): the LaTeX
+  sources, which `docs/user-manual/check_manual.py` checks against the
+  code, and the PDF, rebuilt from them;
+* the shared documents of `docs/` that describe it (for example
+  `DIVERGENCES.md` for a change of behavior or an addition, `INVENTORY.md`
+  for a new function or tool), and [`CHANGELOG.md`](../CHANGELOG.md).
+
+The Markdown files are also the pages of the GitHub Pages site, which
+Jekyll renders with the Liquid template language. In a page whose text
+holds two opening braces in a row, or an opening brace followed by a
+percent sign (a BibTeX title, a brace-initialized C++ value), that text
+must be enclosed by Liquid's raw and endraw tags, each written inside an
+HTML comment at the start and at the end of the page, as in `README.md` and
+`cpp/README.md` (GitHub does not show the comments); otherwise the site
+build fails.
+
 ## Structure
 
 Each implementation mirrors the C sources, file by file:

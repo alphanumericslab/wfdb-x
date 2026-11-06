@@ -21,9 +21,10 @@
 # FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
 # resolution and units, and are required (-U unless the gain is 0; the original
 # assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
-# millivolts); the -f and -t times are converted at the -F frequency; --legacy,
-# as the first argument, restores the original behavior. Each change is marked
-# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+# millivolts); the -f and -t times are converted at the -F frequency; the -i
+# file is found under the input directory, as the library finds an input file;
+# --legacy, as the first argument, restores the original behavior. Each change
+# is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1983-2007 George B. Moody.
@@ -250,8 +251,11 @@ function ad2m_main(args::Vector{String})
     end
 
     # Attach the input file to the standard input. (C reads a directory
-    # forever; WFDB-x reports it as unreadable.)
-    if ifname != b"-" && (_is_directory(ifname) || !freopen_stdin(ifname))
+    # forever; WFDB-x reports it as unreadable. WFDB-x: the file is found
+    # where the library finds an input file of that name; see
+    # wfdbx_input_path.)
+    ipath = ifname == b"-" ? ifname : wfdbx_input_path(ifname)
+    if ifname != b"-" && (ipath === nothing || _is_directory(ipath) || !freopen_stdin(ipath))
         ceprintf("%s: can't read input file `%s'\n", pname, ifname)
         cexit(2)
     end

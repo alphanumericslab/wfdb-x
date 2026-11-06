@@ -76,6 +76,11 @@ internal actual fun nativeMkdir(path: String): Boolean = mkdir(path, 493.convert
 
 internal actual fun nativeUid(): Long = getuid().toLong()
 
+internal actual fun nativeFileMode(path: String): Int = memScoped {
+    val st = alloc<stat>()
+    if (stat(path, st.ptr) != 0) -1 else st.st_mode.toInt()
+}
+
 /** Runs argv[0] (found in the PATH) without a shell; returns (exit status, standard output) (status -1 if it could not be run). */
 private fun spawn(argv: List<String>, dir: String?, captureStdout: Boolean, quiet: Boolean): Pair<Int, ByteArray> = memScoped {
     val fa = alloc<posix_spawn_file_actions_t>()

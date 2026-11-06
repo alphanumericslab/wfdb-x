@@ -21,9 +21,11 @@
 // the input (or the previous output signal) and suits the output format;
 // unspecified units are shown as "nd" (the original assumed 250 Hz, 200
 // adu/mV, a resolution based on the format, and millivolts); when an output
-// signal file would be one of the input files, the message says so; --legacy,
-// as the first argument, restores the original behavior. Each change is marked
-// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// signal file would be one of the input files, the message says so; the -S
+// script is found under the input directory, as the library finds an input
+// file; --legacy, as the first argument, restores the original behavior. Each
+// change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
+// reasons.
 //
 // Original C program: app/xform.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2010 George B. Moody; revised 2017-2020 by
@@ -515,8 +517,16 @@ fn main() {
     else {
         let mut format = 0;
         let mut answer: Vec<u8>;
-        let tty: &[u8] = script.unwrap_or(b"/dev/tty");
-        let mut ttyin = WfdbFile::fopen(tty, b"r").unwrap_or_else(WfdbFile::stdin);
+        // WFDB-x: the script is found where the library finds an input file
+        // of that name (see wfdbx_input_path); if it cannot be opened, the
+        // standard input is read, as in C
+        let tty: Option<Vec<u8>> = match script {
+            Some(s) => wfdbx::wfdbx_input_path(s),
+            None => Some(b"/dev/tty".to_vec()),
+        };
+        let mut ttyin = tty
+            .and_then(|t| WfdbFile::fopen(&t, b"r"))
+            .unwrap_or_else(WfdbFile::stdin);
         let mut sfgets = |len: usize| script_fgets(&mut ttyin, len, pname, script);
         const ANSLEN: usize = 32; // size of C's answer and directory buffers
         if nrec.is_none() {

@@ -85,7 +85,7 @@ running MATLAB:
 
 | Path | Contents |
 |---|---|
-| `+wfdbx/*.m` | the WFDB library API: one function per C function (`wfdbx.isigopen`, `wfdbx.getvec`, `wfdbx.strtim`, ...), annotation code constants (`wfdbx.NORMAL`, ...), and the high-level API (`wfdbx.read_record`, `wfdbx.read_annotations`, `wfdbx.write_record`, `wfdbx.write_annotations`, `wfdbx.check_record`) |
+| `+wfdbx/*.m` | the WFDB library API: one function per C function (`wfdbx.isigopen`, `wfdbx.getvec`, `wfdbx.strtim`, ...), annotation code constants (`wfdbx.NORMAL`, ...), and the high-level API (`wfdbx.read_record`, `wfdbx.read_annotations`, `wfdbx.write_record`, `wfdbx.write_annotations`, `wfdbx.check_record`, and the header metadata functions `wfdbx.read_metadata`, `get_metadata`, `set_metadata`, `remove_metadata`, `update_metadata`) |
 | `+wfdbx/+internal/` | implementation: library state (handle classes), C standard library emulation, file I/O, signal formats, FLAC codec |
 | `+wfdbx/+apps/<tool>.m` | the command-line tools: `status = <tool>(args)` (`args` without the program name) |
 | `bin/wfdbx_cli.m` | Octave command-line driver: `octave-cli bin/wfdbx_cli.m TOOL ARGS...` |
@@ -262,7 +262,13 @@ drops the rest of the output and sets `IOState.stdout_failed`, which
 `app_run` reports. In MATLAB, the driver copies the standard output from
 its temporary file with `cat` and reports a failure of that copy itself.
 The files that the tools write themselves are `wfdbx.internal.OutputFile`
-objects.
+objects, created where `wfdbx.wfdbx_output_path` puts them (under the
+output directory); the files that they read themselves are opened at the
+path that `wfdbx.wfdbx_input_path` returns (under the input directory).
+Both paths go through `wfdbx.internal.literal_path` before `fopen`: Octave's
+`fopen`, `mkdir`, `dir` and `isfolder` expand a leading `~`, which C's
+`fopen` does not (a `~` name left in legacy mode is a file of that name in
+the current directory, as in C).
 
 Large outputs (e.g. `rdsamp`) are formatted in a vectorized way, with the
 same results: `wfdbx.internal.format_rows(V, pre, width, prec, dash)`
@@ -329,7 +335,8 @@ help text):
 | `s = csprintf(fmt, ...)`, `cprintf(fmt, ...)`, `ceprintf(fmt, ...)` | `sprintf`, `printf`, `fprintf(stderr, ...)` |
 | `cout(s)`, `cout()`, `cerr(s)` | `fwrite` to stdout (buffered; `cout()` flushes), to stderr |
 | `[fid, check] = std_stream(k)`, `std_stream('cli')` | the files of the standard output and error (see *Write errors*) |
-| `f = OutputFile(name, pname)` | a file a tool writes itself (`f.write(data, ...)`, `f.close()`: C's `wfdbx_fclose_output`) |
+| `f = OutputFile(name, pname)` | a file a tool writes itself, at `wfdbx_output_path(name)` (`f.write(data, ...)`, `f.close()`: C's `wfdbx_fclose_output`) |
+| `p = literal_path(p)` | `./` before a name that begins with `~`, so that Octave's `fopen` opens it as named (as C's `fopen`) |
 | `b = stdin_bytes()` | the whole standard input (uint8 row; read once) |
 | `v = cgetenv(name)` | `getenv` (`[]` if unset or empty: they cannot be told apart in Octave nor in MATLAB before R2022b) |
 | `cexit(status)` | `exit(status)` inside a tool (throws `wfdbx:exit`) |
@@ -367,8 +374,10 @@ Public I/O functions in `+wfdbx/`: `getwfdb`, `setwfdb`, `resetwfdb`,
 `wfdbquiet`, `wfdbverbose`, `wfdberror`, `wfdb_error` (a wrapper of
 `internal.wfdb_error`), `wfdbfile`, `wfdbmemerr`,
 `wfdbversion`, `wfdbldflags`, `wfdbcflags`, `wfdbdefwfdb`,
-`wfdbdefwfdbcal`, and the WFDB-x additions `wfdbx_write_errors` and
-`wfdbx_note_write_error`.
+`wfdbdefwfdbcal`, and the WFDB-x additions `wfdbx_write_errors`,
+`wfdbx_note_write_error`, `wfdbx_input_path` and `wfdbx_output_path` (the
+paths of the files that a program reads or creates itself, as `wfdb_open`
+would resolve them: C's `wfdbx_input_path` and `wfdbx_output_path`).
 
 **Finding files** (WFDB-x): nothing is searched in normal mode. The
 settings (input directory, output directory, network access) are
@@ -514,7 +523,14 @@ tools, options added by WFDB-x are made unrecognized by clearing the
 option character before the `switch`, and `help` prints the original text
 in legacy mode. The high-level functions take a `'legacy'` option
 (`wfdbx.internal.hl_legacy` turns the library's legacy mode on for the
-call and restores it with an `onCleanup` object).
+call and restores it with an `onCleanup` object). The high-level functions
+that open a record (`read_record`, `read_header`, `read_annotations`,
+`write_record`, `write_annotations`; `check_record` does it in its own
+`restore_state`) call `wfdbx.internal.hl_settings` first: its `onCleanup`
+object restores the getvec mode (`setgvmode`) and then the time resolution
+of output annotators (`setafreq`) when the function returns, also on
+errors, since opening an EDF record sets both and `wfdbquit` resets
+neither. The C-style functions keep the behavior of C.
 
 **Used by other modules**: the time functions (`wfdbx.sampfreq`,
 `setsampfreq`, `strtim`, `timstr`, `mstimstr`, `getcfreq`,
@@ -614,6 +630,29 @@ which `wfdbquit` does not reset. `wfdbx.wfdbquit` calls
 * The high-level `wfdbx.read_annotations(record, annotator, name, value,
   ...)` and `wfdbx.write_annotations(record, annotator, samples, name,
   value, ...)` are built on these.
+
+## Header metadata (WFDB-x)
+
+`wfdbx.read_metadata`, `get_metadata`, `set_metadata`, `remove_metadata`
+and `update_metadata` port `python/src/wfdbx/metadata.py` (the rules are
+in `tests/metadata/README.md`); `read_header` returns the entries
+(`metadata`) and `write_record` writes them (its `'metadata'` option,
+through `putinfo`). The helpers in `+wfdbx/+internal/`:
+
+| Function | Purpose |
+|---|---|
+| `meta_id(fname)` | the error identifiers: `wfdbx:FNAME` (argument errors) and `wfdbx:FNAME:file` (a header that cannot be read or written, a `'dir'` that does not exist) |
+| `meta_text`, `meta_key`, `meta_value`, `meta_changes` | the checks of the arguments (keys, values, N-by-2 cell arrays of changes; `[]` is "remove") |
+| `meta_trim`, `meta_fold`, `meta_entry` | trimming (space, tab, VT, FF, CR), letter case (A-Z only), the key and value of one info string |
+| `H = meta_parse(data)`, `meta_bytes(H)` | the lines of a header (content and line ending), its record line, info strings and entries; and back to bytes |
+| `meta_read(record, input_dir, network, id)` | the header's bytes, read with `wfdb_open` (type `hea`) |
+| `meta_entries(data, record)` | the entries, one per key (warning `wfdbx:duplicate_key`) |
+| `meta_change(record, keys, values, opt, id)` | the changes (set, remove, in order), written if the header changes or `'dir'` is given |
+| `meta_write(dest, data, record, id)` | a temporary file `.NAME.XXXX.tmp` in the destination's folder (a copy of the destination, for its permissions; in Octave only for names of plain characters, as Octave's `copyfile` runs a shell command), renamed over it (`rename` in Octave, `movefile` in MATLAB); removed on any failure |
+| `meta_info_lines(metadata, comments, id)` | the info strings of `write_record`'s `'metadata'` |
+
+Text is one char per byte, as elsewhere; the code applies no regular
+expression to it.
 
 ## Calibration (lib/calib.c)
 

@@ -33,9 +33,13 @@ import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.charset.Charset
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 
 /** The charset of file names, arguments and environment values. */
 internal val jnuCharset: Charset = try {
@@ -136,6 +140,9 @@ private fun idOf(p: Path?): FileId? {
         }
     }
 }
+
+/** The characters of the random part of a temporary file name. */
+private const val TMP_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789_"
 
 private fun stdinChannel(): FileChannel = FileInputStream(FileDescriptor.`in`).channel
 
@@ -239,6 +246,60 @@ internal actual object Platform {
     actual fun mkdir(path: ByteArray): Boolean = File(jnuString(path)).mkdir()
 
     actual fun remove(path: ByteArray): Boolean = File(jnuString(path)).delete()
+
+    actual fun replaceFile(dest: ByteArray, data: ByteArray): Boolean {
+        val d = path(dest) ?: return false
+        val base = d.fileName?.toString() ?: return false
+        val dir = d.parent ?: Paths.get("")
+        var tmp: Path? = null
+        try {
+            val rnd = java.util.concurrent.ThreadLocalRandom.current()
+            for (attempt in 0 until 100) {
+                val suffix = String(CharArray(8) { TMP_CHARS[rnd.nextInt(TMP_CHARS.length)] })
+                try {
+                    // (created as any new file: mode 0666 less the umask)
+                    tmp = Files.createFile(dir.resolve(".$base.$suffix.tmp"))
+                    break
+                } catch (e: FileAlreadyExistsException) {
+                }
+            }
+            val t = tmp ?: return false
+            FileChannel.open(t, StandardOpenOption.WRITE).use { ch ->
+                val bb = ByteBuffer.wrap(data)
+                while (bb.hasRemaining()) ch.write(bb)
+                ch.force(true)
+            }
+            if (Files.exists(d)) copyMode(d, t)
+            try {
+                Files.move(t, d, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (e: AtomicMoveNotSupportedException) {
+                Files.move(t, d, StandardCopyOption.REPLACE_EXISTING)
+            }
+            return true
+        } catch (e: Exception) {
+            tmp?.let {
+                try {
+                    Files.deleteIfExists(it)
+                } catch (e2: Exception) {
+                }
+            }
+            return false
+        }
+    }
+
+    /** Gives [to] the permission bits of [from] (all 12 bits where the "unix" view exists, else the 9 POSIX ones; nothing where neither exists). */
+    private fun copyMode(from: Path, to: Path) {
+        try {
+            val mode = (Files.getAttribute(from, "unix:mode") as Number).toInt() and 0xfff
+            Files.setAttribute(to, "unix:mode", mode)
+            return
+        } catch (e: Exception) {
+        }
+        try {
+            Files.setPosixFilePermissions(to, Files.getPosixFilePermissions(from))
+        } catch (e: Exception) {
+        }
+    }
 
     actual fun pathId(path: ByteArray): FileId? {
         val p = path(path) ?: return null

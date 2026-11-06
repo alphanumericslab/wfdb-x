@@ -25,6 +25,11 @@
 # the values it assumes are exactly the silent defaults this project removed,
 # so results produced with it carry the same risks.
 #
+# The high-level functions leave the time resolution of output annotators
+# (getafreq) and the getvec mode (getgvmode) as they were, also after
+# reading an EDF record (whose opening sets both, as in C): see
+# .hl_keep_settings.
+#
 # The functions have no built-in sampling frequency, gain, ADC resolution or
 # units: values that the record or the caller does not give are never assumed.
 # The writers (write_record, write_annotations) take a dir argument (the files
@@ -149,11 +154,23 @@
 .HL_INT32_MIN <- -2147483648
 .HL_INT32_MAX <- 2147483647
 
-# Evaluate expr (a reader that sets the getvec mode) and restore the mode in
-# force before it afterwards, also on errors (WFDB-x).
-.hl_gvmode <- function(expr) {
-  old <- getgvmode()
-  on.exit(setgvmode(old))
+# Evaluate expr (the body of a high-level function that opens a record)
+# and restore the getvec mode (getgvmode, setgvmode) and the time
+# resolution of output annotators (getafreq, setafreq) in force before it
+# afterwards, also on errors (WFDB-x).  Opening an EDF record sets both, as
+# in C (the time resolution to the record's sampling frequency when none is
+# set, and the WFDB_HIGHRES bit of the getvec mode), and wfdbquit resets
+# neither; without this, a later write_annotations in the same process
+# would record that frequency, and later reading would be in high
+# resolution.  (The input annotators, and their frequencies, are closed by
+# wfdbquit.)  The C-style functions keep the behavior of C.
+.hl_keep_settings <- function(expr) {
+  afreq <- getafreq()
+  gvmode <- getgvmode()
+  on.exit({
+    setgvmode(gvmode)
+    setafreq(afreq)
+  })
   expr
 }
 
@@ -217,11 +234,17 @@
 #' nsamples (the number of samples per signal given on the record line of
 #' the header; 0 if it gives none), nsig (the number of signals), siginfo
 #' (one siginfo list per signal; desc without the white space at either
-#' end), base_time, base_time_ms, base_date (as in read_record) and
-#' comments (the info strings).
-#' input_dir, network, legacy: see read_record.
+#' end), base_time, base_time_ms, base_date (as in read_record), comments
+#' (the info strings) and metadata (the "Key: value" entries of the .hea
+#' file, as read_metadata returns them: a named character vector; see
+#' metadata.R; empty for an EDF file, which has no .hea file, and for the
+#' standard input, "-").
+#' record, input_dir, network, legacy: see read_record.
+#' The getvec mode (getgvmode) and the time resolution of output
+#' annotators (getafreq) are left as they were, also after an error
+#' (opening an EDF record sets both, as in C; WFDB-x).
 read_header <- function(record, input_dir = NULL, network = NULL,
-                        legacy = FALSE) .hl_legacy(legacy, .hl_input(input_dir, network, .hl_quit_on_error({
+                        legacy = FALSE) .hl_keep_settings(.hl_legacy(legacy, .hl_input(input_dir, network, .hl_quit_on_error({
   legacy <- wfdbx_get_legacy()
   wfdbquit()
   n <- isigopen(record, 0)$nsig
@@ -235,14 +258,20 @@ read_header <- function(record, input_dir = NULL, network = NULL,
   # (a multi-segment record: the length on the record line of its master
   # header)
   nsamples <- if (st$segments) st$msnsamples else st$nsamples
+  is_edf <- st$isedf != 0
   h <- c(list(name = record, fs = fs, counter_freq = getcfreq(),
               base_counter = getbasecount(), nsamples = nsamples, nsig = n,
               siginfo = si),
          .hl_base_fields(fs, legacy),
          list(comments = .hl_comments(record)))
   wfdbquit()
+  # WFDB-x: the "Key: value" entries of the .hea file only (not of a .info
+  # file; none for an EDF file, read without a .hea file, nor for a header
+  # read from the standard input, which cannot be read again)
+  h$metadata <- if (is_edf || identical(record, "-")) structure(character(0), names = character(0)) else
+    .md_header_metadata(record)
   structure(h, class = "wfdbx_header")
-})))
+}))))
 
 #' Read the signals of a record into a matrix.
 #'
@@ -296,12 +325,24 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' included, are returned either way (FALSE: no warning).  WFDB-x; the same
 #' in all seven implementations.
 #'
-#' record: relative to the input directory, or a full path, ~ path or URL
-#' (WFDB-x).  input_dir: the input directory for this call (a local
-#' directory, a ~ name or a URL; see wfdbx_set_input_dir); default: the
-#' current setting.  network: TRUE to allow reading URLs for this call
+#' record: the record name, without the .hea extension (a trailing ".hea"
+#' is also accepted): a full path, absolute ("/data/mitdb/100") or in the
+#' home directory ("~/Documents/100s"), used as given; a relative path
+#' ("100s", "data/100s"), read from the input directory if one is set,
+#' otherwise from the current directory; or a URL
+#' ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+#' access is on (WFDB-x).
+#' input_dir: the input directory for this call only (optional): a local
+#' directory, a ~ path or a URL, under which relative record names are
+#' read.  It does not apply to full paths or URLs.  Default: the current
+#' setting (see wfdbx_set_input_dir).
+#' network: TRUE to allow reading URLs for this call
 #' (FALSE to forbid it; see wfdbx_set_network); default: the current
 #' setting (by default, not allowed).
+#'
+#' The getvec mode (getgvmode) and the time resolution of output
+#' annotators (getafreq) are left as they were, also after an error
+#' (opening an EDF record sets both, as in C; WFDB-x).
 #'
 #' legacy: if TRUE, behave as the original package (250 Hz for a header
 #' without a frequency, a gain of 200 for uncalibrated signals in physical
@@ -311,7 +352,7 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
                         physical = FALSE, highres = FALSE, pad = FALSE,
                         input_dir = NULL, network = NULL,
-                        legacy = FALSE, checksum_warning = TRUE) .hl_legacy(legacy, .hl_input(input_dir, network, .hl_gvmode(.hl_quit_on_error({
+                        legacy = FALSE, checksum_warning = TRUE) .hl_keep_settings(.hl_legacy(legacy, .hl_input(input_dir, network, .hl_quit_on_error({
   legacy <- wfdbx_get_legacy()
   sampfrom <- .hl_sample_number(sampfrom, "sampfrom")
   sampto <- .hl_sample_number(sampto, "sampto")
@@ -448,14 +489,29 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' vectors (or lists, for units and names) give per-signal values.
 #' samps_per_frame (per signal) writes a multi-frequency record:
 #' then signals has sum(samps_per_frame) columns, frame by frame.
-#' comments: info strings added to the header.  base_time: the start time
+#' comments: info strings added to the header.  metadata: "Key: value"
+#' entries written after the comments (through putinfo) as "# Key: value":
+#' a named list or named character vector, as update_metadata takes it (a
+#' NULL or NA value is an error), whose keys are unique (ignoring letter
+#' case) and are not the key of an entry in comments; checked before any
+#' file is created (see metadata.R).  base_time: the start time
 #' ("hh:mm:ss dd/mm/yyyy"); one that setbasetime cannot parse is an error.
 #' The record name must not be empty, and at least one signal is required.
 #'
-#' dir: if given, the directory (which must exist) in which the files are
-#' created; the header then names the record and its signal file without
-#' the directory, so that the record opens from that directory under its
-#' plain name (record must not contain a directory).  (WFDB-x)
+#' record: the record name, without the .hea extension: a plain name
+#' ("rec") or a relative path ("data/rec"), created in the output directory
+#' if one is set (see wfdbx_set_output_dir), otherwise in the current
+#' directory, missing directories included; or a full path, absolute or in
+#' the home directory ("~/Documents/rec"), used as given.  With a path, the
+#' files are created in that directory, and the header names the record
+#' and its signal file without the path ("rec", "rec.dat"), so that the
+#' record opens under any path that leads to it (in legacy mode, as in the
+#' original, the header gives the name with its path).  A URL cannot be
+#' written.  (WFDB-x)
+#'
+#' dir: the directory (which must exist) in which to create the files, for
+#' this call only; record must then be a plain name, without a directory,
+#' and the record opens from that directory under its plain name.  (WFDB-x)
 #'
 #' legacy: if TRUE, behave as the original package (default gains of 200
 #' adu/mV, ADC resolutions based on the format, no units required), with the
@@ -472,12 +528,14 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' example when the disk is full ("write error on record R", after the
 #' library's messages).  All the arguments, the samples included, are
 #' checked before any file is created; whatever happens, the output
-#' signals are closed (wfdbquit) before the function returns.
+#' signals are closed (wfdbquit) before the function returns, and the
+#' getvec mode and the time resolution of output annotators are left as
+#' they were (WFDB-x).
 write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          adczeros = 0, adcres = NULL, units = NULL, names = NULL,
                          base_time = NULL, comments = NULL, physical = FALSE,
                          samps_per_frame = NULL, dir = NULL,
-                         legacy = FALSE) .hl_legacy(legacy, .hl_output_dir(record, dir, {
+                         legacy = FALSE, metadata = NULL) .hl_keep_settings(.hl_legacy(legacy, .hl_output_dir(record, dir, {
   if (!is.character(record) || length(record) != 1L || is.na(record) || !nzchar(record))
     stop("record name must not be empty")
   x <- signals
@@ -591,6 +649,8 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   })
   fs <- as.numeric(fs)
   comments <- as.character(comments)
+  # WFDB-x: the metadata entries, checked before any file is created
+  md_lines <- if (!is.null(metadata)) .md_info_lines(metadata, comments)
   wfdbquit()
   errors <- wfdbx_write_errors()
   # (the output signals are closed however this ends)
@@ -607,7 +667,8 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
     if (newheader(record) < 0)
       stop("can't create header for record ", record)
     for (c in comments) putinfo(c)
+    for (l in md_lines) putinfo(l)
   }, finally = wfdbquit())
   if (wfdbx_write_errors() > errors) stop("write error on record ", record)
   invisible()
-}))
+})))

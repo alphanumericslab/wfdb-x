@@ -11,6 +11,10 @@
 // | writeAnnotations | writes an annotation file |
 // | wfdbxSetInputDir, ... | the input and output directories, network access and legacy mode |
 //
+// readHeader also returns the "Key: value" entries of the header
+// (Header.metadata), and writeRecord writes them (its metadata argument);
+// the functions that read and change them are in Metadata.kt.
+//
 // Each function is an extension function of Wfdb (`w.readRecord(...)`) and
 // a top-level function using the default instance of the thread
 // (`readRecord(...)`). Errors are thrown as WfdbException. Text read from
@@ -29,6 +33,11 @@
 // sum does not match the header's checksums) is not an error of readRecord
 // but a warning; the data are returned, and Record.checksumOk is false. See
 // docs/DIVERGENCES.md.
+//
+// These functions call wfdbquit(), which closes anything opened with the WFDB
+// library functions. They leave the time resolution of output annotators
+// (getafreq()) and the getvec mode (getgvmode()) as they were, also after
+// reading an EDF record (whose opening sets both, as in C).
 //
 // This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -50,11 +59,29 @@ import wfdbx.cstd.latin1
 
 /**
  * The error thrown by the high-level functions ([readRecord], [readHeader],
- * [readAnnotations], [writeRecord], [writeAnnotations], [checkRecord]). Its
- * message says what failed, such as `can't read record 100s` or
+ * [readAnnotations], [writeRecord], [writeAnnotations], [checkRecord], and
+ * the header metadata functions [readMetadata], [getMetadata],
+ * [setMetadata], [removeMetadata] and [updateMetadata]). Its message says
+ * what failed, such as `can't read record 100s` or
  * `can't read signal data of record 100s (getvec status -3)`.
+ *
+ * The metadata functions, and the `metadata` argument of [writeRecord],
+ * throw the subclass [WfdbArgumentException] for an invalid argument, and
+ * a WfdbException for a file that cannot be read or written.
  */
-class WfdbException(message: String) : Exception(message)
+open class WfdbException(message: String) : Exception(message)
+
+/**
+ * A [WfdbException] for an invalid argument of a header metadata function
+ * ([readMetadata], [getMetadata], [setMetadata], [removeMetadata],
+ * [updateMetadata]) or of the `metadata` argument of [writeRecord], such
+ * as `metadata key 'a:b' must not contain ':'` (Python's ValueError); a
+ * file that cannot be read or written is a plain WfdbException (Python's
+ * IOError).
+ *
+ * Part of WFDB-x; not in the original WFDB package.
+ */
+class WfdbArgumentException(message: String) : WfdbException(message)
 
 /**
  * A time in a record: a sample number ([TimeSpec.Sample]) or a WFDB time
@@ -248,6 +275,12 @@ data class Header(
     val baseDate: BaseDate?,
     /** The info strings of the header. */
     val comments: List<String>,
+    /**
+     * The "Key: value" entries of the header (of the .hea file only, not
+     * of a .info file), in file order, as [readMetadata] returns them;
+     * empty for an EDF file or a header read from the standard input.
+     */
+    val metadata: List<Pair<String, String>> = emptyList(),
 )
 
 /**
@@ -376,15 +409,25 @@ private inline fun <T> Wfdb.withLegacy(on: Boolean, f: () -> T): T {
 }
 
 /**
- * Runs [f], restoring the getvec mode ([setgvmode]) afterwards (also on
- * errors): readRecord sets it, and opening an EDF record changes it.
+ * Runs [f], restoring the getvec mode ([getgvmode], [setgvmode]) and the
+ * time resolution of output annotators ([getafreq], [setafreq]) afterwards
+ * (also on errors). WFDB-x: the high-level functions keep the library's
+ * settings. readRecord sets the getvec mode, and opening an EDF record sets
+ * both, as in C (the WFDB_HIGHRES bit of the getvec mode, and the time
+ * resolution to the record's sampling frequency when none is set), and
+ * wfdbquit resets neither; without this, a later writeAnnotations in the
+ * same process would record that frequency, and later reading would be in
+ * high resolution. (The input annotators, and their frequencies, are closed
+ * by wfdbquit.) The C-style functions keep the behavior of C.
  */
-private inline fun <T> Wfdb.withGvmode(f: () -> T): T {
-    val previous = getgvmode()
+internal inline fun <T> Wfdb.withSettings(f: () -> T): T {
+    val afreq = getafreq()
+    val gvmode = getgvmode()
     try {
         return f()
     } finally {
-        setgvmode(previous)
+        setgvmode(gvmode)
+        setafreq(afreq)
     }
 }
 
@@ -519,16 +562,31 @@ private fun legacyAdcres(fmt: Int): Int = when (fmt) {
 /**
  * Reads the header of a record, without opening its signal files.
  *
+ * The time resolution of output annotators ([getafreq]) and the getvec mode
+ * ([getgvmode]) are left as they were (opening an EDF record sets both).
+ *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @param record record name: a name in the input directory, or a full
- *   path, `~` path or URL
- * @param inputDir input directory for this call only (null: the current
- *   setting, see [wfdbxSetInputDir])
+ * @param record record name, without the .hea extension (a trailing ".hea"
+ *   is also accepted): a full path, absolute ("/data/mitdb/100") or in the
+ *   home directory ("~/Documents/100s"), used as given; a relative path
+ *   ("100s", "data/100s"), read from the input directory if one is set,
+ *   otherwise from the current directory; or a URL
+ *   ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+ *   access is on
+ * @param inputDir input directory for this call only (optional): a local
+ *   directory, a `~` path or a URL, under which relative record names are
+ *   read. It does not apply to full paths or URLs. null: the current
+ *   setting (see [wfdbxSetInputDir])
  * @param network network access for this call only (null: the current
  *   setting, see [wfdbxSetNetwork])
  * @param legacy read the header as the original WFDB package does
- * @return the [Header]
+ * @param onWarning receives the warnings about [Header.metadata] (a key
+ *   given more than once; see [readMetadata]); null: the library prints
+ *   "WFDB-x: " + the warning on the standard error, unless [wfdbquiet] was
+ *   called
+ * @return the [Header]; [Header.metadata] holds the "Key: value" entries of
+ *   the .hea file, as [readMetadata] returns them
  * @throws WfdbException if the header cannot be found or read: "can't read
  *   header for record REC"
  *
@@ -539,8 +597,14 @@ private fun legacyAdcres(fmt: Int): Int = when (fmt) {
  * println("${h.nsig} signals at ${h.fs} Hz, ${h.nsamples} samples")
  * ```
  */
-fun Wfdb.readHeader(record: String, inputDir: String? = null, network: Boolean? = null, legacy: Boolean = false): Header =
-    withGvmode {
+fun Wfdb.readHeader(
+    record: String,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    legacy: Boolean = false,
+    onWarning: ((String) -> Unit)? = null,
+): Header =
+    withSettings {
         withLegacy(legacy) {
             withInput(inputDir, network) {
                 val rec = fname(record)
@@ -552,13 +616,16 @@ fun Wfdb.readHeader(record: String, inputDir: String? = null, network: Boolean? 
                 stripDesc(si)
                 val fs = sampfreq(null as ByteArray?)
                 val b = baseTimeFields()
+                val edf = wfdbxIsEdf()
                 val h = Header(
                     name = record, fs = fs, counterFreq = getcfreq(), baseCounter = getbasecount(),
                     nsamples = wfdbxHeaderNsamples(), nsig = n, siginfo = si.toList(), baseTime = b.text,
                     baseTimeMs = b.ms, baseDate = b.date, comments = infoStrings(rec),
                 )
                 wfdbquit()
-                h
+                // (the entries of the .hea file only, not of a .info file; an
+                // EDF file, or a header read from the standard input, has none)
+                if (edf || record == "-") h else h.copy(metadata = headerMetadata(record, onWarning))
             }
         }
     }
@@ -569,10 +636,18 @@ private const val CHUNK_FRAMES = 1L shl 20
 /**
  * Reads the signals of a record, or part of it.
  *
+ * The time resolution of output annotators ([getafreq]) and the getvec mode
+ * ([getgvmode]) are left as they were (opening an EDF record sets both).
+ *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @param record record name: a name in the input directory, or a full
- *   path, `~` path or URL
+ * @param record record name, without the .hea extension (a trailing ".hea"
+ *   is also accepted): a full path, absolute ("/data/mitdb/100") or in the
+ *   home directory ("~/Documents/100s"), used as given; a relative path
+ *   ("100s", "data/100s"), read from the input directory if one is set,
+ *   otherwise from the current directory; or a URL
+ *   ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+ *   access is on
  * @param channels the signals to read, by number (`"0"`) or name
  *   (`"MLII"`, as in [Record.names]), in the order wanted (null: all
  *   signals)
@@ -592,10 +667,12 @@ private const val CHUNK_FRAMES = 1L shl 20
  * @param onWarning receives the warning (without the "WFDB-x: " prefix and
  *   the newline); null: the library prints "WFDB-x: " + the warning on
  *   the standard error, unless [wfdbquiet] was called
- * @param inputDir input directory for this call only (null: the current
- *   setting)
+ * @param inputDir input directory for this call only (optional): a local
+ *   directory, a `~` path or a URL, under which relative record names are
+ *   read. It does not apply to full paths or URLs. null: the current
+ *   setting (see [wfdbxSetInputDir])
  * @param network network access for this call only (null: the current
- *   setting)
+ *   setting, see [wfdbxSetNetwork])
  * @param legacy behave as the original WFDB package
  * @return the [Record]
  * @throws WfdbException if the header or a signal file cannot be read
@@ -638,7 +715,7 @@ fun Wfdb.readRecord(
     inputDir: String? = null,
     network: Boolean? = null,
     legacy: Boolean = false,
-): Record = withGvmode {
+): Record = withSettings {
     withLegacy(legacy) {
         withInput(inputDir, network) {
             try {
@@ -820,9 +897,18 @@ private fun toPhysical(samples: IntArray, nout: Int, bl: DoubleArray, g: DoubleA
 /**
  * Reads an annotation file.
  *
+ * The time resolution of output annotators ([getafreq]) and the getvec mode
+ * ([getgvmode]) are left as they were (opening an EDF record sets both).
+ *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @param record record name. Its header, if there is one, gives the
+ * @param record record name, without the .hea extension (a trailing ".hea"
+ *   is also accepted): a full path, absolute ("/data/mitdb/100") or in the
+ *   home directory ("~/Documents/100s"), used as given; a relative path
+ *   ("100s", "data/100s"), read from the input directory if one is set,
+ *   otherwise from the current directory; or a URL
+ *   ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+ *   access is on. Its header, if there is one, gives the
  *   sampling frequency.
  * @param annotator annotator name: the suffix of the file ("atr" reads
  *   RECORD.atr)
@@ -832,8 +918,12 @@ private fun toPhysical(samples: IntArray, nout: Int, bl: DoubleArray, g: DoubleA
  *   read (null: the end of the file)
  * @param fs sampling frequency (> 0) to use when the record has no header,
  *   or its header gives none; ignored otherwise
- * @param inputDir input directory for this call only
- * @param network network access for this call only
+ * @param inputDir input directory for this call only (optional): a local
+ *   directory, a `~` path or a URL, under which relative record names are
+ *   read. It does not apply to full paths or URLs. null: the current
+ *   setting (see [wfdbxSetInputDir])
+ * @param network network access for this call only (null: the current
+ *   setting, see [wfdbxSetNetwork])
  * @param legacy behave as the original WFDB package
  * @return the [Annotations], in file order. Its `fs` is 0 if neither the
  *   record nor [fs] gives a sampling frequency.
@@ -862,7 +952,9 @@ fun Wfdb.readAnnotations(
 ): Annotations {
     // (`!(f > 0)` also rejects NaN)
     if (fs != null && !(fs > 0.0)) throw WfdbException("readAnnotations: fs must be > 0")
-    return withLegacy(legacy) { withInput(inputDir, network) { readAnnotationsImpl(record, annotator, from, to, fs) } }
+    return withSettings {
+        withLegacy(legacy) { withInput(inputDir, network) { readAnnotationsImpl(record, annotator, from, to, fs) } }
+    }
 }
 
 private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: TimeSpec?, to: TimeSpec?, fs: Double?): Annotations {
@@ -909,10 +1001,21 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  * [adcres], [units], [names], [sampsPerFrame]) takes one value for all
  * signals, or one value per signal.
  *
+ * The time resolution of output annotators ([getafreq]) and the getvec mode
+ * ([getgvmode]) are left as they were.
+ *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @param record record name (a name in the output directory, or a full or
- *   `~` path; see the record name rules in the README)
+ * @param record record name, without the .hea extension: a plain name
+ *   ("rec") or a relative path ("data/rec"), created in the output
+ *   directory if one is set (see [wfdbxSetOutputDir]), otherwise in the
+ *   current directory, missing directories included; or a full path,
+ *   absolute or in the home directory ("~/Documents/rec"), used as given.
+ *   With a path, the files are created in that directory, and the header
+ *   names the record and its signal file without the path ("rec",
+ *   "rec.dat"), so that the record opens under any path that leads to it
+ *   (in legacy mode, as in the original, the header gives the name with its
+ *   path). A URL cannot be written.
  * @param samples the samples, frame by frame: signal 0, signal 1, ... of
  *   frame 0, then those of frame 1, and so on. A signal with `spf` samples
  *   per frame has `spf` consecutive values in each frame.
@@ -933,11 +1036,19 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  * @param comments info strings, written at the end of the header
  * @param sampsPerFrame samples per frame of each signal, at least 1, for
  *   a multi-frequency record (default 1)
- * @param dir an existing directory in which to create the files, for this
- *   call only; [record] must then be a plain name (the record opens from
- *   that directory under its plain name)
+ * @param dir directory (which must exist) in which to create the files, for
+ *   this call only. [record] must then be a plain name, without a
+ *   directory, and the record opens from that directory under its plain
+ *   name.
  * @param legacy behave as the original WFDB package (default gain 200, an
  *   ADC resolution based on the format, no units required)
+ * @param metadata "Key: value" entries to write to the header, after the
+ *   [comments], as "# Key: value" (through putinfo), in the order given
+ *   (a map converts with `toList()`). Keys and values follow the rules of
+ *   [setMetadata]; no two keys may be equal (ignoring letter case), none
+ *   may be the key of an entry in [comments], and a null value is not
+ *   allowed. WFDB-x: metadata often holds patient information; it is
+ *   written as given, without de-identification.
  * @throws WfdbException (every argument is checked before any file is
  *   created) "writeRecord: sampsPerFrame must hold integers >= 1" (checked
  *   first, also in legacy mode), "writeRecord: the record name must not be
@@ -956,7 +1067,13 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  *   signal file for record REC" (also when the output would overwrite a
  *   file being read), "can't create header for record REC", "write error
  *   on record REC" (the signal file or the header cannot be written
- *   completely, for example when the disk is full; also in legacy mode)
+ *   completely, for example when the disk is full; also in legacy mode);
+ *   [WfdbArgumentException] if an entry of [metadata] is not valid
+ *   ("writeRecord: metadata key 'a:b' must not contain ':'", "writeRecord:
+ *   value of metadata key 'Age' must not be null", "writeRecord: metadata
+ *   key 'AGE' is given more than once (keys are compared without regard to
+ *   letter case)", "writeRecord: metadata key 'Age' is also given in
+ *   comments", ...)
  *
  * ```
  * writeRecord("copy", rec.samples, rec.nsig, rec.fs, gains = rec.gains.toDoubleArray(),
@@ -980,10 +1097,11 @@ fun Wfdb.writeRecord(
     sampsPerFrame: IntArray? = null,
     dir: String? = null,
     legacy: Boolean = false,
+    metadata: List<Pair<String, String?>>? = null,
 ) {
     checkWriteSpf(sampsPerFrame)
-    val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame)
-    withOutputDir(dir, record) { withLegacy(legacy) { writeAdc(record, samples, nsig, fs, spec) } }
+    val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame, metadata)
+    withSettings { withOutputDir(dir, record) { withLegacy(legacy) { writeAdc(record, samples, nsig, fs, spec) } } }
 }
 
 /**
@@ -993,6 +1111,9 @@ fun Wfdb.writeRecord(
  * sample, and an infinite value, or one whose ADC value is beyond the range
  * of 32-bit integers, is an error (before anything is written). Every
  * signal must have a gain other than 0.
+ *
+ * The time resolution of output annotators ([getafreq]) and the getvec mode
+ * ([getgvmode]) are left as they were.
  *
  * Part of WFDB-x; not in the original WFDB package.
  *
@@ -1023,49 +1144,52 @@ fun Wfdb.writeRecord(
     sampsPerFrame: IntArray? = null,
     dir: String? = null,
     legacy: Boolean = false,
+    metadata: List<Pair<String, String?>>? = null,
 ) {
     checkWriteSpf(sampsPerFrame)
-    val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame)
-    withOutputDir(dir, record) {
-        withLegacy(legacy) {
-            val leg = isLegacy()
-            checkWriteArgs(record, nsig, fs, spec, leg)
-            // gain and baseline of each column of a frame
-            val g = ArrayList<Double>()
-            val b = ArrayList<Int>()
-            for (k in 0 until nsig) {
-                var gain = gainOf(spec.gains, k, leg)
-                if (gain == 0.0 && leg) {
-                    gain = WFDB_DEFGAIN // WFDB-x: legacy mode (original behavior)
-                } else if (gain == 0.0) {
-                    throw WfdbException("writeRecord: signal $k is uncalibrated") // WFDB-x: no default gain
-                }
-                val zero = perSignal(spec.adczeros, k) ?: 0
-                val base = perSignal(spec.baselines, k) ?: zero
-                val spf = perSignal(spec.sampsPerFrame, k) ?: 1
-                repeat(spf) {
-                    g.add(gain)
-                    b.add(base)
-                }
-            }
-            val nc = g.size
-            val adc = IntArray(samples.size) {
-                val c = it % nc
-                val v = samples[it] * g[c]
-                if (v.isNaN()) {
-                    WFDB_INVALID_SAMPLE
-                } else {
-                    val r = (if (v >= 0.0) kotlin.math.truncate(v + 0.5) else kotlin.math.truncate(v - 0.5)) + b[c].toDouble()
-                    // WFDB-x: an infinite value, or one beyond the range of
-                    // 32-bit ADC units, cannot be written (C's conversion is
-                    // undefined)
-                    if (!(r >= Int.MIN_VALUE.toDouble() && r <= Int.MAX_VALUE.toDouble())) {
-                        throw WfdbException("writeRecord: sample $it is infinite or beyond the range of 32-bit ADC units")
+    val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame, metadata)
+    withSettings {
+        withOutputDir(dir, record) {
+            withLegacy(legacy) {
+                val leg = isLegacy()
+                checkWriteArgs(record, nsig, fs, spec, leg)
+                // gain and baseline of each column of a frame
+                val g = ArrayList<Double>()
+                val b = ArrayList<Int>()
+                for (k in 0 until nsig) {
+                    var gain = gainOf(spec.gains, k, leg)
+                    if (gain == 0.0 && leg) {
+                        gain = WFDB_DEFGAIN // WFDB-x: legacy mode (original behavior)
+                    } else if (gain == 0.0) {
+                        throw WfdbException("writeRecord: signal $k is uncalibrated") // WFDB-x: no default gain
                     }
-                    d2i(r)
+                    val zero = perSignal(spec.adczeros, k) ?: 0
+                    val base = perSignal(spec.baselines, k) ?: zero
+                    val spf = perSignal(spec.sampsPerFrame, k) ?: 1
+                    repeat(spf) {
+                        g.add(gain)
+                        b.add(base)
+                    }
                 }
+                val nc = g.size
+                val adc = IntArray(samples.size) {
+                    val c = it % nc
+                    val v = samples[it] * g[c]
+                    if (v.isNaN()) {
+                        WFDB_INVALID_SAMPLE
+                    } else {
+                        val r = (if (v >= 0.0) kotlin.math.truncate(v + 0.5) else kotlin.math.truncate(v - 0.5)) + b[c].toDouble()
+                        // WFDB-x: an infinite value, or one beyond the range of
+                        // 32-bit ADC units, cannot be written (C's conversion is
+                        // undefined)
+                        if (!(r >= Int.MIN_VALUE.toDouble() && r <= Int.MAX_VALUE.toDouble())) {
+                            throw WfdbException("writeRecord: sample $it is infinite or beyond the range of 32-bit ADC units")
+                        }
+                        d2i(r)
+                    }
+                }
+                writeAdc(record, adc, nsig, fs, spec)
             }
-            writeAdc(record, adc, nsig, fs, spec)
         }
     }
 }
@@ -1073,7 +1197,7 @@ fun Wfdb.writeRecord(
 private class WriteSpec(
     val fmt: Int, val gains: DoubleArray?, val baselines: IntArray?, val adczeros: IntArray?,
     val adcres: IntArray?, val units: List<String?>?, val names: List<String>?, val baseTime: String?,
-    val comments: List<String>?, val sampsPerFrame: IntArray?,
+    val comments: List<String>?, val sampsPerFrame: IntArray?, val metadata: List<Pair<String, String?>>?,
 )
 
 /** The gain of signal [k] (WFDB-x: no default gain; C assumed WFDB_DEFGAIN, as legacy mode does). */
@@ -1169,6 +1293,10 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
     if (samples.size % frame != 0) {
         throw WfdbException("writeRecord: the number of samples is not a multiple of the frame size")
     }
+    // WFDB-x: the metadata entries, checked before anything is written, and
+    // written after the comments, through putinfo, as "# Key: value"
+    val comments = spec.comments ?: emptyList()
+    val info = if (spec.metadata == null) comments else comments + metadataInfoLines(spec.metadata, comments)
     wfdbquit()
     // WFDB-x: the base time is checked before anything is written (it is
     // set again below, once the signal file is open).
@@ -1186,7 +1314,7 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
         if (spec.baseTime != null) setbasetime(spec.baseTime.latin1())
         putframes(samples, samples.size / frame)
         if (newheader(rec) < 0) fail("can't create header for record $record")
-        for (c in spec.comments ?: emptyList()) putinfo(c.latin1())
+        for (c in info) putinfo(c.latin1())
     } finally {
         // (the output signals are closed whatever happens)
         wfdbquit()
@@ -1204,9 +1332,18 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  * call. Without [sort], the WFDBANNSORT environment variable decides:
  * sorting is on unless it is 0.
  *
+ * The time resolution of output annotators ([getafreq]) and the getvec mode
+ * ([getgvmode]) are left as they were ([fs] applies to this file only).
+ *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @param record record name
+ * @param record record name, without the .hea extension (a trailing ".hea"
+ *   is also accepted): a plain name or a relative path ("data/100s") is
+ *   created in the output directory if one is set (see
+ *   [wfdbxSetOutputDir]), otherwise in the current directory; a full path,
+ *   absolute or in the home directory ("~/Documents/100s"), is used as
+ *   given. The file is RECORD.ANNOTATOR at that place ("data/100s.qrs"). A
+ *   URL cannot be written.
  * @param annotator annotator name: the suffix of the file (an existing file
  *   is overwritten)
  * @param samples annotation times, in samples
@@ -1226,8 +1363,9 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  *   in which the times are counted
  * @param sort true to always sort, false to keep the order given (without
  *   the library's advice to run sortann), null to follow WFDBANNSORT
- * @param dir an existing directory in which to create the file, for this
- *   call only; [record] must then be a plain name
+ * @param dir directory (which must exist) in which to create the file, for
+ *   this call only. [record] must then be a plain name, without a
+ *   directory: the file is DIR/RECORD.ANNOTATOR.
  * @param legacy behave as the original WFDB package
  * @throws WfdbException (the arguments are checked before any file is
  *   created) if neither symbols nor codes is given ("symbols or codes must
@@ -1271,32 +1409,34 @@ fun Wfdb.writeAnnotations(
     check("aux", aux?.size)
     // (`!(f > 0)` also rejects NaN)
     if (fs != null && !(fs > 0.0 && fs.isFinite())) throw WfdbException("writeAnnotations: fs must be finite and > 0")
-    withOutputDir(dir, record) {
-        withLegacy(legacy) {
-            val types = codes ?: IntArray(n).also { t ->
-                if (symbols == null) throw WfdbException("symbols or codes must be given")
-                val cache = HashMap<String, Int>()
-                for (k in 0 until n) t[k] = cache.getOrPut(symbols[k]) { strann(symbols[k].latin1()) }
-            }
-            if (codes != null && symbols != null) {
-                // WFDB-x: symbols and codes may both be given (as
-                // readAnnotations returns them) if they agree: each symbol
-                // is that of its code (an empty symbol leaves the code).
-                for (k in 0 until n) {
-                    val sym = symbols[k]
-                    if (sym.isNotEmpty() && strann(sym.latin1()) != codes[k]) {
-                        throw WfdbException("writeAnnotations: symbols and codes disagree at annotation $k")
+    withSettings {
+        withOutputDir(dir, record) {
+            withLegacy(legacy) {
+                val types = codes ?: IntArray(n).also { t ->
+                    if (symbols == null) throw WfdbException("symbols or codes must be given")
+                    val cache = HashMap<String, Int>()
+                    for (k in 0 until n) t[k] = cache.getOrPut(symbols[k]) { strann(symbols[k].latin1()) }
+                }
+                if (codes != null && symbols != null) {
+                    // WFDB-x: symbols and codes may both be given (as
+                    // readAnnotations returns them) if they agree: each symbol
+                    // is that of its code (an empty symbol leaves the code).
+                    for (k in 0 until n) {
+                        val sym = symbols[k]
+                        if (sym.isNotEmpty() && strann(sym.latin1()) != codes[k]) {
+                            throw WfdbException("writeAnnotations: symbols and codes disagree at annotation $k")
+                        }
                     }
                 }
-            }
-            val zeros = IntArray(n)
-            val auxes = arrayOfNulls<ByteArray>(n)
-            if (aux != null) for (k in 0 until n) auxes[k] = auxField(aux[k])
-            val rec = fname(record)
-            wfdbquit()
-            val errors = wfdbx_write_errors()
-            if (fs != null) setafreq(fs)
-            try {
+                val zeros = IntArray(n)
+                val auxes = arrayOfNulls<ByteArray>(n)
+                if (aux != null) for (k in 0 until n) auxes[k] = auxField(aux[k])
+                val rec = fname(record)
+                wfdbquit()
+                val errors = wfdbx_write_errors()
+                // (fs applies to this file only: the previous time resolution is
+                // restored by withSettings)
+                if (fs != null) setafreq(fs)
                 if (annopen(rec, arrayOf(Anninfo(fname(annotator), WFDB_WRITE)), 1) < 0) {
                     fail("can't create annotator $annotator for record $record")
                 }
@@ -1314,10 +1454,8 @@ fun Wfdb.writeAnnotations(
                 } finally {
                     ann.sortOverride = previous
                 }
-            } finally {
-                if (fs != null) setafreq(0.0)
+                if (wfdbx_write_errors() > errors) throw WfdbException("write error on annotator $annotator for record $record")
             }
-            if (wfdbx_write_errors() > errors) throw WfdbException("write error on annotator $annotator for record $record")
         }
     }
 }
@@ -1380,8 +1518,13 @@ fun wfdbxSetLegacy(on: Boolean): Boolean = wfdbDefault().wfdbxSetLegacy(on)
 fun wfdbxGetLegacy(): Boolean = wfdbDefault().wfdbxGetLegacy()
 
 /** [Wfdb.readHeader] on the default instance of the thread. */
-fun readHeader(record: String, inputDir: String? = null, network: Boolean? = null, legacy: Boolean = false): Header =
-    wfdbDefault().readHeader(record, inputDir, network, legacy)
+fun readHeader(
+    record: String,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    legacy: Boolean = false,
+    onWarning: ((String) -> Unit)? = null,
+): Header = wfdbDefault().readHeader(record, inputDir, network, legacy, onWarning)
 
 /** [Wfdb.readRecord] on the default instance of the thread. */
 fun readRecord(
@@ -1431,9 +1574,10 @@ fun writeRecord(
     sampsPerFrame: IntArray? = null,
     dir: String? = null,
     legacy: Boolean = false,
+    metadata: List<Pair<String, String?>>? = null,
 ) = wfdbDefault().writeRecord(
     record, samples, nsig, fs, fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments,
-    sampsPerFrame, dir, legacy,
+    sampsPerFrame, dir, legacy, metadata,
 )
 
 /** [Wfdb.writeRecord] (samples in physical units) on the default instance of the thread. */
@@ -1454,9 +1598,10 @@ fun writeRecord(
     sampsPerFrame: IntArray? = null,
     dir: String? = null,
     legacy: Boolean = false,
+    metadata: List<Pair<String, String?>>? = null,
 ) = wfdbDefault().writeRecord(
     record, samples, nsig, fs, fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments,
-    sampsPerFrame, dir, legacy,
+    sampsPerFrame, dir, legacy, metadata,
 )
 
 /** [Wfdb.writeAnnotations] on the default instance of the thread. */

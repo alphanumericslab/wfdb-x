@@ -12,7 +12,8 @@
 # then required (the original assumed 250 Hz, or 1 sample per second without a
 # header); annotation times given in milliseconds (AHA file types 1 to 3) are
 # converted at the record's sampling frequency (the original assumed 4 ms per
-# sample); --legacy, as the first argument, restores the original behavior.
+# sample); the -i file is found under the input directory, as the library finds
+# an input file; --legacy, as the first argument, restores the original behavior.
 # Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 # reasons.
 #
@@ -147,7 +148,10 @@ app_a2m <- function(args = character(0)) {
     .a2m_help(pname)
     cexit(1)
   }
-  if (!stdin_freopen(ifname)) {
+  # WFDB-x: the file is found where the library finds an input file of that
+  # name (see wfdbx_input_path)
+  ipath <- wfdbx_input_path(ifname)
+  if (is.null(ipath) || !stdin_freopen(.rfile_name(ipath))) {
     ceprintf("%s: can't read input file `%s'\n", pname, ifname)
     cexit(2)
   }

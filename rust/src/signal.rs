@@ -4465,10 +4465,10 @@ impl Wfdb {
     ///
     /// # Returns
     ///
-    /// The number of input signals (`> 0`), or: 0 or -1 at the end of the
-    /// record (the contents of `vector` are then not valid), -3 at an
-    /// unexpected end of file (or on a decoding error), -4 on a checksum
-    /// error (detected at the end of the file).
+    /// The number of input signals (`> 0`), or: 0 if no input signals are
+    /// open, -1 at the end of the data (the contents of `vector` are then
+    /// not valid), -3 at an unexpected end of file (or on a decoding
+    /// error), -4 on a checksum error (detected at the end of the file).
     ///
     /// Translation of the C function getvec() (lib/signal.c, WFDB 10.7.0): same
     /// arguments and results.

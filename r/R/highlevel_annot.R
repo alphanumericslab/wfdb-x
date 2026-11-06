@@ -69,8 +69,24 @@
 #' strings that need the sampling frequency (wfdbx_time_needs_freq) are an
 #' error.
 #'
-#' input_dir, network: the input directory and the network permission for
-#' this call (see read_record; WFDB-x).
+#' record: the record name, without the .hea extension (a trailing ".hea"
+#' is also accepted): a full path, absolute ("/data/mitdb/100") or in the
+#' home directory ("~/Documents/100s"), used as given; a relative path
+#' ("100s", "data/100s"), read from the input directory if one is set,
+#' otherwise from the current directory; or a URL
+#' ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+#' access is on (WFDB-x).
+#' Its header, if there is one, gives the sampling frequency.
+#'
+#' input_dir: the input directory for this call only (optional): a local
+#' directory, a ~ path or a URL, under which relative record names are
+#' read.  It does not apply to full paths or URLs.  Default: the current
+#' setting (see wfdbx_set_input_dir).
+#' network: the network permission for this call (see read_record; WFDB-x).
+#'
+#' The getvec mode (getgvmode) and the time resolution of output
+#' annotators (getafreq) are left as they were, also after an error
+#' (opening an EDF record sets both, as in C; WFDB-x).
 #'
 #' legacy: if TRUE, behave as the original package (250 Hz for a record
 #' without a header, or whose header does not specify the frequency, unless
@@ -79,7 +95,7 @@
 #' silent defaults this project removed.
 read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs = NULL,
                              input_dir = NULL, network = NULL,
-                             legacy = FALSE) .hl_legacy(legacy, .hl_input(input_dir, network, {
+                             legacy = FALSE) .hl_keep_settings(.hl_legacy(legacy, .hl_input(input_dir, network, {
   legacy <- wfdbx_get_legacy()
   if (!is.null(fs) && (length(fs) != 1L || !is.numeric(fs) || is.na(fs) || fs <= 0))
     stop("fs must be > 0")
@@ -136,7 +152,7 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
   attr(res, "fs") <- afs
   wfdbquit()
   res
-}))
+})))
 
 #' Write an annotation file (as wrann does).
 #'
@@ -156,9 +172,16 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' is given, it is recorded as the time resolution of the file (setafreq).  Annotations out of order are sorted when the file
 #' is closed (as the sortann tool does; WFDB-x: in this process, whereas the
 #' C library, as legacy mode, runs sortann), unless the WFDBANNSORT
-#' environment variable is 0.  dir: if given, the directory (which must
-#' exist) in which the file is created (record must not contain a
-#' directory; WFDB-x).  Returns invisibly the status of the last putann
+#' environment variable is 0.  record: the record name, without the .hea
+#' extension (a trailing ".hea" is also accepted): a plain name or a
+#' relative path ("data/100s") is created in the output directory if one is
+#' set (see wfdbx_set_output_dir), otherwise in the current directory; a
+#' full path, absolute or in the home directory ("~/Documents/100s"), is
+#' used as given.  The file is RECORD.ANNOTATOR at that place
+#' ("data/100s.qrs").  A URL cannot be written.  dir: the directory (which
+#' must exist) in which to create the file, for this call only; record must
+#' then be a plain name, without a directory: the file is
+#' DIR/RECORD.ANNOTATOR (WFDB-x).  Returns invisibly the status of the last putann
 #' (0).  legacy: if TRUE, the library's legacy mode is on for the duration
 #' of the call (see read_annotations).
 #'
@@ -173,10 +196,22 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #' for example when the disk is full ("write error on annotator A for
 #' record R", after the library's message), and on invalid arguments.
 #' The arguments are checked before the file is created; whatever
-#' happens, the annotator is closed (wfdbquit) before the function returns.
+#' happens, the annotator is closed (wfdbquit) before the function returns,
+#' and the getvec mode and the time resolution of output annotators are
+#' left as they were (fs applies to this file only; WFDB-x).
 write_annotations <- function(record, annotator, sample, symbol = NULL, code = NULL,
                               subtype = 0, chan = 0, num = 0, aux = NULL, fs = NULL,
                               dir = NULL, legacy = FALSE, sort = NULL) {
+  # WFDB-x: the getvec mode and the time resolution of output annotators are
+  # restored when the function returns (see .hl_keep_settings; fs applies
+  # to this file only); after the wfdbquit registered below, which runs
+  # first
+  afreq0 <- getafreq()
+  gvmode0 <- getgvmode()
+  on.exit({
+    setgvmode(gvmode0)
+    setafreq(afreq0)
+  }, add = TRUE)
   if (isTRUE(legacy)) {
     old <- wfdbx_set_legacy(TRUE)
     on.exit(wfdbx_set_legacy(old), add = TRUE)
@@ -256,7 +291,6 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
   .ann$sort_override <- sort
   on.exit(.ann$sort_override <- NULL, add = TRUE)
   if (!is.null(afs)) setafreq(afs)
-  on.exit(if (!is.null(afs)) setafreq(0), add = TRUE)
   # (the annotator is closed however this ends)
   on.exit(wfdbquit(), add = TRUE, after = FALSE)
   if (annopen(record, list(anninfo(annotator, WFDB_WRITE)), 1) < 0)

@@ -21,9 +21,10 @@
 # the previous output signal) and suits the output format; unspecified units
 # are shown as "nd" (the original assumed 250 Hz, 200 adu/mV, a resolution
 # based on the format, and millivolts); when an output signal file would be one
-# of the input files, the message says so; --legacy, as the first argument,
-# restores the original behavior. Each change is marked "WFDB-x:" in the code;
-# docs/DIVERGENCES.md gives the reasons.
+# of the input files, the message says so; the -S script is found under the
+# input directory, as the library finds an input file; --legacy, as the first
+# argument, restores the original behavior. Each change is marked "WFDB-x:" in
+# the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/xform.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1983-2010 George B. Moody; revised 2017-2020 by
@@ -485,7 +486,11 @@ function xform_main(args::Vector{String})
         end
     else    # If no output record was specified, get signal specs interactively.
         format = Int32(0)
-        ttyin = cfopen(script === nothing ? "/dev/tty" : script, "r")
+        # WFDB-x: the script is found where the library finds an input file
+        # of that name (see wfdbx_input_path)
+        spath = script === nothing ? nothing : wfdbx_input_path(script)
+        ttyin = script === nothing ? cfopen("/dev/tty", "r") :
+                spath === nothing ? nothing : cfopen(spath, "r")
         prompt = _XformPrompt(ttyin === nothing ? wfdb_stdin() : ttyin, pname, script)
         iref = Ref{Int32}(0)
         dref = Ref{Float64}(0.0)

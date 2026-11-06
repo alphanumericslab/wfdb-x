@@ -721,6 +721,7 @@ include("signals.jl")
 include("test_annotations.jl")
 include("test_flac.jl")
 include("test_files.jl")
+include("test_metadata.jl")     # (uses the HTTP server of test_files.jl)
 include("test_check.jl")
 
 end

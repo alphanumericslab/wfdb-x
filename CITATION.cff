@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use WFDB-x, please cite the preprint that describes it (preferred-citation below)."
+title: "WFDB-x"
+abstract: "Conformance-tested implementations of the WFDB Software Package in seven programming languages: Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin."
+type: software
+version: 1.2.0
+license: GPL-3.0-or-later
+authors:
+  - family-names: Sameni
+    given-names: Reza
+repository-code: "https://github.com/alphanumericslab/wfdb-x"
+url: "https://alphanumerics.bmi.emory.edu/wfdb-x/"
+keywords:
+  - WFDB
+  - PhysioNet
+  - physiological signals
+  - biomedical signal processing
+preferred-citation:
+  type: article
+  title: "WFDB-x: Conformance-Tested Implementations of the WFDB Software Package in Seven Programming Languages"
+  authors:
+    - family-names: Sameni
+      given-names: Reza
+  year: 2026
+  journal: "arXiv preprint"
+  publisher:
+    name: arXiv
+  doi: "10.48550/ARXIV.2611.01358"
+  url: "https://arxiv.org/abs/2611.01358"

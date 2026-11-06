@@ -79,17 +79,30 @@ private:
     bool prev_;
 };
 
-// The getvec mode (setgvmode) restored at the end of the lifetime of the
-// object (also when an exception is thrown): read_record sets it, and
-// opening an EDF record changes it.
-class GvmodeScope {
+// WFDB-x: the getvec mode (getgvmode, setgvmode) and the time resolution of
+// output annotators (getafreq, setafreq) restored at the end of the lifetime
+// of the object (also when an exception is thrown), in that order.  Every
+// high-level function that opens a record keeps them: read_record sets the
+// getvec mode, and opening an EDF record sets both, as in C (the time
+// resolution to the record's sampling frequency when none is set, and the
+// WFDB_HIGHRES bit of the getvec mode), and wfdbquit() resets neither;
+// without this, a later write_annotations() would record that frequency, and
+// later reading would be in high resolution.  (The input annotators, and
+// their frequencies, are closed by wfdbquit().)  The C-style functions keep
+// the behavior of C.
+class SettingsScope {
 public:
-    GvmodeScope() : prev_(getgvmode()) {}
-    ~GvmodeScope() { setgvmode(prev_); }
-    GvmodeScope(const GvmodeScope &) = delete;
-    GvmodeScope &operator=(const GvmodeScope &) = delete;
+    SettingsScope() : gvmode_(getgvmode()), afreq_(getafreq()) {}
+    ~SettingsScope()
+    {
+        setgvmode(gvmode_);
+        setafreq(afreq_);
+    }
+    SettingsScope(const SettingsScope &) = delete;
+    SettingsScope &operator=(const SettingsScope &) = delete;
 private:
-    int prev_;
+    int gvmode_;
+    WFDB_Frequency afreq_;
 };
 
 // WFDB-x: the library's input directory and network access (see
@@ -330,7 +343,7 @@ Header read_header(const std::string &record, bool legacy,
 {
     LegacyScope scope(legacy);
     InputScope input_scope(input);
-    GvmodeScope gvmode_scope;
+    SettingsScope settings_scope;
     QuitOnErrorScope quit_scope;
     wfdbquit();
     int n = isigopen(record.c_str(), nullptr, 0);
@@ -348,7 +361,12 @@ Header read_header(const std::string &record, bool legacy,
                      h.base_time_ms, h.base_date, &h.nsamples);
     for (auto c = getinfo(record.c_str()); c; c = getinfo(nullptr))
         h.comments.push_back(*c);
+    const bool edf = detail::wfdbx_input_is_edf();
     wfdbquit();
+    // WFDB-x: the "Key: value" entries of the .hea file only (not of a .info
+    // file), as read_metadata() reads them; none for an EDF record (which
+    // has no .hea file) or a header read from the standard input.
+    if (!edf && record != "-") h.metadata = read_metadata(record);
     return h;
 }
 
@@ -357,7 +375,7 @@ Record read_record(const std::string &record, const ReadOptions &options)
     const ReadOptions opt = with_library_legacy(options);
     LegacyScope scope(opt.legacy);
     InputScope input_scope(opt);
-    GvmodeScope gvmode_scope;
+    SettingsScope settings_scope;
     QuitOnErrorScope quit_scope;
     wfdbquit();
     int nsig = isigopen(record.c_str(), nullptr, 0);
@@ -502,6 +520,7 @@ Annotations read_annotations(const std::string &record,
     legacy = legacy || wfdbx_get_legacy() != 0;    // or the library's mode
     LegacyScope scope(legacy);
     InputScope input_scope(input);
+    SettingsScope settings_scope;
     QuitOnErrorScope quit_scope;
     wfdbquit();
     // WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
@@ -631,6 +650,14 @@ void write_adc(const std::string &record,
     if (samples.size() % frame)
         throw Error("write_record: the number of samples is not a multiple "
                     "of the frame size");
+    // WFDB-x: the info strings of opt.metadata (" Key: value"), checked
+    // before anything is written.
+    std::vector<std::string> meta;
+    try {
+        meta = detail::wfdbx_metadata_info_lines(opt.metadata, opt.comments);
+    } catch (const ArgumentError &e) {
+        throw ArgumentError(std::string("write_record: ") + e.what());
+    }
     LegacyScope scope(opt.legacy);
     wfdbquit();
     // WFDB-x: the base time is checked before anything is written (it is
@@ -652,6 +679,7 @@ void write_adc(const std::string &record,
     if (newheader(name.c_str()) < 0)
         fail("can't create header for record " + record);
     for (const std::string &c : opt.comments) putinfo(c.c_str());
+    for (const std::string &m : meta) putinfo(m.c_str());
     wfdbquit();
     if (wfdbx_write_errors() > errors)
         throw Error("write error on record " + record);
@@ -663,6 +691,7 @@ void write_record(const std::string &record,
                   const std::vector<WFDB_Sample> &samples, int nsig,
                   WFDB_Frequency fs, const WriteOptions &opt)
 {
+    SettingsScope settings_scope;
     OutputDirScope dir_scope(record, opt.dir);  // (its checks come first)
     write_adc(record, samples, nsig, fs, opt);
 }
@@ -671,6 +700,7 @@ void write_record_physical(const std::string &record,
                            const std::vector<double> &samples, int nsig,
                            WFDB_Frequency fs, const WriteOptions &options)
 {
+    SettingsScope settings_scope;
     OutputDirScope dir_scope(record, options.dir);  // (its checks come first)
     const WriteOptions opt = with_library_legacy(options);
     // Gain and baseline of each column of a frame
@@ -715,6 +745,9 @@ void write_annotations(const std::string &record, const std::string &annotator,
                        const Annotations &ann, WFDB_Frequency fs,
                        const std::string &dir, std::optional<bool> sort)
 {
+    // (fs applies to this file only: the previous time resolution is
+    // restored, also on errors)
+    SettingsScope settings_scope;
     OutputDirScope dir_scope(record, dir);
     size_t n = ann.samples.size();
     // Each per-annotation field is absent (empty) or has one entry per
@@ -747,10 +780,8 @@ void write_annotations(const std::string &record, const std::string &annotator,
     WFDB_Anninfo ai;
     ai.name = annotator;
     ai.stat = WFDB_WRITE;
-    if (annopen(record.c_str(), &ai, 1) < 0) {
-        if (fs > 0) setafreq(0.0);
+    if (annopen(record.c_str(), &ai, 1) < 0)
         fail("can't create annotator " + annotator + " for record " + record);
-    }
     for (size_t k = 0; k < n; k++) {
         WFDB_Annotation a;
         a.time = ann.samples[k];
@@ -772,7 +803,6 @@ void write_annotations(const std::string &record, const std::string &annotator,
         putann(0, &a);
     }
     wfdbquit();
-    if (fs > 0) setafreq(0.0);
     if (wfdbx_write_errors() > errors)
         throw Error("write error on annotator " + annotator + " for record " +
                     record);

@@ -34,8 +34,9 @@ function status = xform(args)
 %   200 adu/mV, and guessed resolutions from the formats).  The ADC
 %   resolution prompt offers a value only if it comes from the input (or
 %   the previous output signal) and suits the output format; otherwise
-%   the resolution must be given.  Unspecified units are shown as "nd";
-%   see docs/DIVERGENCES.md.
+%   the resolution must be given.  Unspecified units are shown as "nd".
+%   The -S script is found under the input directory, as the library finds
+%   an input file (see wfdbx.wfdbx_input_path); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, and fmt212, a test record in format 212 whose header gives the
@@ -67,9 +68,10 @@ function status = xform(args)
 % the previous output signal) and suits the output format; unspecified units
 % are shown as "nd" (the original assumed 250 Hz, 200 adu/mV, a resolution
 % based on the format, and millivolts); when an output signal file would be one
-% of the input files, the message says so; --legacy, as the first argument,
-% restores the original behavior. Each change is marked "WFDB-x:" in the code;
-% docs/DIVERGENCES.md gives the reasons.
+% of the input files, the message says so; the -S script is found under the
+% input directory, as the library finds an input file; --legacy, as the first
+% argument, restores the original behavior. Each change is marked "WFDB-x:" in
+% the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: app/xform.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1983-2010 George B. Moody; revised 2017-2020 by
@@ -592,7 +594,13 @@ else
     % the answers to the prompts: from SCRIPT, /dev/tty or the standard input
     R = struct('fid', -1, 'data', '', 'pos', 1, 'script', script, 'pname', pname);
     if ischar(script)
-        fid = fopen(script, 'rb');
+        % WFDB-x: the script is found where the library finds an input
+        % file of that name (see wfdbx.wfdbx_input_path)
+        spath = wfdbx.wfdbx_input_path(script);
+        fid = -1;
+        if ischar(spath)
+            fid = fopen(wfdbx.internal.literal_path(spath), 'rb');
+        end
         if fid >= 0
             R.data = char(fread(fid, Inf, 'uint8=>uint8').');
             fclose(fid);

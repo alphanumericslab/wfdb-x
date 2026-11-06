@@ -26,8 +26,9 @@ function status = ad2m(args)
 %   WFDB-x: -F, -G, -R and -U are new and required (the C program assumed
 %   the parameters of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 %   millivolts; give -F 250 -G 400 -R 12 -U mV to reproduce it).  The
-%   times of -f and -t are converted at the frequency given by -F; see
-%   docs/DIVERGENCES.md.
+%   times of -f and -t are converted at the frequency given by -F.  The -i
+%   file is found under the input directory, as the library finds an input
+%   file (see wfdbx.wfdbx_input_path); see docs/DIVERGENCES.md.
 %
 %   Example (1201.CMP, a synthetic signal file in the format of the AHA
 %   Database, is in the folder tests/data of a copy of the WFDB-x
@@ -54,9 +55,10 @@ function status = ad2m(args)
 % FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
 % resolution and units, and are required (-U unless the gain is 0; the original
 % assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
-% millivolts); the -f and -t times are converted at the -F frequency; --legacy,
-% as the first argument, restores the original behavior. Each change is marked
-% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% millivolts); the -f and -t times are converted at the -F frequency; the -i
+% file is found under the input directory, as the library finds an input file;
+% --legacy, as the first argument, restores the original behavior. Each change
+% is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/ad2m.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1983-2007 George B. Moody.
@@ -407,7 +409,14 @@ ok = true;
 if strcmp(ifname, '-')
     return;
 end
-fid = fopen(ifname, 'rb');
+% WFDB-x: the file is found where the library finds an input file of that
+% name (see wfdbx.wfdbx_input_path)
+ipath = wfdbx.wfdbx_input_path(ifname);
+if ~ischar(ipath)
+    ok = false;
+    return;
+end
+fid = fopen(wfdbx.internal.literal_path(ipath), 'rb');
 if fid < 0
     ok = false;
     return;

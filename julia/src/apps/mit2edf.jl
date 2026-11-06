@@ -21,10 +21,11 @@
 # resolution: the record must give the sampling frequency, and the gain and ADC
 # resolution of every signal (the original assumed 250 Hz and 200 adu/mV, and
 # guessed the resolution from the storage format); unspecified units are
-# written as "nd" (the original wrote "mV"); an EDF file that cannot be
-# written is reported (wfdbx_fclose_output); --legacy, as the first argument,
-# restores the original behavior. Each change is marked "WFDB-x:" in the code;
-# docs/DIVERGENCES.md gives the reasons.
+# written as "nd" (the original wrote "mV"); an EDF file that cannot be written
+# is reported (wfdbx_fclose_output); the EDF file is created under the output
+# directory, as the library creates an output file; --legacy, as the first
+# argument, restores the original behavior. Each change is marked "WFDB-x:" in
+# the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 2002-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -196,8 +197,10 @@ function mit2edf_main(args::Vector{String})
         end
     end
 
-    # Open the output (EDF) file.
-    ofile = cfopen(ofname, "wb")
+    # Open the output (EDF) file. (WFDB-x: it is created where the library
+    # creates an output file of that name; see wfdbx_output_path.)
+    opath = wfdbx_output_path(ofname)
+    ofile = opath === nothing ? nothing : cfopen(opath, "wb")
     if ofile === nothing
         ceprintf("%s: can't create %s\n", pname, ofname)
         cexit(4)

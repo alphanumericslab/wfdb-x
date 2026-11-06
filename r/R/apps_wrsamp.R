@@ -13,9 +13,10 @@
 # -R BITS are required, and the new option -U UNITS for calibrated signals
 # unless the input gives the units (the original assumed 250 Hz, 200 adu/mV, a
 # resolution based on the format, and millivolts); -G 0 declares the signals
-# uncalibrated; -G, -R and -U take one value per signal; --legacy, as the first
-# argument, restores the original behavior. Each change is marked "WFDB-x:" in
-# the code; docs/DIVERGENCES.md gives the reasons.
+# uncalibrated; -G, -R and -U take one value per signal; the -i file is found
+# under the input directory, as the library finds an input file; --legacy, as
+# the first argument, restores the original behavior. Each change is marked
+# "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 #
 # Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 1993-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -361,8 +362,9 @@ app_wrsamp <- function(args = character(0)) {
         infile <- NULL
       } else {
         fn <- arg(i)
-        infile <- if (file.exists(fn) && !dir.exists(fn))
-          tryCatch(readBin(fn, "raw", file.size(fn)), error = function(e) NULL) else NULL
+        # WFDB-x: the file is found where the library finds an input file
+        # of that name (see wfdbx_input_path)
+        infile <- .app_read_input(fn)
         if (is.null(infile)) {
           ceprintf("%s: can't read `%s'\n", pname, fn)
           cexit(2)

@@ -551,4 +551,77 @@ class AnnotationsTest {
         assertEquals(odd.toList(), w.readAnnotations("rt3", "atr", fs = 360.0).codes.toList())
         assertEquals(listOf(0, 0, 0, 0), listOf(w.sig.nisig, w.sig.nosig, w.ann.iad.size, w.ann.oad.size))
     }
+
+    /**
+     * The high-level functions leave the time resolution of output
+     * annotators (getafreq) as it was, also after an EDF record, whose
+     * opening sets it (as in C), and on errors; the C-style functions keep
+     * the behavior of C.
+     */
+    @Test
+    fun highlevelKeepsAfreq() = withData("keepafreq") { d, w ->
+        w.wfdbquiet()
+        w.setafreq(0.0)
+        w.writeAnnotations("nohdr", "a1", longArrayOf(10, 20), symbols = listOf("N", "N"))
+        val expected = d.read("nohdr.a1")!!
+        val h = w.readHeader("100s.edf")
+        assertEquals(360.0, h.fs)
+        assertEquals(0.0, w.getafreq())
+        w.writeAnnotations("nohdr", "a2", longArrayOf(10, 20), symbols = listOf("N", "N"))
+        assertContentEquals(expected, d.read("nohdr.a2")) // no time resolution: 360 Hz
+        w.readRecord("100s.edf", to = TimeSpec(10))
+        assertEquals(0.0, w.getafreq())
+        w.checkRecord("100s.edf")
+        assertEquals(0.0, w.getafreq())
+        assertFailsWith<WfdbException> { w.readAnnotations("100s.edf", "atr") } // (no annotation file)
+        assertEquals(0.0, w.getafreq())
+        // a value that was set is kept
+        w.setafreq(1000.0)
+        w.readHeader("100s.edf")
+        assertEquals(1000.0, w.getafreq())
+        w.writeAnnotations("nohdr", "a3", longArrayOf(10, 20), symbols = listOf("N", "N"), fs = 500.0)
+        assertEquals(1000.0, w.getafreq())
+        w.setafreq(0.0)
+        w.writeAnnotations("nohdr", "a3", longArrayOf(10, 20), symbols = listOf("N", "N"), fs = 500.0)
+        assertEquals(0.0, w.getafreq())
+        // the C-style functions: as in C, opening the EDF record sets it,
+        // and wfdbquit does not reset it
+        assertTrue(w.isigopen("100s.edf", null, 0) > 0)
+        w.wfdbquit()
+        assertEquals(360.0, w.getafreq())
+    }
+
+    /**
+     * The high-level functions leave the getvec mode (getgvmode) as it was,
+     * also after an EDF record, whose opening sets WFDB_HIGHRES (as in C),
+     * and on errors; the C-style functions keep the behavior of C.
+     */
+    @Test
+    fun highlevelKeepsGvmode() {
+        for (previous in listOf(WFDB_LOWRES, WFDB_HIGHRES, WFDB_LOWRES or WFDB_GVPAD)) {
+            withData("keepgvmode") { _, w ->
+                w.wfdbquiet()
+                w.setgvmode(previous)
+                w.readHeader("100s.edf")
+                assertEquals(previous, w.getgvmode())
+                assertFailsWith<WfdbException> { w.readAnnotations("100s.edf", "atr") } // (no annotation file)
+                assertEquals(previous, w.getgvmode())
+                w.readAnnotations("100s", "atr")
+                assertEquals(previous, w.getgvmode())
+                w.readRecord("100s.edf", to = TimeSpec(10))
+                assertEquals(previous, w.getgvmode())
+                w.checkRecord("100s.edf")
+                assertEquals(previous, w.getgvmode())
+                w.writeAnnotations("nohdr", "a1", longArrayOf(10, 20), symbols = listOf("N", "N"))
+                assertEquals(previous, w.getgvmode())
+                w.writeRecord("w1", intArrayOf(1, 2, 3), 1, 360.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"))
+                assertEquals(previous, w.getgvmode())
+                // the C-style functions: as in C, the EDF record sets
+                // WFDB_HIGHRES, and wfdbquit does not reset it
+                assertTrue(w.isigopen("100s.edf", null, 0) > 0)
+                w.wfdbquit()
+                assertTrue((w.getgvmode() and WFDB_HIGHRES) != 0)
+            }
+        }
+    }
 }

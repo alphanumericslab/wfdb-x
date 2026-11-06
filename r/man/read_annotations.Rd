@@ -19,10 +19,25 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
                   dir = NULL, legacy = FALSE, sort = NULL)
 }
 \arguments{
-  \item{record}{the record name, such as \code{"100s"}.  A full path, a
-    \code{~} path or a URL is used as given.  Any other name is read from
-    the input directory and written to the output directory (see
-    \code{\link{wfdbx_set_input_dir}}).}
+  \item{record}{\code{read_annotations}: the record name, without the \code{.hea} extension (a
+    trailing \code{".hea"} is also accepted): a full path, absolute
+    (\code{"/data/mitdb/100"}) or in the home directory
+    (\code{"~/Documents/100s"}), used as given; a relative path
+    (\code{"100s"}, \code{"data/100s"}), read from the input directory if
+    one is set (see \code{\link{wfdbx_set_input_dir}}), otherwise from the
+    current directory; or a URL
+    (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if
+    network access is on.  Its header, if there is
+    one, gives the sampling frequency.
+
+    \code{write_annotations}: the record name, without the \code{.hea}
+    extension (a trailing \code{".hea"} is also accepted): a plain name or
+    a relative path (\code{"data/100s"}) is created in the output
+    directory if one is set (see \code{\link{wfdbx_set_output_dir}}),
+    otherwise in the current directory; a full path, absolute or in the
+    home directory (\code{"~/Documents/100s"}), is used as given.  The
+    file is \file{RECORD.ANNOTATOR} at that place
+    (\file{data/100s.qrs}).  A URL cannot be written.}
   \item{annotator}{the annotator name, which is the suffix of the file:
     \code{"atr"} is \file{100s.atr}.}
   \item{sampfrom, sampto}{read only the annotations at or after
@@ -34,9 +49,11 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
     \code{write_annotations}: the frequency in which \code{sample} is
     counted (finite, greater than 0), recorded in the file.  By default the times are samples of
     the record.}
-  \item{input_dir}{the input directory for this call only: a local
-    directory, a \code{~} path or a URL.  \code{NULL}, the default, keeps
-    the current setting.}
+  \item{input_dir}{the input directory for this call only (optional): a
+    local directory, a \code{~} path or a URL, under which relative record
+    names are read.  It does not apply to full paths or URLs.
+    \code{NULL}, the default, keeps the current setting (see
+    \code{\link{wfdbx_set_input_dir}}).}
   \item{network}{\code{TRUE} to allow reading URLs for this call only,
     \code{FALSE} to forbid it.  \code{NULL}, the default, keeps the
     current setting.}
@@ -71,9 +88,9 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
     and \code{aux} each give one value for all annotations, or one value
     per annotation; any other length is an error, raised before the file
     is created.}
-  \item{dir}{the directory, which must exist, in which to create the file.
-    \code{record} must not contain a directory when \code{dir} is
-    given.}
+  \item{dir}{the directory (which must exist) in which to create the
+    file, for this call only.  \code{record} must then be a plain name,
+    without a directory: the file is \file{DIR/RECORD.ANNOTATOR}.}
   \item{sort}{\code{TRUE} to sort the annotations by time, \code{FALSE}
     to keep the order you gave, for this call only.  \code{NULL}, the
     default, lets the \env{WFDBANNSORT} environment variable decide.}
@@ -88,7 +105,11 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
   comes from the header of the record, or from \code{fs}.
 
   Each call closes anything opened with the WFDB library functions, as
-  \code{\link{wfdbquit}} does.
+  \code{\link{wfdbquit}} does.  The getvec mode
+  (\code{\link{getgvmode}}) and the time resolution of output annotators
+  (\code{\link{getafreq}}) are left as they were, also after an error
+  (opening an EDF record sets both, as in C); the \code{fs} of
+  \code{write_annotations} applies to its file only.
 }
 \value{
   \code{read_annotations} returns a data frame with one row per

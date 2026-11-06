@@ -2,9 +2,11 @@
 // input and output directories, the resolution of each kind of name, the
 // files named in headers (in the header's directory), network access (against
 // a local HTTP server on 127.0.0.1 only), the WFDB warning, the high-level
-// input_dir and network options, and legacy mode (the WFDB path, no network).
-// The expected values follow t_files in tests/reference/api_expect.c; the
-// Python counterpart is python/tests/test_files.py.
+// input_dir and network options, legacy mode (the WFDB path, no network), and
+// the files that the tools open themselves (wfdbx_input_path,
+// wfdbx_output_path).  The expected values follow t_files and t_toolpaths in
+// tests/reference/api_expect.c; the Python counterpart is
+// python/tests/test_files.py.
 //
 // This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -18,11 +20,13 @@
 // any later version. See LICENSE.
 
 #include "tests.hpp"
+#include "http_server.hpp"
 
 #include <wfdbx/ecgcodes.hpp>
 #include <wfdbx/record.hpp>
 #include <wfdbx/wfdb.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -35,17 +39,16 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#if defined(__unix__) || defined(__APPLE__)
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#define WFDBX_HAVE_SOCKETS 1
+#if !defined(_WIN32)
+#include <sys/wait.h>
 #endif
 
 using namespace wfdbx;
 using wfdbx_tests::EnvVar;
+#ifdef WFDBX_HAVE_SOCKETS
+using wfdbx_tests::HttpServer;
+using wfdbx_tests::have_curl;
+#endif
 namespace fs = std::filesystem;
 
 namespace {
@@ -90,12 +93,6 @@ void put_file(const fs::path &name, const std::string &data)
     f << data;
 }
 
-std::string slurp(const fs::path &name)
-{
-    std::ifstream f(name, std::ios::binary);
-    return std::string(std::istreambuf_iterator<char>(f), {});
-}
-
 int isig(const std::string &record)
 {
     return isigopen(record.c_str(), nullptr, 8);
@@ -127,110 +124,6 @@ struct LegacyOn {
     ~LegacyOn() { wfdbx_set_legacy(0); }
 };
 
-#ifdef WFDBX_HAVE_SOCKETS
-// A minimal HTTP server on 127.0.0.1 (a free port), serving the files of a
-// directory: GET /NAME returns the file NAME (404 if there is none), and
-// GET /redir/NAME redirects to /NAME.  The paths requested are logged.
-class HttpServer {
-public:
-    explicit HttpServer(fs::path root) : root_(std::move(root)) {
-        fd_ = socket(AF_INET, SOCK_STREAM, 0);
-        sockaddr_in a{};
-        a.sin_family = AF_INET;
-        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        a.sin_port = 0;
-        socklen_t len = sizeof(a);
-        if (fd_ < 0 || bind(fd_, reinterpret_cast<sockaddr *>(&a), len) != 0 ||
-            listen(fd_, 16) != 0 ||
-            getsockname(fd_, reinterpret_cast<sockaddr *>(&a), &len) != 0) {
-            ok_ = false;
-            return;
-        }
-        port_ = ntohs(a.sin_port);
-        thread_ = std::thread([this] { serve(); });
-    }
-    ~HttpServer() {
-        stop_ = true;
-        if (fd_ >= 0) {
-            shutdown(fd_, SHUT_RDWR);   // (wakes up accept)
-            close(fd_);
-        }
-        if (thread_.joinable()) thread_.join();
-    }
-    bool ok() const { return ok_; }
-    std::string url() const {
-        return "http://127.0.0.1:" + std::to_string(port_) + "/";
-    }
-    std::vector<std::string> requests() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return log_;
-    }
-    size_t count(const std::string &path) {
-        size_t n = 0;
-        for (const std::string &p : requests()) n += (p == path);
-        return n;
-    }
-
-private:
-    void serve() {
-        while (!stop_) {
-            int c = accept(fd_, nullptr, nullptr);
-            if (c < 0) {
-                if (stop_) return;
-                continue;
-            }
-            std::string req;
-            char buf[4096];
-            ssize_t n;
-            while (req.find("\r\n\r\n") == std::string::npos &&
-                   (n = recv(c, buf, sizeof(buf), 0)) > 0)
-                req.append(buf, n);
-            std::string path;
-            size_t sp = req.find(' ');
-            if (sp != std::string::npos)
-                path = req.substr(sp + 1, req.find(' ', sp + 1) - sp - 1);
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                log_.push_back(path);
-            }
-            std::string resp;
-            std::error_code ec;
-            if (path.compare(0, 7, "/redir/") == 0)
-                resp = "HTTP/1.0 302 Found\r\nLocation: " + path.substr(6) +
-                       "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-            else if (path.size() > 1 && path.find("..") == std::string::npos &&
-                     fs::is_regular_file(root_ / path.substr(1), ec)) {
-                std::string body = slurp(root_ / path.substr(1));
-                resp = "HTTP/1.0 200 OK\r\nContent-Length: " +
-                       std::to_string(body.size()) +
-                       "\r\nConnection: close\r\n\r\n" + body;
-            } else
-                resp = "HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n"
-                       "Connection: close\r\n\r\n";
-            for (size_t off = 0; off < resp.size();) {
-                ssize_t w = send(c, resp.data() + off, resp.size() - off, 0);
-                if (w <= 0) break;
-                off += static_cast<size_t>(w);
-            }
-            close(c);
-        }
-    }
-
-    fs::path root_;
-    int fd_ = -1;
-    int port_ = 0;
-    bool ok_ = true;
-    std::atomic<bool> stop_{false};
-    std::thread thread_;
-    std::mutex mutex_;
-    std::vector<std::string> log_;
-};
-
-bool have_curl()
-{
-    return std::system("curl --version >/dev/null 2>&1") == 0;
-}
-#endif
 
 } // namespace
 
@@ -651,3 +544,130 @@ WFDBX_TEST(files_high_level_input_dir)
     CHECK(thrown);
     CHECK(wfdbx_get_input_dir() == "fsub");
 }
+
+// ---------------------------------------------------------------------------
+// The files that a program opens itself (the Python counterparts are
+// test_tool_file_paths and test_tool_files)
+
+// wfdbx_input_path and wfdbx_output_path: where a program opens the files
+// that it reads or creates itself (the counterparts of the files of
+// wfdb_open with an empty file type).
+WFDBX_TEST(files_tool_file_paths)
+{
+    DataDir d;
+    using O = std::optional<std::string>;
+    const std::string cwd = d.dir.string();
+    EnvVar home_env("HOME", (cwd + "/home").c_str());
+    const std::string home = cwd + "/home";
+    // no directories set: names as given (~ expanded), URLs refused
+    for (auto f : {wfdbx_input_path, wfdbx_output_path}) {
+        CHECK(f("a.txt") == O("a.txt"));
+        CHECK(f("sub/a.txt") == O("sub/a.txt"));
+        CHECK(f((cwd + "/a.txt").c_str()) == cwd + "/a.txt");
+        CHECK(f("~/a.txt") == home + "/a.txt");
+        CHECK(f("-") == O("-") && f("") == O("") && !f(nullptr));
+        CHECK(!f("http://127.0.0.1:1/a.txt"));
+        CHECK(!f("https://127.0.0.1:1/a.txt"));
+    }
+    CHECK(!fs::exists("sub"));
+    // the input directory
+    wfdbx_set_input_dir("sub");
+    CHECK(wfdbx_input_path("a.txt") == O("sub/a.txt"));
+    CHECK(wfdbx_input_path("../a.txt") == O("sub/../a.txt"));
+    CHECK(wfdbx_input_path((cwd + "/a.txt").c_str()) == cwd + "/a.txt");
+    CHECK(wfdbx_input_path("~/a.txt") == home + "/a.txt");
+    CHECK(wfdbx_input_path("-") == O("-"));
+    CHECK(wfdbx_output_path("a.txt") == O("a.txt"));
+    wfdbx_set_input_dir("~/in/");
+    CHECK(wfdbx_input_path("a.txt") == home + "/in/a.txt");
+    wfdbx_set_input_dir("http://127.0.0.1:1/d");
+    CHECK(!wfdbx_input_path("a.txt"));      // (a URL)
+    CHECK(wfdbx_input_path((cwd + "/a.txt").c_str()) == cwd + "/a.txt");
+    wfdbx_set_input_dir(nullptr);
+    // the output directory: its missing directories are created
+    wfdbx_set_output_dir("out/deep");
+    CHECK(wfdbx_output_path("a.wav") == O("out/deep/a.wav"));
+    CHECK(fs::is_directory("out/deep") && fs::is_empty("out/deep"));
+    CHECK(wfdbx_output_path("s/a.wav") == O("out/deep/s/a.wav"));
+    CHECK(fs::is_directory("out/deep/s"));
+    CHECK(wfdbx_output_path((cwd + "/n/a.wav").c_str()) == cwd + "/n/a.wav");
+    CHECK(wfdbx_output_path("~/m/a.wav") == home + "/m/a.wav");
+    CHECK(!fs::exists("n") && !fs::exists("home/m"));
+    CHECK(wfdbx_output_path("-") == O("-"));
+    CHECK(wfdbx_input_path("a.txt") == O("a.txt"));
+    wfdbx_set_output_dir("~/o");
+    CHECK(wfdbx_output_path("a.wav") == home + "/o/a.wav");
+    CHECK(fs::is_directory("home/o"));
+    // legacy mode: inputs as named; the output directory as a plain prefix
+    {
+        LegacyOn legacy;
+        wfdbx_set_input_dir("sub");
+        wfdbx_set_output_dir("lout");
+        CHECK(wfdbx_input_path("a.txt") == O("a.txt"));
+        CHECK(wfdbx_input_path("~/a.txt") == O("~/a.txt"));
+        CHECK(!wfdbx_input_path("http://127.0.0.1:1/a.txt"));
+        CHECK(wfdbx_output_path("a.wav") == O("lout/a.wav"));
+        CHECK(wfdbx_output_path((cwd + "/a.wav").c_str()) ==
+              "lout/" + cwd + "/a.wav");
+        CHECK(fs::is_directory("lout" + cwd));
+        CHECK(wfdbx_output_path("~/a.wav") == O("lout/~/a.wav"));
+        CHECK(wfdbx_output_path("-") == O("-"));
+        wfdbx_set_output_dir(nullptr);
+        CHECK(wfdbx_output_path("a.wav") == O("a.wav"));
+        CHECK(wfdbx_output_path("~/a.wav") == O("~/a.wav"));
+        wfdbx_set_input_dir(nullptr);
+    }
+}
+
+#if defined(WFDBX_TOOLS_DIR) && !defined(_WIN32)
+namespace {
+
+// Run a tool built with the library (in the current directory, with the
+// given settings of WFDBX_INPUT_DIR and WFDBX_OUTPUT_DIR, and without WFDB
+// and WFDBX_NETWORK); return its exit status.
+int tool(const std::string &args, const char *input_dir,
+         const char *output_dir)
+{
+    EnvVar wfdb("WFDB", nullptr);
+    EnvVar net("WFDBX_NETWORK", nullptr);
+    EnvVar in("WFDBX_INPUT_DIR", input_dir);
+    EnvVar out("WFDBX_OUTPUT_DIR", output_dir);
+    std::string cmd = std::string("'") + WFDBX_TOOLS_DIR + "/" + args +
+                      " >/dev/null 2>&1";
+    int stat = std::system(cmd.c_str());
+    return WIFEXITED(stat) ? WEXITSTATUS(stat) : -1;
+}
+
+std::vector<std::string> list_dir(const fs::path &dir)
+{
+    std::vector<std::string> v;
+    for (const auto &e : fs::directory_iterator(dir))
+        v.push_back(e.path().filename().string());
+    std::sort(v.begin(), v.end());
+    return v;
+}
+
+} // namespace
+
+// The tools read and create their own files under the input and output
+// directories (see the toolfiles-* cases of the conformance suite).
+WFDBX_TEST(files_tool_files)
+{
+    DataDir d;
+    std::string text;
+    for (int i = 0; i < 50; i++)
+        text += std::to_string(i) + " " + std::to_string(-i) + "\n";
+    put_file("sub/in.txt", text);
+    CHECK_EQ(tool("wrsamp' -i in.txt -o w1 -F 250 -G 200 -R 16 -U mV", "sub",
+                  "out"), 0);
+    CHECK(fs::exists("out/w1.hea") && fs::exists("out/w1.dat"));
+    const std::vector<std::string> before = list_dir(".");
+    CHECK_EQ(tool("mit2wav' -r 100s -o x.wav", nullptr, "out"), 0);
+    CHECK_EQ(tool("mit2edf' -r fmt16 -o x.edf", nullptr, "out"), 0);
+    CHECK(list_dir(".") == before);         // nothing in .
+    std::ifstream f("out/x.wav", std::ios::binary);
+    std::string wav((std::istreambuf_iterator<char>(f)), {});
+    CHECK(wav.compare(0, 4, "RIFF") == 0 && wav.size() == 44 + 2 * 2 * 21600);
+    CHECK(fs::exists("out/x.edf") && fs::file_size("out/x.edf") > 0);
+}
+#endif

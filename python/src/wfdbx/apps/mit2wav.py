@@ -8,7 +8,9 @@ It is a Python translation of convert/mit2wav.c from the WFDB Software Package
 the original program, but it is new code, not the original C code.
 
 Changes from the original: no built-in sampling frequency: the record must give
-it (the original assumed 250 Hz); --legacy, as the first argument, restores the
+it (the original assumed 250 Hz); the WAV file is completed where the library
+created it, under the output directory (the original rewrote a file of that
+name in the current directory); --legacy, as the first argument, restores the
 original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
@@ -163,14 +165,21 @@ def _main(argv):
     w.wfdbquit()
     # Prepend the wav header to the signal file (the C version does this
     # using a temporary file and the 'mv', 'cat', and 'rm' commands).
+    # WFDB-x: the signal file is where the library created it, under the
+    # output directory if one is set (see wfdbx_output_path).
+    opath = w.wfdbx_output_path(ofname)
+    if opath is None:
+        eprintf("%s: can't create %s\n", pname, ofname)
+        raise Exit(1)
     try:
-        with open(ofname, "rb") as f:
+        with open(opath, "rb") as f:
             data = f.read()
     except OSError:
         data = b""
-    with open(ofname, "wb") as f:
+    with open(opath, "wb") as f:
         f.write(hdr + data)
     return 0
+
 
 
 def main(argv=None):

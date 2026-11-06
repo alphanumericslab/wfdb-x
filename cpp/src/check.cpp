@@ -882,7 +882,9 @@ void check_annotator(const std::string &record, const std::string &an,
 }
 
 // The library's settings for the duration of check_record, restored
-// afterwards (also when an exception is thrown).
+// afterwards (also when an exception is thrown), including the getvec mode
+// and the time resolution of output annotators (getafreq), which opening an
+// EDF record sets.
 class CheckScope {
 public:
     explicit CheckScope(const InputOptions &in) : in_(in)
@@ -893,12 +895,14 @@ public:
         legacy_ = wfdbx_set_legacy(0);
         print_ = detail::wfdb_set_error_print(false);
         gvmode_ = getgvmode();
+        afreq_ = getafreq();    // (WFDB-x: restored, as by read_record)
         wfdbquit();
     }
     ~CheckScope()
     {
         wfdbquit();
         setgvmode(gvmode_);
+        setafreq(afreq_);
         detail::wfdb_set_error_print(print_);
         wfdbx_set_legacy(legacy_);
         if (in_.network) wfdbx_set_network(prev_net_);
@@ -914,6 +918,7 @@ private:
     int legacy_ = 0;
     bool print_ = true;
     int gvmode_ = 0;
+    WFDB_Frequency afreq_ = 0;
 };
 
 } // namespace

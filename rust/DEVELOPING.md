@@ -33,8 +33,9 @@ One crate, `wfdbx` (`rust/Cargo.toml`):
 | `src/wfdbinit.rs` | port of `lib/wfdbinit.c` |
 | `src/flac.rs` | FLAC decoder and encoder (port of `cpp/src/flac.cpp`; crate-private) |
 | `src/ecgcodes.rs` | annotation codes (`NORMAL`, ...) and the `ecgmap.h` functions |
-| `src/record.rs` | high-level API (`read_record`, `read_header`, `read_annotations`, `write_record`, `write_record_physical`, `write_annotations`) |
+| `src/record.rs` | high-level API (`read_record`, `read_header`, `read_annotations`, `write_record`, `write_record_physical`, `write_annotations`; `Header::metadata` and `WriteOptions::metadata` use `metadata.rs`) |
 | `src/check.rs` | `check_record` (a WFDB-x addition; `python/src/wfdbx/check.py` is the reference) |
+| `src/metadata.rs` | header metadata: `read_metadata`, `get_metadata`, `set_metadata`, `remove_metadata`, `update_metadata` and their `_with` variants, `MetadataOptions`, and the checks of `WriteOptions::metadata` (a WFDB-x addition; `python/src/wfdbx/metadata.py` is the reference, `tests/metadata/README.md` the rules) |
 | `examples/check_cases.rs` | prints the `check_record` reports of a corpus made by `python/tests/check_corpus.py` (its `expected.txt` format) |
 | `src/bin/<tool>.rs` | the command-line tools, one binary each |
 | `tests/` | integration tests (`cargo test`) |
@@ -240,6 +241,19 @@ statuses and files. `argv` is taken with `std::env::args_os()` and kept as
 bytes (`cstd::args()`). Messages that include the program name use the
 tool's name (`argv[0]`'s last component, as in C).
 
+A file that a tool reads or creates itself, rather than through the
+library (the `-i` file of `wrsamp`, `edf2mit`, `wav2mit`, `a2m` and `ad2m`,
+the inputs of `ahaecg2mit`, the `-S` script of `xform`, the signal file
+that `wfdbdesc` measures; the WAV file of `mit2wav`, the EDF file of
+`mit2edf`, the master header of `snip -m`, the `.des`, `.ecg`, `.key` and
+`.txt` files of `parsescp`), is opened at the path that
+`wfdbx_input_path(name)` or `wfdbx_output_path(name)` returns (`wfdbio.rs`):
+where `wfdb_open` would find or create a file of that name, under the input
+or output directory (in legacy mode, inputs as named and the output
+directory as a plain prefix); `None` for a URL. `wfdbx_output_path` creates
+the missing directories when it prefixes the output directory. Messages
+name the file as the user gave it.
+
 `oannclose` sorts out-of-order annotation files in the same process
 (`sort_ann_file` in `annot.rs`, with the list of `sortann`,
 `annot::AnnList`, which the `sortann` tool uses too), with private reader,
@@ -289,6 +303,14 @@ off; `tests/bulk.rs` compares both paths.
   record name must then be a plain name, and the header records it without
   the directory). `AnnWriteOptions::sort` sets `AnnState::sort_override`
   for the call; the environment (`WFDBANNSORT`) is not changed.
+* `with_settings` saves `getgvmode()` and `getafreq()` when a high-level
+  function (`read_record`, `read_header`, `read_annotations`,
+  `write_record`, `write_record_physical`, `write_annotations`, their
+  `_with` forms, and `check_record`) is entered, and restores them
+  (`setgvmode`, then `setafreq`) when it returns, also on errors: opening
+  an EDF record adds `WFDB_HIGHRES` to the getvec mode and sets the time
+  resolution of output annotators, and `wfdbquit` resets neither. The
+  C-style functions and the metadata functions keep the behavior of C.
 * `read_record` reads blocks of vectors with `getvecs_status`: whole
   frames, and a multiple of 6 of them, so that formats 212, 310 and 311 end
   each block on a whole packed unit. Its vector is allocated for the
@@ -312,6 +334,20 @@ off; `tests/bulk.rs` compares both paths.
   with status -3. Files are compared by identity: device and inode, or, on
   Windows, the canonical path without regard to case. Legacy mode does not
   check.
+* Header metadata (`metadata.rs`). The header is opened with `wfdb_open`
+  (type `hea`), under the per-call `input_dir` and `network` of
+  `MetadataOptions` (applied with `with_input`), and handled as bytes. A
+  change is written to a temporary file in the destination's directory
+  (`.NAME.hea.XXXX.tmp`, created exclusively, with the permission bits of
+  the destination on Unix), which is renamed over the destination, and
+  removed on any failure. These functions do not call `wfdbquit`. The
+  duplicate-key warning goes through `wfdb_error`, as the checksum warning
+  of `read_record`. `read_header` reads the entries after the header
+  (from the `.hea` file only; none for an EDF record, which has no `.hea`
+  file, or for the standard input, `-`, without reading anything). `write_record` checks
+  `WriteOptions::metadata` (`metadata::info_lines`) before any file is
+  created, and writes the entries through `putinfo` after the comments.
+  `tests/metadata.rs` runs the shared cases of `tests/metadata/cases.tsv`.
 * `wfdbx_legacy_args(&mut argv)` is what the tools call first: it removes a
   leading `--legacy` and turns legacy mode on. In legacy mode the
   high-level functions keep their checks of a read error (see above) and

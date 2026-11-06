@@ -990,6 +990,32 @@ class SignalTest {
         w.wfdbquit()
     }
 
+    /**
+     * osigopen(record, NULL, 0) opens no signals and returns 0, after closing
+     * the output signals already open (unless the record name begins with
+     * '+'); a header that cannot be read is still an error, and a header with
+     * fewer signals than asked for gives -3. (C reads before the start of an
+     * array: see docs/KNOWN_C_BEHAVIORS.md; C++ and Python return 0.)
+     */
+    @Test
+    fun osigopenNoSignals() = withData("osig0") { d, w ->
+        w.setsampfreq(360.0)
+        assertEquals(3, w.osigfopen(spec("o16.dat", 3, 16), 3))
+        assertEquals(0, w.osigopen("+100s", null, 0))
+        assertEquals(3, w.putvec(intArrayOf(1, 2, 3))) // still open
+        assertEquals(0, w.osigopen("100s", null, 0))
+        assertEquals(0, w.putvec(intArrayOf(1, 2, 3))) // closed: no signals
+        assertEquals(0, w.osigopen("100s", emptyArray(), 0))
+        assertEquals(0, w.osigopen("100s.hea", null, 0))
+        w.wfdbquiet()
+        assertEquals(-1, w.osigopen("nosuch", null, 0))
+        assertEquals(-3, w.osigopen("100s", Array(3) { Siginfo() }, 3))
+        assertEquals("osigopen: record 100s has fewer signals than needed\n", str(w.wfdberror()))
+        w.wfdbverbose()
+        w.wfdbquit()
+        assertEquals(6, d.read("o16.dat")!!.size)
+    }
+
     private fun outSpec(fname: String) = arrayOf(Siginfo(fname = fname.latin1(), desc = "x".latin1(), fmt = 16, gain = 200.0, adcres = 16))
 
     @Test

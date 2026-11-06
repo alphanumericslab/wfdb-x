@@ -1,4 +1,5 @@
 # WFDB-x
+<!-- {% raw %} (for the GitHub Pages site: the text below holds "{{", which Jekyll would read as Liquid) -->
 ## A fast, lightweight implementation of the WFDB library and command-line tools, with identical behavior across seven programming languages
 
 The [WFDB Software Package](https://physionet.org/content/wfdb/) (by George
@@ -35,6 +36,11 @@ Each implementation:
 The original C sources are kept, unmodified, in
 [`third_party/wfdb-main.zip`](third_party/), and serve as the reference
 implementation for testing.
+
+The [user's manual](docs/user-manual/wfdb-x-user-manual.pdf) (PDF) documents every function and tool
+for the users of each language. To cite WFDB-x, cite the preprint
+[arXiv:2611.01358](https://arxiv.org/abs/2611.01358) (see
+[How to cite](#how-to-cite)).
 
 ## WFDB-x at a glance
 
@@ -112,7 +118,7 @@ This is verified by tests whose expected results were produced by the
 original C code, not written by hand:
 
 * **Conformance suite** ([`tests/conformance/`](tests/conformance/),
-  described in [`docs/conformance.md`](docs/conformance.md)): 1098
+  described in [`docs/conformance.md`](docs/conformance.md)): 1135
   command-line test cases, run by a language-independent harness. Their
   expected results were produced by the C programs, built from
   `third_party/` with FLAC support and with
@@ -158,7 +164,7 @@ requirements.
 | Rust | [`rust/`](rust/README.md) | `cargo install --path rust` | `rdsamp -r 100s` |
 | Julia | [`julia/`](julia/README.md) | `using Pkg; Pkg.develop(path="/path/to/wfdb-x/julia")` | `wfdbx rdsamp -r 100s` |
 | R | [`r/`](r/README.md) | `R CMD INSTALL r` | `wfdbx rdsamp -r 100s` |
-| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.1.0")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
+| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.2.0")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
 
 Record `100s` is the sample record in `tests/data`. Run the tools there, or
 point `WFDBX_INPUT_DIR` at that directory; the Python package also includes it
@@ -179,7 +185,7 @@ the language, and none of them calls the C library or another language.
 
 | | What it is | Use it for |
 |---|---|---|
-| **1. The high-level API** (recommended) | A few functions in the idiom of the language: `read_record`, `read_header`, `read_annotations`, `write_record`, `write_annotations` and `check_record` (`readRecord`, ... in Kotlin). One call reads a whole record or annotation file into arrays (NumPy, `Vector`, `matrix`, ...), with named options, errors reported as exceptions or error values, and fast block reads. | New code, analysis, notebooks, machine learning: anything that wants a record as arrays. It has no counterpart in the C package. |
+| **1. The high-level API** (recommended) | A few functions in the idiom of the language: `read_record`, `read_header`, `read_annotations`, `write_record`, `write_annotations`, `check_record`, and the header metadata functions `read_metadata`, `get_metadata`, `set_metadata`, `remove_metadata` and `update_metadata` (`readRecord`, ... in Kotlin). One call reads a whole record or annotation file into arrays (NumPy, `Vector`, `matrix`, ...), with named options, errors reported as exceptions or error values, and fast block reads. | New code, analysis, notebooks, machine learning: anything that wants a record as arrays. It has no counterpart in the C package. |
 | **2. The WFDB library functions** | The C library API under its C names (`isigopen`, `getvec`, `getann`, `putann`, `strtim`, ...), with the C behavior, frame by frame and annotation by annotation. | Porting a program written against the C library, or processing a record as a stream with the exact C semantics. |
 | **3. The command-line tools** | The 33 tools (`rdsamp`, `rdann`, `wrsamp`, `xform`, ...) with the options, output, messages and exit status of the C tools, implemented in each language. | Shell scripts and pipelines, and reproducing work done with the original tools, without installing the C package. |
 
@@ -226,6 +232,11 @@ of `psd/` are outside the scope of this project.
 
 ## Documentation
 
+* [User's manual (PDF)](docs/user-manual/wfdb-x-user-manual.pdf), built
+  from the LaTeX sources in [`docs/user-manual/`](docs/user-manual/), for the users of each language: the concepts,
+  every function of the high-level API with its arguments, results, errors
+  and examples, the WFDB library functions, and the command-line tools
+* [`CHANGELOG.md`](CHANGELOG.md): the changes in each version
 * [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md): the deliberate differences
   from the original package, the reasons for them, and legacy mode
 * [`docs/INVENTORY.md`](docs/INVENTORY.md): every tool and library
@@ -260,7 +271,7 @@ verification and unit testing**.
   C sources, and were reviewed and tested by human engineers.
 * **Cross-language verification.** Every implementation is checked
   against the outputs of the original C tools and library on the
-  conformance suite: 1098 cases, plus 877 for legacy mode. Because all
+  conformance suite: 1135 cases, plus 883 for legacy mode. Because all
   seven must pass the same cases, each implementation is also checked
   against the other six.
 * **Unit testing.** Each implementation has its own unit tests of the
@@ -274,7 +285,7 @@ issues.
 
 WFDB-x has its own version numbers, shared by the seven implementations and
 following [semantic versioning](https://semver.org); the current version is
-1.1.0. They are independent of the version of the WFDB Software Package
+1.2.0 ([`CHANGELOG.md`](CHANGELOG.md) lists the changes in each version). They are independent of the version of the WFDB Software Package
 that WFDB-x implements, 10.7.0, which the library still reports as in C
 (`wfdbversion()` returns `"10.7.0"`, and `wfdberror()` names it).
 
@@ -302,6 +313,32 @@ The other projects are acknowledged as related work.
   a tool that finds common problems in WFDB records, from metadata errors
   to out-of-range samples and annotation errors.
 
+## How to cite
+
+To refer to WFDB-x in a publication, cite the preprint that describes it:
+
+> Reza Sameni. *WFDB-x: Conformance-Tested Implementations of the WFDB
+> Software Package in Seven Programming Languages.* arXiv:2611.01358, 2026.
+> [doi:10.48550/arXiv.2611.01358](https://doi.org/10.48550/arXiv.2611.01358)
+> ([PDF](https://arxiv.org/pdf/2611.01358))
+
+```bibtex
+@misc{wfdb-x,
+  doi = {10.48550/ARXIV.2611.01358},
+  url = {https://arxiv.org/abs/2611.01358},
+  author = {Sameni,  Reza},
+  title = {{WFDB-x: Conformance-Tested Implementations of the WFDB Software Package in Seven Programming Languages}},
+  publisher = {arXiv},
+  year = {2026},
+  copyright = {Creative Commons Attribution Share Alike 4.0 International}
+}
+```
+
+The same reference is in [`CITATION.cff`](CITATION.cff), from which GitHub
+offers it under "Cite this repository". Work that uses the WFDB format or
+PhysioNet data should also cite the WFDB Software Package and PhysioNet, as
+PhysioNet asks.
+
 ## Authors and license
 
 WFDB-x was developed by [Reza Sameni](https://sameni.info)
@@ -322,3 +359,5 @@ the GNU General Public License, version 2 or later, for the tools.
 
 The original WFDB Software Package is Copyright (C) 1983-2022 George B. Moody
 and the WFDB contributors.
+
+<!-- {% endraw %} -->

@@ -18,7 +18,9 @@
 // of the original program, but it is new code, not the original C code.
 //
 // Changes from the original: no built-in sampling frequency: the record must
-// give it (the original assumed 250 Hz); --legacy, as the first argument,
+// give it (the original assumed 250 Hz); the WAV file is completed where the
+// library created it, under the output directory (the original rewrote a file
+// of that name in the current directory); --legacy, as the first argument,
 // restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
@@ -266,12 +268,18 @@ fn main() {
     wfdbx::wfdbquit();
 
     // Prepend the header and format chunks to the new signal file.
+    // WFDB-x: the signal file is where the library created it, under the
+    // output directory if one is set (see wfdbx_output_path).
+    let Some(opath) = wfdbx::wfdbx_output_path(&ofname) else {
+        ceprintf!(b"%s: can't create %s\n", pname, ofname);
+        cstd::exit(1);
+    };
     let mut data = Vec::new();
-    if let Some(mut f) = WfdbFile::fopen(&ofname, b"rb") {
+    if let Some(mut f) = WfdbFile::fopen(&opath, b"rb") {
         data = f.read_to_end();
         f.close();
     }
-    if let Some(mut f) = WfdbFile::fopen(&ofname, b"wb") {
+    if let Some(mut f) = WfdbFile::fopen(&opath, b"wb") {
         f.write(&hdr);
         f.write(&data);
         f.close();

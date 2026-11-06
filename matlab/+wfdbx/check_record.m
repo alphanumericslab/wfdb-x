@@ -2,18 +2,26 @@ function report = check_record(record, varargin)
 %CHECK_RECORD Check a record and its annotation files, and report every problem.
 %   REPORT = wfdbx.check_record(RECORD) checks the header of the record
 %   RECORD, its signal specifications and every sample of its signal files,
-%   and reports each problem that it finds.  RECORD is a record name read
-%   from the input directory, or a full path, a ~ path or a URL (as for
-%   wfdbx.read_record).  Problems in the record never throw an error: they
-%   are reported.
+%   and reports each problem that it finds.  RECORD is the record name,
+%   without the .hea extension (a trailing '.hea' is also accepted): a full
+%   path, absolute ('/data/mitdb/100') or in the home directory
+%   ('~/Documents/100s'), used as given; a relative path ('100s',
+%   'data/100s'), read from the input directory if one is set (see
+%   wfdbx.wfdbx_set_input_dir), otherwise from the current folder; or a URL
+%   ('https://physionet.org/files/mitdb/1.0.0/100'), read only if network
+%   access is on (see wfdbx.wfdbx_set_network).  Problems in the record
+%   never throw an error: they are reported.
 %
 %   REPORT = wfdbx.check_record(RECORD, NAME, VALUE, ...) takes these
 %   options:
 %
 %     'annotators'  annotator names to check: a cell array such as {'atr'},
 %                   or one name as a char vector (default: none)
-%     'input_dir'   input directory for this call only (see
-%                   wfdbx.read_record)
+%     'input_dir'   input directory for this call only (optional): a
+%                   local directory, a ~ path or a URL, under which
+%                   relative record names are read.  It does not apply to
+%                   full paths or URLs.  Default: the current setting (see
+%                   wfdbx.wfdbx_set_input_dir).
 %     'network'     true to allow network access for this call only (see
 %                   wfdbx.read_record)
 %
@@ -46,7 +54,9 @@ function report = check_record(record, varargin)
 %   name is not a string.
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
-%   WFDB library functions.
+%   WFDB library functions; the getvec mode (wfdbx.getgvmode) and the time
+%   resolution of output annotators (wfdbx.getafreq) are left as they were
+%   (opening an EDF record sets both).
 %
 %   It checks for problems similar to those found by Benjamin Moody's
 %   wfdbcheck (https://github.com/bemoody/wfdbcheck).
@@ -110,8 +120,11 @@ io = wfdbx.internal.io_state();
 printing = io.error_print;
 legacy = wfdbx.wfdbx_set_legacy(0);
 io.error_print = false;
-mode = wfdbx.getgvmode();    % (restored too: the check sets it)
-restore = onCleanup(@() restore_state(io, printing, legacy, mode)); %#ok<NASGU>
+% (WFDB-x: the getvec mode and the time resolution of output annotators
+% are restored too, as by read_record: opening an EDF record sets both)
+mode = wfdbx.getgvmode();
+afreq = wfdbx.getafreq();
+restore = onCleanup(@() restore_state(io, printing, legacy, mode, afreq)); %#ok<NASGU>
 wfdbx.wfdbquit();
 rep = reshape(struct('severity', {}, 'code', {}, 'where', {}, 'message', {}), 0, 1);
 [rep, len] = check_record_signals(record, rep);
@@ -144,11 +157,12 @@ if nargout == 0
 end
 end
 
-function restore_state(io, printing, legacy, mode)
+function restore_state(io, printing, legacy, mode, afreq)
 wfdbx.wfdbquit();
 io.error_print = printing;
 wfdbx.wfdbx_set_legacy(legacy);
 wfdbx.setgvmode(mode);
+wfdbx.setafreq(afreq);
 end
 
 

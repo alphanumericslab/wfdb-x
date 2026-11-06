@@ -1,9 +1,14 @@
 function rec = read_record(record, varargin)
 %READ_RECORD Read the signals of a record into a matrix.
 %   REC = wfdbx.read_record(RECORD) reads all samples of all signals of the
-%   record RECORD and returns them in a structure.  RECORD is a record name
-%   read from the input directory, or a full path, a ~ path or a URL (see
-%   wfdbx.wfdbx_set_input_dir).
+%   record RECORD and returns them in a structure.  RECORD is the record name,
+%   without the .hea extension (a trailing '.hea' is also accepted): a full
+%   path, absolute ('/data/mitdb/100') or in the home directory
+%   ('~/Documents/100s'), used as given; a relative path ('100s',
+%   'data/100s'), read from the input directory if one is set (see
+%   wfdbx.wfdbx_set_input_dir), otherwise from the current folder; or a URL
+%   ('https://physionet.org/files/mitdb/1.0.0/100'), read only if network
+%   access is on (see wfdbx.wfdbx_set_network).
 %
 %   REC = wfdbx.read_record(RECORD, NAME, VALUE, ...) takes these options:
 %
@@ -24,8 +29,11 @@ function rec = read_record(record, varargin)
 %                 one (default false)
 %     'checksum_warning'  false to turn off the warning given when the data
 %                 do not match the header's checksums (default true)
-%     'input_dir' input directory for this call only (default: the current
-%                 setting)
+%     'input_dir' input directory for this call only (optional): a
+%                 local directory, a ~ path or a URL, under which relative
+%                 record names are read.  It does not apply to full paths
+%                 or URLs.  Default: the current setting (see
+%                 wfdbx.wfdbx_set_input_dir).
 %     'network'   true to allow network access for this call only (default:
 %                 the current setting)
 %     'legacy'    true to behave as the original WFDB package (default
@@ -71,9 +79,11 @@ function rec = read_record(record, varargin)
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
 %   WFDB library functions; whatever happens, errors included, the input
-%   signals are closed again before it returns.  It sets the getvec mode ('highres', 'pad') for
-%   its own reading only: the mode in force before the call is restored
-%   afterwards.
+%   signals are closed again before it returns.  It sets the getvec mode
+%   ('highres', 'pad') for its own reading only: the mode in force before
+%   the call is restored afterwards (also after an EDF record, whose opening
+%   sets WFDB_HIGHRES), and so is the time resolution of output annotators
+%   (wfdbx.getafreq), which opening an EDF record sets.
 %
 %   Examples (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -106,6 +116,10 @@ function rec = read_record(record, varargin)
 % any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
+% WFDB-x: the getvec mode and the time resolution of output annotators are
+% restored when the function returns (also on errors; opening an EDF record
+% sets both)
+keep_settings = wfdbx.internal.hl_settings(); %#ok<NASGU>
 opt = struct('channels', [], 'sampfrom', 0, 'sampto', [], ...
     'physical', false, 'highres', false, 'pad', false, 'input_dir', [], ...
     'network', [], 'legacy', false, 'checksum_warning', true);

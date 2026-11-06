@@ -1,0 +1,1699 @@
+% The MATLAB/Octave chapter of the WFDB-x user's manual. It follows the sections of the
+% Python chapter (chapters/python.tex), in the same order. Each \apientry of the section
+% "The high-level API" is a function of matlab/+wfdbx listed under "High-level functions"
+% or "Header metadata" in matlab/+wfdbx/Contents.m; its params name the positional
+% arguments of the function line, then the name-value options in the order of the
+% structure of defaults that the function parses (wfdbx.internal.hl_options). The
+% examples of style "example" were run with GNU Octave 8.4, in a copy of tests/data that
+% is the current folder (the paths /path/to/wfdb-x replaced by those of the repository);
+% check_manual.py does not run them.
+\chapter{MATLAB and Octave}
+\label{chap:matlab}
+\chapterlanguage{matlab}
+
+The MATLAB/Octave implementation of WFDB-x is the package \code{wfdbx}: the folder
+\file{matlab/+wfdbx} of the repository, with its internal functions in
+\file{+wfdbx/+internal} and the command-line tools in \file{+wfdbx/+apps}. It is plain
+MATLAB code, which runs unchanged in GNU Octave and in MATLAB, needs no toolbox, and never
+calls the C library. Every function is called with the name of the package,
+\code{wfdbx.NAME}.
+
+It offers WFDB-x in three ways:
+\begin{itemize}
+\item \textbf{The high-level API} (\cref{sec:matlab-api}): functions that read and write
+  whole records, headers, annotation files and header metadata as matrices of doubles,
+  structures and cell arrays, in one call, with name-value options, and that throw MATLAB
+  errors (with an identifier, such as \code{wfdbx:read\_record}) on failure. They read
+  signal files in large blocks, and are the fastest way to read a record. They are an
+  addition of WFDB-x: the C package has no equivalent. They are the recommended interface
+  for new code and analysis.
+\item \textbf{The WFDB library functions} under their C names, called with the name of
+  the package as a prefix: \code{wfdbx.isigopen}, \code{wfdbx.getvec},
+  \code{wfdbx.getann}, \code{wfdbx.putann}, and so on. They have the
+  behavior of the C library (\cref{sec:matlab-library}). They are documented once, for
+  all the languages, in \cref{chap:library}.
+\item \textbf{The command-line tools} (\code{rdsamp}, \code{rdann}, \code{wrsamp},
+  \code{xform} and 29 others), with the options, output and exit status of the C tools,
+  run from the shell through an Octave script or a MATLAB shell script, or inside a
+  session as functions (\cref{sec:matlab-tools}). They are documented in
+  \cref{chap:tools}.
+\end{itemize}
+The high-level functions return exactly the samples and annotations that the library
+functions (and the C library) give.
+
+% ==========================================================================================
+\section{Installation and requirements}
+\label{sec:matlab-install}
+
+\subsection{Requirements}
+
+WFDB-x for MATLAB and Octave needs GNU Octave 6 or later, or MATLAB R2019b or later, and
+no toolbox or other package. It uses only the language features and functions that both
+products provide (no \code{string} objects, no \code{arguments} blocks, no Octave-only
+syntax), so the same files run in both. It has no compiled code, and needs no C compiler,
+no WFDB library and no libFLAC: the FLAC formats 508, 516 and 524 are read and written by
+WFDB-x's own codec.
+
+The code is tested with GNU Octave 8.4 (\cref{sec:matlab-testing}). It has not yet been
+run in MATLAB: it is written to the rules that both products share, which are checked by
+reading the code, and its MATLAB command-line driver, \file{matlab/bin/wfdbx\_matlab.sh},
+has been checked in Octave only.
+
+Remote files (\cref{chap:files}) are downloaded with the program \cmd{curl} when it is
+installed, and otherwise with \code{webread} (Octave) or \code{websave} (MATLAB).
+
+\subsection{Installing}
+
+The package is used from a copy of the repository: its folder \file{matlab}, which holds
+\file{+wfdbx}, is added to the path:
+
+\begin{lstlisting}[language=Matlab]
+addpath('/path/to/wfdb-x/matlab')
+savepath      % optional: keep the folder on the path in later sessions
+\end{lstlisting}
+
+\code{help wfdbx.Contents} lists the functions, by group (in MATLAB, \code{help wfdbx}
+also does), and \code{help wfdbx.NAME} describes each one. \file{+wfdbx/Contents.m} gives
+the version of the package, \code{Version 1.2.0}, and the command-line driver prints it:
+
+\begin{lstlisting}[style=shell]
+octave-cli --no-gui --norc -q matlab/bin/wfdbx_cli.m --version    # WFDB-x 1.2.0
+\end{lstlisting}
+
+\subsection{The sample record}
+\label{sec:matlab-resources}
+
+The repository includes the sample record \code{100s} in \file{tests/data}: the first
+minute of record 100 of the MIT-BIH Arrhythmia Database, two ECG signals (\code{MLII} and
+\code{V5}) sampled at 360\,Hz, with the reference beat annotations (annotator
+\code{atr}), in the files \file{100s.hea}, \file{100s.dat} and \file{100s.atr}. The
+package has no function that returns this folder: a program names it, or sets it as the
+input directory. Work that uses the MIT-BIH Arrhythmia Database cites it as described on
+PhysioNet.
+
+% ==========================================================================================
+\section{Quick start}
+\label{sec:matlab-quickstart}
+
+This example reads the header, ten seconds of the signals and the annotations of the
+sample record \code{100s}, from the folder \file{tests/data} of a copy of the repository
+(\code{'input\_dir'}), and computes the mean heart rate. It then writes the first ten
+seconds as a new record, \code{first10}, in the current folder, with two metadata entries
+in its header.
+
+\begin{lstlisting}[language=Matlab,style=example]
+addpath('/path/to/wfdb-x/matlab');
+data = '/path/to/wfdb-x/tests/data';     % the folder of the sample record 100s
+
+% The header only: no samples are read.
+hdr = wfdbx.read_header('100s', 'input_dir', data);
+fprintf('%d %g %d\n', hdr.nsig, hdr.fs, hdr.nsamples);   % 2 360 21600
+fprintf('%s\n', hdr.siginfo.desc);                       % MLII, then V5
+
+% Seconds 10 to 20 of both signals, in physical units: one row per sample, one column
+% per signal.
+rec = wfdbx.read_record('100s', 'sampfrom', '0:10', 'sampto', '0:20', ...
+    'physical', true, 'input_dir', data);
+disp(size(rec.signals));                % 3600 2
+fprintf('%g %g\n', rec.signals(1, :));  % -0.39 -0.275
+
+% The beat annotations, and the mean heart rate.
+ann = wfdbx.read_annotations('100s', 'atr', 'input_dir', data);
+fprintf('%d %s %s %s\n', numel(ann.samples), ann.symbols{1:3});   % 75 + N N
+beats = ann.samples(wfdbx.isqrs(ann.codes) == 1);
+rr = diff(beats) / ann.fs;              % RR intervals, in seconds
+fprintf('%d beats, %.1f beats per minute\n', numel(beats), 60 / mean(rr));
+% 74 beats, 73.9 beats per minute
+
+% Write the first 10 seconds, in ADC units, as the record "first10" (first10.hea and
+% first10.dat, in the current folder), with the signal specifications of 100s.
+x = wfdbx.read_record('100s', 'sampto', '0:10', 'input_dir', data);
+wfdbx.write_record('first10', x.signals, x.fs, 'fmt', 16, 'gains', x.gains, ...
+    'baselines', x.baselines, 'adczeros', [x.siginfo.adczero], ...
+    'adcres', [x.siginfo.adcres], 'units', 'mV', 'names', x.names, ...
+    'metadata', {'Source', 'MIT-BIH record 100'});
+
+% Header metadata: "# Key: value" lines of the header.
+wfdbx.set_metadata('first10', 'Age', '69');
+m = wfdbx.read_metadata('first10')';    % (transposed, for fprintf)
+fprintf('%s: %s\n', m{:});      % Source: MIT-BIH record 100, then Age: 69
+wfdbx.check_record('first10');  % prints: no problems found
+\end{lstlisting}
+
+The header \file{100s.hea} gives no units: the example writes \code{'mV'} explicitly,
+since WFDB-x never assumes units, a gain, an ADC resolution or a sampling frequency that
+a record does not give (\cref{chap:behavior}).
+
+% ==========================================================================================
+\section{The high-level API}
+\label{sec:matlab-api}
+
+The high-level API is made of the functions of this section, in the package
+\code{wfdbx} (\code{wfdbx.read\_record}, \ldots), and of the structures of their results
+(\cref{sec:matlab-results}). Each is one file of \file{matlab/+wfdbx};
+\code{help wfdbx.NAME} gives its documentation.
+
+\subsection{Conventions}
+\label{sec:matlab-conventions}
+
+\paragraph{Arguments and options.} The first arguments of a function are positional (the
+record, the annotator, the samples, \ldots); the others are options, given as name-value
+pairs after them, in any order: \code{wfdbx.read\_record('100s', 'sampto', 1000,
+'physical', true)}. Option names are case-insensitive. An option that is not given keeps
+its default, as listed in the call syntax of each entry; \code{[]} means ``not given'' for
+the options whose default is \code{[]}. An unknown option, or a name without a value, is
+an error (\cref{sec:matlab-warnings}). Text arguments are \code{char} row vectors or
+MATLAB strings (converted to \code{char}).
+
+\paragraph{Record names and directories.} A record is named as in the other parts of
+WFDB-x (\cref{chap:records,chap:files}), without the \code{.hea} extension of its header
+(the readers, and \code{wfdbx.write\_annotations}, also accept a trailing \code{.hea};
+\code{wfdbx.write\_record} does not). A full path, absolute (\code{'/data/mitdb/100'}) or
+in the home directory (\code{'\textasciitilde/Documents/100s'}), is used as given; a
+relative path, such as \code{'100s'} or \code{'data/100s'}, is read from the input
+directory if one is set, otherwise from the current folder, and written to the output
+directory if one is set, otherwise to the current folder (missing folders are created);
+a URL (\code{'https://physionet.org/files/mitdb/1.0.0/100'}) is read only if network
+access is on, and cannot be written. A writer given a name with a path creates the files
+in that folder, and the header names the record and its signal file without the path
+(\code{'rec'}, \code{'rec.dat'}), so that the record opens under any path that leads to
+it; in legacy mode, as in the original package, the header gives the name with its path.
+The input and output directories are the current
+folder unless they are set, with \code{wfdbx.wfdbx\_set\_input\_dir} and
+\code{wfdbx.wfdbx\_set\_output\_dir} (\cref{sec:matlab-settings}) or with the
+environment variables \code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}. URLs are read
+only when network access is on. The functions that read take the options
+\code{'input\_dir'} and \code{'network'}, and those that write take \code{'dir'}: they
+apply to that one call, and the previous settings are restored when it returns, also after
+an error. \code{'input\_dir'} is optional, and applies to relative names only, not to full
+paths or URLs; with \code{'dir'}, the record name must be a plain name (\code{'rec'}),
+without a folder. The signal files that a header names are read from the header's
+folder.
+
+\paragraph{Times.} The options \code{'sampfrom'} and \code{'sampto'} are sample numbers
+(whole numbers) or WFDB time strings, as \code{strtim} reads them: \code{'0:10'} (10
+seconds), \code{'1:02:03.5'}, \code{'s3600'} (sample 3600), \code{'e'} (the end of the
+record), or a time of day in brackets, \code{'[14:00:00]'}. A time in seconds needs the
+sampling frequency; when the record does not give it, such a time is an error.
+
+\paragraph{Numbers and arrays.} Samples, times, counts and codes are doubles. Signal
+numbers start at 0, as in C. The signals of a record are a matrix with one row per sample
+and one column per signal; the annotations of a file are column vectors and cell columns,
+one row per annotation.
+
+\paragraph{Per-signal and per-annotation options.} The options that describe each signal
+(\code{'fmt'}, \code{'gains'}, \code{'units'}, \ldots) or each annotation
+(\code{'subtypes'}, \code{'chans'}, \ldots) take one value for all, or a vector (for
+numbers) or cell array (for text) with exactly one value per signal or per annotation.
+
+\paragraph{Signal parameters.} No sampling frequency, gain, ADC resolution or units is
+ever assumed. Where one is needed and the record does not give it, it must be given as an
+argument; otherwise the function throws an error. A record whose header gives no
+sampling frequency has \code{fs} 0.
+
+\paragraph{Text.} Text is held as bytes: each character of a \code{char} vector is one byte
+of a file (codes 0 to 255), so every byte sequence round-trips unchanged, and UTF-8 text
+is stored as its bytes. In Octave, a \code{char} array holds bytes already; in MATLAB, a
+character above 255 cannot be written to a header. The metadata functions also accept a
+\code{uint8} vector of bytes as a key or value.
+
+\paragraph{Legacy mode.} With \code{'legacy', true}, a function behaves as in the
+original WFDB package, with its assumed signal parameters and its search for files
+(\cref{chap:behavior}); the library's legacy mode is on for the duration of the call
+only. With \code{false} (the default), the current setting of
+\code{wfdbx.wfdbx\_set\_legacy} applies, which is off unless it was turned on.
+
+\paragraph{State.} The functions that read and write records and annotation files call
+\code{wfdbx.wfdbquit()}, which closes anything opened with the WFDB library functions,
+and close their own files before they return, whatever the outcome.
+\code{wfdbx.read\_record} sets the getvec mode for its own reading only. The functions
+\code{wfdbx.read\_record}, \code{wfdbx.read\_header}, \code{wfdbx.read\_annotations},
+\code{wfdbx.write\_record}, \code{wfdbx.write\_annotations} and
+\code{wfdbx.check\_record} leave the getvec mode (\code{wfdbx.getgvmode}) and the time
+resolution of output annotators (\code{wfdbx.getafreq}) as they were when they return,
+also after an error: opening an EDF record sets both (it adds \code{WFDB\_HIGHRES} to the
+getvec mode, and sets the time resolution to the record's sampling frequency when none is
+set), as in C, and \code{wfdbx.wfdbquit()} resets neither. The metadata
+functions open no signals, and leave the library's open files as they are.
+
+\paragraph{The examples} of this section read the test records of WFDB-x (among them
+\code{100s}) from the current folder, and write records of their own there: they run in a
+copy of the folder \file{tests/data} of the repository, made the current folder (with
+\file{matlab} on the path).
+
+% ------------------------------------------------------------------------------------------
+\subsection{Reading records}
+\label{sec:matlab-reading}
+
+\apientry{wfdbx.read\_record}{Read the signals of a record}
+\begin{lstlisting}[language=Matlab,style=signature]
+rec = wfdbx.read_record(record, 'channels', [], 'sampfrom', 0, 'sampto', [], ...
+    'physical', false, 'highres', false, 'pad', false, 'input_dir', [], ...
+    'network', [], 'legacy', false, 'checksum_warning', true)
+\end{lstlisting}
+Reads the signals of a record, or part of it, into a matrix of doubles with one row per
+sample and one column per signal, together with the description of the record. The
+samples are those that \code{getvec} returns (\cref{chap:library}), read in large blocks.
+Invalid samples are \code{wfdbx.WFDB\_INVALID\_SAMPLE()} ($-32768$) in ADC units, and NaN
+in physical units. When the read reaches the end of the record, the samples are compared
+with the checksums of the header (\cref{sec:matlab-warnings}).
+\begin{params}
+\item[record] Record name (a \code{char} vector or a MATLAB string), without the \code{.hea} extension (a trailing \code{.hea}
+  is also accepted): a full path, absolute (\code{'/data/mitdb/100'}) or in the home
+  directory (\code{'\textasciitilde/Documents/100s'}), used as given; a relative path
+  (\code{'100s'}, \code{'data/100s'}), read from the input directory if one is set,
+  otherwise from the current folder; or a URL
+  (\code{'https://physionet.org/files/mitdb/1.0.0/100'}), read only if network access is
+  on (\cref{sec:record-paths}).
+\item[channels] The signals to read, in the order in which they are returned: a vector of
+  signal numbers (from 0), or a cell array of signal numbers and signal descriptions (as
+  in \code{rec.names}, such as \code{'MLII'}), which may be mixed. Default \code{[]}: all
+  the signals, in the order of the header.
+\item[sampfrom] The first sample to read: a sample number (a whole number $\ge 0$) or a
+  time string. Default \code{0}: the beginning of the record.
+\item[sampto] The sample after the last one to read: a sample number (a whole number) or
+  a time string. A value at or before \code{sampfrom} reads no samples. Default
+  \code{[]}: the end of the record.
+\item[physical] \code{false} (the default) to return ADC units; \code{true} to return
+  physical units, computed as $(\mathit{adc} - \mathit{baseline}) / \mathit{gain}$. Every
+  signal read must then have a gain.
+\item[highres] \code{false} (the default) to read a multi-frequency record at its frame
+  frequency, with the samples of the faster signals averaged to one per frame;
+  \code{true} to read every sample, at the highest sampling frequency of the record (the
+  samples of the slower signals are repeated). \code{rec.fs} is then that frequency.
+\item[pad] \code{true} to replace each invalid sample by the previous valid sample of the
+  same signal. Default \code{false}.
+\item[input\_dir] The input directory for this call only (optional): a local folder, a
+  \code{\textasciitilde} path or the URL of a directory, under which relative record names
+  are read (\code{''}: the default). It does not apply to full paths or URLs. Default
+  \code{[]}: the current setting (\code{wfdbx.wfdbx\_set\_input\_dir}).
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{[]}: the current setting (\code{wfdbx.wfdbx\_set\_network}).
+\item[legacy] \code{true} to behave as the original WFDB package (legacy mode, for this
+  call only). Default \code{false}.
+\item[checksum\_warning] \code{true} (the default) to issue the warning
+  \code{wfdbx:checksum} when the samples do not match the checksums of the header;
+  \code{false} for no warning. The samples are returned either way, and
+  \code{rec.checksum\_ok} is \code{false}.
+\end{params}
+\returns{A structure (\cref{tab:matlab-record}).}
+\raises{Identifier \code{wfdbx:read\_record}: the record cannot be read (``can't read
+record REC''), or its signals cannot be opened; a signal file is shorter than its header
+says (``can't read signal data of record REC (getvec status -3)''); a requested signal is
+not in the record; \code{sampfrom} is negative, or \code{sampfrom} or \code{sampto} is
+not a whole number (a fraction, NaN or an infinite value); a time string needs the
+sampling frequency and the header gives none; \code{'physical'} is \code{true} and a
+signal read is uncalibrated; or an option is not valid. Warning \code{wfdbx:checksum} on
+a checksum error (see \code{checksum\_warning}).}
+\begin{lstlisting}[language=Matlab,style=example]
+% Seconds 10 to 20 of lead MLII, in physical units.
+rec = wfdbx.read_record('100s', 'channels', {'MLII'}, 'sampfrom', '0:10', ...
+    'sampto', '0:20', 'physical', true);
+disp(size(rec.signals));                         % 3600 1
+fprintf('%s %g %d\n', rec.names{1}, rec.fs, rec.sampfrom);   % MLII 360 3600
+
+% The first 3 samples of both signals, in ADC units, V5 first.
+rec = wfdbx.read_record('100s', 'channels', [1 0], 'sampto', 3);
+disp(rec.signals);          % three rows of 1011 995
+disp(rec.names);            % {'V5', 'MLII'}
+disp([rec.gains; rec.baselines]);      % 200 200; 1024 1024
+
+% The whole record: the checksums are verified.
+rec = wfdbx.read_record('100s');
+fprintf('%d %d %d\n', size(rec.signals), rec.checksum_ok);    % 21600 2 1
+\end{lstlisting}
+A multi-frequency record (here the test record \code{mfreq}, whose signals have 1, 2
+and 4 samples per frame at a frame frequency of 100\,Hz) is read at its frame frequency,
+or at its highest sampling frequency:
+\begin{lstlisting}[language=Matlab,style=example]
+rec = wfdbx.read_record('mfreq');
+fprintf('%g %d %d\n', rec.fs, size(rec.signals));     % 100 600 3
+rec = wfdbx.read_record('mfreq', 'highres', true);
+fprintf('%g %d %d\n', rec.fs, size(rec.signals));     % 400 2400 3
+disp([rec.siginfo.spf]);                              % 1 2 4
+\end{lstlisting}
+
+\apientry{wfdbx.read\_header}{Read the header of a record}
+\begin{lstlisting}[language=Matlab,style=signature]
+hdr = wfdbx.read_header(record, 'input_dir', [], 'network', [], 'legacy', false)
+\end{lstlisting}
+Reads the header of a record, without opening its signal files. The result describes the
+record and each of its signals, and holds the info strings and the metadata entries of the
+header. For a multi-segment record, the master header is read, and \code{nsamples} is the
+length of the whole record. The metadata are read from the \file{.hea} file only; an EDF
+record (which has no \file{.hea} file) and a header read from the standard input
+(\code{'-'}) have none.
+\begin{params}
+\item[record] Record name, without the \code{.hea} extension (a trailing \code{.hea}
+  is also accepted): a full path, absolute (\code{'/data/mitdb/100'}) or in the home
+  directory (\code{'\textasciitilde/Documents/100s'}), used as given; a relative path
+  (\code{'100s'}, \code{'data/100s'}), read from the input directory if one is set,
+  otherwise from the current folder; or a URL
+  (\code{'https://physionet.org/files/mitdb/1.0.0/100'}), read only if network access is
+  on (\cref{sec:record-paths}).
+\item[input\_dir] The input directory for this call only (optional), under which
+  relative record names are read; it does not apply to full paths or URLs (as for
+  \code{wfdbx.read\_record}). Default \code{[]}: the current setting.
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{[]}: the current setting.
+\item[legacy] \code{true} to read the header as the original WFDB package does. Default
+  \code{false}.
+\end{params}
+\returns{A structure (\cref{tab:matlab-header}).}
+\raises{Identifier \code{wfdbx:read\_header}: the header cannot be found or read
+(``can't read header for record REC''), or an option is not valid. Warning
+\code{wfdbx:duplicate\_key} for a metadata key that the header has more than once.}
+\begin{lstlisting}[language=Matlab,style=example]
+hdr = wfdbx.read_header('100s');
+fprintf('%s %g %d %d\n', hdr.name, hdr.fs, hdr.nsig, hdr.nsamples);  % 100s 360 2 21600
+for k = 1:hdr.nsig
+    s = hdr.siginfo(k);
+    fprintf('%s %s %d %g %d\n', s.desc, s.fname, s.fmt, s.gain, s.adcres);
+end
+% MLII 100s.dat 212 200 11
+% V5 100s.dat 212 200 11
+disp(hdr.comments{1});          % " 69 M 1085 1629 x1": the first info string
+disp(isempty(hdr.base_time));   % 1: the header gives no start time
+\end{lstlisting}
+
+\apientry{wfdbx.read\_annotations}{Read an annotation file}
+\begin{lstlisting}[language=Matlab,style=signature]
+ann = wfdbx.read_annotations(record, annotator, 'sampfrom', 0, 'sampto', [], ...
+    'fs', [], 'input_dir', [], 'network', [], 'legacy', false)
+ann = wfdbx.read_annotations(record, annotator, sampfrom, sampto, ...)
+\end{lstlisting}
+Reads the annotations of an annotation file, in file order, into column vectors and cell
+columns. The sampling frequency, needed to convert times in seconds, is that of the
+record's header, or, for a record without a header or whose header gives none, the option
+\code{'fs'}. \code{'sampfrom'} and \code{'sampto'} may also be given as the third and
+fourth arguments, without their names.
+\begin{params}
+\item[record] Record name, without the \code{.hea} extension (a trailing \code{.hea}
+  is also accepted): a full path, absolute (\code{'/data/mitdb/100'}) or in the home
+  directory (\code{'\textasciitilde/Documents/100s'}), used as given; a relative path
+  (\code{'100s'}, \code{'data/100s'}), read from the input directory if one is set,
+  otherwise from the current folder; or a URL
+  (\code{'https://physionet.org/files/mitdb/1.0.0/100'}), read only if network access is
+  on (\cref{sec:record-paths}). Its header, if there is one, gives the
+  sampling frequency.
+\item[annotator] Annotator name: the suffix of the annotation file. \code{'atr'} reads the
+  file \file{RECORD.atr}.
+\item[sampfrom] The first time to read: a sample number or a time string. Default
+  \code{0}: the beginning of the file.
+\item[sampto] The time at which to stop: annotations at or after it are not read. A
+  sample number or a time string. Default \code{[]}: the end of the file.
+\item[fs] The sampling frequency, in Hz (a number $> 0$), to use when the record has no
+  header or its header gives none; it is ignored otherwise. Default \code{[]}: none.
+\item[input\_dir] The input directory for this call only (optional), under which
+  relative record names are read; it does not apply to full paths or URLs (as for
+  \code{wfdbx.read\_record}). Default \code{[]}: the current setting.
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{[]}: the current setting.
+\item[legacy] \code{true} to behave as the original WFDB package (which assumes 250\,Hz
+  for a record without a frequency). Default \code{false}.
+\end{params}
+\returns{A structure (\cref{tab:matlab-annotations}). Its \code{fs} is the frequency in
+which the times are counted: the one written in the annotation file, if there is one, or
+else the sampling frequency; it is 0 if none of them is known.}
+\raises{Identifier \code{wfdbx:read\_annotations}: the annotation file cannot be opened
+(``can't read annotator ANN for record REC''), or it ends unexpectedly or cannot be read
+before \code{sampto} (``can't read annotation file ANN of record REC (getann status
+S)''); \code{'fs'} is given and is not $> 0$; a time string needs the sampling frequency
+and none is known; or an option is not valid.}
+\begin{lstlisting}[language=Matlab,style=example]
+ann = wfdbx.read_annotations('100s', 'atr', 'sampfrom', '0:10', 'sampto', '0:30');
+fprintf('%d %g\n', numel(ann.samples), ann.fs);       % 24 360
+fprintf('%d %s\n', ann.samples(1), ann.symbols{1});   % 3862 N
+
+% The whole file: the first annotation is a rhythm change, with an aux string.
+ann = wfdbx.read_annotations('100s', 'atr');
+fprintf('%s %d %s\n', ann.symbols{1}, ann.codes(1) == wfdbx.RHYTHM(), ann.aux{1});
+% + 1 (N
+disp(unique(ann.symbols)');     % {'+', 'A', 'N'}
+\end{lstlisting}
+For a record without a header, \code{'fs'} gives the frequency in which times in seconds
+are converted (the library reports on the standard error that it cannot open the
+header):
+\begin{lstlisting}[language=Matlab,style=example]
+wfdbx.write_annotations('beats', 'qrs', [100 460 820], 'symbols', 'N');   % no header
+ann = wfdbx.read_annotations('beats', 'qrs', 'sampto', '0:02', 'fs', 360);
+fprintf('%d %d %g\n', ann.samples, ann.fs);           % 100 460 360
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Writing records}
+\label{sec:matlab-writing}
+
+\apientry{wfdbx.write\_record}{Write a header and a signal file}
+\begin{lstlisting}[language=Matlab,style=signature]
+wfdbx.write_record(record, signals, fs, 'fmt', 16, 'gains', [], 'baselines', [], ...
+    'adczeros', 0, 'adcres', [], 'units', [], 'names', [], 'base_time', [], ...
+    'comments', [], 'physical', false, 'samps_per_frame', [], 'metadata', [], ...
+    'dir', [], 'legacy', false)
+\end{lstlisting}
+Writes signals as a new record: the header \file{RECORD.hea} and one signal file,
+\file{RECORD.dat}, which holds all the signals (so they share one format). Existing files
+of these names are overwritten. The sampling frequency, the gain and ADC resolution of
+each signal, and the units of each calibrated signal must be given: there are no
+defaults. The per-signal options (\code{'fmt'}, \code{'gains'}, \code{'baselines'},
+\code{'adczeros'}, \code{'adcres'}, \code{'units'}, \code{'names'}) take one value for all
+the signals, or a vector or cell array with one value per signal. All the arguments are
+checked before any file is created.
+\begin{params}
+\item[record] Record name (not empty), without the \code{.hea} extension: a plain name
+  (\code{'rec'}) or a relative path (\code{'data/rec'}), created in the output directory
+  if one is set, otherwise in the current folder, missing folders included; or a full
+  path, absolute or in the home directory (\code{'\textasciitilde/Documents/rec'}), used
+  as given. With a path, the files are created in that folder, and the header names the
+  record and its signal file without the path (\code{'rec'}, \code{'rec.dat'}), so that
+  the record opens under any path that leads to it (in legacy mode, as in the original,
+  the header gives the name with its path). A URL cannot be written.
+\item[signals] The samples: a matrix with one row per sample and one column per signal.
+  In ADC units (the default), the values are integers within the range of a 32-bit
+  integer; with \code{'physical', true}, they are in physical units.
+\item[fs] The sampling frequency, in Hz: a finite number $> 0$.
+\item[fmt] The storage format: 8, 16, 61, 80, 160, 212, 310, 311, 24, 32, or 508, 516 or
+  524 (FLAC); one value, or one per signal, all equal (\cref{chap:formats}). Default
+  \code{16}.
+\item[gains] The gain of each signal, in ADC units per physical unit: a finite number;
+  \code{0} marks an uncalibrated signal, which is allowed only for samples given in ADC
+  units. Negative gains are allowed. Required (default \code{[]}: not given).
+\item[baselines] The ADC value that corresponds to 0 physical units. Default \code{[]}:
+  the ADC zero of the signal.
+\item[adczeros] The ADC value at the middle of the ADC range. Default \code{0}.
+\item[adcres] The ADC resolution, in bits (an integer $\ge 1$). Required (default
+  \code{[]}: not given).
+\item[units] The physical units, such as \code{'mV'}: one string for all the signals, or a
+  cell array with one per signal. Required for each signal whose gain is not 0. Default
+  \code{[]}: not given.
+\item[names] The signal descriptions, such as \code{'MLII'}: one string, or a cell array
+  with one per signal. Default \code{[]}: no descriptions.
+\item[base\_time] The start time, with an optional date: \code{'hh:mm:ss'} or
+  \code{'hh:mm:ss dd/mm/yyyy'}, with optional decimals of the seconds, as
+  \code{wfdbx.setbasetime} reads it. Default \code{[]}: no start time.
+\item[comments] A cell array of info strings (or one string), written to the header as
+  comment lines (\code{\#} followed by the string). Default \code{[]}: none.
+\item[physical] \code{true} if \code{signals} are in physical units. They are converted to
+  ADC units as $\mathrm{round}(x \cdot \mathit{gain}) + \mathit{baseline}$ (halves rounded
+  away from zero); NaN becomes an invalid sample, and infinite values and values beyond
+  the range of 32-bit ADC units are errors. Default \code{false}: ADC units.
+\item[samps\_per\_frame] For a multi-frequency record, the number of samples per frame of
+  each signal (integers $\ge 1$). \code{signals} then has one row per frame and
+  \code{sum(samps\_per\_frame)} columns: the samples of signal 0, then those of signal 1,
+  and so on. \code{fs} is then the frame frequency. Default \code{[]}: one sample per
+  frame for every signal.
+\item[metadata] Metadata entries (\cref{chap:metadata}) to write to the header after the
+  comments, as \code{\# Key: value} (\code{\# Key:} for an empty value): an N-by-2 cell
+  array with one entry per row, \code{\{KEY, VALUE; ...\}}. Keys and values follow the
+  rules of \code{wfdbx.set\_metadata}; no two keys may be equal without regard to letter
+  case, nor be the key of an entry in \code{'comments'}, and a value must not be
+  \code{[]}. Default \code{[]}: none.
+\item[dir] The folder (which must exist) in which to create the files, for this call
+  only; \code{record} must then be a plain name, without a folder, and the record opens
+  from that folder under its plain name. Default \code{[]}: the output directory.
+\item[legacy] \code{true} to behave as the original WFDB package: the gain defaults to
+  200, and the ADC resolution to one based on the format. Default \code{false}.
+\end{params}
+\returns{Nothing.}
+\raises{Identifier \code{wfdbx:write\_record}: \code{record} is empty; a
+\code{'samps\_per\_frame'} value is not an integer $\ge 1$ (``samps\_per\_frame must hold
+integers >= 1''), or the number of columns of \code{signals} is not their sum (``signals
+has N columns, but samps\_per\_frame adds up to M''); \code{signals} has no signals (``at
+least one signal is required''); \code{fs} is not finite and $> 0$; a gain is not finite;
+the gains, the ADC resolutions or the required units are not given; a per-signal option
+does not have one value or one value per signal; a sample in ADC units is not an integer
+or is outside the range of a 32-bit integer, or a sample in physical units is infinite or
+its ADC value is outside that range; \code{'physical'} is \code{true} and a gain is 0;
+\code{'base\_time'} cannot be parsed (``invalid base\_time 'T'''); the signals do not all
+have the same format; an entry of \code{'metadata'} is not valid; \code{record} contains
+a folder and \code{'dir'} is given, or \code{'dir'} does not exist; an option is not
+valid; or the files cannot be created, or cannot be written completely, for example on a
+full disk (``write error on record REC'', after the library's message).}
+\begin{lstlisting}[language=Matlab,style=example]
+% Two signals of random numbers, in millivolts, at 360 Hz: the record "rand"
+% (rand.hea and rand.dat).
+x = randn(3600, 2);
+wfdbx.write_record('rand', x, 360, 'fmt', 16, 'physical', true, 'gains', 1000, ...
+    'adcres', 16, 'units', 'mV', 'names', {'A', 'B'}, ...
+    'base_time', '14:00:03 21/06/2024', 'comments', {'random numbers'}, ...
+    'metadata', {'Generator', 'randn'});
+rec = wfdbx.read_record('rand', 'physical', true);
+fprintf('%d %d %s\n', size(rec.signals), rec.base_time);   % 3600 2 [14:00:03 21/06/2024]
+disp(max(abs(rec.signals(:) - x(:))) <= 0.0005);           % 1: rounded to 1/1000 mV
+disp(rec.comments');            % {'random numbers', ' Generator: randn'}
+
+% An uncalibrated signal (gain 0, no units), in ADC units, in the folder "out".
+mkdir('out');
+wfdbx.write_record('counts', (0:999)', 100, 'gains', 0, 'adcres', 12, 'dir', 'out');
+rec = wfdbx.read_record('out/counts');
+disp(rec.signals(1:3)');        % 0 1 2
+\end{lstlisting}
+A multi-frequency record: signal \code{fast} has 2 samples per frame, signal
+\code{slow} one; each row of \code{signals} is one frame, with the two samples of
+\code{fast} and then the sample of \code{slow}:
+\begin{lstlisting}[language=Matlab,style=example]
+frames = 100;                                   % 1 second at 100 frames per second
+fast = reshape(0:2 * frames - 1, 2, frames)';   % 200 samples per second
+slow = repmat(500, frames, 1);                  % 100 samples per second
+wfdbx.write_record('mf', [fast, slow], 100, 'gains', 200, 'adcres', 12, ...
+    'units', 'mV', 'names', {'fast', 'slow'}, 'samps_per_frame', [2 1]);
+rec = wfdbx.read_record('mf', 'highres', true);
+fprintf('%g\n', rec.fs);        % 200
+disp(rec.signals(1:3, :));      % 0 500; 1 500; 2 500
+\end{lstlisting}
+
+\apientry{wfdbx.write\_annotations}{Write an annotation file}
+\begin{lstlisting}[language=Matlab,style=signature]
+wfdbx.write_annotations(record, annotator, samples, 'symbols', [], 'codes', [], ...
+    'subtypes', 0, 'chans', 0, 'nums', 0, 'aux', [], 'fs', [], 'dir', [], ...
+    'sort', [], 'legacy', false)
+\end{lstlisting}
+Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
+that name is overwritten. The record need not have a header. The annotation types are
+given as \code{'symbols'} or as \code{'codes'} (\cref{chap:formats}). Each per-annotation
+option is one value for all the annotations, or a list with exactly one value per
+annotation. If the annotations are not in time order, the file is sorted when it is
+written, unless \code{'sort'} is \code{false}. All the arguments are checked before the
+file is created.
+\begin{params}
+\item[record] Record name, without the \code{.hea} extension (a trailing \code{.hea} is
+  also accepted): a plain name or a relative path (\code{'data/100s'}) is created in the
+  output directory if one is set, otherwise in the current folder; a full path, absolute
+  or in the home directory (\code{'\textasciitilde/Documents/100s'}), is used as given.
+  The file is \file{RECORD.ANNOTATOR} at that place (\file{data/100s.qrs}). A URL cannot
+  be written.
+\item[annotator] Annotator name: the suffix of the file, made of letters, digits,
+  \code{\_}, \code{-} and \code{\textasciitilde}.
+\item[samples] The annotation times, in samples: a vector of integers within the range of
+  a 64-bit integer, one per annotation.
+\item[symbols] The mnemonics of the annotation types, such as \code{'N'} or \code{'V'}: a
+  cell array with one per annotation, a \code{char} vector of one-character mnemonics
+  (\code{'NNV'}), or one mnemonic for all. An unknown mnemonic becomes code 0
+  (\code{NOTQRS}). Default \code{[]}: the types are given by \code{'codes'}.
+\item[codes] The annotation codes (\code{wfdbx.NORMAL()}, \code{wfdbx.PVC()}, \ldots),
+  instead of \code{'symbols'}: one per annotation, or one value for all. If both are given
+  (as \code{wfdbx.read\_annotations} returns them), each symbol must be that of its code
+  (an empty symbol is not checked), and the codes are written. Default \code{[]}.
+\item[subtypes] The subtype of each annotation, stored as a signed byte (other values wrap
+  around to $-128 \ldots 127$, as in C). Default \code{0}.
+\item[chans] The channel number of each annotation, stored as an unsigned byte (other
+  values wrap around to $0 \ldots 255$). Default \code{0}.
+\item[nums] The annotator number of each annotation, stored as a signed byte. Default
+  \code{0}.
+\item[aux] The auxiliary text of each annotation: a cell array with one per annotation,
+  with \code{[]} where there is none, or one \code{char} vector for all. Default
+  \code{[]}: none.
+\item[fs] If given (a finite number $> 0$), the frequency in which the times are
+  counted, written to the file. Default \code{[]}: none is written.
+\item[dir] The folder (which must exist) in which to create the file, for this call
+  only; \code{record} must then be a plain name, without a folder: the file is
+  \file{DIR/RECORD.ANNOTATOR}. Default \code{[]}: the output directory.
+\item[sort] \code{true} to always sort the file, \code{false} to keep the given order
+  (without the library's advice to run \code{sortann}), for this call only. Default
+  \code{[]}: the environment variable \code{WFDBANNSORT} decides (sorting is on unless it
+  is \code{0}).
+\item[legacy] \code{true} to behave as the original WFDB package. Default \code{false}.
+\end{params}
+\returns{Nothing.}
+\raises{Identifier \code{wfdbx:write\_annotations}: neither \code{'symbols'} nor
+\code{'codes'} is given; both are given and disagree (``symbols and codes disagree at
+annotation K'', K counting from 0); a per-annotation option given as a list does not have
+one value per annotation (``\ldots{} must have one value per annotation''); a time is not
+an integer within the range of a 64-bit integer (NaN, an infinite value or a fraction); a
+code, subtype, channel or annotator number is NaN or infinite; \code{'fs'} is not finite
+and $> 0$; \code{record} contains a folder and \code{'dir'} is given, or \code{'dir'} does
+not exist; an option is not valid; or the file cannot be created, or cannot be written
+completely (``write error on annotator ANN for record REC'').}
+\begin{lstlisting}[language=Matlab,style=example]
+% Three beats and a rhythm change, by symbol, with an aux string for the rhythm.
+wfdbx.write_annotations('100s', 'test', [18 77 370 662], ...
+    'symbols', {'+', 'N', 'V', 'N'}, 'aux', {'(N', [], [], []});
+ann = wfdbx.read_annotations('100s', 'test');
+fprintf('%s', ann.symbols{:}); fprintf(' %s\n', ann.aux{1});    % +NVN (N
+
+% A copy of the reference annotations, as read_annotations returns them.
+a = wfdbx.read_annotations('100s', 'atr');
+wfdbx.write_annotations('100s', 'copy', a.samples, 'symbols', a.symbols, ...
+    'codes', a.codes, 'subtypes', a.subtypes, 'chans', a.chans, 'nums', a.nums, ...
+    'aux', a.aux);
+b = wfdbx.read_annotations('100s', 'copy');
+disp([isequal(b.samples, a.samples), isequal(b.symbols, a.symbols), ...
+    isequal(b.aux, a.aux)]);    % 1 1 1
+
+% Annotations out of time order are sorted when the file is written (the library
+% reports it on the standard error).
+wfdbx.write_annotations('100s', 'unsorted', [500 100], 'codes', wfdbx.NORMAL());
+ann = wfdbx.read_annotations('100s', 'unsorted');
+disp(ann.samples');             % 100 500
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Checking records}
+\label{sec:matlab-checking}
+
+\apientry{wfdbx.check\_record}{Check a record and its annotation files}
+\begin{lstlisting}[language=Matlab,style=signature]
+report = wfdbx.check_record(record, 'annotators', {}, 'input_dir', [], 'network', [])
+\end{lstlisting}
+Checks the header of a record, its signal specifications, every sample of its signal
+files, each segment of a multi-segment record, and the annotation files named, and
+reports each problem found. A problem in the record never throws an error: it is
+reported, with a severity (\code{'error'}: the record is damaged or does not follow the
+WFDB format, and programs will read wrong data or fail; \code{'warning'}: the record can
+be read, but something is missing or unusual, and may give wrong results; \code{'info'}:
+a fact worth knowing, such as invalid samples). The problems, their codes and their
+messages are the same in the seven languages (\cref{tab:python-issue-codes}). The checks
+run in normal mode, even if legacy mode is on, and the library prints no messages during
+the call. They are similar to those of Benjamin Moody's \code{wfdbcheck}. Called without
+an output argument, the function displays the lines of the report.
+\begin{params}
+\item[record] Record name, without the \code{.hea} extension (a trailing \code{.hea}
+  is also accepted): a full path, absolute (\code{'/data/mitdb/100'}) or in the home
+  directory (\code{'\textasciitilde/Documents/100s'}), used as given; a relative path
+  (\code{'100s'}, \code{'data/100s'}), read from the input directory if one is set,
+  otherwise from the current folder; or a URL
+  (\code{'https://physionet.org/files/mitdb/1.0.0/100'}), read only if network access is
+  on (\cref{sec:record-paths}).
+\item[annotators] The annotator names whose files are checked: a cell array, such as
+  \code{\{'atr'\}}, or one name as a \code{char} vector. Default \code{\{\}}: none.
+\item[input\_dir] The input directory for this call only (optional), under which
+  relative record names are read; it does not apply to full paths or URLs (as for
+  \code{wfdbx.read\_record}). Default \code{[]}: the current setting.
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{[]}: the current setting.
+\end{params}
+\returns{A structure (\cref{tab:matlab-checkreport}): \code{report.ok} is \code{true} if
+no problem is an error, \code{report.issues} is a structure array of the problems
+(\cref{tab:matlab-issue}), and \code{report.lines} is a cell column with one line per
+problem, or the one line \code{no problems found}.}
+\raises{Identifier \code{wfdbx:check\_record}, only for invalid arguments:
+\code{record} is not a string or is empty, an annotator name is not a string, or an
+option is not valid. A record that cannot be read is reported (code
+\code{header\_unreadable}), not thrown.}
+\begin{lstlisting}[language=Matlab,style=example]
+report = wfdbx.check_record('100s', 'annotators', {'atr'});
+disp(report.ok);                % 1: no errors
+fprintf('%s\n', report.lines{:});
+% warning: signal 0: the units are not specified
+% warning: signal 1: the units are not specified
+
+% A damaged record: one sample of a 12-bit signal is overwritten with 2048.
+wfdbx.write_record('damaged', (0:99)', 100, 'gains', 100, 'adcres', 12, ...
+    'units', 'mV', 'names', 'ramp');
+fid = fopen('damaged.dat', 'r+b');
+fseek(fid, 20, 'bof');          % sample 10 (2 bytes per sample in format 16)
+fwrite(fid, [0 8], 'uint8');    % 0x0800 = 2048, little-endian
+fclose(fid);
+report = wfdbx.check_record('damaged');
+disp(report.ok);                % 0
+for k = 1:numel(report.issues)
+    i = report.issues(k);
+    fprintf('%s %s %s\n', i.severity, i.code, i.where);
+end
+% error sample_range signal 0
+% error checksum signal 0
+disp(report.lines{1});
+% error: signal 0: 1 sample is outside the ADC range (-2048 to 2047): sample 10 (value 2048)
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Header metadata}
+\label{sec:matlab-metadata}
+
+These functions read and change the metadata of a header: its info strings of the form
+\code{\# Key: value}, such as \code{\# Age: 63} (\cref{chap:metadata}). In short: keys are
+compared without regard to letter case (A--Z and a--z only); a key must not be empty and
+must not contain \code{:}, \code{\#}, a line break or a NUL character, and a value must
+not contain a line break or a NUL character; spaces, tabs, VT, FF and CR at either end of
+keys and values are removed; text is one byte per character, and keys and values may be
+\code{char} vectors, MATLAB strings or \code{uint8} vectors of bytes. The entries are an
+N-by-2 cell array of \code{char} row vectors, one entry per row, \code{\{KEY, VALUE;
+...\}}, in file order (\code{cell(0, 2)} if there is none); a structure cannot hold keys
+with spaces, such as \code{Date of birth}, so none is used. A change rewrites the header
+in one step, through a temporary file, keeping every other byte of it; all the arguments
+are checked first, so an error leaves the header unchanged. Only the \file{.hea} file is
+read (not a \file{.info} file); for a multi-segment record, it is the master header,
+unless a segment is named. Metadata often holds information about patients: WFDB-x stores
+it as plain text, exactly as given, and does not de-identify it.
+
+Each function has two error identifiers (\cref{sec:matlab-warnings}): \code{wfdbx:NAME}
+for an invalid argument, and \code{wfdbx:NAME:file} for a header that cannot be read or
+written, or a \code{'dir'} that does not exist (NAME is the name of the function, such as
+\code{set\_metadata}).
+
+\begin{phibox}
+A header can hold identifying data about a patient (a name, a date of birth, a medical
+record number). The metadata functions read and write such data as given. Records that
+are shared must be de-identified first.
+\end{phibox}
+
+\begin{note}[Permissions of a changed header]
+The temporary file is renamed over the header (\code{rename} in Octave, \code{movefile}
+in MATLAB), so the header keeps its permissions only if the temporary file has them. It
+is made as a copy of the header (\code{copyfile}) and then written. In Octave, whose
+\code{copyfile} runs a shell command, the copy is made only for names of letters, digits,
+spaces and the characters \code{. \_ / + , = @ \textasciitilde{} -}; for other names, and
+whenever the copy cannot be written (a read-only header), the temporary file is a new
+file with the default permissions. So, unlike the other implementations, a change of a
+read-only header leaves it writable, in Octave (and in MATLAB if \code{copyfile} keeps the
+read-only permission).
+\end{note}
+
+\apientry{wfdbx.read\_metadata}{Read the metadata of a record}
+\begin{lstlisting}[language=Matlab,style=signature]
+M = wfdbx.read_metadata(record, 'input_dir', [], 'network', [])
+\end{lstlisting}
+Reads the metadata entries of the header of a record, in file order. An info string is an
+entry if it contains a colon: the key is the text before the first colon, the value the
+rest of the line, both without spaces at either end. Info strings without a colon, and
+those whose key is empty or contains \code{\#}, are free comments, which are not returned.
+\begin{params}
+\item[record] Record name, without the \code{.hea} extension (a trailing \code{.hea}
+  is also accepted): a full path, absolute (\code{'/data/mitdb/100'}) or in the home
+  directory (\code{'\textasciitilde/Documents/100s'}), used as given; a relative path
+  (\code{'100s'}, \code{'data/100s'}), read from the input directory if one is set,
+  otherwise from the current folder; or a URL
+  (\code{'https://physionet.org/files/mitdb/1.0.0/100'}), read only if network access is
+  on (\cref{sec:record-paths}).
+\item[input\_dir] The input directory for this call only (optional), under which
+  relative record names are read; it does not apply to full paths or URLs (as for
+  \code{wfdbx.read\_record}). Default \code{[]}: the current setting.
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{[]}: the current setting.
+\end{params}
+\returns{An N-by-2 cell array of \code{char} row vectors, \code{\{KEY, VALUE; ...\}}, in
+file order. A key that appears more than once (ignoring letter case) is returned once,
+with its first value, and the warning \code{wfdbx:duplicate\_key} is issued
+(\cref{sec:matlab-warnings}).}
+\raises{Identifier \code{wfdbx:read\_metadata}: \code{record} is empty or \code{'-'} (the
+standard input), or an option is not valid. Identifier \code{wfdbx:read\_metadata:file}:
+the header cannot be found or read (``can't read header for record REC'').}
+\begin{lstlisting}[language=Matlab,style=example]
+wfdbx.write_record('pat', zeros(360, 1), 360, 'gains', 200, 'adcres', 12, ...
+    'units', 'mV', 'names', 'ECG', 'comments', {'recorded at rest'}, ...
+    'metadata', {'Age', '63'; 'Sex', 'F'});
+M = wfdbx.read_metadata('pat');
+disp(size(M));                  % 2 2
+M = M';
+fprintf('%s: %s\n', M{:});      % Age: 63, then Sex: F
+hdr = wfdbx.read_header('pat');
+disp(hdr.comments');
+% {'recorded at rest', ' Age: 63', ' Sex: F'}: the free comment is not an entry
+\end{lstlisting}
+
+\apientry{wfdbx.get\_metadata}{Return the value of a metadata entry}
+\begin{lstlisting}[language=Matlab,style=signature]
+value = wfdbx.get_metadata(record, key, 'input_dir', [], 'network', [])
+\end{lstlisting}
+Returns the value of one metadata entry of the header of a record.
+\begin{params}
+\item[record] Record name (as for \code{wfdbx.read\_metadata}).
+\item[key] The key, such as \code{'Age'}. Letter case is ignored, and spaces at either end
+  are removed.
+\item[input\_dir] The input directory for this call only (optional), under which a
+  relative record name is read (as for \code{wfdbx.read\_metadata}). Default \code{[]}:
+  the current setting.
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{[]}: the current setting.
+\end{params}
+\returns{The value, a \code{char} row vector (empty for an entry with an empty value), or
+\code{[]} if the header has no entry for \code{key} (\code{ischar} tells them apart). If
+it has more than one, the first is returned, and the warning \code{wfdbx:duplicate\_key}
+is issued.}
+\raises{Identifier \code{wfdbx:get\_metadata}: \code{record} is empty or \code{'-'},
+\code{key} is missing, not a string (or \code{uint8} vector) or not a valid key, or an
+option is not valid. Identifier \code{wfdbx:get\_metadata:file}: the header cannot be
+found or read.}
+\begin{lstlisting}[language=Matlab,style=example]
+wfdbx.write_record('pat', zeros(360, 1), 360, 'gains', 200, 'adcres', 12, ...
+    'units', 'mV', 'metadata', {'Age', '63'; 'Sex', 'F'});
+disp(wfdbx.get_metadata('pat', 'age'));         % 63
+v = wfdbx.get_metadata('pat', 'Height');
+disp([isempty(v), ischar(v)]);                  % 1 0: there is no such entry
+\end{lstlisting}
+
+\apientry{wfdbx.set\_metadata}{Set the value of a metadata entry}
+\begin{lstlisting}[language=Matlab,style=signature]
+wfdbx.set_metadata(record, key, value, 'input_dir', [], 'network', [], 'dir', [])
+\end{lstlisting}
+Sets the value of a metadata entry in the header of a record. If the header has an entry
+for \code{key} (ignoring letter case), its line is replaced by \code{\# Key: value}, at
+the same position and with the same line ending, with the spelling of \code{key} given
+here (even if the value is the same); otherwise the entry is added after the last info
+string of the header (or, if it has none, after its last line that is not blank), with
+the line ending of the record line. The entry is written as \code{\# Key: value}, or
+\code{\# Key:} if the value is empty. Every other line is kept, byte for byte, including
+its line ending. The header is changed where it was read (not in the output directory),
+unless \code{'dir'} is given.
+\begin{params}
+\item[record] Record name (as for \code{wfdbx.read\_metadata}). The header is changed
+  where it was read, unless \code{'dir'} is given; a header read from a URL can only be
+  written elsewhere, with \code{'dir'}.
+\item[key] The key, such as \code{'Age'} or \code{'Date of birth'}. Spaces at either end
+  are removed. It must not be empty, and must not contain \code{:}, \code{\#}, a line
+  break or a NUL character.
+\item[value] The value: text, which may be a sentence. Spaces at either end are removed.
+  It must not contain a line break or a NUL character; it may be empty (\code{''}).
+\item[input\_dir] The input directory in which the header is read, for this call only.
+  Default \code{[]}: the current setting.
+\item[network] \code{true} to allow reading the header from a URL, for this call only,
+  \code{false} to forbid it. Default \code{[]}: the current setting.
+\item[dir] A folder, which must exist, in which to write the changed header, under the
+  same file name, instead of changing the header itself (which is then unchanged); the
+  signal files are not copied. An unchanged header is also written there. Default
+  \code{[]} (or \code{''}): the header itself is changed.
+\end{params}
+\returns{Nothing.}
+\raises{Identifier \code{wfdbx:set\_metadata}: \code{key} or \code{value} is missing, not
+a string (or \code{uint8} vector) or not valid; the header has more than one entry for
+\code{key} (``\ldots{} remove them first''); it has no record line; it was read from a URL
+and \code{'dir'} is not given; \code{record} is empty or \code{'-'}; \code{'dir'} is not a
+string; or an option is not valid. Identifier \code{wfdbx:set\_metadata:file}: the header
+cannot be read, or the changed header cannot be written (``can't write header for record
+REC''); or \code{'dir'} does not exist (``directory DIR does not exist'').}
+\begin{lstlisting}[language=Matlab,style=example]
+wfdbx.write_record('pat', zeros(360, 1), 360, 'gains', 200, 'adcres', 12, ...
+    'units', 'mV', 'metadata', {'Age', '63'; 'Sex', 'F'});
+wfdbx.set_metadata('pat', 'AGE', '64');                 % replaces "# Age: 63"
+wfdbx.set_metadata('pat', 'Diagnosis', 'sinus rhythm, no ectopy');   % a new entry
+M = wfdbx.read_metadata('pat')';
+fprintf('%s: %s\n', M{:});
+% AGE: 64
+% Sex: F
+% Diagnosis: sinus rhythm, no ectopy
+
+% Write the changed header to another folder; pat.hea is left unchanged.
+mkdir('changed');
+wfdbx.set_metadata('pat', 'Sex', 'M', 'dir', 'changed');
+fprintf('%s %s\n', wfdbx.get_metadata('pat', 'Sex'), ...
+    wfdbx.get_metadata('changed/pat', 'Sex'));         % F M
+\end{lstlisting}
+
+\apientry{wfdbx.remove\_metadata}{Remove a metadata entry}
+\begin{lstlisting}[language=Matlab,style=signature]
+n = wfdbx.remove_metadata(record, key, 'input_dir', [], 'network', [], 'dir', [])
+\end{lstlisting}
+Removes every entry for \code{key} (ignoring letter case) from the header of a record,
+line ending included, so it also repairs a header that has more than one. Other lines are
+kept, byte for byte. Nothing is written if the header has no entry for \code{key}, unless
+\code{'dir'} is given.
+\begin{params}
+\item[record] Record name (as for \code{wfdbx.set\_metadata}).
+\item[key] The key (as for \code{wfdbx.set\_metadata}).
+\item[input\_dir] The input directory in which the header is read, for this call only.
+  Default \code{[]}: the current setting.
+\item[network] \code{true} to allow reading the header from a URL, for this call only,
+  \code{false} to forbid it. Default \code{[]}: the current setting.
+\item[dir] A folder, which must exist, in which to write the changed header instead of
+  changing the header itself. Default \code{[]}: the header itself is changed.
+\end{params}
+\returns{The number of lines removed (0 if the header has no entry for \code{key}).}
+\raises{As \code{wfdbx.set\_metadata}, with the identifiers
+\code{wfdbx:remove\_metadata} and \code{wfdbx:remove\_metadata:file}, except that more
+than one entry for \code{key} is not an error.}
+\begin{lstlisting}[language=Matlab,style=example]
+wfdbx.write_record('pat', zeros(360, 1), 360, 'gains', 200, 'adcres', 12, ...
+    'units', 'mV', 'metadata', {'Age', '63'; 'Sex', 'F'});
+disp(wfdbx.remove_metadata('pat', 'sex'));      % 1
+disp(wfdbx.remove_metadata('pat', 'Sex'));      % 0: there is no such entry now
+disp(wfdbx.read_metadata('pat'));               % {'Age', '63'}
+\end{lstlisting}
+
+\apientry{wfdbx.update\_metadata}{Make several changes to the metadata}
+\begin{lstlisting}[language=Matlab,style=signature]
+wfdbx.update_metadata(record, changes, 'input_dir', [], 'network', [], 'dir', [])
+\end{lstlisting}
+Makes several changes to the metadata of a record, in one write of the header. Each
+change is applied in order, as \code{wfdbx.set\_metadata} does, or, for a value of
+\code{[]}, as \code{wfdbx.remove\_metadata} does. All the changes are checked first: if one
+is not valid, none is made.
+\begin{params}
+\item[record] Record name (as for \code{wfdbx.set\_metadata}).
+\item[changes] An N-by-2 cell array with one change per row, \code{\{KEY, VALUE; ...\}};
+  a value of \code{[]} (an empty double) removes the entry, and \code{''} sets an empty
+  value. No two keys may be equal without regard to letter case. An empty cell array
+  (\code{\{\}} or \code{cell(0, 2)}) changes nothing.
+\item[input\_dir] The input directory in which the header is read, for this call only.
+  Default \code{[]}: the current setting.
+\item[network] \code{true} to allow reading the header from a URL, for this call only,
+  \code{false} to forbid it. Default \code{[]}: the current setting.
+\item[dir] A folder, which must exist, in which to write the changed header instead of
+  changing the header itself. Default \code{[]}: the header itself is changed.
+\end{params}
+\returns{Nothing.}
+\raises{As \code{wfdbx.set\_metadata}, with the identifiers
+\code{wfdbx:update\_metadata} and \code{wfdbx:update\_metadata:file}; also an argument
+error if \code{changes} is not an N-by-2 cell array, or if two of its keys differ only in
+letter case.}
+\begin{lstlisting}[language=Matlab,style=example]
+wfdbx.write_record('pat', zeros(360, 1), 360, 'gains', 200, 'adcres', 12, ...
+    'units', 'mV', 'metadata', {'Age', '63'; 'Sex', 'F'});
+wfdbx.update_metadata('pat', {'Age', '64'; 'Sex', []; 'Dx', '164889003'});
+M = wfdbx.read_metadata('pat')';
+fprintf('%s: %s\n', M{:});      % Age: 64, then Dx: 164889003
+try
+    wfdbx.update_metadata('pat', {'Dx', '426783006'; 'dx', []});
+catch err
+    disp(err.identifier);       % wfdbx:update_metadata
+    disp(err.message);          % metadata key 'dx' is given more than once (...)
+end
+disp(wfdbx.get_metadata('pat', 'Dx'));          % 164889003: nothing was changed
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{The result structures}
+\label{sec:matlab-results}
+
+The readers return structures, whose fields are listed in
+\cref{tab:matlab-record,tab:matlab-header,tab:matlab-annotations};
+\code{wfdbx.check\_record} returns a structure that holds a structure array of issues
+(\cref{tab:matlab-checkreport,tab:matlab-issue}). The signals of a record are described by
+\code{wfdbx.siginfo} structures (\cref{tab:matlab-siginfo}), which are those of the WFDB
+library (\cref{sec:matlab-library}). The fields are ordinary structure fields, which may
+be changed.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of the result of \code{wfdbx.read\_record}}
+\label{tab:matlab-record} \\
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{name} & the record name, as given to \code{wfdbx.read\_record} \\
+\code{fs} & the sampling frequency in Hz, or 0 if the header gives none; with
+  \code{'highres', true}, the highest sampling frequency of a multi-frequency record \\
+\code{signals} & a matrix of doubles with one row per sample and one column per signal
+  read: ADC units, or physical units with \code{'physical', true}; invalid samples are
+  \code{wfdbx.WFDB\_INVALID\_SAMPLE()} ($-32768$), or NaN in physical units \\
+\code{siginfo} & a 1-by-N \code{wfdbx.siginfo} structure array, one per signal read, in
+  the order of the columns; \code{desc} has no white space at either end, and
+  \code{adcres} is 0 if the header does not give it \\
+\code{names} & a 1-by-N cell array of the signal descriptions, such as \code{'MLII'},
+  without the white space that a header may put at either end of them \\
+\code{units} & a 1-by-N cell array of the physical units, with \code{[]} where the header
+  gives none \\
+\code{gains} & a row vector of the gains, in ADC units per physical unit; 0 means that the
+  signal is uncalibrated \\
+\code{baselines} & a row vector of the ADC values that correspond to 0 physical units \\
+\code{base\_time} & the start time and date as text, to the second, such as
+  \code{'[14:00:03 21/06/2024]'} (\code{'[14:00:03]'} without a date), or \code{[]} if
+  the header gives none \\
+\code{base\_time\_ms} & the start time in milliseconds after midnight, such as
+  \code{50403500} for 14:00:03.500, or \code{[]} if \code{base\_time} is \code{[]} \\
+\code{base\_date} & the start date as \code{[year month day]}, or \code{[]} if the header
+  gives none \\
+\code{sampfrom} & the number of the first sample returned \\
+\code{comments} & a cell column of the info strings of the header (without the
+  \code{\#}) \\
+\code{checksum\_ok} & \code{false} if the samples do not match the checksums of the
+  header; checksums are checked only when a read reaches the end of the record, so a
+  shorter read gives \code{true} \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of the result of \code{wfdbx.read\_header}}
+\label{tab:matlab-header} \\
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{name} & the record name, as given to \code{wfdbx.read\_header} \\
+\code{fs} & the sampling frequency in Hz, or 0 if the header gives none \\
+\code{counter\_freq} & the counter frequency, as \code{wfdbx.getcfreq()} returns it (the
+  sampling frequency if the header gives none) \\
+\code{base\_counter} & the base counter value, as \code{wfdbx.getbasecount()} returns
+  it \\
+\code{nsamples} & the number of samples per signal, or 0 if the header does not give it \\
+\code{nsig} & the number of signals \\
+\code{siginfo} & a 1-by-N \code{wfdbx.siginfo} structure array, one per signal;
+  \code{desc} has no white space at either end, and \code{adcres} is 0 if the header does
+  not give it \\
+\code{base\_time}, \code{base\_time\_ms}, \code{base\_date} & the start time and date, as
+  for \code{wfdbx.read\_record} \\
+\code{comments} & a cell column of the info strings of the header (without the
+  \code{\#}) \\
+\code{metadata} & the metadata entries of the header, an N-by-2 cell array
+  \code{\{KEY, VALUE; ...\}} in file order, as \code{wfdbx.read\_metadata} returns them:
+  from the \file{.hea} file only; \code{cell(0, 2)}, without an error, for an EDF record
+  and for a header read from the standard input \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of the result of \code{wfdbx.read\_annotations}: one row per
+  annotation, in file order}
+\label{tab:matlab-annotations} \\
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{record} & the record name, as given \\
+\code{annotator} & the annotator name, such as \code{'atr'} \\
+\code{samples} & a column of the annotation times, in samples \\
+\code{codes} & a column of the annotation codes, such as \code{wfdbx.NORMAL()} or
+  \code{wfdbx.PVC()} \\
+\code{symbols} & a cell column of the mnemonics of the codes, such as \code{'N'},
+  \code{'V'} or \code{'+'} \\
+\code{subtypes} & a column of the subtypes \\
+\code{chans} & a column of the channel numbers \\
+\code{nums} & a column of the annotator numbers \\
+\code{aux} & a cell column of the auxiliary texts (\code{char} vectors), with \code{[]}
+  where there is none \\
+\code{fs} & the frequency in which \code{samples} are counted, normally the sampling
+  frequency of the record; 0 if neither the record, nor the file, nor the option
+  \code{'fs'} of \code{wfdbx.read\_annotations} gives one \\
+\end{xltabular}
+
+\begin{table}[htbp]
+\centering
+\caption{The fields of the result of \code{wfdbx.check\_record}}
+\label{tab:matlab-checkreport}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\code{record} & the record name, as given \\
+\code{ok} & \code{true} if no issue has the severity \code{'error'} \\
+\code{issues} & an N-by-1 structure array of the issues (\cref{tab:matlab-issue}), in the
+  order of the checks \\
+\code{lines} & the text form of the report, a cell column: one line per issue,
+  \code{'SEVERITY: WHERE: MESSAGE'} (\code{'SEVERITY: MESSAGE'} when \code{where} is
+  empty), or the one line \code{'no problems found'} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{The fields of an issue, a problem found by \code{wfdbx.check\_record}}
+\label{tab:matlab-issue}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\code{severity} & \code{'error'}, \code{'warning'} or \code{'info'} \\
+\code{code} & a stable identifier of the kind of problem, such as \code{'checksum'} or
+  \code{'gain\_missing'} (\cref{tab:python-issue-codes}) \\
+\code{where} & where the problem is: \code{''} (the record), \code{'signal N'},
+  \code{'segment SEG'}, \code{'segment SEG, signal N'} or \code{'annotator ANN'} \\
+\code{message} & the description of the problem \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of a \code{wfdbx.siginfo} structure, the specification of a signal}
+\label{tab:matlab-siginfo} \\
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{fname} & the name of the signal file, as the header gives it \\
+\code{desc} & the signal description, such as \code{'MLII'}, or \code{[]} \\
+\code{units} & the physical units, such as \code{'mV'}, or \code{[]} if not specified \\
+\code{gain} & the gain, in ADC units per physical unit (0: uncalibrated) \\
+\code{initval} & the value of the first sample \\
+\code{group} & the signal group number, from 0 (the signals of one group share one
+  file) \\
+\code{fmt} & the storage format, such as \code{16}, \code{212} or \code{516} \\
+\code{spf} & the number of samples per frame (more than 1 for the faster signals of a
+  multi-frequency record) \\
+\code{bsize} & the block size, in bytes (0 for ordinary files) \\
+\code{adcres} & the ADC resolution, in bits (0: not specified) \\
+\code{adczero} & the ADC output for an input of 0\,V \\
+\code{baseline} & the ADC value that corresponds to 0 physical units \\
+\code{nsamp} & the number of samples (0 if unknown) \\
+\code{cksum} & the 16-bit checksum of the samples \\
+\end{xltabular}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Warnings and errors}
+\label{sec:matlab-warnings}
+
+\paragraph{Errors.} The high-level functions report errors with \code{error}, with a
+message and an identifier (\cref{tab:matlab-errors}), so that \code{err.identifier} of a
+\code{try}/\code{catch} tells which function failed, and, for the metadata functions,
+whether an argument was invalid or a file could not be read or written. Each function
+checks its arguments before it creates or changes a file, so an invalid argument leaves
+the files as they were. After an error, as after a successful call, the settings of the
+call (\code{'input\_dir'}, \code{'network'}, \code{'dir'}, \code{'legacy'}), the getvec
+mode and the time resolution of output annotators are as they were before it
+(\cref{sec:matlab-conventions}). The library may also print a message on the standard error when
+it cannot open a file (as in \code{init: can't open header for record REC});
+\code{wfdbx.wfdbquiet()} turns these messages off (\cref{sec:matlab-library}).
+
+\begin{table}[htbp]
+\centering
+\caption{The error and warning identifiers of the high-level API}
+\label{tab:matlab-errors}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Identifier & \tabhead Issued when \\
+\midrule
+\code{wfdbx:NAME} & an error of the function \code{wfdbx.NAME}: for
+  \code{read\_record}, \code{read\_header}, \code{read\_annotations},
+  \code{write\_record}, \code{write\_annotations} and \code{check\_record}, any error (a
+  file that cannot be found, read, created or written completely; an invalid option or
+  argument; a value that the operation needs and the record does not give, such as a
+  time in seconds without a sampling frequency); for the five metadata functions, an
+  invalid argument: an invalid key or value, a record name that is empty or \code{'-'}, a
+  key that the header has more than once (\code{set\_metadata}, \code{update\_metadata}),
+  a header without a record line, a header read from a URL to be changed without
+  \code{'dir'}, or an invalid option \\
+\code{wfdbx:NAME:file} & a metadata function cannot read or write a file: a header that
+  cannot be found or read, a changed header that cannot be written, or a \code{'dir'}
+  that does not exist \\
+\code{wfdbx:checksum} & (a warning) the samples read by \code{wfdbx.read\_record} do not
+  match the checksums of the header \\
+\code{wfdbx:duplicate\_key} & (a warning) a header has more than one metadata entry for a
+  key \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{The checksum warning.} When \code{wfdbx.read\_record} reads to the end of a
+record whose samples do not match the checksums of its header, it returns all the samples
+and issues the warning \code{wfdbx:checksum}: ``checksum error in record REC: the signal
+data do not match the checksums in its header''. \code{'checksum\_warning', false} turns
+the warning off; \code{rec.checksum\_ok} is \code{false} either way.
+
+\paragraph{The duplicate-key warning.} When a header holds two metadata entries whose keys
+differ only in letter case (written by other software), \code{wfdbx.read\_metadata},
+\code{wfdbx.get\_metadata} and \code{wfdbx.read\_header} use the first and issue the
+warning \code{wfdbx:duplicate\_key}: ``header of record REC has more than one entry for
+key KEY (lines L1, L2); the first is used''. \code{wfdbx.set\_metadata} and
+\code{wfdbx.update\_metadata} then refuse to change that key (an argument error), and
+\code{wfdbx.remove\_metadata} removes all of its entries.
+
+Both are issued with \code{warning}, so \code{warning('off', 'wfdbx:checksum')} turns one
+off, \code{lastwarn} returns the last one, and \code{warning('error', ...)} (MATLAB) makes
+it an error, as for any other warning:
+
+\begin{lstlisting}[language=Matlab,style=example]
+% A record whose last sample is changed after it was written: the checksum fails.
+wfdbx.write_record('ck', (0:99)', 100, 'gains', 100, 'adcres', 12, 'units', 'mV');
+fid = fopen('ck.dat', 'r+b');
+fseek(fid, -2, 'eof');
+fwrite(fid, [0 0], 'uint8');
+fclose(fid);
+lastwarn('');
+rec = wfdbx.read_record('ck');                  % prints the checksum warning
+fprintf('%d %d %d\n', size(rec.signals), rec.checksum_ok);   % 100 1 0: all the samples
+[msg, id] = lastwarn();
+disp(id);                                       % wfdbx:checksum
+rec = wfdbx.read_record('ck', 'checksum_warning', false);    % no warning
+
+% Two entries for one key: the first is used, with a warning.
+wfdbx.write_record('dup', zeros(10, 1), 100, 'gains', 0, 'adcres', 12, ...
+    'comments', {' Age: 63', ' AGE: 64'});
+disp(wfdbx.get_metadata('dup', 'age'));         % 63, with the warning
+[msg, id] = lastwarn();
+disp(id);                                       % wfdbx:duplicate_key
+try
+    wfdbx.set_metadata('dup', 'Age', '65');
+catch err
+    fprintf('%s: %s\n', err.identifier, err.message);
+    % wfdbx:set_metadata: header of record dup has more than one entry for key Age
+    % (lines 3, 4); remove them first
+end
+disp(wfdbx.remove_metadata('dup', 'age'));      % 2
+\end{lstlisting}
+
+\begin{lstlisting}[language=Matlab,style=example]
+try
+    wfdbx.read_record('nosuchrecord');
+catch err
+    fprintf('%s: %s\n', err.identifier, err.message);
+    % wfdbx:read_record: can't read record nosuchrecord
+end
+try
+    wfdbx.read_metadata('nosuchrecord');
+catch err
+    fprintf('%s: %s\n', err.identifier, err.message);
+    % wfdbx:read_metadata:file: can't read header for record nosuchrecord
+end
+wfdbx.write_record('raw', (0:9)', 100, 'gains', 0, 'adcres', 12);   % uncalibrated
+try
+    wfdbx.read_record('raw', 'physical', true);
+catch err
+    fprintf('%s: %s\n', err.identifier, err.message);
+    % wfdbx:read_record: signal 0 of record raw is uncalibrated
+end
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The WFDB library functions in MATLAB and Octave}
+\label{sec:matlab-library}
+
+Every function of the WFDB library is a function of the package \code{wfdbx} under its C
+name, with the same arguments, in the same order, and the same return values, so that
+programs and documentation written for the C library carry over directly. The functions,
+their arguments and their results are documented once, for all the languages, in
+\cref{chap:library}; this section gives the rules by which the C declarations become
+MATLAB functions (see also \cref{sec:library-matlab}). \code{help wfdbx.NAME} gives the
+documentation of each function, including what WFDB-x changes in it.
+
+\subsection{Conventions}
+
+\paragraph{Names.} The functions keep their C names, with the prefix of the package:
+\code{wfdbx.isigopen}, \code{wfdbx.getvec}, \ldots{} The constants (\code{WFDB\_READ},
+\code{WFDB\_INVALID\_SAMPLE}, \code{WFDB\_HIGHRES}, \ldots) and the annotation codes
+(\code{NORMAL}, \code{PVC}, \ldots, \cref{chap:formats}) are functions without arguments:
+\code{wfdbx.WFDB\_READ()}, \code{wfdbx.NORMAL()}; \code{C = wfdbx.ecgcodes()} returns all
+the annotation codes as the fields of one structure (\code{C.NORMAL}, \code{C.PVC},
+\ldots), which is faster in loops. The calibration constants (\code{WFDB\_AC\_COUPLED},
+\ldots) and \code{WFDB\_FMT\_LIST} are not defined; their values are given in
+\cref{tab:library-constants}. The macros of \file{<wfdb/ecgmap.h>} are functions, under
+both their macro names and the names of the functions behind them:
+\code{wfdbx.isqrs} and \code{wfdbx.wfdb\_isqrs}, \code{wfdbx.map1} and
+\code{wfdbx.wfdb\_map1}, and so on.
+
+\paragraph{NULL is \code{[]}.} A C \code{NULL} string, as argument or result, is
+\code{[]} (an empty double), and an empty C string is \code{''}; \code{ischar} tells them
+apart. \code{wfdbx.sampfreq([])} returns the frequency of the open record,
+\code{wfdbx.getinfo([])} continues with the info strings of the last record, and
+\code{wfdbx.getinfo} returns \code{[]} after the last one.
+
+\paragraph{Arrays and output arguments.} Where a C function fills an array or a structure
+that the caller passes, the MATLAB function returns it as an additional output value, and
+omits it from the arguments:
+\begin{lstlisting}[language=Matlab]
+[nsig, si] = wfdbx.isigopen(record, nsig)     % si: a struct array of siginfo
+[nsig, si] = wfdbx.osigopen(record, nsig)
+[stat, si] = wfdbx.wfdbinit(record, aiarray, nann, nsig)
+[stat, v] = wfdbx.getvec(v0)                  % v0 (optional): the vector C leaves unchanged
+[stat, v] = wfdbx.getframe(v0)
+[stat, annot] = wfdbx.getann(an, annot0)      % annot0 (optional), as v0
+[stat, cal] = wfdbx.getcal(desc, units)
+[stat, si] = wfdbx.setheader(record, si, nsig)
+segs = wfdbx.getseginfo()                     % a struct array of seginfo
+[r, argv] = wfdbx.wfdbx_legacy_args(argv)     % argv: a cell array
+\end{lstlisting}
+With \code{nsig} $\le 0$, \code{wfdbx.isigopen} reads the header only, and \code{si}
+describes \code{-nsig} signals. Arrays of structures passed in are struct arrays:
+\code{wfdbx.annopen(record, wfdbx.anninfo('atr', wfdbx.WFDB\_READ()))},
+\code{wfdbx.osigfopen(si, nsig)}. \code{wfdbx.setmsheader(record, segnames)} takes a cell
+array of segment names.
+
+\paragraph{Numbers and strings.} Samples, times, counts and frequencies are doubles,
+exact for every 32-bit sample and for times up to $2^{53}$. Strings are \code{char} row
+vectors whose characters are the bytes of the C strings (codes 0 to 255); record names
+may also be MATLAB strings. The \code{aux} field of an annotation is \code{[]}, or a
+\code{uint8} row vector whose first element is the length of the text that follows, as in
+C: \code{char(a.aux(2:1 + a.aux(1)))} is the text.
+
+\paragraph{Return values and errors.} The functions return what the C functions return: a
+status (negative on errors), a number of signals, a frequency, a string or \code{[]}.
+Errors are reported by these values and by a message on the standard error, as in C,
+never by MATLAB errors. \code{wfdbx.wfdberror()} returns the last message;
+\code{wfdbx.wfdbquiet()} turns the messages off and \code{wfdbx.wfdbverbose()} on again;
+\code{wfdbx.wfdb\_error(fmt, ...)} reports a message as the library does, formatting as
+C's \code{printf}.
+
+\paragraph{State.} As in C, the library keeps its state in the session (in
+\code{persistent} variables): the open record, its input signals, the output signals and
+the annotators remain open between calls, until \code{wfdbx.wfdbquit()} closes them.
+\code{wfdbx.wfdbquit()} leaves the input and output directories, the network setting,
+legacy mode, the getvec mode and the time resolution of output annotators (which opening
+an EDF record sets, as in C) as they are; \code{clear functions} (or \code{clear all}) resets the whole
+state. The high-level functions of \cref{sec:matlab-api} (except the metadata functions)
+call \code{wfdbx.wfdbquit()}, which closes anything opened with the library functions.
+
+\paragraph{Additions.} \code{[v, stat, last] = wfdbx.getframes(n, minstat)} reads up to
+\code{n} sample vectors at once (\code{n} may be \code{Inf}), as \code{n} calls of
+\code{wfdbx.getvec} would, but decoding whole blocks of the signal files: \code{v} is a
+matrix with one row per vector and one column per signal, \code{stat} the status of the
+first vector that could not be read, or the number of signals if all \code{n} were read,
+and \code{last} the vector filled by the call that stopped the reading
+(\cref{sec:library-additions}). \code{stat = wfdbx.putframes(M)} writes the rows of
+\code{M}, as \code{wfdbx.putvec} for each row would. Calling \code{wfdbx.getvec} sample by
+sample is much slower in MATLAB and Octave than these functions, and than the high-level
+functions.
+
+\subsection{The structures}
+\label{sec:matlab-structures}
+
+The structures of the C library are MATLAB structures with the names of the fields of
+the C structures (\cref{tab:matlab-structures}), made with C's zero values by these
+functions:
+\begin{lstlisting}[language=Matlab]
+si = wfdbx.siginfo(n)            % 1-by-n struct array (n = 1 by default); spf is 1
+s = wfdbx.seginfo(n)             % 1-by-n struct array (n = 1 by default)
+ai = wfdbx.anninfo(name, stat)   % one structure
+a = wfdbx.annotation(n)          % 1-by-n struct array (n = 1 by default)
+cal = wfdbx.calinfo()            % one structure
+\end{lstlisting}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The C structures in MATLAB and Octave}
+\label{tab:matlab-structures} \\
+\toprule
+\tabhead Constructor (C structure) & \tabhead Fields \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Constructor (C structure) & \tabhead Fields \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{wfdbx.siginfo} (\code{WFDB\_Siginfo}) & \code{fname}, \code{desc}, \code{units}
+  (\code{[]} or \code{char}), \code{gain}, \code{initval}, \code{group}, \code{fmt},
+  \code{spf}, \code{bsize}, \code{adcres}, \code{adczero}, \code{baseline}, \code{nsamp},
+  \code{cksum} (\cref{tab:matlab-siginfo}) \\
+\code{wfdbx.seginfo} (\code{WFDB\_Seginfo}) & \code{recname} (the name of the segment),
+  \code{nsamp} (its number of samples), \code{samp0} (the number of its first sample in
+  the record) \\
+\code{wfdbx.anninfo} (\code{WFDB\_Anninfo}) & \code{name} (the annotator name, the suffix
+  of the file), \code{stat} (\code{wfdbx.WFDB\_READ()} or \code{wfdbx.WFDB\_WRITE()} for
+  the MIT format, \code{wfdbx.WFDB\_AHA\_READ()} or \code{wfdbx.WFDB\_AHA\_WRITE()} for the
+  AHA format) \\
+\code{wfdbx.annotation} (\code{WFDB\_Annotation}) & \code{time} (in sample intervals),
+  \code{anntyp} (the annotation code), \code{subtyp}, \code{chan}, \code{num}, \code{aux}
+  (\code{[]}, or a \code{uint8} row vector whose first element is the length of the text
+  that follows) \\
+\code{wfdbx.calinfo} (\code{WFDB\_Calinfo}) & \code{low}, \code{high} (the levels of the
+  calibration pulse, in physical units), \code{scale} (physical units per cm),
+  \code{sigtype} (matched against the beginning of a signal description), \code{units},
+  \code{caltype} \\
+\end{xltabular}
+
+\subsection{The settings functions}
+\label{sec:matlab-settings}
+
+The functions of \cref{tab:matlab-settings} are additions of WFDB-x to the library: they
+set where files are read and written, network access and legacy mode, for the high-level
+functions, the library functions and the tools alike (\cref{chap:files,chap:behavior}),
+and give the path under which a program opens a file that it reads or creates itself, as
+the tools do (\code{wfdbx.wfdbx\_input\_path}, \code{wfdbx.wfdbx\_output\_path};
+\cref{sec:tool-files}). Each \code{set} function returns the previous setting, so that it
+can be restored. The C function \code{wfdbx.setwfdb(p)} sets the input directory too (\code{p} must name at most
+one directory), and \code{wfdbx.getwfdb()} returns it; in legacy mode they set and return
+the WFDB path, as in C.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The settings functions}
+\label{tab:matlab-settings} \\
+\toprule
+\tabhead Function & \tabhead Effect and result \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Function & \tabhead Effect and result \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{previous = wfdbx.wfdbx\_set\_input\_dir(d)} & sets the input directory: a local
+  folder, a \code{\textasciitilde} path or a URL; \code{[]} or \code{''} restores the
+  default (\code{WFDBX\_INPUT\_DIR}, or else the current folder). Returns the previous
+  input directory, or \code{[]} if none was set \\
+\code{d = wfdbx.wfdbx\_get\_input\_dir()} & returns the input directory, or \code{[]} if
+  none is set \\
+\code{previous = wfdbx.wfdbx\_set\_output\_dir(d)} & sets the output directory: a local
+  folder or a \code{\textasciitilde} path (a URL is refused, with a message, and the
+  setting is unchanged); \code{[]} or \code{''} restores the default
+  (\code{WFDBX\_OUTPUT\_DIR}, or else the current folder). Returns the previous output
+  directory, or \code{[]} \\
+\code{d = wfdbx.wfdbx\_get\_output\_dir()} & returns the output directory, or \code{[]}
+  if none is set \\
+\code{previous = wfdbx.wfdbx\_set\_network(on)} & turns network access on (\code{true} or
+  1) or off (\code{false} or 0); \code{[]} or a negative number restores the default (on
+  if \code{WFDBX\_NETWORK} is a nonzero number). Returns the previous setting, 1 or 0 \\
+\code{on = wfdbx.wfdbx\_get\_network()} & returns 1 if network access is on, 0
+  otherwise \\
+\code{previous = wfdbx.wfdbx\_set\_legacy(on)} & turns legacy mode on (\code{true} or 1)
+  or off, for the whole library. Returns the previous setting, 1 or 0 \\
+\code{on = wfdbx.wfdbx\_get\_legacy()} & returns 1 if legacy mode is on, 0 otherwise \\
+\code{[r, argv] = wfdbx.wfdbx\_legacy\_args(argv)} & if \code{argv\{2\}} (\code{argv}: a
+  cell row of the arguments, program name first) is \code{'-{}-legacy'}, removes it,
+  turns legacy mode on and returns \code{r} = 1; otherwise returns \code{argv} unchanged
+  and \code{r} = 0 \\
+\code{r = wfdbx.wfdbx\_time\_needs\_freq(string)} & returns 1 if
+  \code{wfdbx.strtim(string)} needs a sampling frequency, 0 otherwise \\
+\code{n = wfdbx.wfdbx\_write\_errors()} & returns the number of write errors since the
+  program started (output files that could not be written, flushed or closed) \\
+\code{wfdbx.wfdbx\_note\_write\_error()} & counts a write error, for a program that
+  writes a file itself \\
+\code{p = wfdbx.wfdbx\_input\_path(name)} & returns the path under which a program opens
+  a file that it reads itself: in normal mode, a relative name under the input directory,
+  a \code{\textasciitilde} name expanded, an absolute name as given; in legacy mode, the
+  name as given. \code{[]}, \code{''} and \code{'-'} are returned as given; \code{[]} for
+  a URL, or a name that becomes one under the input directory \\
+\code{p = wfdbx.wfdbx\_output\_path(name)} & returns the path under which a program
+  creates a file that it writes itself: in normal mode, a relative name under the output
+  directory (whose missing folders are then created), a \code{\textasciitilde} name
+  expanded, an absolute name as given; in legacy mode, any name under the output
+  directory, as a plain prefix. \code{[]}, \code{''} and \code{'-'} are returned as given;
+  \code{[]} for a URL \\
+\end{xltabular}
+
+\subsection{Examples}
+
+Reading the samples and the annotations of a record, as a C program does (the record
+\code{100s} is read from the current folder):
+
+\begin{lstlisting}[language=Matlab,style=example]
+[nsig, si] = wfdbx.isigopen('100s', 2);         % open 2 signals
+fprintf('%d %s %d %g\n', nsig, si(1).desc, si(1).fmt, si(1).gain);   % 2 MLII 212 200
+fprintf('%g\n', wfdbx.sampfreq([]));            % 360: the frequency of the open record
+
+wfdbx.isigsettime(wfdbx.strtim('0:30'));        % skip to 30 seconds
+[stat, v] = wfdbx.getvec();                     % one sample per signal
+fprintf('%d %d %g\n', v(1), v(2), wfdbx.aduphys(0, v(1)));      % 947 968 -0.385
+
+[frames, stat] = wfdbx.getframes(360);          % the next second, as a matrix
+fprintf('%d %d %d\n', size(frames), stat);      % 360 2 2
+
+wfdbx.annopen('100s', wfdbx.anninfo('atr', wfdbx.WFDB_READ()));
+n = 0;
+[stat, a] = wfdbx.getann(0);
+while stat == 0                                 % 0: an annotation was read; -1: the end
+    if n < 2
+        fprintf('%s %s\n', wfdbx.mstimstr(a.time), wfdbx.annstr(a.anntyp));
+    end
+    n = n + 1;
+    [stat, a] = wfdbx.getann(0);
+end
+fprintf('%d annotations\n', n);                 % 75 annotations
+
+wfdbx.wfdbquiet();                              % no messages on the standard error
+stat = wfdbx.isigopen('nosuchrecord', 0);
+fprintf('%d %s', stat, wfdbx.wfdberror());
+% -1 init: can't open header for record nosuchrecord
+wfdbx.wfdbverbose();
+wfdbx.wfdbquit();                               % close everything
+\end{lstlisting}
+
+Writing a record and an annotation file, sample by sample and annotation by annotation:
+
+\begin{lstlisting}[language=Matlab,style=example]
+out = wfdbx.siginfo(1);
+out.fname = 'ramp.dat';
+out.desc = 'ramp';
+out.units = 'mV';
+out.gain = 200;
+out.fmt = 16;
+out.adcres = 12;
+disp(wfdbx.osigfopen(out, 1));      % 1: one output signal
+wfdbx.setsampfreq(250);
+for k = 0:499
+    wfdbx.putvec(k);
+end
+disp(wfdbx.newheader('ramp'));      % 0: ramp.hea is written
+wfdbx.annopen('ramp', wfdbx.anninfo('qrs', wfdbx.WFDB_WRITE()));
+a = wfdbx.annotation();
+a.anntyp = wfdbx.NORMAL();
+for t = [100 350]
+    a.time = t;
+    wfdbx.putann(0, a);
+end
+wfdbx.wfdbquit();                   % completes ramp.dat and ramp.qrs
+
+ann = wfdbx.read_annotations('ramp', 'qrs');
+disp(ann.samples');                 % 100 350
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The command-line tools in MATLAB and Octave}
+\label{sec:matlab-tools}
+
+The 33 command-line tools (\code{rdsamp}, \code{rdann}, \code{wrsamp}, \code{xform},
+\ldots) are functions of the package \code{wfdbx.apps}, one file per tool in
+\file{+wfdbx/+apps}. The tools, their options, their output and their exit status are
+those of the C tools, and are documented in \cref{chap:tools}; \code{help
+wfdbx.apps.TOOL} shows the usage of a tool.
+
+\paragraph{From the shell, with Octave.} The Octave script \file{matlab/bin/wfdbx\_cli.m}
+runs a tool: its first argument names the tool, and the others are the tool's arguments.
+It adds \file{matlab} to the path, and exits with the tool's status. An alias makes the
+command shorter:
+
+\begin{lstlisting}[style=shell]
+alias wfdbx='octave-cli --no-gui --norc -q /path/to/wfdb-x/matlab/bin/wfdbx_cli.m'
+export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
+wfdbx rdsamp -r 100s -t 10 -p     # the first 10 seconds of 100s, in physical units
+wfdbx rdann -r 100s -a atr        # its annotations
+wfdbx rdsamp --legacy -r 100s     # legacy mode: --legacy as the first argument
+\end{lstlisting}
+
+The script also takes these arguments, instead of a tool:
+
+\begin{table}[htbp]
+\centering
+\caption{The arguments of the script \code{wfdbx\_cli.m} (as \cmd{wfdbx})}
+\label{tab:matlab-wfdbx-options}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Command & \tabhead Effect \\
+\midrule
+\cmd{wfdbx TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with its
+  status \\
+\cmd{wfdbx -{}-list} & lists the names of the tools, one per line \\
+\cmd{wfdbx -{}-version} & prints the version, \code{WFDB-x 1.2.0} \\
+\cmd{wfdbx -{}-help}, \cmd{wfdbx -h} & prints the usage \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Without arguments, the script prints the usage and exits with status 1; an unknown tool
+is an error (``wfdbx: unknown tool 'TOOL' (try 'wfdbx -{}-list')'', status 1), and a
+MATLAB error in a tool is reported as \code{wfdbx: error: MESSAGE} (status 1). When an
+output file or the standard output cannot be written (a full disk, for example), a tool
+reports it (``TOOL: write error on standard output'') and exits with status 1; in legacy
+mode, it keeps the original status, as in C. Octave starts in a fraction of a second, so
+the script suits everyday use.
+
+\paragraph{From the shell, with MATLAB.} The shell script
+\file{matlab/bin/wfdbx\_matlab.sh} runs a tool with \cmd{matlab -batch}, or the program
+named by the environment variable \code{WFDBX\_MATLAB}. It saves its standard input to a
+temporary file (named by the environment variable \code{WFDBX\_STDIN}) before it starts
+MATLAB, so a script whose standard input stays open runs it with \cmd{< /dev/null}, and it
+passes the arguments in hexadecimal, so that any bytes arrive unchanged. MATLAB starts
+slowly, so the script is mainly useful for testing.
+
+\begin{lstlisting}[style=shell]
+export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
+/path/to/wfdb-x/matlab/bin/wfdbx_matlab.sh rdsamp -r 100s -t 10 -p
+\end{lstlisting}
+
+\paragraph{In a session.} Each tool is a function that takes the arguments as a cell
+array (without the program name), writes to the standard output and error, and returns
+the exit status:
+\begin{lstlisting}[language=Matlab]
+status = wfdbx.apps.rdsamp({'-r', '100s', '-t', 's2'})    % the first 2 samples
+\end{lstlisting}
+A call of \code{exit} in a C tool ends the function, not the session.
+
+\paragraph{Environment variables.} The tools, like the rest of the package, use the
+environment variables of \cref{tab:matlab-environment}, also for the files that they read
+or create themselves (\cref{sec:tool-files}): the \opt{-i} file of \cmd{wrsamp},
+\cmd{edf2mit}, \cmd{wav2mit}, \cmd{a2m} and \cmd{ad2m}, the input files of
+\cmd{ahaecg2mit} and the \opt{-S} script of \cmd{xform} are read from the input directory,
+and the WAV file of \cmd{mit2wav}, the EDF file of \cmd{mit2edf}, the master header of
+\cmd{snip -m} and the \file{.des}, \file{.ecg}, \file{.key} and \file{.txt} files of
+\cmd{parsescp} are created in the output directory. Such a file cannot be read from a URL.
+In legacy mode, the files that a tool reads itself are opened as named, and the output
+directory, if set, is a plain prefix of every output name. In Octave and in MATLAB,
+\code{getenv} returns \code{''} for an unset and an empty variable alike, so an empty
+variable counts as unset.
+
+\begin{table}[htbp]
+\centering
+\caption{The environment variables used by the MATLAB/Octave package}
+\label{tab:matlab-environment}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Variable & \tabhead Meaning \\
+\midrule
+\code{WFDBX\_INPUT\_DIR} & the input directory (a folder, a \code{\textasciitilde} path or
+  a URL), when \code{wfdbx.wfdbx\_set\_input\_dir} does not set one \\
+\code{WFDBX\_OUTPUT\_DIR} & the output directory, when \code{wfdbx.wfdbx\_set\_output\_dir}
+  does not set one \\
+\code{WFDBX\_NETWORK} & network access is on if it is a nonzero number, when
+  \code{wfdbx.wfdbx\_set\_network} does not set it \\
+\code{WFDBANNSORT} & \code{0} to keep annotation files in the order written (no sorting
+  when they are closed) \\
+\code{WFDBGVMODE} & the default getvec mode (\code{setgvmode} with a negative mode) \\
+\code{WFDBCAL} & the calibration file read by \code{wfdbx.calopen([])} (default
+  \file{wfdbcal}) \\
+\code{WFDB} & the WFDB path, used in legacy mode only (outside legacy mode, it is
+  ignored, with a message) \\
+\code{WFDB\_FLAC\_CHECK\_MD5} & if set, the MD5 signature of FLAC signal files is
+  verified when they are read \\
+\code{WFDBX\_MATLAB} & the MATLAB command that \file{wfdbx\_matlab.sh} runs (default
+  \cmd{matlab}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Tools that write signal parameters require them as options: \code{wrsamp} (with
+\opt{-o}) requires \opt{-F} (frequency), \opt{-G} (gain), \opt{-R} (ADC resolution) and,
+for calibrated signals, \opt{-U} (units); \code{wav2mit} requires \opt{-G}, and \opt{-U}
+unless the gain is 0; \code{ad2m} and \code{ahaecg2mit} require \opt{-F}, \opt{-G},
+\opt{-R}, and \opt{-U} unless the gain is 0; \code{a2m}, \code{rdann}, \code{ann2rr},
+\code{sortann} and \code{m2a} require \opt{-F} when the record's header gives no
+frequency (\cref{chap:tools}).
+
+% ==========================================================================================
+\section{Testing}
+\label{sec:matlab-testing}
+
+The unit tests of the MATLAB/Octave implementation are in \file{matlab/tests}: one
+function \file{test\_*.m} per group, run by \code{run\_tests}. From the root of the
+repository:
+
+\begin{lstlisting}[style=shell]
+octave-cli --no-gui --norc -q --eval "cd matlab/tests; run_tests"           # Octave
+matlab -batch "cd matlab/tests; run_tests"                                  # MATLAB
+octave-cli --no-gui --norc -q --eval "cd matlab/tests; run_tests('metadata')"  # by name
+\end{lstlisting}
+
+\code{run\_tests} prints \code{ok NAME} or \code{FAIL NAME: MESSAGE} for each test, then
+a summary, and ends with an error (so that the command exits with status 1) if a test
+failed; \code{run\_tests(PATTERN)} runs the tests whose names match a regular expression,
+and \code{n = run\_tests(...)} returns the number of failures. The tests cover the C
+standard library emulation, the WFDB library functions (with expected values printed by
+the C library), the high-level functions, the bulk readers and writers against the
+per-sample functions, the FLAC codec, finding files, \code{wfdbx.check\_record}, and the
+metadata functions, with the cases shared by the seven languages (in
+\file{tests/metadata}: results, warnings, and the headers, byte for byte). They run in
+temporary folders, with copies of the test records of \file{tests/data}. The tests of
+network access use a local HTTP server on 127.0.0.1 only (a Python script, started with
+\cmd{python3}; without it, they are skipped).
+
+The cross-language conformance suite runs every tool through \file{matlab/bin/wfdbx\_cli.m}
+and compares its results, byte for byte, with those of the original C programs (1135
+cases), and, with \opt{-{}-legacy}, in legacy mode (883 cases). From the root of the
+repository:
+
+\begin{lstlisting}[style=shell]
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl octave -j8
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl octave -j8 --legacy
+\end{lstlisting}
+
+The implementation \code{matlab} of the harness runs the tools through
+\file{matlab/bin/wfdbx\_matlab.sh} instead.

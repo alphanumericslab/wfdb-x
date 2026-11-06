@@ -1,0 +1,1871 @@
+% The C++ chapter of the WFDB-x user's manual. It follows the sections of the Python
+% chapter (chapters/python.tex), in the same order. Each \apientry of the section "The
+% high-level API" is a function declared at namespace scope in
+% cpp/include/wfdbx/record.hpp; its signature listing is copied from that declaration,
+% and its params name every parameter of the declaration, in order. The examples of style
+% "example" were compiled and run (each as the body of main(), after the lines given in
+% the conventions of the section, in a copy of tests/data); check_manual.py does not run
+% them.
+\chapter{C++}
+\label{chap:cpp}
+\chapterlanguage{cpp}
+
+The C++ implementation of WFDB-x is the library \code{libwfdbx}, with its headers in
+\file{cpp/include/wfdbx} and everything in namespace \code{wfdbx}, and the 33
+command-line tools, built as separate programs. It is a complete C++17 implementation of
+the WFDB Software Package: it needs only the C++17 standard library, and never calls the
+C library.
+
+It offers WFDB-x in three ways:
+\begin{itemize}
+\item \textbf{The high-level API} (\cref{sec:cpp-api}): functions, declared in
+  \file{<wfdbx/record.hpp>}, that read and write whole records, headers, annotation files
+  and header metadata as \code{std::vector}s and structures, in one call, with options
+  given as fields of a structure, and that throw \code{wfdbx::Error} on errors. They read
+  signal files in large blocks, and are the fastest way to read a record. They are an
+  addition of WFDB-x: the C package has no equivalent. They are the recommended interface
+  for new code and analysis.
+\item \textbf{The WFDB library functions} under their C names (\code{isigopen},
+  \code{getvec}, \code{getann}, \code{putann}, \ldots), declared in
+  \file{<wfdbx/wfdb.hpp>}, with the behavior of the C library (\cref{sec:cpp-library}).
+  They are documented once, for all the languages, in \cref{chap:library}.
+\item \textbf{The command-line tools} (\code{rdsamp}, \code{rdann}, \code{wrsamp},
+  \code{xform} and 29 others), with the options, output and exit status of the C tools,
+  one program per tool, run by its name (\cref{sec:cpp-tools}). They are documented in
+  \cref{chap:tools}.
+\end{itemize}
+The high-level functions return exactly the samples and annotations that the library
+functions (and the C library) give.
+
+% ==========================================================================================
+\section{Installation and requirements}
+\label{sec:cpp-install}
+
+\subsection{Requirements}
+
+WFDB-x for C++ builds with CMake 3.14 or later and a C++17 compiler whose standard
+library has \code{std::filesystem}: GCC 9, Clang 9 or MSVC 2019 and later (macOS 10.15 or
+later), on Linux, macOS and Windows. It has no other dependency: no WFDB library and no
+libFLAC (the FLAC formats 508, 516 and 524 are read and written by WFDB-x's own codec).
+Network access (\cref{sec:network}) runs the program \cmd{curl}, which must then be
+installed. The unit tests of \code{check\_record} also run \cmd{python3}
+(\cref{sec:cpp-testing}).
+
+\subsection{Building and installing}
+
+From the root of a copy of the repository, these commands build the library, the tools
+and the unit tests (a Release build), and install them:
+
+\begin{lstlisting}[style=shell]
+cmake -S cpp -B cpp/build                        # a Release build
+cmake --build cpp/build -j8
+cmake --install cpp/build --prefix /usr/local    # optional
+\end{lstlisting}
+
+The library is \file{cpp/build/libwfdbx.a}, and the tools are in \file{cpp/build/bin/}.
+The install step copies the library, the headers (\file{include/wfdbx/}), the tools and a
+CMake package file (\file{lib/cmake/wfdbx/wfdbxConfig.cmake}, with the target
+\code{wfdbx::wfdbx}). These options of the build change what is built:
+
+\begin{table}[htbp]
+\centering
+\caption{The options of the CMake build}
+\label{tab:cpp-cmake-options}
+\begin{tabularx}{\linewidth}{@{}llL@{}}
+\toprule
+\tabhead Option & \tabhead Default & \tabhead Effect \\
+\midrule
+\code{WFDBX\_BUILD\_TOOLS} & \code{ON} & build the command-line tools \\
+\code{WFDBX\_BUILD\_TESTS} & \code{ON} & build the unit tests \\
+\code{BUILD\_SHARED\_LIBS} & \code{OFF} & build a shared library \\
+\code{CMAKE\_BUILD\_TYPE} & \code{Release} & the build type, when none is given \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The version of the library is that of the CMake project, \code{1.2.0}. The tools, like
+the C tools, have no \opt{-{}-version} option.
+
+\subsection{Using the library from CMake}
+
+An installed library is found with \code{find\_package}, which defines the imported
+target \code{wfdbx::wfdbx} (the library and its include directory):
+
+\begin{lstlisting}
+find_package(wfdbx REQUIRED)
+target_link_libraries(myprogram PRIVATE wfdbx::wfdbx)
+\end{lstlisting}
+
+A copy of the directory \file{cpp} (for example in a subdirectory of a project) can also
+be built as part of a project with \code{add\_subdirectory}, which defines the target
+\code{wfdbx} and its alias \code{wfdbx::wfdbx}. The options of
+\cref{tab:cpp-cmake-options} then select what is built; for the library alone:
+
+\begin{lstlisting}
+set(WFDBX_BUILD_TOOLS OFF CACHE BOOL "Build the command-line tools" FORCE)
+set(WFDBX_BUILD_TESTS OFF CACHE BOOL "Build the unit tests" FORCE)
+add_subdirectory(path/to/wfdb-x/cpp ${CMAKE_CURRENT_BINARY_DIR}/wfdbx EXCLUDE_FROM_ALL)
+target_link_libraries(myprogram PRIVATE wfdbx::wfdbx)
+\end{lstlisting}
+
+Without CMake, a program is compiled against the headers and linked with the library,
+installed (\cmd{-lwfdbx}) or in the build directory:
+
+\begin{lstlisting}[style=shell]
+c++ -std=c++17 myprogram.cpp -lwfdbx                                  # installed
+c++ -std=c++17 -Icpp/include myprogram.cpp cpp/build/libwfdbx.a -o myprogram
+\end{lstlisting}
+
+\subsection{The sample record}
+\label{sec:cpp-resources}
+
+The repository includes the sample record \code{100s}, the sample record of the WFDB
+Software Package: the first minute of record 100 of the MIT-BIH Arrhythmia Database, two
+ECG signals (\code{MLII} and \code{V5}) sampled at 360\,Hz, with the reference beat
+annotations (annotator \code{atr}). Its files (\file{100s.hea}, \file{100s.dat},
+\file{100s.atr}) are in the directory \file{tests/data} of a copy of the repository, with
+the other test records of WFDB-x. The C++ library does not install them: programs name
+that directory as their input directory (\code{wfdbx\_set\_input\_dir("tests/data")}).
+Work that uses the MIT-BIH Arrhythmia Database cites it as described on PhysioNet.
+
+% ==========================================================================================
+\section{Quick start}
+\label{sec:cpp-quickstart}
+
+This program reads the header, ten seconds of the signals and the annotations of the
+sample record \code{100s}, from the directory \file{tests/data} of the repository (the
+input directory of each call), and
+computes the mean heart rate. It then writes the first ten seconds as a new record,
+\code{first10}, in the current directory, with a metadata entry in its header.
+
+\begin{lstlisting}[language=C++,style=example]
+#include <cstdio>
+#include <vector>
+#include <wfdbx/ecgmap.hpp>
+#include <wfdbx/record.hpp>
+
+int main() {
+    wfdbx::InputOptions sample;
+    sample.input_dir = "tests/data";             // the sample record 100s
+
+    // The header only: no samples are read.
+    wfdbx::Header hdr = wfdbx::read_header("100s", false, sample);
+    std::printf("%d %g %lld\n", hdr.nsig, hdr.fs, hdr.nsamples);   // 2 360 21600
+    std::printf("%s %s\n", hdr.siginfo[0].desc->c_str(),
+                hdr.siginfo[1].desc->c_str());                     // MLII V5
+
+    // Seconds 10 to 20 of both signals, frame by frame, in ADC units.
+    wfdbx::ReadOptions opt;
+    opt.input_dir = "tests/data";
+    opt.from = "0:10";
+    opt.to = "0:20";
+    wfdbx::Record rec = wfdbx::read_record("100s", opt);
+    std::printf("%zu %d\n", rec.nsamples(), rec.nsig);             // 3600 2
+    std::printf("%d %g\n", rec.at(0, 0), rec.physical(0, 0));      // 946 -0.39
+
+    // The beat annotations, and the mean heart rate.
+    wfdbx::Annotations ann = wfdbx::read_annotations("100s", "atr", {}, {},
+                                                     std::nullopt, false, sample);
+    std::vector<long long> beats;
+    for (size_t i = 0; i < ann.size(); i++)
+        if (wfdbx::isqrs(ann.codes[i])) beats.push_back(ann.samples[i]);
+    double rr = (beats.back() - beats.front()) / ann.fs / (beats.size() - 1);
+    std::printf("%zu beats, %.1f beats per minute\n", beats.size(), 60 / rr);
+    // 74 beats, 73.9 beats per minute
+
+    // Write the first 10 seconds as the record "first10" (first10.hea and first10.dat,
+    // in the current directory), with the signal specifications of 100s.
+    opt.from = 0;
+    opt.to = "0:10";
+    wfdbx::Record x = wfdbx::read_record("100s", opt);
+    wfdbx::WriteOptions w;
+    w.gains = {200};
+    w.baselines = {1024};
+    w.adczeros = {1024};
+    w.adcres = {11};
+    w.units = {"mV"};
+    w.names = x.names();
+    w.metadata = {{"Source", "MIT-BIH record 100"}};
+    wfdbx::write_record("first10", x.samples, x.nsig, x.fs, w);
+
+    // Header metadata: "# Key: value" lines of the header.
+    wfdbx::set_metadata("first10", "Age", "69");
+    for (const auto &e : wfdbx::read_metadata("first10"))
+        std::printf("%s = %s\n", e.first.c_str(), e.second.c_str());
+    // Source = MIT-BIH record 100
+    // Age = 69
+    std::printf("%s\n", wfdbx::check_record("first10").to_string().c_str());
+    // no problems found
+}
+\end{lstlisting}
+
+Compiled and run from the root of the repository:
+
+\begin{lstlisting}[style=shell]
+c++ -std=c++17 -Icpp/include quick.cpp cpp/build/libwfdbx.a -o quick
+./quick
+\end{lstlisting}
+
+The header \file{100s.hea} gives no units: the program writes \code{"mV"} explicitly,
+since WFDB-x never assumes units, a gain, an ADC resolution or a sampling frequency that
+a record does not give (\cref{chap:behavior}).
+
+% ==========================================================================================
+\section{The high-level API}
+\label{sec:cpp-api}
+
+The high-level API is made of the functions of this section, declared in
+\file{<wfdbx/record.hpp>} in namespace \code{wfdbx}, of the structures of their options
+(\cref{sec:cpp-options}) and of their results (\cref{sec:cpp-results}), and of the
+exceptions \code{Error}, \code{ArgumentError} and \code{FileError}
+(\cref{sec:cpp-warnings}). The comments of the header document each of them.
+
+\subsection{Conventions}
+\label{sec:cpp-conventions}
+
+\paragraph{Record names and directories.} A record is named as in the other parts of
+WFDB-x (\cref{chap:records,chap:files}), without the \file{.hea} extension (the readers
+also accept a trailing \code{".hea"}; \code{write\_record} does not). A record name is
+one of: a full path, absolute (\code{"/data/mitdb/100"}) or in the home directory
+(\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+(\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+otherwise from the current directory, and written to the output directory if one is set,
+otherwise to the current directory (missing directories are created); or a URL
+(\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+on, and which cannot be written. The input and output directories are set with
+\code{wfdbx\_set\_input\_dir} and \code{wfdbx\_set\_output\_dir}
+(\cref{sec:cpp-settings}) or with the environment variables \code{WFDBX\_INPUT\_DIR} and
+\code{WFDBX\_OUTPUT\_DIR}. A writer given a name with a path creates the files in that
+directory, and the header names the record and its signal file without the path
+(\code{rec}, \code{rec.dat}), so that the record opens under any path that leads to it;
+in legacy mode, as in the original, the header gives the name with its path. The readers
+take the fields \code{input\_dir} and \code{network} of an \code{InputOptions} (or of a
+structure derived from it), and the writers a \code{dir}: they apply to that one call,
+and the previous settings are restored when it returns, also when it throws. The
+\code{input\_dir} option is optional, and applies to relative names only, not to full
+paths or URLs. With \code{dir}, the record name must be a plain name (\code{"rec"}): the
+files are created in \code{dir}, and the record opens from that directory under its plain
+name. The signal files that a header names are read from the header's directory.
+
+\paragraph{Options.} The options of a function are the fields of a structure
+(\code{ReadOptions}, \code{InputOptions}, \code{WriteOptions}, \code{MetadataOptions}),
+given as its last argument, with a default value \code{\{\}}: a field that is not set
+keeps its default. An option that may be absent is a \code{std::optional}.
+
+\paragraph{Times.} The fields \code{from} and \code{to} of \code{ReadOptions}, and the
+arguments \code{from} and \code{to} of \code{read\_annotations}, are \code{TimeSpec}
+values: a sample number or a WFDB time string, as \code{strtim} reads it (\code{"0:10"},
+10 seconds; \code{"1:02:03.5"}; \code{"s3600"}, sample 3600; \code{"e"}, the end of the
+record; or a time of day in brackets, \code{"[14:00:00]"}). A \code{TimeSpec} converts
+from integers and strings, so \code{opt.from = 3600;} and \code{opt.from = "0:10";} both
+work; a default-constructed \code{TimeSpec} is empty (no time is given). A time in seconds
+needs the sampling frequency; when the record does not give it, such a time throws
+\code{Error}.
+
+\paragraph{Samples.} Samples are \code{WFDB\_Sample} values (\code{int}), in ADC units,
+stored frame by frame in one \code{std::vector}: \code{samples[i * nsig + s]} is sample
+\code{i} of signal \code{s}. Invalid samples are \code{WFDB\_INVALID\_SAMPLE}
+($-32768$), and NaN in physical units.
+
+\paragraph{Per-signal and per-annotation values.} The per-signal fields of
+\code{WriteOptions} (\code{gains}, \code{units}, \ldots) hold one value for all the
+signals, or one value per signal; the per-annotation fields of \code{Annotations}
+(\code{symbols}, \code{chans}, \ldots) are empty or hold one value per annotation. Any
+other length throws \code{Error} before anything is written.
+
+\paragraph{Signal parameters.} No sampling frequency, gain, ADC resolution or units is
+ever assumed. Where one is needed and the record does not give it, it must be given;
+otherwise the function throws \code{Error}. A record whose header gives no sampling
+frequency has \code{fs = 0}.
+
+\paragraph{Text.} Strings are \code{std::string}, handled as bytes: every byte sequence
+round-trips unchanged, and UTF-8 text is stored as its bytes.
+
+\paragraph{Legacy mode.} With \code{legacy} set to \code{true}, a function behaves as in
+the original WFDB package, with its assumed signal parameters and its search for files
+(\cref{chap:behavior}); the library's legacy mode is on for the duration of the call
+only. With \code{false} (the default), the current setting of \code{wfdbx\_set\_legacy}
+applies, which is off unless it was turned on.
+
+\paragraph{State.} The functions that read and write records and annotation files call
+\code{wfdbquit()} before and after their work, also when they throw, which closes
+anything opened with the WFDB library functions. The library's settings (legacy mode,
+getvec mode, time resolution of output annotators, input and output directories) are the
+same after a call as before it. Opening an EDF record sets the time resolution of output
+annotators (\code{getafreq()}) to its sampling frequency when none is set, and adds
+\code{WFDB\_HIGHRES} to the getvec mode (\code{getgvmode()}), as in C, and
+\code{wfdbquit()} resets neither: the functions that open a record restore both when they
+return, also when they throw, so that a later \code{write\_annotations} does not record
+that frequency; the C-style functions keep the behavior of C. The metadata functions do
+not call \code{wfdbquit()}: they open only the header, and leave the library's open files
+as they are. The functions are not thread-safe. Results are returned by value.
+
+\paragraph{The examples} of this section are the body of a function \code{main}, compiled
+after these lines, and run in a copy of the test records of \file{tests/data} (among them
+\code{100s}), which is the current directory and holds the records that the examples
+write:
+\begin{lstlisting}[language=C++]
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <random>
+#include <vector>
+#include <wfdbx/ecgcodes.hpp>
+#include <wfdbx/record.hpp>
+using namespace wfdbx;
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Reading records}
+\label{sec:cpp-reading}
+
+\apientry{read\_record}{Read the signals of a record}
+\begin{lstlisting}[language=C++,style=signature]
+Record read_record(const std::string &record, const ReadOptions &opt = {});
+\end{lstlisting}
+Reads the signals of a record from \code{opt.from} up to \code{opt.to} (exclusive), in
+ADC units, frame by frame, together with the description of the record. The samples are
+those that \code{getvec} returns (\cref{chap:library}), read in large blocks with
+\code{getvecs}. If the record ends before \code{opt.to}, the samples up to its end are
+returned. When the read reaches the end of the record, the samples are compared with the
+checksums of the header (\cref{sec:cpp-warnings}). The getvec mode (\code{getgvmode()})
+and the time resolution of output annotators (\code{getafreq()}) are the same after the
+call as before it (opening an EDF record sets both).
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[opt] The options (\cref{tab:cpp-readoptions}): the signals to read
+  (\code{channels}), the interval (\code{from}, \code{to}), \code{highres}, \code{pad},
+  \code{checksum\_warning}, \code{legacy}, and the input directory, under which relative
+  record names are read, and network access of the call (\code{input\_dir},
+  \code{network}). Default \code{\{\}}: every signal of the
+  whole record, with the current settings.
+\end{params}
+\returns{A \code{Record} (\cref{tab:cpp-record}), with the samples in ADC units.}
+\raises{\code{Error} if the record cannot be read (``can't read record REC'') or has no
+signals; if a requested signal does not exist (``record REC has no signal C''); if
+\code{opt.from} is negative (``read\_record: from must not be negative'') or cannot be
+reached (``can't seek to sample N of record REC''); if a time string needs the sampling
+frequency and the header gives none (``sampling frequency of record REC is not
+specified''); or if a signal file is shorter than its header says, or cannot be read or
+decoded (``can't read signal data of record REC (getvec status S)''). Data that do not
+match the checksums of the header are returned, with a warning (see
+\code{checksum\_warning}).}
+\begin{lstlisting}[language=C++,style=example]
+// Seconds 10 to 20 of lead MLII, in physical units.
+ReadOptions opt;
+opt.channels = {"MLII"};
+opt.from = "0:10";
+opt.to = "0:20";
+Record rec = read_record("100s", opt);
+std::vector<double> mlii = rec.physical_signal(0);
+std::printf("%zu %g %lld %s\n", mlii.size(), rec.fs, rec.sampfrom,
+            rec.names()[0].c_str());                   // 3600 360 3600 MLII
+
+// The first 3 samples of both signals, in ADC units, V5 first.
+ReadOptions first;
+first.channels = {"1", "0"};
+first.to = 3;
+rec = read_record("100s", first);
+for (size_t i = 0; i < rec.nsamples(); i++)
+    std::printf("%d %d\n", rec.at(i, 0), rec.at(i, 1));   // 1011 995, 3 times
+std::printf("%g %d\n", rec.siginfo[0].gain, rec.siginfo[0].baseline);   // 200 1024
+
+// The whole record: the checksums are verified.
+rec = read_record("100s");
+std::printf("%zu %d\n", rec.nsamples(), rec.checksum_ok);   // 21600 1
+\end{lstlisting}
+A multi-frequency record (here the test record \code{mfreq}, whose signals have 1, 2
+and 4 samples per frame at a frame frequency of 100\,Hz) is read at its frame frequency,
+or at its highest sampling frequency:
+\begin{lstlisting}[language=C++,style=example]
+Record rec = read_record("mfreq");
+std::printf("%g %zu\n", rec.fs, rec.nsamples());       // 100 600
+ReadOptions opt;
+opt.highres = true;
+rec = read_record("mfreq", opt);
+std::printf("%g %zu\n", rec.fs, rec.nsamples());       // 400 2400
+for (const WFDB_Siginfo &s : rec.siginfo) std::printf("%d ", s.spf);   // 1 2 4
+std::printf("\n");
+\end{lstlisting}
+
+\apientry{read\_header}{Read the header of a record}
+\begin{lstlisting}[language=C++,style=signature]
+Header read_header(const std::string &record, bool legacy = false,
+                   const InputOptions &input = {});
+\end{lstlisting}
+Reads the header of a record, without opening its signal files. The result describes the
+record and each of its signals, and holds the info strings and the metadata entries of the
+header (from the \file{.hea} file only, as \code{read\_metadata} reads them, with its
+warning for a key given more than once). For an EDF record, which has no \file{.hea}
+file, and for a header read from the standard input (\code{"-"}), the metadata is empty,
+without an error. For a multi-segment record, the master header is read, and
+\code{nsamples} is the length of the whole record. The time resolution of output
+annotators (\code{getafreq()}) and the getvec mode (\code{getgvmode()}) are the same after
+the call as before it (opening an EDF record sets both).
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[legacy] \code{true} to read the header as the original WFDB package does. Default
+  \code{false}.
+\item[input] The input directory for this call only (optional), under which relative
+  record names are read (it does not apply to full paths or URLs), and network access
+  (\cref{tab:cpp-inputoptions}). Default \code{\{\}}: the current settings.
+\end{params}
+\returns{A \code{Header} (\cref{tab:cpp-header}).}
+\raises{\code{Error} if the header cannot be read (``can't read header for record
+REC'').}
+\begin{lstlisting}[language=C++,style=example]
+Header hdr = read_header("100s");
+std::printf("%s %g %d %lld\n", hdr.name.c_str(), hdr.fs, hdr.nsig, hdr.nsamples);
+// 100s 360 2 21600
+for (const WFDB_Siginfo &s : hdr.siginfo)
+    std::printf("%s %s %d %g %d %s\n", s.desc->c_str(), s.fname->c_str(), s.fmt,
+                s.gain, s.adcres, s.units ? s.units->c_str() : "(none)");
+// MLII 100s.dat 212 200 11 (none)
+// V5 100s.dat 212 200 11 (none)
+std::printf("[%s]\n", hdr.comments[0].c_str());   // [ 69 M 1085 1629 x1]
+std::printf("%d\n", hdr.base_time.has_value());   // 0: the header gives no start time
+\end{lstlisting}
+
+\apientry{read\_annotations}{Read an annotation file}
+\begin{lstlisting}[language=C++,style=signature]
+Annotations read_annotations(const std::string &record,
+                             const std::string &annotator,
+                             const TimeSpec &from = {},
+                             const TimeSpec &to = {},
+                             std::optional<WFDB_Frequency> fs = std::nullopt,
+                             bool legacy = false,
+                             const InputOptions &input = {});
+\end{lstlisting}
+Reads the annotations of an annotation file, in file order, as parallel vectors. The
+sampling frequency, needed to convert times in seconds, is that of the record's header,
+or, for a record without a header or whose header gives none, the argument \code{fs}, as
+the option \opt{-F} of \code{rdann}. The time resolution of output annotators
+(\code{getafreq()}) and the getvec mode (\code{getgvmode()}) are the same after the call
+as before it (opening an EDF record sets both).
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on. Its header, if there is one, gives the sampling
+  frequency.
+\item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
+  file \file{RECORD.atr}.
+\item[from] The first time to read: a sample number or a time string. Default \code{\{\}}:
+  the beginning of the file.
+\item[to] The time at which to stop: annotations at or after it are not read. Default
+  \code{\{\}}: the end of the file.
+\item[fs] The sampling frequency, in Hz ($> 0$), to use when the record has no header or
+  its header gives none; it is ignored otherwise. Default \code{std::nullopt}: none.
+\item[legacy] \code{true} to behave as the original WFDB package (which assumes 250\,Hz
+  for a record without a frequency). Default \code{false}.
+\item[input] The input directory for this call only (optional), under which relative
+  record names are read (it does not apply to full paths or URLs), and network access
+  (\cref{tab:cpp-inputoptions}). Default \code{\{\}}: the current settings.
+\end{params}
+\returns{An \code{Annotations} (\cref{tab:cpp-annotations}). Its \code{fs} is the
+frequency in which the times are counted: the one written in the annotation file, if
+there is one, or else the sampling frequency; it is 0 if none of them is known.}
+\raises{\code{Error} if \code{fs} is given and is not $> 0$ (``read\_annotations: fs must
+be > 0''); if the annotation file cannot be opened (``can't read annotator ANN for record
+REC''); if a time string needs the sampling frequency and none is known (``sampling
+frequency of record REC is not specified''); or if the file ends early or cannot be read
+before \code{to} is reached (``can't read annotation file ANN of record REC (getann status
+S)'', where S is the status that \code{getann} returned, such as $-3$ for an unexpected
+end of file).}
+\begin{lstlisting}[language=C++,style=example]
+Annotations ann = read_annotations("100s", "atr", "0:10", "0:30");
+std::printf("%zu %g\n", ann.size(), ann.fs);                   // 24 360
+std::printf("%lld %s\n", ann.samples[0], ann.symbols[0].c_str());   // 3862 N
+
+// The whole file: the first annotation is a rhythm change, with an aux string.
+ann = read_annotations("100s", "atr");
+std::printf("%s %d %s\n", ann.symbols[0].c_str(), ann.codes[0] == RHYTHM,
+            ann.aux[0]->c_str());                              // + 1 (N
+\end{lstlisting}
+For a record without a header, \code{fs} gives the frequency in which times in seconds
+are converted (the library reports on the standard error that it cannot open the
+header):
+\begin{lstlisting}[language=C++,style=example]
+Annotations beats;
+beats.samples = {100, 460, 820};
+beats.symbols = {"N", "N", "N"};
+write_annotations("beats", "qrs", beats);             // no header
+Annotations ann = read_annotations("beats", "qrs", {}, "0:02", 360.0);
+std::printf("%zu %g\n", ann.size(), ann.fs);          // 2 360
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Writing records}
+\label{sec:cpp-writing}
+
+\apientry{write\_record}{Write a header and a signal file}
+\begin{lstlisting}[language=C++,style=signature]
+void write_record(const std::string &record,
+                  const std::vector<WFDB_Sample> &samples, int nsig,
+                  WFDB_Frequency fs, const WriteOptions &opt = {});
+\end{lstlisting}
+Writes samples in ADC units as a new record: the header \file{RECORD.hea} and one signal
+file, \file{RECORD.dat}, which holds all the signals (so they share one format). Existing
+files of these names are overwritten. The sampling frequency, the gain and ADC resolution
+of each signal, and the units of each calibrated signal must be given: there are no
+defaults. Every check except those of the writing itself comes before any file is
+created. The time resolution of output annotators (\code{getafreq()}) and the getvec
+mode (\code{getgvmode()}) are left as they were.
+\begin{params}
+\item[record] Record name (not empty), without the \file{.hea} extension: a plain name
+  (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output directory
+  if one is set, otherwise in the current directory, missing directories included; or a
+  full path, absolute or in the home directory (\code{"\textasciitilde/Documents/rec"}),
+  used as given. With a path, the files are created in that directory, and the header
+  names the record and its signal file without the path (\code{rec}, \code{rec.dat}), so
+  that the record opens under any path that leads to it (in legacy mode, as in the
+  original, the header gives the name with its path). A URL cannot be written.
+\item[samples] The samples, in ADC units, frame by frame: \code{nsig} values per frame,
+  or, for a multi-frequency record, the sum of \code{opt.samps\_per\_frame} (the samples
+  of signal 0, then those of signal 1, and so on). \code{WFDB\_INVALID\_SAMPLE} marks
+  invalid samples. The number of samples must be a multiple of the frame size.
+\item[nsig] The number of signals ($> 0$).
+\item[fs] The sampling frequency, in Hz: a finite number $> 0$ (for a multi-frequency
+  record, the frame frequency).
+\item[opt] The options (\cref{tab:cpp-writeoptions}): the format, the signal
+  specifications (\code{gains}, \code{adcres} and \code{units} are required), the start
+  time, the comments and metadata, the directory \code{dir} (which must exist) in which
+  to create the files for this call only, with a plain record name, and \code{legacy}.
+\end{params}
+\returns{Nothing.}
+\raises{\code{Error} if a \code{samps\_per\_frame} value is less than 1
+(``write\_record: samps\_per\_frame must hold integers >= 1'', checked first); if the
+record name is empty; if \code{nsig} is not $> 0$ (``write\_record: at least one signal
+is required''); if a per-signal field of \code{opt} has another length than 0, 1 or
+\code{nsig}; if \code{fs} is not finite or not $> 0$; if a gain is not finite
+(``write\_record: gains must be finite''); if the gains, the ADC resolutions or the units
+of a calibrated signal are missing (``write\_record: gains must be specified'',
+``write\_record: ADC resolution(s) must be specified'', ``write\_record: units must be
+specified''); if \code{samples.size()} is not a multiple of the frame size; if
+\code{opt.base\_time} is not a valid time (``write\_record: incorrect base time 'T'''); if
+the files cannot be created; or if they cannot be written completely, for example on a
+full disk (``write error on record REC''). With \code{opt.dir}, also if the directory does
+not exist (``directory D does not exist'') or the record name contains one (``record name
+must not contain a directory when dir is given''). \code{ArgumentError} (a subclass of
+\code{Error}) if an entry of \code{opt.metadata} is not valid (``write\_record: metadata
+key 'K' is also given in comments'', for example).}
+\begin{lstlisting}[language=C++,style=example]
+// A ramp of 1000 samples of one signal, in millivolts, at 100 Hz: the record "ramp"
+// (ramp.hea and ramp.dat).
+std::vector<WFDB_Sample> x(1000);
+for (int i = 0; i < 1000; i++) x[i] = i;
+WriteOptions w;
+w.gains = {200};
+w.adcres = {12};
+w.units = {"mV"};
+w.names = {"ramp"};
+w.base_time = "14:00:03 21/06/2024";
+w.comments = {"a ramp"};
+w.metadata = {{"Generator", "loop"}};
+write_record("ramp", x, 1, 100, w);
+Record rec = read_record("ramp");
+std::printf("%zu %s %g\n", rec.nsamples(), rec.base_time->c_str(),
+            rec.physical(10, 0));                      // 1000 [14:00:03 21/06/2024] 0.05
+for (const std::string &c : read_header("ramp").comments)
+    std::printf("[%s]\n", c.c_str());
+// [a ramp]
+// [ Generator: loop]
+\end{lstlisting}
+A multi-frequency record: signal \code{fast} has 2 samples per frame, signal
+\code{slow} one; each frame holds the two samples of \code{fast} and then the sample of
+\code{slow}:
+\begin{lstlisting}[language=C++,style=example]
+std::vector<WFDB_Sample> frames;
+for (int i = 0; i < 100; i++) {          // 1 second at 100 frames per second
+    frames.push_back(2 * i);             // fast: 200 samples per second
+    frames.push_back(2 * i + 1);
+    frames.push_back(500);               // slow: 100 samples per second
+}
+WriteOptions w;
+w.gains = {200};
+w.adcres = {12};
+w.units = {"mV"};
+w.names = {"fast", "slow"};
+w.samps_per_frame = {2, 1};
+write_record("mf", frames, 2, 100, w);
+ReadOptions opt;
+opt.highres = true;
+Record rec = read_record("mf", opt);
+std::printf("%g %d %d %d %d\n", rec.fs, rec.at(0, 0), rec.at(0, 1), rec.at(1, 0),
+            rec.at(1, 1));                         // 200 0 500 1 500
+\end{lstlisting}
+
+\apientry{write\_record\_physical}{Write a record from samples in physical units}
+\begin{lstlisting}[language=C++,style=signature]
+void write_record_physical(const std::string &record,
+                           const std::vector<double> &samples, int nsig,
+                           WFDB_Frequency fs, const WriteOptions &opt = {});
+\end{lstlisting}
+As \code{write\_record}, with the samples in physical units. Each sample $v$ is stored as
+$\mathrm{round}(v \cdot \mathit{gain}) + \mathit{baseline}$ (halves rounded away from
+zero), and NaN is stored as an invalid sample. Every signal must have a gain other than
+0.
+\begin{params}
+\item[record] Record name, as for \code{write\_record}.
+\item[samples] The samples, in physical units, frame by frame (as for
+  \code{write\_record}).
+\item[nsig] The number of signals ($> 0$).
+\item[fs] The sampling frequency, in Hz: a finite number $> 0$.
+\item[opt] The options, as for \code{write\_record} (\cref{tab:cpp-writeoptions}).
+\end{params}
+\returns{Nothing.}
+\raises{As \code{write\_record}; also \code{Error} if a gain is 0 (``write\_record: signal
+N is uncalibrated''), or if a sample is infinite or its ADC value is outside the range of
+a 32-bit integer (``write\_record: sample I is out of range''). Nothing is written then.}
+\begin{lstlisting}[language=C++,style=example]
+// Two signals of random numbers, in millivolts, at 360 Hz: the record "rand".
+std::mt19937 gen(1);
+std::normal_distribution<double> randn;
+std::vector<double> x(3600 * 2);                    // 3600 frames of 2 signals
+for (double &v : x) v = randn(gen);
+WriteOptions w;
+w.fmt = 16;
+w.gains = {1000};
+w.adcres = {16};
+w.units = {"mV"};
+w.names = {"A", "B"};
+write_record_physical("rand", x, 2, 360, w);
+Record rec = read_record("rand");
+double err = 0;
+for (size_t i = 0; i < x.size(); i++)
+    err = std::max(err, std::abs(rec.physical(i / 2, i % 2) - x[i]));
+std::printf("%zu %d\n", rec.nsamples(), err <= 0.0005);   // 3600 1: rounded to 1/1000 mV
+\end{lstlisting}
+
+\apientry{write\_annotations}{Write an annotation file}
+\begin{lstlisting}[language=C++,style=signature]
+void write_annotations(const std::string &record, const std::string &annotator,
+                       const Annotations &ann, WFDB_Frequency fs = 0,
+                       const std::string &dir = {},
+                       std::optional<bool> sort = std::nullopt);
+\end{lstlisting}
+Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
+that name is overwritten. The record need not have a header. The type of each annotation
+is its \code{symbols} entry (\code{"N"}, \code{"V"}, \ldots; an unknown mnemonic gives
+\code{NOTQRS}), or its \code{codes} entry (\cref{chap:formats}). Both may be given (as
+\code{read\_annotations} returns them) if they agree: the code of each non-empty symbol
+(\code{strann}) is the code given for that annotation; an empty symbol leaves the code.
+\code{subtypes}, \code{chans} and \code{nums} are stored in 8 bits, as by \code{putann}
+(300 is stored as 44, as in C), and \code{aux} texts are cut to 255 bytes. If the
+annotations are not in time order, the file is sorted when it is written. The arguments
+are checked before the file is created. The time resolution of output annotators
+(\code{getafreq()}) and the getvec mode (\code{getgvmode()}) are left as they were:
+\code{fs} applies to this file only.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a plain name or a relative path (\code{"data/100s"}) is created in the
+  output directory if one is set, otherwise in the current directory; a full path,
+  absolute or in the home directory (\code{"\textasciitilde/Documents/100s"}), is used as
+  given. The file is \file{RECORD.ANNOTATOR} at that place (\file{data/100s.qrs}). A URL
+  cannot be written.
+\item[annotator] Annotator name: the suffix of the file, made of letters, digits,
+  \code{\_}, \code{-} and \code{\textasciitilde}.
+\item[ann] The annotations (\cref{tab:cpp-annotations}): \code{samples}, and
+  \code{symbols} or \code{codes}; \code{subtypes}, \code{chans}, \code{nums} and
+  \code{aux} are optional. Each of these vectors is empty (\code{subtypes}, \code{chans}
+  and \code{nums} are then 0, and there is no aux) or has one entry per annotation.
+  \code{ann.record}, \code{ann.annotator} and \code{ann.fs} are not used.
+\item[fs] 0 (none, the default) or a finite frequency $> 0$, in which the times are
+  counted, recorded in the file.
+\item[dir] If not empty, the directory (which must exist) in which to create the file, for
+  this call only; \code{record} must then be a plain name, without a directory: the file
+  is \file{DIR/RECORD.ANNOTATOR}. Default \code{\{\}}: as \code{record} says.
+\item[sort] \code{true} to always sort the file, \code{false} to keep the given order
+  (without the library's advice to run \code{sortann}), for this call only. Default
+  \code{std::nullopt}: the environment variable \code{WFDBANNSORT} decides (sorting is on
+  unless it is \code{0}).
+\end{params}
+\returns{Nothing.}
+\raises{\code{Error} if a per-annotation field has another length than 0 or the number of
+annotations (``write\_annotations: symbols must have one entry per annotation (N), or
+none'', for example); if \code{symbols} and \code{codes} are both given and disagree
+(``write\_annotations: symbols and codes disagree at annotation K'', K counted from 0);
+if \code{fs} is not 0 and not a finite frequency $> 0$; if the file cannot be created
+(``can't create annotator ANN for record REC''); if it cannot be written completely
+(``write error on annotator ANN for record REC''); or, with \code{dir}, as
+\code{write\_record} does.}
+\begin{lstlisting}[language=C++,style=example]
+// Three beats and a rhythm change, by symbol, with an aux string for the rhythm.
+Annotations a;
+a.samples = {18, 77, 370, 662};
+a.symbols = {"+", "N", "V", "N"};
+a.aux = {std::string("(N"), std::nullopt, std::nullopt, std::nullopt};
+write_annotations("100s", "test", a);
+Annotations b = read_annotations("100s", "test");
+std::printf("%s %s %s\n", b.symbols[0].c_str(), b.symbols[2].c_str(),
+            b.aux[0]->c_str());                          // + V (N
+
+// A copy of the reference annotations, as read_annotations returns them.
+Annotations atr = read_annotations("100s", "atr");
+write_annotations("100s", "copy", atr);
+Annotations c = read_annotations("100s", "copy");
+std::printf("%d\n", c.samples == atr.samples && c.aux == atr.aux);   // 1
+
+// Annotations out of time order are sorted when the file is written (the library
+// reports it on the standard error).
+Annotations u;
+u.samples = {500, 100};
+u.codes = {NORMAL, NORMAL};
+write_annotations("100s", "unsorted", u);
+Annotations s = read_annotations("100s", "unsorted");
+std::printf("%lld %lld\n", s.samples[0], s.samples[1]);    // 100 500
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Checking records}
+\label{sec:cpp-checking}
+
+\apientry{check\_record}{Check a record and its annotation files}
+\begin{lstlisting}[language=C++,style=signature]
+CheckReport check_record(const std::string &record,
+                         const std::vector<std::string> &annotators = {},
+                         const InputOptions &input = {});
+\end{lstlisting}
+Checks the header of a record, its signal specifications, every sample of its signal
+files, each segment of a multi-segment record, and the annotation files named, and
+reports each problem found. A problem in the record never throws: it is reported, with a
+severity (\code{"error"}: the record is damaged or does not follow the WFDB format, and
+programs will read wrong data or fail; \code{"warning"}: the record can be read, but
+something is missing or unusual, and may give wrong results; \code{"info"}: a fact worth
+knowing, such as invalid samples). The problems, their codes and their messages are the
+same in the seven languages (\cref{tab:python-issue-codes}). The checks run in normal
+mode, even if legacy mode is on, and the library prints no messages during the call (the
+previous settings are restored afterwards, the time resolution of output annotators and
+the getvec mode among them). They are similar to those of Benjamin Moody's
+\code{wfdbcheck}.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on (as for \code{read\_record}).
+\item[annotators] The annotator names whose files are checked, such as
+  \code{\{"atr"\}}. Default \code{\{\}}: none.
+\item[input] The input directory for this call only (optional), under which relative
+  record names are read (it does not apply to full paths or URLs), and network access
+  (\cref{tab:cpp-inputoptions}). Default \code{\{\}}: the current settings.
+\end{params}
+\returns{A \code{CheckReport} (\cref{tab:cpp-checkreport}): \code{report.ok} is
+\code{true} if no problem is an error, \code{report.issues} lists the problems
+(\code{Issue} values, \cref{tab:cpp-issue}), and \code{report.to\_string()} gives one line
+per problem, or \code{no problems found}.}
+\raises{\code{Error} if \code{record} is empty (``record must not be empty''). A record
+that cannot be read is reported (code \code{header\_unreadable}), not thrown.}
+\begin{lstlisting}[language=C++,style=example]
+CheckReport report = check_record("100s", {"atr"});
+std::printf("%d\n", report.ok);                    // 1: no errors
+std::printf("%s\n", report.to_string().c_str());
+// warning: signal 0: the units are not specified
+// warning: signal 1: the units are not specified
+
+// A damaged record: one sample of a 12-bit signal is overwritten with 2048.
+std::vector<WFDB_Sample> x(100);
+for (int i = 0; i < 100; i++) x[i] = i;
+WriteOptions w;
+w.gains = {100};
+w.adcres = {12};
+w.units = {"mV"};
+w.names = {"ramp"};
+write_record("damaged", x, 1, 100, w);
+std::FILE *f = std::fopen("damaged.dat", "r+b");
+std::fseek(f, 20, SEEK_SET);           // sample 10 (2 bytes per sample in format 16)
+std::fputc(0x00, f);                   // 0x0800 = 2048, little-endian
+std::fputc(0x08, f);
+std::fclose(f);
+report = check_record("damaged");
+std::printf("%d\n", report.ok);                    // 0
+for (const Issue &i : report.issues)
+    std::printf("%s %s %s\n", i.severity.c_str(), i.code.c_str(), i.where.c_str());
+// error sample_range signal 0
+// error checksum signal 0
+std::printf("%s\n", report.lines()[0].c_str());
+// error: signal 0: 1 sample is outside the ADC range (-2048 to 2047): sample 10 (value 2048)
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Header metadata}
+\label{sec:cpp-metadata}
+
+These functions read and change the metadata of a header: its info strings of the form
+\code{\# Key: value}, such as \code{\# Age: 63} (\cref{chap:metadata}). In short: keys are
+compared without regard to letter case (A-Z and a-z only); a key must not be empty and
+must not contain \code{:}, \code{\#}, CR, LF or NUL, and a value must not contain CR, LF
+or NUL; spaces, tabs, VT, FF and CR at either end of keys and values are removed; keys and
+values are bytes (\code{std::string}). A change rewrites the header in one step, through a
+temporary file in the directory of the destination, which then replaces it, keeping its
+permissions and every other byte of it; all the arguments are checked first, so an error
+leaves the header unchanged, and nothing is written if nothing changes (unless
+\code{dir} is given). Only the \file{.hea} file is read (not a \file{.info} file); for a
+multi-segment record, it is the master header, unless a segment is named. The results
+and arguments are of the types \code{Metadata} and \code{MetadataChanges}:
+\begin{lstlisting}[language=C++]
+using Metadata = std::vector<std::pair<std::string, std::string>>;
+using MetadataChanges =
+    std::vector<std::pair<std::string, std::optional<std::string>>>;
+\end{lstlisting}
+Errors throw \code{ArgumentError} (an invalid argument) or \code{FileError} (a file that
+cannot be read or written), both subclasses of \code{Error} (\cref{sec:cpp-warnings}).
+These functions do not call \code{wfdbquit()}. Metadata often holds information about
+patients: WFDB-x stores it as plain text, exactly as given, and does not de-identify it.
+
+\begin{phibox}
+A header can hold identifying data about a patient (a name, a date of birth, a medical
+record number). The metadata functions read and write such data as given. Records that
+are shared must be de-identified first.
+\end{phibox}
+
+\apientry{read\_metadata}{Read the metadata of a record}
+\begin{lstlisting}[language=C++,style=signature]
+Metadata read_metadata(const std::string &record,
+                       const InputOptions &input = {});
+\end{lstlisting}
+Reads the metadata entries of the header of a record, in file order. An info string is an
+entry if it contains a colon: the key is the text before the first colon, the value the
+rest of the line, both without spaces at either end. Info strings without a colon, or
+whose key is empty or contains \code{\#}, are free comments, which are not returned.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[input] The input directory for this call only (optional), under which relative
+  record names are read (it does not apply to full paths or URLs), and network access
+  (\cref{tab:cpp-inputoptions}). Default \code{\{\}}: the current settings.
+\end{params}
+\returns{The entries, as (key, value) pairs, in file order. A key that appears more than
+once (ignoring letter case) is returned once, with its first value, with a warning
+(\cref{sec:cpp-warnings}).}
+\raises{\code{FileError} if the header cannot be found or read (``can't read header for
+record REC''); \code{ArgumentError} if \code{record} is empty (``record name must not be
+empty'') or \code{"-"} (the standard input).}
+\begin{lstlisting}[language=C++,style=example]
+WriteOptions w;
+w.gains = {200};
+w.adcres = {12};
+w.units = {"mV"};
+w.names = {"ECG"};
+w.comments = {"recorded at rest"};
+w.metadata = {{"Age", "63"}, {"Sex", "F"}};
+write_record("pat", std::vector<WFDB_Sample>(360, 0), 1, 360, w);
+for (const auto &e : read_metadata("pat"))
+    std::printf("%s = %s\n", e.first.c_str(), e.second.c_str());
+// Age = 63
+// Sex = F
+for (const std::string &c : read_header("pat").comments)
+    std::printf("[%s]\n", c.c_str());
+// [recorded at rest]: the free comment is not an entry
+// [ Age: 63]
+// [ Sex: F]
+\end{lstlisting}
+
+\apientry{get\_metadata}{Return the value of a metadata entry}
+\begin{lstlisting}[language=C++,style=signature]
+std::optional<std::string> get_metadata(const std::string &record,
+                                        const std::string &key,
+                                        const InputOptions &input = {});
+\end{lstlisting}
+Returns the value of one metadata entry of the header of a record.
+\begin{params}
+\item[record] Record name (as for \code{read\_metadata}).
+\item[key] The key, such as \code{"Age"}. Letter case is ignored, and spaces at either end
+  are removed; it must be a valid key (see \code{set\_metadata}).
+\item[input] The input directory and network access for this call only. Default
+  \code{\{\}}: the current settings.
+\end{params}
+\returns{The value (\code{""} for an entry with an empty value), or \code{std::nullopt} if
+the header has no entry for \code{key}. If it has more than one, the first is returned,
+with the warning of \code{read\_metadata}.}
+\raises{As \code{read\_metadata}; also \code{ArgumentError} if \code{key} is not valid.}
+\begin{lstlisting}[language=C++,style=example]
+WriteOptions w;
+w.gains = {200};
+w.adcres = {12};
+w.units = {"mV"};
+w.metadata = {{"Age", "63"}, {"Notes", ""}};
+write_record("pat", std::vector<WFDB_Sample>(360, 0), 1, 360, w);
+std::printf("%s\n", get_metadata("pat", "age")->c_str());       // 63
+std::printf("[%s]\n", get_metadata("pat", " NOTES ")->c_str()); // []: an empty value
+std::printf("%d\n", get_metadata("pat", "Weight").has_value()); // 0: no such entry
+\end{lstlisting}
+
+\apientry{set\_metadata}{Set the value of a metadata entry}
+\begin{lstlisting}[language=C++,style=signature]
+void set_metadata(const std::string &record, const std::string &key,
+                  const std::string &value, const MetadataOptions &opt = {});
+\end{lstlisting}
+Sets the value of a metadata entry in the header of a record. If the header has an entry
+for \code{key} (ignoring letter case), its line is replaced by \code{\# Key: value}, at
+the same position and with its line ending, with the spelling of \code{key} given here
+(even if the value is the same). Otherwise the entry is added after the last info string
+of the header (or, if it has none, after its last line that is not blank), with the line
+ending of the record line. Every other byte of the header is kept.
+\begin{params}
+\item[record] Record name (as for \code{read\_metadata}). The header is changed where it
+  was read, unless \code{opt.dir} is given; a header read from a URL can only be written
+  elsewhere, with \code{opt.dir}.
+\item[key] The key, such as \code{"Age"} or \code{"Date of birth"}. Spaces at either end
+  are removed; it must not then be empty, and must not contain \code{:}, \code{\#}, CR,
+  LF or NUL.
+\item[value] The value, which may be a sentence. Spaces at either end are removed; it
+  must not contain CR, LF or NUL, and may be empty (it is then written \code{\# Key:}).
+\item[opt] The input directory and network access for reading the header, and the
+  directory \code{dir} in which to write the changed header, for this call only
+  (\cref{tab:cpp-metadataoptions}). Default \code{\{\}}: the current settings, and the
+  header is changed where it was read.
+\end{params}
+\returns{Nothing.}
+\raises{\code{ArgumentError} if \code{key} or \code{value} is not valid; if the header has
+more than one entry for \code{key} (``header of record REC has more than one entry for key
+KEY (lines L1, L2); remove them first''); if it has no record line; if it was read from a
+URL and \code{opt.dir} is not given; or if \code{record} is empty or \code{"-"}.
+\code{FileError} if the header cannot be read; if the changed header cannot be written
+(``can't write header for record REC''); or if \code{opt.dir} does not exist
+(``directory D does not exist'').}
+\begin{lstlisting}[language=C++,style=example]
+WriteOptions w;
+w.gains = {200};
+w.adcres = {12};
+w.units = {"mV"};
+w.metadata = {{"Age", "63"}};
+write_record("pat", std::vector<WFDB_Sample>(360, 0), 1, 360, w);
+set_metadata("pat", "AGE", "64");                  // replaces the line: "# AGE: 64"
+set_metadata("pat", "Date of birth", "1961-02-03");    // adds "# Date of birth: 1961-02-03"
+for (const auto &e : read_metadata("pat"))
+    std::printf("%s = %s\n", e.first.c_str(), e.second.c_str());
+// AGE = 64
+// Date of birth = 1961-02-03
+try {
+    set_metadata("pat", "a:b", "1");
+} catch (const ArgumentError &e) {
+    std::printf("%s\n", e.what());      // metadata key 'a:b' must not contain ':'
+}
+\end{lstlisting}
+
+\apientry{remove\_metadata}{Remove a metadata entry}
+\begin{lstlisting}[language=C++,style=signature]
+int remove_metadata(const std::string &record, const std::string &key,
+                    const MetadataOptions &opt = {});
+\end{lstlisting}
+Removes a metadata entry from the header of a record. Every entry for \code{key}
+(ignoring letter case) is removed, with its line ending, so this also repairs a header
+that has more than one. Every other byte is kept. Nothing is written if the header has no
+entry for \code{key} (unless \code{opt.dir} is given).
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}).
+\item[key] The key (as for \code{set\_metadata}).
+\item[opt] The input directory, network access and output directory \code{dir} of this
+  call (as for \code{set\_metadata}). Default \code{\{\}}.
+\end{params}
+\returns{The number of lines removed (0 if the header has no entry for \code{key}).}
+\raises{As \code{set\_metadata}.}
+\begin{lstlisting}[language=C++,style=example]
+WriteOptions w;
+w.gains = {200};
+w.adcres = {12};
+w.units = {"mV"};
+w.metadata = {{"Age", "63"}, {"Sex", "F"}};
+write_record("pat", std::vector<WFDB_Sample>(360, 0), 1, 360, w);
+std::printf("%d\n", remove_metadata("pat", "sex"));       // 1
+std::printf("%d\n", remove_metadata("pat", "Weight"));    // 0: nothing is written
+std::printf("%zu\n", read_metadata("pat").size());        // 1
+\end{lstlisting}
+
+\apientry{update\_metadata}{Make several changes to the metadata}
+\begin{lstlisting}[language=C++,style=signature]
+void update_metadata(const std::string &record, const MetadataChanges &changes,
+                     const MetadataOptions &opt = {});
+\end{lstlisting}
+Makes several changes to the metadata of a record in one write. Each (key, value) of
+\code{changes} is applied in order, as \code{set\_metadata} does, or, if the value is
+\code{std::nullopt}, as \code{remove\_metadata} does. All the changes are checked first:
+if one is not valid, none is made.
+\begin{params}
+\item[record] Record name (as for \code{set\_metadata}).
+\item[changes] The changes, as (key, value) pairs; a value of \code{std::nullopt} removes
+  the entry. No two keys may differ only in letter case. Empty \code{changes} change
+  nothing (and write nothing, unless \code{opt.dir} is given).
+\item[opt] The input directory, network access and output directory \code{dir} of this
+  call (as for \code{set\_metadata}). Default \code{\{\}}.
+\end{params}
+\returns{Nothing.}
+\raises{As \code{set\_metadata}; also \code{ArgumentError} if two keys differ only in
+letter case (``metadata key 'K' is given more than once (keys are compared without regard
+to letter case)'').}
+\begin{lstlisting}[language=C++,style=example]
+WriteOptions w;
+w.gains = {200};
+w.adcres = {12};
+w.units = {"mV"};
+w.metadata = {{"Age", "63"}, {"Dx", "164889003"}};
+write_record("pat", std::vector<WFDB_Sample>(360, 0), 1, 360, w);
+update_metadata("pat", {{"Age", "64"}, {"Dx", std::nullopt}, {"Sex", "F"}});
+for (const auto &e : read_metadata("pat"))
+    std::printf("%s = %s\n", e.first.c_str(), e.second.c_str());
+// Age = 64
+// Sex = F
+
+// The header "pat" in the directory "in" is unchanged; the changed copy is written to
+// the directory "out" (which must exist).
+std::filesystem::create_directories("in");
+std::filesystem::create_directories("out");
+std::filesystem::copy_file("pat.hea", "in/pat.hea");
+MetadataOptions o;
+o.input_dir = "in";
+o.dir = "out";
+update_metadata("pat", {{"Age", "65"}}, o);
+std::printf("%s %s\n", get_metadata("in/pat", "Age")->c_str(),
+            get_metadata("out/pat", "Age")->c_str());      // 64 65
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{The options}
+\label{sec:cpp-options}
+
+The options of the high-level functions are the fields of the structures of
+\cref{tab:cpp-inputoptions,tab:cpp-readoptions,tab:cpp-writeoptions,tab:cpp-metadataoptions}.
+\code{ReadOptions} and \code{MetadataOptions} are derived from \code{InputOptions}, and
+have its fields too. A field that is not set keeps its default.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{InputOptions}: where \code{read\_header},
+  \code{read\_annotations}, \code{check\_record}, \code{read\_metadata} and
+  \code{get\_metadata} find files, for one call}
+\label{tab:cpp-inputoptions} \\
+\toprule
+\tabhead Field & \tabhead Meaning \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Meaning \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{std::optional<std::string> input\_dir} & the input directory for this call only
+  (optional; see \code{wfdbx\_set\_input\_dir}): a local directory, a
+  \code{\textasciitilde} path or the URL of a directory, under which relative record names
+  are read. It does not apply to full paths or URLs. \code{""} means the default
+  (\code{WFDBX\_INPUT\_DIR}, or the current directory). Not set: the current setting \\
+\code{std::optional<bool> network} & \code{true} to allow opening URLs for this call only,
+  \code{false} to forbid it (see \code{wfdbx\_set\_network}). Not set: the current
+  setting \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{ReadOptions}, the options of \code{read\_record} (with
+  \code{input\_dir} and \code{network} of \code{InputOptions})}
+\label{tab:cpp-readoptions} \\
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{std::vector<std::string> channels} & the signals to return, in this order, by number
+  (\code{"0"}, \code{"1"}, \ldots) or by name (\code{"V5"}, as in \code{Record::names()},
+  then as \code{findsig} finds it). Default empty: all the signals \\
+\code{TimeSpec from} & the first sample: a sample number ($\ge 0$) or a time string.
+  Default empty: 0 \\
+\code{TimeSpec to} & the sample after the last one: a sample number or a time string.
+  Default empty: the end of the record \\
+\code{bool highres} & \code{true} to read a multi-frequency record at its highest sampling
+  frequency, repeating the samples of the slower signals; \code{false} averages the
+  samples of the faster signals to one per frame. Default \code{false} \\
+\code{bool pad} & \code{true} to replace each invalid sample by the previous valid sample
+  of the same signal. Default \code{false} \\
+\code{bool checksum\_warning} & \code{true} to print a warning on the standard error when
+  the samples do not match the checksums of the header (\cref{sec:cpp-warnings}); the
+  samples are returned either way. Default \code{true} \\
+\code{bool legacy} & behave as the original WFDB package, for this call only. Default
+  \code{false} \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{WriteOptions}, the options of \code{write\_record} and
+  \code{write\_record\_physical}. Each per-signal vector holds one value for all the
+  signals, or one value per signal (or none, for those that have a default)}
+\label{tab:cpp-writeoptions} \\
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Meaning (default) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{int fmt} & the storage format, the same for all the signals, such as \code{16},
+  \code{212}, \code{24} or \code{516} (FLAC) (\cref{chap:formats}). Default \code{16} \\
+\code{std::vector<WFDB\_Gain> gains} & the gains, in ADC units per physical unit:
+  required, and finite. A gain of 0 marks a signal as uncalibrated, which only
+  \code{write\_record} (ADC units) allows. Negative gains are allowed \\
+\code{std::vector<int> baselines} & the ADC values that correspond to 0 physical units.
+  Default: the \code{adczeros} values \\
+\code{std::vector<int> adczeros} & the ADC output for an input of 0\,V. Default
+  \code{\{0\}} \\
+\code{std::vector<int> adcres} & the ADC resolutions, in bits: required, each at least
+  1 \\
+\code{std::vector<std::optional<std::string>> units} & the physical units, such as
+  \code{"mV"}: required for every signal whose gain is not 0; optional for uncalibrated
+  signals \\
+\code{std::vector<std::string> names} & the signal descriptions. Default: \code{""} \\
+\code{std::vector<int> samps\_per\_frame} & the number of samples per frame of each
+  signal, for a multi-frequency record (each $\ge 1$). Default: 1 \\
+\code{std::optional<std::string> base\_time} & the start time and date, such as
+  \code{"12:00:00 01/01/2020"} (see \code{setbasetime}). Default: none \\
+\code{std::vector<std::string> comments} & the info strings, written to the header as
+  comment lines (\code{"\#"} followed by the string). Default: none \\
+\code{Metadata metadata} & metadata entries (\cref{chap:metadata}) written to the header
+  after the comments, as \code{\# Key: value} (through \code{putinfo}), in this order. The
+  keys and values follow the rules of \code{set\_metadata}; no two keys may differ only
+  in letter case, and none may be the key of an entry in \code{comments}
+  (\code{ArgumentError}, before any file is created). Default: none \\
+\code{std::string dir} & if not empty, the directory (which must exist) in which the
+  files are created, for this call only; the record name must then be a plain name,
+  without a directory, and the record opens from that directory under its plain name.
+  Default \code{""}: the output directory \\
+\code{bool legacy} & behave as the original WFDB package, for this call only: the gain
+  defaults to 200, and the ADC resolution to one based on the format. Default
+  \code{false} \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{MetadataOptions}, the options of \code{set\_metadata},
+  \code{remove\_metadata} and \code{update\_metadata} (with \code{input\_dir} and
+  \code{network} of \code{InputOptions}, which say where the header is read from)}
+\label{tab:cpp-metadataoptions} \\
+\toprule
+\tabhead Field & \tabhead Meaning \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Meaning \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{std::string dir} & if not empty, the directory (which must exist; a
+  \code{\textasciitilde} path is expanded) in which the changed header is written, under
+  the file name of the header that was read, instead of changing that header. The header
+  is then written even if nothing changes. The signal files are not copied. Default
+  \code{""}: the header is changed where it was read \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The members of \code{TimeSpec}, a sample number or a time string}
+\label{tab:cpp-timespec} \\
+\toprule
+\tabhead Member & \tabhead Meaning \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Member & \tabhead Meaning \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{TimeSpec()} & an empty value: no time is given \\
+\code{TimeSpec(WFDB\_Time t)}, \code{TimeSpec(int t)}, \code{TimeSpec(long t)} & the
+  sample number \code{t} \\
+\code{TimeSpec(const char *s)}, \code{TimeSpec(std::string s)} & the time string
+  \code{s} \\
+\code{bool empty() const} & \code{true} if no time was given \\
+\code{bool needs\_freq() const} & \code{true} if the time is a string that needs a sampling
+  frequency to be converted (see \code{wfdbx\_time\_needs\_freq}) \\
+\code{WFDB\_Time resolve() const} & the sample number (0 if empty); a time string is
+  converted with \code{strtim} for the record open at the time, and a time of day gives
+  the positive sample number it corresponds to \\
+\end{xltabular}
+
+% ------------------------------------------------------------------------------------------
+\subsection{The result types}
+\label{sec:cpp-results}
+
+The readers return structures of the types \code{Record}, \code{Header} and
+\code{Annotations}, whose members are listed in
+\cref{tab:cpp-record,tab:cpp-header,tab:cpp-annotations}; \code{check\_record} returns a
+\code{CheckReport}, which holds \code{Issue} values
+(\cref{tab:cpp-checkreport,tab:cpp-issue}). The signals of a record are described by
+\code{WFDB\_Siginfo} structures (\cref{tab:cpp-siginfo}), which are those of the WFDB
+library (\cref{sec:cpp-library}). Their fields are public, and may be changed.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The members of \code{Record}, the result of \code{read\_record}}
+\label{tab:cpp-record} \\
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{std::string name} & the record name, as given to \code{read\_record} \\
+\code{WFDB\_Frequency fs} & the sampling frequency of the returned samples, in Hz, or 0 if
+  the header gives none; with \code{highres}, the highest sampling frequency of a
+  multi-frequency record \\
+\code{int nsig} & the number of signals returned \\
+\code{std::vector<int> signals} & the number, in the record, of each signal returned \\
+\code{std::vector<WFDB\_Sample> samples} & the samples in ADC units, frame by frame:
+  \code{samples[i * nsig + s]} is sample \code{i} of signal \code{s}; invalid samples are
+  \code{WFDB\_INVALID\_SAMPLE} \\
+\code{std::vector<WFDB\_Siginfo> siginfo} & one per signal returned, in the order of the
+  signals; \code{desc} has no white space at either end \\
+\code{std::optional<std::string> base\_time} & the start time and date as text, to the
+  second, such as \code{"[08:45:00 01/01/2001]"}; \code{std::nullopt} if the header gives
+  none \\
+\code{std::optional<long long> base\_time\_ms} & the start time in milliseconds after
+  midnight (\code{"14:00:03.500"} gives \code{50403500}); given exactly when
+  \code{base\_time} is \\
+\code{std::optional<std::array<int, 3>> base\_date} & the start date as
+  \code{\{year, month, day\}}; \code{std::nullopt} if the header gives no date \\
+\code{WFDB\_Time sampfrom} & the number of the first sample returned \\
+\code{std::vector<std::string> comments} & the info strings of the record: the comments of
+  the header, and the lines of its \file{.info} file if it has one (see \code{getinfo}) \\
+\code{bool checksum\_ok} & \code{false} if the samples do not match the checksums of the
+  header; checksums are checked only when a read reaches the end of the record, so a
+  shorter read gives \code{true} \\
+\code{bool legacy} & \code{true} if the record was read in legacy mode; \code{physical()}
+  then uses a gain of 200 for uncalibrated signals \\
+\code{size\_t nsamples() const} & the number of samples per signal \\
+\code{WFDB\_Sample at(size\_t i, int s) const} & sample \code{i} of signal \code{s}, in ADC
+  units (not bounds-checked) \\
+\code{double physical(size\_t i, int s) const} & sample \code{i} of signal \code{s} in
+  physical units, $(\mathit{value} - \mathit{baseline}) / \mathit{gain}$; NaN if the
+  sample is invalid. Throws \code{Error} (``signal N of record REC is uncalibrated'') if
+  the gain of the signal is 0 \\
+\code{std::vector<double> physical\_signal(int s) const} & all the samples of signal
+  \code{s} in physical units \\
+\code{std::vector<std::string> names() const} & the signal descriptions (\code{""} if
+  absent), without the white space that a header may put at either end of them \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The members of \code{Header}, the result of \code{read\_header}}
+\label{tab:cpp-header} \\
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{std::string name} & the record name, as given to \code{read\_header} \\
+\code{WFDB\_Frequency fs} & the sampling frequency in Hz, as \code{sampfreq()} gives it; 0
+  if the header gives none \\
+\code{WFDB\_Frequency counter\_freq} & the counter frequency (\code{getcfreq()}) \\
+\code{double base\_counter} & the base counter value (\code{getbasecount()}) \\
+\code{WFDB\_Time nsamples} & the number of samples per signal, from the record line of the
+  header (0 if the header does not give it) \\
+\code{int nsig} & the number of signals \\
+\code{std::vector<WFDB\_Siginfo> siginfo} & the signal specifications, one per signal;
+  \code{desc} has no white space at either end \\
+\code{base\_time}, \code{base\_time\_ms}, \code{base\_date} & the start time and date, as
+  in \code{Record} \\
+\code{std::vector<std::string> comments} & the info strings of the record, as in
+  \code{Record} \\
+\code{Metadata metadata} & the metadata entries of the header, in file order, as
+  \code{read\_metadata} returns them: from the \file{.hea} file only; empty, without an
+  error, for an EDF record and for a header read from the standard input \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The members of \code{Annotations}, the result of \code{read\_annotations} and the
+  argument of \code{write\_annotations}: parallel vectors, annotation \code{i} being
+  \code{samples[i]}, \code{codes[i]}, \code{symbols[i]}, \ldots, in file order}
+\label{tab:cpp-annotations} \\
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{std::string record}, \code{annotator} & the record and annotator names, such as
+  \code{"100s"} and \code{"atr"} \\
+\code{WFDB\_Frequency fs} & the frequency in which \code{samples} are counted, normally the
+  sampling frequency of the record; 0 if unknown \\
+\code{std::vector<WFDB\_Time> samples} & the annotation times, in samples \\
+\code{std::vector<int> codes} & the annotation codes, such as \code{NORMAL} or \code{PVC} \\
+\code{std::vector<std::string> symbols} & the mnemonics of the codes, as \code{annstr}
+  returns them, such as \code{"N"}, \code{"V"} or \code{"+"} \\
+\code{std::vector<int> subtypes}, \code{chans}, \code{nums} & the subtype, channel number
+  and annotator number of each annotation \\
+\code{std::vector<std::optional<std::string>> aux} & the auxiliary text of each
+  annotation, up to its first NUL byte, or \code{std::nullopt} where there is none \\
+\code{size\_t size() const} & the number of annotations \\
+\end{xltabular}
+
+\begin{table}[htbp]
+\centering
+\caption{The members of \code{CheckReport}, the result of \code{check\_record}}
+\label{tab:cpp-checkreport}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\code{std::string record} & the record name, as given \\
+\code{bool ok} & \code{true} if no issue has the severity \code{"error"} \\
+\code{std::vector<Issue> issues} & the problems, in the order of the checks \\
+\code{std::vector<std::string> lines() const} & the text form of the report: one line per
+  issue (\code{Issue::to\_string()}), or the one line \code{no problems found} \\
+\code{std::string to\_string() const} & the lines of \code{lines()}, joined by line feeds
+  (no final line feed) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{The members of \code{Issue}, a problem found by \code{check\_record}}
+\label{tab:cpp-issue}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Member & \tabhead Contents \\
+\midrule
+\code{std::string severity} & \code{"error"}, \code{"warning"} or \code{"info"} \\
+\code{std::string code} & a stable identifier of the kind of problem, such as
+  \code{"checksum"} or \code{"gain\_missing"} (\cref{tab:python-issue-codes}) \\
+\code{std::string where} & where the problem is: \code{""} (the record),
+  \code{"signal N"}, \code{"segment SEG"}, \code{"segment SEG, signal N"} or
+  \code{"annotator ANN"} \\
+\code{std::string message} & the description of the problem \\
+\code{std::string to\_string() const} & \code{"SEVERITY: WHERE: MESSAGE"}, or
+  \code{"SEVERITY: MESSAGE"} when \code{where} is empty \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The fields of \code{WFDB\_Siginfo} (also named \code{Siginfo}), the specification
+  of a signal}
+\label{tab:cpp-siginfo} \\
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Field & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{std::optional<std::string> fname} & the name of the signal file, as the header gives
+  it \\
+\code{std::optional<std::string> desc} & the signal description, such as \code{"MLII"} \\
+\code{std::optional<std::string> units} & the physical units, such as \code{"mV"};
+  \code{std::nullopt} if not specified \\
+\code{WFDB\_Gain gain} & the gain, in ADC units per physical unit (0: uncalibrated) \\
+\code{WFDB\_Sample initval} & the value of the first sample \\
+\code{WFDB\_Group group} & the signal group number (the signals of one group share one
+  file) \\
+\code{int fmt} & the storage format, such as \code{16}, \code{212} or \code{516} \\
+\code{int spf} & the number of samples per frame (more than 1 for the faster signals of a
+  multi-frequency record) \\
+\code{int bsize} & the block size, in bytes (0 for ordinary files) \\
+\code{int adcres} & the ADC resolution, in bits (0: not specified) \\
+\code{int adczero} & the ADC output for an input of 0\,V \\
+\code{int baseline} & the ADC value that corresponds to 0 physical units \\
+\code{long nsamp} & the number of samples (0: not specified) \\
+\code{int cksum} & the 16-bit checksum of the samples \\
+\end{xltabular}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Warnings and errors}
+\label{sec:cpp-warnings}
+
+\paragraph{Exceptions.} The high-level functions report errors by throwing exceptions of
+the classes of \cref{tab:cpp-exceptions}, all declared in \file{<wfdbx/record.hpp>}.
+\code{e.what()} returns the message, which describes the failed operation, such as
+``can't read record REC''. Each function checks its arguments before it creates or
+changes a file, so an invalid argument leaves the files as they were. The library may
+also print a message of its own on the standard error when it cannot open a file (as in
+\code{init: can't open header for record REC}); \code{wfdberror()} returns the last such
+message, and \code{wfdbquiet()} turns these messages off (\cref{sec:cpp-library}).
+
+\begin{table}[htbp]
+\centering
+\caption{The exceptions of the high-level API}
+\label{tab:cpp-exceptions}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Exception & \tabhead Thrown when \\
+\midrule
+\code{Error} (derived from \code{std::runtime\_error}) & a record, header or annotation
+  file cannot be found, read, created or written completely (for example on a full
+  disk); a signal or annotation file ends before its header or its end-of-file marker
+  says; an argument is invalid; or the operation needs a value that the record does not
+  give (a time in seconds without a sampling frequency, physical units without a gain) \\
+\code{ArgumentError} (derived from \code{Error}) & an argument of a metadata function is
+  invalid: an invalid key or value, a record name that is empty or \code{"-"}, a key that
+  the header has more than once (\code{set\_metadata}, \code{update\_metadata}), a header
+  without a record line, or a header read from a URL to be changed without \code{dir};
+  also an invalid \code{WriteOptions::metadata} in \code{write\_record} \\
+\code{FileError} (derived from \code{Error}) & a metadata function cannot read or write a
+  file: a header that cannot be found or read, a changed header that cannot be written,
+  or a \code{dir} that does not exist \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Warnings.} Warnings are printed on the standard error with the library's
+messages, as \code{wfdb\_error} prints them: \code{wfdbquiet()} silences them, and
+\code{wfdberror()} returns the last one. There is no callback.
+
+\paragraph{The checksum warning.} When \code{read\_record} reads to the end of a record
+whose samples do not match the checksums of its header, it returns all the samples and
+prints the warning ``WFDB-x: checksum error in record REC: the signal data do not match
+the checksums in its header''. \code{checksum\_warning = false} turns the warning off;
+\code{checksum\_ok} of the result is \code{false} either way.
+
+\paragraph{The duplicate-key warning.} When a header holds two metadata entries whose keys
+differ only in letter case (written by other software), \code{read\_metadata},
+\code{get\_metadata} and \code{read\_header} use the first and print the warning ``WFDB-x:
+header of record REC has more than one entry for key KEY (lines L1, L2); the first is
+used''. \code{set\_metadata} and \code{update\_metadata} then refuse to change that key
+(\code{ArgumentError}), and \code{remove\_metadata} removes all of its entries.
+
+\begin{lstlisting}[language=C++,style=example]
+// A record whose last sample is changed after it was written: the checksum fails.
+std::vector<WFDB_Sample> x(100);
+for (int i = 0; i < 100; i++) x[i] = i;
+WriteOptions w;
+w.gains = {100};
+w.adcres = {12};
+w.units = {"mV"};
+write_record("ck", x, 1, 100, w);
+std::FILE *f = std::fopen("ck.dat", "r+b");
+std::fseek(f, -2, SEEK_END);
+std::fputc(0, f);
+std::fputc(0, f);
+std::fclose(f);
+Record rec = read_record("ck");      // prints the checksum warning
+std::printf("%zu %d\n", rec.nsamples(), rec.checksum_ok);   // 100 0: all the samples
+ReadOptions quiet;
+quiet.checksum_warning = false;
+rec = read_record("ck", quiet);      // no warning
+
+// Two entries for one key: the first is used, with a warning.
+WriteOptions d = w;
+d.gains = {0};
+d.units = {};
+d.comments = {" Age: 63", " AGE: 64"};
+write_record("dup", std::vector<WFDB_Sample>(10, 0), 1, 100, d);
+std::printf("%s\n", get_metadata("dup", "age")->c_str());   // 63, with a warning
+try {
+    set_metadata("dup", "Age", "65");
+} catch (const ArgumentError &e) {
+    std::printf("ArgumentError: %s\n", e.what());
+    // ArgumentError: header of record dup has more than one entry for key Age
+    // (lines 3, 4); remove them first
+}
+std::printf("%d\n", remove_metadata("dup", "age"));          // 2
+
+try {
+    read_record("nosuchrecord");
+} catch (const Error &e) {
+    std::printf("%s\n", e.what());   // can't read record nosuchrecord
+}
+try {
+    read_metadata("nosuchrecord");
+} catch (const FileError &e) {
+    std::printf("%s\n", e.what());   // can't read header for record nosuchrecord
+}
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The WFDB library functions in C++}
+\label{sec:cpp-library}
+
+Every function of the WFDB library is declared in \file{<wfdbx/wfdb.hpp>}, in namespace
+\code{wfdbx}, under its C name, with the same arguments, in the same order, and the same
+return values, so that programs and documentation written for the C library carry over
+directly. The functions, their arguments and their results are documented once, for all
+the languages, in \cref{chap:library}; this section gives the rules by which the C
+declarations become C++ functions (see also \cref{sec:library-cpp}). The header
+summarizes each function, and marks what WFDB-x changes in it.
+
+\subsection{Conventions}
+
+\paragraph{Names and headers.} The functions, the types (\code{WFDB\_Sample},
+\code{WFDB\_Time}, \ldots), the structures and the constants (\code{WFDB\_READ},
+\code{WFDB\_INVALID\_SAMPLE}, \code{WFDB\_HIGHRES}, \ldots) keep their C names, in
+namespace \code{wfdbx}. \file{<wfdbx/ecgcodes.hpp>} defines the annotation codes
+(\code{NORMAL}, \code{PVC}, \ldots, \cref{chap:formats}), and \file{<wfdbx/ecgmap.hpp>}
+the macros of \file{<wfdb/ecgmap.h>} as inline functions (\code{isann}, \code{isqrs},
+\code{map1}, \ldots, which call \code{wfdb\_isann}, \code{wfdb\_isqrs},
+\code{wfdb\_map1}, \ldots). \file{<wfdbx/record.hpp>} includes \file{<wfdbx/wfdb.hpp>}.
+
+\paragraph{Arguments.} String arguments are \code{const char *}, and \code{nullptr} is
+accepted where C accepts \code{NULL}: \code{sampfreq(nullptr)} returns the frequency of
+the open record, and \code{getinfo(nullptr)} continues with the info strings of the last
+record. Arrays and structures are allocated by the caller and passed by pointer, as in
+C: \code{isigopen} fills an array of \code{WFDB\_Siginfo}, \code{getvec} an array of
+\code{WFDB\_Sample}, \code{getann} a \code{WFDB\_Annotation}. \code{getseginfo} takes a
+\code{const WFDB\_Seginfo **}.
+
+\paragraph{Strings} are returned by value, as \code{std::string}, or as
+\code{std::optional<std::string>} where the C function may return \code{NULL}
+(\code{annstr}, \code{ecgstr}, \code{anndesc}, \code{getinfo}, \code{wfdbfile}, \ldots);
+unlike C's pointers to static buffers, they stay valid after later calls. Text is handled
+as bytes.
+
+\paragraph{Return values and errors.} The functions return what the C functions return:
+an \code{int} status (negative on errors), a number of signals, a \code{double}, a string
+or \code{std::nullopt}. Errors are reported by these values and by a message on the
+standard error, as in C, never by exceptions. \code{wfdberror()} returns the last message;
+\code{wfdbquiet()} turns the messages off and \code{wfdbverbose()} on again.
+
+\paragraph{State.} As in C, the library keeps its state in the process: the open record,
+its input signals, the output signals and the annotators remain open between calls, until
+\code{wfdbquit()} closes them. \code{wfdbquit()} leaves the input and output directories
+and the network setting as they are. The library is not thread-safe. The high-level
+functions of \cref{sec:cpp-api} (except the metadata functions) call \code{wfdbquit()},
+which closes anything opened with the library functions.
+
+\paragraph{Additions.} \code{getvecs(buffer, n)} reads up to \code{n} sample vectors at
+once, with exactly the result of \code{n} calls of \code{getvec}, but decoding whole
+blocks of the signal files; \code{getvecs(buffer, n, \&status)} also gives the status of
+the last \code{getvec} call:
+\begin{lstlisting}[language=C++]
+long long getvecs(WFDB_Sample *out, long long n, int *status = nullptr);
+\end{lstlisting}
+
+\subsection{The structures}
+\label{sec:cpp-structures}
+
+The structures of the C library have the names and the fields of the C structures,
+with C's zero values as defaults; they are also available under the shorter names
+\code{Siginfo}, \code{Anninfo}, \code{Annotation}, \code{Calinfo} and \code{Seginfo}
+(\cref{tab:cpp-structures}).
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The C structures in C++}
+\label{tab:cpp-structures} \\
+\toprule
+\tabhead Structure & \tabhead Fields \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Structure & \tabhead Fields \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{WFDB\_Siginfo} & \code{fname}, \code{desc}, \code{units} (\code{std::optional<std::string>}),
+  \code{gain}, \code{initval}, \code{group}, \code{fmt}, \code{spf}, \code{bsize},
+  \code{adcres}, \code{adczero}, \code{baseline}, \code{nsamp}, \code{cksum}
+  (\cref{tab:cpp-siginfo}) \\
+\code{WFDB\_Seginfo} & \code{recname} (the name of the segment, a \code{char} array),
+  \code{nsamp} (its number of samples), \code{samp0} (the number of its first sample in
+  the record) \\
+\code{WFDB\_Anninfo} & \code{name} (the annotator name, a \code{std::string}), \code{stat}
+  (\code{WFDB\_READ} or \code{WFDB\_WRITE} for the MIT format, \code{WFDB\_AHA\_READ} or
+  \code{WFDB\_AHA\_WRITE} for the AHA format) \\
+\code{WFDB\_Annotation} & \code{time} (\code{WFDB\_Time}, in sample intervals),
+  \code{anntyp} (\code{char}), \code{subtyp} (\code{signed char}), \code{chan}
+  (\code{unsigned char}), \code{num} (\code{signed char}), \code{aux}
+  (\code{std::optional<std::string>}: absent, or a string whose first byte is the length
+  of the text that follows, as in C) \\
+\code{WFDB\_Calinfo} & \code{low}, \code{high} (the levels of the calibration pulse, in
+  physical units), \code{scale} (physical units per cm), \code{sigtype} and \code{units}
+  (\code{std::optional<std::string>}), \code{caltype} \\
+\end{xltabular}
+
+\code{WFDB\_Time} is \code{long long} (64 bits), \code{WFDB\_Sample} is \code{int},
+\code{WFDB\_Date} is \code{long}, \code{WFDB\_Frequency} and \code{WFDB\_Gain} are
+\code{double}, and \code{WFDB\_Group}, \code{WFDB\_Signal} and \code{WFDB\_Annotator} are
+\code{unsigned int}.
+
+\subsection{The settings functions}
+\label{sec:cpp-settings}
+
+The functions of \cref{tab:cpp-settings} are additions of WFDB-x to the library, declared
+in \file{<wfdbx/wfdb.hpp>}: they set where files are read and written, network access and
+legacy mode, for the high-level functions, the library functions and the tools alike
+(\cref{chap:files,chap:behavior}). Each \code{set} function returns the previous setting,
+so that it can be restored. The C function \code{setwfdb(p)} sets the input directory too
+(\code{p} must name at most one directory), and \code{getwfdb()} returns it (\code{"."} if
+none is set); in legacy mode they set and return the WFDB path, as in C.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The settings functions}
+\label{tab:cpp-settings} \\
+\toprule
+\tabhead Function & \tabhead Effect and result \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Function & \tabhead Effect and result \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{std::optional<std::string> wfdbx\_set\_input\_dir(const char *dir)} & sets the input
+  directory: a local directory, a \code{\textasciitilde} path or a URL; \code{nullptr} or
+  \code{""} restores the default (\code{WFDBX\_INPUT\_DIR}, or else the current
+  directory). Returns the previous input directory, or \code{std::nullopt} if none was
+  set \\
+\code{std::optional<std::string> wfdbx\_get\_input\_dir()} & returns the input directory,
+  or \code{std::nullopt} if none is set \\
+\code{std::optional<std::string> wfdbx\_set\_output\_dir(const char *dir)} & sets the
+  output directory: a local directory or a \code{\textasciitilde} path (a URL is refused,
+  with a message); \code{nullptr} or \code{""} restores the default
+  (\code{WFDBX\_OUTPUT\_DIR}, or else the current directory). Returns the previous output
+  directory, or \code{std::nullopt} \\
+\code{std::optional<std::string> wfdbx\_get\_output\_dir()} & returns the output directory,
+  or \code{std::nullopt} if none is set \\
+\code{int wfdbx\_set\_network(int on)} & turns network access on (1) or off (0); a
+  negative number restores the default (on if \code{WFDBX\_NETWORK} is a nonzero number).
+  Returns the previous setting, 1 or 0 \\
+\code{int wfdbx\_get\_network()} & returns 1 if network access is on, 0 otherwise \\
+\code{int wfdbx\_set\_legacy(int on)} & turns legacy mode on (1) or off (0), for the whole
+  library. Returns the previous setting \\
+\code{int wfdbx\_get\_legacy()} & returns 1 if legacy mode is on, 0 otherwise \\
+\code{int wfdbx\_legacy\_args(int \&argc, char **\&argv)} & if \code{argv[1]} is
+  \code{"-{}-legacy"}, removes it from the arguments, turns legacy mode on and returns 1;
+  otherwise returns 0. It also installs the exit check of the tools (an exit status of 0
+  becomes 1 after a write error, outside legacy mode) \\
+\code{int wfdbx\_time\_needs\_freq(const char *time\_string)} & returns 1 if
+  \code{strtim(time\_string)} needs a sampling frequency, 0 otherwise \\
+\code{int wfdbx\_write\_errors()} & returns the number of write errors since the program
+  started (output files that could not be written, flushed or closed) \\
+\code{void wfdbx\_note\_write\_error()} & counts a write error, for a program that writes
+  a file itself \\
+\code{std::optional<std::string> wfdbx\_input\_path(const char *name)} & returns the path
+  under which a program opens a file that it reads itself, where \code{wfdb\_open} finds a
+  file of that name: in normal mode, a relative name under the input directory, a
+  \code{\textasciitilde} name expanded, an absolute name as given; in legacy mode, the name
+  as given. \code{""} and \code{"-"} are returned as given; \code{std::nullopt} for
+  \code{nullptr} or a URL (also once the input directory is prefixed) \\
+\code{std::optional<std::string> wfdbx\_output\_path(const char *name)} & returns the path
+  under which a program creates a file that it writes itself, where \code{wfdb\_open}
+  creates a file of that name: in normal mode, a relative name under the output directory,
+  a \code{\textasciitilde} name expanded, an absolute name as given; in legacy mode, any
+  name under the output directory, as a plain prefix. The missing directories are created
+  when the output directory is prefixed. \code{""} and \code{"-"} are returned as given;
+  \code{std::nullopt} for \code{nullptr} or a URL \\
+\end{xltabular}
+
+\subsection{Examples}
+
+Reading the samples and the annotations of a record, as a C program does (the record
+\code{100s} is read from the current directory):
+
+\begin{lstlisting}[language=C++,style=example]
+#include <cstdio>
+#include <vector>
+#include <wfdbx/ecgcodes.hpp>
+#include <wfdbx/wfdb.hpp>
+using namespace wfdbx;
+
+int main() {
+    WFDB_Siginfo si[2];                       // receives one WFDB_Siginfo per signal
+    int nsig = isigopen("100s", si, 2);       // open 2 signals
+    std::printf("%d %s %d %g\n", nsig, si[0].desc->c_str(), si[0].fmt, si[0].gain);
+    // 2 MLII 212 200
+    std::printf("%g\n", sampfreq(nullptr));   // 360: the frequency of the open record
+
+    WFDB_Sample v[2];                         // receives one sample per signal
+    isigsettime(strtim("0:30"));              // skip to 30 seconds
+    getvec(v);
+    std::printf("%d %d %g\n", v[0], v[1], aduphys(0, v[0]));    // 947 968 -0.385
+
+    std::vector<WFDB_Sample> frames(360 * 2); // the next second, in one call
+    int status;
+    long long n = getvecs(frames.data(), 360, &status);
+    std::printf("%lld %d\n", n, status);      // 360 2
+
+    WFDB_Anninfo ai{"atr", WFDB_READ};
+    WFDB_Annotation a;
+    annopen("100s", &ai, 1);
+    int count = 0;
+    while (getann(0, &a) == 0) {              // 0: an annotation was read; -1: the end
+        if (count < 2)
+            std::printf("%s %s\n", mstimstr(a.time).c_str(), annstr(a.anntyp)->c_str());
+        count++;
+    }
+    std::printf("%d annotations\n", count);   // 75 annotations
+
+    wfdbquiet();                              // no messages on the standard error
+    int stat = isigopen("nosuchrecord", nullptr, 0);
+    std::printf("%d %s", stat, wfdberror().c_str());
+    // -1 init: can't open header for record nosuchrecord
+    wfdbverbose();
+    wfdbquit();                               // close everything
+}
+\end{lstlisting}
+
+Writing a record and an annotation file, sample by sample and annotation by annotation:
+
+\begin{lstlisting}[language=C++,style=example]
+#include <cstdio>
+#include <wfdbx/ecgcodes.hpp>
+#include <wfdbx/wfdb.hpp>
+using namespace wfdbx;
+
+int main() {
+    WFDB_Siginfo out;
+    out.fname = "ramp.dat";
+    out.desc = "ramp";
+    out.units = "mV";
+    out.gain = 200;
+    out.fmt = 16;
+    out.adcres = 12;
+    std::printf("%d\n", osigfopen(&out, 1));    // 1: one output signal
+    setsampfreq(250);
+    for (WFDB_Sample k = 0; k < 500; k++) putvec(&k);
+    std::printf("%d\n", newheader("ramp"));     // 0: ramp.hea is written
+    WFDB_Anninfo ai{"qrs", WFDB_WRITE};
+    annopen("ramp", &ai, 1);
+    for (WFDB_Time t : {100, 350}) {
+        WFDB_Annotation a;
+        a.time = t;
+        a.anntyp = NORMAL;
+        putann(0, &a);
+    }
+    wfdbquit();                                 // completes ramp.dat and ramp.qrs
+}
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The command-line tools in C++}
+\label{sec:cpp-tools}
+
+The 33 command-line tools (\code{rdsamp}, \code{rdann}, \code{wrsamp}, \code{xform},
+\ldots) are separate programs, built in \file{cpp/build/bin/} (or the \file{bin} directory
+of the installation), one per file of \file{cpp/apps}, and run by their names. Each
+follows its C program line by line. The tools, their options, their output and their exit
+status are those of the C tools, and are documented in \cref{chap:tools}.
+
+\begin{lstlisting}[style=shell]
+export PATH=$PWD/cpp/build/bin:$PATH
+export WFDBX_INPUT_DIR=tests/data     # run from the root of the repository
+rdsamp -r 100s -t 10 -p     # the first 10 seconds of 100s, in physical units
+rdann -r 100s -a atr        # its annotations
+rdsamp --legacy -r 100s     # legacy mode: --legacy as the first argument
+\end{lstlisting}
+
+There is no launcher: a tool is run by its own name, and it has no \opt{-{}-version}
+option, like the C tools. When an output file or the standard output cannot be written (a
+full disk, for example), a tool reports it (``PROGRAM: write error on standard output'')
+and exits with status 1; with \opt{-{}-legacy}, it keeps the original exit status.
+
+\paragraph{Environment variables.} The tools, like the rest of the library, use the
+environment variables of \cref{tab:cpp-environment}, also for the files that they read or
+create themselves: the \opt{-i} file of \code{wrsamp}, \code{edf2mit}, \code{wav2mit},
+\code{a2m} and \code{ad2m}, the input files of \code{ahaecg2mit} and the \opt{-S} script
+of \code{xform} are read from the input directory, and the WAV file of \code{mit2wav},
+the EDF file of \code{mit2edf}, the master header of \code{snip -m} and the \file{.des},
+\file{.ecg}, \file{.key} and \file{.txt} files of \code{parsescp} are created in the
+output directory, as the records they read and write are (with
+\code{wfdbx\_input\_path} and \code{wfdbx\_output\_path}, \cref{tab:cpp-settings}). Such
+a file cannot be read from a URL.
+
+\begin{table}[htbp]
+\centering
+\caption{The environment variables used by the C++ library}
+\label{tab:cpp-environment}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Variable & \tabhead Meaning \\
+\midrule
+\code{WFDBX\_INPUT\_DIR} & the input directory (a directory, a \code{\textasciitilde}
+  path or a URL), when \code{wfdbx\_set\_input\_dir} does not set one \\
+\code{WFDBX\_OUTPUT\_DIR} & the output directory, when \code{wfdbx\_set\_output\_dir} does
+  not set one \\
+\code{WFDBX\_NETWORK} & network access is on if it is a nonzero number, when
+  \code{wfdbx\_set\_network} does not set it \\
+\code{WFDBANNSORT} & \code{0} to keep annotation files in the order written (no sorting
+  when they are closed) \\
+\code{WFDBGVMODE} & the default getvec mode (\code{setgvmode} with a negative mode) \\
+\code{WFDBCAL} & the calibration file read by \code{calopen(nullptr)} (default
+  \file{wfdbcal}) \\
+\code{WFDB} & the WFDB path, used in legacy mode only (outside legacy mode, it is
+  ignored, with a message) \\
+\code{HOME} (\code{USERPROFILE} on Windows) & the home directory, for
+  \code{\textasciitilde} paths \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Tools that write signal parameters require them as options: \code{wrsamp} (with
+\opt{-o}) requires \opt{-F} (frequency), \opt{-G} (gain), \opt{-R} (ADC resolution) and,
+for calibrated signals, \opt{-U} (units); \code{wav2mit} requires \opt{-G}, and \opt{-U}
+unless the gain is 0; \code{ad2m} and \code{ahaecg2mit} require \opt{-F}, \opt{-G},
+\opt{-R}, and \opt{-U} unless the gain is 0; \code{a2m}, \code{rdann}, \code{ann2rr},
+\code{sortann} and \code{m2a} require \opt{-F} when the record's header gives no
+frequency (\cref{chap:tools}).
+
+% ==========================================================================================
+\section{Testing}
+\label{sec:cpp-testing}
+
+The unit tests of the C++ implementation are in \file{cpp/tests}, built with the library
+(unless \code{WFDBX\_BUILD\_TESTS} is \code{OFF}) as the program
+\file{cpp/build/wfdbx\_tests}. From the root of the repository, after building:
+
+\begin{lstlisting}[style=shell]
+ctest --test-dir cpp/build                          # the unit tests
+cpp/build/wfdbx_tests                               # the same, one line per test
+cpp/build/wfdbx_tests metadata_shared_cases         # selected tests, by name
+\end{lstlisting}
+
+The unit tests cover the WFDB library functions, the high-level functions, the metadata
+functions (with the cases shared by the seven languages, in \file{tests/metadata}),
+\code{check\_record} and the FLAC codec. They run in temporary copies of the test records
+of \file{tests/data} (the environment variable \code{WFDBX\_TEST\_DATA} names another
+directory). The tests of network access use a local HTTP server on 127.0.0.1 only, and
+are skipped without \cmd{curl}. The tests of \code{check\_record} write the corpus of
+\file{python/tests/check\_corpus.py} with \cmd{python3} (or the program named by the
+environment variable \code{WFDBX\_PYTHON}) and the Python package of \file{python/src},
+and compare the reports with its \file{expected.txt}; without Python they are skipped.
+\cmd{cpp/build/wfdbx\_check\_corpus DIR} prints the reports for a corpus in \file{DIR}.
+
+The cross-language conformance suite runs every tool and compares its results, byte for
+byte, with those of the original C programs (1135 cases), and, with \opt{-{}-legacy}, in
+legacy mode (883 cases). It runs the tools of \file{cpp/build/bin}:
+
+\begin{lstlisting}[style=shell]
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl cpp -j8
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl cpp -j8 --legacy
+\end{lstlisting}

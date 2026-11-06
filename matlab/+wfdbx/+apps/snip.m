@@ -18,7 +18,9 @@ function status = snip(args)
 %       -t TIME     stop at specified time
 %
 %   WFDB-x: the input record must specify its sampling frequency (the C
-%   program assumed 250 Hz); see docs/DIVERGENCES.md.
+%   program assumed 250 Hz).  The master header of -m is created under the
+%   output directory, as the library creates an output file (see
+%   wfdbx.wfdbx_output_path); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -43,9 +45,11 @@ function status = snip(args)
 % code.
 %
 % Changes from the original: no built-in sampling frequency: the input record
-% must give it, for the header of the excerpt (the original assumed 250 Hz);
-% --legacy, as the first argument, restores the original behavior. Each change
-% is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+% must give it, for the header of the excerpt (the original assumed 250 Hz); the
+% master header of -m is created under the output directory, as the library
+% creates an output file; --legacy, as the first argument, restores the original
+% behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+% gives the reasons.
 %
 % Original C program: app/snip.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2021 by
@@ -146,6 +150,8 @@ seginfo = wfdbx.getseginfo();
 maxseg = numel(seginfo);
 if recurse && maxseg > 0
     sfreq = wfdbx.sampfreq([]);
+    % WFDB-x: the master header is created where the library creates an
+    % output file of that name (see wfdbx.wfdbx_output_path)
     ohfile = wfdbx.internal.OutputFile([nrec '.hea'], pname);
     if ohfile.fid < 0
         wfdbx.internal.ceprintf('%s: can''t create master header\n', pname);

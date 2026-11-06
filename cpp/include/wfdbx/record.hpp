@@ -14,17 +14,24 @@
 // These functions read and write whole records and annotation files in a few
 // calls: read_record(), read_header(), read_annotations(), write_record(),
 // write_record_physical() and write_annotations(); check_record() checks a
-// record and its annotation files.  They read and write the
-// same files as the WFDB library functions of <wfdbx/wfdb.hpp> and the
+// record and its annotation files; read_metadata(), get_metadata(),
+// set_metadata(), remove_metadata() and update_metadata() read and change
+// the "Key: value" entries of a header (its metadata).  They read and write
+// the same files as the WFDB library functions of <wfdbx/wfdb.hpp> and the
 // command-line tools.
 //
-// Files are read and written exactly where they are named.  A full path, a
-// "~" path or a URL is used as given.  Any other name is read from the input
-// directory and written to the output directory, both the current directory
-// by default.  Set them with wfdbx_set_input_dir() and
-// wfdbx_set_output_dir(), or for one call with the `input_dir` option of the
-// readers and the `dir` option of the writers.  URLs need network access:
-// wfdbx_set_network(1), or the `network` option of the readers.
+// Files are read and written exactly where they are named.  A record name is
+// given without the .hea extension (the readers also accept a trailing
+// ".hea").  A full path, absolute ("/data/mitdb/100") or in the home
+// directory ("~/Documents/100s"), is used as given, and so is a URL
+// ("https://physionet.org/files/mitdb/1.0.0/100"), which is read only if
+// network access is on and cannot be written.  A relative path ("100s",
+// "data/100s") is read from the input directory and written to the output
+// directory if they are set, otherwise in the current directory.  Set them
+// with wfdbx_set_input_dir() and wfdbx_set_output_dir(), or for one call with
+// the `input_dir` option of the readers and the `dir` option of the writers.
+// Network access: wfdbx_set_network(1), or the `network` option of the
+// readers.
 //
 // No sampling frequency, gain, ADC resolution or units are assumed.  You give
 // them to write_record().  A record whose header gives no frequency is read
@@ -33,9 +40,15 @@
 // The `legacy` option of each function makes it behave as the original WFDB
 // package, for that call only.  Use it only to reproduce old results.
 //
-// Errors throw wfdbx::Error.  The functions call wfdbquit() before and after
-// their work (also when they throw), which closes anything opened with the
-// WFDB library functions.
+// Errors throw wfdbx::Error (the metadata functions throw its subclasses
+// ArgumentError and FileError).  The functions call wfdbquit() before and
+// after their work (also when they throw), which closes anything opened with
+// the WFDB library functions; the metadata functions do not (they open only
+// the header, and leave the library's open files as they are).  The
+// functions that open a record (all but the metadata functions) leave the
+// time resolution of output annotators (getafreq()) and the getvec mode
+// (getgvmode()) as they were, also after reading an EDF record, whose
+// opening sets both (as in C; the C-style functions keep that behavior).
 // They are not thread-safe.  Results are returned by value.
 //
 //     #include <wfdbx/record.hpp>
@@ -61,6 +74,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "wfdb.hpp"
@@ -75,6 +89,40 @@ class Error : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
+
+/// An Error for an invalid argument, thrown by the header metadata functions
+/// (read_metadata() and the others) and by write_record() for an invalid
+/// WriteOptions::metadata: an invalid key or value, a record name that is
+/// empty or "-", a key that the header has more than once (set_metadata(),
+/// update_metadata()), a header without a record line, or a header read
+/// from a URL that is to be changed without `dir`.
+///
+/// Part of WFDB-x; not in the original WFDB package.
+class ArgumentError : public Error {
+public:
+    using Error::Error;
+};
+
+/// An Error for a file that cannot be read or written, thrown by the header
+/// metadata functions: a header that cannot be found or read ("can't read
+/// header for record R"), a changed header that cannot be written ("can't
+/// write header for record R"), or a `dir` that does not exist ("directory
+/// D does not exist").
+///
+/// Part of WFDB-x; not in the original WFDB package.
+class FileError : public Error {
+public:
+    using Error::Error;
+};
+
+/// Header metadata: the "Key: value" entries of a header, as (key, value)
+/// pairs in file order (see read_metadata()).
+using Metadata = std::vector<std::pair<std::string, std::string>>;
+
+/// Changes to the metadata of a header, as (key, value) pairs applied in
+/// order (see update_metadata()); a value of std::nullopt removes the entry.
+using MetadataChanges =
+    std::vector<std::pair<std::string, std::optional<std::string>>>;
 
 /// A time: a sample number, or a WFDB time string such as "0:10" (10
 /// seconds), "s1000" (sample 1000), "[12:00:00]" (a time of day) or "e" (the
@@ -113,9 +161,11 @@ private:
 ///     in.network = true;
 ///     wfdbx::Header hdr = wfdbx::read_header("100", false, in);
 struct InputOptions {
-    /// The input directory (see wfdbx_set_input_dir()): a local directory or
-    /// the URL of a directory.  "" means the default: WFDBX_INPUT_DIR, or the
-    /// current directory.
+    /// The input directory for this call only (optional): a local
+    /// directory, a "~" path or the URL of a directory, under which relative
+    /// record names are read.  It does not apply to full paths or URLs.  ""
+    /// means the default: WFDBX_INPUT_DIR, or the current directory.  Not
+    /// set: the current setting (see wfdbx_set_input_dir()).
     std::optional<std::string> input_dir;
     /// Network access (see wfdbx_set_network()): true allows opening URLs,
     /// false forbids it.
@@ -204,16 +254,25 @@ struct ReadOptions : InputOptions {
 /// the record ends before opt.to, the samples up to its end are returned.
 /// Returns a Record, with the samples in ADC units.
 ///
+/// `record` is the record name, without the .hea extension (a trailing
+/// ".hea" is also accepted): a full path, absolute ("/data/mitdb/100") or in
+/// the home directory ("~/Documents/100s"), used as given; a relative path
+/// ("100s", "data/100s"), read from the input directory if one is set,
+/// otherwise from the current directory; or a URL
+/// ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+/// access is on.
+///
 /// Throws Error if the record cannot be read or has no signals, if a
 /// requested signal does not exist, if opt.from is negative ("read_record:
 /// from must not be negative") or cannot be reached.  The getvec mode
-/// (getgvmode()) is the same after the call as before it.  A
-/// signal file that is shorter than its header says, or that cannot be read
-/// or decoded, throws "can't read signal data of record R (getvec status
-/// S)".  If the header gives no sampling frequency, rec.fs is 0, and a time
-/// string in opt.from or opt.to that needs it throws "sampling frequency of
-/// record R is not specified".  Data that do not match the header's
-/// checksums are returned, with a warning (see
+/// (getgvmode()) and the time resolution of output annotators (getafreq())
+/// are the same after the call as before it (opening an EDF record sets
+/// both).  A signal file that is shorter than its header says, or that
+/// cannot be read or decoded, throws "can't read signal data of record R
+/// (getvec status S)".  If the header gives no sampling frequency, rec.fs is
+/// 0, and a time string in opt.from or opt.to that needs it throws "sampling
+/// frequency of record R is not specified".  Data that do not match the
+/// header's checksums are returned, with a warning (see
 /// ReadOptions::checksum_warning).
 ///
 ///     // The sample record 100s (the first minute of record 100 of the
@@ -252,13 +311,32 @@ struct Header {
     std::optional<std::array<int, 3>> base_date;
     /// Info strings of the record, as Record::comments.
     std::vector<std::string> comments;
+    /// The "Key: value" entries of the header, in file order, as
+    /// read_metadata() returns them: from the .hea file only (not from a
+    /// .info file); empty, without an error, for an EDF record (which has no
+    /// .hea file) and for a header read from the standard input ("-").
+    Metadata metadata;
 };
 
 /// Read the header of `record`: its frequencies, length, signal
-/// specifications, start time and date, and info strings.  The signal files
+/// specifications, start time and date, info strings and metadata (the
+/// "Key: value" entries, as read_metadata() returns them, with its warning
+/// for a key given more than once).  The signal files
 /// are not opened.  Returns a Header.  `legacy` behaves as the original WFDB
 /// package, for this call only.  `input` says where the header is found (see
 /// InputOptions).  Throws Error if the header cannot be read.
+///
+/// `record` is the record name, without the .hea extension (a trailing
+/// ".hea" is also accepted): a full path, absolute ("/data/mitdb/100") or in
+/// the home directory ("~/Documents/100s"), used as given; a relative path
+/// ("100s", "data/100s"), read from the input directory if one is set,
+/// otherwise from the current directory; or a URL
+/// ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+/// access is on.
+///
+/// The time resolution of output annotators (getafreq()) and the getvec
+/// mode (getgvmode()) are the same after the call as before it (opening an
+/// EDF record sets both).
 ///
 ///     // The sample record 100s (see read_record()), in tests/data:
 ///     wfdbx::InputOptions in;
@@ -293,6 +371,14 @@ struct Annotations {
 /// "100s.atr", from time `from` (default: the start) up to `to`, exclusive
 /// (default: the end).  Returns the annotations in file order.
 ///
+/// `record` is the record name, without the .hea extension (a trailing
+/// ".hea" is also accepted): a full path, absolute ("/data/mitdb/100") or in
+/// the home directory ("~/Documents/100s"), used as given; a relative path
+/// ("100s", "data/100s"), read from the input directory if one is set,
+/// otherwise from the current directory; or a URL
+/// ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+/// access is on.
+///
 /// The sampling frequency is that of the record's header.  If the record
 /// has no header, or its header gives none, `fs` is used, as the -F option
 /// of rdann.  Without either, the result's fs is the time resolution of the
@@ -307,6 +393,10 @@ struct Annotations {
 /// cannot be read before `to` is reached throws "can't read annotation file
 /// A of record R (getann status S)", where S is the status getann() returned
 /// (e.g. -3, unexpected end of file).
+///
+/// The time resolution of output annotators (getafreq()) and the getvec
+/// mode (getgvmode()) are the same after the call as before it (opening an
+/// EDF record sets both).
 ///
 ///     // The sample record 100s (see read_record()), in tests/data:
 ///     wfdbx::wfdbx_set_input_dir("tests/data");
@@ -346,10 +436,16 @@ struct WriteOptions {
     /// one that setbasetime() rejects throws Error.
     std::optional<std::string> base_time;
     std::vector<std::string> comments;  ///< info strings (header comments)
-    /// If not empty, the directory in which the files are created.  The
-    /// directory must exist, and the record name must not contain a
-    /// directory.  The record then opens from that directory under its
-    /// plain name.
+    /// "Key: value" entries written to the header after the comments, as
+    /// "# Key: value" (through putinfo()), in this order.  The keys and
+    /// values follow the rules of set_metadata(); no two keys may differ
+    /// only in letter case, and none may be the key of an entry in
+    /// `comments` (ArgumentError, before any file is created).
+    Metadata metadata;
+    /// If not empty, the directory (which must exist) in which to create the
+    /// files, for this call only.  The record name must then be a plain
+    /// name, without a directory, and the record opens from that directory
+    /// under its plain name.
     std::string dir;
     /// Behave as the original WFDB package, for this call only (see
     /// docs/DIVERGENCES.md).  Use it only to reproduce old results.
@@ -362,6 +458,17 @@ struct WriteOptions {
 /// multi-frequency record.  WFDB_INVALID_SAMPLE marks invalid samples.  `fs`
 /// is the sampling frequency in Hz.
 ///
+/// `record` is the record name, without the .hea extension: a plain name
+/// ("rec") or a relative path ("data/rec"), created in the output directory
+/// if one is set (see wfdbx_set_output_dir()), otherwise in the current
+/// directory, missing directories included; or a full path, absolute or in
+/// the home directory ("~/Documents/rec"), used as given.  With a path, the
+/// files are created in that directory, and the header names the record and
+/// its signal file without the path ("rec", "rec.dat"), so that the record
+/// opens under any path that leads to it (in legacy mode, as in the
+/// original, the header gives the name with its path).  A URL cannot be
+/// written.
+///
 /// Throws Error if a samps_per_frame value is less than 1
 /// ("samps_per_frame must hold integers >= 1", checked first), if the
 /// record name is empty, if nsig is not greater than 0 ("at least one signal
@@ -371,13 +478,17 @@ struct WriteOptions {
 /// units of a calibrated signal are missing ("gains must be specified", "ADC
 /// resolution(s) must be specified", "units must be specified"), if
 /// samples.size() is not a multiple of the frame size, if opt.base_time is
-/// not a valid time ("incorrect base time 'T'"), if the files cannot be
+/// not a valid time ("incorrect base time 'T'"), if an entry of
+/// opt.metadata is not valid (ArgumentError; see WriteOptions::metadata), if
+/// the files cannot be
 /// created, or if they cannot be written completely (for example, when the
 /// disk is full: "write error on record R").  Every check except the last
 /// two comes before any file is created.  With opt.dir, it also throws if
 /// the directory does not exist ("directory D does not exist") or the
 /// record name contains one ("record name must not contain a directory when
-/// dir is given").
+/// dir is given").  The output signals are closed (wfdbquit()) before the
+/// function returns, and the time resolution of output annotators
+/// (getafreq()) and the getvec mode (getgvmode()) are left as they were.
 ///
 ///     wfdbx::WriteOptions w;
 ///     w.fmt = 212;
@@ -396,7 +507,9 @@ void write_record(const std::string &record,
 /// stored as round(v * gain) + baseline, and NaN is stored as an invalid
 /// sample.  Throws Error ("signal N is uncalibrated") if a gain is 0, and
 /// ("sample I is out of range") if a sample is infinite or its ADC value is
-/// outside the range of a 32-bit integer; nothing is written then.
+/// outside the range of a 32-bit integer; nothing is written then.  The
+/// record name and opt.dir are as for write_record(), and so are the
+/// settings left as they were.
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 void write_record_physical(const std::string &record,
@@ -415,8 +528,18 @@ void write_record_physical(const std::string &record,
 /// subtypes, chans and nums are stored in 8 bits, as by putann() (300 is
 /// stored as 44, as in C), and aux texts are cut to 255 bytes.  `fs` is 0
 /// (none) or a finite frequency > 0, which is recorded in the file (ann.fs
-/// is not used).  If `dir` is not empty, the file is created in that
-/// directory, which must exist.
+/// is not used).
+///
+/// `record` is the record name, without the .hea extension (a trailing
+/// ".hea" is also accepted): a plain name or a relative path ("data/100s")
+/// is created in the output directory if one is set (see
+/// wfdbx_set_output_dir()), otherwise in the current directory; a full
+/// path, absolute or in the home directory ("~/Documents/100s"), is used as
+/// given.  The file is RECORD.ANNOTATOR at that place ("data/100s.qrs").  A
+/// URL cannot be written.  If `dir` is not empty, it is the directory (which
+/// must exist) in which to create the file, for this call only: `record`
+/// must then be a plain name, without a directory, and the file is
+/// DIR/RECORD.ANNOTATOR.
 ///
 /// If the annotations are not in time order, the file is sorted when it is
 /// written.  sort = false keeps the order given (without the library's
@@ -429,7 +552,10 @@ void write_record_physical(const std::string &record,
 /// `fs` is not 0 and not a finite frequency > 0, if
 /// the file cannot be created, if it cannot be written completely ("write
 /// error on annotator A for record R"), or for a `dir` as write_record()
-/// does.  The arguments are checked before the file is created.
+/// does.  The arguments are checked before the file is created.  The
+/// annotator is closed (wfdbquit()) before the function returns, and the
+/// time resolution of output annotators (getafreq()) and the getvec mode
+/// (getgvmode()) are left as they were (`fs` applies to this file only).
 ///
 ///     wfdbx::Annotations qrs;
 ///     qrs.samples = {100, 460, 820};
@@ -478,7 +604,17 @@ struct CheckReport {
 /// Problems in the record are reported, never thrown.  `input` says where
 /// the files are found (see InputOptions).  The checks run in normal mode,
 /// even if legacy mode is on, and the library prints no messages during the
-/// call (the previous settings are restored afterwards).
+/// call (the previous settings are restored afterwards).  The time
+/// resolution of output annotators (getafreq()) and the getvec mode
+/// (getgvmode()) are left as they were (opening an EDF record sets both).
+///
+/// `record` is the record name, without the .hea extension (a trailing
+/// ".hea" is also accepted): a full path, absolute ("/data/mitdb/100") or in
+/// the home directory ("~/Documents/100s"), used as given; a relative path
+/// ("100s", "data/100s"), read from the input directory if one is set,
+/// otherwise from the current directory; or a URL
+/// ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+/// access is on (as for read_record()).
 ///
 /// Throws Error ("record must not be empty") if `record` is empty.
 ///
@@ -500,6 +636,197 @@ struct CheckReport {
 CheckReport check_record(const std::string &record,
                          const std::vector<std::string> &annotators = {},
                          const InputOptions &input = {});
+
+// ---------------------------------------------------------------------------
+// Header metadata
+//
+// The info strings of a header are its comment lines (lines that begin with
+// '#') after the record line, as getinfo() reads them.  Many datasets store
+// facts about the recording in them as "Key: value" pairs, such as
+// "# Age: 63", "# Sex: F" or "# Dx: 164889003".  These functions read and
+// change such entries, without touching the rest of the header:
+//
+// * Reading.  An info string is an entry if it contains a colon (':').  The
+//   key is the text between the '#' and the first colon, and the value is
+//   the rest of the line; spaces, tabs, VT, FF and CR at either end of each
+//   are removed.  So "#Age:45", "# Age: 45" and "#  Age : 45" all give
+//   ("Age", "45").  An info string without a colon, or whose key is empty or
+//   contains '#', is a free comment: it is not returned, and it is never
+//   changed.  Comment lines before the record line are not info strings, and
+//   are never read or changed.  Only the header file (.hea) is read, not the
+//   .info file that getinfo() also reads.
+// * Keys are compared without regard to letter case (A-Z and a-z only), so
+//   get_metadata(record, "age") finds "Age".  If a header holds several
+//   entries whose keys differ only in letter case (a file written by other
+//   software), reading returns the first of them, with a warning;
+//   set_metadata() and update_metadata() refuse to change that key
+//   (ArgumentError), and remove_metadata() removes all of them.  A key must
+//   not be empty, and must not contain ':', '#', CR, LF or NUL; it may
+//   contain spaces, as in "Date of birth".
+// * Values are text, which may be a whole sentence.  Spaces at either end
+//   are removed; a value must not contain CR, LF or NUL.  The empty string
+//   is allowed.  Keys and values are bytes, as everywhere in the library
+//   (UTF-8 text is stored as its bytes).
+// * Writing.  An entry is written as "# Key: value" ("# Key:" if the value
+//   is empty), with the caller's spelling of the key.  A changed entry
+//   replaces its line, at the same position, keeping its line ending; a new
+//   entry is added after the last info string (or, if the header has none,
+//   after its last line that is not blank), with the line ending of the
+//   record line ("\r\n" in the headers written by WFDB).  Every other byte of
+//   the header is kept.  All the arguments are checked before anything is
+//   written.  The new header is written to a temporary file in the directory
+//   of the destination, which then replaces the destination (keeping its
+//   permissions), so that an error never leaves a partly written header; the
+//   temporary file is removed on any failure.  If nothing changes (and `dir`
+//   is not given), nothing is written.
+// * Which file.  The header is opened as the library opens the header of a
+//   record (wfdb_open, after removing a trailing ".hea" from the name): under
+//   the input directory, or as given for an absolute path, a "~" path or a
+//   URL (if network access is on).  A change is written to the header that
+//   was read, or, with MetadataOptions::dir, to the file of the same name in
+//   that directory, leaving the original unchanged (the signal files are not
+//   copied).  A header read from a URL can be read, but changed only with
+//   `dir`.  Only the named header is read or changed: for a multi-segment
+//   record, that is the master header, unless the name of a segment is
+//   given.
+//
+// Warnings (a key given more than once) are printed on stderr with the
+// library's messages, as the checksum warning of read_record() (wfdbquiet()
+// silences them; wfdberror() returns the last).  Errors throw ArgumentError
+// (invalid arguments) or FileError (a file that cannot be read or written),
+// both subclasses of Error.  These functions do not call wfdbquit().
+//
+// Metadata often holds information about patients.  WFDB-x stores it as
+// plain text, exactly as given, and does not de-identify it.
+
+/// Options of set_metadata(), remove_metadata() and update_metadata().  The
+/// fields inherited from InputOptions (input_dir, network) say where the
+/// header is read from, for that call only.
+struct MetadataOptions : InputOptions {
+    /// If not empty, the directory (which must exist; a "~" path is
+    /// expanded) in which the changed header is written, under the file name
+    /// of the header that was read, instead of changing that header.  The
+    /// header is then written even if nothing changes.  The signal files are
+    /// not copied.
+    std::string dir;
+};
+
+/// Read the metadata of `record`: the "Key: value" entries of its header
+/// (see "Header metadata" above for the rules).
+///
+/// `record` is the record name, without the .hea extension (a trailing
+/// ".hea" is also accepted): a full path, absolute ("/data/mitdb/100") or in
+/// the home directory ("~/Documents/100s"), used as given; a relative path
+/// ("100s", "data/100s"), read from the input directory if one is set,
+/// otherwise from the current directory; or a URL
+/// ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+/// access is on.  `input` gives the input directory and network access for
+/// this call only (see InputOptions).
+///
+/// Returns the entries as (key, value) pairs, in file order.  A key that
+/// appears more than once (ignoring letter case) is returned once, with its
+/// first value, and the warning "WFDB-x: header of record R has more than
+/// one entry for key K (lines L1, L2); the first is used" is printed (see
+/// wfdbquiet()).
+///
+/// Throws FileError ("can't read header for record R") if the header cannot
+/// be found or read, and ArgumentError if `record` is empty ("record name
+/// must not be empty") or "-" (the standard input).
+///
+///     wfdbx::Metadata m = wfdbx::read_metadata("rec");
+///     // {{"Age", "63"}, {"Sex", "F"}}
+///
+/// Part of WFDB-x; not in the original WFDB package.
+Metadata read_metadata(const std::string &record,
+                       const InputOptions &input = {});
+
+/// The value of the metadata entry `key` of `record`, or std::nullopt if
+/// its header has none.
+///
+/// `key` is compared without regard to letter case, after removing the
+/// spaces at either end; it must be a valid key (see set_metadata()).
+/// `record` and `input` are as for read_metadata().
+///
+/// Returns the value ("" for an entry with an empty value).  If the header
+/// has several entries for `key`, the first is returned, with the warning
+/// of read_metadata().
+///
+/// Throws as read_metadata() does, and ArgumentError if `key` is not valid.
+///
+///     std::optional<std::string> age = wfdbx::get_metadata("rec", "age");
+///     // "63"
+///
+/// Part of WFDB-x; not in the original WFDB package.
+std::optional<std::string> get_metadata(const std::string &record,
+                                        const std::string &key,
+                                        const InputOptions &input = {});
+
+/// Set the value of the metadata entry `key` in the header of `record`.
+///
+/// If the header has an entry for `key` (ignoring letter case), its line is
+/// replaced by "# Key: value", at the same position, with the spelling of
+/// `key` given here (even if the value is the same).  Otherwise the entry is
+/// added after the last info string of the header.  Every other byte of the
+/// header is kept.
+///
+/// `key`, such as "Age" or "Date of birth", has the spaces at either end
+/// removed; it must not then be empty, and must not contain ':', '#', CR,
+/// LF or NUL.  `value`, which may be a sentence, has the spaces at either
+/// end removed; it must not contain CR, LF or NUL, and may be empty.
+/// `record` is as for read_metadata(); the header is changed where it was
+/// read, unless opt.dir is given; a header read from a URL can only be
+/// written elsewhere, with opt.dir.  `opt` gives the input directory and
+/// network access for reading the header, and the directory in which to
+/// write the changed header (see MetadataOptions), for this call only.
+///
+/// Throws ArgumentError if `key` or `value` is not valid, if the header has
+/// more than one entry for `key` ("... remove them first"), if it has no
+/// record line, if it was read from a URL and opt.dir is not given, or if
+/// `record` is empty or "-"; FileError if the header cannot be read, if the
+/// changed header cannot be written ("can't write header for record R"), or
+/// if opt.dir does not exist ("directory D does not exist").  The arguments
+/// are checked before anything is written, and the header is replaced in one
+/// step, so that an error leaves it unchanged.
+///
+///     wfdbx::set_metadata("rec", "Age", "63");    // writes "# Age: 63"
+///
+/// Part of WFDB-x; not in the original WFDB package.
+void set_metadata(const std::string &record, const std::string &key,
+                  const std::string &value, const MetadataOptions &opt = {});
+
+/// Remove the metadata entry `key` from the header of `record`.
+///
+/// Every entry for `key` (ignoring letter case) is removed, with its line
+/// ending, so this also repairs a header that has more than one.  Every
+/// other byte is kept.  Nothing is written if the header has no entry for
+/// `key` (unless opt.dir is given).  `record`, `key` and `opt` are as for
+/// set_metadata().
+///
+/// Returns the number of lines removed (0 if the header has no entry for
+/// `key`).  Throws as set_metadata() does.
+///
+///     int n = wfdbx::remove_metadata("rec", "Age");    // 1
+///
+/// Part of WFDB-x; not in the original WFDB package.
+int remove_metadata(const std::string &record, const std::string &key,
+                    const MetadataOptions &opt = {});
+
+/// Make several changes to the metadata of `record` in one write.
+///
+/// Each (key, value) of `changes` is applied in order, as set_metadata()
+/// does, or, if the value is std::nullopt, as remove_metadata() does.  No
+/// two keys may differ only in letter case.  Empty `changes` change nothing
+/// (and write nothing, unless opt.dir is given).  `record` and `opt` are as
+/// for set_metadata().
+///
+/// Throws as set_metadata() does.  All the changes are checked first: if one
+/// is not valid, none is made.
+///
+///     wfdbx::update_metadata("rec", {{"Age", "64"}, {"Dx", std::nullopt}});
+///
+/// Part of WFDB-x; not in the original WFDB package.
+void update_metadata(const std::string &record, const MetadataChanges &changes,
+                     const MetadataOptions &opt = {});
 
 } // namespace wfdbx
 

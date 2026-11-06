@@ -13,7 +13,9 @@ function status = mit2wav(args)
 %                  may be read as record NEWREC
 %
 %   WFDB-x: the record must specify its sampling frequency (the C program
-%   assumed 250 Hz); see docs/DIVERGENCES.md.
+%   assumed 250 Hz).  The WAV file is created under the output directory,
+%   as the library creates an output file (see wfdbx.wfdbx_output_path);
+%   see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -36,7 +38,9 @@ function status = mit2wav(args)
 % code.
 %
 % Changes from the original: no built-in sampling frequency: the record must
-% give it (the original assumed 250 Hz); --legacy, as the first argument,
+% give it (the original assumed 250 Hz); the WAV file is completed where the
+% library created it, under the output directory (the original rewrote a file
+% of that name in the current directory); --legacy, as the first argument,
 % restores the original behavior. Each change is marked "WFDB-x:" in the code;
 % docs/DIVERGENCES.md gives the reasons.
 %
@@ -233,13 +237,21 @@ end
 wfdbx.wfdbquit();
 % Prepend the wav header to the signal file (the C version does this
 % using a temporary file and the 'mv', 'cat', and 'rm' commands).
+% WFDB-x: the signal file is where the library created it, under the
+% output directory if one is set (see wfdbx.wfdbx_output_path).
+opath = wfdbx.wfdbx_output_path(ofname);
+if ~ischar(opath)
+    wfdbx.internal.ceprintf('%s: can''t create %s\n', pname, ofname);
+    status = 1;
+    return;
+end
 data = zeros(0, 1, 'uint8');
-fid = fopen(ofname, 'rb');
+fid = fopen(wfdbx.internal.literal_path(opath), 'rb');
 if fid >= 0
     data = fread(fid, Inf, 'uint8=>uint8');
     fclose(fid);
 end
-fid = fopen(ofname, 'wb');
+fid = fopen(wfdbx.internal.literal_path(opath), 'wb');
 if fid >= 0
     fwrite(fid, [uint8(hdr(:)); data(:)], 'uint8');
     fclose(fid);

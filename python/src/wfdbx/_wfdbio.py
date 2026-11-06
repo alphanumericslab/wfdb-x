@@ -66,6 +66,7 @@ __all__ = [
     "wfdb_parse_path", "wfdbx_set_input_dir", "wfdbx_get_input_dir",
     "wfdbx_set_output_dir", "wfdbx_get_output_dir", "wfdbx_set_network",
     "wfdbx_get_network", "wfdbx_write_errors", "wfdbx_note_write_error",
+    "wfdbx_input_path", "wfdbx_output_path",
 ]
 
 WFDB_MAJOR = 10
@@ -1098,6 +1099,100 @@ def _output_file(name):
     if _is_url(r):
         return None
     return _resolve(r, True)
+
+
+# WFDB-x: files that a program opens itself.  Decided by Reza Sameni, Nov
+# 2026: a file named to a tool is found, or created, where the library finds,
+# or creates, a file of that name, so that the input and output directories
+# apply to every file a tool reads or writes.
+def wfdbx_input_path(name):
+    """Return the path under which a program opens a file that it reads
+    itself, rather than through the library.
+
+    The file is found where wfdb_open finds a file of that name (with an
+    empty file type): in normal mode, a relative name under the input
+    directory, if one is set (see wfdbx_set_input_dir), a ~ name expanded,
+    and an absolute name as given; in legacy mode, the name as given. The
+    tools use it for the files named on their command line that they read
+    themselves, such as the -i file of wrsamp.
+
+    Arguments:
+      name  a file name. None, "" and "-" (the standard input, if the program
+            treats it so) are returned as given.
+
+    Returns:
+      the path to open, or None if name is a URL, or becomes one when the
+      input directory is prefixed to it: such a file cannot be opened in
+      this way.
+
+    Example (reads a text file from the input directory)::
+
+        wfdbx.wfdbx_set_input_dir("data")
+        with open(wfdbx.wfdbx_input_path("samples.txt"), "rb") as f:
+            text = f.read()             # data/samples.txt
+
+    Part of WFDB-x; not in the original WFDB package (C: wfdbx_input_path).
+    """
+    if name is None or _is_url(name):
+        return None
+    if name == "" or name == "-" or _legacy():
+        return name
+    r = _resolve(name, False)
+    return None if _is_url(r) else r
+
+
+def wfdbx_output_path(name):
+    """Return the path under which a program creates a file that it writes
+    itself, rather than through the library.
+
+    The file is created where wfdb_open creates a file of that name (with an
+    empty file type): in normal mode, a relative name under the output
+    directory, if one is set (see wfdbx_set_output_dir), a ~ name expanded,
+    and an absolute name as given; in legacy mode, any name under the output
+    directory, if one is set, used as a plain prefix. When the output
+    directory has been prefixed to the name, the directories missing in the
+    resulting path are created, as for the output files of the library. The
+    tools use it for the files they create themselves, such as the WAV file
+    of mit2wav.
+
+    Arguments:
+      name  a file name. None, "" and "-" (the standard output, if the program
+            treats it so) are returned as given.
+
+    Returns:
+      the path to create, or None if name is a URL (which cannot be written).
+
+    Example (writes a text file in the output directory)::
+
+        wfdbx.wfdbx_set_output_dir("out")
+        with open(wfdbx.wfdbx_output_path("notes.txt"), "wb") as f:
+            f.write(b"checked\n")      # out/notes.txt
+
+    Part of WFDB-x; not in the original WFDB package (C: wfdbx_output_path).
+    """
+    if name is None or _is_url(name):
+        return None
+    if name == "" or name == "-":
+        return name
+    _init_output_dir()
+    if _legacy():
+        if not _io.output_dir:
+            return name
+        r = _io.output_dir + DSEP + name
+    else:
+        if not _io.output_dir or name.startswith("~") or \
+                _is_absolute_path(name):
+            return _resolve(name, True)
+        r = _resolve(name, True)
+    # create the missing directories (only at '/' separators, as for the
+    # output files of the library; errors are ignored: opening then fails)
+    for i in range(1, len(r)):
+        if r[i] == "/":
+            try:
+                os.mkdir(r[:i], 0o755)
+            except OSError:
+                pass
+    return r
 
 
 def wfdb_open(s, record, mode):

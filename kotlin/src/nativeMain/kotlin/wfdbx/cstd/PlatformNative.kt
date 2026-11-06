@@ -22,10 +22,12 @@ import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.usePinned
+import platform.posix.EEXIST
 import platform.posix.EINTR
 import platform.posix.EPIPE
 import platform.posix.O_APPEND
 import platform.posix.O_CREAT
+import platform.posix.O_EXCL
 import platform.posix.O_RDONLY
 import platform.posix.O_RDWR
 import platform.posix.O_TRUNC
@@ -34,12 +36,16 @@ import platform.posix.SEEK_CUR as P_SEEK_CUR
 import platform.posix.close
 import platform.posix.dup
 import platform.posix.errno
+import platform.posix.fchmod
+import platform.posix.fsync
 import platform.posix.isatty
 import platform.posix.lseek
 import platform.posix.open
 import platform.posix.read
 import platform.posix.remove as premove
+import platform.posix.rename
 import platform.posix.setenv as psetenv
+import platform.posix.unlink
 import platform.posix.unsetenv as punsetenv
 import platform.posix.write
 
@@ -52,6 +58,12 @@ internal expect fun nativeFetchUrl(url: String): FetchResult
 internal expect fun nativeRunSortann(record: String, annotator: String, dir: String?): Int
 internal expect fun nativeMkdir(path: String): Boolean
 internal expect fun nativeUid(): Long
+
+/** The st_mode of the file [path] (following links), or -1 if it cannot be read. */
+internal expect fun nativeFileMode(path: String): Int
+
+/** The characters of the random part of a temporary file name. */
+private const val TMP_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789_"
 
 /** A C string (the bytes are passed as they are; Kotlin strings are converted to UTF-8 by cinterop, so bytes are decoded as UTF-8 here). */
 internal fun cname(b: ByteArray): String = b.decodeToString()
@@ -166,6 +178,37 @@ internal actual object Platform {
     actual fun mkdir(path: ByteArray): Boolean = nativeMkdir(cname(path))
 
     actual fun remove(path: ByteArray): Boolean = premove(cname(path)) == 0
+
+    actual fun replaceFile(dest: ByteArray, data: ByteArray): Boolean {
+        val name = cname(dest)
+        val slash = name.lastIndexOf('/')
+        val dir = name.substring(0, slash + 1)
+        val base = name.substring(slash + 1)
+        if (base.isEmpty()) return false
+        var tmp: String? = null
+        var fd = -1
+        for (attempt in 0 until 100) {
+            val suffix = CharArray(8) { TMP_CHARS[kotlin.random.Random.nextInt(TMP_CHARS.length)] }.concatToString()
+            val cand = "$dir.$base.$suffix.tmp"
+            fd = open(cand, O_WRONLY or O_CREAT or O_EXCL, 438) // 0666 (and the umask), as any new file
+            if (fd >= 0) {
+                tmp = cand
+                break
+            }
+            if (errno != EEXIST) return false
+        }
+        if (tmp == null) return false
+        val f = RawFile(fd, true)
+        var ok = (data.isEmpty() || f.write(data, 0, data.size)) && fsync(fd) == 0
+        if (ok) {
+            val mode = nativeFileMode(name)
+            if (mode >= 0) fchmod(fd, (mode and 0xfff).convert())
+        }
+        if (!f.close()) ok = false
+        if (ok && rename(tmp, name) == 0) return true
+        unlink(tmp)
+        return false
+    }
 
     actual fun pathId(path: ByteArray): FileId? = nativePathId(cname(path))
 

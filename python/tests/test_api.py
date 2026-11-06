@@ -1471,3 +1471,79 @@ def test_output_file_is_input_file(datadir, capfd):
     finally:
         w.wfdbx_set_legacy(previous)
     assert os.path.getsize("fmt16.dat") == 0
+
+
+def test_toolpaths(datadir, monkeypatch):
+    """t_toolpaths: wfdbx_input_path and wfdbx_output_path, where a program
+    opens the files that it reads or creates itself."""
+    for k in ("WFDBX_INPUT_DIR", "WFDBX_OUTPUT_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("HOME", "thome")
+    ip, op = w.wfdbx_input_path, w.wfdbx_output_path
+    w.wfdbx_set_input_dir(None)
+    w.wfdbx_set_output_dir(None)
+    try:
+        assert ip("a.txt") == "a.txt"
+        assert ip("~/a.txt") == "thome/a.txt"
+        assert ip("-") == "-"
+        assert ip("") == ""
+        assert ip(None) is None
+        assert ip("http://127.0.0.1:1/a") is None
+        assert op("a.wav") == "a.wav"
+        assert op("~/a.wav") == "thome/a.wav"
+        assert op("https://127.0.0.1:1/a") is None
+        w.wfdbx_set_input_dir("tin")
+        assert ip("a.txt") == "tin/a.txt"
+        assert ip("../a.txt") == "tin/../a.txt"
+        assert ip("/a.txt") == "/a.txt"
+        assert ip("-") == "-"
+        w.wfdbx_set_input_dir("~/tin/")
+        assert ip("a.txt") == "thome/tin/a.txt"
+        w.wfdbx_set_input_dir("http://127.0.0.1:1/d")
+        assert ip("a.txt") is None
+        w.wfdbx_set_input_dir(None)
+        w.wfdbx_set_output_dir("tout/deep")
+        assert op("a.wav") == "tout/deep/a.wav"
+        assert os.path.isdir("tout/deep")
+        assert op("s/a.wav") == "tout/deep/s/a.wav"
+        assert os.path.isdir("tout/deep/s")
+        assert op("/a.wav") == "/a.wav"
+        assert op("~/m/a.wav") == "thome/m/a.wav"
+        assert not os.path.exists("thome/m")
+        assert ip("a.txt") == "a.txt"
+        w.wfdbx_set_legacy(1)
+        w.wfdbx_set_input_dir("tin")
+        w.wfdbx_set_output_dir("tlout")
+        assert ip("a.txt") == "a.txt"
+        assert ip("~/a.txt") == "~/a.txt"
+        assert op("a.wav") == "tlout/a.wav"
+        assert op("/a.wav") == "tlout//a.wav"
+        assert op("~/a.wav") == "tlout/~/a.wav"
+        assert op("-") == "-"
+        assert os.path.isdir("tlout/~")
+        w.wfdbx_set_output_dir(None)
+        assert op("a.wav") == "a.wav"
+    finally:
+        w.wfdbx_set_legacy(0)
+        w.wfdbx_set_input_dir(None)
+        w.wfdbx_set_output_dir(None)
+
+
+def test_osigopen_no_signals(datadir, capfd):
+    """osigopen(record, None, 0) opens no signals and returns 0, after
+    closing the output signals already open (unless the record name begins
+    with '+'); a header that cannot be read is still an error.  (C reads
+    before the start of an array: see docs/KNOWN_C_BEHAVIORS.md.)"""
+    w.setsampfreq(360.0)
+    assert w.osigfopen(_fmt16_spec("o16.dat"), 3) == 3
+    assert w.osigopen("+100s", None, 0) == 0
+    assert w.putvec([1, 2, 3]) == 3            # still open
+    assert w.osigopen("100s", None, 0) == 0
+    assert w.putvec([1, 2, 3]) == 0             # closed: no signals
+    assert w.osigopen("100s", [], 0) == 0
+    w.wfdbquiet()
+    assert w.osigopen("nosuch", None, 0) == -1
+    w.wfdbverbose()
+    w.wfdbquit()
+    assert os.path.getsize("o16.dat") == 6
+    assert capfd.readouterr().err == ""

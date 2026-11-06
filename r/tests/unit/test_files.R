@@ -276,6 +276,96 @@ check(write1(file.path(cwd, "labs")) == 0 && file.exists(paste0("lout", cwd, "/l
 wfdbx_set_output_dir(NULL)
 wfdbx_set_legacy(FALSE)
 
+# where a program opens the files that it reads or creates itself
+# (wfdbx_input_path, wfdbx_output_path: the counterparts of the files of
+# wfdb_open with an empty file type; python test_tool_file_paths)
+defaults()
+home <- Sys.getenv("HOME")
+for (f in list(wfdbx_input_path, wfdbx_output_path)) {
+  check(identical(list(f("a.txt"), f("sub2/a.txt"), f(file.path(cwd, "a.txt")), f("~/a.txt")),
+                  list("a.txt", "sub2/a.txt", file.path(cwd, "a.txt"), paste0(home, "/a.txt"))),
+        "tool paths: no directories set")
+  check(identical(list(f("-"), f(""), f(NULL), f("http://127.0.0.1:1/a.txt"),
+                       f("https://127.0.0.1:1/a.txt")), list("-", "", NULL, NULL, NULL)),
+        "tool paths: -, empty, NULL and URLs")
+}
+check(!file.exists("sub2"), "tool paths: nothing created")
+wfdbx_set_input_dir("sub2")
+check(identical(list(wfdbx_input_path("a.txt"), wfdbx_input_path("../a.txt"),
+                     wfdbx_input_path(file.path(cwd, "a.txt")), wfdbx_input_path("~/a.txt"),
+                     wfdbx_input_path("-"), wfdbx_output_path("a.txt")),
+                list("sub2/a.txt", "sub2/../a.txt", file.path(cwd, "a.txt"),
+                     paste0(home, "/a.txt"), "-", "a.txt")),
+      "tool paths: the input directory")
+wfdbx_set_input_dir("~/in/")
+expect_equal(wfdbx_input_path("a.txt"), paste0(home, "/in/a.txt"), "tool paths: ~ input directory")
+wfdbx_set_input_dir("http://127.0.0.1:1/d")
+expect_equal(wfdbx_input_path("a.txt"), NULL, "tool paths: a URL input directory")
+expect_equal(wfdbx_input_path(file.path(cwd, "a.txt")), file.path(cwd, "a.txt"),
+             "tool paths: absolute, URL input directory")
+wfdbx_set_input_dir(NULL)
+wfdbx_set_output_dir("tout/deep")
+expect_equal(wfdbx_output_path("a.wav"), "tout/deep/a.wav", "tool paths: the output directory")
+check(dir.exists("tout/deep") && length(list.files("tout/deep")) == 0L,
+      "tool paths: the output directory is created")
+expect_equal(wfdbx_output_path("s/a.wav"), "tout/deep/s/a.wav", "tool paths: output subdirectory")
+check(dir.exists("tout/deep/s"), "tool paths: output subdirectory created")
+expect_equal(wfdbx_output_path(file.path(cwd, "n/a.wav")), file.path(cwd, "n/a.wav"),
+             "tool paths: absolute output")
+expect_equal(wfdbx_output_path("~/m/a.wav"), paste0(home, "/m/a.wav"), "tool paths: ~ output")
+check(!file.exists("n") && !file.exists("home/m"), "tool paths: full paths: nothing created")
+expect_equal(wfdbx_output_path("-"), "-", "tool paths: - output")
+expect_equal(wfdbx_input_path("a.txt"), "a.txt", "tool paths: input, output directory only")
+wfdbx_set_output_dir("~/o")
+expect_equal(wfdbx_output_path("a.wav"), paste0(home, "/o/a.wav"), "tool paths: ~ output directory")
+check(dir.exists("home/o"), "tool paths: ~ output directory created")
+# legacy mode: inputs as named; the output directory as a plain prefix
+wfdbx_set_legacy(TRUE)
+wfdbx_set_input_dir("sub2")
+wfdbx_set_output_dir("tlout")
+check(identical(list(wfdbx_input_path("a.txt"), wfdbx_input_path("~/a.txt"),
+                     wfdbx_input_path("http://127.0.0.1:1/a.txt")), list("a.txt", "~/a.txt", NULL)),
+      "tool paths: legacy inputs")
+expect_equal(wfdbx_output_path("a.wav"), "tlout/a.wav", "tool paths: legacy output")
+expect_equal(wfdbx_output_path(file.path(cwd, "a.wav")), paste0("tlout/", cwd, "/a.wav"),
+             "tool paths: legacy absolute output")
+check(dir.exists(paste0("tlout", cwd)), "tool paths: legacy output directories created")
+expect_equal(wfdbx_output_path("~/a.wav"), "tlout/~/a.wav", "tool paths: legacy ~ output")
+expect_equal(wfdbx_output_path("-"), "-", "tool paths: legacy - output")
+wfdbx_set_output_dir(NULL)
+check(identical(list(wfdbx_output_path("a.wav"), wfdbx_output_path("~/a.wav")),
+                list("a.wav", "~/a.wav")), "tool paths: legacy, no output directory")
+wfdbx_set_input_dir(NULL)
+wfdbx_set_legacy(FALSE)
+
+# the tools read and create their own files under the input and output
+# directories (see the toolfiles-* cases of the conformance suite; each tool
+# runs in a new process, as from the command line; python test_tool_files)
+if (.mode == "source") {
+  defaults()
+  driver <- file.path(dirname(.rdir), "inst", "bin", "wfdbx.R")
+  tool <- function(args, env = character(0)) {
+    system2(file.path(R.home("bin"), "Rscript"), shQuote(c(driver, args)),
+            stdout = FALSE, stderr = FALSE, env = env)
+  }
+  putfile("tsub/in.txt", paste0(sprintf("%d %d\n", 0:49, -(0:49)), collapse = ""))
+  expect_equal(tool(c("wrsamp", "-i", "in.txt", "-o", "w1", "-F", "250", "-G", "200", "-R", "16",
+                      "-U", "mV"), c("WFDBX_INPUT_DIR=tsub", "WFDBX_OUTPUT_DIR=tfout")), 0L,
+               "tools: wrsamp -i in the input directory")
+  check(file.exists("tfout/w1.hea") && file.exists("tfout/w1.dat"),
+        "tools: wrsamp record in the output directory")
+  before <- sort(list.files("."))
+  expect_equal(tool(c("mit2wav", "-r", "100s", "-o", "x.wav"), "WFDBX_OUTPUT_DIR=tfout"), 0L,
+               "tools: mit2wav")
+  expect_equal(tool(c("mit2edf", "-r", "fmt16", "-o", "x.edf"), "WFDBX_OUTPUT_DIR=tfout"), 0L,
+               "tools: mit2edf")
+  expect_equal(sort(list.files(".")), before, "tools: nothing created in the current directory")
+  wav <- rf("tfout/x.wav")
+  check(identical(wav[1:4], charToRaw("RIFF")) && length(wav) == 44 + 2 * 2 * 21600,
+        "tools: mit2wav WAV file in the output directory")
+  check(file.size("tfout/x.edf") > 0, "tools: mit2edf EDF file in the output directory")
+}
+
 # ---------------------------------------------------------------------------
 # Files named in headers
 

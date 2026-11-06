@@ -12,7 +12,9 @@
 // shown as "not specified" (lengths are then given in sample intervals only),
 // a gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"),
 // and unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
-// millivolts); --legacy, as the first argument, restores the original
+// millivolts); the size of a signal file of unknown length is measured in the
+// header's directory, where the library reads it (the original looked in the
+// current directory); --legacy, as the first argument, restores the original
 // behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
@@ -58,6 +60,21 @@ static void striphea(char *p)
 {
     size_t len = std::strlen(p);
     if (len > 4 && std::strcmp(p + len - 4, ".hea") == 0) p[len - 4] = '\0';
+}
+
+// WFDB-x: the path of the signal file fname named in the header of record,
+// to measure its length: in normal mode, where the library reads it, i.e., in
+// the directory of the header (the directory part of the record name, under
+// the input directory if one is set; see wfdbx_input_path); std::nullopt if
+// it cannot be opened in this way (a URL).  In legacy mode, or for "-", as
+// named, as the C program did (relative to the current directory).
+static std::optional<std::string> signal_file(const char *record,
+                                              const std::string &fname)
+{
+    if (wfdbx_get_legacy() || fname == "-") return fname;
+    const char *q = std::strrchr(record, '/');
+    size_t n = q ? static_cast<size_t>(q - record + 1) : 0;
+    return wfdbx_input_path((std::string(record, n) + fname).c_str());
 }
 
 static const char *str(const std::optional<std::string> &s)
@@ -131,14 +148,16 @@ int main(int argc, char **argv)
                 !p.empty() && p[0] == '[' ? p.c_str() : "not specified");
     std::printf("Length: ");
     struct stat st;
+    std::optional<std::string> fpath;
     if (untimed && (nsig < 1 || t > 0L))
         std::printf("%lld sample intervals\n", t);
     else if (nsig < 1 || t > 0L)
         std::printf("%s (%lld sample intervals)\n",
                     t > 0L ? mstimstr(t).c_str() : "0", t);
     else if (s[0].fmt && s[0].fname &&
-             stat(s[0].fname->c_str(), &st) == 0 && S_ISREG(st.st_mode) &&
-             (ifile = std::fopen(s[0].fname->c_str(), "rb")) != nullptr &&
+             (fpath = signal_file(argv[1], *s[0].fname)) &&
+             stat(fpath->c_str(), &st) == 0 && S_ISREG(st.st_mode) &&
+             (ifile = std::fopen(fpath->c_str(), "rb")) != nullptr &&
              (std::fseek(ifile, 0L, SEEK_END) == 0)) {
         int framesize = 0;
         long nbytes = std::ftell(ifile) - wfdbgetstart(0);

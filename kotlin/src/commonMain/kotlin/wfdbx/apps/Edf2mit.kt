@@ -23,8 +23,10 @@
 // behavior of the original program, but it is new code, not the original C
 // code.
 //
-// Changes from the original: none, apart from the language and the --legacy
-// option (as the first argument, it restores the original behavior).
+// Changes from the original: the -i file is found under the input directory, as
+// the library finds an input file; --legacy, as the first argument, restores the
+// original behavior. Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/edf2mit.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1996-2004 George B. Moody.
@@ -137,7 +139,9 @@ fun Wfdb.edf2mitMain(argv0: Array<ByteArray>): Int {
                         if (beq(cstr(argv[i]), "-")) {
                             ifile = WfdbFile.stdin()
                         } else {
-                            val f = WfdbFile.fopen(argv[i], "rb")
+                            // WFDB-x: the file is found where the library finds
+                            // an input file of that name (see wfdbx_input_path)
+                            val f = wfdbx_input_path(argv[i])?.let { WfdbFile.fopen(it, "rb") }
                             if (f == null) {
                                 eprintf("%s: can't read %s\n", pname, argv[i])
                                 exit(1)

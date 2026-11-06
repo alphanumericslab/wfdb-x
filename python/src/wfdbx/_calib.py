@@ -79,7 +79,9 @@ _cal = []      # the calibration list
 def calopen(cfname=None):
     """Read a calibration file into the calibration list.
 
-    ``cfname`` is searched for in the WFDB path; if None, the WFDBCAL
+    ``cfname`` is read from the input directory, or as given if it is an
+    absolute path, a ~ path or a URL (in legacy mode, it is searched for in
+    the WFDB path); if None, the WFDBCAL
     environment variable (or "wfdbcal") is used.  The list is emptied
     first, unless the name begins with '+'.  Returns 0 on success, or -2 if
     the file cannot be read.

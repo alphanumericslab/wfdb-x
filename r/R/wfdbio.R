@@ -730,6 +730,67 @@ wfdbx_note_write_error <- function() {
   .resolve(r, TRUE)
 }
 
+# WFDB-x: files that a program opens itself.  Decided by Reza Sameni, Nov
+# 2026: a file named to a tool is found, or created, where the library finds,
+# or creates, a file of that name, so that the input and output directories
+# apply to every file a tool reads or writes.
+
+#' The path under which a program opens a file that it reads itself, rather
+#' than through the library (a WFDB-x addition; C: wfdbx_input_path).  The
+#' file is found where wfdb_open finds a file of that name (with an empty
+#' file type): in normal mode, a relative name under the input directory,
+#' if one is set (see wfdbx_set_input_dir), a ~ name expanded, and an
+#' absolute name as given; in legacy mode, the name as given.  The tools
+#' use it for the files named on their command line that they read
+#' themselves, such as the -i file of wrsamp.  name: a file name; "" and
+#' "-" (the standard input, if the program treats it so) are returned as
+#' given.  Returns the path to open, or NULL if name is NULL or a URL, or
+#' becomes one when the input directory is prefixed to it: such a file
+#' cannot be opened in this way.
+wfdbx_input_path <- function(name) {
+  if (is.null(name) || .is_url(name)) return(NULL)
+  if (!nzchar(name) || name == "-" || wfdbx_get_legacy()) return(name)
+  r <- .resolve(name, FALSE)
+  if (.is_url(r)) NULL else r
+}
+
+#' The path under which a program creates a file that it writes itself,
+#' rather than through the library (a WFDB-x addition; C:
+#' wfdbx_output_path).  The file is created where wfdb_open creates a file
+#' of that name (with an empty file type): in normal mode, a relative name
+#' under the output directory, if one is set (see wfdbx_set_output_dir), a
+#' ~ name expanded, and an absolute name as given; in legacy mode, any name
+#' under the output directory, if one is set, used as a plain prefix.  When
+#' the output directory has been prefixed to the name, the directories
+#' missing in the resulting path are created, as for the output files of
+#' the library.  The tools use it for the files they create themselves,
+#' such as the WAV file of mit2wav.  name: a file name; "" and "-" (the
+#' standard output, if the program treats it so) are returned as given.
+#' Returns the path to create, or NULL if name is NULL or a URL (which
+#' cannot be written).
+wfdbx_output_path <- function(name) {
+  if (is.null(name) || .is_url(name)) return(NULL)
+  if (!nzchar(name) || name == "-") return(name)
+  .init_output_dir()
+  d <- .wfdb_io$output_dir
+  if (wfdbx_get_legacy()) {
+    if (is.null(d)) return(name)
+    r <- paste0(d, "/", name)
+  } else {
+    if (is.null(d) || startsWith(name, "~") || .is_absolute_path(name))
+      return(.resolve(name, TRUE))
+    r <- .resolve(name, TRUE)
+  }
+  # create the missing directories (only at '/' separators, as for the
+  # output files of the library; errors are ignored: opening then fails)
+  b <- charToRaw(r)
+  for (k in which(b == as.raw(47L))) {
+    if (k > 1L) suppressWarnings(dir.create(.rfile_name(rawToChar(b[seq_len(k - 1L)])),
+                                            showWarnings = FALSE, mode = "0755"))
+  }
+  r
+}
+
 #' Open the WFDB file of type s (e.g. "hea", or "" for a file named by
 #' record) for a record; mode WFDB_READ, WFDB_WRITE or WFDB_APPEND.  The
 #' file name is the record name and the type, joined by a '.'.  The record

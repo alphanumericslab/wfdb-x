@@ -67,6 +67,11 @@ internal actual fun nativeMkdir(path: String): Boolean = mkdir(path, 493.convert
 
 internal actual fun nativeUid(): Long = getuid().toLong()
 
+internal actual fun nativeFileMode(path: String): Int = memScoped {
+    val st = alloc<stat>()
+    if (stat(path, st.ptr) != 0) -1 else st.st_mode.toInt()
+}
+
 internal actual fun nativeFetchUrl(url: String): FetchResult {
     val u = NSURL.URLWithString(url) ?: return FetchResult(null, false)
     val config = NSURLSessionConfiguration.ephemeralSessionConfiguration

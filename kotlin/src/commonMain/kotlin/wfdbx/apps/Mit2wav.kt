@@ -19,7 +19,9 @@
 // code.
 //
 // Changes from the original: no built-in sampling frequency: the record must
-// give it (the original assumed 250 Hz); --legacy, as the first argument,
+// give it (the original assumed 250 Hz); the WAV file is completed where the
+// library created it, under the output directory (the original rewrote a file
+// of that name in the current directory); --legacy, as the first argument,
 // restores the original behavior. Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
@@ -208,13 +210,22 @@ fun Wfdb.mit2wavMain(argv0: Array<ByteArray>): Int {
 
     wfdbquit()
 
+    // Prepend the wav header to the signal file (the C version does this
+    // using a temporary file).
+    // WFDB-x: the signal file is where the library created it, under the
+    // output directory if one is set (see wfdbx_output_path).
+    val opath = wfdbx_output_path(ofname)
+    if (opath == null) {
+        eprintf("%s: can't create %s\n", pname, ofname)
+        exit(1)
+    }
     var data = ByteArray(0)
-    val fin = WfdbFile.fopen(ofname, "rb")
+    val fin = WfdbFile.fopen(opath, "rb")
     if (fin != null) {
         data = fin.readToEnd()
         fin.close()
     }
-    val fout = WfdbFile.fopen(ofname, "wb")
+    val fout = WfdbFile.fopen(opath, "wb")
     if (fout != null) {
         fout.write(hdr.bytes, 0, hdr.size)
         fout.write(data)

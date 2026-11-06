@@ -8,6 +8,9 @@
 > [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
+> · [User's manual (PDF)](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/user-manual/wfdb-x-user-manual.pdf)
+> (chapter "MATLAB and Octave" for this language)
+> · [How to cite WFDB-x](https://github.com/alphanumericslab/wfdb-x#how-to-cite)
 
 `wfdbx` reads and writes physiological signal records in the WFDB format used
 by [PhysioNet](https://physionet.org). It is a complete MATLAB and Octave
@@ -31,7 +34,10 @@ code runs in MATLAB and in Octave.
    identifier such as `wfdbx:read_record`) on failure. They read signal
    files in large blocks, so they are the fastest way to read a record.
    They are an addition of WFDB-x: the C package has no equivalent. Use
-   them for new code and analysis.
+   them for new code and analysis. `wfdbx.read_metadata`,
+   `wfdbx.set_metadata` and the other metadata functions read and change
+   the `Key: value` lines of a header (see
+   [Header metadata](#header-metadata)).
 2. **The WFDB library functions** under their C names (`wfdbx.isigopen`,
    `wfdbx.getvec`, `wfdbx.getann`, `wfdbx.putann`, ...), with the C
    behavior: sample by sample and annotation by annotation, with errors
@@ -117,14 +123,14 @@ rec = wfdbx.read_record('100s', 'channels', {'MLII'}, 'sampfrom', '0:10', ...
 
 | Argument | Meaning | Default |
 |---|---|---|
-| `record` | record name or path (see [Where files are read and written](#where-files-are-read-and-written)) | |
+| `record` | record name, without `.hea`: a full path, a relative path (read from the input directory) or a URL (see [Record names](#record-names)) | |
 | `'channels'` | signals to read: signal numbers, or a cell array of numbers and names (by name, as in `names`) | all signals |
 | `'sampfrom'`, `'sampto'` | first sample, and the sample after the last one: a sample number (a whole number; `'sampfrom'` not negative) or a time string (see below) | the whole record (`'sampto'`: `[]`) |
 | `'physical'` | return physical units instead of ADC units | `false` |
 | `'highres'` | read a multi-frequency record at its highest sampling frequency | `false` |
 | `'pad'` | replace invalid samples by the previous valid one | `false` |
 | `'checksum_warning'` | warn when the data do not match the header's checksums | `true` |
-| `'input_dir'`, `'network'` | input directory and network access for this call only | the current settings |
+| `'input_dir'`, `'network'` | input directory (under which relative record names are read; not used for full paths or URLs) and network access, for this call only | the current settings |
 | `'legacy'` | behave as the original package (see [Legacy mode](#legacy-mode)) | `false` |
 
 Times can be sample numbers or WFDB time strings: `'0:10'` (10 seconds),
@@ -156,8 +162,12 @@ in physical units.
 `wfdbx.read_header(record)` reads the header of a record without opening its
 signal files. It returns a structure with these fields: `name`, `fs`,
 `counter_freq`, `base_counter`, `nsamples` (0 if the header does not give
-the length), `nsig`, `siginfo`, `base_time`, `base_time_ms`, `base_date` and
-`comments`. They have the same meaning as in the result of `read_record`.
+the length), `nsig`, `siginfo`, `base_time`, `base_time_ms`, `base_date`,
+`comments` and `metadata`. `metadata` holds the `Key: value` entries of the
+header, as an N-by-2 cell array `{key, value; ...}` in file order (as
+`read_metadata` returns them, from the `.hea` file only; none for an EDF
+record or a header read from the standard input; see
+[Header metadata](#header-metadata)). The others have the same meaning as in the result of `read_record`.
 `read_header` takes the options `'input_dir'`, `'network'` and `'legacy'`.
 
 ```matlab
@@ -215,6 +225,7 @@ for all signals, or a vector or cell array with one value per signal.
 | `'gains'`, `'adcres'`, `'units'` | gain, ADC resolution in bits, and physical units |
 | `'baselines'`, `'adczeros'`, `'names'` | optional signal specifications |
 | `'base_time'`, `'comments'` | start time (`'hh:mm:ss dd/mm/yyyy'`) and a cell array of info strings |
+| `'metadata'` | `Key: value` entries, written after the comments as `# Key: value`: an N-by-2 cell array `{key, value; ...}` (see [Header metadata](#header-metadata)) |
 | `'samps_per_frame'` | samples per frame of each signal, for a multi-frequency record |
 | `'dir'` | folder in which to create the files |
 | `'legacy'` | behave as the original package (see [Legacy mode](#legacy-mode)) |
@@ -248,13 +259,79 @@ annotations are not in time order, the file is sorted when it is written.
 `'sort'`, the `WFDBANNSORT` environment variable decides (sorting is on
 unless it is `0`).
 
+### Header metadata
+
+Many datasets store facts about a recording in the header, as comment
+lines of the form `# Key: value`, such as `# Age: 63` or `# Dx: 164889003`.
+These functions read and change them, without touching the rest of the
+header:
+
+```matlab
+wfdbx.read_metadata('rec')                  % {'Age', '63'; 'Sex', 'F'}
+wfdbx.get_metadata('rec', 'age')            % '63' ([] if there is none)
+wfdbx.set_metadata('rec', 'Age', '64')      % replaces the line, or adds "# Age: 64"
+wfdbx.remove_metadata('rec', 'Sex')         % 1: the number of lines removed
+wfdbx.update_metadata('rec', {'Age', '65'; 'Dx', []})   % several changes; [] removes
+```
+
+The entries are an N-by-2 cell array of char row vectors, one entry per
+row (key, value), in file order. The changes of `update_metadata` are an
+N-by-2 cell array too (a structure cannot hold keys with spaces); a value
+of `[]` removes the entry, and `''` sets an empty value.
+
+* **Reading.** An entry is a comment line after the record line (an info
+  string, as the C function `getinfo` reads it) that contains a colon. The
+  key is the text before the first colon, the value the rest of the line,
+  both without spaces at either end: `#Age:45`, `# Age: 45` and
+  `#  Age : 45` all give `{'Age', '45'}`. Comment lines without a colon are
+  free comments: they are not returned, and never changed. Only the `.hea`
+  file is read (not a `.info` file).
+* **Keys** are compared without regard to letter case: `'age'` finds
+  `Age`. A key must not be empty, and must not contain `:`, `#` or a line
+  break; it may contain spaces (`'Date of birth'`). If a header holds two
+  entries whose keys differ only in letter case (written by other
+  software), reading returns the first, with the warning
+  `wfdbx:duplicate_key`; `set_metadata` and `update_metadata` refuse to
+  change that key (an error), and `remove_metadata` removes both.
+* **Values** are text, which may be a whole sentence, without a line break.
+  Spaces at either end are removed; an empty value is allowed. Keys and
+  values are char row vectors (or MATLAB strings, or `uint8` vectors of
+  bytes); each character is one byte of the header, as elsewhere in WFDB-x.
+* **Writing.** An entry is written as `# Key: value` (`# Key:` if the value
+  is empty), with the spelling of the key given. A changed entry keeps its
+  position; a new one goes after the last comment line of the header. Every
+  other byte of the header is kept, including its line endings. The header
+  is replaced in one step (through a temporary file in its folder, renamed
+  over it, keeping its permissions where the system allows), and all the
+  arguments are checked first, so an error leaves it unchanged. Nothing is
+  written if nothing changes.
+* **Files.** The header is found as `read_header` finds it (`'input_dir'`
+  and `'network'` work the same way). A change is written to the header
+  itself (where it was read, not in the output directory), or, with
+  `'dir', d`, to a header of the same name in the existing folder `d` (the
+  signal files are not copied). A header read from a URL can only be
+  written elsewhere, with `'dir'`. For a multi-segment record, the master
+  header is read or changed, unless a segment is named.
+* **Errors.** Each function has two error identifiers: `wfdbx:NAME` for an
+  invalid argument (such as `wfdbx:set_metadata`: an invalid key or value,
+  a record name `-`, a key with two entries, a header without a record
+  line, a URL without `'dir'`), and `wfdbx:NAME:file` for a header that
+  cannot be read or written, or a `'dir'` that does not exist.
+
+Metadata often holds information about patients. WFDB-x stores it as plain
+text, exactly as given, and does not de-identify it. `help
+wfdbx.read_metadata` and `help wfdbx.set_metadata` give the full rules.
+
 ### Errors and warnings
 
 * A record, header or annotation file that cannot be read or written throws
   an error, such as "can't read record REC". Each function has its own
   error identifier: `wfdbx:read_record`, `wfdbx:read_header`,
   `wfdbx:read_annotations`, `wfdbx:write_record` and
-  `wfdbx:write_annotations`.
+  `wfdbx:write_annotations`. The metadata functions have two (see
+  [Header metadata](#header-metadata)): `wfdbx:NAME` for an invalid
+  argument and `wfdbx:NAME:file` for a header that cannot be read or
+  written.
 * A signal file that is shorter than its header says throws an error:
   "can't read signal data of record REC (getvec status -3)".
 * A record or annotation file that cannot be written completely (for
@@ -291,6 +368,9 @@ unless it is `0`).
   give, throw an error. For example, a time string such as `'0:10'` needs
   the sampling frequency, and `'physical', true` needs the gain of each
   signal.
+* A header with more than one metadata entry for a key gives the warning
+  `wfdbx:duplicate_key` in `read_header`, `read_metadata` and
+  `get_metadata` (see [Header metadata](#header-metadata)).
 * When the data do not match the checksums in the header, `read_record`
   returns all the data and issues the warning `wfdbx:checksum`: "checksum
   error in record REC: the signal data do not match the checksums in its
@@ -304,7 +384,10 @@ unless it is `0`).
   the same name.
 
 The high-level functions call `wfdbx.wfdbquit()`, which closes anything
-opened with the WFDB library functions.
+opened with the WFDB library functions. They leave the getvec mode
+(`wfdbx.getgvmode()`) and the time resolution of output annotators
+(`wfdbx.getafreq()`) as they were, also after reading an EDF record (whose
+opening sets both, as in C).
 
 ### Checking a record: `check_record`
 
@@ -402,6 +485,28 @@ The signal files that a header names are read from the header's folder.
 
 ### Record names
 
+A record name is given without the `.hea` extension (the readers, and
+`write_annotations`, also accept a trailing `.hea`; `write_record` does
+not). It is one of:
+
+* a full path, absolute (`/data/mitdb/100`) or in the home directory
+  (`~/Documents/100s`), used as given;
+* a relative path (`100s`, `data/100s`), read from the input directory if
+  one is set, otherwise from the current folder, and written to the output
+  directory if one is set, otherwise to the current folder (missing folders
+  are created);
+* a URL (`https://physionet.org/files/mitdb/1.0.0/100`), read only if
+  network access is on; a URL cannot be written.
+
+The `'input_dir'` option is optional, and applies to relative names only,
+not to full paths or URLs. A writer given a name with a path creates the
+files in that folder, and the header names the record and its signal file
+without the path (`rec`, `rec.dat`), so that the record opens under any
+path that leads to it; in legacy mode, as in the original, the header gives
+the name with its path. With the `'dir'` option, the name must be a plain
+name (`rec`): the files are created in `dir`, and the record opens from that
+folder under its plain name.
+
 A record name is made of letters, digits, `_`, `-` and `~`. `/` separates
 folders, and the names of folders may contain any characters, such as dots:
 `my.data/rec` is a valid record name, `rec.1` is not. A name whose last part
@@ -484,8 +589,18 @@ described in the *WFDB Applications Guide*
   `wfdb2mat`, `a2m`, `m2a`, `ad2m`, `md2a`, `ahaecg2mit`, `makeid`, `readid`,
   `revise`, `parsescp`
 
-The tools use the environment variables of the table above. To read record
-100 of the MIT-BIH Arrhythmia Database from PhysioNet:
+The tools use the environment variables of the table above, also for the
+files that they read or create themselves: the `-i` file of `wrsamp`,
+`edf2mit`, `wav2mit`, `a2m` and `ad2m`, the input files of `ahaecg2mit` and
+the `-S` script of `xform` are read from the input directory, and the WAV
+file of `mit2wav`, the EDF file of `mit2edf`, the master header of `snip -m`
+and the `.des`, `.ecg`, `.key` and `.txt` files of `parsescp` are created in
+the output directory, as the records they read and write are. Such a file
+cannot be read from a URL. `wfdbx.wfdbx_input_path(name)` and
+`wfdbx.wfdbx_output_path(name)` return the path where a program of its own
+should open such a file.
+
+To read record 100 of the MIT-BIH Arrhythmia Database from PhysioNet:
 
 ```sh
 export WFDBX_INPUT_DIR=https://physionet.org/files/mitdb/1.0.0/
@@ -558,7 +673,12 @@ Differences from C that come from the language:
   error on standard output"); in legacy mode they keep status 0, as in C.
 * The library keeps the open record and annotators between calls, as in C.
   `wfdbx.wfdbquit()` closes them; the directory and network settings are
-  kept.
+  kept, and so are the time resolution of output annotators
+  (`wfdbx.getafreq()`), which opening an EDF record sets to its sampling
+  frequency when none is set, and the getvec mode (`wfdbx.getgvmode()`),
+  to which it adds `WFDB_HIGHRES`, as in C. The high-level functions
+  (`read_record`, `read_header`, `read_annotations`, `write_record`,
+  `write_annotations`, `check_record`) leave both as they were.
 
 The functions of `<wfdb/ecgmap.h>` (`wfdbx.isqrs`, `wfdbx.map1`,
 `wfdbx.map2`, ...) are also provided. Use `help wfdbx.NAME` on any function
@@ -574,7 +694,10 @@ old results:
   100s`, run in the directory of the sample record `100s` (`tests/data` in a
   copy of the repository). Legacy mode finds files through the WFDB path,
   which begins with the current directory, and does not use the input
-  directory;
+  directory (the files that a tool reads itself are opened as named,
+  relative to the current directory); the output directory, if set, is a
+  prefix of every output name, those of the files that a tool creates
+  itself included;
 * high-level functions: `'legacy', true`;
 * the whole library: `wfdbx.wfdbx_set_legacy(1)`.
 

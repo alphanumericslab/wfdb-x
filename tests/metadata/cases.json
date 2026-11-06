@@ -1,0 +1,365 @@
+{
+ "cases": [
+  {
+   "name": "read_basic",
+   "header": "basic",
+   "op": "read"
+  },
+  {
+   "name": "read_lf",
+   "header": "lf",
+   "op": "read"
+  },
+  {
+   "name": "read_dups",
+   "header": "dups",
+   "op": "read"
+  },
+  {
+   "name": "read_blank",
+   "header": "blank",
+   "op": "read"
+  },
+  {
+   "name": "read_bytes",
+   "header": "bytes",
+   "op": "read"
+  },
+  {
+   "name": "read_interleaved",
+   "header": "interleaved",
+   "op": "read"
+  },
+  {
+   "name": "read_odd",
+   "header": "odd",
+   "op": "read"
+  },
+  {
+   "name": "read_multi",
+   "header": "multi",
+   "op": "read"
+  },
+  {
+   "name": "get_basic_case",
+   "header": "basic",
+   "op": "get",
+   "key": "age"
+  },
+  {
+   "name": "get_basic_spaces",
+   "header": "basic",
+   "op": "get",
+   "key": "  Dx "
+  },
+  {
+   "name": "get_basic_empty",
+   "header": "basic",
+   "op": "get",
+   "key": "Notes"
+  },
+  {
+   "name": "get_basic_missing",
+   "header": "basic",
+   "op": "get",
+   "key": "Weight"
+  },
+  {
+   "name": "get_basic_before_record",
+   "header": "basic",
+   "op": "get",
+   "key": "Converted on"
+  },
+  {
+   "name": "get_dups",
+   "header": "dups",
+   "op": "get",
+   "key": "Age"
+  },
+  {
+   "name": "get_bad_key",
+   "header": "basic",
+   "op": "get",
+   "key": "a:b"
+  },
+  {
+   "name": "set_basic_replace",
+   "header": "basic",
+   "op": "set",
+   "key": "AGE",
+   "value": "64"
+  },
+  {
+   "name": "set_basic_add",
+   "header": "basic",
+   "op": "set",
+   "key": "Weight",
+   "value": "  72 kg "
+  },
+  {
+   "name": "set_basic_empty",
+   "header": "basic",
+   "op": "set",
+   "key": "Dx",
+   "value": ""
+  },
+  {
+   "name": "set_basic_sentence",
+   "header": "basic",
+   "op": "set",
+   "key": "Notes",
+   "value": "Sinus rhythm, occasional PVCs; no pacing."
+  },
+  {
+   "name": "set_basic_same",
+   "header": "basic",
+   "op": "set",
+   "key": "Age",
+   "value": "63"
+  },
+  {
+   "name": "set_lf_add",
+   "header": "lf",
+   "op": "set",
+   "key": "Age",
+   "value": "45"
+  },
+  {
+   "name": "set_blank_add",
+   "header": "blank",
+   "op": "set",
+   "key": "Sex",
+   "value": "F"
+  },
+  {
+   "name": "set_interleaved_add",
+   "header": "interleaved",
+   "op": "set",
+   "key": "Age",
+   "value": "1"
+  },
+  {
+   "name": "set_interleaved_replace",
+   "header": "interleaved",
+   "op": "set",
+   "key": "lead",
+   "value": "II"
+  },
+  {
+   "name": "set_odd_add",
+   "header": "odd",
+   "op": "set",
+   "key": "Date of birth",
+   "value": "1980-01-01"
+  },
+  {
+   "name": "set_odd_tab",
+   "header": "odd",
+   "op": "set",
+   "key": "tab key",
+   "value": "x"
+  },
+  {
+   "name": "set_multi_add",
+   "header": "multi",
+   "op": "set",
+   "key": "Age",
+   "value": "70"
+  },
+  {
+   "name": "set_bytes_replace",
+   "header": "bytes",
+   "op": "set",
+   "key": "name",
+   "value": "Jos\u00e9 Mar\u00eda"
+  },
+  {
+   "name": "set_dups_dup",
+   "header": "dups",
+   "op": "set",
+   "key": "AGE",
+   "value": "50"
+  },
+  {
+   "name": "set_dups_other",
+   "header": "dups",
+   "op": "set",
+   "key": "height",
+   "value": "181"
+  },
+  {
+   "name": "set_err_empty_key",
+   "header": "basic",
+   "op": "set",
+   "key": "  ",
+   "value": "x"
+  },
+  {
+   "name": "set_err_colon_key",
+   "header": "basic",
+   "op": "set",
+   "key": "a:b",
+   "value": "x"
+  },
+  {
+   "name": "set_err_hash_key",
+   "header": "basic",
+   "op": "set",
+   "key": "#a",
+   "value": "x"
+  },
+  {
+   "name": "set_err_newline_key",
+   "header": "basic",
+   "op": "set",
+   "key": "a\nb",
+   "value": "x"
+  },
+  {
+   "name": "set_err_newline_value",
+   "header": "basic",
+   "op": "set",
+   "key": "a",
+   "value": "x\ny"
+  },
+  {
+   "name": "set_err_cr_value",
+   "header": "basic",
+   "op": "set",
+   "key": "a",
+   "value": "x\ry"
+  },
+  {
+   "name": "set_err_nul_value",
+   "header": "basic",
+   "op": "set",
+   "key": "a",
+   "value": "x\u0000y"
+  },
+  {
+   "name": "remove_basic",
+   "header": "basic",
+   "op": "remove",
+   "key": "sex"
+  },
+  {
+   "name": "remove_basic_missing",
+   "header": "basic",
+   "op": "remove",
+   "key": "Weight"
+  },
+  {
+   "name": "remove_basic_last",
+   "header": "basic",
+   "op": "remove",
+   "key": "Recorded by"
+  },
+  {
+   "name": "remove_dups",
+   "header": "dups",
+   "op": "remove",
+   "key": "Age"
+  },
+  {
+   "name": "remove_lf_missing",
+   "header": "lf",
+   "op": "remove",
+   "key": "Age"
+  },
+  {
+   "name": "remove_odd_last",
+   "header": "odd",
+   "op": "remove",
+   "key": "produced by xform from record 100, beginning at 0"
+  },
+  {
+   "name": "update_basic",
+   "header": "basic",
+   "op": "update",
+   "changes": [
+    [
+     "age",
+     "64"
+    ],
+    [
+     "Sex",
+     null
+    ],
+    [
+     "Weight",
+     "72"
+    ],
+    [
+     "Height",
+     "170"
+    ]
+   ]
+  },
+  {
+   "name": "update_dups_remove_then_set",
+   "header": "dups",
+   "op": "update",
+   "changes": [
+    [
+     "Age",
+     null
+    ],
+    [
+     "Height",
+     "181"
+    ]
+   ]
+  },
+  {
+   "name": "update_dups_err",
+   "header": "dups",
+   "op": "update",
+   "changes": [
+    [
+     "Height",
+     "181"
+    ],
+    [
+     "age",
+     "50"
+    ]
+   ]
+  },
+  {
+   "name": "update_err_same_key",
+   "header": "basic",
+   "op": "update",
+   "changes": [
+    [
+     "Age",
+     "1"
+    ],
+    [
+     "AGE",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "update_err_bad_value",
+   "header": "basic",
+   "op": "update",
+   "changes": [
+    [
+     "Age",
+     "1"
+    ],
+    [
+     "B",
+     "x\ny"
+    ]
+   ]
+  },
+  {
+   "name": "update_empty",
+   "header": "basic",
+   "op": "update",
+   "changes": []
+  }
+ ]
+}

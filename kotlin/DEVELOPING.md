@@ -23,7 +23,7 @@ the high-level API.
 * Repositories: Maven Central, or the repository named by the Gradle
   property `mavenMirror` (`-PmavenMirror=URL`, or `mavenMirror=URL` in
   `~/.gradle/gradle.properties`), for plugins and dependencies alike.
-* Coordinates: `io.github.alphanumericslab:wfdbx:1.1.0`; Kotlin package
+* Coordinates: `io.github.alphanumericslab:wfdbx:1.2.0`; Kotlin package
   `wfdbx` (`wfdbx.cstd` for the C standard library emulation; `wfdbx.apps`
   for the tools and `wfdbx.cli` for the launcher's `main`).
 
@@ -43,7 +43,7 @@ The code must build without warnings.
 | `src/commonMain/kotlin/wfdbx/Wfdb.kt` | the `Wfdb` class (all library state), the default instance (`wfdbDefault()`, `withDefault`) |
 | `.../wfdbx/Types.kt` | constants and structures of `wfdb.h` (`Siginfo`, `Calinfo`, `Anninfo`, `Annotation`, `Seginfo`, `WFDB_*`, `DEFWFDB`, ...) |
 | `.../wfdbx/WfdbFile.kt` | `WfdbFile`, C's `FILE *` / `WFDB_FILE` (buffered, C stdio semantics) |
-| `.../wfdbx/Wfdbio.kt` | port of `lib/wfdbio.c`: input/output directories, network access, legacy WFDB path, `wfdb_open`, `wfdb_fopen`, errors, `freopen_stdin`, `run_sortann`, and the legacy switch (`wfdbx_set_legacy`, `wfdbx_get_legacy`, `wfdbx_legacy_args`) |
+| `.../wfdbx/Wfdbio.kt` | port of `lib/wfdbio.c`: input/output directories, network access, legacy WFDB path, `wfdb_open`, `wfdb_fopen`, `wfdbx_input_path` and `wfdbx_output_path` (where a tool opens the files it reads or creates itself), errors, `freopen_stdin`, `run_sortann`, and the legacy switch (`wfdbx_set_legacy`, `wfdbx_get_legacy`, `wfdbx_legacy_args`) |
 | `.../wfdbx/Signal.kt` | port of `lib/signal.c` (through `rust/src/signal.rs`): headers (including EDF), opening and closing signals, `getvec`/`getframe`/`getvecs` (bulk path), `putvec`, seeks, multi-segment and variable-layout records, skew, `setheader`/`newheader`/`setmsheader`, info strings, `sample` |
 | `.../wfdbx/SignalTime.kt` | the time, date and amplitude conversions of `signal.c` (`strtim`, `timstr`, `mstimstr`, `datstr`, `strdat`, `setbasetime`, counter frequency, `adumuv`, ...), and the local time (TZif files, as in Rust) |
 | `.../wfdbx/Flac.kt` | FLAC decoder and encoder (port of `rust/src/flac.rs`), MD5 |
@@ -60,6 +60,7 @@ The code must build without warnings.
 | `src/jvmMain/kotlin/wfdbx/cli/Main.kt` | `wfdbx.cli.MainKt`: the command-line driver (`TOOL ARGS...`, `--list`, `--version`) |
 | `bin/wfdbx` | the launcher (POSIX shell): `java -cp build/libs/wfdbx-all.jar wfdbx.cli.MainKt TOOL ARGS...` |
 | `src/commonMain/kotlin/wfdbx/Record.kt` | the high-level API (port of `python/src/wfdbx/highlevel.py`, through `rust/src/record.rs`): `readRecord`, `readHeader`, `readAnnotations`, `writeRecord`, `writeAnnotations`, `Record`, `Header`, `Annotations`, `TimeSpec`, `WfdbException`, `wfdbxSetInputDir`, ... |
+| `src/commonMain/kotlin/wfdbx/Metadata.kt` | the header metadata functions (port of `python/src/wfdbx/metadata.py`): `readMetadata`, `getMetadata`, `setMetadata`, `removeMetadata`, `updateMetadata`, and the helpers of `readHeader` (`headerMetadata`) and `writeRecord` (`metadataInfoLines`) |
 | `src/commonMain/kotlin/wfdbx/Check.kt` | `checkRecord` (port of `python/src/wfdbx/check.py`, through `rust/src/check.rs`), `CheckReport`, `Issue`, `Severity` |
 | `../benchmarks/kotlin/Bench.kt` | the benchmark driver, compiled by the `bench` compilation into `build/libs/wfdbx-bench.jar` (`./gradlew benchJar`; see [Performance](#performance)) |
 
@@ -218,8 +219,8 @@ named in a header (containment check). `pathId(name)` and the internal
 `cstd/Platform.kt` declares everything common code needs from the system:
 `RawFile` (read, write, seek, position, size, blksize, fileId, close) and
 `Platform` (open, stdin, freopenStdin, writeStdout, writeStderr,
-stdoutIsTty, stdoutTell, getenv, setenv, isDirectory, mkdir, pathId,
-readFile, currentUid, timeNow, fetchUrl, runSortann, exit, currentDir,
+stdoutIsTty, stdoutTell, getenv, setenv, isDirectory, mkdir, remove,
+replaceFile, pathId, readFile, currentUid, timeNow, fetchUrl, runSortann, exit, currentDir,
 nameBytes, nameString), plus `withGlobalLock`
 and the per-thread default instances. Keep platform code minimal; add a
 declaration there rather than platform code elsewhere.
@@ -329,7 +330,14 @@ driver (`wfdbx.cli.MainKt`) runs it on the default instance and exits with
 the status; an uncaught exception is reported as `wfdbx: error: ...`
 (status 1). Helpers that need the library state are `Wfdb` extensions, as
 in the library. Files the tool opens are closed explicitly (Rust closes
-them when they are dropped).
+them when they are dropped). A file that a tool opens itself, rather than
+through the library (the `-i` files of `wrsamp`, `edf2mit`, `wav2mit`,
+`a2m`, `ad2m`, the inputs of `ahaecg2mit`, `xform -S`, the signal file
+`wfdbdesc` measures; the WAV file of `mit2wav`, the EDF file of `mit2edf`,
+the master header of `snip -m`, the files of `parsescp`), is opened at
+`wfdbx_input_path(name)` or `wfdbx_output_path(name)`, so that the input
+and output directories apply to it; messages name the file as the user
+gave it.
 
 ```sh
 cd kotlin && ./gradlew fatJar        # build/libs/wfdbx-all.jar
@@ -367,7 +375,11 @@ python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy [TOOL|CASE
 
 * Each function is an extension of `Wfdb` and a top-level function on the
   default instance, with named arguments and defaults (no option
-  structures). The behavior, the order of the checks and the messages are
+  structures). The readers, the writers and `checkRecord` restore the
+  getvec mode and the time resolution of output annotators (`getgvmode`,
+  `getafreq`) when they return, also on errors (`withSettings` in
+  `Record.kt`; `checkRecord` does it itself), as Python's `_keep_settings`:
+  opening an EDF record changes both, and `wfdbquit` resets neither. The behavior, the order of the checks and the messages are
   those of the Python reference (`highlevel.py`), with the messages of the
   compiled implementations for argument errors (`writeRecord: gains must be
   specified`, as C++'s and Rust's `write_record: ...`). Every error is a
@@ -408,6 +420,25 @@ python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy [TOOL|CASE
   byte as `putann` (an AHA-format annotator uses putann), one annotation
   per call of `AnnEncoder.encode`. The tests compare
   both with the per-frame paths (`bulkPutOff`, random annotations).
+* The header metadata functions (`Metadata.kt`) follow the rules of
+  `tests/metadata/README.md` and the algorithm of `metadata.py`: the header
+  is opened with `wfdb_open("hea", ...)` (the name it was read from is
+  `wfdb_filename()`), split into lines with their endings, and parsed
+  again after each change. Argument errors throw `WfdbArgumentException`
+  (a subclass of `WfdbException`, Python's `ValueError`), with Python's
+  messages (keys quoted as Python's `repr` quotes them, `pyRepr`); a file
+  that cannot be read or written throws `WfdbException` (Python's
+  `IOError`). The duplicate-key warning goes to `onWarning`, or to
+  `wfdb_error("WFDB-x: ...\n")`, as the checksum warning. A changed header
+  is written by `Platform.replaceFile`: a temporary file
+  `.NAME.XXXXXXXX.tmp` in the destination's directory, flushed, given the
+  destination's permission bits (JVM: the `unix:mode` attribute, or the
+  POSIX permissions; Native: `stat` and `fchmod`), then renamed over it
+  (`ATOMIC_MOVE`; `rename(2)`), and removed on any failure. `readHeader`
+  reads the metadata from the `.hea` file after closing the record
+  (none for an EDF file or the standard input), and `writeRecord` checks
+  its `metadata` argument before `wfdbquit()` and writes the entries
+  through `putinfo` after the comments.
 * `checkRecord` needs `Platform.currentDir()` (the directory of a
   multi-segment record's header given by a relative name), and
   `checkSimulatedFileSize` lets a test simulate a signal file larger than
@@ -430,16 +461,19 @@ against `rust/target/release/sortann`, which matches the C program.
 | Test file | Contents |
 |---|---|
 | `cstd/PrintfTest.kt`, `cstd/ParseTest.kt` | C formatting and parsing |
-| `WfdbioTest.kt`, `FilesTest.kt` | files, directories, WFDB path, files named in headers, multi-segment records |
+| `WfdbioTest.kt`, `FilesTest.kt` | files, directories, WFDB path, files named in headers, multi-segment records, `wfdbx_input_path` and `wfdbx_output_path` (`t_toolpaths` of `api_expect.c`) |
 | `AnnotTest.kt` | annotations, code tables, calibration, sorting, `wfdbinit`/`wfdbquit` |
 | `SignalTest.kt` | the signal functions (port of the C-style parts of `rust/tests/signals.rs`: values of `api_expect.c`, no-defaults and legacy behavior, EDF, FLAC seeks, round trips in every format, output-is-input guard, checksum errors, record names with directories) |
 | `BulkTest.kt` | `getvecs` and `readRecord`: bulk path against the per-frame path, for single- and multi-frequency, multi-segment and all `tests/data` records (port of `rust/tests/bulk.rs`) |
 | `FlacTest.kt` | FLAC decoder and encoder (port of the unit tests of `rust/src/flac.rs`) |
 | `jvmTest/NetworkTest.kt` | URLs and remote records, against a local HTTP server |
 | `jvmTest/SignalJvmTest.kt` | an output file that is a hard link to an input file |
+| `jvmTest/ToolFilesJvmTest.kt` | the files that the tools read and create themselves, under the input and output directories (tools run in fresh JVMs) |
 | `RecordTest.kt`, `AnnotationsTest.kt` | the high-level API (ports of the high-level parts of `python/tests/test_signals.py`, `test_annotations.py` and `rust/tests/signals.rs`, `annotations.rs`): round trips in every format, bulk reading and writing against the per-frame paths, the bulk annotation encoder against putann, checksums, truncated signal and annotation files, the sort option, record names, legacy mode |
 | `jvmTest/CheckCorpusTest.kt` | `checkRecord` on the corpus of `python/tests/check_corpus.py` (an empty diff against its `expected.txt`; skipped with a message without python3) |
 | `jvmTest/HighLevelJvmTest.kt` | the top-level functions, the input options and network access (local HTTP server), `checkRecord` without the corpus |
+| `MetadataTest.kt` | the header metadata functions: the 49 shared cases of `tests/metadata/cases.tsv` (results, warnings, headers byte for byte against `tests/metadata/expected/`, header unchanged after an error, no other file left), `readHeader` and `writeRecord` metadata, errors and messages, `.info` ignored, input directory and `dir` (port of `python/tests/test_metadata.py`) |
+| `jvmTest/MetadataJvmTest.kt` | the metadata functions: permissions kept, a header read from a URL (local HTTP server) |
 | `jvmTest/ReadmeExamplesTest.kt` | the examples of README.md |
 
 The parts of the Rust tests that use the high-level API (`read_record`,

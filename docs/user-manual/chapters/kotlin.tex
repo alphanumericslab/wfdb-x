@@ -1,0 +1,1995 @@
+% The Kotlin chapter of the WFDB-x user's manual. It follows the sections of the Python
+% chapter (python.tex), in the same order. Each \apientry of the section "The high-level
+% API" documents one public high-level function of kotlin/src/commonMain/kotlin/wfdbx
+% (Record.kt, Check.kt, Metadata.kt): its signature listing holds the declarations of the
+% extension function of Wfdb (all its overloads), copied from the code without their
+% bodies, and its params name every parameter of these declarations, in code order. Each
+% function is also a top-level function with the same parameters (the default instance).
+% The listings of style "example" were compiled and run against the library.
+\chapter{Kotlin}
+\label{chap:kotlin}
+\chapterlanguage{kotlin}
+
+The Kotlin implementation of WFDB-x is the Kotlin Multiplatform library \code{wfdbx}, with
+the Gradle coordinates \code{io.github.alphanumericslab:wfdbx:1.2.0}, in the directory
+\file{kotlin} of the repository. It is written in common Kotlin code, which runs on every
+JVM, on Android and on iOS, with the Kotlin standard library as its only dependency, and
+never calls the C library. It is meant for mobile applications and JVM programs that read
+and write WFDB records on the device, with the behavior of the other implementations of
+WFDB-x, without native libraries, JNI or another runtime.
+
+It offers WFDB-x in three ways:
+\begin{itemize}
+\item \textbf{The high-level API} (\cref{sec:kotlin-api}): functions that read and write
+  whole records, headers, annotation files and header metadata in one call, with named
+  arguments and default values; the samples are an \code{IntArray} (and a
+  \code{DoubleArray} in physical units), frame by frame, and errors throw a
+  \code{WfdbException}. They read signal files in large blocks, and are the fastest way
+  to read a record. They are an addition of WFDB-x: the C package has no equivalent. They
+  are the recommended interface for new code and apps.
+\item \textbf{The WFDB library functions} under their C names (\code{isigopen},
+  \code{getvec}, \code{getann}, \code{putann}, \ldots), with the behavior of the C library
+  (\cref{sec:kotlin-library}). They are documented once, for all the languages, in
+  \cref{chap:library}.
+\item \textbf{The command-line tools} (\code{rdsamp}, \code{rdann}, \code{wrsamp},
+  \code{xform} and 29 others), with the options, output and exit status of the C tools,
+  run on the JVM through the launcher \file{kotlin/bin/wfdbx} (\cref{sec:kotlin-tools}).
+  They are documented in \cref{chap:tools}.
+\end{itemize}
+The high-level functions return exactly the samples and annotations that the library
+functions (and the C library) give.
+
+% ==========================================================================================
+\section{Installation and requirements}
+\label{sec:kotlin-install}
+
+\subsection{Requirements}
+
+The library is built with Gradle 8.14.3 (the Gradle wrapper of the repository,
+\file{kotlin/gradlew}, which downloads itself) and Kotlin 2.1.21, and needs a JDK 11 or
+later to build. It has no dependency besides the Kotlin standard library (and
+\code{kotlin-test} for the tests); the FLAC formats 508, 516 and 524 are read and written
+by WFDB-x's own codec. The targets are:
+\begin{itemize}
+\item \code{jvm()}: bytecode for Java 11, which runs on every current JVM and on Android
+  (API level 26 or later; the library uses \code{java.nio.file});
+\item \code{iosArm64()}, \code{iosSimulatorArm64()} and \code{iosX64()}: declared, with a
+  small platform layer for iOS (POSIX files and \code{NSURLSession}); they can only be
+  built on macOS;
+\item \code{linuxX64()}, built only with the Gradle option \code{-Pwfdbx.linux=true},
+  with the Kotlin/Native toolchain.
+\end{itemize}
+The native code (iOS and Linux) is not compiled by the tests of the repository, which
+build the JVM code and check that the common code, which holds all of the library's
+logic, uses only common APIs.
+
+\subsection{Building and installing the library}
+
+The library is built from a copy of the repository and installed in the local Maven
+repository (\file{\textasciitilde/.m2}). In the directory \file{kotlin}:
+
+\begin{lstlisting}[style=shell]
+./gradlew publishToMavenLocal
+\end{lstlisting}
+
+A Gradle project (an Android app, a JVM program, or the common source set of a Kotlin
+Multiplatform project) that lists \code{mavenLocal()} among its repositories then adds it
+to its dependencies:
+
+\begin{lstlisting}[language=Kotlin]
+dependencies {
+    implementation("io.github.alphanumericslab:wfdbx:1.2.0")
+}
+\end{lstlisting}
+
+The build downloads the Kotlin Gradle plugin from Maven Central. Where Maven Central
+cannot be reached, the Gradle property \code{mavenMirror} names another Maven repository,
+for plugins and dependencies alike, on the command line or in
+\file{\textasciitilde/.gradle/gradle.properties}:
+
+\begin{lstlisting}[style=shell]
+./gradlew -PmavenMirror=https://maven-central.storage-download.googleapis.com/maven2/ publishToMavenLocal
+\end{lstlisting}
+
+The Kotlin package is \code{wfdbx} (\code{import wfdbx.*}); the C standard library
+emulation is in \code{wfdbx.cstd}, the tools in \code{wfdbx.apps}, and the command-line
+driver in \code{wfdbx.cli} (\cref{tab:kotlin-packages}).
+
+\subsection{The command-line tools}
+
+The tools need the runnable jar \file{kotlin/build/libs/wfdbx-all.jar}, built in the
+directory \file{kotlin} by:
+
+\begin{lstlisting}[style=shell]
+./gradlew fatJar
+bin/wfdbx --version                # WFDB-x 1.2.0
+bin/wfdbx --list                   # the tools
+\end{lstlisting}
+
+\subsection{The sample record}
+\label{sec:kotlin-resources}
+
+The repository includes the sample record \code{100s} in \file{tests/data}: the first
+minute of record 100 of the MIT-BIH Arrhythmia Database, two ECG signals (\code{MLII} and
+\code{V5}) sampled at 360\,Hz, with the reference beat annotations (annotator
+\code{atr}). The library jar does not include it: an app copies the files it needs
+(\file{100s.hea}, \file{100s.dat}, \file{100s.atr}) to its own storage. Work that uses the
+MIT-BIH Arrhythmia Database cites it as described on PhysioNet.
+
+\subsection{Android and iOS}
+
+On Android and iOS, the current directory is not a useful place for files: the input and
+output directories are set to a directory of the app, such as
+\code{context.filesDir.path} on Android (\cref{sec:kotlin-settings}). Reading URLs on
+Android needs the \code{INTERNET} permission; files are downloaded with
+\code{java.net.HttpURLConnection} on the JVM and Android, and with \code{NSURLSession} on
+iOS. Legacy-mode sorting of annotation files runs the \code{sortann} program, which an
+iOS app cannot do (the sort of normal mode, done in the library, works everywhere).
+
+% ==========================================================================================
+\section{Quick start}
+\label{sec:kotlin-quickstart}
+
+This example reads the header, ten seconds of the signals and the annotations of the
+sample record \code{100s}, and computes the mean heart rate. It then writes the first ten
+seconds as a new record, \code{first10}, with a metadata entry in its header. It assumes
+that the input and output directories are a copy of \file{tests/data}
+(\code{wfdbxSetInputDir("tests/data")}, as in \file{kotlin/README.md}, reads the sample
+record from the repository).
+
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+// The header only: no samples are read.
+val hdr = readHeader("100s")
+println("${hdr.nsig} ${hdr.fs} ${hdr.nsamples}")       // 2 360.0 21600
+
+// Seconds 10 to 20 of both signals, in ADC and physical units, frame by frame.
+val rec = readRecord("100s", from = TimeSpec("0:10"), to = TimeSpec("0:20"), physical = true)
+println("${rec.names} ${rec.nsamples}")                // [MLII, V5] 3600
+println("${rec.physical!![0]} ${rec.physicalAt(0, 1)}")    // -0.39 -0.275
+
+// The beat annotations, and the mean heart rate.
+val ann = readAnnotations("100s", "atr")
+println("${ann.size} ${ann.symbols.take(3)} ${ann.samples.take(3)}")   // 75 [+, N, N] [18, 77, 370]
+val beats = (0 until ann.size).filter { isqrs(ann.codes[it]) != 0 }.map { ann.samples[it] }
+val rr = (1 until beats.size).map { (beats[it] - beats[it - 1]) / ann.fs }
+println("${beats.size} beats, ${"%.1f".format(60 / rr.average())} beats per minute")   // 74 beats, 73.9 ...
+
+// Write the first 10 seconds, in ADC units, as the record "first10".
+val x = readRecord("100s", to = TimeSpec("0:10"))
+writeRecord("first10", x.samples, x.nsig, x.fs, fmt = 16, gains = x.gains.toDoubleArray(),
+            baselines = x.baselines.toIntArray(), adczeros = x.siginfo.map { it.adczero }.toIntArray(),
+            adcres = x.siginfo.map { it.adcres }.toIntArray(), units = listOf("mV"), names = x.names,
+            metadata = listOf("Source" to "MIT-BIH record 100"))
+
+// Header metadata: "# Key: value" lines of the header.
+setMetadata("first10", "Age", "69")
+println(readMetadata("first10"))     // [(Source, MIT-BIH record 100), (Age, 69)]
+println(checkRecord("first10"))      // no problems found
+\end{lstlisting}
+
+The header \file{100s.hea} gives no units: the example writes \code{"mV"} explicitly,
+since WFDB-x never assumes units, a gain, an ADC resolution or a sampling frequency that
+a record does not give (\cref{chap:behavior}).
+
+% ==========================================================================================
+\section{The high-level API}
+\label{sec:kotlin-api}
+
+The high-level API is made of the functions of this section and of the classes of their
+results (\cref{sec:kotlin-results}), all in the package \code{wfdbx}. They are defined in
+the files \file{Record.kt}, \file{Check.kt} and \file{Metadata.kt} of
+\file{kotlin/src/commonMain/kotlin/wfdbx}, whose KDoc comments document each.
+
+\subsection{Conventions}
+\label{sec:kotlin-conventions}
+
+\paragraph{The library state: \code{Wfdb} objects and the default instance.} The state of
+the library (the open record, the annotators, the input and output directories, network
+access, legacy mode) is held by an object of the class \code{Wfdb}. Each high-level
+function is an extension function of \code{Wfdb}, such as
+\code{fun Wfdb.readRecord(...)}, called on an object: \code{w.readRecord("100s")}. Each is
+also a top-level function with the same name and the same parameters, such as
+\code{readRecord("100s")}, which runs it on the default instance of the calling thread,
+\code{wfdbDefault()} (one per thread; \code{withDefault \{ w -> ... \}} runs a block with
+it). The entries of this section give the declarations of the extension functions; the
+top-level functions have the same parameters, defaults and results. Separate \code{Wfdb}
+objects share no state (except the process-wide list of open output files and the cache
+of fetched URLs), so several records can be read at once, in one thread or in several; a
+\code{Wfdb} object is used by one thread at a time.
+
+\begin{lstlisting}[language=Kotlin]
+val w = Wfdb()                          // a library state of its own
+w.wfdbxSetInputDir("tests/data")
+val a = w.readRecord("100s")            // on w
+val b = readRecord("100s", inputDir = "tests/data")   // on the default instance
+\end{lstlisting}
+
+\paragraph{Named arguments.} The options are parameters with default values, given as
+named arguments (\code{physical = true}); there are no option structures. A \code{null}
+default means ``not given'' (for \code{inputDir} and \code{network}: the current
+setting).
+
+\paragraph{Record names and directories.} A record is named as in the other parts of
+WFDB-x (\cref{chap:records,chap:files}), without the \file{.hea} extension (the readers,
+and \code{writeAnnotations}, also accept a trailing \code{.hea}; \code{writeRecord} does
+not). A record name is a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+(\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+otherwise from the current directory, and written to the output directory if one is set,
+otherwise to the current directory (missing directories are created); or a URL
+(\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+on, which cannot be written. A writer given a name with a path creates the files in that
+directory, and the header names the record and its signal file without the path
+(\code{rec}, \code{rec.dat}), so that the record opens under any path that leads to it;
+in legacy mode, as in the original, the header gives the name with its path. The input
+and output directories are the current directory unless they are set, with \code{wfdbxSetInputDir} and \code{wfdbxSetOutputDir}
+(\cref{sec:kotlin-settings}) or with the environment variables \code{WFDBX\_INPUT\_DIR}
+and \code{WFDBX\_OUTPUT\_DIR}. URLs are read only when network access is on. The
+functions that read take the parameters \code{inputDir} and \code{network}, and those
+that write take \code{dir}: they apply to that one call, and the previous settings are
+restored when it returns, also after an error. \code{inputDir} is optional, and applies
+to relative names only, not to full paths or URLs; with \code{dir}, the record name must
+be a plain name (\code{"rec"}), and the record opens from that directory under it. The signal files that a header names are
+read from the header's directory. Record, annotator and directory names are converted to
+bytes with the platform's file name encoding.
+
+\paragraph{Times.} The parameters \code{from} and \code{to} are \code{TimeSpec} values: a
+sample number (a \code{TimeSpec.Sample}, made from an \code{Int} or a \code{Long}), or a
+WFDB time string, as \code{strtim} reads it (a \code{TimeSpec.Text}):
+\begin{lstlisting}[language=Kotlin]
+TimeSpec(3600)            // sample 3600
+TimeSpec("0:10")          // 10 seconds; also "1:02:03.5"
+TimeSpec("s3600")         // sample 3600
+TimeSpec("e")             // the end of the record
+TimeSpec("[14:00:00]")    // a time of day
+\end{lstlisting}
+A time in seconds needs the sampling frequency; when the record does not give it, such a
+time throws a \code{WfdbException}.
+
+\paragraph{Samples, frame by frame.} The samples of a record are one array, frame by
+frame, as the library returns them: \code{samples[i * nsig + s]} is sample \code{i} of
+signal \code{s} (\code{rec.at(i, s)}), so that a record of millions of samples is one
+array, without a copy per signal. A signal with \code{spf} samples per frame has
+\code{spf} consecutive values in each frame.
+
+\paragraph{Per-signal and per-annotation arguments.} The arguments that describe each
+signal (\code{gains}, \code{units}, \ldots) take one value for all the signals, or exactly
+one value per signal. Those that describe each annotation (\code{subtypes}, \code{chans},
+\ldots) have exactly one value per annotation.
+
+\paragraph{Text.} Text in the files (signal descriptions, units, info strings, metadata,
+aux strings, mnemonics) is a \code{String} with one character per byte (ISO-8859-1), so
+that every byte round-trips. The fields of \code{Siginfo} are byte strings
+(\code{ByteArray}), as in C; \code{latin1()}, from \code{wfdbx.cstd}, converts a
+\code{ByteArray} to a \code{String} and back.
+
+\paragraph{Signal parameters.} No sampling frequency, gain, ADC resolution or units is
+ever assumed. Where one is needed and the record does not give it, it must be given as an
+argument; otherwise the function throws a \code{WfdbException}. A record whose header
+gives no sampling frequency has \code{fs = 0}.
+
+\paragraph{Legacy mode.} With \code{legacy = true}, a function behaves as in the original
+WFDB package, with its assumed signal parameters and its search for files
+(\cref{chap:behavior}); legacy mode is on, on that \code{Wfdb} object, for the duration
+of the call only. With \code{legacy = false} (the default), the current setting of
+\code{wfdbxSetLegacy} applies, which is off unless it was turned on.
+
+\paragraph{State.} The functions that read and write records and annotation files close
+anything opened with the WFDB library functions on the same \code{Wfdb} object (they call
+\code{wfdbquit()}) before they start, and close their own files before they return,
+whatever the outcome. They leave the time resolution of output annotators
+(\code{getafreq()}) and the getvec mode (\code{getgvmode()}) as they were, also after an
+error and after reading an EDF record, whose opening sets both, as in C (\code{wfdbquit}
+resets neither): \code{readRecord} sets the getvec mode for its own reading only, and the
+\code{fs} of \code{writeAnnotations} applies to that file only. The metadata functions
+open no signals and leave the library's state as it is.
+
+\paragraph{The examples} of this section use the top-level functions, with the input and
+output directories set to a copy of \file{tests/data} (\code{wfdbxSetInputDir(d)} and
+\code{wfdbxSetOutputDir(d)}), which holds the test records of WFDB-x, among them
+\code{100s}; they write records of their own there. The listings of style \code{example}
+were compiled and run with the library on the JVM, and print what their comments say.
+
+% ------------------------------------------------------------------------------------------
+\subsection{Reading records}
+\label{sec:kotlin-reading}
+
+\apientry{readRecord}{Read the signals of a record}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.readRecord(
+    record: String,
+    channels: List<String>? = null,
+    from: TimeSpec? = null,
+    to: TimeSpec? = null,
+    physical: Boolean = false,
+    highres: Boolean = false,
+    pad: Boolean = false,
+    checksumWarning: Boolean = true,
+    onWarning: ((String) -> Unit)? = null,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    legacy: Boolean = false,
+): Record
+\end{lstlisting}
+Reads the signals of a record, or part of it, into one \code{IntArray} of ADC units,
+frame by frame, together with the description of the record. The samples are those that
+\code{getvec} returns (\cref{chap:library}), read in large blocks. Invalid samples are
+\code{WFDB\_INVALID\_SAMPLE} ($-32768$) in ADC units, and NaN in physical units. When the
+read reaches the end of the record, the samples are compared with the checksums of the
+header (\cref{sec:kotlin-warnings}). On any error once the record is open, its input
+signals are closed, and the getvec mode and the settings changed for the call are
+restored.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[channels] The signals to read, in the order in which they are returned: a list of
+  signal numbers (\code{"0"}, \code{"1"}, \ldots) or signal descriptions (as in
+  \code{Record.names}, such as \code{"MLII"}), which may be mixed. A name is looked up
+  among the descriptions first, then with \code{findsig}. Default \code{null}: all the
+  signals, in the order of the header.
+\item[from] The first sample to read: a \code{TimeSpec}, a sample number ($\ge 0$) or a
+  time string. Default \code{null}: the beginning of the record.
+\item[to] The sample after the last one to read: a \code{TimeSpec}. Default \code{null}:
+  the end of the record.
+\item[physical] \code{true} to return the samples in physical units too, in
+  \code{Record.physical} (a \code{DoubleArray} in the layout of \code{samples}), computed
+  as $(\mathit{adc} - \mathit{baseline}) / \mathit{gain}$. Every signal read must then have
+  a gain. Default \code{false}.
+\item[highres] \code{false} (the default) to read a multi-frequency record at its frame
+  frequency, with the samples of the faster signals averaged to one per frame;
+  \code{true} to read every sample, at the highest sampling frequency of the record (the
+  samples of the slower signals are repeated). \code{Record.fs} is then that frequency.
+\item[pad] \code{true} to replace each invalid sample by the previous valid sample of the
+  same signal. Default \code{false}.
+\item[checksumWarning] \code{true} (the default) to warn when the samples do not match
+  the checksums of the header; \code{false} for no warning. The samples are returned
+  either way, and \code{checksumOk} of the result is \code{false}.
+\item[onWarning] A function that receives the warning (without the \code{WFDB-x: }
+  prefix and the newline). Default \code{null}: the library prints \code{WFDB-x: }
+  followed by the warning on the standard error, unless \code{wfdbquiet()} was called.
+\item[inputDir] The input directory for this call only (optional): a local directory, a
+  \code{\textasciitilde} path or a URL, under which relative record names are read. It
+  does not apply to full paths or URLs. Default \code{null}: the current setting
+  (\code{wfdbxSetInputDir}).
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{null}: the current setting (\code{wfdbxSetNetwork}).
+\item[legacy] \code{true} to behave as the original WFDB package (legacy mode, for this
+  call only). Default \code{false}.
+\end{params}
+\returns{A \code{Record} (\cref{tab:kotlin-record}).}
+\raises{\code{WfdbException} if the header or a signal file cannot be read (``can't read
+record REC''), if a channel is not in the record (``record REC has no signal C''), if
+\code{from} is a negative sample number (``readRecord: from must not be negative''), if a
+time string needs the sampling frequency and the header gives none (``sampling frequency
+of record REC is not specified''), if \code{physical} is \code{true} and a signal read has
+no gain (``signal N of record REC is uncalibrated''), if \code{from} is beyond the end of
+the record (``can't seek to sample N of record REC''), or if a signal file is shorter than
+its header says (``can't read signal data of record REC (getvec status -3)''). Warns on a
+checksum error (see \code{checksumWarning} and \code{onWarning}).}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+// Seconds 10 to 20 of lead MLII, in physical units.
+var rec = readRecord("100s", channels = listOf("MLII"), from = TimeSpec("0:10"),
+                     to = TimeSpec("0:20"), physical = true)
+println("${rec.nsamples} ${rec.nsig} ${rec.names} ${rec.fs} ${rec.sampfrom}")   // 3600 1 [MLII] 360.0 3600
+
+// The first 3 samples of both signals, in ADC units, V5 first.
+rec = readRecord("100s", channels = listOf("1", "0"), to = TimeSpec(3))
+println(rec.samples.toList())       // [1011, 995, 1011, 995, 1011, 995]
+println("${rec.names} ${rec.gains} ${rec.baselines} ${rec.units}")
+// [V5, MLII] [200.0, 200.0] [1024, 1024] [null, null]
+
+// The whole record: the checksums are verified.
+rec = readRecord("100s")
+println("${rec.nsamples} ${rec.checksumOk}")      // 21600 true
+\end{lstlisting}
+A multi-frequency record (here the test record \code{mfreq}, whose signals have 1, 2
+and 4 samples per frame at a frame frequency of 100\,Hz) is read at its frame frequency,
+or at its highest sampling frequency:
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+var rec = readRecord("mfreq")
+println("${rec.fs} ${rec.nsamples} ${rec.nsig}")     // 100.0 600 3
+rec = readRecord("mfreq", highres = true)
+println("${rec.fs} ${rec.nsamples} ${rec.nsig}")     // 400.0 2400 3
+println(rec.siginfo.map { it.spf })                  // [1, 2, 4]
+\end{lstlisting}
+
+\apientry{readHeader}{Read the header of a record}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.readHeader(
+    record: String,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    legacy: Boolean = false,
+    onWarning: ((String) -> Unit)? = null,
+): Header
+\end{lstlisting}
+Reads the header of a record, without opening its signal files. The result describes the
+record and each of its signals, and holds the info strings and the metadata entries of the
+header (of the \file{.hea} file only, not of a \file{.info} file; none for an EDF file or a
+header read from the standard input). For a multi-segment record, the master header is
+read, and \code{nsamples} is the length of the whole record.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[inputDir] The input directory for this call only (optional): a local directory, a
+  \code{\textasciitilde} path or a URL, under which relative record names are read. It
+  does not apply to full paths or URLs. Default \code{null}: the current setting
+  (\code{wfdbxSetInputDir}).
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{null}: the current setting.
+\item[legacy] \code{true} to read the header as the original WFDB package does. Default
+  \code{false}.
+\item[onWarning] A function that receives the warnings about \code{Header.metadata} (a
+  key given more than once, \cref{sec:kotlin-warnings}). Default \code{null}: the library
+  prints \code{WFDB-x: } followed by the warning on the standard error, unless
+  \code{wfdbquiet()} was called.
+\end{params}
+\returns{A \code{Header} (\cref{tab:kotlin-header}).}
+\raises{\code{WfdbException} if the header cannot be found or read (``can't read header
+for record REC'').}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+import wfdbx.cstd.latin1
+
+val hdr = readHeader("100s")
+println("${hdr.name} ${hdr.fs} ${hdr.nsig} ${hdr.nsamples}")    // 100s 360.0 2 21600
+for (s in hdr.siginfo) {
+    println("${s.desc?.latin1()} ${s.fname?.latin1()} ${s.fmt} ${s.gain} ${s.adcres} ${s.units?.latin1()}")
+}
+// MLII 100s.dat 212 200.0 11 null
+// V5 100s.dat 212 200.0 11 null
+println("\"${hdr.comments[0]}\"")   // " 69 M 1085 1629 x1": the first info string
+println(hdr.baseTime)               // null: the header gives no start time
+\end{lstlisting}
+
+\apientry{readAnnotations}{Read an annotation file}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.readAnnotations(
+    record: String,
+    annotator: String,
+    from: TimeSpec? = null,
+    to: TimeSpec? = null,
+    fs: Double? = null,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    legacy: Boolean = false,
+): Annotations
+\end{lstlisting}
+Reads the annotations of an annotation file, in file order. The sampling frequency,
+needed to convert times in seconds, is that of the record's header, or, for a record
+without a header or whose header gives none, the argument \code{fs}.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on. Its header, if there is one, gives the sampling frequency.
+\item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
+  file \file{RECORD.atr}.
+\item[from] The first time to read: a \code{TimeSpec}. Default \code{null}: the beginning
+  of the file.
+\item[to] The time at which to stop: annotations at or after it are not read. Default
+  \code{null}: the end of the file.
+\item[fs] The sampling frequency, in Hz ($> 0$), to use when the record has no header or
+  its header gives none; it is ignored otherwise. Default \code{null}: none.
+\item[inputDir] The input directory for this call only (optional): a local directory, a
+  \code{\textasciitilde} path or a URL, under which relative record names are read. It
+  does not apply to full paths or URLs. Default \code{null}: the current setting
+  (\code{wfdbxSetInputDir}).
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{null}: the current setting.
+\item[legacy] \code{true} to behave as the original WFDB package (which assumes 250\,Hz
+  for a record without a frequency). Default \code{false}.
+\end{params}
+\returns{An \code{Annotations} object (\cref{tab:kotlin-annotations}). Its \code{fs} is
+the frequency in which the times are counted: the one written in the annotation file, if
+there is one, or else the sampling frequency; it is 0 if none of them is known.}
+\raises{\code{WfdbException} if \code{fs} is given and is not $> 0$ (``readAnnotations:
+fs must be > 0''), if the annotation file cannot be opened (``can't read annotator ANN for
+record REC''), if a time string needs the sampling frequency and none is known, or if the
+file ends before its end-of-file marker (``can't read annotation file ANN of record REC
+(getann status -3)'').}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+var ann = readAnnotations("100s", "atr", from = TimeSpec("0:10"), to = TimeSpec("0:30"))
+println("${ann.size} ${ann.fs}")                              // 24 360.0
+println("${ann.samples.take(3)} ${ann.symbols.take(3)}")      // [3862, 4170, 4466] [N, N, N]
+
+// The whole file: the first annotation is a rhythm change, with an aux string.
+ann = readAnnotations("100s", "atr")
+println("${ann.symbols[0]} ${ann.codes[0] == RHYTHM} ${ann.aux[0]}")   // + true (N
+println(ann.symbols.toSortedSet())                            // [+, A, N]
+\end{lstlisting}
+For a record without a header, \code{fs} gives the frequency in which times in seconds
+are converted (the library reports on the standard error that it cannot open the
+header):
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+writeAnnotations("beats", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N", "N", "N"))
+val ann = readAnnotations("beats", "qrs", to = TimeSpec("0:02"), fs = 360.0)
+println("${ann.samples.toList()} ${ann.fs}")        // [100, 460] 360.0
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Writing records}
+\label{sec:kotlin-writing}
+
+\apientry{writeRecord}{Write a header and a signal file}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.writeRecord(
+    record: String,
+    samples: IntArray,
+    nsig: Int,
+    fs: Double,
+    fmt: Int = 16,
+    gains: DoubleArray? = null,
+    baselines: IntArray? = null,
+    adczeros: IntArray? = null,
+    adcres: IntArray? = null,
+    units: List<String?>? = null,
+    names: List<String>? = null,
+    baseTime: String? = null,
+    comments: List<String>? = null,
+    sampsPerFrame: IntArray? = null,
+    dir: String? = null,
+    legacy: Boolean = false,
+    metadata: List<Pair<String, String?>>? = null,
+)
+
+fun Wfdb.writeRecord(
+    record: String,
+    samples: DoubleArray,
+    nsig: Int,
+    fs: Double,
+    fmt: Int = 16,
+    gains: DoubleArray? = null,
+    baselines: IntArray? = null,
+    adczeros: IntArray? = null,
+    adcres: IntArray? = null,
+    units: List<String?>? = null,
+    names: List<String>? = null,
+    baseTime: String? = null,
+    comments: List<String>? = null,
+    sampsPerFrame: IntArray? = null,
+    dir: String? = null,
+    legacy: Boolean = false,
+    metadata: List<Pair<String, String?>>? = null,
+)
+\end{lstlisting}
+Writes samples as a new record: the header \file{RECORD.hea} and one signal file,
+\file{RECORD.dat}, which holds all the signals. Existing files of these names are
+overwritten. The first overload takes the samples in ADC units (an \code{IntArray}), the
+second in physical units (a \code{DoubleArray}), converted to ADC units as
+$\mathrm{round}(x \cdot \mathit{gain}) + \mathit{baseline}$, with halves rounded away from
+zero; NaN becomes an invalid sample, and an infinite value, or one whose ADC value is
+beyond the range of 32-bit integers, is an error. The sampling frequency, the gain and
+ADC resolution of each signal, and the units of each calibrated signal must be given:
+there are no defaults. The per-signal arguments (\code{gains}, \code{baselines},
+\code{adczeros}, \code{adcres}, \code{units}, \code{names}, \code{sampsPerFrame}) take one
+value for all the signals, or one value per signal. All the arguments are checked before
+any file is created, and the output signals are closed whatever happens.
+\begin{params}
+\item[record] Record name (not empty), without the \file{.hea} extension: a plain name
+  (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output directory
+  if one is set, otherwise in the current directory, missing directories included; or a
+  full path, absolute or in the home directory (\code{"\textasciitilde/Documents/rec"}),
+  used as given. With a path, the files are created in that directory, and the header
+  names the record and its signal file without the path (\code{rec}, \code{rec.dat}), so
+  that the record opens under any path that leads to it (in legacy mode, as in the
+  original, the header gives the name with its path). A URL cannot be written.
+\item[samples] The samples, frame by frame: signal 0, signal 1, \ldots{} of frame 0, then
+  those of frame 1, and so on (a signal with \code{spf} samples per frame has \code{spf}
+  consecutive values in each frame). An \code{IntArray} of ADC units, or a
+  \code{DoubleArray} of physical units. Its size must be a multiple of the frame size.
+\item[nsig] The number of signals (at least 1).
+\item[fs] The sampling frequency, in Hz (frames per second): a finite number $> 0$.
+\item[fmt] The storage format of all the signals, such as \code{16}, \code{212},
+  \code{24} or \code{516} (FLAC) (\cref{chap:formats}). Default \code{16}.
+\item[gains] The gain of each signal, in ADC units per physical unit: a finite number;
+  \code{0} marks an uncalibrated signal, which is allowed only for samples given in ADC
+  units. Negative gains are allowed. Required (default \code{null}: not given).
+\item[baselines] The ADC value that corresponds to 0 physical units. Default
+  \code{null}: the ADC zero of the signal.
+\item[adczeros] The ADC value at the middle of the ADC range. Default \code{null}: 0.
+\item[adcres] The ADC resolution, in bits ($\ge 1$). Required (default \code{null}: not
+  given).
+\item[units] The physical units, such as \code{"mV"}; required for each signal whose gain
+  is not 0 (\code{null} for an uncalibrated signal). Default \code{null}: not given.
+\item[names] The signal descriptions, such as \code{"MLII"}. Default \code{null}: no
+  descriptions.
+\item[baseTime] The start time, with an optional date: \code{"hh:mm:ss"} or
+  \code{"hh:mm:ss dd/mm/yyyy"}. Default \code{null}: no start time.
+\item[comments] Info strings, written at the end of the header as comment lines
+  (\code{"\#"} followed by the string). Default \code{null}: none.
+\item[sampsPerFrame] For a multi-frequency record, the number of samples per frame of
+  each signal (integers $\ge 1$); \code{fs} is then the frame frequency. Default
+  \code{null}: one sample per frame for every signal.
+\item[dir] A directory (which must exist) in which to create the files, for this call
+  only. \code{record} must then be a plain name, without a directory, and the record opens
+  from that directory under its plain name. Default \code{null} (or \code{""}): the output
+  directory.
+\item[legacy] \code{true} to behave as the original WFDB package: the gain defaults to
+  200, the ADC resolution to one based on the format, and no units are required. Default
+  \code{false}.
+\item[metadata] Metadata entries (\cref{chap:metadata}) to write to the header after the
+  comments, as \code{\# Key: value} (through \code{putinfo}), in the order given: a list
+  of pairs, \code{listOf("Age" to "63")} (a map converts with \code{toList()}). Keys and
+  values follow the rules of \code{setMetadata}; no two keys may be equal (ignoring
+  letter case), none may be the key of an entry in \code{comments}, and a \code{null}
+  value is not allowed. Default \code{null}: none.
+\end{params}
+\returns{Nothing (\code{Unit}).}
+\raises{\code{WfdbException}, before any file is created: ``writeRecord: sampsPerFrame
+must hold integers >= 1'' (checked first, also in legacy mode), ``writeRecord: the record
+name must not be empty'', ``writeRecord: at least one signal is required'',
+``writeRecord: NAME must have one value per signal'', ``writeRecord: the sampling
+frequency must be > 0'' (not checked in legacy mode), ``writeRecord: the sampling
+frequency must be finite'', ``writeRecord: gains must be specified'', ``writeRecord:
+gains must be finite'', ``writeRecord: ADC resolution(s) must be specified'',
+``writeRecord: units must be specified'', ``writeRecord: incorrect base time 'TIME'{}'',
+``writeRecord: the number of samples is not a multiple of the frame size'',
+``writeRecord: signal N is uncalibrated'' and ``writeRecord: sample I is infinite or
+beyond the range of 32-bit ADC units'' (physical units), ``record name must not contain a
+directory when dir is given'', ``directory DIR does not exist''; a
+\code{WfdbArgumentException} if an entry of \code{metadata} is not valid (``writeRecord:
+metadata key 'a:b' must not contain ':'{}'', ``writeRecord: value of metadata key 'Age'
+must not be null'', ``writeRecord: metadata key 'Age' is also given in comments'',
+\ldots). \code{WfdbException} if the signal file or the header cannot be created
+(``can't create signal file for record REC'', ``can't create header for record REC''),
+or cannot be written completely, for example on a full disk (``write error on record
+REC'').}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+import kotlin.math.abs
+
+// Two signals of random numbers, in millivolts, at 360 Hz: the record "rand"
+// (rand.hea and rand.dat).
+val rnd = kotlin.random.Random(1)
+val x = DoubleArray(3600 * 2) { rnd.nextDouble(-3.0, 3.0) }
+writeRecord("rand", x, nsig = 2, fs = 360.0, fmt = 16, gains = doubleArrayOf(1000.0),
+            adcres = intArrayOf(16), units = listOf("mV"), names = listOf("A", "B"),
+            baseTime = "14:00:03 21/06/2024", comments = listOf("random numbers"),
+            metadata = listOf("Generator" to "kotlin.random"))
+val rec = readRecord("rand", physical = true)
+println("${rec.nsamples} ${rec.baseTime}")     // 3600 [14:00:03 21/06/2024]
+println(x.indices.all { abs(rec.physical!![it] - x[it]) <= 0.0005 })   // true: rounded to 1/1000 mV
+println(readHeader("rand").comments)           // [random numbers,  Generator: kotlin.random]
+
+// An uncalibrated signal (gain 0, no units), in ADC units, in the directory "out".
+writeRecord("out/counts", IntArray(1000) { it }, nsig = 1, fs = 100.0, gains = doubleArrayOf(0.0),
+            adcres = intArrayOf(12))
+println(readRecord("out/counts").samples.take(3))    // [0, 1, 2]
+\end{lstlisting}
+A multi-frequency record: signal \code{fast} has 2 samples per frame, signal
+\code{slow} one; each frame holds the two samples of \code{fast} and then the sample of
+\code{slow}:
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+val frames = 100                                    // 1 second at 100 frames per second
+val x = IntArray(3 * frames) { if (it % 3 == 2) 500 else 2 * (it / 3) + it % 3 }
+writeRecord("mf", x, nsig = 2, fs = 100.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(12),
+            units = listOf("mV"), names = listOf("fast", "slow"), sampsPerFrame = intArrayOf(2, 1))
+val rec = readRecord("mf", highres = true)
+println("${rec.fs} ${rec.samples.take(6)}")        // 200.0 [0, 500, 1, 500, 2, 500]
+\end{lstlisting}
+
+\apientry{writeAnnotations}{Write an annotation file}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.writeAnnotations(
+    record: String,
+    annotator: String,
+    samples: LongArray,
+    symbols: List<String>? = null,
+    codes: IntArray? = null,
+    subtypes: IntArray? = null,
+    chans: IntArray? = null,
+    nums: IntArray? = null,
+    aux: List<String?>? = null,
+    fs: Double? = null,
+    sort: Boolean? = null,
+    dir: String? = null,
+    legacy: Boolean = false,
+)
+
+fun Wfdb.writeAnnotations(
+    record: String,
+    annotator: String,
+    a: Annotations,
+    fs: Double? = null,
+    sort: Boolean? = null,
+    dir: String? = null,
+    legacy: Boolean = false,
+)
+\end{lstlisting}
+Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
+that name is overwritten. The record need not have a header. The annotation types are
+given as \code{symbols} or as \code{codes} (\cref{chap:formats}). If the annotations are
+not in time order, the file is sorted when it is written, unless \code{sort = false}. The
+second overload writes the annotations of an \code{Annotations} object, as
+\code{readAnnotations} returns them: its samples, codes, subtypes, channels, annotator
+numbers and aux strings (its record, annotator and \code{fs} are not used). All the
+arguments are checked before the file is created.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a plain name or a relative path (\code{"data/100s"}) is created in the
+  output directory if one is set, otherwise in the current directory; a full path,
+  absolute or in the home directory (\code{"\textasciitilde/Documents/100s"}), is used as
+  given. The file is \file{RECORD.ANNOTATOR} at that place (\file{data/100s.qrs}). A URL
+  cannot be written.
+\item[annotator] Annotator name: the suffix of the file, made of letters, digits,
+  \code{\_}, \code{-} and \code{\textasciitilde}.
+\item[samples] The annotation times, in samples, one per annotation.
+\item[symbols] The mnemonics of the annotation types, such as \code{"N"} or \code{"V"},
+  one per annotation. An unknown mnemonic becomes code 0 (\code{NOTQRS}). Default
+  \code{null}: the types are given by \code{codes}.
+\item[codes] The annotation codes (\code{NORMAL}, \code{PVC}, \ldots), one per annotation,
+  instead of \code{symbols}. If both are given (as \code{readAnnotations} returns them),
+  each symbol must be that of its code (an empty symbol is not checked). Default
+  \code{null}.
+\item[subtypes] The subtype of each annotation, stored as a signed byte (other values wrap
+  around to $-128 \ldots 127$, as in C). Default \code{null}: 0.
+\item[chans] The channel number of each annotation, stored as an unsigned byte (other
+  values wrap around to $0 \ldots 255$). Default \code{null}: 0.
+\item[nums] The annotator number of each annotation, stored as a signed byte. Default
+  \code{null}: 0.
+\item[aux] The auxiliary text of each annotation, with \code{null} where there is none.
+  Texts longer than 255 bytes are cut. Default \code{null}: none.
+\item[fs] If given (a finite number $> 0$), the frequency in which the times are counted,
+  written to the file. Default \code{null}: none is written.
+\item[sort] \code{true} to always sort the file, \code{false} to keep the given order
+  (without the library's advice to run \code{sortann}), for this call only. Default
+  \code{null}: the environment variable \code{WFDBANNSORT} decides (sorting is on unless
+  it is \code{0}).
+\item[dir] A directory (which must exist) in which to create the file, for this call
+  only. \code{record} must then be a plain name, without a directory: the file is
+  \file{DIR/RECORD.ANNOTATOR}. Default \code{null}: the output directory.
+\item[legacy] \code{true} to behave as the original WFDB package. Default \code{false}.
+\item[a] The annotations to write (second overload): an \code{Annotations} object, as
+  \code{readAnnotations} returns it.
+\end{params}
+\returns{Nothing (\code{Unit}).}
+\raises{\code{WfdbException}, before the file is created, if neither \code{symbols} nor
+\code{codes} is given (``symbols or codes must be given''), if both are given and
+disagree (``writeAnnotations: symbols and codes disagree at annotation K'', K counting
+from 0), if an array does not have one value per annotation (``writeAnnotations: NAME
+must have one value per annotation''), if \code{fs} is not finite and $> 0$
+(``writeAnnotations: fs must be finite and > 0''), or as for the \code{dir} of
+\code{writeRecord}; if the file cannot be created (``can't create annotator ANN for record
+REC''), or cannot be written completely (``write error on annotator ANN for record
+REC'').}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+// Three beats and a rhythm change, by symbol, with an aux string for the rhythm.
+writeAnnotations("100s", "test", longArrayOf(18, 77, 370, 662),
+                 symbols = listOf("+", "N", "V", "N"), aux = listOf("(N", null, null, null))
+var ann = readAnnotations("100s", "test")
+println("${ann.symbols} ${ann.aux}")       // [+, N, V, N] [(N, null, null, null]
+
+// A copy of the reference annotations, as readAnnotations returns them.
+val a = readAnnotations("100s", "atr")
+writeAnnotations("100s", "copy", a)
+val b = readAnnotations("100s", "copy")
+println("${b.samples.contentEquals(a.samples)} ${b.symbols == a.symbols} ${b.aux == a.aux}")
+// true true true
+
+// Annotations out of time order are sorted when the file is written (the library
+// reports it on the standard error).
+writeAnnotations("100s", "unsorted", longArrayOf(500, 100), codes = intArrayOf(NORMAL, NORMAL))
+println(readAnnotations("100s", "unsorted").samples.toList())     // [100, 500]
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Checking records}
+\label{sec:kotlin-checking}
+
+\apientry{checkRecord}{Check a record and its annotation files}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.checkRecord(
+    record: String,
+    annotators: List<String> = emptyList(),
+    inputDir: String? = null,
+    network: Boolean? = null,
+): CheckReport
+\end{lstlisting}
+Checks the header of a record, its signal specifications, every sample of its signal
+files, each segment of a multi-segment record, and the annotation files named, and
+reports each problem found. A problem in the record never throws an exception: it is
+reported, with a severity (\code{Severity.ERROR}: the record is damaged or does not follow
+the WFDB format, and programs will read wrong data or fail; \code{Severity.WARNING}: the
+record can be read, but something is missing or unusual, and may give wrong results;
+\code{Severity.INFO}: a fact worth knowing, such as invalid samples). The problems, their
+codes and their messages are the same in the seven languages
+(\cref{tab:python-issue-codes}). The checks run in normal mode, even if legacy mode is on,
+and the library prints no messages during the call. They are similar to those of Benjamin
+Moody's \code{wfdbcheck}.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on (as for \code{readRecord}).
+\item[annotators] The annotator names whose files are checked, such as
+  \code{listOf("atr")}. Default \code{emptyList()}: none.
+\item[inputDir] The input directory for this call only (optional): a local directory, a
+  \code{\textasciitilde} path or a URL, under which relative record names are read. It
+  does not apply to full paths or URLs. Default \code{null}: the current setting
+  (\code{wfdbxSetInputDir}).
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{null}: the current setting.
+\end{params}
+\returns{A \code{CheckReport} (\cref{tab:kotlin-checkreport}): \code{report.ok} is
+\code{true} if no problem is an error, \code{report.issues} lists the problems
+(\code{Issue} objects, \cref{tab:kotlin-issue}), and \code{println(report)} prints one
+line per problem, or \code{no problems found}.}
+\raises{\code{WfdbException} if \code{record} is empty (``record must not be empty''). A
+record that cannot be read is reported (code \code{header\_unreadable}), not thrown.}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+var report = checkRecord("100s", listOf("atr"))
+println(report.ok)          // true: no errors
+println(report)
+// warning: signal 0: the units are not specified
+// warning: signal 1: the units are not specified
+
+// A damaged record: one sample of a 12-bit signal is overwritten with 2048 (JVM file
+// access, in the output directory).
+writeRecord("damaged", IntArray(100) { it }, nsig = 1, fs = 100.0, gains = doubleArrayOf(100.0),
+            adcres = intArrayOf(12), units = listOf("mV"), names = listOf("ramp"))
+java.io.RandomAccessFile(wfdbxGetOutputDir() + "/damaged.dat", "rw").use { f ->
+    f.seek(20)                                  // sample 10 (2 bytes per sample in format 16)
+    f.write(byteArrayOf(0x00, 0x08))            // 0x0800 = 2048, little-endian
+}
+report = checkRecord("damaged")
+println(report.ok)          // false
+for (issue in report.issues) println("${issue.severity} ${issue.code} ${issue.where}")
+// error sample_range signal 0
+// error checksum signal 0
+println(report.lines()[0])
+// error: signal 0: 1 sample is outside the ADC range (-2048 to 2047): sample 10 (value 2048)
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Header metadata}
+\label{sec:kotlin-metadata}
+
+These functions read and change the metadata of a header: its info strings of the form
+\code{\# Key: value}, such as \code{\# Age: 63} (\cref{chap:metadata}). In short: keys are
+compared without regard to letter case (A--Z and a--z only); a key must not be empty and
+must not contain \code{:}, \code{\#}, a line break or a NUL character, and a value must
+not contain a line break or a NUL character; spaces, tabs, VT, FF and CR at either end of
+keys and values are removed; text is one character per byte (ISO-8859-1), and a character
+beyond U+00FF is an argument error. A change rewrites the header in one step: the new
+header is written to a temporary file in the header's directory, which then replaces the
+header, keeping its permission bits where the platform has them; every other byte of the
+header is kept, and all the arguments are checked first, so an error leaves the header
+unchanged. If nothing changes (and \code{dir} is not given), nothing is written. Only the
+\file{.hea} file is read (not a \file{.info} file); for a multi-segment record, it is the
+master header, unless a segment is named. Invalid arguments throw a
+\code{WfdbArgumentException}, and a header that cannot be read or written a
+\code{WfdbException} (\cref{sec:kotlin-warnings}). Metadata often holds information about
+patients: WFDB-x stores it as plain text, exactly as given, and does not de-identify it.
+
+\begin{phibox}
+A header can hold identifying data about a patient (a name, a date of birth, a medical
+record number). The metadata functions read and write such data as given. Records that
+are shared must be de-identified first.
+\end{phibox}
+
+\apientry{readMetadata}{Read the metadata of a record}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.readMetadata(
+    record: String,
+    onWarning: ((String) -> Unit)? = null,
+    inputDir: String? = null,
+    network: Boolean? = null,
+): List<Pair<String, String>>
+\end{lstlisting}
+Reads the metadata entries of the header of a record, in file order. An info string is an
+entry if it contains a colon: the key is the text before the first colon, the value the
+rest of the line, both without spaces at either end. Info strings without a colon are free
+comments, which are not returned.
+\begin{params}
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
+  also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+  directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+  (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
+  otherwise from the current directory; or a URL
+  (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
+  on.
+\item[onWarning] A function that receives the warnings (without the \code{WFDB-x: }
+  prefix and the newline). Default \code{null}: the library prints \code{WFDB-x: }
+  followed by the warning on the standard error, unless \code{wfdbquiet()} was called.
+\item[inputDir] The input directory for this call only (optional): a local directory, a
+  \code{\textasciitilde} path or a URL, under which relative record names are read. It
+  does not apply to full paths or URLs. Default \code{null}: the current setting
+  (\code{wfdbxSetInputDir}).
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{null}: the current setting.
+\end{params}
+\returns{A list of (key, value) pairs, in file order. A key that appears more than once
+(ignoring letter case) is returned once, with its first value, and a warning is issued
+(\cref{sec:kotlin-warnings}).}
+\raises{\code{WfdbException} if the header cannot be found or read (``can't read header
+for record REC''); \code{WfdbArgumentException} if \code{record} is empty or \code{"-"}
+(the standard input).}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+writeRecord("pat", IntArray(360), nsig = 1, fs = 360.0, gains = doubleArrayOf(200.0),
+            adcres = intArrayOf(12), units = listOf("mV"), names = listOf("ECG"),
+            comments = listOf("recorded at rest"), metadata = listOf("Age" to "63", "Sex" to "F"))
+println(readMetadata("pat"))           // [(Age, 63), (Sex, F)]
+println(readHeader("pat").comments)
+// [recorded at rest,  Age: 63,  Sex: F]: the free comment is not an entry
+\end{lstlisting}
+
+\apientry{getMetadata}{Return the value of a metadata entry}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.getMetadata(
+    record: String,
+    key: String,
+    onWarning: ((String) -> Unit)? = null,
+    inputDir: String? = null,
+    network: Boolean? = null,
+): String?
+\end{lstlisting}
+Returns the value of one metadata entry of the header of a record. The key is checked
+before the header is read.
+\begin{params}
+\item[record] Record name (as for \code{readMetadata}).
+\item[key] The key, such as \code{"Age"}. Letter case is ignored, and spaces at either end
+  are removed.
+\item[onWarning] A function that receives the warnings (as for \code{readMetadata}).
+  Default \code{null}: the standard error.
+\item[inputDir] The input directory for this call only. Default \code{null}: the current
+  setting.
+\item[network] \code{true} to allow reading URLs for this call only, \code{false} to
+  forbid it. Default \code{null}: the current setting.
+\end{params}
+\returns{The value (\code{""} for an entry with an empty value), or \code{null} if the
+header has no entry for \code{key}. If it has more than one, the first is returned, with a
+warning.}
+\raises{\code{WfdbException} if the header cannot be found or read;
+\code{WfdbArgumentException} if \code{record} is empty or \code{"-"}, or if \code{key} is
+not a valid key (see \code{setMetadata}).}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+writeRecord("pat", IntArray(360), nsig = 1, fs = 360.0, gains = doubleArrayOf(200.0),
+            adcres = intArrayOf(12), units = listOf("mV"), metadata = listOf("Age" to "63", "Sex" to "F"))
+println(getMetadata("pat", "age"))       // 63
+println(getMetadata("pat", "Height"))    // null
+\end{lstlisting}
+
+\apientry{setMetadata}{Set the value of a metadata entry}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.setMetadata(
+    record: String,
+    key: String,
+    value: String,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    dir: String? = null,
+)
+\end{lstlisting}
+Sets the value of a metadata entry in the header of a record. If the header has an entry
+for \code{key} (ignoring letter case), its line is replaced by \code{\# Key: value}, at
+the same position and with the same line ending, with the spelling of \code{key} given
+here (even if the value is the same); otherwise the entry is added after the last info
+string of the header (or, if it has none, after its last line that is not blank), ending
+as the record line ends. The entry is written as \code{\# Key: value}, or \code{\# Key:}
+if the value is empty. Every other byte of the header is kept.
+\begin{params}
+\item[record] Record name (as for \code{readMetadata}). The header is changed where it was
+  read, unless \code{dir} is given; a header read from a URL can only be written
+  elsewhere, with \code{dir}.
+\item[key] The key, such as \code{"Age"} or \code{"Date of birth"}. Spaces at either end
+  are removed. It must not be empty, and must not contain \code{:}, \code{\#}, a line
+  break or a NUL character.
+\item[value] The value, which may be a sentence. Spaces at either end are removed. It
+  must not contain a line break or a NUL character; it may be empty.
+\item[inputDir] The input directory in which the header is read, for this call only.
+  Default \code{null}: the current setting.
+\item[network] \code{true} to allow reading the header from a URL, for this call only,
+  \code{false} to forbid it. Default \code{null}: the current setting.
+\item[dir] A directory, which must exist, in which to write the changed header, under the
+  same file name, instead of changing the header itself (the header is then written even
+  if nothing changes); the signal files are not copied. Default \code{null}: the header
+  itself is changed.
+\end{params}
+\returns{Nothing (\code{Unit}).}
+\raises{\code{WfdbArgumentException} if \code{key} or \code{value} is not valid
+(``metadata key 'a:b' must not contain ':'{}'', ``value of metadata key 'Age' must not
+contain a line break'', \ldots), if the header has more than one entry for \code{key}
+(``header of record REC has more than one entry for key KEY (lines L1, L2); remove them
+first''), if it has no record line, if it was read from a URL and \code{dir} is not given,
+or if \code{record} is empty or \code{"-"}; \code{WfdbException} if the header cannot be
+read (``can't read header for record REC''), if \code{dir} does not exist (``directory
+DIR does not exist''), or if the changed header cannot be written (``can't write header
+for record REC'').}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+writeRecord("pat", IntArray(360), nsig = 1, fs = 360.0, gains = doubleArrayOf(200.0),
+            adcres = intArrayOf(12), units = listOf("mV"), metadata = listOf("Age" to "63", "Sex" to "F"))
+setMetadata("pat", "AGE", "64")                                // replaces "# Age: 63"
+setMetadata("pat", "Diagnosis", "sinus rhythm, no ectopy")     // a new entry
+println(readMetadata("pat"))
+// [(AGE, 64), (Sex, F), (Diagnosis, sinus rhythm, no ectopy)]
+
+// Write the changed header to another directory; pat.hea is left unchanged.
+val changed = wfdbxGetOutputDir() + "/changed"
+java.io.File(changed).mkdir()                                  // (JVM)
+setMetadata("pat", "Sex", "M", dir = changed)
+println("${getMetadata("pat", "Sex")} ${getMetadata("$changed/pat", "Sex")}")    // F M
+\end{lstlisting}
+
+\apientry{removeMetadata}{Remove a metadata entry}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.removeMetadata(
+    record: String,
+    key: String,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    dir: String? = null,
+): Int
+\end{lstlisting}
+Removes every entry for \code{key} (ignoring letter case) from the header of a record,
+with its line ending, so it also repairs a header that has more than one. Other lines are
+kept, byte for byte. Nothing is written if the header has no entry for \code{key}, unless
+\code{dir} is given.
+\begin{params}
+\item[record] Record name (as for \code{setMetadata}).
+\item[key] The key (as for \code{setMetadata}).
+\item[inputDir] The input directory in which the header is read, for this call only.
+  Default \code{null}: the current setting.
+\item[network] \code{true} to allow reading the header from a URL, for this call only,
+  \code{false} to forbid it. Default \code{null}: the current setting.
+\item[dir] A directory, which must exist, in which to write the changed header instead of
+  changing the header itself. Default \code{null}: the header itself is changed.
+\end{params}
+\returns{The number of lines removed (0 if the header has no entry for \code{key}).}
+\raises{As \code{setMetadata}, except that more than one entry for \code{key} is not an
+error.}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+writeRecord("pat", IntArray(360), nsig = 1, fs = 360.0, gains = doubleArrayOf(200.0),
+            adcres = intArrayOf(12), units = listOf("mV"), metadata = listOf("Age" to "63", "Sex" to "F"))
+println(removeMetadata("pat", "sex"))     // 1
+println(removeMetadata("pat", "Sex"))     // 0: there is no such entry now
+println(readMetadata("pat"))              // [(Age, 63)]
+\end{lstlisting}
+
+\apientry{updateMetadata}{Make several changes to the metadata}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.updateMetadata(
+    record: String,
+    changes: List<Pair<String, String?>>,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    dir: String? = null,
+)
+
+fun Wfdb.updateMetadata(
+    record: String,
+    changes: Map<String, String?>,
+    inputDir: String? = null,
+    network: Boolean? = null,
+    dir: String? = null,
+)
+\end{lstlisting}
+Makes several changes to the metadata of a record, in one write of the header. Each
+change is applied in order, as \code{setMetadata} does, or, for a \code{null} value, as
+\code{removeMetadata} does. All the changes are checked first: if one is not valid, none
+is made. The second overload takes the changes as a map, applied in its iteration order
+(the order of insertion for the maps of \code{mapOf} and \code{linkedMapOf}).
+\begin{params}
+\item[record] Record name (as for \code{setMetadata}).
+\item[changes] The changes: a list of (key, value) pairs, or a map from key to value; a
+  \code{null} value removes the entry. No two keys may differ only in letter case.
+\item[inputDir] The input directory in which the header is read, for this call only.
+  Default \code{null}: the current setting.
+\item[network] \code{true} to allow reading the header from a URL, for this call only,
+  \code{false} to forbid it. Default \code{null}: the current setting.
+\item[dir] A directory, which must exist, in which to write the changed header instead of
+  changing the header itself. Default \code{null}: the header itself is changed.
+\end{params}
+\returns{Nothing (\code{Unit}).}
+\raises{As \code{setMetadata}; also \code{WfdbArgumentException} if two keys of
+\code{changes} differ only in letter case (``metadata key 'dx' is given more than once
+(keys are compared without regard to letter case)'').}
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+writeRecord("pat", IntArray(360), nsig = 1, fs = 360.0, gains = doubleArrayOf(200.0),
+            adcres = intArrayOf(12), units = listOf("mV"), metadata = listOf("Age" to "63", "Sex" to "F"))
+updateMetadata("pat", mapOf("Age" to "64", "Sex" to null, "Dx" to "164889003"))
+println(readMetadata("pat"))         // [(Age, 64), (Dx, 164889003)]
+try {
+    updateMetadata("pat", listOf("Dx" to "426783006", "dx" to null))
+} catch (e: WfdbArgumentException) {
+    println(e.message)        // metadata key 'dx' is given more than once (...)
+}
+println(getMetadata("pat", "Dx"))    // 164889003: nothing was changed
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Settings}
+\label{sec:kotlin-settings}
+
+These functions set where files are read and written, network access and legacy mode, on
+a \code{Wfdb} object (the top-level functions: on the default instance), for the
+high-level functions and the library functions alike (\cref{chap:files,chap:behavior}).
+Each \code{set} function returns the previous setting, so that it can be restored. They
+are the high-level forms of the library functions \code{wfdbx\_set\_input\_dir},
+\code{wfdbx\_set\_network}, \ldots{} (\cref{sec:kotlin-library}), which take and return
+bytes and integers.
+
+\apientry{wfdbxSetInputDir}{Set the input directory}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.wfdbxSetInputDir(dir: String?): String?
+\end{lstlisting}
+Sets the input directory, from which names that are not full paths are read.
+\begin{params}
+\item[dir] A local directory, a \code{\textasciitilde} path or a URL; \code{null} (or
+  \code{""}) restores the default: \code{WFDBX\_INPUT\_DIR}, or else the current directory.
+\end{params}
+\returns{The previous input directory, or \code{null} if none was set.}
+\raises{Nothing.}
+\begin{lstlisting}[language=Kotlin]
+val previous = wfdbxSetInputDir("/data/mitdb")
+val rec = readRecord("100")             // reads /data/mitdb/100.hea and 100.dat
+wfdbxSetInputDir(previous)
+\end{lstlisting}
+
+\apientry{wfdbxGetInputDir}{Return the input directory}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.wfdbxGetInputDir(): String?
+\end{lstlisting}
+Returns the input directory. The function has no parameters.
+\returns{The input directory, or \code{null} if none is set (the default).}
+\raises{Nothing.}
+\begin{lstlisting}[language=Kotlin]
+println(Wfdb().wfdbxGetInputDir())      // null, unless WFDBX_INPUT_DIR is set
+\end{lstlisting}
+
+\apientry{wfdbxSetOutputDir}{Set the output directory}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.wfdbxSetOutputDir(dir: String?): String?
+\end{lstlisting}
+Sets the output directory, in which files named without a full path are created.
+\begin{params}
+\item[dir] A local directory or a \code{\textasciitilde} path (a URL is refused, with a
+  message); \code{null} (or \code{""}) restores the default: \code{WFDBX\_OUTPUT\_DIR}, or
+  else the current directory.
+\end{params}
+\returns{The previous output directory, or \code{null} if none was set.}
+\raises{Nothing.}
+\begin{lstlisting}[language=Kotlin]
+wfdbxSetOutputDir("out")
+writeAnnotations("100", "qrs", longArrayOf(100, 460), symbols = listOf("N", "N"))   // out/100.qrs
+\end{lstlisting}
+
+\apientry{wfdbxGetOutputDir}{Return the output directory}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.wfdbxGetOutputDir(): String?
+\end{lstlisting}
+Returns the output directory. The function has no parameters.
+\returns{The output directory, or \code{null} if none is set (the default).}
+\raises{Nothing.}
+\begin{lstlisting}[language=Kotlin]
+val out = wfdbxGetOutputDir() ?: "."
+\end{lstlisting}
+
+\apientry{wfdbxSetNetwork}{Turn network access on or off}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.wfdbxSetNetwork(on: Boolean): Boolean
+\end{lstlisting}
+Turns network access (reading URLs) on or off. It is off unless the environment variable
+\code{WFDBX\_NETWORK} is a nonzero number.
+\begin{params}
+\item[on] \code{true} to allow reading URLs, \code{false} to forbid it.
+\end{params}
+\returns{The previous setting.}
+\raises{Nothing.}
+\begin{lstlisting}[language=Kotlin]
+wfdbxSetNetwork(true)
+wfdbxSetInputDir("https://physionet.org/files/mitdb/1.0.0/")
+val rec = readRecord("100", to = TimeSpec("0:05"))      // from PhysioNet
+\end{lstlisting}
+
+\apientry{wfdbxGetNetwork}{Return whether network access is on}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.wfdbxGetNetwork(): Boolean
+\end{lstlisting}
+Returns whether network access is on. The function has no parameters.
+\returns{\code{true} if network access is on.}
+\raises{Nothing.}
+\begin{lstlisting}[language=Kotlin]
+if (!wfdbxGetNetwork()) println("network access is off")
+\end{lstlisting}
+
+\apientry{wfdbxSetLegacy}{Turn legacy mode on or off}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.wfdbxSetLegacy(on: Boolean): Boolean
+\end{lstlisting}
+Turns legacy mode (the behavior of the original WFDB package, including its assumed
+signal parameters and its search of the WFDB path, \cref{chap:behavior}) on or off, for
+the whole \code{Wfdb} object. The parameter \code{legacy} of the high-level functions
+turns it on for one call.
+\begin{params}
+\item[on] \code{true} to turn legacy mode on, \code{false} to turn it off.
+\end{params}
+\returns{The previous setting.}
+\raises{Nothing.}
+\begin{lstlisting}[language=Kotlin]
+val previous = wfdbxSetLegacy(true)
+val rec = readRecord("100s")            // as the original package reads it
+wfdbxSetLegacy(previous)
+\end{lstlisting}
+
+\apientry{wfdbxGetLegacy}{Return whether legacy mode is on}
+\begin{lstlisting}[language=Kotlin,style=signature]
+fun Wfdb.wfdbxGetLegacy(): Boolean
+\end{lstlisting}
+Returns whether legacy mode is on. The function has no parameters.
+\returns{\code{true} if legacy mode is on.}
+\raises{Nothing.}
+\begin{lstlisting}[language=Kotlin]
+println(wfdbxGetLegacy())               // false, unless it was turned on
+\end{lstlisting}
+
+% ------------------------------------------------------------------------------------------
+\subsection{The result classes}
+\label{sec:kotlin-results}
+
+The readers return objects of the classes \code{Record}, \code{Header} and
+\code{Annotations}, whose properties are listed in
+\cref{tab:kotlin-record,tab:kotlin-header,tab:kotlin-annotations}; \code{checkRecord}
+returns a \code{CheckReport}, which holds \code{Issue} objects
+(\cref{tab:kotlin-checkreport,tab:kotlin-issue}). The signals of a record are described
+by \code{Siginfo} objects (\cref{tab:kotlin-siginfo}), which are those of the WFDB library
+(\cref{sec:kotlin-library}). \code{Record}, \code{Header}, \code{Annotations},
+\code{CheckReport}, \code{Issue} and \code{BaseDate} are data classes, whose properties
+are read-only (\code{val}); \code{Record} and \code{Annotations} compare their arrays by
+content in \code{equals}. A \code{BaseDate} has the properties \code{year}, \code{month}
+(1--12) and \code{day} (1--31).
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The properties and methods of \code{Record}, the result of \code{readRecord}}
+\label{tab:kotlin-record} \\
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{name} & the record name, as given to \code{readRecord} (\code{String}) \\
+\code{fs} & the sampling frequency in Hz (\code{Double}), or 0 if the header gives none;
+  with \code{highres = true}, the highest sampling frequency of a multi-frequency
+  record \\
+\code{nsig} & the number of signals returned \\
+\code{nsamples} & the number of samples per signal (the number of frames, or of sample
+  vectors with \code{highres}): \code{samples.size / nsig} \\
+\code{signalNumbers} & the number, in the record, of each signal returned
+  (\code{IntArray}) \\
+\code{samples} & the samples in ADC units, frame by frame (\code{IntArray}):
+  \code{samples[i * nsig + s]} is sample \code{i} of signal \code{s}; invalid samples are
+  \code{WFDB\_INVALID\_SAMPLE} \\
+\code{physical} & with \code{physical = true}, the samples in physical units, in the
+  layout of \code{samples} (\code{DoubleArray}; NaN for an invalid sample); otherwise
+  \code{null} \\
+\code{siginfo} & a \code{List<Siginfo>}, one per signal returned; \code{desc} has no white
+  space at either end, and \code{adcres} is 0 if the header does not give it \\
+\code{names} & the description of each signal, such as \code{"MLII"} (\code{""} if none),
+  without the white space that a header may put at either end of it \\
+\code{units} & the physical units of each signal, or \code{null} where the header gives
+  none (\code{List<String?>}) \\
+\code{gains} & the gain of each signal, in ADC units per physical unit
+  (\code{List<Double>}); 0 means that the signal is uncalibrated \\
+\code{baselines} & the ADC value of each signal that corresponds to 0 physical units
+  (\code{List<Int>}) \\
+\code{baseTime} & the start time and date as text, to the second, such as
+  \code{"[14:00:03 21/06/2024]"}, or \code{null} if the header gives none \\
+\code{baseTimeMs} & the start time in milliseconds after midnight, such as
+  \code{50403500} for 14:00:03.500 (\code{Long}), or \code{null} if \code{baseTime} is
+  \code{null} \\
+\code{baseDate} & the start date as a \code{BaseDate(year, month, day)}, or \code{null}
+  if the header gives none \\
+\code{sampfrom} & the number of the first sample returned (\code{Long}) \\
+\code{comments} & the info strings of the header (without the \code{\#}), and of the
+  record's \file{.info} file, if any \\
+\code{checksumOk} & \code{false} if the samples do not match the checksums of the
+  header; checksums are checked only when a read reaches the end of the record, so a
+  shorter read gives \code{true} \\
+\code{legacy} & \code{true} if the record was read in legacy mode (a gain of 200 is then
+  used for uncalibrated signals in physical units) \\
+\code{at(i, s)} & sample \code{i} of signal \code{s}, in ADC units \\
+\code{signal(s)} & all the samples of signal \code{s}, in ADC units (\code{IntArray});
+  \code{IllegalArgumentException} (``no signal S'') if there is no signal \code{s} \\
+\code{physicalAt(i, s)} & sample \code{i} of signal \code{s} in physical units,
+  $(\mathit{adc} - \mathit{baseline}) / \mathit{gain}$ (NaN for an invalid sample);
+  \code{WfdbException} (``signal N of record REC is uncalibrated'') if the signal has no
+  gain \\
+\code{physicalSignal(s)} & all the samples of signal \code{s} in physical units
+  (\code{DoubleArray}), as \code{physicalAt} \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The properties of \code{Header}, the result of \code{readHeader}}
+\label{tab:kotlin-header} \\
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{name} & the record name, as given to \code{readHeader} \\
+\code{fs} & the sampling frequency in Hz, or 0 if the header gives none \\
+\code{counterFreq} & the counter frequency, as \code{getcfreq()} returns it \\
+\code{baseCounter} & the base counter value, as \code{getbasecount()} returns it \\
+\code{nsamples} & the number of samples per signal (\code{Long}), or 0 if the header does
+  not give it \\
+\code{nsig} & the number of signals \\
+\code{siginfo} & a \code{List<Siginfo>}, one per signal; \code{desc} has no white space at
+  either end, and \code{adcres} is 0 if the header does not give it \\
+\code{baseTime}, \code{baseTimeMs}, \code{baseDate} & the start time and date, as in
+  \code{Record} \\
+\code{comments} & the info strings of the header (without the \code{\#}) \\
+\code{metadata} & the (key, value) pairs of the metadata entries of the header
+  (\code{List<Pair<String, String>{}>}), in file order, as \code{readMetadata} returns
+  them; empty for an EDF file or a header read from the standard input \\
+\end{xltabular}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The properties of \code{Annotations}, the result of \code{readAnnotations}.
+  The annotations are in file order; each array or list has one entry per annotation.}
+\label{tab:kotlin-annotations} \\
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{record} & the record name, as given \\
+\code{annotator} & the annotator name, such as \code{"atr"} \\
+\code{fs} & the frequency in which \code{samples} are counted, normally the sampling
+  frequency of the record; 0 if neither the record, nor the file, nor the argument
+  \code{fs} of \code{readAnnotations} gives one \\
+\code{samples} & the annotation times, in samples (\code{LongArray}) \\
+\code{codes} & the annotation codes (\code{IntArray}), such as \code{NORMAL} or
+  \code{PVC} \\
+\code{symbols} & the mnemonics of the codes, such as \code{"N"}, \code{"V"} or \code{"+"}
+  (\code{List<String>}) \\
+\code{subtypes} & the subtype of each annotation (\code{IntArray}) \\
+\code{chans} & the channel number of each annotation (\code{IntArray}) \\
+\code{nums} & the annotator number of each annotation (\code{IntArray}) \\
+\code{aux} & the auxiliary text of each annotation, or \code{null} where there is none
+  (\code{List<String?>}) \\
+\code{size} & the number of annotations \\
+\end{xltabular}
+
+\begin{table}[htbp]
+\centering
+\caption{The properties and methods of \code{CheckReport}, the result of
+  \code{checkRecord}}
+\label{tab:kotlin-checkreport}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\code{record} & the record name, as given \\
+\code{ok} & \code{true} if no issue has the severity \code{Severity.ERROR} \\
+\code{issues} & the \code{List<Issue>}, in the order of the checks \\
+\code{lines()} & the text form of the report, as a list of lines: one line per issue
+  (\code{issue.toString()}), or the one line \code{no problems found} \\
+\code{toString()} & the lines of \code{lines()}, joined by line feeds (what
+  \code{println(report)} prints) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{The properties of \code{Issue}, a problem found by \code{checkRecord}}
+\label{tab:kotlin-issue}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\code{severity} & a \code{Severity}: \code{ERROR}, \code{WARNING} or \code{INFO}; its
+  \code{text} (and \code{toString()}) is \code{"error"}, \code{"warning"} or
+  \code{"info"} \\
+\code{code} & a stable identifier of the kind of problem, such as \code{"checksum"} or
+  \code{"gain\_missing"} (\cref{tab:python-issue-codes}) \\
+\code{where} & where the problem is: \code{""} (the record), \code{"signal N"},
+  \code{"segment SEG"}, \code{"segment SEG, signal N"} or \code{"annotator ANN"} \\
+\code{message} & the description of the problem \\
+\code{toString()} & \code{"SEVERITY: WHERE: MESSAGE"}, or \code{"SEVERITY: MESSAGE"} when
+  \code{where} is empty \\
+\bottomrule
+\end{tabularx}
+\end{table}
+Two \code{Issue} objects are equal (\code{==}) when their four properties are. The codes
+of the issues are those of \cref{tab:python-issue-codes}.
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The properties of \code{Siginfo}, the specification of a signal (mutable, with
+  C's zero values by default)}
+\label{tab:kotlin-siginfo} \\
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Property & \tabhead Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{fname} & the name of the signal file, as the header gives it (\code{ByteArray?}) \\
+\code{desc} & the signal description, such as \code{"MLII"} (\code{ByteArray?}) \\
+\code{units} & the physical units, such as \code{"mV"}, or \code{null} if not specified
+  (\code{ByteArray?}) \\
+\code{gain} & the gain, in ADC units per physical unit (\code{Double}; 0:
+  uncalibrated) \\
+\code{initval} & the value of the first sample \\
+\code{group} & the signal group number (the signals of one group share one file) \\
+\code{fmt} & the storage format, such as \code{16}, \code{212} or \code{516} \\
+\code{spf} & the number of samples per frame (more than 1 for the faster signals of a
+  multi-frequency record) \\
+\code{bsize} & the block size, in bytes (0 for ordinary files) \\
+\code{adcres} & the ADC resolution, in bits (0: not specified) \\
+\code{adczero} & the ADC output for an input of 0\,V \\
+\code{baseline} & the ADC value that corresponds to 0 physical units \\
+\code{nsamp} & the number of samples (\code{Long}; 0 if unknown) \\
+\code{cksum} & the 16-bit checksum of the samples \\
+\end{xltabular}
+
+% ------------------------------------------------------------------------------------------
+\subsection{Warnings and errors}
+\label{sec:kotlin-warnings}
+
+\paragraph{Exceptions.} The high-level functions report errors by exceptions
+(\cref{tab:kotlin-exceptions}), whose messages say what failed. Each function checks its
+arguments before it creates or changes a file, so an invalid argument leaves the files as
+they were. The library may also print a message on the standard error when it cannot open
+a file (as in \code{init: can't open header for record REC}); \code{wfdbquiet()} turns
+these messages off (\cref{sec:kotlin-library}).
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The exceptions of the high-level API}
+\label{tab:kotlin-exceptions} \\
+\toprule
+\tabhead Exception & \tabhead Thrown when \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Exception & \tabhead Thrown when \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{WfdbException} & every error of a high-level function: a header, signal file or
+  annotation file cannot be found, read, created or written completely (for example on a
+  full disk); a signal or annotation file ends before its header or its end-of-file marker
+  says; an argument is invalid, or the operation needs a value that the record does not
+  give (a time in seconds without a sampling frequency, physical units without a gain);
+  the directory given as \code{dir} does not exist \\
+\code{WfdbArgumentException} & a subclass of \code{WfdbException}, thrown by the metadata
+  functions (and for the \code{metadata} argument of \code{writeRecord}) for an invalid
+  argument: an invalid key or value, a key given twice, a header with two entries for the
+  key to set, a header without a record line, a header read from a URL without
+  \code{dir}, an empty record name or \code{"-"} (Python's \code{ValueError}); a header
+  that cannot be read or written, or a \code{dir} that does not exist, is a plain
+  \code{WfdbException} (Python's \code{IOError}) \\
+\end{xltabular}
+
+\paragraph{The checksum warning.} When \code{readRecord} reads to the end of a record
+whose samples do not match the checksums of its header, it returns all the samples and
+warns: ``checksum error in record REC: the signal data do not match the checksums in its
+header''. \code{checksumWarning = false} turns the warning off; \code{checksumOk} of the
+result is \code{false} either way.
+
+\paragraph{The duplicate-key warning.} When a header holds two metadata entries whose keys
+differ only in letter case (written by other software), \code{readMetadata},
+\code{getMetadata} and \code{readHeader} use the first and warn: ``header of record REC
+has more than one entry for key KEY (lines L1, L2); the first is used''.
+\code{setMetadata} and \code{updateMetadata} then refuse to change that key
+(\code{WfdbArgumentException}), and \code{removeMetadata} removes all of its entries.
+
+Both warnings go to the function given as \code{onWarning}, which receives the message;
+by default, the library prints \code{WFDB-x: } followed by the message on the standard
+error, through \code{wfdb\_error}, so that \code{wfdbquiet()} silences it and
+\code{wfdberror()} returns it:
+
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+// A record whose last sample is changed after it was written: the checksum fails.
+writeRecord("ck", IntArray(100) { it }, nsig = 1, fs = 100.0, gains = doubleArrayOf(100.0),
+            adcres = intArrayOf(12), units = listOf("mV"))
+java.io.RandomAccessFile(wfdbxGetOutputDir() + "/ck.dat", "rw").use { f ->
+    f.seek(f.length() - 2)
+    f.write(byteArrayOf(0, 0))
+}
+val caught = ArrayList<String>()
+var rec = readRecord("ck", onWarning = { caught.add(it) })
+println("${rec.nsamples} ${rec.checksumOk}")    // 100 false: all the samples
+println(caught[0])
+// checksum error in record ck: the signal data do not match the checksums in its header
+rec = readRecord("ck", checksumWarning = false)      // no warning
+
+// Two entries for one key: the first is used, with a warning.
+writeRecord("dup", IntArray(10), nsig = 1, fs = 100.0, gains = doubleArrayOf(0.0),
+            adcres = intArrayOf(12), comments = listOf(" Age: 63", " AGE: 64"))
+println(getMetadata("dup", "age", onWarning = { caught.add(it) }))     // 63
+println(caught[1])
+// header of record dup has more than one entry for key Age (lines 3, 4); the first is used
+try {
+    setMetadata("dup", "Age", "65")
+} catch (e: WfdbArgumentException) {
+    println("WfdbArgumentException: ${e.message}")
+}
+println(removeMetadata("dup", "age"))       // 2
+\end{lstlisting}
+
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+
+wfdbquiet()                           // no library messages on the standard error
+try {
+    readRecord("nosuchrecord")
+} catch (e: WfdbException) {
+    println("WfdbException: ${e.message}")    // WfdbException: can't read record nosuchrecord
+}
+wfdbverbose()
+
+writeRecord("raw", IntArray(10) { it }, nsig = 1, fs = 100.0, gains = doubleArrayOf(0.0),
+            adcres = intArrayOf(12))          // uncalibrated
+try {
+    readRecord("raw", physical = true)
+} catch (e: WfdbException) {
+    println("WfdbException: ${e.message}")    // WfdbException: signal 0 of record raw is uncalibrated
+}
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The WFDB library functions in Kotlin}
+\label{sec:kotlin-library}
+
+Every function of the WFDB library is available under its C name, with the same
+arguments, in the same order, and the same return values, so that programs and
+documentation written for the C library carry over directly. The functions, their
+arguments and their results are documented once, for all the languages, in
+\cref{chap:library}; this section gives the rules by which the C declarations become
+Kotlin functions. The KDoc comment of each function documents it, including what WFDB-x
+changes in it.
+
+\subsection{Conventions}
+
+\paragraph{The library state.} All the state that the C library keeps in global variables
+(the WFDB path, the open record, its signals, the annotators, the calibration list, the
+settings) is held by a \code{Wfdb} object. Each C function is an extension function of
+\code{Wfdb} with the C name and arguments, \code{fun Wfdb.isigopen(record, siarray,
+nsig)}, called as \code{w.isigopen(...)}, and also a top-level function with the same name
+and arguments, \code{isigopen(...)}, which uses the default instance of the calling thread
+(\code{wfdbDefault()}), for line-by-line ports of C programs. Separate \code{Wfdb} objects
+share no state, so several records can be open at once, in one thread or in several; a
+\code{Wfdb} object is used by one thread at a time (it may be handed from one thread to
+another). As in C, the open record, its input signals, the output signals and the
+annotators remain open between calls, until \code{wfdbquit()} closes them;
+\code{wfdbquit()} leaves the input and output directories and the network setting as they
+are. There are no destructors: an output file is completed by \code{wfdbquit()} (or the
+function that closes it), and \code{wfdbx.cstd.exit} flushes the open output files as C's
+\code{exit} does, but writes no annotation end marks and no header updates.
+
+\paragraph{Names.} The functions, the constants (\code{WFDB\_READ},
+\code{WFDB\_INVALID\_SAMPLE}, \code{WFDB\_HIGHRES}, \ldots) and the annotation codes
+(\code{NORMAL}, \code{PVC}, \ldots, \cref{chap:formats}) keep their C names. The functions
+of \file{<wfdb/ecgmap.h>} are provided under their macro names (\code{isqrs},
+\code{map1}, \code{map2}, \ldots).
+
+\paragraph{Strings are bytes.} WFDB files are not UTF-8: every string of the C-style API
+is a \code{ByteArray}, which, like a C string, ends at its first NUL byte, and C's
+\code{NULL} is \code{null}. Where natural, a function also has an overload that takes a
+\code{String}, one character per byte (ISO-8859-1): \code{"..".latin1()} and
+\code{bytes.latin1()}, from \code{wfdbx.cstd}, convert. Where both overloads exist, a
+\code{null} argument is written \code{null as ByteArray?}, as in
+\code{sampfreq(null as ByteArray?)}. Functions that return a C string (\code{timstr},
+\code{mstimstr}, \code{datstr}, \code{getinfo}, \ldots) return a new \code{ByteArray} (a
+copy of C's static buffer); \code{getinfo} returns \code{null} after the last info
+string.
+
+\paragraph{Numbers.} C's \code{int} and \code{WFDB\_Sample} are \code{Int},
+\code{long}, \code{WFDB\_Time} and \code{WFDB\_Date} are \code{Long}, and \code{double}
+and \code{WFDB\_Frequency} are \code{Double}. \code{WFDB\_Signal} and \code{WFDB\_Group}
+are \code{Int}; negative values are invalid signal numbers, as C's unsigned values are.
+The \code{char} fields of the structures are \code{Int} properties that keep C's range:
+\code{anntyp}, \code{subtyp} and \code{num} from $-128$ to 127, \code{chan} from 0 to
+255.
+
+\paragraph{Arrays and output arguments.} Where a C function fills an array that the caller
+passes, the Kotlin function fills an array that the caller passes:
+\begin{itemize}
+\item \code{isigopen(record, siarray, nsig)} (also \code{osigopen} and \code{wfdbinit})
+  takes an \code{Array<Siginfo>?}, whose elements it fills (allocated by the caller:
+  \code{Array(n) \{ Siginfo() \}}); \code{null} is C's \code{NULL}. With \code{nsig}
+  $\le 0$, \code{isigopen} reads the header only, and returns the number of signals of the
+  record.
+\item \code{getvec(v)}, \code{getframe(v)} and \code{putvec(v)} take an \code{IntArray};
+  a shorter array receives what fits.
+\item A C function that fills a structure through a pointer fills the object passed:
+  \code{getann(n, annot)} fills an \code{Annotation}, \code{getcal(desc, units, cal)} a
+  \code{Calinfo}. \code{putann(n, annot)} and \code{putcal(cal)} read them.
+\item An array of structures passed in is an array of objects, as in
+  \code{osigfopen(siarray, nsig)} and \code{annopen(record, aiarray, nann)}, where
+  \code{aiarray} is, for example, \code{arrayOf(Anninfo("atr", WFDB\_READ))}.
+\item \code{getseginfo(sarray)} takes a \code{MutableList<Seginfo>?}, which it clears and
+  fills with copies of the segments; \code{setmsheader(record, names, n)} takes an
+  \code{Array<ByteArray>} or an \code{Array<String>}.
+\end{itemize}
+
+\paragraph{Return values and errors.} The functions return what the C functions return:
+an \code{Int} status (negative on errors), a number of signals, a \code{Double}, a byte
+string or \code{null}. Errors are reported by these values and by a message on the
+standard error, as in C, never by exceptions. \code{wfdberror()} returns the last message;
+\code{wfdbquiet()} turns the messages off and \code{wfdbverbose()} on again.
+\code{wfdbx\_write\_errors()} returns the number of write errors since the program
+started (output files that could not be written, flushed or closed),
+\code{wfdbx\_note\_write\_error()} counts one more, and
+\code{wfdbx\_fclose\_output(file, pname, name)} closes a file that a program writes itself,
+reporting ``PNAME: write error on NAME'' and counting it.
+\code{wfdbx\_input\_path(name)} and \code{wfdbx\_output\_path(name)} return the path under
+which a program opens a file that it reads or creates itself, where the library would
+open a file of that name: under the input or output directory (the missing directories
+of an output path are created), a \code{\textasciitilde} name expanded, a full path as
+given; \code{null} for a URL, and \code{"-"} as given. In legacy mode, an input name is
+used as given, and the output directory, if set, is a prefix of any output name.
+\code{wfdbquit()} closes the open record and annotators, and keeps the directory and
+network settings, the time resolution of output annotators (\code{getafreq()}) and the
+getvec mode (\code{getgvmode()}), as in C; the high-level functions restore the last two
+(\cref{sec:kotlin-conventions}).
+
+\paragraph{Additions.} \code{getvecs(out, n)} reads up to \code{n} sample vectors at once
+into the \code{IntArray} \code{out}, vector after vector, as \code{n} calls of
+\code{getvec} would, but decoding whole blocks of the signal files; it returns the number
+of vectors read, or the negative status of \code{getvec} if the first read failed.
+\code{getvecs\_status(out, n)} returns a \code{GetvecsResult(count, status)}, with the
+value returned by the last \code{getvec}. The C standard library functions that the WFDB
+library relies on are in \code{wfdbx.cstd}: \code{cformat} and \code{sprintf} (to a
+\code{ByteArray}), \code{printf} and \code{eprintf}, which format numbers exactly as the
+GNU C library does, \code{strtol}, \code{strtod}, \code{sscanf}, \ldots
+
+\paragraph{Settings.} The settings functions of WFDB-x (\code{wfdbx\_set\_input\_dir},
+\code{wfdbx\_get\_input\_dir}, \code{wfdbx\_set\_output\_dir},
+\code{wfdbx\_get\_output\_dir}, \code{wfdbx\_set\_network}, \code{wfdbx\_get\_network},
+\code{wfdbx\_set\_legacy}, \code{wfdbx\_get\_legacy}, \code{wfdbx\_legacy\_args}) keep
+their C names and types (byte strings, \code{Int} for the switches); the high-level
+functions of \cref{sec:kotlin-settings} are their Kotlin forms.
+
+\subsection{Package layout}
+
+\begin{table}[htbp]
+\centering
+\caption{The packages of the Kotlin library}
+\label{tab:kotlin-packages}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Package or file & \tabhead Contents \\
+\midrule
+\code{wfdbx}: \file{Wfdb.kt} & the class \code{Wfdb}, \code{wfdbDefault()},
+  \code{withDefault} \\
+\file{Types.kt} & the constants and structures of \file{wfdb.h} \\
+\file{WfdbFile.kt}, \file{Wfdbio.kt} & files, the input and output directories, network
+  access, error messages (\file{lib/wfdbio.c}) \\
+\file{Signal.kt}, \file{SignalTime.kt}, \file{Flac.kt} & headers, signal files in every
+  format, time and date conversions (\file{lib/signal.c}), the FLAC codec \\
+\file{Annot.kt}, \file{Calib.kt}, \file{Wfdbinit.kt}, \file{Ecgcodes.kt} & annotation files
+  (\file{lib/annot.c}), the calibration list (\file{lib/calib.c}), \code{wfdbinit}, the
+  annotation codes and \file{ecgmap.h} \\
+\file{Record.kt}, \file{Check.kt}, \file{Metadata.kt} & the high-level API
+  (\cref{sec:kotlin-api}) \\
+\code{wfdbx.cstd} & the C standard library emulation (\code{printf}, \code{scanf},
+  \code{strtol}, \code{rand}, the standard streams, \code{exit}, \code{latin1}) and the
+  platform layer \\
+\code{wfdbx.apps} & the command-line tools, one file per tool, as functions
+  \code{fun Wfdb.rdsampMain(argv: Array<ByteArray>): Int}, \ldots \\
+\code{wfdbx.cli} & the command-line driver \code{wfdbx.cli.MainKt} (JVM) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{The structures}
+\label{sec:kotlin-structures}
+
+The structures of the C library are mutable classes whose properties have the names of
+the fields of the C structures and C's zero values by default
+(\cref{tab:kotlin-structures}). \code{copy()} is C's structure assignment, and
+\code{set(o)} copies another object into an existing one (what a C function filling
+\code{*p} does); \code{equals} compares contents.
+\begin{lstlisting}[language=Kotlin]
+Siginfo(fname: ByteArray? = null, desc: ByteArray? = null, units: ByteArray? = null, gain: Double = 0.0,
+        initval: Int = 0, group: Int = 0, fmt: Int = 0, spf: Int = 0, bsize: Int = 0, adcres: Int = 0,
+        adczero: Int = 0, baseline: Int = 0, nsamp: Long = 0, cksum: Int = 0)
+Seginfo(recname: ByteArray = ByteArray(0), nsamp: Long = 0, samp0: Long = 0)
+Anninfo(name: ByteArray = ByteArray(0), stat: Int = 0)      // also Anninfo(name: String, stat: Int)
+Annotation(time: Long = 0, anntyp: Int = 0, subtyp: Int = 0, chan: Int = 0, num: Int = 0, aux: ByteArray? = null)
+Calinfo(low: Double = 0.0, high: Double = 0.0, scale: Double = 0.0, sigtype: ByteArray? = null,
+        units: ByteArray? = null, caltype: Int = 0)
+\end{lstlisting}
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The classes of the C structures}
+\label{tab:kotlin-structures} \\
+\toprule
+\tabhead Class (C structure) & \tabhead Properties \\
+\midrule
+\endfirsthead
+\toprule
+\tabhead Class (C structure) & \tabhead Properties \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{Siginfo} (\code{WFDB\_Siginfo}) & \code{fname}, \code{desc}, \code{units},
+  \code{gain}, \code{initval}, \code{group}, \code{fmt}, \code{spf}, \code{bsize},
+  \code{adcres}, \code{adczero}, \code{baseline}, \code{nsamp}, \code{cksum}
+  (\cref{tab:kotlin-siginfo}) \\
+\code{Seginfo} (\code{WFDB\_Seginfo}) & \code{recname} (the name of the segment),
+  \code{nsamp} (its number of samples), \code{samp0} (the number of its first sample in
+  the record) \\
+\code{Anninfo} (\code{WFDB\_Anninfo}) & \code{name} (the annotator name, the suffix of the
+  file), \code{stat} (\code{WFDB\_READ} or \code{WFDB\_WRITE} for the MIT format,
+  \code{WFDB\_AHA\_READ} or \code{WFDB\_AHA\_WRITE} for the AHA format) \\
+\code{Annotation} (\code{WFDB\_Annotation}) & \code{time} (in sample intervals),
+  \code{anntyp} (the annotation code), \code{subtyp}, \code{chan}, \code{num},
+  \code{aux} (\code{null}, or bytes whose first byte is the length of the text that
+  follows, as in C) \\
+\code{Calinfo} (\code{WFDB\_Calinfo}) & \code{low}, \code{high} (the levels of the
+  calibration pulse, in physical units), \code{scale} (physical units per cm),
+  \code{sigtype} (matched against the beginning of a signal description), \code{units},
+  \code{caltype} \\
+\end{xltabular}
+
+\subsection{Examples}
+
+Reading the samples and the annotations of a record, as a C program does, on a
+\code{Wfdb} object of its own (the input directory is that of the examples):
+
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+import wfdbx.cstd.latin1
+
+val w = Wfdb()                              // a library state of its own
+w.wfdbx_set_input_dir(wfdbxGetInputDir()!!)
+val si = Array(2) { Siginfo() }             // filled with the signal specifications
+val nsig = w.isigopen("100s", si, 2)        // open 2 signals
+println("$nsig ${si.map { "${it.desc?.latin1()} ${it.fmt} ${it.gain}" }}")   // 2 [MLII 212 200.0, V5 212 200.0]
+println(w.sampfreq(null as ByteArray?))     // 360.0: the frequency of the open record
+
+val v = IntArray(nsig)                      // receives one sample per signal
+w.isigsettime(w.strtim("0:30"))             // skip to 30 seconds
+w.getvec(v)
+println("${v.toList()} ${(0 until nsig).map { w.aduphys(it, v[it]) }}")   // [947, 968] [-0.385, -0.28]
+
+val frames = IntArray(360 * nsig)
+println(w.getvecs(frames, 360))             // 360: the next second, frame by frame
+
+val a = Annotation()
+w.annopen("100s", arrayOf(Anninfo("atr", WFDB_READ)), 1)
+var n = 0
+while (w.getann(0, a) == 0) {               // 0: an annotation was read; -1: the end
+    if (n < 2) println("${w.mstimstr(a.time).latin1().trim()} ${w.annstr(a.anntyp).latin1()}")   // 0:00.050 +, 0:00.214 N
+    n++
+}
+println("$n annotations")                   // 75 annotations
+
+w.wfdbquiet()                               // no messages on the standard error
+println("${w.isigopen("nosuchrecord", null, 0)} ${w.wfdberror().latin1().trim()}")
+// -1 init: can't open header for record nosuchrecord
+w.wfdbverbose()
+w.wfdbquit()                                // close everything
+\end{lstlisting}
+
+Writing a record and an annotation file, sample by sample and annotation by annotation:
+
+\begin{lstlisting}[language=Kotlin,style=example]
+import wfdbx.*
+import wfdbx.cstd.latin1
+
+val w = Wfdb()
+w.wfdbx_set_output_dir(wfdbxGetOutputDir()!!)
+val out = arrayOf(Siginfo(fname = "ramp.dat".latin1(), desc = "ramp".latin1(), units = "mV".latin1(),
+                          gain = 200.0, fmt = 16, adcres = 12))
+println(w.osigfopen(out, 1))                // 1: one output signal
+w.setsampfreq(250.0)
+for (k in 0 until 500) w.putvec(intArrayOf(k))
+println(w.newheader("ramp"))                // 0: ramp.hea is written
+w.annopen("ramp", arrayOf(Anninfo("qrs", WFDB_WRITE)), 1)
+for (t in longArrayOf(100, 350)) w.putann(0, Annotation(time = t, anntyp = NORMAL))
+w.wfdbquit()                                // completes ramp.dat and ramp.qrs
+
+println(readAnnotations("ramp", "qrs").samples.toList())    // [100, 350]
+\end{lstlisting}
+
+% ==========================================================================================
+\section{The command-line tools in Kotlin}
+\label{sec:kotlin-tools}
+
+The 33 command-line tools (\code{rdsamp}, \code{rdann}, \code{wrsamp}, \code{xform},
+\ldots) run on the JVM, through the launcher \file{kotlin/bin/wfdbx} (a POSIX shell
+script), followed by the name of the tool and its arguments. The tools, their options,
+their output and their exit status are those of the C tools, and are documented in
+\cref{chap:tools}. The launcher needs the jar built by \cmd{./gradlew fatJar}
+(\cref{sec:kotlin-install}). In the directory \file{kotlin}:
+
+\begin{lstlisting}[style=shell]
+export WFDBX_INPUT_DIR=../tests/data
+bin/wfdbx rdsamp -r 100s -t 10 -p      # the first 10 seconds of 100s, in physical units
+bin/wfdbx rdann -r 100s -a atr         # its annotations
+bin/wfdbx rdsamp --legacy -r 100s      # legacy mode: --legacy as the first argument
+\end{lstlisting}
+
+The command also takes these options, instead of a tool:
+
+\begin{table}[htbp]
+\centering
+\caption{The options of the launcher \code{bin/wfdbx}}
+\label{tab:kotlin-wfdbx-options}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Command & \tabhead Effect \\
+\midrule
+\cmd{bin/wfdbx TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with its
+  status \\
+\cmd{bin/wfdbx --list} & lists the names of the tools, one per line \\
+\cmd{bin/wfdbx --version} & prints the version, \code{WFDB-x 1.2.0} \\
+\cmd{bin/wfdbx --help}, \cmd{bin/wfdbx -h} & prints the usage \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Without arguments, the command prints the usage and exits with status 1; an unknown tool
+is an error (``wfdbx: unknown tool 'TOOL' (try 'wfdbx --list')'', status 1), and an
+uncaught exception is reported as \code{wfdbx: error: MESSAGE} (status 1). When an output
+file or the standard output cannot be written (a full disk, for example), a tool reports
+it and exits with status 1 (legacy mode keeps the original status, 0).
+
+The files that a tool reads or creates itself are found where the library finds its own
+files: the \opt{-i} file of \code{wrsamp}, \code{edf2mit}, \code{wav2mit}, \code{a2m} and
+\code{ad2m}, the input files of \code{ahaecg2mit}, the \opt{-S} script of \code{xform} and
+the signal file that \code{wfdbdesc} measures are read under the input directory, and the
+WAV file of \code{mit2wav}, the EDF file of \code{mit2edf}, the master header of
+\cmd{snip -m} and the \file{.des}, \file{.ecg}, \file{.key} and \file{.txt} files of
+\code{parsescp} are created under the output directory (with
+\code{wfdbx\_input\_path} and \code{wfdbx\_output\_path}, \cref{sec:kotlin-library}). Such
+a file cannot be read from a URL. In legacy mode, they are read as named, relative to the
+current directory, and the output directory, if set, is a prefix of their names.
+
+\paragraph{The launcher.} \file{bin/wfdbx} runs \cmd{java -cp build/libs/wfdbx-all.jar
+wfdbx.cli.MainKt TOOL ...}, or the jar named by the environment variable
+\code{WFDBX\_KOTLIN\_JAR}. It starts the JVM with options for a short start-up (its first
+compiler only, the serial collector, and the class data sharing archive
+\file{wfdbx-all.jsa} that \cmd{./gradlew fatJar} makes next to the jar), and moves
+\code{JAVA\_TOOL\_OPTIONS} to the command line. A link to \file{bin/wfdbx} named after a
+tool runs that tool. Without the launcher, the jar runs the tools directly:
+
+\begin{lstlisting}[style=shell]
+java -cp build/libs/wfdbx-all.jar wfdbx.cli.MainKt rdsamp -r 100s -t 10
+\end{lstlisting}
+
+\paragraph{The tools as functions.} Each tool is a function of the package
+\code{wfdbx.apps}, such as
+\begin{lstlisting}[language=Kotlin]
+fun Wfdb.rdsampMain(argv: Array<ByteArray>): Int
+\end{lstlisting}
+where \code{argv} is C's \code{argv}, the program name first, and the result is the exit
+status. A tool may end the process (with
+\code{exit}, as C programs do), so an app uses the high-level functions or the library
+functions instead.
+
+\paragraph{Environment variables.} The tools, like the rest of the library, use the
+environment variables of \cref{tab:kotlin-environment}. On the JVM, which cannot change
+its own environment, \code{setenv} (in \code{wfdbx.cstd}) keeps values that the library
+and the processes it starts see.
+
+\begin{table}[htbp]
+\centering
+\caption{The environment variables used by the Kotlin library}
+\label{tab:kotlin-environment}
+\begin{tabularx}{\linewidth}{@{}lL@{}}
+\toprule
+\tabhead Variable & \tabhead Meaning \\
+\midrule
+\code{WFDBX\_INPUT\_DIR} & the input directory (a directory, a \code{\textasciitilde}
+  path or a URL), when \code{wfdbxSetInputDir} does not set one \\
+\code{WFDBX\_OUTPUT\_DIR} & the output directory, when \code{wfdbxSetOutputDir} does not
+  set one \\
+\code{WFDBX\_NETWORK} & network access is on if it is a nonzero number, when
+  \code{wfdbxSetNetwork} does not set it \\
+\code{WFDBANNSORT} & \code{0} to keep annotation files in the order written (no sorting
+  when they are closed) \\
+\code{WFDBGVMODE} & the default getvec mode (\code{setgvmode} with a negative mode) \\
+\code{WFDBCAL} & the calibration file read by \code{calopen(null)} (default
+  \file{wfdbcal}) \\
+\code{WFDB} & the WFDB path, used in legacy mode only \\
+\code{WFDB\_FLAC\_CHECK\_MD5} & if set, the MD5 signature of FLAC signal files is
+  verified when they are read \\
+\code{WFDBX\_KOTLIN\_JAR} & the jar that \file{bin/wfdbx} runs (default
+  \file{build/libs/wfdbx-all.jar}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ==========================================================================================
+\section{Testing}
+\label{sec:kotlin-testing}
+
+The unit tests of the Kotlin library are in \file{kotlin/src/commonTest} (run on every
+target) and \file{kotlin/src/jvmTest} (JVM only). In the directory \file{kotlin}:
+
+\begin{lstlisting}[style=shell]
+./gradlew jvmTest                           # the unit tests, on the JVM
+./gradlew compileCommonMainKotlinMetadata   # the common code uses only common APIs
+./gradlew jvmTest -Pwfdbx.linux=true linuxX64Test   # also on Linux/Native, with its toolchain
+\end{lstlisting}
+
+The unit tests check the library functions with expected values printed by the C
+library, the high-level functions, the bulk paths against the per-frame paths, the header
+metadata functions against the cases shared by the seven languages (in
+\file{tests/metadata}: results, warnings and the headers, byte for byte), the examples of
+\file{kotlin/README.md}, and \code{checkRecord} against the reports of the Python
+implementation on a corpus of damaged records (this test is skipped, with a message, when
+\code{python3} with NumPy is not available). Network access is tested against a local
+HTTP server (127.0.0.1). The tests copy \file{tests/data} to a scratch directory, and
+never change the current directory.
+
+The cross-language conformance suite compares the output of the tools with that of the
+original C programs, case by case: 1135 cases, and 883 in legacy mode, which runs each
+tool with \opt{--legacy}. It runs the launcher \file{kotlin/bin/wfdbx}, so the jar is
+built first. From the root of the repository:
+
+\begin{lstlisting}[style=shell]
+(cd kotlin && ./gradlew fatJar)
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl kotlin -j8
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy
+\end{lstlisting}

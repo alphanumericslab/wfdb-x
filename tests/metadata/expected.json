@@ -1,0 +1,269 @@
+{
+ "read_basic": {
+  "entries": [
+   [
+    "Age",
+    "63"
+   ],
+   [
+    "Sex",
+    "F"
+   ],
+   [
+    "Dx",
+    "164889003, 59118001"
+   ],
+   [
+    "Notes",
+    ""
+   ],
+   [
+    "Recorded by",
+    "Holter monitor, model X"
+   ]
+  ],
+  "warnings": 0
+ },
+ "read_lf": {
+  "entries": [],
+  "warnings": 0
+ },
+ "read_dups": {
+  "entries": [
+   [
+    "age",
+    "40"
+   ],
+   [
+    "Sex",
+    "M"
+   ],
+   [
+    "Height",
+    "180"
+   ]
+  ],
+  "warnings": 1
+ },
+ "read_blank": {
+  "entries": [],
+  "warnings": 0
+ },
+ "read_bytes": {
+  "entries": [
+   [
+    "Name",
+    "Jos\u00e9"
+   ],
+   [
+    "City",
+    "Z\u00c3\u00bcrich"
+   ]
+  ],
+  "warnings": 0
+ },
+ "read_interleaved": {
+  "entries": [
+   [
+    "Lead",
+    "MLII then V5"
+   ],
+   [
+    "Site",
+    "A"
+   ]
+  ],
+  "warnings": 0
+ },
+ "read_odd": {
+  "entries": [
+   [
+    "Tab key",
+    "value with tabs"
+   ],
+   [
+    "Time",
+    "12:30:00"
+   ],
+   [
+    "Produced by xform from record 100, beginning at 0",
+    "0"
+   ]
+  ],
+  "warnings": 0
+ },
+ "read_multi": {
+  "entries": [],
+  "warnings": 0
+ },
+ "get_basic_case": {
+  "value": "63",
+  "warnings": 0
+ },
+ "get_basic_spaces": {
+  "value": "164889003, 59118001",
+  "warnings": 0
+ },
+ "get_basic_empty": {
+  "value": "",
+  "warnings": 0
+ },
+ "get_basic_missing": {
+  "value": null,
+  "warnings": 0
+ },
+ "get_basic_before_record": {
+  "value": null,
+  "warnings": 0
+ },
+ "get_dups": {
+  "value": "40",
+  "warnings": 1
+ },
+ "get_bad_key": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "set_basic_replace": {
+  "warnings": 0,
+  "output": "expected/set_basic_replace.hea"
+ },
+ "set_basic_add": {
+  "warnings": 0,
+  "output": "expected/set_basic_add.hea"
+ },
+ "set_basic_empty": {
+  "warnings": 0,
+  "output": "expected/set_basic_empty.hea"
+ },
+ "set_basic_sentence": {
+  "warnings": 0,
+  "output": "expected/set_basic_sentence.hea"
+ },
+ "set_basic_same": {
+  "warnings": 0,
+  "output": "expected/set_basic_same.hea"
+ },
+ "set_lf_add": {
+  "warnings": 0,
+  "output": "expected/set_lf_add.hea"
+ },
+ "set_blank_add": {
+  "warnings": 0,
+  "output": "expected/set_blank_add.hea"
+ },
+ "set_interleaved_add": {
+  "warnings": 0,
+  "output": "expected/set_interleaved_add.hea"
+ },
+ "set_interleaved_replace": {
+  "warnings": 0,
+  "output": "expected/set_interleaved_replace.hea"
+ },
+ "set_odd_add": {
+  "warnings": 0,
+  "output": "expected/set_odd_add.hea"
+ },
+ "set_odd_tab": {
+  "warnings": 0,
+  "output": "expected/set_odd_tab.hea"
+ },
+ "set_multi_add": {
+  "warnings": 0,
+  "output": "expected/set_multi_add.hea"
+ },
+ "set_bytes_replace": {
+  "warnings": 0,
+  "output": "expected/set_bytes_replace.hea"
+ },
+ "set_dups_dup": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "set_dups_other": {
+  "warnings": 0,
+  "output": "expected/set_dups_other.hea"
+ },
+ "set_err_empty_key": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "set_err_colon_key": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "set_err_hash_key": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "set_err_newline_key": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "set_err_newline_value": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "set_err_cr_value": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "set_err_nul_value": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "remove_basic": {
+  "count": 1,
+  "warnings": 0,
+  "output": "expected/remove_basic.hea"
+ },
+ "remove_basic_missing": {
+  "count": 0,
+  "warnings": 0,
+  "output": "expected/remove_basic_missing.hea"
+ },
+ "remove_basic_last": {
+  "count": 1,
+  "warnings": 0,
+  "output": "expected/remove_basic_last.hea"
+ },
+ "remove_dups": {
+  "count": 2,
+  "warnings": 0,
+  "output": "expected/remove_dups.hea"
+ },
+ "remove_lf_missing": {
+  "count": 0,
+  "warnings": 0,
+  "output": "expected/remove_lf_missing.hea"
+ },
+ "remove_odd_last": {
+  "count": 1,
+  "warnings": 0,
+  "output": "expected/remove_odd_last.hea"
+ },
+ "update_basic": {
+  "warnings": 0,
+  "output": "expected/update_basic.hea"
+ },
+ "update_dups_remove_then_set": {
+  "warnings": 0,
+  "output": "expected/update_dups_remove_then_set.hea"
+ },
+ "update_dups_err": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "update_err_same_key": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "update_err_bad_value": {
+  "error": "argument",
+  "warnings": 0
+ },
+ "update_empty": {
+  "warnings": 0,
+  "output": "expected/update_empty.hea"
+ }
+}

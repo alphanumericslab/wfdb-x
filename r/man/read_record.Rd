@@ -20,14 +20,32 @@ read_header(record, input_dir = NULL, network = NULL, legacy = FALSE)
 write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
              adczeros = 0, adcres = NULL, units = NULL, names = NULL,
              base_time = NULL, comments = NULL, physical = FALSE,
-             samps_per_frame = NULL, dir = NULL, legacy = FALSE)
+             samps_per_frame = NULL, dir = NULL, legacy = FALSE,
+             metadata = NULL)
 }
 \arguments{
-  \item{record}{the record name, such as \code{"100s"}.  A full path, a
-    \code{~} path or a URL is used as given.  Any other name is read from
-    the input directory and written to the output directory (see
-    \code{\link{wfdbx_set_input_dir}}).  A name with another extension,
-    such as \code{"rec.edf"}, is read as an EDF file.}
+  \item{record}{\code{read_record}, \code{read_header}: the record name, without the \code{.hea} extension (a
+    trailing \code{".hea"} is also accepted): a full path, absolute
+    (\code{"/data/mitdb/100"}) or in the home directory
+    (\code{"~/Documents/100s"}), used as given; a relative path
+    (\code{"100s"}, \code{"data/100s"}), read from the input directory if
+    one is set (see \code{\link{wfdbx_set_input_dir}}), otherwise from the
+    current directory; or a URL
+    (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if
+    network access is on.  A name with another
+    extension, such as \code{"rec.edf"}, is read as an EDF file.
+
+    \code{write_record}: the record name, without the \code{.hea}
+    extension: a plain name (\code{"rec"}) or a relative path
+    (\code{"data/rec"}), created in the output directory if one is set
+    (see \code{\link{wfdbx_set_output_dir}}), otherwise in the current
+    directory, missing directories included; or a full path, absolute or
+    in the home directory (\code{"~/Documents/rec"}), used as given.  With
+    a path, the files are created in that directory, and the header names
+    the record and its signal file without the path (\code{"rec"},
+    \code{"rec.dat"}), so that the record opens under any path that leads
+    to it (in legacy mode, as in the original, the header gives the name
+    with its path).  A URL cannot be written.}
   \item{channels}{the signals to read: signal numbers, starting at 0, or
     signal names (by name, as in \code{names}).  The default,
     \code{NULL}, reads all signals.}
@@ -55,9 +73,11 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     \code{highres} and \code{pad} set the getvec mode
     (\code{\link{setgvmode}}) for this call only: the mode in force before
     the call is restored afterwards, also after an error.}
-  \item{input_dir}{the input directory for this call only: a local
-    directory, a \code{~} path or a URL.  \code{NULL}, the default, keeps
-    the current setting.}
+  \item{input_dir}{the input directory for this call only (optional): a
+    local directory, a \code{~} path or a URL, under which relative record
+    names are read.  It does not apply to full paths or URLs.
+    \code{NULL}, the default, keeps the current setting (see
+    \code{\link{wfdbx_set_input_dir}}).}
   \item{network}{\code{TRUE} to allow reading URLs for this call only,
     \code{FALSE} to forbid it.  \code{NULL}, the default, keeps the
     current setting, which is off unless you turned it on.}
@@ -93,14 +113,25 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     time that cannot be parsed is an error.}
   \item{comments}{a character vector of info strings to add to the end of
     the header.}
+  \item{metadata}{\samp{Key: value} entries to write to the header, after
+    the comments, as \samp{# Key: value} (through \code{\link{putinfo}}):
+    a named list or a named character vector, such as
+    \code{list(Age = "63", Sex = "F")} or the result of
+    \code{\link{read_metadata}}.  The keys and values follow the rules of
+    \code{\link{set_metadata}}; a \code{NULL} or \code{NA} value is an
+    error, no two keys may differ only in letter case, and none may be the
+    key of an entry in \code{comments}.  These are checked before any file
+    is created.  \code{NULL}, the default, writes none.  Metadata often
+    holds information about patients; it is stored as given, without
+    de-identification.}
   \item{samps_per_frame}{for a multi-frequency record, the number of
     samples per frame of each signal.  \code{signals} then has one row per
     frame and \code{sum(samps_per_frame)} columns: the samples of the
     first signal, then those of the second, and so on.}
-  \item{dir}{the directory, which must exist, in which to create the
-    files.  The header names the record without the directory, so you can
-    read it from that directory under its plain name.  \code{record} must
-    not contain a directory when \code{dir} is given.}
+  \item{dir}{the directory (which must exist) in which to create the
+    files, for this call only.  \code{record} must then be a plain name,
+    without a directory, and the record opens from that directory under
+    its plain name.}
 }
 \details{
   In \code{write_record}, you must give \code{fs}, \code{gains},
@@ -119,6 +150,9 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
 
   Each call closes anything opened with the WFDB library functions, as
   \code{\link{wfdbquit}} does, also when it stops with an error.
+  The getvec mode (\code{\link{getgvmode}}) and the time resolution of
+  output annotators (\code{\link{getafreq}}) are left as they were, also
+  after an error (opening an EDF record sets both, as in C).
 }
 \value{
   \code{read_record} returns a list with these elements:
@@ -155,9 +189,13 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   frequency), \code{base_counter} (the base counter value),
   \code{nsamples} (the number of samples per signal, 0 if the header does
   not give it), \code{nsig} (the number of signals), \code{siginfo},
-  \code{base_time}, \code{base_time_ms}, \code{base_date} and
-  \code{comments}.  They have the same meaning as in the result of
-  \code{read_record}.
+  \code{base_time}, \code{base_time_ms}, \code{base_date},
+  \code{comments} and \code{metadata}: the \samp{Key: value} entries of
+  the header file (\file{.hea} only, not a \file{.info} file), as
+  \code{\link{read_metadata}} returns them (a named character vector; an
+  empty one for an EDF file, which has no header file, and for a header
+  read from the standard input, \code{"-"}).  The others have
+  the same meaning as in the result of \code{read_record}.
 
   \code{write_record} returns \code{NULL}, invisibly.
 }
@@ -176,7 +214,8 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
       (\samp{signals has N columns, but samps_per_frame adds up to M});
       a vector of per-signal values must have one value per signal, and
       the samples must be valid (see \code{signals} and
-      \code{physical}).  All the arguments are checked first, and
+      \code{physical}); an invalid \code{metadata} stops with an error of
+      class \code{"wfdbx_argument_error"}.  All the arguments are checked first, and
       nothing is written if one is invalid.  Whatever happens,
       \code{write_record} closes the output signals
       (\code{\link{wfdbquit}}) before it returns.
@@ -184,6 +223,8 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
       (for example, when the disk is full), \code{write_record} stops with
       the error \samp{write error on record REC}, after the messages of the
       library (such as \samp{osigclose: write error in signal group 0}).
+    \item \code{read_header} warns, as \code{\link{read_metadata}} does,
+      for each key of which the header has more than one entry.
     \item When the samples do not match the checksums in the header,
       \code{read_record} returns all of them and issues the warning
       \samp{checksum error in record REC: the signal data do not match the
@@ -195,6 +236,8 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
 }
 \seealso{
   \code{\link{read_annotations}} for annotation files;
+  \code{\link{read_metadata}} for the \samp{Key: value} entries of a
+  header;
   \code{\link{wfdbx_set_input_dir}} for the input and output directories;
   \code{\link{isigopen}} and \code{\link{getvec}} for the WFDB library
   functions.
@@ -202,12 +245,14 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
 \examples{
 old <- setwd(tempdir())
 
-## Write a two-signal record, "example", with a start time and a comment.
+## Write a two-signal record, "example", with a start time, a comment
+## and two metadata entries.
 x <- cbind(round(200 * sin(2 * pi * (0:499) / 50)), 0:499 \%\% 100)
 write_record("example", x, fs = 250, gains = 200, adcres = 16,
              names = c("sine", "ramp"), units = "mV",
              base_time = "08:45:00 01/01/2001",
-             comments = "a synthetic record")
+             comments = "a synthetic record",
+             metadata = list(Age = "63", Sex = "F"))
 
 ## Read the first 5 samples, in physical units.
 rec <- read_record("example", sampto = 5, physical = TRUE)
@@ -224,6 +269,7 @@ h <- read_header("example")
 h$nsamples
 h$base_date
 sapply(h$siginfo, function(s) s$desc)
+h$metadata
 
 setwd(old)
 }

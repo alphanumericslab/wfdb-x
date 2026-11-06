@@ -1,6 +1,8 @@
 # highlevel.jl: high-level API: read and write whole records and annotation
 # files (read_record, read_header, read_annotations, write_record,
-# write_record_physical, write_annotations), built on the C-style API.
+# write_record_physical, write_annotations), built on the C-style API. The
+# header metadata functions (read_metadata, set_metadata, ...) are in
+# metadata.jl.
 #
 # These functions read and write exactly what the WFDB library and the
 # command-line tools do. Each takes an optional `Wfdb` first argument (the
@@ -29,7 +31,13 @@
 # the files are created there, and the record opens from there under its
 # plain name; see `_with_output_dir`); see also wfdbx_set_input_dir,
 # wfdbx_set_output_dir and wfdbx_set_network. The signal files of a record
-# are in the directory of its header.
+# are in the directory of its header. A record name is given without the .hea
+# extension (a trailing ".hea" is also accepted by the readers).
+#
+# These functions call wfdbquit, which closes anything opened with the WFDB
+# library functions. They leave the time resolution of output annotators
+# (getafreq) and the getvec mode (getgvmode) as they were, also after reading
+# an EDF record, whose opening sets both, as in C (see _keep_settings).
 #
 # WFDB-x: no sampling frequency, gain, ADC resolution or units are ever
 # assumed (the C library assumed 250 Hz, 200 adu/mV, 12 bits or a resolution
@@ -126,6 +134,16 @@ struct Record
 end
 
 """
+    MetadataEntry
+
+A metadata entry of a header, `key => value`: a
+`Pair{Vector{UInt8},Vector{UInt8}}` (see [`read_metadata`](@ref)).
+
+Part of WFDB-x; not in the original WFDB package.
+"""
+const MetadataEntry = Pair{Vector{UInt8},Vector{UInt8}}
+
+"""
     Header
 
 The header of a record, as returned by [`read_header`](@ref).
@@ -146,6 +164,9 @@ The header of a record, as returned by [`read_header`](@ref).
   [`Siginfo`](@ref)). The description has no white space at either end.
 - `base_time`, `base_time_ms`, `base_date`, `comments`: as in
   [`Record`](@ref).
+- `metadata::Vector{Pair{Vector{UInt8},Vector{UInt8}}}`: the `Key: value`
+  entries of the header, in file order, as [`read_metadata`](@ref) returns
+  them (from the `.hea` file only, not from a `.info` file).
 """
 struct Header
     name::String
@@ -159,6 +180,7 @@ struct Header
     base_time_ms::Union{Nothing,Int64}
     base_date::Union{Nothing,NTuple{3,Int}}
     comments::Vector{Vector{UInt8}}
+    metadata::Vector{MetadataEntry}
 end
 
 # The base time and date of the record open in w, for a Record or Header:
@@ -336,14 +358,23 @@ function _with_legacy(f::Function, w::Wfdb, legacy::Bool)
     end
 end
 
-# WFDB-x: run f(), restoring the getvec mode (setgvmode) afterwards, also
-# on errors: read_record sets it, and opening an EDF record changes it.
-function _with_gvmode(f::Function, w::Wfdb)
-    previous = getgvmode(w)
+# WFDB-x: run f(), restoring the getvec mode (getgvmode, setgvmode) and the
+# time resolution of output annotators (getafreq, setafreq) afterwards, also
+# on errors. read_record sets the getvec mode, and opening an EDF record sets
+# both, as in C (the WFDB_HIGHRES bit of the getvec mode, and the time
+# resolution to the record's sampling frequency when none is set), and
+# wfdbquit resets neither; without this, a later write_annotations in the
+# same process would record that frequency, and later reading would be in
+# high resolution. (The input annotators, and their frequencies, are closed
+# by wfdbquit.) The C-style functions keep the behavior of C.
+function _keep_settings(f::Function, w::Wfdb)
+    gvmode = getgvmode(w)
+    afreq = getafreq(w)
     try
         f()
     finally
-        setgvmode(w, previous)
+        setgvmode(w, gvmode)
+        setafreq(w, afreq)
     end
 end
 
@@ -382,18 +413,36 @@ function _with_input_options(f::Function, w::Wfdb, input_dir, network)
     end
 end
 
+# WFDB-x: what a record name may be (the record argument of the readers).
+const _RECORD_DOC = """
+`record` is a record name, without the `.hea` extension (a trailing `".hea"`
+is also accepted): a full path, absolute (`"/data/mitdb/100"`) or in the
+home directory (`"~/Documents/100s"`), used as given; a relative path
+(`"100s"`, `"data/100s"`), read from the input directory if one is set,
+otherwise from the current directory; or a URL
+(`"https://physionet.org/files/mitdb/1.0.0/100"`), read only if network
+access is on."""
+
+# WFDB-x: the settings that the high-level functions keep (_keep_settings).
+const _SETTINGS_DOC = """
+The time resolution of output annotators ([`getafreq`](@ref)) and the
+getvec mode ([`getgvmode`](@ref)) are left as they were (opening an EDF
+record sets both)."""
+
 const _INPUT_DOC = """
-- `input_dir`: the input directory for this call only: a local directory,
-  a `~` path or a URL (see [`wfdbx_set_input_dir`](@ref)). `nothing`, the
-  default, keeps the current setting.
+- `input_dir`: the input directory for this call only (optional): a local
+  directory, a `~` path or a URL, under which relative record names are
+  read. It does not apply to full paths or URLs. `nothing`, the default,
+  keeps the current setting (see [`wfdbx_set_input_dir`](@ref)).
 - `network`: `true` turns network access on for this call only, and
   `false` turns it off (see [`wfdbx_set_network`](@ref)). `nothing`, the
   default, keeps the current setting."""
 
 const _DIR_DOC = """
-- `dir`: the directory in which to write, for this call only
-  (see [`wfdbx_set_output_dir`](@ref)). It must exist, and `record` must
-  not then contain a directory."""
+- `dir`: the directory (which must exist) in which to create the files,
+  for this call only (see [`wfdbx_set_output_dir`](@ref)). `record` must
+  then be a plain name, without a directory, and the record opens from
+  that directory under its plain name."""
 
 const _LEGACY_DOC = """
 - `legacy`: `true` behaves as the original WFDB package, for this call
@@ -419,14 +468,24 @@ end
                 legacy=false) -> Header
 
 Read the header of `record` without opening its signal files, and return it
-as a [`Header`](@ref). `record` is a record name, which is read from the
-input directory, or a full path, `~` path or URL.
+as a [`Header`](@ref).
+
+$_RECORD_DOC
 
 # Keyword arguments
 $_INPUT_DOC
 $_LEGACY_DOC
 
 Throws a [`WfdbError`](@ref) if the header cannot be read.
+
+$_SETTINGS_DOC
+
+The `metadata` of the header are its `Key: value` entries, as
+[`read_metadata`](@ref) returns them (with the same warning for a key that
+appears more than once). They are read from the `.hea` file only, whereas
+`comments` also holds the info strings of a `.info` file. An EDF record
+(which has no `.hea` file) and a header read from the standard input
+(`"-"`) have no metadata (an empty vector, without an error).
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
@@ -453,7 +512,7 @@ Part of WFDB-x; not in the original WFDB package.
 """
 function read_header(w::Wfdb, record::ByteStr; input_dir::OptByteStr=nothing,
                      network::Union{Nothing,Bool}=nothing, legacy::Bool=false)
-    _with_gvmode(w) do
+    _keep_settings(w) do
         _with_legacy(w, legacy) do
             _with_input_options(w, input_dir, network) do
                 _quit_on_error(() -> _read_header(w, record), w)
@@ -473,9 +532,14 @@ function _read_header(w::Wfdb, record::ByteStr)
     nsamples = st.in_msrec != 0 ? st.msnsamples : st.nsamples
     base_time, base_time_ms, base_date = _base_info(w, fs)
     h = Header(_lossy(record), fs, getcfreq(w), getbasecount(w), nsamples, Int(n), si,
-               base_time, base_time_ms, base_date, Vector{UInt8}[])
+               base_time, base_time_ms, base_date, Vector{UInt8}[], MetadataEntry[])
     append!(h.comments, _comments(w, record))
+    edf = st.isedf != 0
     wfdbquit(w)
+    # WFDB-x: the entries of the .hea file only, not of a .info file. An EDF
+    # record (which has no .hea file) and a header read from the standard
+    # input (which cannot be read again) have none.
+    (edf || _md_is_stdin(record)) || append!(h.metadata, _header_metadata(w, record))
     h
 end
 read_header(record::ByteStr; kw...) = read_header(lib(), record; kw...)
@@ -511,8 +575,9 @@ end
 
 Read the signals of `record`, or of part of it, and return them as a
 [`Record`](@ref). The samples are in ADC units. Use [`physical`](@ref) to
-convert them to physical units. `record` is a record name, which is read
-from the input directory, or a full path, `~` path or URL.
+convert them to physical units.
+
+$_RECORD_DOC
 
 # Keyword arguments
 - `channels`: the signals to read, in the order given, by number (`0` is
@@ -555,7 +620,9 @@ Throws a [`WfdbError`](@ref) if:
   read signal data of record REC (getvec status -3)"`).
 
 Whatever happens, the input signals are closed ([`wfdbquit`](@ref)) before
-the function returns.
+the function returns, and the time resolution of output annotators
+([`getafreq`](@ref)) and the getvec mode ([`getgvmode`](@ref)) are left as
+they were (opening an EDF record sets both).
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
@@ -594,7 +661,7 @@ function read_record(w::Wfdb, record::ByteStr; channels=nothing, from=0, to=noth
     to = _sample_number(to, "to")
     # WFDB-x: isigsettime would take a negative time as an absolute one
     (from isa Integer && from < 0) && throw(WfdbError("read_record: from must not be negative"))
-    _with_gvmode(w) do
+    _keep_settings(w) do
         _with_legacy(w, legacy) do
             _with_input_options(w, input_dir, network) do
                 _quit_on_error(w) do
@@ -764,6 +831,8 @@ Read the annotation file of `record` written by `annotator`, and return its
 annotations as an [`Annotations`](@ref) object, in file order. `annotator`
 is the file suffix: `"atr"` reads `100s.atr` for record `"100s"`.
 
+$_RECORD_DOC Its header, if there is one, gives the sampling frequency.
+
 # Keyword arguments
 - `from`, `to`: return only the annotations from `from` up to, but not
   including, `to`. Each is a sample number or a time string, as in
@@ -780,6 +849,8 @@ sampling frequency and none is known (`"sampling frequency of record REC is
 not specified"`), or if reading ends with an error before `to` is reached,
 such as a truncated file (`"can't read annotation file ANN of record REC
 (getann status -3)"`).
+
+$_SETTINGS_DOC
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
@@ -808,10 +879,12 @@ function read_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr; from=not
                           legacy::Bool=false)
     fs === nothing || fs > 0.0 || throw(WfdbError("read_annotations: fs must be > 0"))
     legacy = _legacy(w, legacy)
-    _with_legacy(w, legacy) do
-        _with_input_options(w, input_dir, network) do
-            _quit_on_error(w) do
-                _read_annotations(w, record, annotator, from, to, fs, legacy)
+    _keep_settings(w) do
+        _with_legacy(w, legacy) do
+            _with_input_options(w, input_dir, network) do
+                _quit_on_error(w) do
+                    _read_annotations(w, record, annotator, from, to, fs, legacy)
+                end
             end
         end
     end
@@ -987,10 +1060,20 @@ end
 
 function _write_adc(w::Wfdb, record::ByteStr, frames::AbstractMatrix{<:Integer}, fs::Real;
                     nsig::Integer, fmt::Integer, gains, baselines, adczeros, adcres, units,
-                    names, samps_per_frame, base_time, comments, legacy::Bool)
+                    names, samps_per_frame, base_time, comments, metadata, legacy::Bool)
     _check_write_args(record, nsig, fs, legacy; gains, baselines, adczeros, adcres, units, names)
     rec = copy(cstr(bytes(record)))
     infos = Vector{UInt8}[copy(bytes(c)) for c in comments]
+    # WFDB-x: the metadata entries, written after the comments (checked
+    # before any file is created)
+    if metadata !== nothing
+        try
+            append!(infos, _md_info_lines(metadata, comments))
+        catch e
+            e isa ArgumentError || rethrow()
+            throw(WfdbError("write_record: " * e.msg))
+        end
+    end
     fname = vcat(rec, b".dat")
     si = [Siginfo() for _ in 1:nsig]
     framesize = 0
@@ -1054,11 +1137,21 @@ end
     write_record([w::Wfdb], record, samples::AbstractMatrix{<:Integer}, fs;
                  gains, adcres, units, fmt=16, baselines=nothing, adczeros=0,
                  names=nothing, samps_per_frame=nothing, base_time=nothing,
-                 comments=(), dir=nothing, legacy=false)
+                 comments=(), metadata=nothing, dir=nothing, legacy=false)
 
 Write a record: the header `RECORD.hea` and the signal file `RECORD.dat`.
-The files are created in the output directory, or in `dir`. Existing files
-are overwritten. Returns `nothing`.
+Existing files are overwritten. Returns `nothing`.
+
+`record` is a record name, without the `.hea` extension: a plain name
+(`"rec"`) or a relative path (`"data/rec"`), created in the output
+directory if one is set (see [`wfdbx_set_output_dir`](@ref)), otherwise in
+the current directory, missing directories included; or a full path,
+absolute or in the home directory (`"~/Documents/rec"`), used as given.
+With a path, the files are created in that directory, and the header names
+the record and its signal file without the path (`"rec"`, `"rec.dat"`), so
+that the record opens under any path that leads to it (in legacy mode, as
+in the original, the header gives the name with its path). A URL cannot be
+written.
 
 `samples` holds the samples in ADC units, one row per sample and one
 column per signal. `fs` is the sampling frequency in Hz (finite, > 0). To
@@ -1086,6 +1179,14 @@ must lie within the range of `Int32`.
   `samps_per_frame[s]` consecutive columns for signal `s`. The default is 1.
 - `base_time`: the start time and date, as `"hh:mm:ss dd/mm/yyyy"`.
 - `comments`: info strings, written at the end of the header.
+- `metadata`: `Key: value` entries, written after the comments (through
+  [`putinfo`](@ref)) as `# Key: value` (`# Key:` for an empty value): a
+  vector of `key => value` pairs (or `(key, value)` tuples), written in that
+  order, or a dictionary. Keys and values follow the rules of
+  [`set_metadata`](@ref); no two keys may differ only in letter case, none
+  may be the key of an entry in `comments`, and a value must not be
+  `nothing`. Metadata often holds information about patients: it is stored
+  as given, without de-identification.
 $_DIR_DOC
 $_LEGACY_DOC
 
@@ -1114,10 +1215,16 @@ Throws a [`WfdbError`](@ref) if:
   ADC units must be within the range of a 32-bit integer"`);
 - a file cannot be created, or cannot be written completely (for example,
   when the disk is full: `"write error on record R"`);
-- `dir` does not exist, or `record` contains a directory and `dir` is given.
+- `dir` does not exist, or `record` contains a directory and `dir` is given;
+- an entry of `metadata` is not valid (`"write_record: metadata key "a:b"
+  must not contain ':'"`, ...), two of its keys differ only in letter case,
+  a value is `nothing`, or a key is also that of an entry in `comments`
+  (`"write_record: metadata key "Age" is also given in comments"`).
 
 The arguments are checked before any file is created. Whatever happens, the
-output signals are closed ([`wfdbquit`](@ref)) before the function returns.
+output signals are closed ([`wfdbquit`](@ref)) before the function returns,
+and the time resolution of output annotators ([`getafreq`](@ref)) and the
+getvec mode ([`getgvmode`](@ref)) are left as they were.
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
@@ -1143,15 +1250,19 @@ Part of WFDB-x; not in the original WFDB package.
 function write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::Real;
                       fmt::Integer=16, gains=nothing, baselines=nothing, adczeros=0,
                       adcres=nothing, units=nothing, names=nothing, samps_per_frame=nothing,
-                      base_time=nothing, comments=(), dir=nothing, legacy::Bool=false)
+                      base_time=nothing, comments=(), metadata=nothing, dir=nothing,
+                      legacy::Bool=false)
     _check_samps_per_frame(samples, samps_per_frame)
     _check_int32(samples)
     legacy = _legacy(w, legacy)
     nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
-    _with_legacy(w, legacy) do
-        _with_output_dir(w, record, dir) do
-            _write_adc(w, record, samples, fs; nsig, fmt, gains, baselines, adczeros, adcres,
-                       units, names, samps_per_frame, base_time, comments, legacy)
+    _keep_settings(w) do
+        _with_legacy(w, legacy) do
+            _with_output_dir(w, record, dir) do
+                _write_adc(w, record, samples, fs; nsig, fmt, gains, baselines, adczeros,
+                           adcres, units, names, samps_per_frame, base_time, comments,
+                           metadata, legacy)
+            end
         end
     end
 end
@@ -1173,7 +1284,10 @@ gain is 0 (`"write_record: signal N is uncalibrated"`, where `N` counts
 from 0), and if a value is infinite or its ADC value lies outside the range
 of `Int32` (`"write_record: signal N has a sample that is infinite or
 beyond the range of 32-bit ADC units"`; `N` counts the columns from 0).
-Nothing is written then.
+Nothing is written then. The `metadata` option is checked after the
+samples, also before any file is created. As by `write_record`, the time
+resolution of output annotators ([`getafreq`](@ref)) and the getvec mode
+([`getgvmode`](@ref)) are left as they were.
 
 # Examples
 The example writes the record `rand` (random samples), in the current
@@ -1191,7 +1305,7 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
                                fmt::Integer=16, gains=nothing, baselines=nothing,
                                adczeros=0, adcres=nothing, units=nothing, names=nothing,
                                samps_per_frame=nothing, base_time=nothing, comments=(),
-                               dir=nothing, legacy::Bool=false)
+                               metadata=nothing, dir=nothing, legacy::Bool=false)
     _check_samps_per_frame(samples, samps_per_frame)
     legacy = _legacy(w, legacy)
     # WFDB-x: the dir checks come first (after those of samps_per_frame)
@@ -1232,9 +1346,12 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
                                 "or beyond the range of 32-bit ADC units"))
             adc[i, c] = d2i(r)
         end
-        _with_legacy(w, legacy) do
-            _write_adc(w, record, adc, fs; nsig, fmt, gains, baselines, adczeros, adcres,
-                       units, names, samps_per_frame, base_time, comments, legacy)
+        _keep_settings(w) do
+            _with_legacy(w, legacy) do
+                _write_adc(w, record, adc, fs; nsig, fmt, gains, baselines, adczeros, adcres,
+                           units, names, samps_per_frame, base_time, comments, metadata,
+                           legacy)
+            end
         end
     end
 end
@@ -1245,9 +1362,16 @@ write_record_physical(record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real
     write_annotations([w::Wfdb], record, annotator, ann::Annotations; fs=0.0,
                       sort=nothing, dir=nothing, legacy=false)
 
-Write the annotations `ann` to the annotation file `RECORD.ANNOTATOR`, in
-the output directory or in `dir`. An existing file is overwritten. Returns
-`nothing`.
+Write the annotations `ann` to the annotation file `RECORD.ANNOTATOR`. An
+existing file is overwritten. Returns `nothing`.
+
+`record` is a record name, without the `.hea` extension (a trailing `".hea"`
+is also accepted): a plain name or a relative path (`"data/100s"`) is
+created in the output directory if one is set (see
+[`wfdbx_set_output_dir`](@ref)), otherwise in the current directory; a full
+path, absolute or in the home directory (`"~/Documents/100s"`), is used as
+given. The file is `RECORD.ANNOTATOR` at that place (`"data/100s.qrs"`). A
+URL cannot be written.
 
 The type of each annotation is its mnemonic in `ann.symbols` if that is not
 empty, and its code in `ann.codes` otherwise. Both may be given, as
@@ -1265,7 +1389,9 @@ Auxiliary text longer than 255 bytes is truncated.
   library's advice to run `sortann`) and `true` always sorts, for this
   call only. With `nothing`, the default, the environment
   variable `WFDBANNSORT` decides: sorting is on unless it is `0`.
-$_DIR_DOC
+- `dir`: the directory (which must exist) in which to create the file, for
+  this call only (see [`wfdbx_set_output_dir`](@ref)). `record` must then
+  be a plain name, without a directory: the file is `DIR/RECORD.ANNOTATOR`.
 $_LEGACY_DOC
 
 Throws a [`WfdbError`](@ref) if a field of `ann` is neither empty nor has
@@ -1278,7 +1404,10 @@ written completely (`"write error on annotator A for record R"`), if `dir`
 does not exist, or if `record` contains a directory and `dir` is given.
 
 The arguments are checked before the file is created. Whatever happens, the
-annotator is closed ([`wfdbquit`](@ref)) before the function returns.
+annotator is closed ([`wfdbquit`](@ref)) before the function returns, and
+the time resolution of output annotators ([`getafreq`](@ref)) and the
+getvec mode ([`getgvmode`](@ref)) are left as they were (`fs` applies to
+this file only).
 
 # Examples
 The examples read `100s`, the first minute of record 100 of the MIT-BIH
@@ -1322,15 +1451,17 @@ function write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::An
     end
     (fs == 0 || (isfinite(fs) && fs > 0)) ||
         throw(WfdbError("write_annotations: fs must be finite and > 0 (or 0: none)"))
-    _with_legacy(w, legacy) do
-        _with_output_dir(w, record, dir) do
-            # WFDB-x: the sort option, read by oannclose (see AnnState)
-            previous = w.ann.sort_override
-            w.ann.sort_override = sort
-            try
-                _write_annotations(w, record, annotator, ann, fs)
-            finally
-                w.ann.sort_override = previous
+    _keep_settings(w) do
+        _with_legacy(w, legacy) do
+            _with_output_dir(w, record, dir) do
+                # WFDB-x: the sort option, read by oannclose (see AnnState)
+                previous = w.ann.sort_override
+                w.ann.sort_override = sort
+                try
+                    _write_annotations(w, record, annotator, ann, fs)
+                finally
+                    w.ann.sort_override = previous
+                end
             end
         end
     end
@@ -1371,7 +1502,7 @@ function _write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::A
         end
     finally
         wfdbquit(w)
-        fs > 0.0 && setafreq(w, 0.0)
+        # (the previous time resolution is restored by _keep_settings)
     end
     wfdbx_write_errors() > errors &&
         throw(WfdbError("write error on annotator $(_lossy(annotator)) for record $(_lossy(record))"))
@@ -1405,7 +1536,12 @@ register_workload("highlevel") do
         read_record(w, "mfreq"; channels=["fast"]); read_record(w, "mfreq"; highres=true)
         read_record(w, "multi"); read_record(w, "vlay"; pad=true)
         write_record(w, "hlw", rec.samples, rec.fs; gains=[200.0], adcres=[11], units="mV",
-                     names=["a", "b"], comments=["c"], base_time="12:00:00 01/01/2020")
+                     names=["a", "b"], comments=["c"], base_time="12:00:00 01/01/2020",
+                     metadata=["Age" => "63", "Notes" => ""])
+        write_record(w, "hlm", rec.samples, rec.fs; gains=200.0, adcres=11, units="mV",
+                     metadata=Dict("Dx" => "x"))
+        _workload_hl_error(() -> write_record(w, "hle", rec.samples, rec.fs; gains=200.0,
+                                              adcres=11, units="mV", metadata=["a:b" => "1"]))
         write_record_physical(w, "hlp", physical(rec), rec.fs; fmt=212, units="mV",
                               gains=200.0, adcres=12)
         read_annotations(w, "100s", "atr"; from="0:1", to="0:2")

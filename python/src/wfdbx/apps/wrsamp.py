@@ -12,8 +12,9 @@ or units: when a record is written (-o), -F, -G and the new option -R BITS are
 required, and the new option -U UNITS for calibrated signals unless the input
 gives the units (the original assumed 250 Hz, 200 adu/mV, a resolution based on
 the format, and millivolts); -G 0 declares the signals uncalibrated; -G, -R and
--U take one value per signal; --legacy, as the first argument, restores the
-original behavior. Each change is marked "WFDB-x:" in the code;
+-U take one value per signal; the -i file is found under the input directory,
+as the library finds an input file; --legacy, as the first argument, restores
+the original behavior. Each change is marked "WFDB-x:" in the code;
 docs/DIVERGENCES.md gives the reasons.
 
 Original C program: app/wrsamp.c, WFDB Software Package 10.7.0.
@@ -287,10 +288,16 @@ def _main(argv):
             if argv[i] == "-":
                 infile = None
             else:
+                # WFDB-x: the file is found where the library finds an
+                # input file of that name (see wfdbx_input_path)
+                ipath = w.wfdbx_input_path(argv[i])
                 try:
-                    with open(argv[i], "rb") as f:
+                    if ipath is None:
+                        raise OSError
+                    with open(ipath, "rb") as f:
                         infile = f.read()
                 except OSError:
+
                     eprintf("%s: can't read `%s'\n", pname, argv[i])
                     raise Exit(2)
         elif c == "l":

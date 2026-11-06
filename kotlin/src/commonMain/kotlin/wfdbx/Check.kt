@@ -730,18 +730,27 @@ private fun Wfdb.checkAnnotator(record: ByteArray, an: String, length: Long?, re
  * read) and the annotation files of [annotators] are checked. Problems in
  * the record are reported, never thrown. The checks run in normal mode,
  * even if legacy mode is on, and the library prints no messages during the
- * call. It checks for problems similar to those found by Benjamin Moody's
- * wfdbcheck (https://github.com/bemoody/wfdbcheck).
+ * call. The time resolution of output annotators ([getafreq]) and the
+ * getvec mode ([getgvmode]) are left as they were (opening an EDF record
+ * sets both). It checks for problems similar to those found by Benjamin
+ * Moody's wfdbcheck (https://github.com/bemoody/wfdbcheck).
  *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @param record record name: a name in the input directory, or a full
- *   path, `~` path or URL
+ * @param record record name, without the .hea extension (a trailing ".hea"
+ *   is also accepted): a full path, absolute ("/data/mitdb/100") or in the
+ *   home directory ("~/Documents/100s"), used as given; a relative path
+ *   ("100s", "data/100s"), read from the input directory if one is set,
+ *   otherwise from the current directory; or a URL
+ *   ("https://physionet.org/files/mitdb/1.0.0/100"), read only if network
+ *   access is on (as for [readRecord])
  * @param annotators the annotators to check, such as `listOf("atr")`
- * @param inputDir input directory for this call only (null: the current
- *   setting)
+ * @param inputDir input directory for this call only (optional): a local
+ *   directory, a `~` path or a URL, under which relative record names are
+ *   read. It does not apply to full paths or URLs. null: the current
+ *   setting (see [wfdbxSetInputDir])
  * @param network network access for this call only (null: the current
- *   setting)
+ *   setting, see [wfdbxSetNetwork])
  * @return the [CheckReport]: `ok` is true if there is no error; printed,
  *   it has one line per problem, such as `error: signal 1: the checksum
  *   does not match: the header gives 12, the samples sum to 13`, or `no
@@ -766,6 +775,8 @@ fun Wfdb.checkRecord(
     val rep = Report()
     val legacy = wfdbx_set_legacy(0)
     val printing = wfdbxSetErrorPrint(false)
+    val afreq = getafreq() // (WFDB-x: restored, as by readRecord)
+    val gvmode = getgvmode()
     try {
         withInput(inputDir, network) {
             wfdbquit()
@@ -774,6 +785,8 @@ fun Wfdb.checkRecord(
             wfdbquit()
         }
     } finally {
+        setgvmode(gvmode)
+        setafreq(afreq)
         wfdbxSetErrorPrint(printing)
         wfdbx_set_legacy(legacy)
     }

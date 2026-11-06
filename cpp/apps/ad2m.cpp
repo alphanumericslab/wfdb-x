@@ -11,7 +11,8 @@
 // FREQ, -G GAIN, -R BITS and -U UNITS give the sampling frequency, gain, ADC
 // resolution and units, and are required (-U unless the gain is 0; the
 // original assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
-// millivolts); the -f and -t times are converted at the -F frequency;
+// millivolts); the -f and -t times are converted at the -F frequency; the -i
+// file is found under the input directory, as the library finds an input file;
 // --legacy, as the first argument, restores the original behavior. Each change
 // is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 //
@@ -32,6 +33,7 @@
 #include <sys/stat.h>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 
 #include <wfdbx/wfdb.hpp>
@@ -321,9 +323,12 @@ int main(int argc, char **argv)
 
     // Attach the input file to the standard input.
     // (C reads a directory forever; WFDB-x reports it as unreadable)
+    // WFDB-x: the file is found where the library finds an input file of
+    // that name (see wfdbx_input_path)
+    std::optional<std::string> ipath = wfdbx_input_path(ifname);
     if (std::strcmp(ifname, "-") != 0 &&
-        (is_directory(ifname) ||
-         std::freopen(ifname, "rb", stdin) == nullptr)) {
+        (!ipath || is_directory(ipath->c_str()) ||
+         std::freopen(ipath->c_str(), "rb", stdin) == nullptr)) {
         std::fprintf(stderr, "%s: can't read input file `%s'\n", pname,
                      ifname);
         std::exit(2);

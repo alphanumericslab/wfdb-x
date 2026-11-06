@@ -25,6 +25,8 @@
   whole records, with the signals as a matrix.
   \code{\link{read_annotations}} and \code{\link{write_annotations}} read
   and write whole annotation files, as a data frame.
+  \code{\link{read_metadata}} and its companions read and change the
+  \samp{Key: value} entries of a header.
 
   \strong{Command-line tools.}  The tools (\command{rdsamp},
   \command{rdann}, \command{wrsamp}, \command{wfdbdesc}, \command{xform},

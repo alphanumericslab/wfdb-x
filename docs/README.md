@@ -10,6 +10,7 @@ starting point.
 
 | Document | Contents |
 |---|---|
+| [User's manual (PDF)](user-manual/wfdb-x-user-manual.pdf) | The user's manual: the concepts, one chapter for the users of each language, and a reference of the library functions, the tools, the storage formats and the annotation codes; its LaTeX sources are in [user-manual/](user-manual/README.md) |
 | [DIVERGENCES.md](DIVERGENCES.md) | The deliberate differences from the original WFDB Software Package, the reasons for each, and legacy mode, which reproduces the original exactly |
 | [KNOWN_C_BEHAVIORS.md](KNOWN_C_BEHAVIORS.md) | Surprising but well-defined behaviors of the C code that WFDB-x reproduces, and the behavior WFDB-x chose where the C code's is undefined |
 | [INVENTORY.md](INVENTORY.md) | Every command-line tool and library function, with its status in each language |

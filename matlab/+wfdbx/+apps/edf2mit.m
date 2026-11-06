@@ -22,6 +22,9 @@ function status = edf2mit(args)
 %
 %   See also wfdbx.apps.mit2edf, wfdbx.apps.rdedfann.
 %
+%   WFDB-x: the -i file is found under the input directory, as the library
+%   finds an input file (see wfdbx.wfdbx_input_path).
+%
 %   Translation of the C program edf2mit (convert/edf2mit.c, WFDB 10.7.0):
 %   same options and output.
 
@@ -33,8 +36,10 @@ function status = edf2mit(args)
 % behavior of the original program, but it is new code, not the original C
 % code.
 %
-% Changes from the original: none, apart from the language and the --legacy
-% option (as the first argument, it restores the original behavior).
+% Changes from the original: the -i file is found under the input directory, as
+% the library finds an input file; --legacy, as the first argument, restores the
+% original behavior. Each change is marked "WFDB-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/edf2mit.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1996-2004 George B. Moody.
@@ -182,7 +187,14 @@ while i < argc
                     if strcmp(argv{i + 1}, '-')
                         data = wfdbx.internal.stdin_bytes();
                     else
-                        fid = fopen(argv{i + 1}, 'rb');
+                        % WFDB-x: the file is found where the library
+                        % finds an input file of that name (see
+                        % wfdbx.wfdbx_input_path)
+                        ipath = wfdbx.wfdbx_input_path(argv{i + 1});
+                        fid = -1;
+                        if ischar(ipath)
+                            fid = fopen(wfdbx.internal.literal_path(ipath), 'rb');
+                        end
                         if fid < 0
                             wfdbx.internal.ceprintf('%s: can''t read %s\n', pname, argv{i + 1});
                             status = 1;

@@ -43,6 +43,8 @@ header_containment();
 segments();
 legacy_unchanged();
 highlevel_local();
+tool_file_paths(d);
+tool_files();
 if wfdbx.internal.is_octave() && ~ispc()
     environment(here);
 end
@@ -450,6 +452,119 @@ a = wfdbx.read_annotations('w1', 'q', 'input_dir', 'sub', 'fs', 100);
 wfdbx.wfdbverbose();
 assert_eq(numel(a.samples), 2, 'read back with input_dir');
 defaults();
+end
+
+% ---------------------------------------------------------------------------
+% Files that the tools open themselves
+
+function tool_file_paths(cwd)
+% wfdbx_input_path and wfdbx_output_path: where a program opens the files
+% that it reads or creates itself (the counterparts of the files of
+% wfdb_open with an empty file type)
+home = getenv('HOME');
+ip = @wfdbx.wfdbx_input_path;
+op = @wfdbx.wfdbx_output_path;
+% no directories set: names as given (~ expanded), URLs refused
+for f = {ip, op}
+    g = f{1};
+    assert_eq(g('a.txt'), 'a.txt', 'tool path a.txt');
+    assert_eq(g('tp/a.txt'), 'tp/a.txt', 'tool path tp/a.txt');
+    assert_eq(g([cwd '/a.txt']), [cwd '/a.txt'], 'tool path absolute');
+    assert_eq(g('~/a.txt'), [home '/a.txt'], 'tool path ~');
+    assert_true(strcmp(g('-'), '-') && ischar(g('')) && isempty(g('')) && ...
+        ~ischar(g([])), 'tool path -, empty and []');
+    assert_true(~ischar(g('http://127.0.0.1:1/a.txt')), 'tool path http URL');
+    assert_true(~ischar(g('https://127.0.0.1:1/a.txt')), 'tool path https URL');
+end
+assert_true(~isfolder('tp'), 'no directory created');
+% the input directory
+wfdbx.wfdbx_set_input_dir('tp');
+assert_eq(ip('a.txt'), 'tp/a.txt', 'input path (input dir)');
+assert_eq(ip('../a.txt'), 'tp/../a.txt', 'input path .. (input dir)');
+assert_eq(ip([cwd '/a.txt']), [cwd '/a.txt'], 'input path absolute (input dir)');
+assert_eq(ip('~/a.txt'), [home '/a.txt'], 'input path ~ (input dir)');
+assert_eq(ip('-'), '-', 'input path - (input dir)');
+assert_eq(op('a.txt'), 'a.txt', 'output path (input dir only)');
+wfdbx.wfdbx_set_input_dir('~/in/');
+assert_eq(ip('a.txt'), [home '/in/a.txt'], 'input path (~ input dir)');
+wfdbx.wfdbx_set_input_dir('http://127.0.0.1:1/d');
+assert_true(~ischar(ip('a.txt')), 'input path (URL input dir)');
+assert_eq(ip([cwd '/a.txt']), [cwd '/a.txt'], ...
+    'input path absolute (URL input dir)');
+wfdbx.wfdbx_set_input_dir([]);
+% the output directory: its missing directories are created
+wfdbx.wfdbx_set_output_dir('tpout/deep');
+assert_eq(op('a.wav'), 'tpout/deep/a.wav', 'output path (output dir)');
+assert_true(isfolder('tpout/deep') && numel(dir('tpout/deep')) == 2, ...
+    'output dir created, empty');
+assert_eq(op('s/a.wav'), 'tpout/deep/s/a.wav', 'output path s/ (output dir)');
+assert_true(isfolder('tpout/deep/s'), 'output subdirectory created');
+assert_eq(op([cwd '/tpn/a.wav']), [cwd '/tpn/a.wav'], ...
+    'output path absolute (output dir)');
+assert_eq(op('~/tpm/a.wav'), [home '/tpm/a.wav'], 'output path ~ (output dir)');
+assert_true(~isfolder('tpn') && ~isfolder('home/tpm'), ...
+    'no directory created for full paths');
+assert_eq(op('-'), '-', 'output path - (output dir)');
+assert_eq(ip('a.txt'), 'a.txt', 'input path (output dir only)');
+wfdbx.wfdbx_set_output_dir('~/tpo');
+assert_eq(op('a.wav'), [home '/tpo/a.wav'], 'output path (~ output dir)');
+assert_true(isfolder('home/tpo'), '~ output dir created');
+% legacy mode: inputs as named; the output directory as a plain prefix
+wfdbx.wfdbx_set_legacy(1);
+wfdbx.wfdbx_set_input_dir('tp');
+wfdbx.wfdbx_set_output_dir('tplout');
+assert_eq(ip('a.txt'), 'a.txt', 'legacy input path');
+assert_eq(ip('~/a.txt'), '~/a.txt', 'legacy input path ~');
+assert_true(~ischar(ip('http://127.0.0.1:1/a.txt')), 'legacy input path URL');
+assert_eq(op('a.wav'), 'tplout/a.wav', 'legacy output path');
+assert_eq(op([cwd '/a.wav']), ['tplout/' cwd '/a.wav'], ...
+    'legacy output path absolute');
+assert_true(isfolder(['tplout' cwd]), 'legacy output directories created');
+assert_eq(op('~/a.wav'), 'tplout/~/a.wav', 'legacy output path ~');
+assert_eq(op('-'), '-', 'legacy output path -');
+wfdbx.wfdbx_set_output_dir([]);
+assert_eq(op('a.wav'), 'a.wav', 'legacy output path (no output dir)');
+assert_eq(op('~/a.wav'), '~/a.wav', 'legacy output path ~ (no output dir)');
+wfdbx.wfdbx_set_legacy(0);
+defaults();
+end
+
+function tool_files()
+% The tools read and create their own files under the input and output
+% directories (see the toolfiles-* cases of the conformance suite)
+mkdir('tfsub');
+putfile('tfsub/in.txt', sprintf('%d %d\n', [0:49; -(0:49)]));
+wfdbx.wfdbx_set_input_dir('tfsub');
+wfdbx.wfdbx_set_output_dir('tfout');
+assert_eq(wfdbx.apps.wrsamp({'-i', 'in.txt', '-o', 'w1', '-F', '250', ...
+    '-G', '200', '-R', '16', '-U', 'mV'}), 0, 'wrsamp -i (input dir)');
+assert_true(isfile('tfout/w1.hea') && isfile('tfout/w1.dat'), ...
+    'wrsamp: record in the output directory');
+r = wfdbx.read_record('w1', 'input_dir', 'tfout');
+assert_eq(r.signals(1:3, :), [0 0; 1 -1; 2 -2], 'wrsamp: samples');
+wfdbx.wfdbx_set_input_dir([]);
+before = names_here();
+assert_eq(wfdbx.apps.mit2wav({'-r', '100s', '-o', 'x.wav'}), 0, ...
+    'mit2wav (output dir)');
+% (mit2wav sets the prolog length of output signals, 44 bytes, which only
+% a new header resets, as in C: reset here, since the tool ran in this
+% process)
+wfdbx.wfdbsetstart(0, 0);
+assert_eq(wfdbx.apps.mit2edf({'-r', 'fmt16', '-o', 'x.edf'}), 0, ...
+    'mit2edf (output dir)');
+assert_eq(names_here(), before, 'nothing written in .');
+wav = readfile('tfout/x.wav');
+assert_true(isequal(char(wav(1:4)), 'RIFF') && numel(wav) == 44 + 2 * 2 * 21600, ...
+    'mit2wav: the WAV file in the output directory');
+assert_true(numel(readfile('tfout/x.edf')) > 0, ...
+    'mit2edf: the EDF file in the output directory');
+defaults();
+end
+
+function c = names_here()
+% The sorted names of the files of the current directory.
+L = dir('.');
+c = sort({L.name});
 end
 
 % ---------------------------------------------------------------------------

@@ -636,4 +636,112 @@ end
     end
 end
 
+
+# ---------------------------------------------------------------------------
+# The files that the tools open themselves
+
+# wfdbx_input_path and wfdbx_output_path: where a program opens the files
+# that it reads or creates itself (the counterparts of the files of
+# wfdb_open with an empty file type).
+@testset "tool file paths" begin
+    with_files("toolpaths") do w, cwd
+        home = ENV["HOME"]
+        # no directories set: names as given (~ expanded), URLs refused
+        for f in (W.wfdbx_input_path, W.wfdbx_output_path)
+            g(x) = sv(f(w, x))
+            @test g("a.txt") == "a.txt"
+            @test g("sub/a.txt") == "sub/a.txt"
+            @test g(cwd * "/a.txt") == cwd * "/a.txt"
+            @test g("~/a.txt") == home * "/a.txt"
+            @test g("-") == "-" && g("") == "" && g(nothing) === nothing
+            @test g("http://127.0.0.1:1/a.txt") === nothing
+            @test g("https://127.0.0.1:1/a.txt") === nothing
+        end
+        @test !ispath("sub")
+        ip(x) = sv(W.wfdbx_input_path(w, x))
+        op(x) = sv(W.wfdbx_output_path(w, x))
+        # the input directory
+        W.wfdbx_set_input_dir(w, "sub")
+        @test ip("a.txt") == "sub/a.txt"
+        @test ip("../a.txt") == "sub/../a.txt"
+        @test ip(cwd * "/a.txt") == cwd * "/a.txt"
+        @test ip("~/a.txt") == home * "/a.txt"
+        @test ip("-") == "-"
+        @test op("a.txt") == "a.txt"
+        W.wfdbx_set_input_dir(w, "~/in/")
+        @test ip("a.txt") == home * "/in/a.txt"
+        W.wfdbx_set_input_dir(w, "http://127.0.0.1:1/d")
+        @test ip("a.txt") === nothing       # (a URL)
+        @test ip(cwd * "/a.txt") == cwd * "/a.txt"
+        W.wfdbx_set_input_dir(w, nothing)
+        # the output directory: its missing directories are created
+        W.wfdbx_set_output_dir(w, "out/deep")
+        @test op("a.wav") == "out/deep/a.wav"
+        @test isdir("out/deep") && isempty(readdir("out/deep"))
+        @test op("s/a.wav") == "out/deep/s/a.wav"
+        @test isdir("out/deep/s")
+        @test op(cwd * "/n/a.wav") == cwd * "/n/a.wav"
+        @test op("~/m/a.wav") == home * "/m/a.wav"
+        @test !ispath("n") && !ispath("home/m")
+        @test op("-") == "-"
+        @test ip("a.txt") == "a.txt"
+        W.wfdbx_set_output_dir(w, "~/o")
+        @test op("a.wav") == home * "/o/a.wav"
+        @test isdir("home/o")
+        # legacy mode: inputs as named; the output directory as a plain prefix
+        W.wfdbx_set_legacy(w, true)
+        W.wfdbx_set_input_dir(w, "sub")
+        W.wfdbx_set_output_dir(w, "lout")
+        @test ip("a.txt") == "a.txt"
+        @test ip("~/a.txt") == "~/a.txt"
+        @test ip("http://127.0.0.1:1/a.txt") === nothing
+        @test op("a.wav") == "lout/a.wav"
+        @test op(cwd * "/a.wav") == "lout/" * cwd * "/a.wav"
+        @test isdir("lout" * cwd)
+        @test op("~/a.wav") == "lout/~/a.wav"
+        @test op("-") == "-"
+        W.wfdbx_set_output_dir(w, nothing)
+        @test op("a.wav") == "a.wav"
+        @test op("~/a.wav") == "~/a.wav"
+    end
+end
+
+# The tools read and create their own files under the input and output
+# directories (see the toolfiles-* cases of the conformance suite).
+@testset "tool files" begin
+    with_files("toolfiles") do w, cwd
+        mkdir("sub")
+        write("sub/in.txt", join("$i $(-i)\n" for i in 0:49))
+        st, _, err = W.run_tool("wrsamp", ["-i", "in.txt", "-o", "w1", "-F", "250", "-G", "200",
+                                           "-R", "16", "-U", "mV"];
+                                env=("WFDBX_INPUT_DIR" => "sub", "WFDBX_OUTPUT_DIR" => "out"))
+        @test st == 0 && isempty(err)
+        @test isfile("out/w1.hea") && isfile("out/w1.dat")
+        before = Set(readdir("."))
+        env = ("WFDBX_OUTPUT_DIR" => "out",)
+        @test W.run_tool("mit2wav", ["-r", "100s", "-o", "x.wav"]; env)[1] == 0
+        @test W.run_tool("mit2edf", ["-r", "fmt16", "-o", "x.edf"]; env)[1] == 0
+        @test Set(readdir(".")) == before       # nothing in .
+        wav = read("out/x.wav")
+        @test wav[1:4] == b"RIFF" && length(wav) == 44 + 2 * 2 * 21600
+        @test filesize("out/x.edf") > 0
+        # the input file of wav2mit, and the signal file measured by wfdbdesc
+        cp("t16.wav", "sub/t.wav")
+        st, _, err = W.run_tool("wav2mit", ["-i", "t.wav", "-r", "tw", "-G", "100", "-U", "mV"];
+                                env=("WFDBX_INPUT_DIR" => "sub", "WFDBX_OUTPUT_DIR" => "out"))
+        @test st == 0 && isfile("out/tw.hea")
+        # (a header without the length: wfdbdesc measures the signal file,
+        # in the header's directory)
+        putfile("out/d/nl.hea", "nl 1 250\nnl.dat 16 200 12 0 0 0 0 s\n")
+        putfile("out/d/nl.dat", zeros(UInt8, 100))
+        st, out, _ = W.run_tool("wfdbdesc", ["d/nl"]; env=("WFDBX_INPUT_DIR" => "out",))
+        @test st == 0
+        @test occursin("(50 sample intervals) [from signal file size]", String(copy(out)))
+        # legacy mode: the -i file as named
+        st, _, err = W.run_tool("wrsamp", ["--legacy", "-i", "in.txt", "-o", "w2"];
+                                env=("WFDBX_INPUT_DIR" => "sub",))
+        @test st == 2 && String(copy(err)) == "wrsamp: can't read `in.txt'\n"
+    end
+end
+
 end

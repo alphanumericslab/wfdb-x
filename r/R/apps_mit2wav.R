@@ -8,7 +8,9 @@
 # the original program, but it is new code, not the original C code.
 #
 # Changes from the original: no built-in sampling frequency: the record must
-# give it (the original assumed 250 Hz); --legacy, as the first argument,
+# give it (the original assumed 250 Hz); the WAV file is completed where the
+# library created it, under the output directory (the original rewrote a file
+# of that name in the current directory); --legacy, as the first argument,
 # restores the original behavior. Each change is marked "WFDB-x:" in the code;
 # docs/DIVERGENCES.md gives the reasons.
 #
@@ -166,7 +168,16 @@ app_mit2wav <- function(args = character(0)) {
   wfdbquit()
   # Prepend the wav header to the signal file (the C program does this with
   # a temporary file and the 'mv', 'cat' and 'rm' commands).
-  data <- tryCatch(readBin(ofname, "raw", file.size(ofname)), error = function(e) raw(0))
-  writeBin(c(hdr, data), ofname)
+  # WFDB-x: the signal file is where the library created it, under the
+  # output directory if one is set (see wfdbx_output_path).
+  opath <- wfdbx_output_path(ofname)
+  if (is.null(opath)) {
+    ceprintf("%s: can't create %s\n", pname, ofname)
+    cexit(1)
+  }
+  opath <- .rfile_name(opath)
+  data <- tryCatch(suppressWarnings(readBin(opath, "raw", file.size(opath))),
+                   error = function(e) raw(0))
+  writeBin(c(hdr, data), opath)
   0
 }

@@ -24,8 +24,10 @@
 // original assumed those of the AHA database: 250 Hz, 400 adu/mV, 12 bits and
 // millivolts); the options precede the input files, in any order; the
 // short-format part of a long-format file (skipped by -s) is located from -F;
-// --legacy, as the first argument, restores the original behavior. Each change
-// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// the input files are found under the input directory, as the library finds an
+// input file; --legacy, as the first argument, restores the original behavior.
+// Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
+// reasons.
 //
 // Original C program: convert/ahaecg2mit.c, WFDB Software Package 10.7.0.
 //   By George B. Moody (2008); revised 2017 by Benjamin Moody. The C source
@@ -337,7 +339,10 @@ fn main() {
             i += 1;
             continue; // not an .ecg or .txt file
         };
-        let Some(ifile) = WfdbFile::fopen(arg, b"rb") else {
+        // WFDB-x: the file is found where the library finds an input file of
+        // that name (see wfdbx_input_path)
+        let Some(ifile) = wfdbx::wfdbx_input_path(arg).and_then(|q| WfdbFile::fopen(&q, b"rb"))
+        else {
             ceprintf!(b"%s: can't open '%s'\n", argv[0], argv[1]);
             i += 1;
             continue;

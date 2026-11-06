@@ -37,10 +37,12 @@
 // given in the SCP file, and is not written if the file gives none (the
 // original always wrote 500 Hz); signals and reference beats that could not be
 // allocated, and samples beyond the end of a signal shorter than lead 0, are
-// read as absent or as zeros (undefined behavior in the original); an output
-// file that cannot be written is reported, and the exit status is then 1;
-// --legacy, as the first argument, restores the original behavior. Each change
-// is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// read as absent or as zeros (undefined behavior in the original); the .des,
+// .ecg, .key and .txt files are created under the output directory, as the
+// library creates an output file; an output file that cannot be written is
+// reported, and the exit status is then 1; --legacy, as the first argument,
+// restores the original behavior. Each change is marked "WFDB-x:" in the code;
+// docs/DIVERGENCES.md gives the reasons.
 //
 // Original C program: convert/parsescp.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2000-2014 George B. Moody and Edna S. Moody; revised
@@ -818,16 +820,20 @@ impl Scp {
         };
         let (dname, ename, kname, tname) =
             (name(b".des"), name(b".ecg"), name(b".key"), name(b".txt"));
-        let Some(mut dfile) = WfdbFile::fopen(&dname, b"wb") else {
+        // WFDB-x: each file is created where the library creates an output
+        // file of that name (see wfdbx_output_path); messages name it as given
+        let create =
+            |n: &[u8]| wfdbx::wfdbx_output_path(n).and_then(|p| WfdbFile::fopen(&p, b"wb"));
+        let Some(mut dfile) = create(&dname) else {
             ceprintf!(b"%s: can't create '%s'\n", self.pname, dname);
             return 0;
         };
-        let Some(mut efile) = WfdbFile::fopen(&ename, b"wb") else {
+        let Some(mut efile) = create(&ename) else {
             dfile.close();
             ceprintf!(b"%s: can't create '%s'\n", self.pname, ename);
             return 0;
         };
-        let Some(mut kfile) = WfdbFile::fopen(&kname, b"wb") else {
+        let Some(mut kfile) = create(&kname) else {
             dfile.close();
             efile.close();
             ceprintf!(b"%s: can't create '%s'\n", self.pname, kname);
@@ -835,7 +841,7 @@ impl Scp {
         };
         let mut tfile = None;
         if self.vflag != 0 {
-            match WfdbFile::fopen(&tname, b"wb") {
+            match create(&tname) {
                 Some(f) => tfile = Some(f),
                 None => {
                     dfile.close();

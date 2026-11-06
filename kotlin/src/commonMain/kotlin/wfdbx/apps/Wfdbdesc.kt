@@ -14,7 +14,9 @@
 // shown as "not specified" (lengths are then given in sample intervals only),
 // a gain of 0 as "uncalibrated" (the original: "uncalibrated; assume 200"),
 // and unspecified units as "adu/nd" (the original assumed 250 Hz, 12 bits and
-// millivolts); --legacy, as the first argument, restores the original
+// millivolts); the size of a signal file of unknown length is measured in the
+// header's directory, where the library reads it (the original looked in the
+// current directory); --legacy, as the first argument, restores the original
 // behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
@@ -47,6 +49,19 @@ private fun regularFileSize(name: ByteArray): Long? {
     val n = f.tell()
     f.close()
     return n
+}
+
+/**
+ * The path of the signal file [fname] named in the header of [record], to
+ * measure its length. WFDB-x: in normal mode, where the library reads it,
+ * i.e., in the directory of the header (the directory part of the record
+ * name, under the input directory if one is set; see wfdbx_input_path); null
+ * if it cannot be opened in this way (a URL). In legacy mode, or for "-", as
+ * named, as the C program did (relative to the current directory).
+ */
+private fun Wfdb.signalFilePath(record: ByteArray, fname: ByteArray): ByteArray? {
+    if (wfdbx_get_legacy() != 0 || beq(fname, "-")) return fname
+    return wfdbx_input_path(bcat(wfdbx_dirname(record), fname))
 }
 
 /** The wfdbdesc tool. */
@@ -117,7 +132,8 @@ fun Wfdb.wfdbdescMain(argv0: Array<ByteArray>): Int {
         printf("%s (%lld sample intervals)\n", ts, t)
     } else {
         val fname = s[0].fname
-        val size = if (fname != null && s[0].fmt != 0) regularFileSize(fname) else null
+        val fpath = if (fname != null && s[0].fmt != 0) signalFilePath(rec, cstr(fname)) else null
+        val size = fpath?.let { regularFileSize(it) }
         if (size != null) {
             var framesize = 0L
             val nbytes = size - wfdbgetstart(0)

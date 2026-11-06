@@ -1346,3 +1346,95 @@ fn write_annotations_field_lengths() {
     assert_eq!(r.samples, [10, 20, 30]);
     assert_eq!(r.codes, [NORMAL, PVC, NORMAL]);
 }
+
+// ---------------------------------------------------------------------------
+// WFDB-x: the high-level functions keep the time resolution of output
+// annotators (getafreq) and the getvec mode (getgvmode), also after an EDF
+// record, whose opening sets both (as in C), and on errors; the C-style
+// functions keep the behavior of C.
+
+fn two_beats() -> Annotations {
+    Annotations {
+        samples: vec![10, 20],
+        symbols: vec![b"N".to_vec(), b"N".to_vec()],
+        ..Default::default()
+    }
+}
+
+fn first_samples() -> wfdbx::ReadOptions {
+    wfdbx::ReadOptions {
+        to: Some(10.into()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn highlevel_keeps_afreq() {
+    let d = DataDir::new("keepafreq");
+    let mut w = d.wfdb();
+    w.wfdbquiet();
+    let a = two_beats();
+    w.setafreq(0.0);
+    w.write_annotations("nohdr", "a1", &a, 0.0, None).unwrap();
+    let expected = std::fs::read("nohdr.a1").unwrap();
+    let h = w.read_header("100s.edf", false).unwrap();
+    assert_eq!((h.fs, w.getafreq()), (360.0, 0.0));
+    w.write_annotations("nohdr", "a2", &a, 0.0, None).unwrap();
+    // no time resolution recorded (not 360 Hz)
+    assert_eq!(std::fs::read("nohdr.a2").unwrap(), expected);
+    w.read_record("100s.edf", &first_samples()).unwrap();
+    assert_eq!(w.getafreq(), 0.0);
+    assert!(w.check_record("100s.edf", &[]).is_ok());
+    assert_eq!(w.getafreq(), 0.0);
+    // (no annotation file)
+    assert!(w
+        .read_annotations("100s.edf", "atr", None, None, None, false)
+        .is_err());
+    assert_eq!(w.getafreq(), 0.0);
+    // a value that was set is kept
+    w.setafreq(1000.0);
+    w.read_header("100s.edf", false).unwrap();
+    assert_eq!(w.getafreq(), 1000.0);
+    w.write_annotations("nohdr", "a3", &a, 500.0, None).unwrap();
+    assert_eq!(w.getafreq(), 1000.0);
+    w.setafreq(0.0);
+    w.write_annotations("nohdr", "a3", &a, 500.0, None).unwrap();
+    assert_eq!(w.getafreq(), 0.0);
+    // the C-style functions: as in C, opening the EDF record sets it, and
+    // wfdbquit does not reset it
+    assert!(w.isigopen("100s.edf", &mut [], 0) > 0);
+    w.wfdbquit();
+    assert_eq!(w.getafreq(), 360.0);
+}
+
+#[test]
+fn highlevel_keeps_gvmode() {
+    let d = DataDir::new("keepgvmode");
+    for previous in [WFDB_LOWRES, WFDB_HIGHRES, WFDB_LOWRES | WFDB_GVPAD] {
+        let mut w = d.wfdb();
+        w.wfdbquiet();
+        w.setgvmode(previous);
+        w.read_header("100s.edf", false).unwrap();
+        assert_eq!(w.getgvmode(), previous);
+        // (no annotation file)
+        assert!(w
+            .read_annotations("100s.edf", "atr", None, None, None, false)
+            .is_err());
+        assert_eq!(w.getgvmode(), previous);
+        w.read_annotations("100s", "atr", None, None, None, false)
+            .unwrap();
+        assert_eq!(w.getgvmode(), previous);
+        w.read_record("100s.edf", &first_samples()).unwrap();
+        assert_eq!(w.getgvmode(), previous);
+        w.check_record("100s.edf", &[]).unwrap();
+        assert_eq!(w.getgvmode(), previous);
+        w.write_annotations("nohdr", "a1", &two_beats(), 0.0, None)
+            .unwrap();
+        assert_eq!(w.getgvmode(), previous);
+        // the C-style functions: as in C, the EDF record sets WFDB_HIGHRES,
+        // and wfdbquit does not reset it
+        assert!(w.isigopen("100s.edf", &mut [], 0) > 0);
+        w.wfdbquit();
+        assert!(w.getgvmode() & WFDB_HIGHRES != 0);
+    }
+}

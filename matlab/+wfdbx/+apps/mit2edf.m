@@ -15,8 +15,9 @@ function status = mit2edf(args)
 %   WFDB-x: the record must specify its sampling frequency, and the gain
 %   and the ADC resolution of each signal (the C program assumed 250 Hz
 %   and 200 adu/mV, and guessed the resolution from the format);
-%   unspecified units are written as "nd" (C: "mV"); see
-%   docs/DIVERGENCES.md.
+%   unspecified units are written as "nd" (C: "mV").  The EDF file is
+%   created under the output directory, as the library creates an output
+%   file (see wfdbx.wfdbx_output_path); see docs/DIVERGENCES.md.
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -42,9 +43,10 @@ function status = mit2edf(args)
 % resolution: the record must give the sampling frequency, and the gain and ADC
 % resolution of every signal (the original assumed 250 Hz and 200 adu/mV, and
 % guessed the resolution from the storage format); unspecified units are
-% written as "nd" (the original wrote "mV"); --legacy, as the first argument,
-% restores the original behavior. Each change is marked "WFDB-x:" in the code;
-% docs/DIVERGENCES.md gives the reasons.
+% written as "nd" (the original wrote "mV"); the EDF file is created under the
+% output directory, as the library creates an output file; --legacy, as the
+% first argument, restores the original behavior. Each change is marked
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C program: convert/mit2edf.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 2002-2014 George B. Moody; revised 2020 by Benjamin Moody.
@@ -259,6 +261,8 @@ if ~legacy          % (no checks in legacy mode)
         end
     end
 end
+% WFDB-x: the EDF file is created where the library creates an output file
+% of that name (see wfdbx.wfdbx_output_path)
 ofile = wfdbx.internal.OutputFile(ofname, pname);
 if ofile.fid < 0
     wfdbx.internal.ceprintf('%s: can''t create %s\n', pname, ofname);

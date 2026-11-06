@@ -21,9 +21,11 @@
 // the input (or the previous output signal) and suits the output format;
 // unspecified units are shown as "nd" (the original assumed 250 Hz, 200
 // adu/mV, a resolution based on the format, and millivolts); when an output
-// signal file would be one of the input files, the message says so; --legacy,
-// as the first argument, restores the original behavior. Each change is marked
-// "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
+// signal file would be one of the input files, the message says so; the -S
+// script is found under the input directory, as the library finds an input
+// file; --legacy, as the first argument, restores the original behavior. Each
+// change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
+// reasons.
 //
 // Original C program: app/xform.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 1983-2010 George B. Moody; revised 2017-2020 by
@@ -432,8 +434,11 @@ fun Wfdb.xformMain(argv0: Array<ByteArray>): Int {
         // If no output record was specified, get signal specs interactively.
         var format = 0
         var answer: ByteArray
-        val tty = script ?: "/dev/tty".latin1()
-        val ttyin = WfdbFile.fopen(tty, "r") ?: WfdbFile.stdin()
+        // WFDB-x: the script is found where the library finds an input file
+        // of that name (see wfdbx_input_path); if it cannot be opened, the
+        // standard input is read, as before
+        val tty = if (script != null) wfdbx_input_path(script) else "/dev/tty".latin1()
+        val ttyin = tty?.let { WfdbFile.fopen(it, "r") } ?: WfdbFile.stdin()
         fun sfgets(len: Int) = scriptFgets(ttyin, len, pname, script)
         val anslen = 32 // size of C's answer and directory buffers
         if (nrec == null) {

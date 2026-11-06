@@ -11,9 +11,10 @@
 # Changes from the original: no built-in gain or units: the new options -G GAIN
 # (required) and -U UNITS (required unless the gain is 0) give them (the
 # original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
-# millivolts); --legacy, as the first argument, restores the original behavior.
-# Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-# reasons.
+# millivolts); the -i file is found under the input directory, as the library
+# finds an input file; --legacy, as the first argument, restores the original
+# behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+# gives the reasons.
 #
 # Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 2003-2004 George B. Moody.
@@ -109,13 +110,15 @@ app_wav2mit <- function(args = character(0)) {
     b <- charToRaw(ifname)
     record <- rawToChar(b[seq_len(length(b) - 4L)])
   }
-  data <- if (file.exists(ifname) && !dir.exists(ifname))
-    tryCatch(readBin(ifname, "raw", WAV_HEADER_BYTES), error = function(e) NULL) else NULL
+  # WFDB-x: the file is found where the library finds an input file of that
+  # name (see wfdbx_input_path)
+  ipath <- wfdbx_input_path(ifname)
+  data <- .app_read_input(ifname, WAV_HEADER_BYTES)
   if (is.null(data)) {
     ceprintf("%s: can't open %s\n", pname, ifname)
     cexit(2)
   }
-  flen <- file.size(ifname)
+  flen <- file.size(.rfile_name(ipath))
   pos <- 0
   rd <- function(n) {                       # fread of n bytes
     m <- min(n, length(data) - pos)

@@ -20,7 +20,7 @@ plugins {
 }
 
 group = "io.github.alphanumericslab"
-version = "1.1.0"
+version = "1.2.0"
 
 // The linuxX64 target needs the Kotlin/Native toolchain (downloaded from
 // download.jetbrains.com on first use). It is built when -Pwfdbx.linux=true

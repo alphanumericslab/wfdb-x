@@ -1,0 +1,516 @@
+% Storage formats and annotation codes: the byte layouts of the signal formats, the FLAC
+% formats, the MIT and AHA annotation file formats, and the tables of annotation codes, as
+% implemented by python/src/wfdbx/_signal.py, _flac.py, _annot.py and _ecgcodes.py (and
+% identically by the other implementations).
+\chapter{Storage formats and annotation codes}
+\label{chap:formats}
+
+This chapter is the reference of the binary files of a record: the storage formats of the
+signal files, named by the format numbers of the header (\cref{chap:records}), the layout
+of the annotation files, and the annotation codes with their mnemonics, descriptions and
+mapping tables. These are the formats of the WFDB library \wfdbversion{}; the files that
+\wfdbx{} writes are read by the C library, and those of the C library by \wfdbx{}, in all
+seven implementations.
+
+\section{Signal storage formats}
+\label{sec:formats-signal}
+
+A signal file holds the samples of one \emph{signal group}: the signals of the header that
+name the same file. The samples are stored frame by frame: for each frame, the samples of
+the first signal of the group (one, or \textit{n} for a signal with \textit{n} samples per
+frame, written \code{16x}\textit{n} in the header), then those of the second signal, and so
+on. The formats that pack several samples into a group of bytes (212, 310 and 311) pack
+consecutive samples of this sequence, whatever signals they belong to. The header can also
+give a byte offset (\code{16+44}: the samples begin after 44 bytes of prolog, which the
+library skips) and a skew for each signal (\cref{chap:records}).
+
+Each format represents a range of integer values (ADC units). The most negative value of a
+format is reserved: it marks an \emph{invalid} sample (a sample that is missing or was not
+recorded). \code{putvec} writes the invalid sample \code{WFDB\_INVALID\_SAMPLE} ($-32768$) as
+that value, and \code{getvec} reads that value back as \code{WFDB\_INVALID\_SAMPLE} (or, in
+the \code{WFDB\_GVPAD} mode of \code{setgvmode}, as the previous valid sample of the signal).
+A sample outside the range of the format is written modulo $2^{\mathit{bits}}$ (its lowest
+bits), except in format 8, which limits the change from one sample to the next. The formats
+are listed by the library constant \code{WFDB\_FMT\_LIST}, in the order of
+\cref{tab:formats}; every implementation reads and writes all of them.
+
+\begin{xltabular}{\linewidth}{@{}rrP{5.4cm}Lc@{}}
+\caption{The signal storage formats (bits per sample, the bytes of a group of samples, the
+range of the values, and whether \wfdbx{} reads (R) and writes (W) them).}
+\label{tab:formats}\\
+\toprule
+{\leavevmode\tabhead Format} & {\leavevmode\tabhead Bits} & {\leavevmode\tabhead Layout} & {\leavevmode\tabhead Range (invalid value)} &
+  {\leavevmode\tabhead R/W} \\
+\midrule
+\endfirsthead
+\toprule
+{\leavevmode\tabhead Format} & {\leavevmode\tabhead Bits} & {\leavevmode\tabhead Layout} & {\leavevmode\tabhead Range (invalid value)} &
+  {\leavevmode\tabhead R/W} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+0 & -- & no signal file (a null signal) & every sample invalid & R/W \\
+8 & 8 & 1 byte: the difference from the previous sample, two's complement & differences
+  $-128$ to 127 (no invalid value) & R/W \\
+16 & 16 & 2 bytes, two's complement, little-endian & $-32768$ to 32767 ($-32768$) & R/W \\
+61 & 16 & 2 bytes, two's complement, big-endian & $-32768$ to 32767 ($-32768$) & R/W \\
+80 & 8 & 1 byte, offset binary (value + 128) & $-128$ to 127 ($-128$) & R/W \\
+160 & 16 & 2 bytes, offset binary (value + 32768), little-endian & $-32768$ to 32767
+  ($-32768$) & R/W \\
+212 & 12 & 2 samples in 3 bytes & $-2048$ to 2047 ($-2048$) & R/W \\
+310 & 10 & 3 samples in two 16-bit little-endian words (15 bits of each) & $-512$ to 511
+  ($-512$) & R/W \\
+311 & 10 & 3 samples in one 32-bit little-endian word (30 bits) & $-512$ to 511 ($-512$) &
+  R/W \\
+24 & 24 & 3 bytes, two's complement, little-endian & $-2^{23}$ to $2^{23}-1$ ($-2^{23}$) &
+  R/W \\
+32 & 32 & 4 bytes, two's complement, little-endian & $-2^{31}$ to $2^{31}-1$ ($-2^{31}$) &
+  R/W \\
+508 & 8 & FLAC stream, 8 bits per sample & $-128$ to 127 ($-128$) & R/W \\
+516 & 16 & FLAC stream, 16 bits per sample & $-32768$ to 32767 ($-32768$) & R/W \\
+524 & 24 & FLAC stream, 24 bits per sample & $-2^{23}$ to $2^{23}-1$ ($-2^{23}$) & R/W \\
+\end{xltabular}
+
+The ADC resolution given in the header (\cref{chap:records}) may be smaller than the
+storage width of the format (11-bit samples in format 212, as in \code{100s}); the format
+only has to hold the range of the values. The precise layout of each format follows. In
+the bit diagrams, bit 0 is the least significant bit, and $s_0$, $s_1$, $s_2$ are
+consecutive samples of the group.
+
+\subsection{Format 0: null signals}
+\label{sec:formats-0}
+
+A signal of format 0 has no samples on disk (its file name in the header is usually
+\code{\textasciitilde}). Every sample read is invalid (\code{WFDB\_INVALID\_SAMPLE}, or, in
+\code{WFDB\_GVPAD} mode, the signal's initial value from the header); samples written to it
+are discarded. Format 0 is used by the layout segment and the null segments of
+multi-segment records.
+
+\subsection{Format 8: first differences}
+\label{sec:formats-8}
+
+Each byte is the difference between a sample and the previous sample of the same signal,
+as a signed 8-bit integer; the first difference is taken from the initial value given in
+the header. The samples themselves can take any value, but they change by $-128$ to 127 from one
+sample to the next: \code{putvec} limits a larger difference to $-128$ or 127 and returns 0 (the slew
+rate is too high), and the following samples are then relative to the value
+actually written. The format has no invalid value, and an error in the file affects every
+following sample.
+
+\subsection{Formats 16 and 61: 16-bit amplitudes}
+\label{sec:formats-16}
+
+Each sample is a 16-bit two's complement integer, least significant byte first (format 16)
+or most significant byte first (format 61).
+
+\subsection{Formats 80 and 160: offset binary}
+\label{sec:formats-80}
+
+Each sample is stored as an unsigned integer, the value plus $2^{\mathit{bits}-1}$: one byte,
+the value plus 128 (format 80), or two bytes, the value plus 32768, least significant byte
+first (format 160). Format 80 is that of 8-bit WAV files (\cmd{wav2mit}).
+
+\subsection{Format 212: 12-bit amplitudes}
+\label{sec:formats-212}
+
+Two samples are packed into three bytes $b_0 b_1 b_2$:
+\begin{itemize}
+\item $s_0$: the low 8 bits in $b_0$, the high 4 bits in bits 0--3 of $b_1$;
+\item $s_1$: the high 4 bits in bits 4--7 of $b_1$, the low 8 bits in $b_2$.
+\end{itemize}
+Each sample is a 12-bit two's complement integer. When the number of samples written is
+odd, the last sample is written as the first two bytes of a group ($b_0 b_1$).
+
+\subsection{Format 310: 10-bit amplitudes in 16-bit words}
+\label{sec:formats-310}
+
+Three samples are packed into two 16-bit little-endian words $w_0$ and $w_1$, bit 0 of each
+word being unused (0):
+\begin{itemize}
+\item $s_0$: bits 1--10 of $w_0$;
+\item $s_1$: bits 1--10 of $w_1$;
+\item $s_2$: its low 5 bits in bits 11--15 of $w_0$, its high 5 bits in bits 11--15 of
+  $w_1$.
+\end{itemize}
+Each sample is a 10-bit two's complement integer. An incomplete group at the end of the
+file is written as the words that hold its samples ($w_0$ for one sample, $w_0 w_1$ for
+two).
+
+\subsection{Format 311: 10-bit amplitudes in 32-bit words}
+\label{sec:formats-311}
+
+Three samples are packed into one 32-bit little-endian word $w$ (four bytes), bits 30 and
+31 being unused (0):
+\begin{itemize}
+\item $s_0$: bits 0--9 of $w$;
+\item $s_1$: bits 10--19;
+\item $s_2$: bits 20--29.
+\end{itemize}
+Each sample is a 10-bit two's complement integer. An incomplete group at the end of the
+file is written as its first two bytes (one sample) or its four bytes (two samples).
+
+\subsection{Formats 24 and 32: 24- and 32-bit amplitudes}
+\label{sec:formats-24}
+
+Each sample is a two's complement integer of 3 bytes (format 24) or 4 bytes (format 32),
+least significant byte first. In format 32, the invalid value $-2^{31}$ differs from
+\code{WFDB\_INVALID\_SAMPLE}: an invalid sample is written as $-2^{31}$, which is read back
+as \code{WFDB\_INVALID\_SAMPLE}.
+
+\section{FLAC formats}
+\label{sec:formats-flac}
+
+Formats 508, 516 and 524 store the samples of a signal group losslessly compressed, as a
+FLAC stream (Free Lossless Audio Codec) of $\mathit{format} - 500$ bits per sample (8, 16
+or 24). Each signal of the group is a channel of the stream, so a FLAC file holds at most 8
+signals, and all of them must have the same number of samples per frame (the library
+reports \code{cannot store N signals in a single FLAC file} or
+\code{every signal in a FLAC file must have the same sampling frequency}). The samples of a
+frame of a signal with several samples per frame are consecutive samples of its channel.
+The FLAC sample rate is nominal (96\,kHz); the sampling frequency is the one given in the
+header.
+
+The C library reads and writes these formats with libFLAC. \wfdbx{} needs no external
+library:
+\begin{itemize}
+\item \textbf{Reading} uses a translation of the stream decoder of libFLAC 1.4.3, in each
+  implementation: every subframe type (constant, verbatim, fixed and linear prediction),
+  stereo decorrelation, wasted bits, variable block sizes and CRC checks. Damaged files are
+  decoded, resynchronized and reported as by the C library, and seeking
+  (\code{isigsettime}) works as in C. The MD5 signature of the stream is checked when the
+  input is closed if the environment variable \code{WFDB\_FLAC\_CHECK\_MD5} is set
+  (\code{isigclose: warning: incorrect MD5 hash in FLAC input}).
+\item \textbf{Writing} uses an encoder of \wfdbx{}'s own: the stream begins with
+  \code{fLaC}, a \code{STREAMINFO} block (block size 4096, the frame sizes, the number of
+  channels and bits per sample, the total number of samples and the MD5 signature, all
+  completed when the file is closed) and an empty \code{VORBIS\_COMMENT} block (vendor
+  \code{wfdb-x}). The samples are coded in frames of 4096 samples per channel (the last
+  frame shorter), the channels independently, each as a constant, verbatim or
+  fixed-predictor (order 0 to 4) subframe, whichever is smallest, with Rice-coded residuals
+  (partition orders 0 to 6). A sample is first reduced to the width of the format.
+\end{itemize}
+The files written are standard FLAC streams: libFLAC, and therefore the C library, reads
+them back with identical sample values. Their bytes differ from those that libFLAC writes
+(which depend on its version and on the processor), so a record written in a FLAC format
+by \wfdbx{} has the same samples and checksums as one written by the C library, but not the
+same signal file.
+
+\section{Annotation files}
+\label{sec:formats-annotations}
+
+An annotation file belongs to a record and an annotator: \code{100s.atr} holds the
+annotations of the annotator \code{atr} for the record \code{100s}. Each annotation has a
+time (a sample number, or a number of ticks of the file's time resolution), an annotation
+code (\code{anntyp}, \cref{sec:formats-codes}), three small integer fields (\code{subtyp},
+\code{chan} and \code{num}) and optional auxiliary information (\code{aux}, a string of up
+to 255 bytes). The library reads two formats, MIT (the WFDB format, the default for
+writing) and AHA; it recognizes the format of a file when it opens it for reading.
+
+\subsection{MIT format}
+\label{sec:formats-mit-annotations}
+
+An MIT-format annotation file is a sequence of 16-bit words, each stored least significant
+byte first. The 6 high bits of a word are a code $A$ (\code{(w >> 10) \& 63}), and the 10
+low bits a value $I$ (\code{w \& 1023}). An annotation is an \emph{annotation word}, whose
+code $A$ (1 to 49) is the annotation code and whose value $I$ is the interval, in ticks,
+from the time of the previous annotation (from 0 for the first), followed by any number of
+\emph{pseudo-annotation words} that modify it, with the codes 59 to 63 of
+\cref{tab:mit-pseudo}. The 32-bit integers of the file are stored as two 16-bit words, the
+most significant word first, each least significant byte first (the byte order of the
+PDP-11: the bytes 2, 3, 0, 1 of a little-endian integer). The word 0 ($A = 0$, $I = 0$)
+ends the file.
+
+\begin{xltabular}{\linewidth}{@{}rlL@{}}
+\caption{The pseudo-annotation codes of MIT-format annotation files.}
+\label{tab:mit-pseudo}\\
+\toprule
+{\leavevmode\tabhead $A$} & {\leavevmode\tabhead Name} & {\leavevmode\tabhead Meaning} \\
+\midrule
+\endfirsthead
+\toprule
+{\leavevmode\tabhead $A$} & {\leavevmode\tabhead Name} & {\leavevmode\tabhead Meaning} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+59 & \code{SKIP} & $I$ is 0; the next two words are a signed 32-bit interval, added to
+  the time. It precedes an annotation word whose interval does not fit in 10 bits (more
+  than 1023 ticks, or a negative interval, in a file that is out of order), which then has
+  the interval 0. Intervals beyond $\pm(2^{31}-1)$ take several \code{SKIP}s. \\
+60 & \code{NUM} & $I$ is the \code{num} field of this annotation and of the following
+  ones (written only when it changes; initially 0). \\
+61 & \code{SUB} & $I$ is the \code{subtyp} field of this annotation only (written only when
+  it is not 0). \\
+62 & \code{CHN} & $I$ is the \code{chan} field of this annotation and of the following
+  ones (written only when it changes; initially 0). \\
+63 & \code{AUX} & The low 8 bits of $I$ are a byte count $n$; the next $n$ bytes are the
+  \code{aux} string of this annotation, followed by a null byte if $n$ is odd, so that the
+  file stays word-aligned. \\
+\end{xltabular}
+
+The \code{subtyp} and \code{num} fields are signed 8-bit integers and \code{chan} an
+unsigned 8-bit integer, stored in the 10 bits of $I$. Codes 50 to 58 are not used. An
+annotation of code 0 (\code{NOTQRS}), which a word of value 0 could not represent, is
+written as a \code{SKIP} of its interval minus 1 followed by a word of code 0 and interval
+1.
+
+At the beginning of a file, \code{NOTE} annotations at time 0 (with \code{subtyp},
+\code{chan} and \code{num} 0) whose \code{aux} begins with \code{\#\#} carry information
+for the library, written by \code{putann} before the first annotation and read by
+\code{annopen}:
+\begin{itemize}
+\item \code{\#\# time resolution: }\textit{F}: the times of the file are in ticks of
+  \textit{F} per second, not in sample intervals of the record (written when
+  \code{setafreq} has set a resolution, as \cmd{wrann} does with the sampling frequency of
+  the record; \code{getiaorigfreq} returns it);
+\item \code{\#\# annotation type definitions}, then one annotation per code whose mnemonic
+  or description has been redefined (by \code{setannstr} or \code{setanndesc} with a
+  positive code), with the \code{aux} \textit{code mnemonic description}, then
+  \code{\#\# end of definitions}. When it reads such a file, the library takes these
+  definitions as the mnemonics and descriptions of \code{annstr}, \code{strann} and
+  \code{anndesc};
+\item after these, an annotation of code 0 at time 0 ends the table.
+\end{itemize}
+
+An MIT-format file written by \code{putann} need not be in canonical order (by time, then
+\code{num}, then \code{chan}); \wfdbx{} sorts an out-of-order file itself when it is closed,
+without losing annotations (\cref{chap:behavior}), unless the environment variable
+\code{WFDBANNSORT} is 0.
+
+\subsection{AHA format}
+\label{sec:formats-aha-annotations}
+
+An AHA-format annotation file, as used by the AHA Database and written for it by
+\cmd{m2a}, has 16 bytes per annotation:
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{An annotation of an AHA-format annotation file.}
+\label{tab:aha-annotation}\\
+\toprule
+{\leavevmode\tabhead Bytes} & {\leavevmode\tabhead Contents} \\
+\midrule
+\endfirsthead
+\toprule
+{\leavevmode\tabhead Bytes} & {\leavevmode\tabhead Contents} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+0 & 0 \\
+1 & the AHA annotation code, a character (\cref{tab:aha-codes}); mapped to an annotation
+  code by \code{ammap} when read, and from one by \code{mamap} when written \\
+2--5 & the time, a 32-bit integer in PDP-11 order (most significant word first) \\
+6--7 & the serial number of the annotation, a 16-bit little-endian integer, from 1 \\
+8 & the \code{subtyp} field \\
+9 & the annotation code (\code{anntyp}) when written; read as the \code{chan} field \\
+10--15 & the \code{aux} string, up to 6 bytes, padded with null bytes \\
+\end{xltabular}
+
+The file is padded with bytes 255 (\code{0377}) to a multiple of 1024 bytes; a byte 255 in
+place of the first byte of an annotation ends it. When it reads an AHA file, the library
+gives an AHA code \code{U} with a \code{subtyp} of 0 the \code{subtyp} $-1$, and
+\code{mamap} maps \code{NOISE} to \code{U} only with that subtype. A file opened for
+reading is taken to be in AHA format when its first byte is 0 and its second byte is an AHA
+code other than \code{[} and \code{]}; the library warns (\code{file appears to be in AHA
+format}) when the format it finds is not the one requested. The times are in the units
+written: sample intervals for files written by \cmd{m2a} without \opt{-s}, and milliseconds
+in the AHA Database tape files (\cmd{a2m} \opt{-t 1} and \opt{-t 2}). The compressed
+annotation files of the AHA Database CD-ROMs (\file{.ANO}), read only by \cmd{a2m}
+(\opt{-t 3}), have 6 bytes per annotation: the AHA code, a 24-bit time in milliseconds (most
+significant byte first; 255 in its high byte marks the end), and a 16-bit serial number.
+
+\section{Annotation codes}
+\label{sec:formats-codes}
+
+Annotation codes are integers from 1 to \code{ACMAX} (49); 0, \code{NOTQRS}, is not an
+annotation code (\code{isann} is false for it), and codes 42 to 49 have no standard meaning
+(they can be defined by \code{setannstr} and \code{setanndesc}, and by the definitions of
+an annotation file). Each code has a symbolic name (a constant of the library: \code{NORMAL},
+\code{PVC}, ...), a mnemonic (the text of \cmd{rdann}, returned by \code{annstr} and
+\code{ecgstr}) and a description (\code{anndesc}). \Cref{tab:anncodes} gives the standard
+values, those of the library when no annotation file has redefined them.
+
+\begin{xltabular}{\linewidth}{@{}rP{3.3cm}lL@{}}
+\caption{The annotation codes: number, symbolic name, mnemonic and description.}
+\label{tab:anncodes}\\
+\toprule
+{\leavevmode\tabhead Code} & {\leavevmode\tabhead Name} & {\leavevmode\tabhead Mnemonic} & {\leavevmode\tabhead Description} \\
+\midrule
+\endfirsthead
+\toprule
+{\leavevmode\tabhead Code} & {\leavevmode\tabhead Name} & {\leavevmode\tabhead Mnemonic} & {\leavevmode\tabhead Description} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+0 & \code{NOTQRS} & (space) & (not an annotation code) \\
+1 & \code{NORMAL} & \code{N} & Normal beat \\
+2 & \code{LBBB} & \code{L} & Left bundle branch block beat \\
+3 & \code{RBBB} & \code{R} & Right bundle branch block beat \\
+4 & \code{ABERR} & \code{a} & Aberrated atrial premature beat \\
+5 & \code{PVC} & \code{V} & Premature ventricular contraction \\
+6 & \code{FUSION} & \code{F} & Fusion of ventricular and normal beat \\
+7 & \code{NPC} & \code{J} & Nodal (junctional) premature beat \\
+8 & \code{APC} & \code{A} & Atrial premature beat \\
+9 & \code{SVPB} & \code{S} & Supraventricular premature or ectopic beat \\
+10 & \code{VESC} & \code{E} & Ventricular escape beat \\
+11 & \code{NESC} & \code{j} & Nodal (junctional) escape beat \\
+12 & \code{PACE} & \code{/} & Paced beat \\
+13 & \code{UNKNOWN} & \code{Q} & Unclassifiable beat \\
+14 & \code{NOISE} & \code{\textasciitilde{}} & Change in signal quality \\
+15 & -- & \code{[15]} & (none) \\
+16 & \code{ARFCT} & \code{\textbar{}} & Isolated QRS-like artifact \\
+17 & -- & \code{[17]} & (none) \\
+18 & \code{STCH} & \code{s} & ST segment change \\
+19 & \code{TCH} & \code{T} & T-wave change \\
+20 & \code{SYSTOLE} & \code{*} & Systole \\
+21 & \code{DIASTOLE} & \code{D} & Diastole \\
+22 & \code{NOTE} & \code{\textquotedbl{}} & Comment annotation \\
+23 & \code{MEASURE} & \code{=} & Measurement annotation \\
+24 & \code{PWAVE} & \code{p} & P-wave peak \\
+25 & \code{BBB} & \code{B} & Bundle branch block beat (unspecified) \\
+26 & \code{PACESP} & \code{\textasciicircum{}} & (Non-captured) pacemaker artifact \\
+27 & \code{TWAVE} & \code{t} & T-wave peak \\
+28 & \code{RHYTHM} & \code{+} & Rhythm change \\
+29 & \code{UWAVE} & \code{u} & U-wave peak \\
+30 & \code{LEARN} & \code{?} & Beat not classified during learning \\
+31 & \code{FLWAV} & \code{!} & Ventricular flutter wave \\
+32 & \code{VFON} & \code{[} & Start of ventricular flutter/fibrillation \\
+33 & \code{VFOFF} & \code{]} & End of ventricular flutter/fibrillation \\
+34 & \code{AESC} & \code{e} & Atrial escape beat \\
+35 & \code{SVESC} & \code{n} & Supraventricular escape beat \\
+36 & \code{LINK} & \code{@} & Link to external data (aux contains URL) \\
+37 & \code{NAPC} & \code{x} & Non-conducted P-wave (blocked APC) \\
+38 & \code{PFUS} & \code{f} & Fusion of paced and normal beat \\
+39 & \code{WFON}, \code{PQ} & \code{(} & Waveform onset \\
+40 & \code{WFOFF}, \code{JPT} & \code{)} & Waveform end \\
+41 & \code{RONT} & \code{r} & R-on-T premature ventricular contraction \\
+42 & -- & \code{[42]} & (none) \\
+43 & -- & \code{[43]} & (none) \\
+44 & -- & \code{[44]} & (none) \\
+45 & -- & \code{[45]} & (none) \\
+46 & -- & \code{[46]} & (none) \\
+47 & -- & \code{[47]} & (none) \\
+48 & -- & \code{[48]} & (none) \\
+49 & -- & \code{[49]} & (none) \\
+\end{xltabular}
+
+\subsection{Mapping tables}
+\label{sec:formats-maps}
+
+The library classifies the annotation codes with tables that programs can query and change
+(\cref{chap:library}): \code{isqrs(a)} is 1 for the codes of QRS complexes (beats);
+\code{map1(a)} maps a code to one of \code{NOTQRS}, \code{NORMAL}, \code{PVC},
+\code{FUSION} and \code{LEARN}; \code{map2(a)} to one of those or \code{SVPB}; \code{mamap(a, s)} gives the AHA
+code (a character) of an annotation code with the subtype \code{s}; and \code{annpos(a)}
+the position at which an annotation is drawn (\code{APSTD} at the signal, \code{APHIGH}
+above it, \code{APLOW} below, \code{APUNDEF} undefined; the position codes \code{APATT} (4,
+attached to the signal given by \code{chan}), \code{APAHIGH} (5) and \code{APALOW} (6, above
+and below it) are defined but used by no standard code).
+\code{setisqrs}, \code{setmap1}, \code{setmap2} and \code{setannpos} change the tables. A
+code out of range gives 0, \code{NOTQRS}, \code{NOTQRS}, \code{O} and \code{APUNDEF}.
+\Cref{tab:annmaps} gives the tables for the codes 0 to 41 (codes 42 to 49 give 0,
+\code{NOTQRS}, \code{NOTQRS}, \code{O} and \code{APUNDEF}).
+
+\begin{xltabular}{\linewidth}{@{}rlrlllL@{}}
+\caption{The mapping tables of the annotation codes 0 to 41 (\code{mamap} of code 14 is
+\code{U} with the subtype $-1$, \code{O} otherwise).}
+\label{tab:annmaps}\\
+\toprule
+{\leavevmode\tabhead Code} & {\leavevmode\tabhead Mnemonic} & {\leavevmode\tabhead isqrs} & {\leavevmode\tabhead map1} & {\leavevmode\tabhead map2} & {\leavevmode\tabhead mamap} & {\leavevmode\tabhead annpos} \\
+\midrule
+\endfirsthead
+\toprule
+{\leavevmode\tabhead Code} & {\leavevmode\tabhead Mnemonic} & {\leavevmode\tabhead isqrs} & {\leavevmode\tabhead map1} & {\leavevmode\tabhead map2} & {\leavevmode\tabhead mamap} & {\leavevmode\tabhead annpos} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+0 & \code{\ } & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APUNDEF} \\
+1 & \code{N} & 1 & \code{NORMAL} & \code{NORMAL} & \code{N} & \code{APSTD} \\
+2 & \code{L} & 1 & \code{NORMAL} & \code{NORMAL} & \code{N} & \code{APSTD} \\
+3 & \code{R} & 1 & \code{NORMAL} & \code{NORMAL} & \code{N} & \code{APSTD} \\
+4 & \code{a} & 1 & \code{NORMAL} & \code{SVPB} & \code{N} & \code{APSTD} \\
+5 & \code{V} & 1 & \code{PVC} & \code{PVC} & \code{V} & \code{APSTD} \\
+6 & \code{F} & 1 & \code{FUSION} & \code{FUSION} & \code{F} & \code{APSTD} \\
+7 & \code{J} & 1 & \code{NORMAL} & \code{SVPB} & \code{N} & \code{APSTD} \\
+8 & \code{A} & 1 & \code{NORMAL} & \code{SVPB} & \code{N} & \code{APSTD} \\
+9 & \code{S} & 1 & \code{NORMAL} & \code{SVPB} & \code{N} & \code{APSTD} \\
+10 & \code{E} & 1 & \code{PVC} & \code{PVC} & \code{E} & \code{APSTD} \\
+11 & \code{j} & 1 & \code{NORMAL} & \code{NORMAL} & \code{N} & \code{APSTD} \\
+12 & \code{/} & 1 & \code{NORMAL} & \code{NORMAL} & \code{P} & \code{APSTD} \\
+13 & \code{Q} & 1 & \code{NORMAL} & \code{NORMAL} & \code{Q} & \code{APSTD} \\
+14 & \code{\textasciitilde{}} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{U} & \code{APHIGH} \\
+15 & \code{[15]} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APUNDEF} \\
+16 & \code{\textbar{}} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+17 & \code{[17]} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APUNDEF} \\
+18 & \code{s} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+19 & \code{T} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+20 & \code{*} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+21 & \code{D} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+22 & \code{\textquotedbl{}} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+23 & \code{=} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+24 & \code{p} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+25 & \code{B} & 1 & \code{NORMAL} & \code{NORMAL} & \code{N} & \code{APSTD} \\
+26 & \code{\textasciicircum{}} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+27 & \code{t} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+28 & \code{+} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APLOW} \\
+29 & \code{u} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+30 & \code{?} & 1 & \code{LEARN} & \code{LEARN} & \code{Q} & \code{APSTD} \\
+31 & \code{!} & 1 & \code{PVC} & \code{PVC} & \code{O} & \code{APSTD} \\
+32 & \code{[} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{[} & \code{APSTD} \\
+33 & \code{]} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{]} & \code{APSTD} \\
+34 & \code{e} & 1 & \code{NORMAL} & \code{NORMAL} & \code{N} & \code{APSTD} \\
+35 & \code{n} & 1 & \code{NORMAL} & \code{NORMAL} & \code{N} & \code{APSTD} \\
+36 & \code{@} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+37 & \code{x} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+38 & \code{f} & 1 & \code{NORMAL} & \code{NORMAL} & \code{N} & \code{APSTD} \\
+39 & \code{(} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+40 & \code{)} & 0 & \code{NOTQRS} & \code{NOTQRS} & \code{O} & \code{APHIGH} \\
+41 & \code{r} & 1 & \code{PVC} & \code{PVC} & \code{R} & \code{APSTD} \\
+\end{xltabular}
+
+\code{ammap(c)}, the reverse of \code{mamap}, maps an AHA code (the character \code{c},
+from \code{E} to \code{]}) to an annotation code, and gives \code{NOTQRS} for any other
+character:
+
+\begin{xltabular}{\linewidth}{@{}lL@{}}
+\caption{The AHA annotation codes and the annotation codes that \code{ammap} gives them.}
+\label{tab:aha-codes}\\
+\toprule
+{\leavevmode\tabhead AHA code} & {\leavevmode\tabhead ammap} \\
+\midrule
+\endfirsthead
+\toprule
+{\leavevmode\tabhead AHA code} & {\leavevmode\tabhead ammap} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\code{E} & \code{VESC} \\
+\code{F} & \code{FUSION} \\
+\code{G} & \code{NOTQRS} \\
+\code{H} & \code{NOTQRS} \\
+\code{I} & \code{NOTQRS} \\
+\code{J} & \code{NOTQRS} \\
+\code{K} & \code{NOTQRS} \\
+\code{L} & \code{NOTQRS} \\
+\code{M} & \code{NOTQRS} \\
+\code{N} & \code{NORMAL} \\
+\code{O} & \code{NOTE} \\
+\code{P} & \code{PACE} \\
+\code{Q} & \code{UNKNOWN} \\
+\code{R} & \code{RONT} \\
+\code{S} & \code{NOTQRS} \\
+\code{T} & \code{NOTQRS} \\
+\code{U} & \code{NOISE} \\
+\code{V} & \code{PVC} \\
+\code{W} & \code{NOTQRS} \\
+\code{X} & \code{NOTQRS} \\
+\code{Y} & \code{NOTQRS} \\
+\code{Z} & \code{NOTQRS} \\
+\code{[} & \code{VFON} \\
+\code{\textbackslash{}} & \code{NOTQRS} \\
+\code{]} & \code{VFOFF} \\
+\end{xltabular}

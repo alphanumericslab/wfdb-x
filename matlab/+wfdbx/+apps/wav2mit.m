@@ -15,8 +15,9 @@ function status = wav2mit(args)
 %   WFDB-x: -G and -U are new and required (the C program wrote 12.5 adu/mV
 %   for 8-bit and 6400 adu/mV for 16-bit files, with no units, i.e.,
 %   millivolts; give -G 12.5 -U mV or -G 6400 -U mV to reproduce it).  The
-%   sampling frequency and the resolution are those given in the WAV file;
-%   see docs/DIVERGENCES.md.
+%   sampling frequency and the resolution are those given in the WAV file.
+%   The -i file is found under the input directory, as the library finds
+%   an input file (see wfdbx.wfdbx_input_path); see docs/DIVERGENCES.md.
 %
 %   Example (sound.wav stands for a .wav file in the current folder; the
 %   example writes the header of the record sound there):
@@ -39,9 +40,10 @@ function status = wav2mit(args)
 % Changes from the original: no built-in gain or units: the new options -G GAIN
 % (required) and -U UNITS (required unless the gain is 0) give them (the
 % original wrote 12.5 adu/mV for 8-bit and 6400 adu/mV for 16-bit files, in
-% millivolts); --legacy, as the first argument, restores the original behavior.
-% Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-% reasons.
+% millivolts); the -i file is found under the input directory, as the library
+% finds an input file; --legacy, as the first argument, restores the original
+% behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+% gives the reasons.
 %
 % Original C program: convert/wav2mit.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 2003-2004 George B. Moody.
@@ -185,7 +187,13 @@ end
 if ~ischar(record)
     record = ifname(1:end - 4);
 end
-fid = fopen(ifname, 'rb');
+% WFDB-x: the file is found where the library finds an input file of that
+% name (see wfdbx.wfdbx_input_path)
+ipath = wfdbx.wfdbx_input_path(ifname);
+fid = -1;
+if ischar(ipath)
+    fid = fopen(wfdbx.internal.literal_path(ipath), 'rb');
+end
 if fid < 0
     wfdbx.internal.ceprintf('%s: can''t open %s\n', pname, ifname);
     status = 2;

@@ -14,3 +14,12 @@ dist/
 cpp/build*/
 rust/target/
 .claude/worktrees/
+
+# LaTeX build files of the user's manual (the PDF itself is kept)
+docs/user-manual/*.aux
+docs/user-manual/*.log
+docs/user-manual/*.out
+docs/user-manual/*.toc
+docs/user-manual/*.fls
+docs/user-manual/*.fdb_latexmk
+docs/user-manual/*.synctex.gz

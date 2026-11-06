@@ -2764,3 +2764,98 @@ end
     @test isfile(joinpath(d, "o.hea"))
     rm(d; recursive=true)
 end
+
+# WFDB-x: wfdbx_input_path and wfdbx_output_path, where a program opens the
+# files that it reads or creates itself (t_toolpaths in
+# tests/reference/api_expect.c, with HOME set to the subdirectory thome; as
+# test_toolpaths in test_api.py).
+@testset "wfdbx_input_path and wfdbx_output_path" begin
+    d = tmpdir("toolpaths")
+    sv(x) = x === nothing ? nothing : String(copy(x))
+    withenv("HOME" => "thome", "WFDB" => nothing, "WFDBX_INPUT_DIR" => nothing,
+            "WFDBX_OUTPUT_DIR" => nothing) do
+        cd(d) do
+            w = Wfdb()
+            ip(x) = sv(W.wfdbx_input_path(w, x))
+            op(x) = sv(W.wfdbx_output_path(w, x))
+            W.wfdbx_set_input_dir(w, nothing)
+            W.wfdbx_set_output_dir(w, nothing)
+            @test ip("a.txt") == "a.txt"
+            @test ip("~/a.txt") == "thome/a.txt"
+            @test ip("-") == "-"
+            @test ip("") == ""
+            @test ip(nothing) === nothing
+            @test ip("http://127.0.0.1:1/a") === nothing
+            @test op("a.wav") == "a.wav"
+            @test op("~/a.wav") == "thome/a.wav"
+            @test op("https://127.0.0.1:1/a") === nothing
+            W.wfdbx_set_input_dir(w, "tin")
+            @test ip("a.txt") == "tin/a.txt"
+            @test ip("../a.txt") == "tin/../a.txt"
+            @test ip("/a.txt") == "/a.txt"
+            @test ip("-") == "-"
+            W.wfdbx_set_input_dir(w, "~/tin/")
+            @test ip("a.txt") == "thome/tin/a.txt"
+            W.wfdbx_set_input_dir(w, "http://127.0.0.1:1/d")
+            @test ip("a.txt") === nothing
+            W.wfdbx_set_input_dir(w, nothing)
+            W.wfdbx_set_output_dir(w, "tout/deep")
+            @test op("a.wav") == "tout/deep/a.wav"
+            @test isdir("tout/deep")
+            @test op("s/a.wav") == "tout/deep/s/a.wav"
+            @test isdir("tout/deep/s")
+            @test op("/a.wav") == "/a.wav"
+            @test op("~/m/a.wav") == "thome/m/a.wav"
+            @test !ispath("thome/m")
+            @test ip("a.txt") == "a.txt"
+            W.wfdbx_set_legacy(w, true)
+            W.wfdbx_set_input_dir(w, "tin")
+            W.wfdbx_set_output_dir(w, "tlout")
+            @test ip("a.txt") == "a.txt"
+            @test ip("~/a.txt") == "~/a.txt"
+            @test op("a.wav") == "tlout/a.wav"
+            @test op("/a.wav") == "tlout//a.wav"
+            @test op("~/a.wav") == "tlout/~/a.wav"
+            @test op("-") == "-"
+            @test isdir("tlout/~")
+            W.wfdbx_set_output_dir(w, nothing)
+            @test op("a.wav") == "a.wav"
+            W.wfdbx_set_input_dir(w, nothing)
+            W.wfdbx_set_legacy(w, false)
+            # byte vectors, and the default instance
+            @test W.wfdbx_input_path(w, Vector{UInt8}("b.txt")) == b"b.txt"
+            @test W.wfdbx_output_path(Vector{UInt8}("-")) == b"-"
+        end
+    end
+    rm(d; recursive=true, force=true)
+end
+
+# osigopen(record, nothing, 0) opens no signals and returns 0, after closing
+# the output signals already open (unless the record name begins with '+');
+# a header that cannot be read is still an error (C reads before the start
+# of an array: see docs/KNOWN_C_BEHAVIORS.md; as test_osigopen_no_signals in
+# test_api.py).
+@testset "osigopen with no signals" begin
+    with_data() do w
+        spec = [Siginfo(fname=Vector{UInt8}("o16.dat"), desc=Vector{UInt8}("s$i"),
+                        units=Vector{UInt8}("mV"), gain=100.0, group=0, fmt=16, adcres=12,
+                        spf=1) for i in 0:2]
+        err = lib_stderr() do
+            W.setsampfreq(w, 360.0)
+            @test W.osigfopen(w, spec, 3) == 3
+            @test W.osigopen(w, "+100s", nothing, 0) == 0
+            @test W.putvec(w, Int32[1, 2, 3]) == 3         # still open
+            @test W.osigopen(w, "100s", nothing, 0) == 0
+            @test W.putvec(w, Int32[1, 2, 3]) == 0         # closed: no signals
+            @test W.osigopen(w, "100s", Siginfo[], 0) == 0
+            @test W.osigopen(w, "100s.hea", nothing, 0) == 0
+            W.wfdbquiet(w)
+            @test W.osigopen(w, "nosuch", nothing, 0) == -1
+            @test W.osigopen(w, "100s", nothing, 3) == -3
+            W.wfdbverbose(w)
+            W.wfdbquit(w)
+        end
+        @test filesize("o16.dat") == 6
+        @test err == ""
+    end
+end

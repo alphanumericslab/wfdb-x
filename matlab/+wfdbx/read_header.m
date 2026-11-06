@@ -1,11 +1,19 @@
 function hdr = read_header(record, varargin)
 %READ_HEADER Read the header of a record.
 %   HDR = wfdbx.read_header(RECORD) reads the header of the record RECORD
-%   without opening its signal files.  RECORD is a record name read from the
-%   input directory, or a full path, a ~ path or a URL.
+%   without opening its signal files.  RECORD is the record name,
+%   without the .hea extension (a trailing '.hea' is also accepted): a full
+%   path, absolute ('/data/mitdb/100') or in the home directory
+%   ('~/Documents/100s'), used as given; a relative path ('100s',
+%   'data/100s'), read from the input directory if one is set (see
+%   wfdbx.wfdbx_set_input_dir), otherwise from the current folder; or a URL
+%   ('https://physionet.org/files/mitdb/1.0.0/100'), read only if network
+%   access is on (see wfdbx.wfdbx_set_network).
 %
 %   HDR = wfdbx.read_header(RECORD, NAME, VALUE, ...) takes the options
-%   'input_dir', 'network' and 'legacy' of wfdbx.read_record.
+%   'input_dir', 'network' and 'legacy' of wfdbx.read_record ('input_dir':
+%   the input directory for this call only, under which relative record
+%   names are read; it does not apply to full paths or URLs).
 %
 %   HDR has these fields:
 %
@@ -22,12 +30,22 @@ function hdr = read_header(record, varargin)
 %                   space that a header may put at either end of it)
 %     base_time, base_time_ms, base_date, comments
 %                   as in wfdbx.read_record
+%     metadata      the "Key: value" entries of the header, an N-by-2 cell
+%                   array of char row vectors (key, value) in file order,
+%                   as wfdbx.read_metadata returns them (from the .hea file
+%                   only, not from a .info file; with the warning
+%                   'wfdbx:duplicate_key' for a key that has more than one
+%                   entry); cell(0, 2) for an EDF record (which has no
+%                   .hea file) and for a header read from the standard
+%                   input ('-')
 %
 %   Errors: an error (identifier 'wfdbx:read_header') is thrown if the
 %   header cannot be read.
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
-%   WFDB library functions.
+%   WFDB library functions; the getvec mode (wfdbx.getgvmode) and the time
+%   resolution of output annotators (wfdbx.getafreq) are left as they were
+%   (opening an EDF record sets both).
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -38,7 +56,7 @@ function hdr = read_header(record, varargin)
 %       {hdr.siginfo.desc}          % {'MLII', 'V5'}
 %       [hdr.siginfo.gain]          % [200 200]
 %
-%   See also wfdbx.read_record, wfdbx.isigopen.
+%   See also wfdbx.read_record, wfdbx.read_metadata, wfdbx.isigopen.
 %
 %   Part of WFDB-x; not in the original WFDB package.
 
@@ -54,6 +72,10 @@ function hdr = read_header(record, varargin)
 % any later version. See LICENSE.
 
 record = wfdbx.internal.strarg(record);
+% WFDB-x: the getvec mode and the time resolution of output annotators are
+% restored when the function returns (also on errors; opening an EDF record
+% sets both)
+keep_settings = wfdbx.internal.hl_settings(); %#ok<NASGU>
 opt = wfdbx.internal.hl_options(struct('input_dir', [], 'network', [], ...
     'legacy', false), varargin, 'read_header');
 legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_header'); %#ok<NASGU>
@@ -89,5 +111,16 @@ while ischar(c)
     c = wfdbx.getinfo([]);
 end
 hdr.comments = comments;
+edf = S.isedf;
 wfdbx.wfdbquit();
+% WFDB-x: the metadata entries (of the .hea file only, not of a .info
+% file).  An EDF record and a header read from the standard input have
+% none.
+hdr.metadata = cell(0, 2);
+if ~edf && ~strcmp(record, '-')
+    id = wfdbx.internal.meta_id('read_header', 'wfdbx:read_header', ...
+        'wfdbx:read_header');
+    hdr.metadata = wfdbx.internal.meta_entries( ...
+        wfdbx.internal.meta_read(record, [], [], id), record);
+end
 end
