@@ -11,9 +11,9 @@
 # Copyright (C) 2026 Reza Sameni.
 #
 # This library is free software: you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the Free
-# Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation, either version 2.1 of the License, or (at
+# your option) any later version. See LICENSE.
 #
 # Legacy mode (WFDB-x): with legacy = TRUE, each function behaves as in the
 # original package (the default gain of 200 adu/mV and ADC resolution based

@@ -17,7 +17,7 @@
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
 // Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// any later version. See LICENSE-GPL.
 
 package wfdbx.cli
 
@@ -81,7 +81,7 @@ fun main(args: Array<String>) {
             exit(0)
         }
         "--version" -> {
-            Stdout.write("WFDB-x 1.2.0\n")
+            Stdout.write("WFDB-x 1.2.1\n")
             exit(0)
         }
     }

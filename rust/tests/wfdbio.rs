@@ -7,9 +7,9 @@
 // Copyright (C) 2026 Reza Sameni.
 //
 // This program is free software: you can redistribute it and/or modify it
-// under the terms of the GNU General Public License as published by the Free
-// Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or (at
+// your option) any later version. See LICENSE.
 
 use wfdbx::cstd::{self, EOF, SEEK_CUR, SEEK_END, SEEK_SET};
 use wfdbx::{cfprintf, wfdb_fopen, Wfdb, WfdbFile, NULL, WFDB_APPEND, WFDB_READ, WFDB_WRITE};

@@ -48,12 +48,12 @@ has no counterpart in the original package.
 Copyright (C) 2026 Reza Sameni.
 
 This library is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version. See LICENSE.
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 2.1 of the License, or (at your option)
+any later version. See LICENSE.
 """
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 from ._wfdbio import (
     WFDB_READ, WFDB_WRITE, WFDB_AHA_READ, WFDB_AHA_WRITE, WFDB_APPEND,

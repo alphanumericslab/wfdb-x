@@ -104,5 +104,5 @@ The runner compares the arrays value by value (NaN equal to NaN) and the
 other files byte for byte, across all the WFDB-x languages and the C
 library, and stops with an error if any of them differ.
 
-This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GPL-3.0-or-later;
-see [LICENSE](../LICENSE).
+This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni.
+LGPL-2.1-or-later; see [LICENSE](../LICENSE).

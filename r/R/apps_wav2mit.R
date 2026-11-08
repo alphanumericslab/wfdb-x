@@ -23,7 +23,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 
 app_wav2mit <- function(args = character(0)) {
   app_run(.wav2mit_main, c("wav2mit", args))

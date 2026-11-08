@@ -11,7 +11,7 @@
 \chapterlanguage{kotlin}
 
 The Kotlin implementation of WFDB-x is the Kotlin Multiplatform library \code{wfdbx}, with
-the Gradle coordinates \code{io.github.alphanumericslab:wfdbx:1.2.0}, in the directory
+the Gradle coordinates \code{io.github.alphanumericslab:wfdbx:1.2.1}, in the directory
 \file{kotlin} of the repository. It is written in common Kotlin code, which runs on every
 JVM, on Android and on iOS, with the Kotlin standard library as its only dependency, and
 never calls the C library. It is meant for mobile applications and JVM programs that read
@@ -78,7 +78,7 @@ to its dependencies:
 
 \begin{lstlisting}[language=Kotlin]
 dependencies {
-    implementation("io.github.alphanumericslab:wfdbx:1.2.0")
+    implementation("io.github.alphanumericslab:wfdbx:1.2.1")
 }
 \end{lstlisting}
 
@@ -102,7 +102,7 @@ directory \file{kotlin} by:
 
 \begin{lstlisting}[style=shell]
 ./gradlew fatJar
-bin/wfdbx --version                # WFDB-x 1.2.0
+bin/wfdbx --version                # WFDB-x 1.2.1
 bin/wfdbx --list                   # the tools
 \end{lstlisting}
 
@@ -1882,7 +1882,7 @@ The command also takes these options, instead of a tool:
 \cmd{bin/wfdbx TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with its
   status \\
 \cmd{bin/wfdbx --list} & lists the names of the tools, one per line \\
-\cmd{bin/wfdbx --version} & prints the version, \code{WFDB-x 1.2.0} \\
+\cmd{bin/wfdbx --version} & prints the version, \code{WFDB-x 1.2.1} \\
 \cmd{bin/wfdbx --help}, \cmd{bin/wfdbx -h} & prints the usage \\
 \bottomrule
 \end{tabularx}

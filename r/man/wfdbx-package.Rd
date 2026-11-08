@@ -74,9 +74,14 @@
   when network access is on.  See \code{\link{wfdbx_set_input_dir}}.
 }
 \section{License}{
-  WFDB-x is distributed under the GNU General Public License, version 3
-  or later (file \file{COPYING} in the installed package, \file{LICENSE}
-  in the sources).
+  The library of WFDB-x is distributed under the GNU Lesser General Public
+  License, version 2.1 or later (file \file{COPYING.LESSER} in the
+  installed package, \file{LICENSE} in the sources), and its command-line
+  tools (\code{wfdbx_tool}, \code{wfdbx_tools} and the programs they
+  run: \file{R/apps_*.R} and \file{R/cli.R} in the sources) under the
+  GNU General Public License, version 3 or later (file \file{COPYING},
+  \file{LICENSE-GPL} in the sources). The package as a whole is distributed under the GNU General
+  Public License, version 3 or later.
 }
 \author{
   The WFDB library and tools were written by George B. Moody, with

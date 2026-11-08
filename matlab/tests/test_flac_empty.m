@@ -12,9 +12,9 @@ function test_flac_empty()
 % Copyright (C) 2026 Reza Sameni.
 %
 % This program is free software: you can redistribute it and/or modify it
-% under the terms of the GNU General Public License as published by the Free
-% Software Foundation, either version 3 of the License, or (at your option)
-% any later version. See LICENSE.
+% under the terms of the GNU Lesser General Public License as published by
+% the Free Software Foundation, either version 2.1 of the License, or (at
+% your option) any later version. See LICENSE.
 
 assert_eq(hex(wfdbx.internal.md5(zeros(1, 0, 'uint8'))), ...
     'd41d8cd98f00b204e9800998ecf8427e', 'md5 of no data');

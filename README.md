@@ -164,7 +164,7 @@ requirements.
 | Rust | [`rust/`](rust/README.md) | `cargo install --path rust` | `rdsamp -r 100s` |
 | Julia | [`julia/`](julia/README.md) | `using Pkg; Pkg.develop(path="/path/to/wfdb-x/julia")` | `wfdbx rdsamp -r 100s` |
 | R | [`r/`](r/README.md) | `R CMD INSTALL r` | `wfdbx rdsamp -r 100s` |
-| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.2.0")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
+| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.2.1")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
 
 Record `100s` is the sample record in `tests/data`. Run the tools there, or
 point `WFDBX_INPUT_DIR` at that directory; the Python package also includes it
@@ -285,7 +285,7 @@ issues.
 
 WFDB-x has its own version numbers, shared by the seven implementations and
 following [semantic versioning](https://semver.org); the current version is
-1.2.0 ([`CHANGELOG.md`](CHANGELOG.md) lists the changes in each version). They are independent of the version of the WFDB Software Package
+1.2.1 ([`CHANGELOG.md`](CHANGELOG.md) lists the changes in each version). They are independent of the version of the WFDB Software Package
 that WFDB-x implements, 10.7.0, which the library still reports as in C
 (`wfdbversion()` returns `"10.7.0"`, and `wfdberror()` names it).
 
@@ -351,11 +351,19 @@ code by the original WFDB developers. The C library and tools were written
 by George B. Moody, Benjamin Moody and the other contributors credited, file
 by file, in each WFDB-x source file and in [`docs/AUTHORS.md`](docs/AUTHORS.md).
 
-WFDB-x is distributed under the GNU General Public License, version 3 or
-(at your option) any later version ([`LICENSE`](LICENSE)). The original C
-sources in [`third_party/`](third_party/) keep their own licenses: the GNU
-Library General Public License, version 2 or later, for the library, and
-the GNU General Public License, version 2 or later, for the tools.
+The WFDB-x library is distributed under the GNU Lesser General Public
+License, version 2.1 or (at your option) any later version
+([`LICENSE`](LICENSE)): programs under any license, proprietary ones
+included, may use it on the LGPL's terms. The command-line tools (each
+language's `apps` and the `wfdbx` command), translations of the tools of
+the original package, are distributed under the GNU General Public License,
+version 3 or (at your option) any later version
+([`LICENSE-GPL`](LICENSE-GPL)). Each source file states its license. These
+follow the licenses of the original C code, whose "or later" terms allow
+them: the original sources in [`third_party/`](third_party/) keep their own
+licenses, the GNU Library General Public License, version 2 or later, for
+the library, and the GNU General Public License, version 2 or later, for
+the tools.
 
 The original WFDB Software Package is Copyright (C) 1983-2022 George B. Moody
 and the WFDB contributors.

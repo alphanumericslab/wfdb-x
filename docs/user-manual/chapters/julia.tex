@@ -63,8 +63,9 @@ Pkg.develop(path="/path/to/wfdb-x/julia")
 \end{lstlisting}
 
 In the package REPL, \code{] dev /path/to/wfdb-x/julia} does the same. The package is
-\code{WFDBX}, version \code{1.2.0}, under the GNU General Public License, version 3 or
-later, and is loaded with \code{using WFDBX}. The first \code{using WFDBX} precompiles
+\code{WFDBX}, version \code{1.2.1} (its library under the GNU Lesser General Public
+License, version 2.1 or later, its tools under the GNU General Public License, version
+3 or later: \cref{sec:license}), and is loaded with \code{using WFDBX}. The first \code{using WFDBX} precompiles
 the package, running a workload of every part of the library and of every tool, so that
 later sessions and tool runs load it without compiling anything. Changing a source file
 of the package makes the next session precompile it again.
@@ -83,7 +84,7 @@ exec julia --startup-file=no --project=/path/to/wfdb-x/julia \
     /path/to/wfdb-x/julia/bin/wfdbx.jl "$@"
 \end{lstlisting}
 
-\cmd{wfdbx -{}-version} then prints the version of WFDB-x, \code{WFDB-x 1.2.0}. The
+\cmd{wfdbx -{}-version} then prints the version of WFDB-x, \code{WFDB-x 1.2.1}. The
 docstrings of the package document each function (\code{?read\_record} in the REPL), with
 examples.
 
@@ -1641,7 +1642,7 @@ export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
 wfdbx rdsamp -r 100s -t 10 -p     # the first 10 seconds of 100s, in physical units
 wfdbx rdann -r 100s -a atr        # its annotations
 wfdbx rdsamp --legacy -r 100s     # legacy mode: --legacy as the first argument
-wfdbx --version                   # WFDB-x 1.2.0
+wfdbx --version                   # WFDB-x 1.2.1
 \end{lstlisting}
 
 Without the script, the command is \cmd{julia -{}-startup-file=no

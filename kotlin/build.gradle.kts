@@ -6,10 +6,10 @@
 //
 // Copyright (C) 2026 Reza Sameni.
 //
-// This file is free software: you can redistribute it and/or modify it
-// under the terms of the GNU General Public License as published by the Free
-// Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// This file is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Lesser General Public License as published by the
+// Free Software Foundation, either version 2.1 of the License, or (at your
+// option) any later version. See LICENSE.
 
 import java.io.OutputStream
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -20,7 +20,7 @@ plugins {
 }
 
 group = "io.github.alphanumericslab"
-version = "1.2.0"
+version = "1.2.1"
 
 // The linuxX64 target needs the Kotlin/Native toolchain (downloaded from
 // download.jetbrains.com on first use). It is built when -Pwfdbx.linux=true
@@ -149,6 +149,11 @@ publishing {
             )
             url.set("https://github.com/alphanumericslab/wfdb-x")
             licenses {
+                // the library; the command-line tools (wfdbx.apps, wfdbx.cli) are GPL-3.0-or-later
+                license {
+                    name.set("LGPL-2.1-or-later")
+                    url.set("https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html")
+                }
                 license {
                     name.set("GPL-3.0-or-later")
                     url.set("https://www.gnu.org/licenses/gpl-3.0.html")

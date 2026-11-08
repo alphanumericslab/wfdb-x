@@ -71,8 +71,8 @@ The package is attached with \code{library(wfdbx)}. Its version is given by
 \code{packageVersion("wfdbx")}, and by the driver script of the tools:
 
 \begin{lstlisting}[style=shell]
-Rscript -e 'cat(format(packageVersion("wfdbx")), "\n")'    # 1.2.0
-Rscript r/inst/bin/wfdbx.R --version                        # WFDB-x 1.2.0
+Rscript -e 'cat(format(packageVersion("wfdbx")), "\n")'    # 1.2.1
+Rscript r/inst/bin/wfdbx.R --version                        # WFDB-x 1.2.1
 \end{lstlisting}
 
 The help pages of the package (\code{?read\_record}, \code{?read\_metadata},
@@ -1566,7 +1566,7 @@ The driver script also takes these options, instead of a tool:
 \cmd{Rscript wfdbx.R TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with
   its status \\
 \cmd{Rscript wfdbx.R --list} & lists the names of the tools, one per line \\
-\cmd{Rscript wfdbx.R --version} & prints the version, \code{WFDB-x 1.2.0} \\
+\cmd{Rscript wfdbx.R --version} & prints the version, \code{WFDB-x 1.2.1} \\
 \cmd{Rscript wfdbx.R --help}, \cmd{Rscript wfdbx.R -h} & prints the usage \\
 \bottomrule
 \end{tabularx}

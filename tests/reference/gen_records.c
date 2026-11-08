@@ -5,7 +5,7 @@
    Usage: gen_records OUTPUT_DIRECTORY
 
    Part of WFDB-x, Reza Sameni, Oct 2026.
-   GNU General Public License, version 3 or later (see LICENSE). */
+   GNU Lesser General Public License, version 2.1 or later (see LICENSE). */
 
 #include <stdio.h>
 #include <stdlib.h>

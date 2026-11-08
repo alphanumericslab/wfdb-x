@@ -29,7 +29,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 
 # The path of the signal file fname named in the header of record, to measure
 # its length. WFDB-x: in normal mode, where the library reads it, i.e., in the

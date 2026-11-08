@@ -52,7 +52,9 @@ the original" (each marked `wfdb-x:` in the code; `docs/DIVERGENCES.md`
 gives the reasons), and gives the copyright of the original C code, as in
 `docs/AUTHORS.md`, and of the Julia translation (Reza Sameni, 2026). Code
 with no C original says "It has no counterpart in the original package."
-Every header ends with the license: GNU GPL 3 or later (`LICENSE`).
+Every header ends with the license: GNU LGPL 2.1 or later (`LICENSE`) for the
+library and the tests, GNU GPL 3 or later (`LICENSE-GPL`) for the tools
+(`src/apps`, `src/cli.jl`, `bin`).
 
 The docstring of a WFDB library function ends with "Translation of the C
 function NAME() (lib/FILE.c, WFDB 10.7.0): same arguments and results."

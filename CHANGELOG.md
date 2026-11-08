@@ -8,6 +8,21 @@ change existing behavior, and a new major number (x.0.0) for changes that
 can break existing code. Every version implements version 10.7.0 of the
 WFDB Software Package.
 
+## 1.2.1
+
+* **C++ on Windows** builds again: the code that runs a program (for URLs, through
+  `curl`) called its argument-quoting function by a former name.
+* **License.** The library is now distributed under the GNU Lesser General
+  Public License, version 2.1 or later ([`LICENSE`](LICENSE)), so that
+  programs under any license, proprietary ones included, may use it on the
+  LGPL's terms; it follows the license of the original C library (the GNU
+  Library General Public License, version 2 or later). The command-line
+  tools (each language's `apps` and the `wfdbx` command), translations of
+  the original tools (GPL version 2 or later), stay under the GNU General
+  Public License, version 3 or later ([`LICENSE-GPL`](LICENSE-GPL)). Each
+  source file states its license; the package metadata (Cargo, Python, Maven,
+  R, CITATION) says so.
+
 ## 1.2.0
 
 New features, in all seven languages:

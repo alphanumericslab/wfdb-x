@@ -1,5 +1,5 @@
 # Files of the source distribution besides the package (WFDB-x)
-include LICENSE README.md
+include LICENSE LICENSE-GPL README.md
 recursive-include tests *.py
 recursive-include src/wfdbx/sample_data *
 recursive-include src/wfdbx/examples *.ipynb

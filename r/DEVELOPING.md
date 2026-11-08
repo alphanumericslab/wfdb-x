@@ -78,7 +78,9 @@ original:", a short list of how this file differs from the C code (each
 change is marked `wfdb-x:` in the code, and `docs/DIVERGENCES.md` gives the
 reasons), or "none, apart from the language."; the copyright of the
 original C code (from `docs/AUTHORS.md`) and "R translation and changes:
-Copyright (C) 2026 Reza Sameni."; and the GPL-3 notice. A file with no C
+Copyright (C) 2026 Reza Sameni."; and the license notice (LGPL-2.1 or later,
+`LICENSE`; for the tools, `R/apps_*.R`, `R/cli.R` and `inst/bin`, GPL-3 or
+later, `LICENSE-GPL`). A file with no C
 original (the high-level API, `check.R`, `cli.R`, `cstd.R`, the driver,
 the tests) says "It has no counterpart in the original package." (tests:
 "It tests WFDB-x; ...") and gives only Reza Sameni's copyright. Keep the

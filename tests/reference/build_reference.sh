@@ -12,7 +12,7 @@
 # lib/libFLAC.so.
 #
 # Part of WFDB-x, Reza Sameni, Oct 2026.
-# GNU General Public License, version 3 or later (see LICENSE).
+# GNU Lesser General Public License, version 2.1 or later (see LICENSE).
 set -e
 OUT=$(mkdir -p "$1" && cd "$1" && pwd)
 HERE=$(cd "$(dirname "$0")" && pwd)

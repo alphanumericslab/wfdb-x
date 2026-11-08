@@ -25,7 +25,9 @@ gives the same credit in short form, in the same order in every language:
 4. the copyright of the C file, with its revisers (for example, "Copyright
    (C) 1989-2013 George B. Moody; revised 2015-2020 by Benjamin Moody"), and
    "*Language* translation and changes: Copyright (C) 2026 Reza Sameni";
-5. the license: the GNU General Public License, version 3 or later.
+5. the license: the GNU Lesser General Public License, version 2.1 or
+   later, for the library, and the GNU General Public License, version 3 or
+   later, for the command-line tools (the `apps` and the `wfdbx` command).
 
 Tests and other code with no C original (see
 [below](#code-that-wfdb-x-doesnt-port-from-a-wfdb-c-file)) say instead that
@@ -179,6 +181,9 @@ The guide also credits these pieces of work:
 The Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin reimplementations were
 developed by Reza Sameni (2026), through AI-assisted development,
 cross-language verification and unit testing (see "How WFDB-x was
-developed" in the project README). They are distributed under the GNU
-General Public License, version 3 or later (`LICENSE`), which the "or later"
-terms of the C code's licenses allow.
+developed" in the project README). Their library is distributed under the
+GNU Lesser General Public License, version 2.1 or later (`LICENSE`), and
+their command-line tools under the GNU General Public License, version 3 or
+later (`LICENSE-GPL`), which the "or later" terms of the C code's licenses
+allow (the library's GNU Library General Public License, version 2 or
+later; the tools' GNU General Public License, version 2 or later).

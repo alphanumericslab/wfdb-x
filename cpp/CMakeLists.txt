@@ -8,13 +8,13 @@
 # Copyright (C) 2026 Reza Sameni.
 #
 # This program is free software: you can redistribute it and/or modify it
-# under the terms of the GNU General Public License as published by the Free
-# Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation, either version 2.1 of the License, or (at
+# your option) any later version. See LICENSE.
 
 cmake_minimum_required(VERSION 3.14)
 
-project(wfdbx VERSION 1.2.0
+project(wfdbx VERSION 1.2.1
   DESCRIPTION "A reimplementation of the WFDB Software Package (library and command-line tools) in C++, part of WFDB-x: the same package in seven languages, tested to give byte-for-byte identical results"
   HOMEPAGE_URL "https://github.com/alphanumericslab/wfdb-x"
   LANGUAGES CXX)

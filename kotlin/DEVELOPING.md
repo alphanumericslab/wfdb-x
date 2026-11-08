@@ -23,7 +23,7 @@ the high-level API.
 * Repositories: Maven Central, or the repository named by the Gradle
   property `mavenMirror` (`-PmavenMirror=URL`, or `mavenMirror=URL` in
   `~/.gradle/gradle.properties`), for plugins and dependencies alike.
-* Coordinates: `io.github.alphanumericslab:wfdbx:1.2.0`; Kotlin package
+* Coordinates: `io.github.alphanumericslab:wfdbx:1.2.1`; Kotlin package
   `wfdbx` (`wfdbx.cstd` for the C standard library emulation; `wfdbx.apps`
   for the tools and `wfdbx.cli` for the launcher's `main`).
 

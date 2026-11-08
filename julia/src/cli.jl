@@ -14,7 +14,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 
 # A tool name: lowercase letters, digits and underscores, not starting with
 # an underscore (private functions such as `_run_main` are not tools).
@@ -107,7 +107,7 @@ end
 The entry point of the command-line driver `bin/wfdbx.jl TOOL ARGS...`:
 run the tool `args[1]` with the arguments `args[2:end]`, writing to the
 process's standard output and error, and return its exit status. With
-`--version`, print the version of WFDB-x (such as "WFDB-x 1.2.0") and
+`--version`, print the version of WFDB-x (such as "WFDB-x 1.2.1") and
 return 0. With no arguments or an unknown tool name, print a message on the
 standard error and return 1.
 

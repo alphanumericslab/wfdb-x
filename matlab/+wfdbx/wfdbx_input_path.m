@@ -35,9 +35,9 @@ function p = wfdbx_input_path(name)
 % Copyright (C) 2026 Reza Sameni.
 %
 % This library is free software: you can redistribute it and/or modify it
-% under the terms of the GNU General Public License as published by the Free
-% Software Foundation, either version 3 of the License, or (at your option)
-% any later version. See LICENSE.
+% under the terms of the GNU Lesser General Public License as published by
+% the Free Software Foundation, either version 2.1 of the License, or (at
+% your option) any later version. See LICENSE.
 
 % WFDB-x: files that a program opens itself.  Decided by Reza Sameni, Nov
 % 2026: a file named to a tool is found, or created, where the library

@@ -33,7 +33,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 
 "Length of the header of a .wav file (RIFF, format and data chunk headers)."
 const _WAV_HEADER_BYTES = 44

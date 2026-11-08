@@ -8,9 +8,9 @@ function test_cstd_int()
 % Copyright (C) 2026 Reza Sameni.
 %
 % This program is free software: you can redistribute it and/or modify it
-% under the terms of the GNU General Public License as published by the Free
-% Software Foundation, either version 3 of the License, or (at your option)
-% any later version. See LICENSE.
+% under the terms of the GNU Lesser General Public License as published by
+% the Free Software Foundation, either version 2.1 of the License, or (at
+% your option) any later version. See LICENSE.
 
 I = 'wfdbx.internal.';
 assert_eq(wfdbx.internal.cdiv(-7, 2), -3, 'cdiv(-7,2)');

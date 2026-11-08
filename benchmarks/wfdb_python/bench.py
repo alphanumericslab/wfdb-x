@@ -6,8 +6,8 @@ comparison with WFDB-x.
 The same operations and output as the WFDB-x drivers (benchmarks/README.md).
 wfdb-python must be installed (pip install wfdb).
 
-This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GPL-3.0-or-later;
-see LICENSE.
+This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni.
+LGPL-2.1-or-later; see LICENSE.
 """
 
 import json

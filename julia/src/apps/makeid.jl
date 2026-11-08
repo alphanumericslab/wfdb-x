@@ -21,7 +21,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 
 "Length of an AHA record ID (bytes 1-8 of the ID block)."
 const _MAKEID_IDLEN = 8

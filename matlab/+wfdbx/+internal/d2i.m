@@ -15,9 +15,9 @@ function y = d2i(x)
 % Copyright (C) 2026 Reza Sameni.
 %
 % This library is free software: you can redistribute it and/or modify it
-% under the terms of the GNU General Public License as published by the Free
-% Software Foundation, either version 3 of the License, or (at your option)
-% any later version. See LICENSE.
+% under the terms of the GNU Lesser General Public License as published by
+% the Free Software Foundation, either version 2.1 of the License, or (at
+% your option) any later version. See LICENSE.
 
 y = fix(x);
 bad = ~(x < 2147483648 & x > -2147483649);   % outside (INT_MIN - 1, INT_MAX + 1)

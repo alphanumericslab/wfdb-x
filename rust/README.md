@@ -831,6 +831,11 @@ and behavior, with the changes described in
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-WFDB-x is distributed under the GNU General Public License, version 3 or
-(at your option) any later version. See
-[LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).
+The WFDB-x library is distributed under the GNU Lesser General Public
+License, version 2.1 or (at your option) any later version
+([LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE)): programs under any license, proprietary ones
+included, may use it on the LGPL's terms. The command-line tools (the
+`apps` and the `wfdbx` command), translations of the tools of the original
+package, are distributed under the GNU General Public License, version 3 or
+(at your option) any later version
+([LICENSE-GPL](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE-GPL)). Each source file states its license.

@@ -128,9 +128,9 @@ with the exact authors and years of [`docs/AUTHORS.md`](../docs/AUTHORS.md):
 % MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
 %
 % This library is free software: you can redistribute it and/or modify it
-% under the terms of the GNU General Public License as published by the Free
-% Software Foundation, either version 3 of the License, or (at your option)
-% any later version. See LICENSE.
+% under the terms of the GNU Lesser General Public License as published by
+% the Free Software Foundation, either version 2.1 of the License, or (at
+% your option) any later version. See LICENSE.
 ```
 
 * "Changes from the original" lists, in one short sentence each, how the
@@ -138,7 +138,9 @@ with the exact authors and years of [`docs/AUTHORS.md`](../docs/AUTHORS.md):
   code; docs/DIVERGENCES.md gives the reasons."), or says "none, apart from
   the language.";
 * tools (`+wfdbx/+apps/`) say "original program" and "Original C program:
-  app/<tool>.c", and "This program is free software";
+  app/<tool>.c", and "This program is free software", under the GNU
+  General Public License, version 3 or later ("See LICENSE-GPL."), as do
+  the drivers of `bin/`;
 * WFDB-x's own code (C library emulation, high-level API, drivers, FLAC
   codec, tests) says, after the first sentence, "It has no counterpart in
   the original package." (tests: "It tests WFDB-x; it has no counterpart
@@ -733,7 +735,7 @@ function status = rdann(args)
 %   Moody.
 % MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
 %
-% This program is free software: ... See LICENSE.
+% This program is free software: ... See LICENSE-GPL.
 
 if nargin < 1
     args = {};

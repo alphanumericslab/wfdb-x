@@ -1,10 +1,10 @@
 [package]
 name = "wfdbx"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 rust-version = "1.70"
 description = "A reimplementation of the WFDB Software Package (library and command-line tools) in Rust, part of WFDB-x: the same package in seven languages, tested to give byte-for-byte identical results"
-license = "GPL-3.0-or-later"
+license = "LGPL-2.1-or-later AND GPL-3.0-or-later"
 readme = "README.md"
 homepage = "https://github.com/alphanumericslab/wfdb-x"
 repository = "https://github.com/alphanumericslab/wfdb-x"

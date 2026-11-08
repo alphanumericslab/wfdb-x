@@ -24,7 +24,7 @@
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
 // Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// any later version. See LICENSE-GPL.
 //
 // As in the C program, the current date and time are used as the start of a
 // record that has none.  Where the C program has undefined behavior, this

@@ -8,9 +8,9 @@ function test_cstd_rand()
 % Copyright (C) 2026 Reza Sameni.
 %
 % This program is free software: you can redistribute it and/or modify it
-% under the terms of the GNU General Public License as published by the Free
-% Software Foundation, either version 3 of the License, or (at your option)
-% any later version. See LICENSE.
+% under the terms of the GNU Lesser General Public License as published by
+% the Free Software Foundation, either version 2.1 of the License, or (at
+% your option) any later version. See LICENSE.
 
 r = wfdbx.internal.GlibcRand(0);
 assert_eq([r.rand() r.rand() r.rand()], [1804289383 846930886 1681692777], ...

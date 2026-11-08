@@ -17,7 +17,7 @@
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
 // Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// any later version. See LICENSE-GPL.
 //
 // The input is in the format produced by `rdann'.  Where the C program has
 // undefined behavior (a line with no space after column 9, or a mnemonic

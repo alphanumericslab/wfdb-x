@@ -20,7 +20,7 @@
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
 // Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// any later version. See LICENSE-GPL.
 //
 // The input contains RR intervals (or times of occurrence, with -T) in text
 // format, one per line.  The first token on each line is taken to be an RR

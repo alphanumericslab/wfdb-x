@@ -24,9 +24,9 @@ function [stat, A, ia] = ann_getbulk(ia, m, noaux, nofail)
 % MATLAB/Octave translation and changes: Copyright (C) 2026 Reza Sameni.
 %
 % This library is free software: you can redistribute it and/or modify it
-% under the terms of the GNU General Public License as published by the Free
-% Software Foundation, either version 3 of the License, or (at your option)
-% any later version. See LICENSE.
+% under the terms of the GNU Lesser General Public License as published by
+% the Free Software Foundation, either version 2.1 of the License, or (at
+% your option) any later version. See LICENSE.
 
 A = struct('time', zeros(1, 0), 'anntyp', zeros(1, 0), ...
     'subtyp', zeros(1, 0), 'chan', zeros(1, 0), 'num', zeros(1, 0), ...

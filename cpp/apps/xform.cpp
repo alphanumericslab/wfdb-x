@@ -30,7 +30,7 @@
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
 // Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// any later version. See LICENSE-GPL.
 //
 // Dither uses an exact emulation of glibc's rand() (after srand(0)), so that
 // the output is the same on all platforms.  Conversions of out-of-range

@@ -122,7 +122,8 @@ translates and their authors, lists the changes from the original ("Changes
 from the original: ..."; each is marked `wfdb-x:` in the code, and
 `docs/DIVERGENCES.md` gives the reasons), gives the copyright of the C code
 (from `docs/AUTHORS.md`) and of the translation, and the license notice
-(GPL-3 or later). A file with no C original (the high-level API,
+(LGPL-2.1 or later, `LICENSE`; for the tools of `src/bin`, GPL-3 or later,
+`LICENSE-GPL`). A file with no C original (the high-level API,
 `check.rs`, `cstd`, `flac.rs`, the tests) says "It has no counterpart in the
 original package." instead. Copy the header of a similar file when adding
 one.

@@ -18,8 +18,8 @@ tests/reference/build_reference.sh):
 
     python3 tests/metadata/check_c.py --c-bin benchmarks/build/c/wfdb/bin
 
-This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GNU General
-Public License, version 3 or later; see LICENSE.
+This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GNU Lesser
+General Public License, version 2.1 or later; see LICENSE.
 """
 
 import argparse

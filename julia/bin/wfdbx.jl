@@ -15,7 +15,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 
 # WFDB-x: Julia finds its package depot (with the compiled package) through
 # HOME. HOME may have been changed to give `~` names another meaning (the

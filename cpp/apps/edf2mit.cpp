@@ -20,7 +20,7 @@
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
 // Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// any later version. See LICENSE-GPL.
 //
 // As in the C program, the header fields are read into one reusable 81-byte
 // buffer, so a 16-character signal label is followed by a space and by the

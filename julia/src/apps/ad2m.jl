@@ -33,7 +33,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 
 const _AD2M_HELP = (
     "usage: %s -i AHAFILE [ OPTIONS ... ]\n",

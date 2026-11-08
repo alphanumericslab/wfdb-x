@@ -22,7 +22,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 #
 # The annotations are read in blocks (.getann_bulk) and their lines
 # formatted with vector operations; the result is exactly that of the C

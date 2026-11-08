@@ -32,9 +32,9 @@
 // C++ translation and changes: Copyright (C) 2026 Reza Sameni.
 //
 // This library is free software: you can redistribute it and/or modify it
-// under the terms of the GNU General Public License as published by the Free
-// Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 2.1 of the License, or (at
+// your option) any later version. See LICENSE.
 //
 // This file contains the WFDB path functions (getwfdb, setwfdb, ...), the
 // functions that find and open WFDB files (wfdb_open, wfdb_fopen), error
@@ -996,7 +996,7 @@ int run_program(const std::string &prog, const std::vector<std::string> &args,
 #if defined(_WIN32)
     std::string cmdline;
     for (const std::string &a : args)
-        cmdline += (cmdline.empty() ? "" : " ") + quote_arg(a);
+        cmdline += (cmdline.empty() ? "" : " ") + wfdbx_quote_arg(a);
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
     ZeroMemory(&si, sizeof(si));

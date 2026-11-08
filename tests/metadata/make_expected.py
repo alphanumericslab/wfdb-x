@@ -13,8 +13,8 @@ It writes expected.json (the result of each case), expected/NAME.hea
 their results in a plain-text form, for the languages that have no JSON
 parser in their standard library).
 
-This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GNU General
-Public License, version 3 or later; see LICENSE.
+This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GNU Lesser
+General Public License, version 2.1 or later; see LICENSE.
 """
 
 import json

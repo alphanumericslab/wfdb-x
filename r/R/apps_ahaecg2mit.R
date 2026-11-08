@@ -27,7 +27,7 @@
 # This program is free software: you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
 # Software Foundation, either version 3 of the License, or (at your option)
-# any later version. See LICENSE.
+# any later version. See LICENSE-GPL.
 #
 # Each input file is read whole and decoded with vector operations: the
 # samples and annotations of the binary (.ecg) format, and for the text

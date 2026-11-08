@@ -26,8 +26,8 @@ checks:
 
 It prints every difference, and exits with status 1 if there is one.
 
-This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GNU General
-Public License, version 3 or later; see LICENSE.
+This file is part of WFDB-x. Copyright (C) 2026 Reza Sameni. GNU Lesser
+General Public License, version 2.1 or later; see LICENSE.
 """
 
 import argparse

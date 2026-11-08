@@ -21,7 +21,7 @@
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
 // Software Foundation, either version 3 of the License, or (at your option)
-// any later version. See LICENSE.
+// any later version. See LICENSE-GPL.
 //
 // The output file has exactly three chunks (a header chunk, a format chunk,
 // and a data chunk); see the C source for a description.  The C program

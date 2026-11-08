@@ -65,14 +65,14 @@ the library functions (and the C library) give.
 
 The library is built from a copy of the repository and installed in the
 local Maven repository (below); its Gradle coordinates are
-`io.github.alphanumericslab:wfdbx:1.2.0`. In a Gradle project (an Android
+`io.github.alphanumericslab:wfdbx:1.2.1`. In a Gradle project (an Android
 app, a JVM program, or the common source set of a Kotlin Multiplatform
 project) that lists `mavenLocal()` among its repositories, add it to the
 dependencies:
 
 ```kotlin
 dependencies {
-    implementation("io.github.alphanumericslab:wfdbx:1.2.0")
+    implementation("io.github.alphanumericslab:wfdbx:1.2.1")
 }
 ```
 
@@ -871,6 +871,11 @@ in [DIVERGENCES.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/DI
 The authors of the original C code are credited in each file and in
 [AUTHORS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/AUTHORS.md).
 
-WFDB-x is distributed under the GNU General Public License, version 3 or
-(at your option) any later version. See
-[LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE).
+The WFDB-x library is distributed under the GNU Lesser General Public
+License, version 2.1 or (at your option) any later version
+([LICENSE](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE)): programs under any license, proprietary ones
+included, may use it on the LGPL's terms. The command-line tools (the
+`apps` and the `wfdbx` command), translations of the tools of the original
+package, are distributed under the GNU General Public License, version 3 or
+(at your option) any later version
+([LICENSE-GPL](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE-GPL)). Each source file states its license.

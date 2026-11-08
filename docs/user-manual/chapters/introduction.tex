@@ -102,7 +102,7 @@ MATLAB / GNU Octave & \file{matlab/} &
   untested) & \cmd{wfdbx rdsamp -r 100s} \\
 Kotlin (Android, iOS, JVM) & \file{kotlin/} & \cmd{cd kotlin \&\&
   ./gradlew publishToMavenLocal}, then
-  \cmd{implementation("io.github.\allowbreak alphanumericslab:\allowbreak wfdbx:1.2.0")} (Gradle,
+  \cmd{implementation("io.github.\allowbreak alphanumericslab:\allowbreak wfdbx:1.2.1")} (Gradle,
   with \code{mavenLocal()}) & \cmd{kotlin/bin/wfdbx rdsamp -r 100s} \\
 \bottomrule
 \end{tabularx}
@@ -294,7 +294,11 @@ each version:
   tool reads or creates itself follow the input and output directories,
   \code{osigopen(record, NULL, 0)} returns 0 in every language, and the
   high-level functions leave the annotation time resolution and the getvec
-  mode as they were (\cref{sec:corrections-1-2-0}).
+  mode as they were (\cref{sec:corrections-1-2-0});
+\item 1.2.1: the library under the GNU Lesser General Public License,
+  version 2.1 or later, with the command-line tools still under the GNU
+  General Public License, version 3 or later (\cref{sec:license}); and the
+  C++ library builds on Windows again.
 \end{itemize}
 
 The version numbers of \wfdbx{} are independent of the version of the WFDB
@@ -396,9 +400,16 @@ reimplementation of the WFDB Software Package: its code in each language is a
 translation of the package's C code, written for \wfdbx{}, not code by the
 original WFDB developers.
 
-\wfdbx{} is distributed under the GNU General Public License, version 3 or
-(at the user's option) any later version (GPL-3.0-or-later; see the file
-\file{LICENSE}). The original C sources, kept unmodified in
+The \wfdbx{} library is distributed under the GNU Lesser General Public
+License, version 2.1 or (at the user's option) any later version
+(LGPL-2.1-or-later; see the file \file{LICENSE}): programs under any license,
+proprietary ones included, may use it on the LGPL's terms. The command-line
+tools (each language's \code{apps} and the \cmd{wfdbx} command), translations
+of the tools of the original package, are distributed under the GNU General
+Public License, version 3 or (at the user's option) any later version
+(GPL-3.0-or-later; see the file \file{LICENSE-GPL}). Each source file states
+its license. The original C sources, kept unmodified in
 \file{third\_party/}, keep their own licenses: the GNU Library General Public
 License, version 2 or later, for the library, and the GNU General Public
-License, version 2 or later, for the tools.
+License, version 2 or later, for the tools; their ``or later'' terms allow
+those of \wfdbx{}.
