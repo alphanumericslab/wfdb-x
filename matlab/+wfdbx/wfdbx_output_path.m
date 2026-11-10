@@ -15,8 +15,8 @@ function p = wfdbx_output_path(name)
 %   NAME is a file name (char vector or string).  [], '' and '-' (the
 %   standard output, if the program treats it so) are returned as given.
 %
-%   P is the path to create, or [] if NAME is a URL (which cannot be
-%   written).
+%   P is the path to create, or [] if NAME is a URL (in normal mode, any
+%   name that begins with a URL scheme), which cannot be written.
 %
 %   Example (writes a text file in the output directory):
 %       old = wfdbx.wfdbx_set_output_dir('out');
@@ -61,6 +61,10 @@ if wfdbx.wfdbx_get_legacy()
     end
     p = [d '/' name];       % (as wfdb_open in legacy mode)
 else
+    if wfdbx.internal.has_scheme(name)
+        p = [];
+        return;
+    end
     if ~ischar(d) || isempty(d) || name(1) == '~' || ...
             wfdbx.internal.is_absolute_path(name)
         p = wfdbx.internal.resolve_name(name, true);

@@ -118,6 +118,26 @@ internal class IoState {
     /** WFDB-x: network access allowed (null until first needed: then from WFDBX_NETWORK, whose value is envNetwork). */
     var network: Boolean? = null
     var envNetwork = false
+
+    /**
+     * WFDB-x: the output files of a high-level writer, written to temporary
+     * files (see [stagingBegin]): absolute destination name (as a latin1
+     * string of its bytes) -> temporary file, or null when no writer is
+     * staging its files.
+     */
+    var staging: LinkedHashMap<String, ByteArray>? = null
+
+    /** WFDB-x: absolute destination name -> the file it leads to (links resolved), for [staging]. */
+    val stagingDest = HashMap<String, ByteArray>()
+
+    /**
+     * WFDB-x (for tests): replacements of the calls of writeRecord to
+     * putframes and newheader, and of writeAnnotations to putanns, to
+     * simulate a failure while the files are written.
+     */
+    var testPutframes: ((IntArray, Int) -> Unit)? = null
+    var testNewheader: ((ByteArray) -> Int)? = null
+    var testPutanns: (() -> Int)? = null
 }
 
 // ---------------------------------------------------------------------------
@@ -125,10 +145,11 @@ internal class IoState {
 
 private var wfdbWarned = false
 private var networkWarned = false
+internal var schemeWarned = false  // see wfdb_fopen (internal: reset by the tests)
 private var curlWarned = false
 
-/** The remote files fetched by this process, by URL (null value: the fetch failed). */
-private val fetched = HashMap<String, ByteArray?>()
+/** The remote files read by this process, by URL (a failure is not kept). */
+private val fetched = HashMap<String, ByteArray>()
 
 private const val OUTPUT_URL_ERROR = "wfdbx_set_output_dir: the output directory must be a local directory\n"
 
@@ -152,6 +173,25 @@ internal fun isAbsolutePath(s: ByteArray): Boolean {
 /** Whether [s] is an http:// or https:// URL. */
 internal fun isUrl(s: ByteArray): Boolean = s.startsWith("http://") || s.startsWith("https://")
 
+/**
+ * WFDB-x: whether [s] begins with a URL scheme followed by "://": a letter,
+ * then at least one letter, digit, '+', '-' or '.' (http://, https://,
+ * ftp://, sftp://, file://, ...). A drive letter (C:) is not a scheme. In
+ * normal mode, a name with a scheme is a URL, never a local file name, and
+ * only an http:// or https:// URL can be read (see [wfdb_fopen]).
+ */
+internal fun hasScheme(s: ByteArray): Boolean {
+    fun letter(c: Int) = c in 'A'.code..'Z'.code || c in 'a'.code..'z'.code
+    if (!letter(s.at(0))) return false
+    var i = 1
+    while (true) {
+        val c = s.at(i)
+        if (!(letter(c) || c in '0'.code..'9'.code || c == '+'.code || c == '-'.code || c == '.'.code)) break
+        i++
+    }
+    return i >= 2 && s.at(i) == ':'.code && s.at(i + 1) == '/'.code && s.at(i + 2) == '/'.code
+}
+
 private fun isDsep(c: Int): Boolean = c == '/'.code
 
 /** dir + sep + name, with exactly one separator between them ("/" in a URL). */
@@ -170,7 +210,7 @@ private fun join(dir: ByteArray, name: ByteArray, sep0: Int): ByteArray {
  * has no ".." component.
  */
 internal fun inHeaderDir(name: ByteArray): Boolean {
-    if (isAbsolutePath(name) || isUrl(name) || name.at(0) == '~'.code) return false
+    if (isAbsolutePath(name) || hasScheme(name) || name.at(0) == '~'.code) return false
     var start = 0
     for (i in 0..name.size) {
         if (i == name.size || isDsep(name.at(i))) {
@@ -719,13 +759,13 @@ fun Wfdb.wfdbx_get_input_dir(): ByteArray? {
     return io.inputDir
 }
 
-/** Reads WFDBX_OUTPUT_DIR on first use (a URL is refused). */
+/** Reads WFDBX_OUTPUT_DIR on first use (a URL, any name with a URL scheme, is refused). */
 private fun Wfdb.initOutputDir() {
     if (io.outputDirInit) return
     io.outputDirInit = true
     val p = getenv("WFDBX_OUTPUT_DIR")
     if (p != null && p.isNotEmpty()) {
-        if (isUrl(p)) {
+        if (hasScheme(p)) {
             wfdb_error(OUTPUT_URL_ERROR)
         } else {
             io.envOutputDir = p
@@ -745,7 +785,8 @@ private fun Wfdb.initOutputDir() {
  * was set). The setting is kept by wfdbquit, and also applies in legacy
  * mode.
  *
- * A URL is refused with the message "wfdbx_set_output_dir: the output
+ * A URL (any name that begins with a URL scheme, such as https:// or
+ * ftp://) is refused with the message "wfdbx_set_output_dir: the output
  * directory must be a local directory"; the setting is then unchanged, and
  * the current value is returned.
  *
@@ -754,7 +795,7 @@ private fun Wfdb.initOutputDir() {
 fun Wfdb.wfdbx_set_output_dir(dir0: ByteArray?): ByteArray? {
     initOutputDir()
     val dir = dir0?.let { cstr(it) }
-    if (dir != null && isUrl(dir)) {
+    if (dir != null && hasScheme(dir)) {
         wfdb_error(OUTPUT_URL_ERROR)
         return io.outputDir
     }
@@ -784,6 +825,13 @@ fun Wfdb.wfdbx_get_output_dir(): ByteArray? {
  * restores the default: on if the environment variable WFDBX_NETWORK is a
  * nonzero number, otherwise off. Returns the previous setting (1: on, 0:
  * off). Legacy mode has no network access.
+ *
+ * A remote file that has been read is kept for the rest of the session; one
+ * that could not be read is requested again the next time it is opened. A
+ * download gives up when it cannot connect, or receives nothing, for 30
+ * seconds. Only http:// and https:// URLs can be read: a name that begins
+ * with another URL scheme, such as ftp:// or sftp://, is refused (an error,
+ * with or without network access), and never read as a local file name.
  *
  * Part of WFDB-x; not in the original WFDB package.
  */
@@ -870,24 +918,24 @@ fun Wfdb.wfdbx_fclose_output(fp: WfdbFile, pname: ByteArray, name: ByteArray): I
 /**
  * WFDB-x: the name of the local file that wfdb_open(name, NULL, WFDB_WRITE)
  * creates in normal mode, or null if it creates none (the standard output,
- * or a URL).
+ * or a URL: any name that begins with a URL scheme).
  */
 internal fun Wfdb.wfdbxOutputFile(name0: ByteArray): ByteArray? {
     val name = cstr(name0)
     if (name.isEmpty() || beq(name, "-")) return null
     val r = expandRecord(name)
-    if (isUrl(r)) return null
+    if (hasScheme(r)) return null
     return resolve(r, true)
 }
 
 /**
  * The location of the file [name] in normal mode: an absolute name or a URL
- * as given, a ~ name expanded, and a relative name under the input
+ * (any name with a URL scheme, see [hasScheme]) as given, a ~ name expanded, and a relative name under the input
  * directory (for reading) or the output directory ([output]), if one is set.
  */
 private fun Wfdb.resolve(name: ByteArray, output: Boolean): ByteArray {
     if (name.at(0) == '~'.code) return expandHome(name)
-    if (isAbsolutePath(name) || isUrl(name)) return name
+    if (isAbsolutePath(name) || hasScheme(name)) return name
     val dir = if (output) {
         initOutputDir()
         io.outputDir
@@ -917,7 +965,8 @@ private fun Wfdb.resolve(name: ByteArray, output: Boolean): ByteArray {
  * [name] is a file name; null, "" and "-" (the standard input, if the
  * program treats it so) are returned as given (a copy). Returns the path to
  * open, or null if name is a URL, or becomes one when the input directory
- * is prefixed to it: such a file cannot be opened in this way.
+ * is prefixed to it (in normal mode, any name that begins with a URL scheme,
+ * such as ftp://): such a file cannot be opened in this way.
  *
  * Example (reads a text file from the input directory):
  * ```
@@ -932,7 +981,7 @@ fun Wfdb.wfdbx_input_path(name0: ByteArray?): ByteArray? {
     if (isUrl(name)) return null
     if (name.isEmpty() || beq(name, "-") || legacy) return name
     val r = resolve(name, false)
-    return if (isUrl(r)) null else r
+    return if (hasScheme(r)) null else r
 }
 
 /** [wfdbx_input_path] with a string. */
@@ -954,7 +1003,8 @@ fun Wfdb.wfdbx_input_path(name: String): ByteArray? = wfdbx_input_path(name.lati
  *
  * [name] is a file name; null, "" and "-" (the standard output, if the
  * program treats it so) are returned as given (a copy). Returns the path to
- * create, or null if name is a URL (which cannot be written).
+ * create, or null if name is a URL (in normal mode, any name that begins
+ * with a URL scheme), which cannot be written.
  *
  * Example (writes a text file in the output directory):
  * ```
@@ -975,6 +1025,7 @@ fun Wfdb.wfdbx_output_path(name0: ByteArray?): ByteArray? {
         if (dir == null || dir.isEmpty()) return name
         r = bcat(dir, byteArrayOf(DSEP.toByte()), name)
     } else {
+        if (hasScheme(name)) return null
         if (dir == null || dir.isEmpty() || name.at(0) == '~'.code || isAbsolutePath(name)) return resolve(name, true)
         r = resolve(name, true)
     }
@@ -1167,25 +1218,152 @@ fun Wfdb.wfdbx_open_in(dir: ByteArray?, s: ByteArray?, name0: ByteArray, record:
  * file is opened again.
  *
  * WFDB-x, normal mode: an http:// or https:// URL is fetched (read only;
- * see [wfdbx_set_network]), and names containing ".." are accepted. Legacy
+ * see [wfdbx_set_network]); a name with another URL scheme (ftp://,
+ * sftp://, file://, ...) is refused, with a message the first time; and
+ * names containing ".." are accepted. Legacy
  * mode, as in C (built without network support): names containing ".." or
  * "://" are rejected.
  *
  * Translation of the C function wfdb_fopen() (lib/wfdbio.c, WFDB 10.7.0): same
  * arguments and results. Differences: a URL is read only if network access is
- * on, and names containing ".." are accepted; see docs/DIVERGENCES.md.
+ * on, a name with another URL scheme is refused, and names containing ".."
+ * are accepted; see docs/DIVERGENCES.md.
  */
 fun Wfdb.wfdb_fopen(fname0: ByteArray, mode: String): WfdbFile? {
     val fname = cstr(fname0)
-    if (legacy) return localFopen(fname, mode, true)
-    if (isUrl(fname)) return if (mode.startsWith("r")) fetchOpen(fname) else null
-    return localFopen(fname, mode, false)
+    if (legacy) {
+        if (fname.indexOf("..".latin1()) >= 0 || fname.indexOf("://".latin1()) >= 0) return null
+    } else if (isUrl(fname)) {
+        return if (mode.startsWith("r")) fetchOpen(fname) else null
+    } else if (hasScheme(fname)) {
+        // WFDB-x: another URL scheme (ftp://, sftp://, file://, ...)
+        if (!schemeWarned) {
+            schemeWarned = true
+            wfdb_error(cformat("WFDB-x: can't open %s: only http:// and https:// URLs can be read (mount the server as a local folder, or download the files)\n", fname))
+        }
+        return null
+    }
+    if (io.staging != null) {
+        // WFDB-x: a file of a high-level writer (see stagingBegin)
+        val r = stagedOpen(fname, mode)
+        if (r.staged) return r.file
+    }
+    return localFopen(fname, mode, legacy)
+}
+
+// WFDB-x: the high-level writers (writeRecord, writeAnnotations) check all
+// their arguments before any file is touched, and write their files so that
+// a failure leaves the existing files intact (1.2.2): while they write, each
+// file that the library creates is written to a temporary file in the
+// directory of its destination (".NAME.XXXXXXXX.tmp", readable and writable
+// by its owner only until it is complete), and the temporary files are
+// renamed over their destinations together once all of them are complete
+// (stagingEnd), or removed if anything failed. The library opens the
+// destination by its name as usual (in messages, and for the in-process
+// sorting of annotation files, which reads and rewrites the temporary file).
+// A destination that exists and is not a regular file (a device such as
+// /dev/full, a FIFO) is opened directly, as before; for a symbolic link, the
+// file it leads to is replaced. (Port of _staging_begin, _staged_open,
+// _staging_end and _staging_commit_one of python/src/wfdbx/_wfdbio.py.)
+
+/** The result of [stagedOpen]: [staged] false if the file is opened as usual; otherwise [file] (null if it cannot be opened). */
+private class StagedOpen(val staged: Boolean, val file: WfdbFile?)
+
+private val NOT_STAGED = StagedOpen(false, null)
+
+/** Starts staging the output files (see above). */
+internal fun Wfdb.stagingBegin() {
+    io.staging = LinkedHashMap()
+    io.stagingDest.clear()
+}
+
+/** The key of the destination [fname] in [IoState.staging] (its absolute name), or null. */
+private fun stagedKey(fname: ByteArray): String? = Platform.absolutePath(fname)?.latin1()
+
+/**
+ * Opens [fname] (a destination; mode "rb", "wb" or "ab") while staging: the
+ * temporary file that stands for it, created for "wb" and "ab" if there is
+ * none yet (missing directories are created first, as [localFopen] does).
+ */
+private fun Wfdb.stagedOpen(fname: ByteArray, mode: String): StagedOpen {
+    val st = io.staging ?: return NOT_STAGED
+    if (beq(fname, "-") || fname.isEmpty()) return NOT_STAGED
+    val key = stagedKey(fname) ?: return NOT_STAGED
+    var tmp = st[key]
+    if (tmp == null) {
+        if (mode.startsWith("r")) return NOT_STAGED // (a file not written here)
+        val dest = Platform.realPath(key.latin1()) ?: return NOT_STAGED
+        if (Platform.isDirectory(dest)) return StagedOpen(true, null)
+        if (Platform.isSpecialFile(dest)) return NOT_STAGED // (a device, a FIFO: written directly)
+        val slash = dest.lastIndexOf('/'.code.toByte())
+        if (slash > 0 && !Platform.isDirectory(dest.copyOf(slash))) {
+            // (missing directories are created, as wfdb_fopen does)
+            for (i in fname.indices) if (fname[i] == '/'.code.toByte()) Platform.mkdir(fname.copyOf(i))
+        }
+        tmp = Platform.createTempFile(dest) ?: return StagedOpen(true, null)
+        st[key] = tmp
+        io.stagingDest[key] = dest
+    }
+    val f = WfdbFile.fopen(tmp, mode) ?: return StagedOpen(true, null)
+    f.out = !mode.startsWith("r") // (see wfdbx_write_errors)
+    return StagedOpen(true, f)
+}
+
+/** The file that stands for [fname] while staging: its temporary file if it is a staged destination, else [fname]. */
+internal fun Wfdb.stagedPath(fname: ByteArray): ByteArray {
+    val st = io.staging ?: return fname
+    return stagedKey(cstr(fname))?.let { st[it] } ?: fname
+}
+
+/** Whether [fname] is a staged destination (see [stagingBegin]). */
+internal fun Wfdb.isStaged(fname: ByteArray): Boolean {
+    val st = io.staging ?: return false
+    return stagedKey(cstr(fname))?.let { st.containsKey(it) } ?: false
+}
+
+/**
+ * Renames the temporary file of the staged destination [fname] over it
+ * now, before the end of the staging; true if done (on failure, the
+ * temporary file is removed).
+ */
+internal fun Wfdb.stagingCommitOne(fname: ByteArray): Boolean {
+    val st = io.staging ?: return false
+    val key = stagedKey(cstr(fname)) ?: return false
+    val tmp = st.remove(key) ?: return false
+    val dest = io.stagingDest.remove(key) ?: return false
+    if (Platform.commitFile(tmp, dest)) return true
+    Platform.remove(tmp)
+    return false
+}
+
+/**
+ * Ends the staging: if [commit], renames every temporary file over its
+ * destination (after all of them are complete) and returns true, or, if a
+ * rename fails, removes the temporary files not yet renamed and returns
+ * false; otherwise removes them all and returns false.
+ */
+internal fun Wfdb.stagingEnd(commit: Boolean): Boolean {
+    val st = io.staging
+    io.staging = null
+    val dests = HashMap(io.stagingDest)
+    io.stagingDest.clear()
+    if (st == null) return commit
+    var ok = commit
+    for ((key, tmp) in st) {
+        if (ok) {
+            val dest = dests[key]
+            if (dest != null && Platform.commitFile(tmp, dest)) continue
+            ok = false
+        }
+        Platform.remove(tmp)
+    }
+    return ok
 }
 
 /**
  * WFDB-x: opens a URL for reading: if network access is allowed, the file
- * is read in full (once per process: the contents, or the failure, are
- * kept), and read from memory.
+ * is read in full (once per process: the contents are kept; a failure is
+ * not kept, so a later open requests the URL again), and read from memory.
  */
 private fun Wfdb.fetchOpen(url: ByteArray): WfdbFile? {
     if (wfdbx_get_network() == 0) {
@@ -1196,18 +1374,16 @@ private fun Wfdb.fetchOpen(url: ByteArray): WfdbFile? {
         return null
     }
     val key = url.latin1()
-    val cached = withGlobalLock { if (fetched.containsKey(key)) Pair(true, fetched[key]) else Pair(false, null) }
-    val data: ByteArray?
-    if (cached.first) {
-        data = cached.second
-    } else {
+    var data: ByteArray? = withGlobalLock { fetched[key] }
+    if (data == null) {
         val r = Platform.fetchUrl(url)
         if (r.data == null && r.toolMissing && !curlWarned) {
             curlWarned = true
             wfdb_error("WFDB-x: network access needs the curl program, which was not found\n")
         }
-        data = r.data
-        withGlobalLock { fetched[key] = data }
+        val d = r.data
+        if (d != null) withGlobalLock { fetched[key] = d }   // (a failure is not kept)
+        data = d
     }
     val f = WfdbFile.fromBytes(data ?: return null)
     f.remote = true

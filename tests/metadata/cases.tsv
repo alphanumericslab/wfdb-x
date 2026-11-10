@@ -7,6 +7,8 @@ read_bytes	bytes	read	-	-		-	0	x4e616d65:x4a6f73e9,x43697479:x5ac3bc72696368	-
 read_interleaved	interleaved	read	-	-		-	0	x4c656164:x4d4c4949207468656e205635,x53697465:x41	-
 read_odd	odd	read	-	-		-	0	x546162206b6579:x76616c756520776974682074616273,x54696d65:x31323a33303a3030,x50726f64756365642062792078666f726d2066726f6d207265636f7264203130302c20626567696e6e696e672061742030:x30	-
 read_multi	multi	read	-	-		-	0		-
+read_leading	leading	read	-	-		-	0	x416765:x61637475616c	-
+read_leadingblank	leadingblank	read	-	-		-	0		-
 get_basic_case	basic	get	x616765	-		-	0	x3633	-
 get_basic_spaces	basic	get	x2020447820	-		-	0	x3136343838393030332c203539313138303031	-
 get_basic_empty	basic	get	x4e6f746573	-		-	0	x	-
@@ -14,6 +16,7 @@ get_basic_missing	basic	get	x576569676874	-		-	0	-	-
 get_basic_before_record	basic	get	x436f6e766572746564206f6e	-		-	0	-	-
 get_dups	dups	get	x416765	-		-	1	x3430	-
 get_bad_key	basic	get	x613a62	-		argument	0	-	-
+get_leading	leading	get	x616765	-		-	0	x61637475616c	-
 set_basic_replace	basic	set	x414745	x3634		-	0	-	expected/set_basic_replace.hea
 set_basic_add	basic	set	x576569676874	x20203732206b6720		-	0	-	expected/set_basic_add.hea
 set_basic_empty	basic	set	x4478	x		-	0	-	expected/set_basic_empty.hea
@@ -36,12 +39,16 @@ set_err_newline_key	basic	set	x610a62	x78		argument	0	-	-
 set_err_newline_value	basic	set	x61	x780a79		argument	0	-	-
 set_err_cr_value	basic	set	x61	x780d79		argument	0	-	-
 set_err_nul_value	basic	set	x61	x780079		argument	0	-	-
+set_leading_replace	leading	set	x416765	x3530		-	0	-	expected/set_leading_replace.hea
+set_leading_add	leading	set	x536578	x46		-	0	-	expected/set_leading_add.hea
+set_leadingblank_add	leadingblank	set	x416765	x3530		-	0	-	expected/set_leadingblank_add.hea
 remove_basic	basic	remove	x736578	-		-	0	1	expected/remove_basic.hea
 remove_basic_missing	basic	remove	x576569676874	-		-	0	0	expected/remove_basic_missing.hea
 remove_basic_last	basic	remove	x5265636f72646564206279	-		-	0	1	expected/remove_basic_last.hea
 remove_dups	dups	remove	x416765	-		-	0	2	expected/remove_dups.hea
 remove_lf_missing	lf	remove	x416765	-		-	0	0	expected/remove_lf_missing.hea
 remove_odd_last	odd	remove	x70726f64756365642062792078666f726d2066726f6d207265636f7264203130302c20626567696e6e696e672061742030	-		-	0	1	expected/remove_odd_last.hea
+remove_leading	leading	remove	x414745	-		-	0	1	expected/remove_leading.hea
 update_basic	basic	update	-	-	x616765:x3634,x536578:-,x576569676874:x3732,x486569676874:x313730	-	0	-	expected/update_basic.hea
 update_dups_remove_then_set	dups	update	-	-	x416765:-,x486569676874:x313831	-	0	-	expected/update_dups_remove_then_set.hea
 update_dups_err	dups	update	-	-	x486569676874:x313831,x616765:x3530	argument	0	-	-

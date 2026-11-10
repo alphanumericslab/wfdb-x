@@ -961,3 +961,157 @@ end
         end
     end
 end
+
+# WFDB-x 1.2.2: the corrections of the fourth review (as the tests of the
+# same names in python/tests/test_annotations.py).
+
+# The contents of every file of the current directory.
+all_files() = Dict(n => read(n) for n in sort(readdir(".")) if isfile(n))
+
+@testset "write_annotations checks before writing" begin
+    with_data("checks") do w
+        # Each invalid argument is refused before the existing annotation
+        # file is touched (the reserved codes 59-63 corrupted it; the times
+        # -2^63 and 2^63 - 1 were dropped, with putann's "time overflow"
+        # message, and success reported).
+        n3 = fill(Vector{UInt8}(b"N"), 3)
+        W.write_annotations(w, "100s", "qrs", W.Annotations(samples=[10, 20, 30], symbols=n3))
+        before = all_files()
+        tmsg(t) = "write_annotations: annotation time $t cannot be written (annotation " *
+                  "times must be integers from -9223372036854775807 to 9223372036854775806)"
+        cases = Any[
+            (W.Annotations(samples=[typemin(Int64), 5, 6], symbols=n3),
+             tmsg("-9223372036854775808")),
+            (W.Annotations(samples=[1, 5, typemax(Int64)], symbols=n3),
+             tmsg("9223372036854775807")),
+            (W.Annotations(samples=[1, 2, 3], codes=Int32[-1, -1, -1]),
+             "write_annotations: annotation code -1 is out of range (0 to 58)"),
+            (W.Annotations(samples=[1, 2, 3], codes=Int32[1, 64, 1]),
+             "write_annotations: annotation code 64 is out of range (0 to 58)"),
+            (W.Annotations(samples=[1, 2, 3], codes=Int32[1, 255, 1]),
+             "write_annotations: annotation code 255 is out of range (0 to 58)")]
+        for c in 59:63
+            push!(cases, (W.Annotations(samples=[1, 2, 3], codes=Int32[1, c, 1]),
+                          "write_annotations: annotation code $c is reserved (59 to 63 are " *
+                          "the control codes of the annotation file format)"))
+        end
+        # (codes are checked even when symbols are given too)
+        push!(cases, (W.Annotations(samples=[1, 2, 3], symbols=[b"N", b"", b"N"],
+                                    codes=Int32[1, 61, 1]),
+                      "write_annotations: annotation code 61 is reserved (59 to 63 are the " *
+                      "control codes of the annotation file format)"))
+        for (a, msg) in cases, legacy in (false, true)
+            err = capture_stderr() do
+                e = try
+                    W.write_annotations(w, "100s", "qrs", a; legacy)
+                    nothing
+                catch x
+                    x
+                end
+                @test e isa W.WfdbError && e.msg == msg
+            end
+            @test err == ""
+            @test all_files() == before
+            @test isempty(w.ann.oad) && w.io.staging === nothing
+        end
+        # code 58, and a time far from the previous one (SKIPs), can be
+        # written
+        W.write_annotations(w, "100s", "ext", W.Annotations(samples=[0, 2^33],
+                                                            codes=Int32[58, 1]))
+        a = W.read_annotations(w, "100s", "ext")
+        @test a.samples == [0, 2^33] && a.codes == [58, 1]
+    end
+end
+
+@testset "write_annotations failure leaves the file" begin
+    with_data("leaves") do w
+        # An error that putann reports is an error (it was ignored), and a
+        # failure leaves the existing file intact: the file is written to a
+        # temporary file, renamed over it when complete.
+        W.write_annotations(w, "100s", "qrs", W.Annotations(samples=[10, 20, 30],
+                                                            symbols=fill(b"N", 3)))
+        before = all_files()
+        v = W.Annotations(samples=[1, 2], symbols=fill(b"V", 2))
+        @eval W.putann(w::W.WfdbLib, n::Int, a::W.Annotation) = Int32(-1)
+        try
+            e = try
+                Base.invokelatest(W.write_annotations, w, "100s", "qrs", v)
+            catch x
+                x
+            end
+            @test e isa W.WfdbError && e.msg == "write error on annotator qrs for record 100s"
+        finally
+            Base.delete_method(which(W.putann, (W.WfdbLib, Int, W.Annotation)))
+        end
+        @test all_files() == before
+        @eval W.putann(w::W.WfdbLib, n::Int, a::W.Annotation) = error("disk on fire")
+        try
+            @test_throws ErrorException("disk on fire") Base.invokelatest(W.write_annotations,
+                                                                          w, "100s", "qrs", v)
+        finally
+            Base.delete_method(which(W.putann, (W.WfdbLib, Int, W.Annotation)))
+        end
+        @test all_files() == before
+        @test isempty(w.ann.oad) && w.io.staging === nothing
+        # out of order: sorted (in this process, and in legacy mode by the
+        # sortann program), then renamed over the existing file
+        for legacy in (false, true)
+            W.wfdbquiet(w)
+            W.write_annotations(w, "100s", "qrs", W.Annotations(samples=[30, 10, 20],
+                                                                symbols=fill(b"N", 3)); legacy)
+            W.wfdbverbose(w)
+            @test W.read_annotations(w, "100s", "qrs").samples == [10, 20, 30]
+            @test !any(f -> endswith(f, ".tmp"), readdir("."))
+        end
+        # a new file has the permissions of a new file (0666 less the umask)
+        if !Sys.iswindows()
+            m = ccall(:umask, Cuint, (Cuint,), 0o022)
+            ccall(:umask, Cuint, (Cuint,), m)
+            W.write_annotations(w, "100s", "new", v)
+            @test filemode("100s.new") & 0o777 == 0o666 & ~m
+        end
+    end
+end
+
+@testset "read_annotations arguments" begin
+    with_data("args") do w
+        # from and to are checked as read_record checks them, before the
+        # file is opened, and the file is closed on every path.
+        ref = W.read_annotations(w, "100s", "atr"; from=100, to=2000)
+        @test W.read_annotations(w, "100s", "atr"; from=100.0, to=2000.0).samples ==
+              ref.samples
+        for (frm, to, msg) in ((1.5, nothing, "from must be a whole number"),
+                               (NaN, nothing, "from must be a whole number"),
+                               (0, Inf, "to must be a whole number"),
+                               (0, 10.25, "to must be a whole number"),
+                               ([1], nothing, "from must be a sample number or a time string"),
+                               (2.0^64, nothing, "from is beyond the range of a 64-bit integer"),
+                               (-1, nothing, "from must not be negative"))
+            e = try
+                W.read_annotations(w, "100s", "nosuch"; from=frm, to=to)
+            catch x
+                x
+            end
+            @test e isa W.WfdbError && e.msg == "read_annotations: " * msg
+        end
+        # the annotators are closed after an error
+        rm("100s.hea")
+        e = try
+            W.read_annotations(w, "100s", "atr"; to="0:1")
+        catch x
+            x
+        end
+        @test e isa W.WfdbError && occursin("sampling frequency", e.msg)
+        @test isempty(w.ann.iad)
+        write("cut.atr", read("100s.atr")[1:101])
+        W.wfdbquiet(w)
+        e = try
+            W.read_annotations(w, "cut", "atr"; fs=360)
+        catch x
+            x
+        end
+        W.wfdbverbose(w)
+        @test e isa W.WfdbError && occursin("getann status -3", e.msg)
+        @test isempty(w.ann.iad)
+    end
+end

@@ -426,6 +426,11 @@ def _check_data(name, si, prefix, ns, length_missing, rep):
         all(sig.wfdbgetskew(s) == 0 for s in range(n))
 
     s_.cksum_quiet = 1
+    # WFDB-x: a sample that cannot be read ends the reading with status -3,
+    # even in the frame at which a checksum is verified (whose status, -4,
+    # replaces -3 in getvec); that incomplete frame is not counted, nor are
+    # its samples checked (see sig._getframes_into).
+    s_.read_failed = 0
     try:
         while True:
             want = rows
@@ -461,6 +466,7 @@ def _check_data(name, si, prefix, ns, length_missing, rep):
                 break
     finally:
         s_.cksum_quiet = 0
+        s_.read_failed = 0
     # (with skewed signals, getvec returns the frames of the files less the
     # largest skew)
     skew = max(sig.wfdbgetskew(s) for s in range(n))

@@ -250,8 +250,15 @@ ends the file.
 \end{xltabular}
 
 The \code{subtyp} and \code{num} fields are signed 8-bit integers and \code{chan} an
-unsigned 8-bit integer, stored in the 10 bits of $I$. Codes 50 to 58 are not used. An
-annotation of code 0 (\code{NOTQRS}), which a word of value 0 could not represent, is
+unsigned 8-bit integer, stored in the 10 bits of $I$. Codes 50 to 58 are not used. The
+codes 59 to 63 are reserved for the pseudo-annotation words, and cannot be annotation
+codes: an annotation word with one of them would be read as a control word, and would
+corrupt the rest of the file. The times \code{WFDB\_TIME\_MIN} and \code{WFDB\_TIME\_MAX}
+($-2^{63}$ and $2^{63}-1$) cannot be written either. The library function \code{putann}
+refuses these times (\code{time overflow}) but does not check the code, as in C (a code
+above 63 also loses its high bits); the high-level \code{write\_annotations} accepts only
+the codes 0 to 58 and refuses the others, and these times, before it writes anything
+(\cref{sec:additions}). An annotation of code 0 (\code{NOTQRS}), which a word of value 0 could not represent, is
 written as a \code{SKIP} of its interval minus 1 followed by a word of code 0 and interval
 1.
 

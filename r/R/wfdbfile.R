@@ -114,7 +114,7 @@ wf_flush_all <- function() {
 
 # The size of the file of f (NA if unknown); f$size is set for a remote file
 # held in memory (WFDB-x).
-.wf_size <- function(f) if (is.null(f$size)) suppressWarnings(file.size(f$name)) else f$size
+.wf_size <- function(f) if (is.null(f$size)) suppressWarnings(file.size(f$path)) else f$size
 
 #' TRUE if x is a WFDB_FILE.
 is_wfdb_file <- function(x) is.environment(x) && isTRUE(x$wfdb_file)
@@ -412,7 +412,7 @@ wf_seek <- function(f, offset, whence = 0) {
   if (is.null(f$con)) return(-1)
   if (f$mode == "a") return(0)
   target <- if (whence == 0) offset else if (whence == 1) f$wpos + offset else {
-    sz <- suppressWarnings(file.size(f$name))
+    sz <- suppressWarnings(file.size(f$path))
     if (is.na(sz)) return(-1)
     sz + offset
   }
@@ -433,7 +433,7 @@ wf_tell <- function(f) {
   if (f$mode == "r") return(f$bstart + f$bpos - 1)
   if (f$mode == "a") {
     .wf_sync(f)
-    sz <- suppressWarnings(file.size(f$name))
+    sz <- suppressWarnings(file.size(f$path))
     return(if (is.na(sz)) -1 else sz)
   }
   f$wpos

@@ -52,10 +52,11 @@ network access & \code{wfdbx\_set\_network}, \code{wfdbx\_get\_network} &
 \item \code{wfdbx\_set\_output\_dir(d)} sets the output directory in the
   same way, and returns the previous one; the default is the value of
   \code{WFDBX\_OUTPUT\_DIR}, or the current directory. The output directory
-  must be local: a URL (given to the function, or in the environment
-  variable) is refused with the message \code{wfdbx\_set\_output\_dir: the
-  output directory must be a local directory}, and the setting does not
-  change.
+  must be local: a name that begins with a URL scheme, such as
+  \code{https://} or \code{ftp://} (given to the function, or in the
+  environment variable), is refused with the message
+  \code{wfdbx\_set\_output\_dir: the output directory must be a local
+  directory}, and the setting does not change.
 \item \code{wfdbx\_set\_network(on)} turns network access on (1, or true) or
   off (0, or false), and returns the previous setting (1 or 0); none or a
   negative number restores the default: on if \code{WFDBX\_NETWORK} is set
@@ -93,8 +94,8 @@ set with \code{wfdbx\_set\_input\_dir}, which takes the name as it is.
 \label{sec:record-paths}
 
 A record name is given without the extension \file{.hea} of its header
-(\code{100s}, not \code{100s.hea}; the functions that read a record also
-accept a trailing \file{.hea}). It is one of:
+(\code{100s}, not \code{100s.hea}; a trailing \file{.hea} is removed by the
+functions that read a record and by \code{write\_record}). It is one of:
 \begin{itemize}
 \item a full path, absolute (\code{/data/mitdb/100}) or in the home
   directory (\code{\textasciitilde/Documents/100s}), used as given;
@@ -104,15 +105,14 @@ accept a trailing \file{.hea}). It is one of:
   directory (missing directories are created);
 \item a URL (\code{https://physionet.org/files/mitdb/1.0.0/100}), read only
   if network access is on (\cref{sec:network}); a URL cannot be written.
+  Only \code{http://} and \code{https://} URLs can be read: a name with
+  another URL scheme, such as \code{ftp://} or \code{sftp://}, is an error,
+  and is never read as a local file name.
 \end{itemize}
-The \code{input\_dir} option of the high-level readers is optional: it sets
-the input directory for one call, under which relative record names are
-read, and it does not apply to full paths or URLs. A writer given a record
-name with a path (\code{out/rec}) creates the files in that directory, and
-the header names the record and its signal file without the path
-(\code{rec}, \code{rec.dat}), so that the record opens under any path that
-leads to it; in legacy mode, as in the original package, the header gives
-the name with its path (\code{out/rec}, \code{out/rec.dat}). With the
+A writer given a record name with a path (\code{out/rec}) creates the files
+in that directory, and the header names the record and its signal file
+without the path (\code{rec}, \code{rec.dat}), so that the record opens
+under any path that leads to it (\cref{sec:resolve}). With the
 \code{dir} option of a writer, the record name must be a plain name
 (\code{rec}), without a directory: the files are created in \code{dir},
 which must exist, and the record opens from that directory under its plain
@@ -142,6 +142,8 @@ a home path: \code{\textasciitilde/data/100}, \code{\textasciitilde
   user/data/100} & the home directory (expanded by \wfdbx{}) & the same \\
 a URL: \code{http://\ldots} or \code{https://\ldots} & that URL, if network
   access is on & (not possible) \\
+a name with another URL scheme: \code{ftp://\ldots}, \code{sftp://\ldots},
+  \code{file://\ldots} & (not possible: an error) & (not possible) \\
 \code{-} (as a record name) & the standard input & the standard output \\
 anything else: \code{100}, \code{mitdb/100}, \code{../other/100} & the input
   directory followed by the name & the output directory followed by the
@@ -173,10 +175,10 @@ record's own name, the last component, must be made of the characters of
 record names (\cref{sec:record-names}); the directories may contain any
 character. The header names the record, its signal files and its segments
 relative to its own directory (\code{rec}, \code{rec.dat}), which is where
-they are read from; the C library wrote the names as given
-(\code{out/rec.dat} in \file{out/rec.hea}), as legacy mode does, so that
-such a record could not be read back by finding its files relative to its
-header.
+they are read from; the C library wrote the names as given, with their path
+(\code{out/rec} and \code{out/rec.dat} in \file{out/rec.hea}), as legacy
+mode does, so that such a record could not be read back by finding its
+files relative to its header.
 
 \subsection{Files named in a header}
 \label{sec:header-files}
@@ -303,11 +305,12 @@ rec = wfdbx.read_record("100", input_dir="https://physionet.org/files/mitdb/1.0.
 \end{lstlisting}
 
 Remote files can only be read. Each is downloaded in full the first time it
-is opened, and kept for the rest of the process (a failure is remembered
-too). Redirects are followed, and an HTTP status of 400 or more is a
-failure. A download gives up if connecting takes 30 seconds, or if no data
-arrive for 30 seconds; there is no limit on its total time. Each language
-downloads with its own means:
+is opened, and kept for the rest of the process; a download that fails is
+not kept, so the next time the file is opened it is requested again (a
+server that was unavailable may have recovered). Redirects are followed, and
+an HTTP status of 400 or more is a failure. A download gives up if
+connecting takes 30 seconds, or if no data arrive for 30 seconds; there is
+no limit on its total time. Each language downloads with its own means:
 \begin{itemize}
 \item Python: its standard \code{urllib};
 \item C++ and Rust: the system \cmd{curl} program, which they run without a
@@ -318,8 +321,35 @@ downloads with its own means:
 \item Kotlin: \code{java.net.HttpURLConnection} on the JVM and Android, and
   \code{NSURLSession} on iOS.
 \end{itemize}
+
+Only \code{http://} and \code{https://} URLs can be read. A name that begins
+with another URL scheme (\code{ftp://}, \code{ftps://}, \code{sftp://},
+\code{file://}, \ldots) is refused, with or without network access, with a
+message the first time:
+\begin{lstlisting}[style=shell]
+WFDB-x: can't open ftp://example.org/db/100.hea: only http:// and https:// URLs
+can be read (mount the server as a local folder, or download the files)
+\end{lstlisting}
+(on one line). The same holds for an input directory with such a scheme,
+a file named in a header, and the name of an output file; the files that a
+tool reads or creates itself are refused as URLs are
+(\cref{sec:tool-files}), and an output directory with a URL scheme is
+refused (\cref{sec:directories}). Such a name is never read as a local file
+name (the directory \file{ftp:} is never looked in). A scheme is a letter
+followed by at least one letter, digit, \code{+}, \code{-} or \code{.},
+then \code{://}, so a one-letter prefix, as in \code{c://x} (like a drive
+letter), is not one. The records of a server reached by FTP or SFTP can be
+read once the server is mounted as a local folder, by their local paths, or
+after the files are downloaded:
+\begin{lstlisting}[style=shell]
+sshfs user@example.org:/data/db ~/mnt/db       # SFTP (or: rclone mount)
+rdsamp -r ~/mnt/db/100 -t 10
+\end{lstlisting}
+In legacy mode, every name containing \code{://} is refused, without a
+message, as by the original library built without network support.
+
 A header read from a URL can be read but not changed by the metadata
-functions, except into a local directory (\cref{chap:metadata}).
+functions, except into a local directory (\cref{sec:metadata-file}).
 
 \section{The standard input and output}
 \label{sec:stdio}
@@ -396,8 +426,14 @@ The library reads each one when it needs it.
 \code{WFDBX\_DEBUG} & (R and Kotlin tools.) If it is set, a tool that stops
   on an internal error (reported as \code{wfdbx: error: \ldots}) also prints
   the call stack. \\
-\code{WFDBX\_STDIN} & (R, for the tests.) The name of a file that the R
-  implementation reads as its standard input. \\
+\code{WFDBX\_STDIN} & (R and MATLAB/Octave.) The name of a file that is
+  read as the standard input: in R, for the tests; in MATLAB/Octave, also
+  set by the MATLAB driver \file{matlab/bin/wfdbx\_matlab.sh}, since MATLAB
+  cannot read its standard input. \\
+\code{WFDBX\_STDOUT}, \code{WFDBX\_STDERR} & (MATLAB/Octave.) Files to which
+  the standard output and error are written, set by the MATLAB driver,
+  which copies them to the real standard output and error when MATLAB
+  exits. \\
 \end{xltabular}
 
 No environment variable turns legacy mode on: it is turned on for a tool by

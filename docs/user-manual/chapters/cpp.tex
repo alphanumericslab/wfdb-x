@@ -63,9 +63,16 @@ cmake --install cpp/build --prefix /usr/local    # optional
 \end{lstlisting}
 
 The library is \file{cpp/build/libwfdbx.a}, and the tools are in \file{cpp/build/bin/}.
-The install step copies the library, the headers (\file{include/wfdbx/}), the tools and a
-CMake package file (\file{lib/cmake/wfdbx/wfdbxConfig.cmake}, with the target
-\code{wfdbx::wfdbx}). These options of the build change what is built:
+The install step copies the library, the headers (\file{include/wfdbx/}), the tools, the
+CMake package files (\file{lib/cmake/wfdbx/wfdbxConfig.cmake}, or
+\file{lib64/cmake/\ldots} on the systems whose library directory is \file{lib64},
+with the target \code{wfdbx::wfdbx}, and \file{wfdbxConfigVersion.cmake}) and the license files
+\file{LICENSE}, \file{LICENSE-GPL} and \file{NOTICE} of the repository (to
+\file{share/doc/wfdbx/}). The library is distributed under the LGPL (\file{LICENSE}), the
+tools under the GPL (\file{LICENSE-GPL}), and the FLAC decoder, a translation of the
+stream decoder of libFLAC, carries libFLAC's BSD-3-Clause notice; \file{NOTICE} gives
+these licenses and that notice, and a distribution of the library or the tools must
+include the three files. These options of the build change what is built:
 
 \begin{table}[htbp]
 \centering
@@ -83,7 +90,7 @@ CMake package file (\file{lib/cmake/wfdbx/wfdbxConfig.cmake}, with the target
 \end{tabularx}
 \end{table}
 
-The version of the library is that of the CMake project, \code{1.2.1}. The tools, like
+The version of the library is that of the CMake project, \code{1.2.2}. The tools, like
 the C tools, have no \opt{-{}-version} option.
 
 \subsection{Using the library from CMake}
@@ -92,9 +99,13 @@ An installed library is found with \code{find\_package}, which defines the impor
 target \code{wfdbx::wfdbx} (the library and its include directory):
 
 \begin{lstlisting}
-find_package(wfdbx REQUIRED)
+find_package(wfdbx 1.2.2 CONFIG REQUIRED)
 target_link_libraries(myprogram PRIVATE wfdbx::wfdbx)
 \end{lstlisting}
+
+The version is optional; any later version of the same major version is accepted. The
+headers need C++17, which the target requires of the programs that link to it, whatever
+their own \code{CMAKE\_CXX\_STANDARD}.
 
 A copy of the directory \file{cpp} (for example in a subdirectory of a project) can also
 be built as part of a project with \code{add\_subdirectory}, which defines the target
@@ -134,9 +145,9 @@ Work that uses the MIT-BIH Arrhythmia Database cites it as described on PhysioNe
 
 This program reads the header, ten seconds of the signals and the annotations of the
 sample record \code{100s}, from the directory \file{tests/data} of the repository (the
-input directory of each call), and
-computes the mean heart rate. It then writes the first ten seconds as a new record,
-\code{first10}, in the current directory, with a metadata entry in its header.
+input directory of each call), and computes the mean heart rate. It then writes the first
+ten seconds as a new record, \code{first10}, in the current directory, with two metadata
+entries in its header.
 
 \begin{lstlisting}[language=C++,style=example]
 #include <cstdio>
@@ -225,7 +236,7 @@ exceptions \code{Error}, \code{ArgumentError} and \code{FileError}
 
 \paragraph{Record names and directories.} A record is named as in the other parts of
 WFDB-x (\cref{chap:records,chap:files}), without the \file{.hea} extension (the readers
-also accept a trailing \code{".hea"}; \code{write\_record} does not). A record name is
+and \code{write\_record} also accept a trailing \code{".hea"}, which is removed). A record name is
 one of: a full path, absolute (\code{"/data/mitdb/100"}) or in the home directory
 (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
 (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
@@ -291,12 +302,12 @@ applies, which is off unless it was turned on.
 \code{wfdbquit()} before and after their work, also when they throw, which closes
 anything opened with the WFDB library functions. The library's settings (legacy mode,
 getvec mode, time resolution of output annotators, input and output directories) are the
-same after a call as before it. Opening an EDF record sets the time resolution of output
-annotators (\code{getafreq()}) to its sampling frequency when none is set, and adds
-\code{WFDB\_HIGHRES} to the getvec mode (\code{getgvmode()}), as in C, and
-\code{wfdbquit()} resets neither: the functions that open a record restore both when they
-return, also when they throw, so that a later \code{write\_annotations} does not record
-that frequency; the C-style functions keep the behavior of C. The metadata functions do
+same after a call as before it, also when it throws. This includes the two settings that
+opening an EDF record changes, as in C, and that \code{wfdbquit()} does not reset: the
+time resolution of output annotators (\code{getafreq()}), set to the record's sampling
+frequency when none is set, and the getvec mode (\code{getgvmode()}), to which
+\code{WFDB\_HIGHRES} is added; so a later \code{write\_annotations} does not record
+that frequency. The C-style functions keep the behavior of C. The metadata functions do
 not call \code{wfdbquit()}: they open only the header, and leave the library's open files
 as they are. The functions are not thread-safe. Results are returned by value.
 
@@ -329,9 +340,9 @@ ADC units, frame by frame, together with the description of the record. The samp
 those that \code{getvec} returns (\cref{chap:library}), read in large blocks with
 \code{getvecs}. If the record ends before \code{opt.to}, the samples up to its end are
 returned. When the read reaches the end of the record, the samples are compared with the
-checksums of the header (\cref{sec:cpp-warnings}). The getvec mode (\code{getgvmode()})
-and the time resolution of output annotators (\code{getafreq()}) are the same after the
-call as before it (opening an EDF record sets both).
+checksums of the header (\cref{sec:cpp-warnings}). No more than $2^{26}$ samples are
+allocated in advance, whatever length the header or \code{opt.to} gives; the result grows
+as the samples are read.
 \begin{params}
 \item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
   also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
@@ -354,9 +365,10 @@ signals; if a requested signal does not exist (``record REC has no signal C''); 
 reached (``can't seek to sample N of record REC''); if a time string needs the sampling
 frequency and the header gives none (``sampling frequency of record REC is not
 specified''); or if a signal file is shorter than its header says, or cannot be read or
-decoded (``can't read signal data of record REC (getvec status S)''). Data that do not
-match the checksums of the header are returned, with a warning (see
-\code{checksum\_warning}).}
+decoded (``can't read signal data of record REC (getvec status -3)''), even if the
+checksums do not match either (the frame in which the file ends is then the one at which
+they are verified): an incomplete frame is never returned. Data that do not match the
+checksums of the header are returned, with a warning (see \code{checksum\_warning}).}
 \begin{lstlisting}[language=C++,style=example]
 // Seconds 10 to 20 of lead MLII, in physical units.
 ReadOptions opt;
@@ -406,9 +418,7 @@ header (from the \file{.hea} file only, as \code{read\_metadata} reads them, wit
 warning for a key given more than once). For an EDF record, which has no \file{.hea}
 file, and for a header read from the standard input (\code{"-"}), the metadata is empty,
 without an error. For a multi-segment record, the master header is read, and
-\code{nsamples} is the length of the whole record. The time resolution of output
-annotators (\code{getafreq()}) and the getvec mode (\code{getgvmode()}) are the same after
-the call as before it (opening an EDF record sets both).
+\code{nsamples} is the length of the whole record.
 \begin{params}
 \item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
   also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
@@ -452,9 +462,8 @@ Annotations read_annotations(const std::string &record,
 Reads the annotations of an annotation file, in file order, as parallel vectors. The
 sampling frequency, needed to convert times in seconds, is that of the record's header,
 or, for a record without a header or whose header gives none, the argument \code{fs}, as
-the option \opt{-F} of \code{rdann}. The time resolution of output annotators
-(\code{getafreq()}) and the getvec mode (\code{getgvmode()}) are the same after the call
-as before it (opening an EDF record sets both).
+the option \opt{-F} of \code{rdann}. Whatever happens, the annotation file is closed
+(\code{wfdbquit()}) before the function returns.
 \begin{params}
 \item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
   also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in the home
@@ -462,12 +471,11 @@ as before it (opening an EDF record sets both).
   (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
   otherwise from the current directory; or a URL
   (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
-  on. Its header, if there is one, gives the sampling
-  frequency.
+  on. Its header, if there is one, gives the sampling frequency.
 \item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
   file \file{RECORD.atr}.
-\item[from] The first time to read: a sample number or a time string. Default \code{\{\}}:
-  the beginning of the file.
+\item[from] The first time to read: a sample number ($\geq 0$) or a time string. Default
+  \code{\{\}}: the beginning of the file.
 \item[to] The time at which to stop: annotations at or after it are not read. Default
   \code{\{\}}: the end of the file.
 \item[fs] The sampling frequency, in Hz ($> 0$), to use when the record has no header or
@@ -481,10 +489,12 @@ as before it (opening an EDF record sets both).
 \returns{An \code{Annotations} (\cref{tab:cpp-annotations}). Its \code{fs} is the
 frequency in which the times are counted: the one written in the annotation file, if
 there is one, or else the sampling frequency; it is 0 if none of them is known.}
-\raises{\code{Error} if \code{fs} is given and is not $> 0$ (``read\_annotations: fs must
-be > 0''); if the annotation file cannot be opened (``can't read annotator ANN for record
-REC''); if a time string needs the sampling frequency and none is known (``sampling
-frequency of record REC is not specified''); or if the file ends early or cannot be read
+\raises{\code{Error} if \code{from} is a negative sample number (``read\_annotations: from
+must not be negative'', as \code{read\_record} checks it, before anything is opened); if
+\code{fs} is given and is not $> 0$ (``read\_annotations: fs must be > 0''); if the
+annotation file cannot be opened (``can't read annotator ANN for record REC''); if a
+time string needs the sampling frequency and none is known (``sampling frequency of record
+REC is not specified''); or if the file ends early or cannot be read
 before \code{to} is reached (``can't read annotation file ANN of record REC (getann status
 S)'', where S is the status that \code{getann} returned, such as $-3$ for an unexpected
 end of file).}
@@ -522,13 +532,20 @@ void write_record(const std::string &record,
 \end{lstlisting}
 Writes samples in ADC units as a new record: the header \file{RECORD.hea} and one signal
 file, \file{RECORD.dat}, which holds all the signals (so they share one format). Existing
-files of these names are overwritten. The sampling frequency, the gain and ADC resolution
-of each signal, and the units of each calibrated signal must be given: there are no
-defaults. Every check except those of the writing itself comes before any file is
-created. The time resolution of output annotators (\code{getafreq()}) and the getvec
-mode (\code{getgvmode()}) are left as they were.
+files of these names are replaced: the header and the signal file are written to
+temporary files in the directories of their destinations (\file{.NAME.XXXXXXXX.tmp}),
+which replace the existing files, with their permissions (or, for a new file, 0666 less
+the umask), only when both are complete, so that an error leaves the existing files as
+they were, and no temporary file. For a symbolic link, the file it leads to is replaced;
+an existing file that is not a regular file (a device, a FIFO) is written directly. The
+sampling frequency, the gain and ADC resolution of each signal, and the units of each
+calibrated signal must be given: there are no defaults. Every check except those of the
+writing itself comes before any file is created or changed. (The ADC resolutions, zeros
+and baselines are \code{int}s, and the text is bytes, so that any value of these types
+can be written.)
 \begin{params}
-\item[record] Record name (not empty), without the \file{.hea} extension: a plain name
+\item[record] Record name (not empty), without the \file{.hea} extension (a trailing
+  \code{".hea"} is removed, as by the readers): a plain name
   (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output directory
   if one is set, otherwise in the current directory, missing directories included; or a
   full path, absolute or in the home directory (\code{"\textasciitilde/Documents/rec"}),
@@ -549,22 +566,23 @@ mode (\code{getgvmode()}) are left as they were.
   to create the files for this call only, with a plain record name, and \code{legacy}.
 \end{params}
 \returns{Nothing.}
-\raises{\code{Error} if a \code{samps\_per\_frame} value is less than 1
-(``write\_record: samps\_per\_frame must hold integers >= 1'', checked first); if the
-record name is empty; if \code{nsig} is not $> 0$ (``write\_record: at least one signal
+\raises{\code{Error}, in this order: with \code{opt.dir}, if the record name contains a
+directory (``record name must not contain a directory when dir is given'') or the
+directory does not exist (``directory D does not exist''); if the record name is empty; if a
+\code{samps\_per\_frame} value is less than 1 (``write\_record: samps\_per\_frame must
+hold integers >= 1''); if \code{nsig} is not $> 0$ (``write\_record: at least one signal
 is required''); if a per-signal field of \code{opt} has another length than 0, 1 or
-\code{nsig}; if \code{fs} is not finite or not $> 0$; if a gain is not finite
-(``write\_record: gains must be finite''); if the gains, the ADC resolutions or the units
-of a calibrated signal are missing (``write\_record: gains must be specified'',
+\code{nsig}; if the gains, the ADC resolutions (each at least 1) or the units of a
+calibrated signal are missing (``write\_record: gains must be specified'',
 ``write\_record: ADC resolution(s) must be specified'', ``write\_record: units must be
-specified''); if \code{samples.size()} is not a multiple of the frame size; if
-\code{opt.base\_time} is not a valid time (``write\_record: incorrect base time 'T'''); if
-the files cannot be created; or if they cannot be written completely, for example on a
-full disk (``write error on record REC''). With \code{opt.dir}, also if the directory does
-not exist (``directory D does not exist'') or the record name contains one (``record name
-must not contain a directory when dir is given''). \code{ArgumentError} (a subclass of
-\code{Error}) if an entry of \code{opt.metadata} is not valid (``write\_record: metadata
-key 'K' is also given in comments'', for example).}
+specified''); if \code{fs} is not finite or not $> 0$; if a gain is not finite
+(``write\_record: gains must be finite''); if \code{opt.base\_time} is not a valid time
+(``write\_record: incorrect base time 'T'''); if \code{samples.size()} is not a multiple
+of the frame size; \code{ArgumentError} (a subclass of \code{Error}) if an entry of
+\code{opt.metadata} is not valid (``write\_record: metadata key 'K' is also given in
+comments'', for example); then \code{Error} if the files cannot be created, or if they
+cannot be written completely, for example on a full disk (``write error on record
+REC'').}
 \begin{lstlisting}[language=C++,style=example]
 // A ramp of 1000 samples of one signal, in millivolts, at 100 Hz: the record "ramp"
 // (ramp.hea and ramp.dat).
@@ -661,17 +679,21 @@ void write_annotations(const std::string &record, const std::string &annotator,
                        std::optional<bool> sort = std::nullopt);
 \end{lstlisting}
 Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
-that name is overwritten. The record need not have a header. The type of each annotation
-is its \code{symbols} entry (\code{"N"}, \code{"V"}, \ldots; an unknown mnemonic gives
-\code{NOTQRS}), or its \code{codes} entry (\cref{chap:formats}). Both may be given (as
+that name is replaced as by \code{write\_record}: the new file is written to a temporary
+file in the same directory, which replaces it only when it is complete (and, if needed,
+sorted), so that an error leaves it as it was. The record need not have a header. The type
+of each annotation is its \code{symbols} entry (\code{"N"}, \code{"V"}, \ldots; an unknown
+mnemonic gives \code{NOTQRS}), or its \code{codes} entry (\cref{chap:formats}). Both may be given (as
 \code{read\_annotations} returns them) if they agree: the code of each non-empty symbol
 (\code{strann}) is the code given for that annotation; an empty symbol leaves the code.
 \code{subtypes}, \code{chans} and \code{nums} are stored in 8 bits, as by \code{putann}
 (300 is stored as 44, as in C), and \code{aux} texts are cut to 255 bytes. If the
 annotations are not in time order, the file is sorted when it is written. The arguments
-are checked before the file is created. The time resolution of output annotators
-(\code{getafreq()}) and the getvec mode (\code{getgvmode()}) are left as they were:
-\code{fs} applies to this file only.
+are checked before the file is created or changed. The times must be from
+$-2^{63}+1$ to $2^{63}-2$ (the smallest and largest 64-bit integers are reserved by the
+file format), and the codes from 0 to 58 (59 to 63 are the control codes of the
+annotation file format). \code{fs} applies to this file only: the time resolution of
+output annotators (\code{getafreq()}) is left as it was.
 \begin{params}
 \item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
   also accepted): a plain name or a relative path (\code{"data/100s"}) is created in the
@@ -682,7 +704,8 @@ are checked before the file is created. The time resolution of output annotators
 \item[annotator] Annotator name: the suffix of the file, made of letters, digits,
   \code{\_}, \code{-} and \code{\textasciitilde}.
 \item[ann] The annotations (\cref{tab:cpp-annotations}): \code{samples}, and
-  \code{symbols} or \code{codes}; \code{subtypes}, \code{chans}, \code{nums} and
+  \code{symbols} or \code{codes} (required when there is at least one annotation; with
+  no annotations, an empty file is written); \code{subtypes}, \code{chans}, \code{nums} and
   \code{aux} are optional. Each of these vectors is empty (\code{subtypes}, \code{chans}
   and \code{nums} are then 0, and there is no aux) or has one entry per annotation.
   \code{ann.record}, \code{ann.annotator} and \code{ann.fs} are not used.
@@ -697,14 +720,20 @@ are checked before the file is created. The time resolution of output annotators
   unless it is \code{0}).
 \end{params}
 \returns{Nothing.}
-\raises{\code{Error} if a per-annotation field has another length than 0 or the number of
-annotations (``write\_annotations: symbols must have one entry per annotation (N), or
-none'', for example); if \code{symbols} and \code{codes} are both given and disagree
-(``write\_annotations: symbols and codes disagree at annotation K'', K counted from 0);
-if \code{fs} is not 0 and not a finite frequency $> 0$; if the file cannot be created
-(``can't create annotator ANN for record REC''); if it cannot be written completely
-(``write error on annotator ANN for record REC''); or, with \code{dir}, as
-\code{write\_record} does.}
+\raises{\code{Error}, in this order: with \code{dir}, as \code{write\_record} does; if a
+per-annotation field has another length than 0 or the number of annotations (``write\_annotations: symbols must have one entry per
+annotation (N), or none'', for example); if there is at least one annotation and neither
+\code{symbols} nor \code{codes} is given (``write\_annotations: symbols or codes must be
+given''); if \code{fs} is not 0 and not a finite frequency
+$> 0$; if a time is reserved (``write\_annotations: annotation time T cannot be written
+(annotation times must be integers from -9223372036854775807 to 9223372036854775806)'');
+if a code is not from 0 to 58 (``write\_annotations: annotation code C is reserved (59 to
+63 are the control codes of the annotation file format)'', or ``write\_annotations:
+annotation code C is out of range (0 to 58)''); if \code{symbols} and \code{codes} are
+both given and disagree (``write\_annotations: symbols and codes disagree at annotation
+K'', K counted from 0); then if the file cannot be created (``can't create annotator ANN
+for record REC''); if it cannot be written completely, or \code{putann} reports an error
+(``write error on annotator ANN for record REC'').}
 \begin{lstlisting}[language=C++,style=example]
 // Three beats and a rhythm change, by symbol, with an aux string for the rhythm.
 Annotations a;
@@ -748,11 +777,13 @@ reports each problem found. A problem in the record never throws: it is reported
 severity (\code{"error"}: the record is damaged or does not follow the WFDB format, and
 programs will read wrong data or fail; \code{"warning"}: the record can be read, but
 something is missing or unusual, and may give wrong results; \code{"info"}: a fact worth
-knowing, such as invalid samples). The problems, their codes and their messages are the
-same in the seven languages (\cref{tab:python-issue-codes}). The checks run in normal
-mode, even if legacy mode is on, and the library prints no messages during the call (the
-previous settings are restored afterwards, the time resolution of output annotators and
-the getvec mode among them). They are similar to those of Benjamin Moody's
+knowing, such as invalid samples). A signal file that ends early, or cannot be read, ends
+the reading before its incomplete frame, also in the frame at which the checksums are
+verified (it is reported as \code{length\_short} or \code{read\_error}, not as a checksum
+error). The problems, their codes and their messages are the same in the seven languages
+(\cref{tab:python-issue-codes}). The checks run in normal mode, even if legacy mode is on,
+and the library prints no messages during the call (the previous settings are restored
+afterwards). They are similar to those of Benjamin Moody's
 \code{wfdbcheck}.
 \begin{params}
 \item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
@@ -842,8 +873,12 @@ are shared must be de-identified first.
 Metadata read_metadata(const std::string &record,
                        const InputOptions &input = {});
 \end{lstlisting}
-Reads the metadata entries of the header of a record, in file order. An info string is an
-entry if it contains a colon: the key is the text before the first colon, the value the
+Reads the metadata entries of the header of a record, in file order. The info strings are
+the lines that begin with \code{\#} after the record line, which is found as the header
+parser finds it, in every mode: the first line that holds something other than spaces,
+tabs, CRs and LFs and does not begin, after them, with \code{\#} (comment lines before
+it, even after an empty or blank first line, are never read or changed). An info string is
+an entry if it contains a colon: the key is the text before the first colon, the value the
 rest of the line, both without spaces at either end. Info strings without a colon, or
 whose key is empty or contains \code{\#}, are free comments, which are not returned.
 \begin{params}
@@ -1254,7 +1289,12 @@ library (\cref{sec:cpp-library}). Their fields are public, and may be changed.
   \code{\{year, month, day\}}; \code{std::nullopt} if the header gives no date \\
 \code{WFDB\_Time sampfrom} & the number of the first sample returned \\
 \code{std::vector<std::string> comments} & the info strings of the record: the comments of
-  the header, and the lines of its \file{.info} file if it has one (see \code{getinfo}) \\
+  the header (its lines that begin with \code{\#} after the record line, without the
+  \code{\#}), and the lines of its \file{.info} file if it has one (see \code{getinfo}).
+  The record line is found as the header parser finds it: the first line that holds
+  something other than spaces, tabs, CRs and LFs and does not begin, after them, with
+  \code{\#}; an empty or blank first line is not the record line, except in legacy mode
+  (where the C rule of \code{getinfo} applies) \\
 \code{bool checksum\_ok} & \code{false} if the samples do not match the checksums of the
   header; checksums are checked only when a read reaches the end of the record, so a
   shorter read gives \code{true} \\
@@ -1417,8 +1457,14 @@ library (\cref{sec:cpp-library}). Their fields are public, and may be changed.
 the classes of \cref{tab:cpp-exceptions}, all declared in \file{<wfdbx/record.hpp>}.
 \code{e.what()} returns the message, which describes the failed operation, such as
 ``can't read record REC''. Each function checks its arguments before it creates or
-changes a file, so an invalid argument leaves the files as they were. The library may
-also print a message of its own on the standard error when it cannot open a file (as in
+changes a file, so an invalid argument leaves the files as they were; the writers also
+write through temporary files, so that a failure while writing leaves the existing files
+as they were. A signal file that ends before its header says, or cannot be read or
+decoded, is a read error of \code{read\_record} (``can't read signal data of record REC
+(getvec status -3)'', after the library's message ``getvec: unexpected EOF in signal N''),
+even in the frame at which the checksums are verified, and \code{check\_record} reports it
+as \code{length\_short} or \code{read\_error}; a checksum mismatch alone is a warning.
+The library may also print a message of its own on the standard error when it cannot open a file (as in
 \code{init: can't open header for record REC}); \code{wfdberror()} returns the last such
 message, and \code{wfdbquiet()} turns these messages off (\cref{sec:cpp-library}).
 
@@ -1565,7 +1611,7 @@ which closes anything opened with the library functions.
 \paragraph{Additions.} \code{getvecs(buffer, n)} reads up to \code{n} sample vectors at
 once, with exactly the result of \code{n} calls of \code{getvec}, but decoding whole
 blocks of the signal files; \code{getvecs(buffer, n, \&status)} also gives the status of
-the last \code{getvec} call:
+the last \code{getvec} call.
 \begin{lstlisting}[language=C++]
 long long getvecs(WFDB_Sample *out, long long n, int *status = nullptr);
 \end{lstlisting}
@@ -1845,7 +1891,7 @@ The unit tests of the C++ implementation are in \file{cpp/tests}, built with the
 \file{cpp/build/wfdbx\_tests}. From the root of the repository, after building:
 
 \begin{lstlisting}[style=shell]
-ctest --test-dir cpp/build                          # the unit tests
+(cd cpp/build && ctest)                             # the unit tests
 cpp/build/wfdbx_tests                               # the same, one line per test
 cpp/build/wfdbx_tests metadata_shared_cases         # selected tests, by name
 \end{lstlisting}
@@ -1862,8 +1908,8 @@ and compare the reports with its \file{expected.txt}; without Python they are sk
 \cmd{cpp/build/wfdbx\_check\_corpus DIR} prints the reports for a corpus in \file{DIR}.
 
 The cross-language conformance suite runs every tool and compares its results, byte for
-byte, with those of the original C programs (1135 cases), and, with \opt{-{}-legacy}, in
-legacy mode (883 cases). It runs the tools of \file{cpp/build/bin}:
+byte, with those of the original C programs (1155 cases), and, with \opt{-{}-legacy}, in
+legacy mode (886 cases). It runs the tools of \file{cpp/build/bin}:
 
 \begin{lstlisting}[style=shell]
 PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl cpp -j8

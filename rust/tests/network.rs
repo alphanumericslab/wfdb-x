@@ -1,9 +1,10 @@
 //! WFDB-x: network access (normal mode), against a local HTTP server on
 //! 127.0.0.1 (no other host is contacted): off by default (the message,
 //! once per process), URL names and a URL input directory, files named in
-//! a remote header, caching, a 404, a redirection, curl missing, the
-//! `network` option; also the once-per-process WFDB warning. One test, as
-//! these messages are printed once per process.
+//! a remote header, caching (of the files read; a failure is requested
+//! again), a 404, a redirection, curl missing, the `network` option; also
+//! the once-per-process WFDB warning. One test, as these messages are
+//! printed once per process.
 //
 // This file is part of WFDB-x, an independent reimplementation of the WFDB
 // Software Package in Python, C++, MATLAB/Octave, Rust, Julia, R and Kotlin.
@@ -170,7 +171,7 @@ fn network() {
         ..Default::default()
     };
     assert_eq!(w.read_record("100s", &opt).unwrap().samples, local.samples);
-    // each URL is requested once per process (failures too)
+    // a file read is requested once per process (it is kept)
     assert_eq!(count(&log, "/db/100s.hea"), 1);
     assert_eq!(count(&log, "/db/100s.dat"), 1);
     assert_eq!(
@@ -193,10 +194,10 @@ fn network() {
     // a multi-segment record
     let m = w.read_record("multi", &opt).unwrap();
     assert_eq!(m.samples.len(), 2 * 45000);
-    // a 404, cached
+    // a 404: a failure is not kept, and is requested again
     assert!(w.read_header_with("nosuch", &opt).is_err());
     assert!(w.read_header_with("nosuch", &opt).is_err());
-    assert_eq!(count(&log, "/db/nosuch.hea"), 1);
+    assert_eq!(count(&log, "/db/nosuch.hea"), 2);
     // a redirection is followed
     let mut f = w
         .wfdb_open("hea", &format!("{url}redirect/db/null"), WFDB_READ)

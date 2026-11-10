@@ -80,7 +80,9 @@ reasons), or "none, apart from the language."; the copyright of the
 original C code (from `docs/AUTHORS.md`) and "R translation and changes:
 Copyright (C) 2026 Reza Sameni."; and the license notice (LGPL-2.1 or later,
 `LICENSE`; for the tools, `R/apps_*.R`, `R/cli.R` and `inst/bin`, GPL-3 or
-later, `LICENSE-GPL`). A file with no C
+later, `LICENSE-GPL`). The package's `DESCRIPTION` declares
+`License: file LICENSE`, and `r/LICENSE` states this split for R users; keep
+it in step with the file notices. A file with no C
 original (the high-level API, `check.R`, `cli.R`, `cstd.R`, the driver,
 the tests) says "It has no counterpart in the original package." (tests:
 "It tests WFDB-x; ...") and gives only Reza Sameni's copyright. Keep the
@@ -530,7 +532,12 @@ R functions follow its algorithm step by step:
 * The header is opened with `wfdb_open("hea", ...)` (after
   `wfdb_striphea`), read whole as a raw vector (`wf_readall`), and parsed
   by `.md_parse` into lines (content and line ending, as raw vectors), the
-  index of the record line, the info strings and the entries. After each
+  index of the record line, the info strings and the entries. The record
+  line is found as `readheader` finds it (`.md_is_record_line`: up to a
+  NUL byte, a token separated by spaces, tabs, CRs and LFs that does not
+  begin with `#`), in every mode; `getinfo` uses the same rule
+  (`.comment_or_blank` in `signal.R`) except in legacy mode, where it
+  keeps C's (the first line that does not begin with `#`). After each
   change the header is joined (`.md_bytes`) and parsed again, as in
   Python. Keys are folded with `.md_fold` (A-Z only, on bytes).
 * The entries are returned as a named character vector (names: keys), in
@@ -542,10 +549,13 @@ R functions follow its algorithm step by step:
   `network`), finds the destination (`.md_destination`: the file read, or
   the file of the same name in `dir`), checks every change, applies them,
   and writes only if the bytes differ (or `dir` is given). `.md_write`
-  writes a temporary file in the destination's directory (`tempfile`),
-  gives it the permission bits of the destination (`Sys.chmod`), and
-  renames it over the destination (`file.rename`); the temporary file is
-  removed on any failure. Base R has no `fsync`, so the data are not
+  creates a temporary file in the destination's directory with owner-only
+  permissions (`.wfdbx_temp_file`: `Sys.umask("077")` around its creation,
+  then `Sys.chmod(tmp, "600")`, before anything is written to it, since a
+  header may hold patient data), writes it, gives it the permission bits
+  of the destination, or 0666 less the umask for a new file, and renames
+  it over the destination (`.wfdbx_replace_with`: `Sys.chmod`,
+  `file.rename`); the temporary file is removed on any failure. Base R has no `fsync`, so the data are not
   synchronized to the disk before the rename.
 * Errors are conditions of class `wfdbx_argument_error` (Python's
   `ValueError` and `TypeError`) or `wfdbx_file_error` (Python's
@@ -558,7 +568,7 @@ R functions follow its algorithm step by step:
   `write_record` gets the info strings from `.md_info_lines` before any
   file is created, and writes them with `putinfo` after the comments.
 
-`tests/unit/test_metadata.R` runs the 49 shared cases of
+`tests/unit/test_metadata.R` runs the 56 shared cases of
 `tests/metadata/cases.tsv`, each in a new temporary directory, and the other
 tests of `python/tests/test_metadata.py` (a URL served on 127.0.0.1).
 
@@ -605,6 +615,16 @@ The README leaves out these details, which matter when changing the code.
   Reaching the end of the record (-1) before `sampto` is not an error.
   This applies in legacy mode too, since the high-level API is a WFDB-x
   addition; `getvec`, `getframes` and the tools are unchanged.
+  `.getskewedframe` sets `.sig$read_failed` wherever its status becomes
+  -3 (a decoder or I/O error, "unexpected EOF in signal N" with a known
+  length, "error opening segment"), whatever status getvec then returns:
+  getvec gives -4 for the frame at which a checksum is verified even if
+  a signal file ended in it. `read_record` clears the flag before reading
+  and on exit; `.getframes(..., keep_checksum_frame = TRUE)` and
+  `check_record`'s `.chk_frames` stop when it is set, without keeping the
+  frame, with status -3 (a status of -4 or >= -1 becomes -3). The matrix
+  is built from blocks of at most `.BULK_MAXFRAMES` frames and from
+  growing buffers, never allocated from the header's length.
 * **Checksum errors.** Status -4 (the samples are complete, but their sum
   does not match the header's checksums) is a warning, not an error:
   `.getframes(n, keep_checksum_frame = TRUE)` keeps the last frame, and
@@ -623,10 +643,45 @@ The README leaves out these details, which matter when changing the code.
   `Sys.which("curl")` finds it, and base R's `url()` otherwise. Redirects
   are followed, an HTTP status of 400 or more is a failure, and reading
   gives up if connecting takes 30 s or no data arrives for 30 s, with no
-  limit on the total time. Each URL is requested at most once per process,
-  failures included.
+  limit on the total time. A file that has been read is kept for the rest
+  of the process; a failure is not kept, so a later open of the URL
+  requests it again. A name with a URL scheme other than http:// and
+  https:// (`.has_scheme`) is refused by `wfdb_fopen`, with a message the
+  first time.
 * **`write_annotations(sort = TRUE)` in legacy mode** runs the `sortann`
   tool, as the library's legacy sorting does.
+* **Writers' argument checks** (1.2.2). `write_record` and
+  `write_annotations` check everything before any file is touched, in the
+  order of the Python implementation; whole 32-bit values with
+  `.hl_whole_int32`, text with `.hl_check_latin1` (strings are written as
+  their bytes, so only a string in UTF-8, marked so or in a UTF-8 locale,
+  that holds a character beyond U+00FF is refused: it would be written as
+  several bytes; a byte string, as in the C locale of the tools, is
+  written as it is). R has no 0-D arrays: a scalar is a vector of length
+  1, so "signals must be a 1-D or 2-D array" and "samples must be a 1-D
+  array" refuse arrays with more dimensions only. A double cannot hold
+  2^63 - 1, so the reserved-time check meets only -2^63 (2^63 is out of
+  range already).
+* **Writing through temporary files** (`wfdbio.R`, 1.2.2). Between
+  `.staging_begin()` and `.staging_end(commit)` (set by the two writers),
+  `wfdb_fopen` passes each local file to `.staged_open`: a destination
+  (key: its absolute path, `.staged_key`; file: its real path,
+  `.staged_realpath`, so a symbolic link stays one) is created as an
+  owner-only temporary file `.NAME.XXXXXXXX.tmp` in its directory
+  (`.wfdbx_temp_file`; the random part is `tempfile`'s, not R's random
+  number generator), and every later open of the same destination ("wb",
+  "ab", "rb": the in-process sort of annotation files) opens that file.
+  The WFDB_FILE keeps the destination as `name` (messages) and the
+  temporary file as `path` (`.wf_sync` reopens it; sizes are taken from
+  it). A destination that is a directory fails as before; one that exists
+  and is not a regular file is opened directly: base R does not give the
+  type of a file, so `.not_regular_file` asks `test -f` only for a file of
+  size 0 (devices and FIFOs have that size). `.staging_end` renames all
+  the temporary files (`.wfdbx_replace_with`: the destination's mode, or
+  0666 less the umask) after all are complete, or removes them all;
+  `oannclose` in legacy mode renames a file to be sorted first
+  (`.staging_commit_one`), then runs `sortann`, and after a write error
+  neither renames nor sorts.
 
 ## Testing
 

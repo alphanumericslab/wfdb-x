@@ -96,6 +96,19 @@
   "entries": [],
   "warnings": 0
  },
+ "read_leading": {
+  "entries": [
+   [
+    "Age",
+    "actual"
+   ]
+  ],
+  "warnings": 0
+ },
+ "read_leadingblank": {
+  "entries": [],
+  "warnings": 0
+ },
  "get_basic_case": {
   "value": "63",
   "warnings": 0
@@ -122,6 +135,10 @@
  },
  "get_bad_key": {
   "error": "argument",
+  "warnings": 0
+ },
+ "get_leading": {
+  "value": "actual",
   "warnings": 0
  },
  "set_basic_replace": {
@@ -212,6 +229,18 @@
   "error": "argument",
   "warnings": 0
  },
+ "set_leading_replace": {
+  "warnings": 0,
+  "output": "expected/set_leading_replace.hea"
+ },
+ "set_leading_add": {
+  "warnings": 0,
+  "output": "expected/set_leading_add.hea"
+ },
+ "set_leadingblank_add": {
+  "warnings": 0,
+  "output": "expected/set_leadingblank_add.hea"
+ },
  "remove_basic": {
   "count": 1,
   "warnings": 0,
@@ -241,6 +270,11 @@
   "count": 1,
   "warnings": 0,
   "output": "expected/remove_odd_last.hea"
+ },
+ "remove_leading": {
+  "count": 1,
+  "warnings": 0,
+  "output": "expected/remove_leading.hea"
  },
  "update_basic": {
   "warnings": 0,

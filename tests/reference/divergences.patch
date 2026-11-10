@@ -740,10 +740,10 @@ index 99d2a0f..fe0a112 100644
 +	(void)fprintf(stderr, "%s\n", hs[i]);
  }
 diff --git a/app/time2sec.c b/app/time2sec.c
-index e4f3426..e363e65 100644
+index e4f3426..432d999 100644
 --- a/app/time2sec.c
 +++ b/app/time2sec.c
-@@ -34,6 +34,10 @@ char **argv;
+@@ -34,8 +34,22 @@ char **argv;
      int milliseconds;
      long seconds;
  
@@ -752,8 +752,21 @@ index e4f3426..e363e65 100644
 +    (void)wfdbx_legacy_args(&argc, &argv);
 +
      if (argc == 4 && strcmp(argv[1], "-r") == 0) {
- 	(void)isigopen(argv[2], NULL, 0);
+-	(void)isigopen(argv[2], NULL, 0);
++	/* wfdb-x: in normal mode, no sampling frequency is assumed: a record
++	   whose header cannot be read, or gives no sampling frequency, is an
++	   error (the original used the default of 250 Hz; a frequency of 0
++	   gave a meaningless result, with the exit status 0) */
++	if (isigopen(argv[2], NULL, 0) < 0 && !wfdbx_get_legacy())
++	    exit(2);
++	if (sampfreq(NULL) <= 0. && !wfdbx_get_legacy()) {
++	    fprintf(stderr, "%s: sampling frequency of record %s is not "
++		    "specified\n", argv[0], argv[2]);
++	    exit(2);
++	}
  	t = strtim(argv[3]);
+ 	if (t < 0) t = -t;
+ 	seconds = (long)(t/sampfreq(NULL));
 diff --git a/app/wfdbcat.c b/app/wfdbcat.c
 index 135ea7e..95364b0 100644
 --- a/app/wfdbcat.c
@@ -3809,7 +3822,7 @@ index d90ca9a..e22a915 100644
  	while (n < noaf-1) {
  	    oad[n] = oad[n+1];
 diff --git a/lib/signal.c b/lib/signal.c
-index 901efc2..a1d739b 100644
+index 901efc2..f406bba 100644
 --- a/lib/signal.c
 +++ b/lib/signal.c
 @@ -185,7 +185,15 @@ void example(void)
@@ -4282,7 +4295,56 @@ index 901efc2..a1d739b 100644
  
      SFREE(ns);
      return (0);
-@@ -4325,13 +4632,42 @@ static char *ftimstr(WFDB_Time t, WFDB_Frequency f)
+@@ -4151,7 +4458,16 @@ FINT putinfo(const char *s)
+ /* getinfo: On the first call, read all info strings from the .hea file and (if
+ available) the .info file for the specified record, and return a pointer to the
+ first one.  On subsequent calls, return a pointer to the next info string.
+-Return NULL if there are no more info strings. */
++Return NULL if there are no more info strings.
++
++wfdb-x: the info strings of the .hea file are the lines that begin with '#'
++after the record line, and the record line is found as readheader finds it:
++the first line that has a token (separated by spaces, tabs, CRs and LFs)
++that does not begin with '#'.  The original takes the first line that does
++not begin with '#' in its first column, so that an empty or blank line before
++the record line was taken for the record line, and the comments between it
++and the real record line were returned as info strings; a header with no
++record line gives no info strings.  Legacy mode keeps the original rule. */
+ 
+ FSTRING getinfo(char *record)
+ {
+@@ -4183,11 +4499,25 @@ FSTRING getinfo(char *record)
+ 	    /* Remove trailing .hea, if any, from record name. */
+ 	    wfdb_striphea(record);
+ 	    if ((ifile = wfdb_open("hea", record, WFDB_READ))) {
+-		while (wfdb_getline(&buf, &bufsize, ifile))
+-		    if (*buf != '#') break; /* skip initial comments, if any */
+-		while (wfdb_getline(&buf, &bufsize, ifile))
+-		    if (*buf == '#') break; /* skip header content */
+-		while (*buf) {	/* read and save info */
++		int found = 0;	/* wfdb-x: 1 if the record line was found */
++
++		while (wfdb_getline(&buf, &bufsize, ifile)) {
++		    if (legacy_mode) {
++			if (*buf != '#') break; /* skip initial comments */
++		    }
++		    else {	/* wfdb-x: skip comments and blank lines */
++			p = buf + strspn(buf, " \t\n\r");
++			if (*p && *p != '#') { found = 1; break; }
++		    }
++		}
++		if (!legacy_mode && !found) {
++		    if (buf) *buf = '\0'; /* wfdb-x: no record line, no info */
++		}
++		else {
++		    while (wfdb_getline(&buf, &bufsize, ifile))
++			if (*buf == '#') break; /* skip header content */
++		}
++		while (buf && *buf) {	/* read and save info */
+ 		    if (*buf == '#') {	    /* skip anything that isn't info */
+ 			p = buf + strlen(buf) - 1;
+ 			if (*p == '\n') *p-- = '\0';
+@@ -4325,13 +4655,42 @@ static char *ftimstr(WFDB_Time t, WFDB_Frequency f)
      return (p);	
  }
  
@@ -4326,7 +4388,7 @@ index 901efc2..a1d739b 100644
  
      return ftimstr(t, f);
  }
-@@ -4398,7 +4734,8 @@ FSTRING mstimstr(WFDB_Time t)
+@@ -4398,7 +4757,8 @@ FSTRING mstimstr(WFDB_Time t)
  
      if (ifreq > 0.) f = ifreq;
      else if (sfreq > 0.) f = sfreq;
@@ -4336,7 +4398,7 @@ index 901efc2..a1d739b 100644
  
      return fmstimstr(t, f);
  }
-@@ -4475,7 +4812,11 @@ FSITIME strtim(const char *string)
+@@ -4475,7 +4835,11 @@ FSITIME strtim(const char *string)
  
      if (ifreq > 0.) f = ifreq;
      else if (sfreq > 0.) f = sfreq;
@@ -4349,7 +4411,7 @@ index 901efc2..a1d739b 100644
  
      return fstrtim(string, f);
  }
-@@ -4533,12 +4874,33 @@ FDATE strdat(const char *string)
+@@ -4533,12 +4897,33 @@ FDATE strdat(const char *string)
      return (date);
  }
  
@@ -4385,7 +4447,7 @@ index 901efc2..a1d739b 100644
      x = a*1000./g;
      if (x >= 0.0)
  	return ((int)(x + 0.5));
-@@ -4549,9 +4911,9 @@ FINT adumuv(WFDB_Signal s, WFDB_Sample a)
+@@ -4549,9 +4934,9 @@ FINT adumuv(WFDB_Signal s, WFDB_Sample a)
  FSAMPLE muvadu(WFDB_Signal s, int v)
  {
      double x;
@@ -4397,7 +4459,7 @@ index 901efc2..a1d739b 100644
      x = g*v*0.001;
      if (x >= 0.0)
  	return ((int)(x + 0.5));
-@@ -4562,34 +4924,20 @@ FSAMPLE muvadu(WFDB_Signal s, int v)
+@@ -4562,34 +4947,20 @@ FSAMPLE muvadu(WFDB_Signal s, int v)
  FDOUBLE aduphys(WFDB_Signal s, WFDB_Sample a)
  {
      double b;
@@ -4438,7 +4500,7 @@ index 901efc2..a1d739b 100644
      v *= g;
      if (v >= 0)
  	return ((int)(v + 0.5) + b);
-@@ -4689,6 +5037,9 @@ void wfdb_sigclose(void)
+@@ -4689,6 +5060,9 @@ void wfdb_sigclose(void)
      sfreq = ifreq = ffreq = (WFDB_Frequency)0;
      pdays = (WFDB_Date)-1;
      segments = in_msrec = skewmax = 0;
@@ -4515,7 +4577,7 @@ index 41a154d..f1eac11 100644
      wfdb_freeinfo();	/* release info strings */
  }
 diff --git a/lib/wfdbio.c b/lib/wfdbio.c
-index 10644e2..df1295e 100644
+index 10644e2..ed84d26 100644
 --- a/lib/wfdbio.c
 +++ b/lib/wfdbio.c
 @@ -38,6 +38,12 @@ This file contains definitions of the following WFDB library functions:
@@ -4616,7 +4678,7 @@ index 10644e2..df1295e 100644
      if (p == NULL && (p = getenv("WFDB")) == NULL) p = DEFWFDB;
      SSTRCPY(wfdbpath, p);
      wfdb_export_config();
-@@ -231,6 +287,266 @@ FVOID wfdbverbose(void)
+@@ -231,6 +287,286 @@ FVOID wfdbverbose(void)
  
  static char *wfdb_filename;
  
@@ -4648,6 +4710,25 @@ index 10644e2..df1295e 100644
 +static int is_url(const char *s)
 +{
 +    return (strncmp(s, "http://", 7) == 0 || strncmp(s, "https://", 8) == 0);
++}
++
++/* wfdb-x: has_scheme returns 1 if s begins with a URL scheme followed by
++   "://": a letter, then at least one letter, digit, '+', '-' or '.'
++   (http://, https://, ftp://, sftp://, file://, ...).  A drive letter (C:)
++   is not a scheme.  In normal mode, a name with a scheme is a URL, never a
++   local file name, and only an http:// or https:// URL can be read (see
++   wfdb_fopen). */
++static int has_scheme(const char *s)
++{
++    const char *p = s;
++
++    if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')))
++	return (0);
++    for (p++; (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
++	     (*p >= '0' && *p <= '9') || *p == '+' || *p == '-' || *p == '.';
++	 p++)
++	;
++    return (p - s >= 2 && strncmp(p, "://", 3) == 0);
 +}
 +
 +/* wfdb-x: is_dsep returns 1 if c is a directory separator ('/', and on
@@ -4728,7 +4809,7 @@ index 10644e2..df1295e 100644
 +    if (output_dir_init) return;
 +    output_dir_init = 1;
 +    if ((p = getenv("WFDBX_OUTPUT_DIR")) != NULL && *p) {
-+	if (is_url(p))
++	if (has_scheme(p))
 +	    wfdb_error(output_url_error);
 +	else {
 +	    SSTRCPY(env_output_dir, p);
@@ -4744,11 +4825,12 @@ index 10644e2..df1295e 100644
 +   empty string restores the default (the value of WFDBX_OUTPUT_DIR if it is
 +   set, otherwise none: files are created as named).  It returns the previous
 +   value (NULL if none), which remains valid until the next call.  A URL is
-+   refused: the setting is unchanged, and the current value is returned. */
++   refused (any name with a URL scheme, such as ftp://): the setting is
++   unchanged, and the current value is returned. */
 +FSTRING wfdbx_set_output_dir(const char *dir)
 +{
 +    init_output_dir();
-+    if (dir && is_url(dir)) {
++    if (dir && has_scheme(dir)) {
 +	wfdb_error(output_url_error);
 +	return (output_dir);
 +    }
@@ -4883,7 +4965,7 @@ index 10644e2..df1295e 100644
  /* wfdbfile returns the pathname or URL of a WFDB file. */
  
  FSTRING wfdbfile(const char *s, char *record)
-@@ -494,10 +810,58 @@ OS- and compiler-dependent definitions:
+@@ -494,10 +830,58 @@ OS- and compiler-dependent definitions:
  /* wfdb_parse_path constructs a linked list of path components by splitting
  its string input (usually the value of WFDB). */
  
@@ -4943,7 +5025,7 @@ index 10644e2..df1295e 100644
      struct wfdb_path_component *c0 = NULL, *c1 = wfdb_path_list;
      static first_call = 1;
  
-@@ -516,41 +880,7 @@ int wfdb_parse_path(const char *p)
+@@ -516,41 +900,7 @@ int wfdb_parse_path(const char *p)
  
      /* Now construct the wfdb_path_list from the contents of p. */
      while (*q) {
@@ -4986,7 +5068,7 @@ index 10644e2..df1295e 100644
  
  	/* current component begins at p, ends at q-1 */
  	SUALLOC(c1, 1, sizeof(struct wfdb_path_component));
-@@ -946,8 +1276,96 @@ int wfdb_fprintf(WFDB_FILE *wp, const char *format, ...)
+@@ -946,8 +1296,96 @@ int wfdb_fprintf(WFDB_FILE *wp, const char *format, ...)
  				 wfdb_asprintf(S, "%s.%.3s", RECORD, TYPE))
  #endif
  
@@ -5015,7 +5097,7 @@ index 10644e2..df1295e 100644
 +
 +    if (*name == '~')
 +	return (expand_home(name));
-+    if (is_absolute_path(name) || is_url(name)) {
++    if (is_absolute_path(name) || has_scheme(name)) {
 +	SSTRCPY(r, name);
 +	return (r);
 +    }
@@ -5045,7 +5127,7 @@ index 10644e2..df1295e 100644
 +{
 +    const char *p, *q;
 +
-+    if (is_absolute_path(name) || is_url(name) || *name == '~')
++    if (is_absolute_path(name) || has_scheme(name) || *name == '~')
 +	return (0);
 +#ifdef _WIN32
 +    if (*name && name[1] == ':')
@@ -5083,7 +5165,7 @@ index 10644e2..df1295e 100644
  /* wfdb_open is used by other WFDB library functions to open a database file
  for reading or writing.  wfdb_open accepts two string arguments and an integer
  argument.  The first string specifies the file type ("hea", "atr", etc.),
-@@ -1004,6 +1422,130 @@ Pre-10.0.1 versions of this library that were compiled for environments other
+@@ -1004,6 +1442,133 @@ Pre-10.0.1 versions of this library that were compiled for environments other
  than MS-DOS used file names in the format TYPE.RECORD.  This file name format
  is no longer supported. */
  
@@ -5127,7 +5209,7 @@ index 10644e2..df1295e 100644
 +    if (name == NULL || *name == '\0' || strcmp(name, "-") == 0)
 +	return (NULL);
 +    r = expand_record(name);
-+    if (is_url(r)) {
++    if (has_scheme(r)) {
 +	SFREE(r);
 +	return (NULL);
 +    }
@@ -5144,7 +5226,8 @@ index 10644e2..df1295e 100644
 +   creates, a file of that name with an empty file type.  NULL or an empty
 +   name, and "-" (the standard input or output, if the program treats it so),
 +   are returned as given; a URL (also after the input directory is prefixed
-+   to the name) cannot be opened in this way, and NULL is returned for it.
++   to the name; in normal mode, any name with a URL scheme, such as ftp://)
++   cannot be opened in this way, and NULL is returned for it.
 +
 +   wfdbx_input_path: in normal mode, a relative name is found under the input
 +   directory, if one is set, a ~ name is expanded, and an absolute name is
@@ -5168,7 +5251,7 @@ index 10644e2..df1295e 100644
 +	return (r);
 +    }
 +    r = resolve(name, 0);
-+    if (r && is_url(r))
++    if (r && has_scheme(r))
 +	SFREE(r);
 +    return (r);
 +}
@@ -5194,6 +5277,8 @@ index 10644e2..df1295e 100644
 +	    SSTRCPY(r, name);
 +    }
 +    else {
++	if (has_scheme(name))
++	    return (NULL);
 +	prefixed = (output_dir && *name != '~' && !is_absolute_path(name));
 +	r = resolve(name, 1);
 +    }
@@ -5214,7 +5299,7 @@ index 10644e2..df1295e 100644
  WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
  {
      char *wfdb, *p, *q, *r, *buf = NULL;
-@@ -1037,43 +1579,45 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+@@ -1037,43 +1602,45 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
  
  	    wfdb_stdout.type = WFDB_LOCAL;
  	    wfdb_stdout.fp = stdout;
@@ -5284,7 +5369,7 @@ index 10644e2..df1295e 100644
      }
  
      /* Parse the WFDB path if not done previously. */
-@@ -1190,12 +1734,67 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
+@@ -1190,12 +1757,67 @@ WFDB_FILE *wfdb_open(const char *s, const char *record, int mode)
      return (NULL);
  }
  
@@ -5352,7 +5437,7 @@ index 10644e2..df1295e 100644
      do {
  	if (('0' <= *p && *p <= '9') || *p == '_' || *p == '~' || *p== '-' ||
  	    *p == DSEP ||
-@@ -2163,29 +2762,306 @@ int wfdb_putc(int c, WFDB_FILE *wp)
+@@ -2163,29 +2785,320 @@ int wfdb_putc(int c, WFDB_FILE *wp)
      return (putc(c, wp->fp));
  }
  
@@ -5461,15 +5546,16 @@ index 10644e2..df1295e 100644
 +   giving up if connecting takes 30 seconds or no data arrives for 30
 +   seconds; there is no limit on the total time, since record files can be
 +   large),
-+   reading its standard output.  The result (the contents, or a failure) is
-+   kept for the rest of the process, so that each URL is requested at most
-+   once.  The file is read from a temporary copy. */
++   reading its standard output.  The contents are kept for the rest of the
++   process, so that a URL read once is not requested again; a failure is not
++   kept, so a later open of the URL requests it again (a server that was
++   unavailable may have recovered).  The file is read from a temporary
++   copy. */
 +
 +struct fetched {
 +    char *url;
 +    char *data;
 +    size_t len;
-+    int ok;
 +    struct fetched *next;
 +};
 +static struct fetched *fetched_list;
@@ -5616,21 +5702,22 @@ index 10644e2..df1295e 100644
 +	int stat;
 +
 +	SUALLOC(f, 1, sizeof(struct fetched));
-+	SSTRCPY(f->url, url);
 +	stat = run_curl(url, &f->data, &f->len);
 +	if (stat < 0 && !curl_warned) {
 +	    curl_warned = 1;
 +	    wfdb_error("WFDB-x: network access needs the curl program, which "
 +		       "was not found\n");
 +	}
-+	if ((f->ok = (stat > 0)) == 0) {
++	if (stat <= 0) {	/* a failure is not kept */
 +	    SFREE(f->data);
-+	    f->len = 0;
++	    SFREE(f);
++	    return (NULL);
 +	}
++	SSTRCPY(f->url, url);
 +	f->next = fetched_list;
 +	fetched_list = f;
 +    }
-+    if (!f->ok || (fp = tmpfile()) == NULL)
++    if ((fp = tmpfile()) == NULL)
 +	return (NULL);
 +    if (f->len > 0 && fwrite(f->data, 1, f->len, fp) != f->len) {
 +	fclose(fp);
@@ -5649,20 +5736,32 @@ index 10644e2..df1295e 100644
      WFDB_FILE *wp;
  
 -    if (p == NULL || strstr(p, ".."))
-+    /* wfdb-x: in normal mode, names containing ".." are accepted, and an
-+       http:// or https:// URL is fetched (see fetch_open); other names are
-+       local files. */
++    /* wfdb-x: in normal mode, names containing ".." are accepted, an
++       http:// or https:// URL is fetched (see fetch_open), and a name with
++       any other URL scheme (ftp://, sftp://, file://, ...) is refused, with
++       a message the first time; other names are local files. */
 +    if (p == NULL || (wfdbx_get_legacy() && strstr(p, "..")))
- 	return (NULL);
++	return (NULL);
 +    if (!wfdbx_get_legacy() && is_url(p))
 +	return (*mode == 'r' ? fetch_open(p) : NULL);
++    if (!wfdbx_get_legacy() && has_scheme(p)) {
++	static int scheme_warned;
++
++	if (!scheme_warned) {
++	    scheme_warned = 1;
++	    wfdb_error("WFDB-x: can't open %s: only http:// and https:// URLs "
++		       "can be read (mount the server as a local folder, or "
++		       "download the files)\n", p);
++	}
+ 	return (NULL);
++    }
      SUALLOC(wp, 1, sizeof(WFDB_FILE));
 -    if (strstr(p, "://")) {
 +    if (wfdbx_get_legacy() && strstr(p, "://")) {
  #if WFDB_NETFILES
  	if (wp->netfp = nf_fopen(fname, mode)) {
  	    wp->type = WFDB_NET;
-@@ -2197,6 +3073,7 @@ WFDB_FILE *wfdb_fopen(char *fname, const char *mode)
+@@ -2197,6 +3110,7 @@ WFDB_FILE *wfdb_fopen(char *fname, const char *mode)
      }
      if (wp->fp = fopen(fname, mode)) {
  	wp->type = WFDB_LOCAL;

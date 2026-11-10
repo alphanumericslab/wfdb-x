@@ -63,9 +63,16 @@ creates the command \cmd{wfdbx}, which runs the command-line tools. The installe
 is \code{wfdbx.\_\_version\_\_}, or the output of \cmd{wfdbx -{}-version}:
 
 \begin{lstlisting}[style=shell]
-python -c "import wfdbx; print(wfdbx.__version__)"    # 1.2.1
-wfdbx --version                                       # WFDB-x 1.2.1
+python -c "import wfdbx; print(wfdbx.__version__)"    # 1.2.2
+wfdbx --version                                       # WFDB-x 1.2.2
 \end{lstlisting}
+
+The wheel and the source distribution include the licenses, \file{LICENSE} (the library,
+LGPL-2.1-or-later) and \file{LICENSE-GPL} (the command-line tools, GPL-3.0-or-later), and
+the file \file{NOTICE}, which says which parts are under which license and gives the
+BSD-3-Clause notice of libFLAC, from which the FLAC decoder (\file{wfdbx/\_flac.py}) is
+translated (\cref{sec:license}). The license expression of the package is
+\code{LGPL-2.1-or-later AND GPL-3.0-or-later AND BSD-3-Clause}.
 
 \subsection{Installing from the repository}
 
@@ -190,8 +197,9 @@ results (\cref{sec:python-results}). They are defined in the modules
 \label{sec:python-conventions}
 
 \paragraph{Record names and directories.} A record is named as in the other parts of
-WFDB-x (\cref{chap:records,sec:record-paths}), without the \file{.hea} extension (the
-readers also accept a trailing \code{".hea"}). A record name is one of:
+WFDB-x (\cref{chap:records,sec:record-paths}), without the \file{.hea} extension (a
+trailing \code{".hea"} is removed, by the readers and the writers). A record name is one
+of:
 \begin{itemize}
 \item a full path, absolute (\code{"/data/mitdb/100"}) or in the home directory
   (\code{"\textasciitilde/Documents/100s"}), used as given;
@@ -268,7 +276,9 @@ and one column per signal, together with the description of the record. The samp
 those that \code{getvec} returns (\cref{chap:library}), read in large blocks. Invalid
 samples are \code{wfdbx.WFDB\_INVALID\_SAMPLE} ($-32768$) in ADC units, and NaN in
 physical units. When the read reaches the end of the record, the samples are compared
-with the checksums of the header (\cref{sec:python-warnings}).
+with the checksums of the header (\cref{sec:python-warnings}). The result is allocated
+for at most $2^{26}$ samples in advance, whatever length the header gives, and grows as
+the samples are read.
 \begin{params}
 \item[record] Record name (a string), without the \file{.hea} extension (a trailing
   \code{".hea"} is also accepted): a full path, absolute (\code{"/data/mitdb/100"}) or in
@@ -311,9 +321,10 @@ with the checksums of the header (\cref{sec:python-warnings}).
 \returns{A \code{Record} (\cref{tab:python-record}).}
 \raises{\code{IOError} (that is, \code{OSError}) if the header or a signal file cannot be
 read, if the record has no signals, if \code{sampfrom} is beyond the end of the record,
-or if a signal file is shorter than its header says (``can't read signal data of record
-REC (getvec status -3)''); \code{ValueError} if \code{sampfrom} is negative, if
-\code{sampfrom} or \code{sampto} is not a whole number (a fraction, NaN or an infinite
+or if a signal file is shorter than its header says or cannot be read (``can't read
+signal data of record REC (getvec status -3)''), even if the checksums do not match
+either: no incomplete frame is ever returned; \code{ValueError} if \code{sampfrom} is
+negative, if \code{sampfrom} or \code{sampto} is not a whole number (a fraction, NaN or an infinite
 value), if a channel is not in the record, if a time string needs the sampling frequency
 and the header gives none, or if \code{physical=True} and a signal read has no gain.
 Warns with a \code{RuntimeWarning} on a checksum error (see \code{checksum\_warning}).}
@@ -400,10 +411,11 @@ header, or, for a record without a header or whose header gives none, the argume
   access is on. Its header, if there is one, gives the sampling frequency.
 \item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
   file \file{RECORD.atr}.
-\item[sampfrom] The first time to read: a sample number or a time string. Default
-  \code{0}: the beginning of the file.
+\item[sampfrom] The first time to read: a sample number (a whole number $\ge 0$) or a
+  time string. Default \code{0}: the beginning of the file.
 \item[sampto] The time at which to stop: annotations at or after it are not read. A
-  sample number or a time string. Default \code{None}: the end of the file.
+  sample number (a whole number) or a time string. Default \code{None}: the end of the
+  file.
 \item[fs] The sampling frequency, in Hz (a number $> 0$), to use when the record has no
   header or its header gives none; it is ignored otherwise. Default \code{None}: none.
 \item[input\_dir] The input directory for this call only (optional; as for
@@ -419,8 +431,13 @@ the frequency in which the times are counted: the one written in the annotation 
 there is one, or else the sampling frequency; it is 0 if none of them is known.}
 \raises{\code{IOError} if the annotation file cannot be opened or read, or if it ends
 before its end-of-file marker (``can't read annotation file ANN of record REC (getann
-status -3)''); \code{ValueError} if \code{fs} is given and is not $> 0$, or if a time
-string needs the sampling frequency and none is known.}
+status -3)''); \code{ValueError} if \code{fs} is given and is not $> 0$, if
+\code{sampfrom} is negative (``sampfrom must not be negative''), if \code{sampfrom} or
+\code{sampto} is not a whole number (a fraction, NaN or an infinite value: ``sampfrom must
+be a whole number''), or if a time string needs the sampling frequency and none is known.
+The arguments are checked before the annotation file is opened (a time string is converted
+with the sampling frequency of the record's header, which is read for it), and the
+annotation file is closed whatever happens.}
 \begin{lstlisting}[language=Python,style=example]
 import wfdbx
 
@@ -454,15 +471,20 @@ write_record(record, signals, fs, fmt=16, gains=None, baselines=None, adczeros=0
 \end{lstlisting}
 Writes signals as a new record: the header \file{RECORD.hea} and one signal file,
 \file{RECORD.dat}, which holds all the signals (so they share one format). Existing files
-of these names are overwritten. The sampling frequency, the gain and ADC resolution of
-each signal, and the units of each calibrated signal must be given: there are no
-defaults. The per-signal arguments (\code{fmt}, \code{gains}, \code{baselines},
+of these names are replaced: both files are written to temporary files in the
+destination directory (\file{.NAME.XXXXXXXX.tmp}, readable and writable by the owner
+only), which replace the existing files, with their permissions, only when both are
+complete; after an error, the temporary files are removed and the existing files are left
+as they were. For a symbolic link, the file it leads to is replaced; a destination that
+is not a regular file (a device) is written directly. The sampling frequency, the gain and
+ADC resolution of each signal, and the units of each calibrated signal must be given:
+there are no defaults. The per-signal arguments (\code{fmt}, \code{gains}, \code{baselines},
 \code{adczeros}, \code{adcres}, \code{units}, \code{names}) take one value for all the
 signals, or a list with one value per signal. All the arguments are checked before any
-file is created.
+file is created or changed.
 \begin{params}
-\item[record] Record name (a non-empty string), without the \file{.hea} extension: a
-  plain name (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output
+\item[record] Record name (a non-empty string), without the \file{.hea} extension (a
+  trailing \code{".hea"} is removed, as by the readers): a plain name (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output
   directory if one is set, otherwise in the current directory, missing directories
   included; or a full path, absolute or in the home directory
   (\code{"\textasciitilde/Documents/rec"}), used as given. With a path, the files are
@@ -471,7 +493,7 @@ file is created.
   leads to it (in legacy mode, as in the original, the header gives the name with its
   path). A URL cannot be written.
 \item[signals] The samples: an array (or anything \code{numpy.asarray} accepts) with one
-  row per sample and one column per signal; a 1-D array is one signal. In ADC units
+  row per sample and one column per signal (2-D); a 1-D array is one signal. In ADC units
   (the default), the values are integers, or floats with whole values, within the range of
   a 32-bit integer; with \code{physical=True}, they are in physical units.
 \item[fs] The sampling frequency, in Hz: a finite number $> 0$. Required.
@@ -481,19 +503,21 @@ file is created.
 \item[gains] The gain of each signal, in ADC units per physical unit: a finite number;
   \code{0} marks an uncalibrated signal, which is allowed only for samples given in ADC
   units. Negative gains are allowed. Required (default \code{None}: not given).
-\item[baselines] The ADC value that corresponds to 0 physical units. Default
-  \code{None}: the ADC zero of the signal.
-\item[adczeros] The ADC value at the middle of the ADC range. Default \code{0}.
-\item[adcres] The ADC resolution, in bits (an integer $\ge 1$). Required (default
+\item[baselines] The ADC value that corresponds to 0 physical units (a whole number
+  within the range of a 32-bit integer). Default \code{None}: the ADC zero of the signal.
+\item[adczeros] The ADC value at the middle of the ADC range (a whole number within the
+  range of a 32-bit integer). Default \code{0}.
+\item[adcres] The ADC resolution, in bits (a whole number $\ge 1$). Required (default
   \code{None}: not given).
-\item[units] The physical units, such as \code{"mV"}. Required for each signal whose gain
-  is not 0. Default \code{None}: not given.
-\item[names] The signal descriptions, such as \code{"MLII"}. Default \code{None}: no
-  descriptions.
+\item[units] The physical units, such as \code{"mV"} (Latin-1 text, one byte per
+  character, as all text in \code{wfdbx}). Required for each signal whose gain is not 0.
+  Default \code{None}: not given.
+\item[names] The signal descriptions, such as \code{"MLII"} (Latin-1 text). Default
+  \code{None}: no descriptions.
 \item[base\_time] The start time, with an optional date:
   \code{"hh:mm:ss"} or \code{"hh:mm:ss dd/mm/yyyy"}, with optional decimals of the
   seconds. Default \code{None}: no start time.
-\item[comments] A list of info strings, written to the header as comment lines
+\item[comments] A list of info strings (Latin-1 text), written to the header as comment lines
   (\code{"\#"} followed by the string). Default \code{None}: none.
 \item[physical] \code{True} if \code{signals} are in physical units. They are converted
   to ADC units as $\mathrm{round}(x \cdot \mathit{gain}) + \mathit{baseline}$ (halves
@@ -516,10 +540,15 @@ file is created.
   200, and the ADC resolution to one based on the format. Default \code{False}.
 \end{params}
 \returns{\code{None}.}
-\raises{\code{ValueError} if \code{record} is empty; if \code{signals} has no signals
+\raises{\code{ValueError} if \code{record} is empty; if \code{signals} is not a 1-D or 2-D
+array (``signals must be a 1-D or 2-D array''); if it has no signals
 (``at least one signal is required''); if \code{fs}, a gain, an ADC resolution or the
 units of a calibrated signal is missing or invalid (\code{fs} and the gains must be
-finite, and \code{fs} $> 0$); if \code{base\_time} cannot be parsed; if a list of
+finite, and \code{fs} $> 0$); if a baseline, an ADC zero or an ADC resolution is not a
+whole number within the range of a 32-bit integer (``baselines must be whole numbers
+within the range of a 32-bit integer''); if the record name, a signal name, the units or
+a comment has a character that is not Latin-1 (``units 'XX' has a character that is not
+Latin-1 (one byte per character)''); if \code{base\_time} cannot be parsed; if a list of
 per-signal values does not have one value per signal; if a signal in physical units has a
 gain of 0; if a sample is not valid (see \code{signals} and \code{physical}); if the
 signals do not all have the same format; if a \code{samps\_per\_frame} value is not an
@@ -570,13 +599,16 @@ print(rec.fs, rec.signals[:3].tolist())    # 200.0 [[0, 500], [1, 500], [2, 500]
 \begin{lstlisting}[language=Python,style=signature]
 write_annotations(record, annotator, samples, symbols=None, codes=None, subtypes=0, chans=0, nums=0, aux=None, fs=None, *, sort=None, dir=None, legacy=False)
 \end{lstlisting}
-Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
-that name is overwritten. The record need not have a header. The annotation types are
-given as \code{symbols} or as \code{codes} (\cref{chap:formats}). Each per-annotation
+Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format. An existing file of
+that name is replaced: the new file is written to a temporary file in the same directory
+(readable and writable by the owner only), which replaces it, with its permissions, only
+when it is complete (and, if needed, sorted); after an error, the temporary file is
+removed and the existing file is left as it was. The record need not have a header. The
+annotation types are given as \code{symbols} or as \code{codes} (\cref{chap:formats}). Each per-annotation
 argument is one value for all the annotations, or a list with exactly one value per
 annotation. If the annotations are not in time order, the file is sorted when it is
 written, unless \code{sort=False}. All the arguments are checked before the file is
-created.
+created or changed.
 \begin{params}
 \item[record] Record name (a string), without the \file{.hea} extension (a trailing
   \code{".hea"} is also accepted): a plain name or a relative path (\code{"data/100s"}),
@@ -586,12 +618,14 @@ created.
   (\file{data/100s.qrs}). A URL cannot be written.
 \item[annotator] Annotator name: the suffix of the file, made of letters, digits,
   \code{\_}, \code{-} and \code{\textasciitilde}.
-\item[samples] The annotation times, in samples: a sequence of integers within the range
-  of a 64-bit integer, one per annotation.
+\item[samples] The annotation times, in samples: a 1-D array or sequence of integers, one
+  per annotation, from $-2^{63}+1$ to $2^{63}-2$ (the smallest and largest 64-bit
+  integers, \code{WFDB\_TIME\_MIN} and \code{WFDB\_TIME\_MAX}, cannot be written).
 \item[symbols] The mnemonics of the annotation types, such as \code{"N"} or \code{"V"}:
   one per annotation, or one string for all. An unknown mnemonic becomes code 0
   (\code{NOTQRS}). Default \code{None}: the types are given by \code{codes}.
-\item[codes] The annotation codes (\code{wfdbx.NORMAL}, \code{wfdbx.PVC}, \ldots),
+\item[codes] The annotation codes (\code{wfdbx.NORMAL}, \code{wfdbx.PVC}, \ldots), from
+  0 to 58 (59 to 63 are the control codes of the file format, \cref{sec:formats-mit-annotations}),
   instead of \code{symbols}: one per annotation, or one value for all. If both are given
   (as \code{read\_annotations} returns them), each symbol must be that of its code (an
   empty symbol is not checked). Default \code{None}.
@@ -617,15 +651,23 @@ created.
 \item[legacy] \code{True} to behave as the original WFDB package. Default \code{False}.
 \end{params}
 \returns{\code{None}.}
-\raises{\code{ValueError} if neither \code{symbols} nor \code{codes} is given; if both are
-given and disagree (``symbols and codes disagree at annotation K''); if a list of
-per-annotation values does not have one value per annotation; if a time is not an integer
+\raises{\code{ValueError} if neither \code{symbols} nor \code{codes} is given for one
+annotation or more (\code{symbols or codes must be given}; with no annotations, an empty
+file is written); if both are
+given and disagree (``symbols and codes disagree at annotation K''); if \code{samples}
+(or a sequence of codes, subtypes, channels or annotator numbers) is not 1-D (``samples
+must be a 1-D array''); if a list of per-annotation values does not have one value per
+annotation; if a time is not an integer
 within the range of a 64-bit integer (NaN, an infinite value, a fraction or a huge
-value); if a sample, code, subtype, channel or annotator number is NaN or \code{None}; if
-\code{fs} is not finite and $> 0$; or if \code{record} contains a directory and
+value), or is $-2^{63}$ or $2^{63}-1$ (``annotation time T cannot be written''); if a
+code is not from 0 to 58 (``annotation code 61 is reserved (59 to 63 are the control
+codes of the annotation file format)'', ``annotation code 64 is out of range (0 to
+58)''); if a sample, code, subtype, channel or annotator number is NaN or \code{None}; if
+an aux text has a character that is not Latin-1; if \code{fs} is not finite and $> 0$; or if \code{record} contains a directory and
 \code{dir} is given. \code{FileNotFoundError} if \code{dir} does not exist.
-\code{IOError} if the annotation file cannot be created, or cannot be written completely
-(``write error on annotator ANN for record REC'').}
+\code{IOError} if the annotation file cannot be created, or cannot be written completely,
+or the library (\code{putann}) reports an error while writing it (``write error on
+annotator ANN for record REC'').}
 \begin{lstlisting}[language=Python,style=example]
 import wfdbx
 
@@ -646,6 +688,13 @@ print((b.samples == a.samples).all(), b.symbols == a.symbols, b.aux == a.aux)
 # Annotations out of time order are sorted when the file is written (the library
 # reports it on the standard error).
 wfdbx.write_annotations("100s", "unsorted", [500, 100], codes=wfdbx.NORMAL)
+print(wfdbx.read_annotations("100s", "unsorted").samples)      # [100 500]
+
+# A reserved code is refused before anything is written: the file is unchanged.
+try:
+    wfdbx.write_annotations("100s", "unsorted", [100, 200], codes=[wfdbx.NORMAL, 61])
+except ValueError as e:
+    print("ValueError:", e)   # ValueError: annotation code 61 is reserved (59 to 63 ...)
 print(wfdbx.read_annotations("100s", "unsorted").samples)      # [100 500]
 \end{lstlisting}
 
@@ -1045,7 +1094,9 @@ package (\code{wfdbx.Record}, \ldots). The attributes of \code{Record}, \code{He
 \code{base\_date} & the start date as a tuple \code{(year, month, day)}, or \code{None}
   if the header gives none \\
 \code{sampfrom} & the number of the first sample returned \\
-\code{comments} & the list of the info strings of the header (without the \code{\#}) \\
+\code{comments} & the list of the info strings of the header (without the \code{\#}): its
+  lines that begin with \code{\#} after the record line, found as the header parser finds
+  it (\cref{sec:info-strings}) \\
 \code{checksum\_ok} & \code{False} if the samples do not match the checksums of the
   header; checksums are checked only when a read reaches the end of the record, so a
   shorter read gives \code{True} \\
@@ -1075,7 +1126,8 @@ package (\code{wfdbx.Record}, \ldots). The attributes of \code{Record}, \code{He
   space at either end, and \code{adcres} is 0 if the header does not give it \\
 \code{base\_time}, \code{base\_time\_ms}, \code{base\_date} & the start time and date, as
   in \code{Record} \\
-\code{comments} & the list of the info strings of the header (without the \code{\#}) \\
+\code{comments} & the list of the info strings of the header (without the \code{\#}), as
+  in \code{Record} \\
 \code{metadata} & the list of the (key, value) pairs of the metadata entries of the
   header, in file order, as \code{read\_metadata} returns them \\
 \end{xltabular}
@@ -1264,8 +1316,10 @@ Two \code{Issue} objects are equal (\code{==}) when their four attributes are.
 \paragraph{Exceptions.} The high-level functions report errors by exceptions of the
 standard classes (\cref{tab:python-exceptions}). Each function checks its arguments
 before it creates or changes a file, so an invalid argument leaves the files as they
-were. The library may also print a message on the standard error when it cannot open a
-file (as in \code{init: can't open header for record REC}); \code{wfdbquiet()} turns these
+were; \code{write\_record} and \code{write\_annotations} also write through temporary
+files, so that a failure while writing (a full disk, for example) leaves the existing
+files as they were too. The library may also print a message on the standard error when
+it cannot open a file (as in \code{init: can't open header for record REC}); \code{wfdbquiet()} turns these
 messages off (\cref{sec:python-library}).
 
 \begin{table}[htbp]
@@ -1295,7 +1349,9 @@ messages off (\cref{sec:python-library}).
 whose samples do not match the checksums of its header, it returns all the samples and
 issues a \code{RuntimeWarning}: ``checksum error in record REC: the signal data do not
 match the checksums in its header''. \code{checksum\_warning=False} turns the warning off;
-\code{checksum\_ok} of the result is \code{False} either way.
+\code{checksum\_ok} of the result is \code{False} either way. A signal file that ends
+early, or cannot be read, is an \code{IOError}, not a checksum warning, even when the
+checksum is verified in its last, incomplete frame: no incomplete frame is returned.
 
 \paragraph{The duplicate-key warning.} When a header holds two metadata entries whose keys
 differ only in letter case (written by other software), \code{read\_metadata},
@@ -1575,7 +1631,8 @@ they set and return the WFDB path, as in C.
 \code{wfdbx\_set\_output\_dir(d)} & sets the output directory: a local directory or a
   \code{\textasciitilde} path (a URL is refused, with a message); \code{None} or
   \code{""} restores the default (\code{WFDBX\_OUTPUT\_DIR}, or else the current
-  directory). Returns the previous output directory, or \code{None} \\
+  directory). Returns the previous output directory, or \code{None} (the current one if
+  \code{d} is refused) \\
 \code{wfdbx\_get\_output\_dir()} & returns the output directory, or \code{None} if none
   is set \\
 \code{wfdbx\_set\_network(on)} & turns network access on (\code{True} or 1) or off
@@ -1699,7 +1756,7 @@ The command \cmd{wfdbx} also takes these options, instead of a tool:
 \cmd{wfdbx -{}-list} & lists the names of the tools, one per line \\
 \cmd{wfdbx -{}-examples [DIR]} & copies the example notebooks to the directory
   \code{DIR} (default \file{wfdbx-examples}), and prints their paths \\
-\cmd{wfdbx -{}-version} & prints the version, \code{WFDB-x 1.2.1} \\
+\cmd{wfdbx -{}-version} & prints the version, \code{WFDB-x 1.2.2} \\
 \cmd{wfdbx -{}-help}, \cmd{wfdbx -h} & prints the usage \\
 \bottomrule
 \end{tabularx}
@@ -1787,7 +1844,7 @@ This runs the unit tests of the library, the high-level functions, the metadata 
 (with the cases shared by the seven languages, in \file{tests/metadata}) and
 \code{check\_record}; it runs the example notebooks (when nbformat, nbclient and ipykernel
 are installed); and it runs the cross-language conformance suite, which compares the
-output of the tools with that of the original C programs, case by case (1135 cases, a few
+output of the tools with that of the original C programs, case by case (1155 cases, a few
 minutes). The tests run against \file{python/src} when they are run from the repository,
 in a temporary copy of the test records of \file{tests/data}. The tests that write to
 \file{/dev/full} (write errors) are skipped where it does not exist, on macOS and Windows.
@@ -1802,7 +1859,7 @@ WFDBX_CONFORMANCE=rdsamp,rdann pytest python/tests/test_conformance.py
 \end{lstlisting}
 
 The conformance suite can also be run on its own, with more options (the number of
-parallel jobs, the legacy suite of 883 cases, which runs each tool with \opt{-{}-legacy},
+parallel jobs, the legacy suite of 886 cases, which runs each tool with \opt{-{}-legacy},
 verbose output, selected cases):
 
 \begin{lstlisting}[style=shell]

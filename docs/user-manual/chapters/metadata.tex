@@ -14,11 +14,13 @@ high-level API, added in version 1.2.0, read and change them without
 changing anything else in the header: \code{read\_metadata},
 \code{get\_metadata}, \code{set\_metadata}, \code{remove\_metadata} and
 \code{update\_metadata}. \code{read\_header} also returns the entries, and
-\code{write\_record} writes them. The C package has no counterpart: the
-library functions \code{getinfo}, \code{putinfo} and \code{setinfo}, and the
-tools, are unchanged, and the C library reads the headers that these
-functions change exactly as before (\file{tests/metadata/check\_c.py} checks
-this with the original programs). The seven implementations follow the
+\code{write\_record} writes them. The C package has no counterpart. The
+library functions \code{putinfo} and \code{setinfo}, and the tools, are
+unchanged, and so is \code{getinfo}, except for the rule by which it finds
+the record line (\cref{sec:info-strings}), which the metadata functions
+share; the C library reads the headers that these functions change exactly
+as before (\file{tests/metadata/check\_c.py} checks this with the original
+programs). The seven implementations follow the
 rules of this chapter identically: they pass the same cases
 (\file{tests/metadata/}) and write byte-identical headers.
 
@@ -29,12 +31,22 @@ A header is split into lines after each line feed (LF). Each line has a line
 ending: CR LF, LF, or none (the last line of a file that does not end with a
 line feed). The \emph{content} of a line is the line without its ending.
 
-\paragraph{Info strings.} The record line is the first line whose content
-does not begin with \code{\#}. The lines before it are comments that are not
-info strings, and are never read or changed. Every line after the record
-line whose content begins with \code{\#} is an info string, as
-\code{getinfo} reads a header (so a comment between two signal lines is an
-info string too). A header with no record line has no info strings.
+\paragraph{Info strings.} The record line is found as the header parser of
+the library (\code{readheader}) finds it: it is the first line whose
+content, up to a NUL character if there is one, has a token (separated by
+spaces, tabs, carriage returns and line feeds) that does not begin with
+\code{\#}; in other words, the first line that holds something other than
+white space and does not begin, after white space, with \code{\#}. The
+lines before it (comments, and empty or blank lines) are not info strings,
+and are never read or changed. Every line after the record line whose
+content begins with \code{\#} is an info string, as \code{getinfo} reads a
+header (so a comment between two signal lines is an info string too). A
+header with no record line has no info strings, and changing its metadata is
+an argument error. This rule is the same in
+every mode, legacy mode included (since version 1.2.2; before, the record
+line was the first line whose content does not begin with \code{\#}, the
+rule of the C function \code{getinfo}, which takes an empty first line for
+the record line).
 
 \paragraph{Entries and free comments.} An info string is an \emph{entry} if
 the text after its \code{\#} contains a colon. The \emph{key} is the text
@@ -147,14 +159,18 @@ if the record line has none, that of the first line that has one, or CR LF
 before it has no line ending, that line gets the same ending.
 
 \paragraph{What is kept.} Every other byte of the header is kept: the
-comments before the record line, the record line, the signal lines and their
-checksums, the free comments, and the line endings. If nothing changes
-(and \code{dir} is not given), nothing is written.
+comments and the empty or blank lines before the record line, the record
+line, the signal lines and their checksums, the free comments, and the line
+endings. If nothing changes (and \code{dir} is not given), nothing is
+written.
 
 \paragraph{Atomic replacement.} The new header is written to a temporary
-file in the directory of the destination, which then replaces the
-destination (by renaming it), keeping its permissions. An error never leaves
-a partly written header, and no other file is left in the directory.
+file in the directory of the destination, which is never more open than the
+destination (in Python, it is created readable and writable by its owner
+only). The temporary file then gets the permissions of the destination (or,
+for a new file in \code{dir}, those of a new file) and replaces it (by
+renaming it). An error never leaves a partly written header, and no other
+file is left in the directory.
 
 \section{Which file}
 \label{sec:metadata-file}
@@ -162,8 +178,8 @@ a partly written header, and no other file is left in the directory.
 The header is opened as the library opens the header of a record, after
 removing a trailing \file{.hea} from the name: under the input directory, or
 as given for an absolute path, a \code{\textasciitilde} path or a URL (a URL
-only if network access is on); see \cref{sec:record-paths}. The functions take the
-options of the high-level readers for this, an input directory
+only if network access is on); see \cref{sec:record-paths}. The functions
+take the options of the high-level readers for this, an input directory
 (\code{input\_dir}) and a network permission (\code{network}), for the
 duration of the call. A header that cannot be opened is a file error.
 
@@ -245,6 +261,31 @@ basic 2 360 21600
 # Height: 170
 \end{lstlisting}
 
+A header whose first line is empty, such as
+\file{tests/metadata/headers/leading.hea}:
+\begin{lstlisting}[style=text]
+(an empty line)
+# Age: preamble
+leading 2 360 21600
+100s.dat 212 200 11 1024 995 21537 0 MLII
+100s.dat 212 200 11 1024 1011 -3962 0 V5
+# Age: actual
+\end{lstlisting}
+has one entry, (\code{Age}, \code{actual}): its record line is the third
+line, as for the header parser, and \code{\# Age: preamble}, before it, is
+not an info string. \code{set\_metadata("leading", "Sex", "F")} adds
+\code{\# Sex: F} after \code{\# Age: actual}, and leaves the first two lines
+as they are. In Python:
+\begin{lstlisting}[language=Python,style=example]
+import wfdbx
+with open("leading.hea", "w") as f:
+    f.write("\n# Age: preamble\nleading 2 360 21600\n"
+            "100s.dat 212 200 11 1024 995 21537 0 MLII\n"
+            "100s.dat 212 200 11 1024 1011 -3962 0 V5\n# Age: actual\n")
+print(wfdbx.read_metadata("leading"))           # [('Age', 'actual')]
+print(wfdbx.read_header("leading").comments)    # [' Age: actual']
+\end{lstlisting}
+
 The following Python example writes a record with metadata, from the first
 second of record \code{100s}, and changes its metadata:
 \begin{lstlisting}[language=Python,style=example]
@@ -309,10 +350,14 @@ in Python and MATLAB/Octave, \code{wfdbx::} in C++ and Rust, \code{WFDBX.}
 in Julia, and none in R and Kotlin. In Rust, each function also has a form
 with options, \code{read\_metadata\_with}, \code{get\_metadata\_with}, and so
 on. The errors are those of the high-level functions of each language
-(\cref{sec:errors}); in C++, the metadata functions throw
-\code{wfdbx::ArgumentError} for an argument error and \code{wfdbx::FileError}
-for a file error, and in Python they raise \code{ValueError} and
-\code{OSError} (\code{FileNotFoundError} for a missing \code{dir}).
+(\cref{sec:errors}). An argument error and a file error are told apart: in
+Python, \code{ValueError} (\code{TypeError} for an argument of the wrong
+type) and \code{OSError} (\code{FileNotFoundError} for a missing
+\code{dir}); in C++, \code{wfdbx::ArgumentError} and
+\code{wfdbx::FileError}; in Julia, \code{ArgumentError} and
+\code{WfdbError}; in R, the condition classes
+\code{wfdbx\_argument\_error} and \code{wfdbx\_file\_error}; in Kotlin,
+\code{WfdbArgumentException} and \code{WfdbException}.
 
 \begin{phibox}
 Metadata often holds information about patients, such as ages, dates,

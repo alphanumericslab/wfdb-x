@@ -5,7 +5,7 @@
 > MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
 > identical results to the original C package and to each other. This is the
 > Julia implementation.
-> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> [Website (wfdb-x.org) and the other languages](https://wfdb-x.org)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
 > · [User's manual (PDF)](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/user-manual/wfdb-x-user-manual.pdf)
@@ -65,6 +65,11 @@ In the package REPL, `] dev /path/to/wfdb-x/julia` does the same. The
 package is loaded with `using WFDBX`. The first `using WFDBX` precompiles
 the package. Later sessions and tool runs load it without compiling
 anything.
+
+The package is the directory `julia/`, which holds copies of the license
+files (`LICENSE`, `LICENSE-GPL`) and of `NOTICE` (see
+[Authors and license](#authors-and-license)), so that a copy of that
+directory alone carries them.
 
 ## Quick start
 
@@ -148,7 +153,7 @@ The result is a `Record`:
 | `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
 | `base_time_ms` | start time in milliseconds after midnight, such as `50403500` for 14:00:03.500 |
 | `base_date` | start date as `(year, month, day)` |
-| `comments` | the info strings of the header, as bytes |
+| `comments` | the info strings of the header, as bytes: its lines that begin with `#` after the record line (an empty or blank first line is not the record line), without the `#` |
 | `checksum_ok` | `false` if the data do not match the header's checksums |
 
 `base_time`, `base_time_ms` and `base_date` are `nothing` when the header
@@ -229,10 +234,17 @@ a vector with one value per signal; a vector of another length is an error.
 The record name must not be empty, there must be at least one signal
 ("write_record: at least one signal is required"), and `base_time`, if
 given, must be a valid time ("write_record: incorrect base time 'T'").
+`adcres` must be whole numbers >= 1, and `adczeros` and `baselines` whole
+numbers, within the range of `Int32` (integers, or finite floats with
+whole values such as `12.0`): otherwise "write_record: adcres must be whole
+numbers within the range of a 32-bit integer" (and the same for `adczeros`
+and `baselines`), also in legacy mode. Text (the record name, `names`,
+`units`, `comments`) is written to the header as its bytes: a `String` as
+its UTF-8 bytes, bytes as given.
 
 | Argument | Meaning |
 |---|---|
-| `record` | record name |
+| `record` | record name (a trailing `.hea` is removed, as by the readers) |
 | `samples` | matrix with one row per sample and one column per signal: integers for `write_record`, physical values for `write_record_physical` |
 | `fs` | sampling frequency in Hz |
 | `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
@@ -251,13 +263,24 @@ ann = Annotations(samples=[100, 460, 820], symbols=[b"N", b"N", b"V"])
 write_annotations("rand", "qrs", ann)            # writes rand.qrs, for the record "rand" written above
 ```
 
-Give the annotation types as `symbols` or as `codes`. Both may be given, as
+The annotation types are given as `symbols` or as `codes`; for one
+annotation or more, one of them is required ("write_annotations: symbols or
+codes must be given"), and with no annotations an empty file is written.
+Both may be given, as
 `read_annotations` returns them, if they agree: each non-empty symbol must
 be the mnemonic of the code at the same position (otherwise "symbols and
 codes disagree at annotation K", K counted from 0). `subtypes`, `chans`,
 `nums` and `aux` are optional. Each of these fields is either empty or has
 one element per annotation; any other length is an error, reported before
-the file is created. As in C, the subtype, channel and annotator number are
+the file is touched. The codes must be from 0 to 58: 59 to 63 are the
+control codes of the annotation file format ("write_annotations: annotation
+code 61 is reserved (59 to 63 are the control codes of the annotation file
+format)"), and other values are out of range ("write_annotations:
+annotation code 64 is out of range (0 to 58)"). The times
+`typemin(Int64)` and `typemax(Int64)` are reserved by the file format
+("write_annotations: annotation time T cannot be written (annotation times
+must be integers from -9223372036854775807 to 9223372036854775806)"); any
+other time can be written. As in C, the subtype, channel and annotator number are
 stored in one byte each (other values wrap around). The `fs` option, 0
 (none) or a finite frequency > 0, records the time resolution in the file;
 `ann.fs` is not used. `dir` and `legacy` are as in
@@ -286,7 +309,11 @@ update_metadata("rec", ["Age" => "65", "Dx" => nothing])   # several changes; no
 ```
 
 * **Reading.** An entry is a comment line after the record line (an info
-  string, as the C function `getinfo` reads it) that contains a colon. The
+  string, as `getinfo` reads it) that contains a colon. The record line is
+  the first line that holds something other than spaces, tabs and line
+  endings and does not begin with `#`, as the header parser finds it, in
+  every mode: an empty or blank line before it, and the comments before
+  it, are not read. The
   key is the text before the first colon, the value the rest of the line,
   both without spaces at either end: `#Age:45`, `# Age: 45` and
   `#  Age : 45` all give `"Age" => "45"`. Comment lines without a colon are
@@ -339,8 +366,13 @@ text, exactly as given, and does not de-identify it. The docstrings
   field says what failed, such as "can't read record 100x". The library may
   also print a message on the standard error. `wfdbquiet()` turns these
   messages off.
-* A signal file that is shorter than its header says throws a `WfdbError`:
-  "can't read signal data of record REC (getvec status -3)".
+* A signal file that is shorter than its header says, or cannot be read,
+  throws a `WfdbError`: "can't read signal data of record REC (getvec
+  status -3)", also when the checksums do not match either (the C function
+  `getvec` then reports the checksum error, -4, for the incomplete last
+  frame); an incomplete frame is never returned. `read_record` allocates
+  memory for the samples as it reads them (at most 2^26 samples in
+  advance), not for the length that the header gives.
 * An annotation file that ends before its end-of-file marker throws a
   `WfdbError`: "can't read annotation file ANN of record REC (getann status
   -3)".
@@ -363,11 +395,23 @@ text, exactly as given, and does not de-identify it. The docstrings
   the samples is not their sum ("write_record: signals has N columns, but
   samps_per_frame adds up to M"). These are checked before anything else,
   and nothing is written.
-* The writers check all their arguments before they create a file.
+* The writers check all their arguments before they touch a file.
   Whatever happens, they close their output signals and annotators before
   they return.
-* A negative `from` in `read_record`, or a `from` or `to` that is a number
-  but not a whole one (a fraction, `NaN` or `Inf`), throws a `WfdbError`.
+* `write_record`, `write_record_physical` and `write_annotations` write
+  their files to temporary files in the destination directory
+  (`.NAME.XXXXXXXX.tmp`), renamed over the destinations once all of them
+  are complete: a failure while writing (a full disk, for example) leaves
+  the existing files as they were, and no temporary file is left. The
+  files replaced keep their permissions; a symbolic link keeps leading to
+  the file it leads to, which is replaced; a destination that is not a
+  regular file (a device) is written directly. An error that `putann`
+  reports is a write error of `write_annotations`.
+* A negative `from` in `read_record` or `read_annotations`, or a `from` or
+  `to` that is a number but not a whole one (a fraction, `NaN` or `Inf`),
+  throws a `WfdbError` ("read_annotations: from must be a whole number"),
+  before any file is opened. Whatever the outcome, `read_record` and
+  `read_annotations` close their input files before they return.
 * `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
   only: the mode in force before the call is restored afterwards.
 * `write_record`, `write_record_physical` and `write_annotations` throw a
@@ -377,7 +421,7 @@ text, exactly as given, and does not de-identify it. The docstrings
 * A tool, or a program that uses the WFDB library functions, never writes a
   signal file over one of the signal files it is reading. Opening such an
   output fails with "output file NAME is also an input file". `write_record`
-  reads nothing, so it overwrites any existing files of the same name.
+  reads nothing, so it replaces any existing files of the same name.
 
 The high-level functions call `wfdbquit()` before and after their work, also
 when they throw, which closes anything opened with the WFDB library
@@ -485,9 +529,9 @@ The signal files that a header names are read from the header's directory.
 
 ### Record names
 
-A record name is given without the `.hea` extension (the readers, and
-`write_annotations`, also accept a trailing `.hea`; `write_record` does
-not). It is one of:
+A record name is given without the `.hea` extension (the readers,
+`write_annotations` and `write_record` also accept a trailing `.hea`, which
+is removed). It is one of:
 
 * a full path, absolute (`/data/mitdb/100`) or in the home directory
   (`~/Documents/100s`), used as given;
@@ -530,8 +574,13 @@ rec = read_record("100"; input_dir="https://physionet.org/files/mitdb/1.0.0/",
                   network=true)
 ```
 
-Remote files are read once and kept for the rest of the session. A download
-gives up when it cannot connect, or receives nothing, for 30 seconds.
+A remote file that has been read is kept for the rest of the session; one
+that could not be read is requested again the next time it is opened. A
+download gives up when it cannot connect, or receives nothing, for 30
+seconds. Only `http://` and `https://` URLs can be read: a name that begins
+with another URL scheme, such as `ftp://` or `sftp://`, is refused, with or
+without network access, and never read as a local file name (mount the
+server as a local folder, e.g. with sshfs or rclone, or download the files).
 
 ## Signal parameters
 
@@ -578,7 +627,7 @@ The tools have the options and output of the original WFDB tools, which are
 described in the *WFDB Applications Guide*
 ([`third_party/wag.pdf`](https://github.com/alphanumericslab/wfdb-x/tree/main/third_party)).
 `WFDBX.tools()` returns their names, and `wfdbx --version` prints the
-version of WFDB-x ("WFDB-x 1.2.1"):
+version of WFDB-x ("WFDB-x 1.2.2"):
 
 * signals: `rdsamp`, `wrsamp`, `wfdbdesc`, `sigamp`, `snip`, `xform`,
   `sampfreq`, `signame`, `signum`, `wfdbcat`, `wfdbwhich`
@@ -789,3 +838,10 @@ included, may use it on the LGPL's terms. The command-line tools (the
 package, are distributed under the GNU General Public License, version 3 or
 (at your option) any later version
 ([LICENSE-GPL](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE-GPL)). Each source file states its license.
+
+The file
+[NOTICE](https://github.com/alphanumericslab/wfdb-x/blob/main/NOTICE),
+copied into the package directory (`julia/NOTICE`) with both licenses
+(`julia/LICENSE`, `julia/LICENSE-GPL`), summarizes this and gives the
+copyright notice and license (BSD-3-Clause) of libFLAC 1.4.3, whose stream
+decoder the FLAC decoder of WFDB-x translates.

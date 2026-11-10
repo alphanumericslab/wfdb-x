@@ -36,7 +36,8 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     extension, such as \code{"rec.edf"}, is read as an EDF file.
 
     \code{write_record}: the record name, without the \code{.hea}
-    extension: a plain name (\code{"rec"}) or a relative path
+    extension (a trailing \code{".hea"} is removed, as by the readers):
+    a plain name (\code{"rec"}) or a relative path
     (\code{"data/rec"}), created in the output directory if one is set
     (see \code{\link{wfdbx_set_output_dir}}), otherwise in the current
     directory, missing directories included; or a full path, absolute or
@@ -54,7 +55,10 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     \code{"0:10"} (10 seconds), \code{"s1000"} (sample 1000) or \code{"e"}
     (the end of the record); see \code{\link{strtim}}.  A sample number
     must be a whole number: a fraction, \code{NA}, \code{NaN} or an
-    infinite value is an error, and so is a negative \code{sampfrom}.
+    infinite value is an error (\samp{sampfrom must be a whole number}),
+    and so is a negative \code{sampfrom}, and anything other than one
+    number or one time string, such as a list (\samp{sampfrom must be a
+    sample number or a time string}).
     By default (\code{sampto = NULL}) the whole record is read.}
   \item{physical}{\code{read_record}: if \code{TRUE}, return the samples
     in physical units, \code{(sample - baseline) / gain}, instead of ADC
@@ -87,8 +91,9 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     warns when the samples do not match the checksums in the header.
     \code{FALSE} turns the warning off.}
   \item{signals}{the samples to write: a numeric matrix with one row per
-    sample and one column per signal.  A vector is written as a single
-    signal.  For a multi-frequency record, see \code{samps_per_frame}.
+    sample and one column per signal.  A vector (or a one-dimensional
+    array) is written as a single signal; an array of more than two
+    dimensions is an error.  For a multi-frequency record, see \code{samps_per_frame}.
     In ADC units, the samples must be integers within the range of a
     32-bit integer, and \code{NA} is written as an invalid sample.}
   \item{fs}{the sampling frequency in Hz, finite and greater than 0.  For a
@@ -100,19 +105,24 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     (finite; negative gains are allowed).  A gain of 0 marks a signal as uncalibrated.  This is only allowed when
     \code{signals} are in ADC units.}
   \item{baselines}{the baseline of each signal: the ADC value of physical
-    zero.  By default it equals \code{adczeros}.}
-  \item{adczeros}{the ADC value at the middle of the converter's range.}
-  \item{adcres}{the ADC resolution of each signal, in bits (at least 1).}
+    zero, a whole number within the range of a 32-bit integer.  By
+    default (or \code{NA}) it equals the ADC zero.}
+  \item{adczeros}{the ADC value at the middle of the converter's range, a
+    whole number within the range of a 32-bit integer (\code{NA}: 0).}
+  \item{adcres}{the ADC resolution of each signal, in bits: a whole
+    number, at least 1.}
   \item{units}{the physical units of each signal, such as \code{"mV"}, as
     a character vector or a list.  They are required for every signal
-    whose gain is not 0.}
+    whose gain is not 0.  Text is written as its bytes, one byte per
+    character (see Details).}
   \item{names}{the description of each signal, as a character vector or a
     list.}
   \item{base_time}{the start time of the record, as \code{"hh:mm:ss"} or
     \code{"hh:mm:ss dd/mm/yyyy"}.  By default the header gives none.  A
     time that cannot be parsed is an error.}
   \item{comments}{a character vector of info strings to add to the end of
-    the header.}
+    the header.  The header lines that begin with \samp{#} after the
+    record line are its info strings.}
   \item{metadata}{\samp{Key: value} entries to write to the header, after
     the comments, as \samp{# Key: value} (through \code{\link{putinfo}}):
     a named list or a named character vector, such as
@@ -141,8 +151,31 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   \code{units}, \code{names}) take one value for all signals, or one value
   per signal; any other length is an error.  The record name must not be
   empty, and at least one signal is required.  All the arguments are
-  checked before any file is created.  The signal file is \file{\var{record}.dat}.  Existing files
-  of the same name are overwritten.
+  checked before any file is created or changed.  The signal file is
+  \file{\var{record}.dat}.  Existing files of the same name are replaced:
+  both files are written to temporary files
+  (\file{.\var{name}.\var{XXXXXXXX}.tmp}, created with owner-only
+  permissions) in the directory of their destinations, which replace the
+  existing files only when both are complete, with the permissions of the
+  files they replace (or, for new files, 0666 less the umask).  An error
+  leaves the existing files as they were, and no temporary file is left.
+  A destination that is a symbolic link stays one: the file it leads to
+  is replaced.  A destination that exists and is not a regular file (a
+  device, a FIFO) is written directly.
+
+  Text (the record name, \code{names}, \code{units}, \code{comments}) is
+  written as its bytes, one byte per character (Latin-1).  A string of an
+  R session in UTF-8 that holds a character beyond U+00FF, which would be
+  written as several bytes, is an error.
+
+  The info strings of a header (\code{comments}) are the lines that begin
+  with \samp{#} after the record line.  The record line is found as the
+  header parser finds it: the first line that holds something other than
+  spaces, tabs, CRs and LFs and does not begin (after them) with
+  \samp{#}; comments and empty or blank lines before it are not info
+  strings.  (In legacy mode, the comments are those of the C function
+  \code{getinfo}, which takes the first line that does not begin with
+  \samp{#} for the record line; see \code{\link{getinfo}}.)
 
   A time string such as \code{"0:10"} needs the sampling frequency, and
   \code{physical = TRUE} needs the gain of each selected signal.  A record
@@ -177,7 +210,9 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   \item{base_time_ms}{the start time in milliseconds after midnight, such
     as \code{50403500} for 14:00:03.500.}
   \item{base_date}{the start date as \code{c(year, month, day)}.}
-  \item{comments}{the info strings of the header.}
+  \item{comments}{the info strings of the header: its lines that begin
+    with \samp{#} after the record line (see Details), without the
+    \samp{#}.}
   \item{checksum_ok}{\code{FALSE} if the samples do not match the
     checksums in the header, \code{TRUE} otherwise.  Checksums are only
     checked when a read reaches the end of the record.}
@@ -203,9 +238,16 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
   \itemize{
     \item A record that cannot be read or written stops with an error,
       such as \samp{can't read record REC}.
-    \item A signal file that is shorter than its header says stops with
-      the error \samp{can't read signal data of record REC (getvec status
-      -3)}.
+    \item A signal file that is shorter than its header says, or that
+      cannot be read (a decoder or I/O error, a segment that cannot be
+      opened), stops with the error \samp{can't read signal data of record
+      REC (getvec status -3)}, also when the samples do not match the
+      checksums either; no incomplete frame is ever returned (WFDB-x).
+      Reading stops at \code{sampto}, so the frames before the end of a
+      truncated file can be read with it.  Nothing is allocated from the
+      length that the header gives (a header may give far more samples
+      than its signal files hold): the matrix grows as the frames are
+      read.
     \item Invalid arguments, and a value the operation needs but the
       record does not give, stop with an error.
     \item In \code{write_record}, each \code{samps_per_frame} value must
@@ -215,14 +257,30 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
       a vector of per-signal values must have one value per signal, and
       the samples must be valid (see \code{signals} and
       \code{physical}); an invalid \code{metadata} stops with an error of
-      class \code{"wfdbx_argument_error"}.  All the arguments are checked first, and
-      nothing is written if one is invalid.  Whatever happens,
+      class \code{"wfdbx_argument_error"}.  The checks, in order (WFDB-x
+      1.2.2): \samp{record name must not be empty}; \samp{record name 'X'
+      has a character that is not Latin-1 (one byte per character)};
+      \samp{signals must be a 1-D or 2-D array}; the signals,
+      \code{samps_per_frame}, the per-signal lengths and the gains;
+      \samp{ADC resolution(s) must be specified} (an ADC resolution
+      missing or below 1) and \samp{adcres must be whole numbers within
+      the range of a 32-bit integer} (a fraction, \code{NaN} or text); the
+      units, the frequency, the gains and \code{base_time}; then, in
+      legacy mode too, \samp{adcres (adczeros, baselines) must be whole
+      numbers within the range of a 32-bit integer}; \samp{signal name 'X'
+      has a character that is not Latin-1 (one byte per character)} and
+      \samp{units 'X' ...}; the samples and the format; \samp{comment 'X'
+      ...}; and the metadata.  All the arguments are checked first, and
+      no file is created or changed if one is invalid.  Whatever happens,
       \code{write_record} closes the output signals
-      (\code{\link{wfdbquit}}) before it returns.
+      (\code{\link{wfdbquit}}) and removes its temporary files before it
+      returns.
     \item When the signal file or the header cannot be written completely
-      (for example, when the disk is full), \code{write_record} stops with
-      the error \samp{write error on record REC}, after the messages of the
-      library (such as \samp{osigclose: write error in signal group 0}).
+      (for example, when the disk is full), or the temporary files cannot
+      replace the existing files, \code{write_record} stops with the error
+      \samp{write error on record REC}, after the messages of the library
+      (such as \samp{osigclose: write error in signal group 0}), and the
+      existing files are left as they were.
     \item \code{read_header} warns, as \code{\link{read_metadata}} does,
       for each key of which the header has more than one entry.
     \item When the samples do not match the checksums in the header,

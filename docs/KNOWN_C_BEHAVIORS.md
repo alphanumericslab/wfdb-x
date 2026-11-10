@@ -14,7 +14,8 @@ follows the code.
 
 The deliberate exceptions (no built-in signal parameters, files found only
 where they are named, in-process annotation sorting that loses nothing, no
-output signal file over an input signal file, and exit status 1 after a write error) are
+output signal file over an input signal file, exit status 1 after a write
+error, and the record line that `getinfo` finds) are
 described in [`DIVERGENCES.md`](DIVERGENCES.md).
 
 A few C behaviors are *undefined* (crashes, infinite loops, reads of
@@ -193,6 +194,31 @@ marked *bug* are almost certainly unintended by the C authors.
   resolution unless `setgvmode` is called. WFDB-x's C-style functions do
   the same; its high-level functions restore both previous values when
   they return (see
+  [`DIVERGENCES.md`](DIVERGENCES.md#additions)).
+- **`getinfo` and the header parser disagree on where the record line is.**
+  `readheader` takes the first line that has a token (separated by spaces,
+  tabs, CRs and LFs) that does not begin with `#`; `getinfo` takes the first
+  line that does not begin with `#` in its first column. For a header whose
+  first line is empty or blank, `getinfo` takes that line for the record
+  line, and returns the comments between it and the real record line as
+  info strings (`wfdbdesc` prints `Age: 40` and `Age: 63` as notes for an
+  empty line, `# Age: 40`, the record line, a signal line and `# Age: 63`).
+  *Bug.* Reproduced in legacy mode only: WFDB-x's `getinfo` finds the record
+  line as `readheader` does (see
+  [`DIVERGENCES.md`](DIVERGENCES.md#the-record-line-of-a-header-is-found-as-the-header-parser-finds-it)).
+- **`putann` writes reserved annotation codes, and drops the extreme
+  times.** An annotation code is stored in the 6 high bits of a 16-bit
+  word, where the codes 59 to 63 are the control codes `SKIP`, `NUM`,
+  `SUB`, `CHN` and `AUX` of the MIT format. `putann` does not check the
+  code: an annotation written with one of these codes is read back as a
+  control word, which corrupts the rest of the file (and a code above 63
+  loses its high bits). An annotation at the time `WFDB_TIME_MIN` or
+  `WFDB_TIME_MAX` (-2^63 or 2^63 - 1) is refused with `putann: time
+  overflow in annotation file N` and status -1, and nothing is written for
+  it; every other time is written, with as many `SKIP`s as its distance from
+  the previous annotation needs (one per 2^31 samples). WFDB-x's `putann`
+  does the same; the high-level `write_annotations` refuses such codes and
+  times before writing anything (see
   [`DIVERGENCES.md`](DIVERGENCES.md#additions)).
 - **`setisqrs` and the other `ecgmap.h` setters** store the new value in a
   `char`, so `wfdb_setisqrs(2, 300)` returns 44. (WPG only says that *x* "is

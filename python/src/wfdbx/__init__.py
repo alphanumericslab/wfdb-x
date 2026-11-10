@@ -53,7 +53,7 @@ Software Foundation, either version 2.1 of the License, or (at your option)
 any later version. See LICENSE.
 """
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 
 from ._wfdbio import (
     WFDB_READ, WFDB_WRITE, WFDB_AHA_READ, WFDB_AHA_WRITE, WFDB_APPEND,

@@ -56,10 +56,16 @@
 # A sample number argument (sampfrom, sampto) checked: NULL and time
 # strings are returned as they are; a number must be a whole number within
 # the range of WFDB_Time (WFDB-x: a fraction, NA, NaN or an infinite value
-# is an error).
+# is an error, and anything else than one number or one time string, such
+# as a list, is "NAME must be a sample number or a time string").  Used by
+# read_record and read_annotations.
 .hl_sample_number <- function(t, name) {
-  if (is.null(t) || is.character(t)) return(t)
-  if (!is.numeric(t) || length(t) != 1L || !is.finite(t) || t != trunc(t))
+  if (is.null(t) || (is.character(t) && length(t) == 1L && !is.na(t))) return(t)
+  # (anything else than one number or one time string, such as a list or
+  # a vector of several values)
+  if (length(t) != 1L || !(is.numeric(t) || is.logical(t)))
+    stop(name, " must be a sample number or a time string")
+  if (!is.finite(t) || t != trunc(t))
     stop(name, " must be a whole number")
   # (2^63 stands for LONG_MAX, as in strtol: see cstd.R)
   if (t < -2^63 || t > 2^63) stop(name, " is beyond the range of a 64-bit integer")
@@ -153,6 +159,43 @@
 # The range of a 32-bit sample (WFDB_Sample).
 .HL_INT32_MIN <- -2147483648
 .HL_INT32_MAX <- 2147483647
+
+# The values v (a vector or list; NULL and NA, missing values, stay NA) as
+# doubles, each checked to be a whole number (a number with a whole value,
+# or text that reads as one) within the range of a 32-bit integer; else
+# stop with "NAME must be whole numbers within the range of a 32-bit
+# integer" (WFDB-x: the fields of a signal specification are C ints; a
+# fraction was truncated, and NaN or text failed while the files were
+# being written).
+.hl_whole_int32 <- function(v, name) {
+  vapply(as.list(v), function(x) {
+    if (is.null(x) || (length(x) == 1L && is.na(x) && !is.nan(x))) return(NA_real_)
+    y <- if (length(x) == 1L && (is.numeric(x) || is.logical(x) || is.character(x)))
+      suppressWarnings(as.numeric(x)) else NA_real_
+    if (is.na(y) || !is.finite(y) || y != trunc(y) || y < .HL_INT32_MIN || y > .HL_INT32_MAX)
+      stop(name, " must be whole numbers within the range of a 32-bit integer", call. = FALSE)
+    y
+  }, 0)
+}
+
+# Stop if text (a character string) has a character that is not Latin-1
+# (beyond U+00FF): "WHAT 'TEXT' has a character that is not Latin-1 (one
+# byte per character)".  WFDB-x: text is written as its bytes, one byte
+# per character; a string of an R session in UTF-8 that holds such a
+# character would be written as several bytes for it.  (A string of bytes,
+# not in UTF-8, is written as it is.)
+.hl_check_latin1 <- function(text, what) {
+  if (!is.character(text) || length(text) != 1L || is.na(text)) return(invisible())
+  enc <- Encoding(text)
+  utf8 <- enc == "UTF-8" || (enc == "unknown" && isTRUE(l10n_info()[["UTF-8"]]))
+  if (utf8 && validUTF8(text)) {
+    cp <- utf8ToInt(text)
+    if (!anyNA(cp) && any(cp > 255L))
+      stop(what, " '", text, "' has a character that is not Latin-1 (one byte per character)",
+           call. = FALSE)
+  }
+  invisible()
+}
 
 # Evaluate expr (the body of a high-level function that opens a record)
 # and restore the getvec mode (getgvmode, setgvmode) and the time
@@ -316,7 +359,14 @@ read_header <- function(record, input_dir = NULL, network = NULL,
 #' says, or a read or decoding error), with the message "can't read signal
 #' data of record REC (getvec status S)", also in legacy mode (reaching the
 #' end of the record before sampto is not an error, nor is a checksum
-#' error: see checksum_warning).
+#' error: see checksum_warning).  WFDB-x: a sample that cannot be read is
+#' that error even in the frame at which a checksum is verified (getvec
+#' then returns -4), and no incomplete frame is ever returned; nothing is
+#' allocated from the length that the header gives (the matrix grows as
+#' the frames are read).
+#'
+#' comments: the lines of the header that begin with '#' after the record
+#' line, found as the header parser finds it (see getinfo).
 #'
 #' checksum_warning: if TRUE (the default), warn (warning(): "checksum error
 #' in record REC: the signal data do not match the checksums in its header")
@@ -424,13 +474,24 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
   n <- if (is.null(to)) Inf else max(to - from, 0)
   # (getvec's checksum message is not printed: a warning replaces it)
   .sig$cksum_quiet <- TRUE
+  # WFDB-x: a sample that cannot be read is an error, whatever status getvec
+  # returns: a checksum error is found in the frame in which a signal file
+  # ended early, and its status (-4) replaces -3; the incomplete frame is
+  # not returned (see .getframes and .sig$read_failed).  (The matrix grows
+  # as the frames are read: nothing is allocated from the length that the
+  # header gives, which may be far more than its signal files hold.)
+  .sig$read_failed <- FALSE
   g <- tryCatch(.getframes(n, keep_checksum_frame = TRUE),
-                finally = .sig$cksum_quiet <- FALSE)
+                finally = {
+                  .sig$cksum_quiet <- FALSE
+                  .sig$read_failed <- FALSE
+                })
   # WFDB-x: -4, a checksum error: the frames are complete (the last one
   # included), only their sum does not match the header: a warning, not an
   # error.  Any other status below -1 (e.g. -3, unexpected EOF: a signal
-  # file shorter than its header says, or a decoder or I/O error) is an
-  # error, not the end of the data (-1).
+  # file shorter than its header says, or a decoder or I/O error, even in
+  # the frame at which a checksum is verified) is an error, not the end of
+  # the data (-1).
   if (g$stat == -4) {
     if (isTRUE(checksum_warning))
       warning("checksum error in record ", record,
@@ -482,7 +543,9 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' the range of a 32-bit integer, is an error).  fs: sampling frequency
 #' (required, finite, > 0).  gains (required, finite): ADC units per physical unit; a gain of 0 declares a signal uncalibrated,
 #' which is allowed only when the samples are given in ADC units (physical
-#' = FALSE).  adcres (required): ADC resolutions in bits (>= 1).  units
+#' = FALSE).  adcres (required): ADC resolutions in bits (whole numbers
+#' >= 1); adczeros and baselines (NA or NULL: 0, and the ADC zero): whole
+#' numbers within the range of a 32-bit integer.  units
 #' (required for every signal whose gain is not 0): physical units, e.g.
 #' "mV".  (WFDB-x: there is no default frequency, gain, ADC resolution or
 #' units; see docs/DIVERGENCES.md.)  Scalar arguments apply to all signals;
@@ -497,9 +560,13 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' file is created (see metadata.R).  base_time: the start time
 #' ("hh:mm:ss dd/mm/yyyy"); one that setbasetime cannot parse is an error.
 #' The record name must not be empty, and at least one signal is required.
+#' Text (the record name, names, units, comments) is written as its bytes,
+#' one byte per character: a string of an R session in UTF-8 that holds a
+#' character beyond U+00FF is an error ("units 'X' has a character that is
+#' not Latin-1 (one byte per character)"; see .hl_check_latin1).
 #'
-#' record: the record name, without the .hea extension: a plain name
-#' ("rec") or a relative path ("data/rec"), created in the output directory
+#' record: the record name, without the .hea extension (a trailing ".hea"
+#' is removed, as by the readers): a plain name ("rec") or a relative path ("data/rec"), created in the output directory
 #' if one is set (see wfdbx_set_output_dir), otherwise in the current
 #' directory, missing directories included; or a full path, absolute or in
 #' the home directory ("~/Documents/rec"), used as given.  With a path, the
@@ -527,10 +594,18 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' header cannot be created, or if they cannot be written completely, for
 #' example when the disk is full ("write error on record R", after the
 #' library's messages).  All the arguments, the samples included, are
-#' checked before any file is created; whatever happens, the output
-#' signals are closed (wfdbquit) before the function returns, and the
-#' getvec mode and the time resolution of output annotators are left as
-#' they were (WFDB-x).
+#' checked before any file is created or changed (WFDB-x 1.2.2, in this
+#' order: the record name, the dimensions of signals, samps_per_frame and
+#' the per-signal lengths, the gains, the ADC resolutions, the units, fs,
+#' base_time, the ADC values, the signal names and units, the samples, the
+#' format, the comments, the metadata).  The files are written to
+#' temporary files (created owner-only) in the directories of their
+#' destinations, which replace the existing files only when both are
+#' complete (see .staging_begin), so that an error leaves the existing
+#' files as they were.  Whatever happens, the output signals are closed
+#' (wfdbquit) and no temporary file is left before the function returns,
+#' and the getvec mode and the time resolution of output annotators are
+#' left as they were (WFDB-x).
 write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          adczeros = 0, adcres = NULL, units = NULL, names = NULL,
                          base_time = NULL, comments = NULL, physical = FALSE,
@@ -538,8 +613,14 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          legacy = FALSE, metadata = NULL) .hl_keep_settings(.hl_legacy(legacy, .hl_output_dir(record, dir, {
   if (!is.character(record) || length(record) != 1L || is.na(record) || !nzchar(record))
     stop("record name must not be empty")
+  # WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
+  record <- wfdb_striphea(record)
+  # WFDB-x: every argument is checked before any file is touched
+  .hl_check_latin1(record, "record name")
   x <- signals
-  if (is.null(dim(x))) x <- matrix(x, ncol = 1L)
+  if (!is.null(dim(x)) && !(length(dim(x)) %in% 1:2))
+    stop("signals must be a 1-D or 2-D array")
+  if (is.null(dim(x)) || length(dim(x)) == 1L) x <- matrix(x, ncol = 1L)
   if (!is.double(x) || !is.matrix(x)) x <- matrix(as.numeric(x), nrow(x), ncol(x))
   spf <- if (is.null(samps_per_frame)) rep(1, ncol(x)) else
     suppressWarnings(as.numeric(samps_per_frame))
@@ -552,6 +633,14 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   if (ncol(x) != sum(spf))
     stop(sprintf("signals has %d columns, but samps_per_frame adds up to %.0f", ncol(x), sum(spf)))
   legacy <- wfdbx_get_legacy()
+  per <- function(v, default = NULL, name = deparse(substitute(v))) {
+    if (is.null(v)) return(rep(list(default), nsig))
+    if (length(v) == 1L && !is.list(v)) return(rep(list(v), nsig))
+    if (length(v) != nsig) stop(name, " must have one value per signal")
+    as.list(v)
+  }
+  # (a missing value: NULL, or NA but not NaN)
+  missing_value <- function(r) is.null(r) || (length(r) == 1L && is.na(r) && !is.nan(r))
   # WFDB-x: no default sampling frequency, gain, ADC resolution or units
   # (C: 250 Hz, 200 adu/mV, a resolution based on the format, millivolts;
   # legacy mode: as the original package, no checks, default gain 200)
@@ -561,41 +650,22 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
     if (missing(gains) || is.null(gains) || length(gains) == 0L)
       stop("gains must be specified")
   }
-  per <- function(v, default = NULL, name = deparse(substitute(v))) {
-    if (is.null(v)) return(rep(list(default), nsig))
-    if (length(v) == 1L && !is.list(v)) return(rep(list(v), nsig))
-    if (length(v) != nsig) stop(name, " must have one value per signal")
-    as.list(v)
-  }
-  # WFDB-x: a finite frequency > 0 and finite gains (0: uncalibrated), in
-  # legacy mode too
-  if (missing(fs) || is.null(fs)) stop("fs must be specified and > 0")
-  if (length(fs) != 1L || !is.numeric(fs) || !is.finite(fs) || fs <= 0)
-    stop("fs must be finite and > 0")
   fmts <- unlist(per(fmt))
   gains_ <- as.numeric(unlist(per(gains)))
   if (anyNA(gains_)) stop("gains must be specified")
-  if (!all(is.finite(gains_))) stop("gains must be finite")
-  if (!is.null(base_time)) .hl_check_base_time(base_time)
-  zeros <- unlist(per(adczeros, 0))
-  bases <- per(baselines)
-  bases <- vapply(seq_len(nsig), function(k) if (is.null(bases[[k]])) zeros[k] else bases[[k]], 0)
+  res <- per(adcres)
   if (legacy) {          # WFDB-x: legacy mode (original behavior)
     defres <- function(f) {
       switch(as.character(f), "80" = , "508" = 8, "212" = 12, "310" = , "311" = 10,
              "24" = , "524" = 24, "32" = 32, 16)
     }
-    res <- per(adcres)
-    res <- vapply(seq_len(nsig), function(k) if (is.null(res[[k]])) defres(fmts[k]) else res[[k]], 0)
+    res <- lapply(seq_len(nsig), function(k) if (missing_value(res[[k]])) defres(fmts[k]) else res[[k]])
   } else {
-    if (is.null(adcres) || length(adcres) == 0L)
+    if (is.null(adcres) || length(adcres) == 0L || any(vapply(res, missing_value, NA)))
       stop("ADC resolution(s) must be specified")
-    res <- per(adcres)
-    res <- vapply(res, function(r) {
-      r <- suppressWarnings(as.numeric(r))
-      if (length(r) != 1L || is.na(r) || r < 1) stop("ADC resolution(s) must be specified")
-      trunc(r)
-    }, 0)
+    # WFDB-x: whole numbers within the range of an int (a fraction was
+    # truncated, and NaN or text failed after the signal file was written)
+    if (any(.hl_whole_int32(res, "adcres") < 1)) stop("ADC resolution(s) must be specified")
   }
   units_ <- per(units)
   for (k in seq_len(if (legacy) 0 else nsig)) {
@@ -603,17 +673,36 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
     if (gains_[k] != 0 && (is.null(u) || length(u) != 1L || is.na(u) || !nzchar(u)))
       stop("units must be specified")
   }
+  if (physical && !legacy) {
+    for (k in seq_len(nsig)) if (gains_[k] == 0) stop("signal ", k - 1, " is uncalibrated")
+  }
+  # WFDB-x: a finite frequency > 0 and finite gains (0: uncalibrated), in
+  # legacy mode too
+  if (missing(fs) || is.null(fs)) stop("fs must be specified and > 0")
+  if (length(fs) != 1L || !is.numeric(fs) || !is.finite(fs) || fs <= 0)
+    stop("fs must be finite and > 0")
+  if (!all(is.finite(gains_))) stop("gains must be finite")
+  if (!is.null(base_time)) .hl_check_base_time(base_time)
+  # WFDB-x: the ADC resolutions, ADC zeros and baselines are whole numbers
+  # within the range of a 32-bit integer, in legacy mode too (a missing ADC
+  # zero is 0, a missing baseline the ADC zero)
+  res <- .hl_whole_int32(res, "adcres")
+  zeros <- .hl_whole_int32(per(adczeros, 0), "adczeros")
+  zeros[is.na(zeros)] <- 0
+  bases <- .hl_whole_int32(per(baselines), "baselines")
+  bases[is.na(bases)] <- zeros[is.na(bases)]
   names_ <- per(names)
-  if (length(unique(fmts)) > 1L)
-    stop("all signals of a record written by write_record must have the same format")
+  # WFDB-x: the text written to the header is written as its bytes, one
+  # byte per character (see .hl_check_latin1)
+  for (k in seq_len(nsig)) {
+    .hl_check_latin1(names_[[k]], "signal name")
+    .hl_check_latin1(units_[[k]], "units")
+  }
   if (physical) {
     c <- 0
     for (k in seq_len(nsig)) {
       g <- gains_[k]
-      if (g == 0) {
-        if (!legacy) stop("signal ", k - 1, " is uncalibrated")
-        g <- WFDB_DEFGAIN                  # (legacy mode: the default gain)
-      }
+      if (g == 0) g <- WFDB_DEFGAIN        # (legacy mode: the default gain)
       for (j in seq_len(spf[k])) {
         c <- c + 1
         v <- x[, c] * g
@@ -639,6 +728,8 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
       stop("samples in ADC units must be integers")
     if (any(na)) x[na] <- WFDB_INVALID_SAMPLE
   }
+  if (length(unique(fmts)) > 1L)
+    stop("all signals of a record written by write_record must have the same format")
   si <- lapply(seq_len(nsig), function(k) {
     siginfo(fname = paste0(record, ".dat"),
             desc = if (!is.null(names_[[k]])) as.character(names_[[k]]) else "",
@@ -649,26 +740,37 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   })
   fs <- as.numeric(fs)
   comments <- as.character(comments)
+  for (c in comments) .hl_check_latin1(c, "comment")
   # WFDB-x: the metadata entries, checked before any file is created
   md_lines <- if (!is.null(metadata)) .md_info_lines(metadata, comments)
   wfdbquit()
   errors <- wfdbx_write_errors()
-  # (the output signals are closed however this ends)
+  # WFDB-x: the signal file and the header are written to temporary files
+  # in the directories of their destinations, which are renamed over them
+  # when both are complete; after a failure, they are removed, and the
+  # existing files are left as they were (see .staging_begin).
+  .staging_begin()
+  complete <- FALSE
+  renamed <- FALSE
   tryCatch({
-    if (osigfopen(si, nsig) != nsig)
-      stop("can't create signal file for record ", record)
-    setsampfreq(fs)
-    # (the counter frequency and base count survive wfdbquit, as in C; a
-    # new record written here has neither)
-    setcfreq(0)
-    setbasecount(0)
-    if (!is.null(base_time)) setbasetime(base_time)
-    putframes(x)
-    if (newheader(record) < 0)
-      stop("can't create header for record ", record)
-    for (c in comments) putinfo(c)
-    for (l in md_lines) putinfo(l)
-  }, finally = wfdbquit())
-  if (wfdbx_write_errors() > errors) stop("write error on record ", record)
+    # (the output signals are closed however this ends)
+    tryCatch({
+      if (osigfopen(si, nsig) != nsig)
+        stop("can't create signal file for record ", record)
+      setsampfreq(fs)
+      # (the counter frequency and base count survive wfdbquit, as in C; a
+      # new record written here has neither)
+      setcfreq(0)
+      setbasecount(0)
+      if (!is.null(base_time)) setbasetime(base_time)
+      putframes(x)
+      if (newheader(record) < 0)
+        stop("can't create header for record ", record)
+      for (c in comments) putinfo(c)
+      for (l in md_lines) putinfo(l)
+    }, finally = wfdbquit())
+    complete <- wfdbx_write_errors() == errors
+  }, finally = renamed <- .staging_end(complete))
+  if (!renamed) stop("write error on record ", record)
   invisible()
 })))

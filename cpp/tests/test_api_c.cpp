@@ -1834,6 +1834,7 @@ WFDBX_TEST(c_toolpaths)
     CHECK(op("a.wav") == O("a.wav"));
     CHECK(op("~/a.wav") == O("thome/a.wav"));
     CHECK(!op("https://127.0.0.1:1/a"));
+    CHECK(!ip("ftp://h/a") && !op("sftp://h/a"));  // (any URL scheme)
     wfdbx_set_input_dir("tin");
     CHECK(ip("a.txt") == O("tin/a.txt"));
     CHECK(ip("../a.txt") == O("tin/../a.txt"));
@@ -1859,6 +1860,7 @@ WFDBX_TEST(c_toolpaths)
         wfdbx_set_output_dir("tlout");
         CHECK(ip("a.txt") == O("a.txt"));
         CHECK(ip("~/a.txt") == O("~/a.txt"));
+        CHECK(ip("ftp://h/a") == O("ftp://h/a"));
         CHECK(op("a.wav") == O("tlout/a.wav"));
         CHECK(op("/a.wav") == O("tlout//a.wav"));
         CHECK(op("~/a.wav") == O("tlout/~/a.wav"));

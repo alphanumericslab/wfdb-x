@@ -428,6 +428,494 @@ highres_progress();
 read_record_whole_numbers();
 write_record_checks_first();
 write_annotations_checks_first();
+
+% --- WFDB-x 1.2.2: the corrections of the fourth review
+read_record_truncated_frame_with_checksum();
+read_record_bounded_allocation();
+write_record_checks_before_writing();
+write_record_failure_leaves_files();
+getinfo_record_line();
+write_annotations_checks_before_writing();
+write_annotations_failure_leaves_file();
+read_annotations_arguments();
+
+% --- WFDB-x 1.2.2: the corrections of the fifth review
+write_record_trailing_hea();
+write_annotations_labels_required();
+end
+
+function write_record_trailing_hea()
+% a trailing '.hea' is removed, as by the readers (1.2.2)
+x = [1; 2; 3];
+wfdbx.write_record('th.hea', x, 250, 'gains', 200, 'adcres', 16, 'units', 'mV');
+assert_true(exist('th.hea', 'file') == 2 && exist('th.dat', 'file') == 2, ...
+    'trailing .hea: th.hea and th.dat');
+assert_true(exist('th.hea.dat', 'file') == 0, 'trailing .hea: no th.hea.dat');
+r = wfdbx.read_record('th');
+assert_eq(double(r.signals), [1; 2; 3], 'trailing .hea: samples');
+assert_error_msg(@() wfdbx.write_record('', x, 250, 'gains', 200, ...
+    'adcres', 16, 'units', 'mV'), 'the record name must not be empty', ...
+    'empty record name');
+end
+
+function write_annotations_labels_required()
+% a label is required for each annotation; with no annotations, an empty
+% file is written (1.2.2)
+if exist('100s.lbl', 'file')
+    delete('100s.lbl');
+end
+assert_error_msg(@() wfdbx.write_annotations('100s', 'lbl', [100 460]), ...
+    'symbols or codes must be given', 'labels required');
+assert_true(exist('100s.lbl', 'file') == 0, 'labels required: no file');
+wfdbx.write_annotations('100s', 'lbl', []);
+a = wfdbx.read_annotations('100s', 'lbl');
+assert_eq(numel(a.samples), 0, 'no annotations: empty file');
+end
+
+function read_record_truncated_frame_with_checksum()
+% A format-16 file holding the samples 1 and 2, whose header gives 3
+% samples: getvec reports the unexpected end of file (-3), and then the
+% checksum error (-4) of the frame at which the checksum is verified,
+% whose status replaces -3.  read_record raises the read error, and never
+% returns the incomplete frame.
+S = wfdbx.internal.sig_state();
+writefile('tr.dat', [1 0 2 0]);
+writefile('tr.hea', sprintf('tr 1 250 3\ntr.dat 16 200 16 0 1 0 0 s\n'));
+wfdbx.wfdbquiet();
+assert_error_msg(@() wfdbx.read_record('tr'), ...
+    'can''t read signal data of record tr (getvec status -3)', ...
+    'truncated frame with a checksum error');
+wfdbx.wfdbverbose();
+assert_true(S.nisig == 0 && ~S.read_failed && ~S.cksum_quiet, ...
+    'library state clean after the error');
+% the C-style getvec keeps the C behavior: -4 for the incomplete frame
+assert_eq(wfdbx.isigopen('tr', 1), 1, 'isigopen tr');
+[st, v] = wfdbx.getvec();
+assert_eq([st, v], [1 1], 'getvec 1');
+[st, v] = wfdbx.getvec();
+assert_eq([st, v], [1 2], 'getvec 2');
+wfdbx.wfdbquiet();
+assert_eq(wfdbx.getvec(), -4, 'getvec 3 (-4)');
+wfdbx.wfdbverbose();
+wfdbx.wfdbquit();
+S.read_failed = false;
+% the frames before it are read when sampto stops before it
+r = wfdbx.read_record('tr', 'sampto', 2);
+assert_eq(r.signals', [1 2], 'sampto 2');
+% check_record reports the short file, not a checksum error
+wfdbx.wfdbquiet();
+rep = wfdbx.check_record('tr');
+wfdbx.wfdbverbose();
+errs = rep.issues(strcmp({rep.issues.severity}, 'error'));
+assert_eq({errs.code}, {'length_short'}, 'check_record: one error');
+assert_eq(errs(1).message, ['the signal files end after 2 frames, ' ...
+    'before the 3 given in the header'], 'check_record: length_short');
+% a checksum error alone (all samples read) is still a warning
+writefile('tr.hea', sprintf('tr 1 250 2\ntr.dat 16 200 16 0 1 0 0 s\n'));
+assert_eq(warning_of(@() wfdbx.read_record('tr'), 'wfdbx:checksum'), ...
+    'wfdbx:checksum', 'checksum warning');
+state = warning('off', 'wfdbx:checksum');
+r = wfdbx.read_record('tr');
+warning(state);
+assert_eq(r.signals', [1 2], 'checksum error: signals');
+assert_eq(r.checksum_ok, false, 'checksum error: checksum_ok');
+delete('tr.dat');
+delete('tr.hea');
+end
+
+function read_record_bounded_allocation()
+% A header that gives 10^12 samples for a signal file of 4 bytes: the
+% reader allocates no more than it reads, and reports the short file as a
+% read error.
+writefile('bigh.dat', [1 0 2 0]);
+writefile('bigh.hea', sprintf(['bigh 1 250 1000000000000\n' ...
+    'bigh.dat 16 200 16 0 0 0 0 s\n']));
+wfdbx.wfdbquiet();
+assert_error_msg(@() wfdbx.read_record('bigh'), ...
+    'can''t read signal data of record bigh (getvec status -3)', ...
+    'header length 10^12');
+assert_error_msg(@() wfdbx.read_record('bigh', 'sampto', 1e12), ...
+    'can''t read signal data of record bigh (getvec status -3)', ...
+    'sampto 10^12');
+wfdbx.wfdbverbose();
+r = wfdbx.read_record('bigh', 'sampto', 2);
+assert_eq(r.signals', [1 2], 'header length 10^12, sampto 2');
+delete('bigh.dat');
+delete('bigh.hea');
+% a long record is still read whole, growing the array
+x = mod(reshape(0:299999, 3, [])', 30000);
+wfdbx.write_record('long', x, 100, 'gains', 200, 'adcres', 16, 'units', 'mV');
+h = char(readfile('long.hea'));
+writefile('long.hea', strrep(h, 'long 3 100 100000', 'long 3 100'));
+r = wfdbx.read_record('long');
+assert_true(isequal(r.signals, x), 'a record without a length, read whole');
+delete('long.dat');
+delete('long.hea');
+end
+
+function snap = snapshot(names)
+% The contents of the files NAMES ([] for a missing file) and the names of
+% the files of the current folder.
+snap.data = cell(1, numel(names));
+for k = 1:numel(names)
+    if isfile(names{k})
+        snap.data{k} = readfile(names{k});
+    end
+end
+d = dir('.');
+snap.names = sort({d.name});
+end
+
+function write_100s_copy()
+r = wfdbx.read_record('100s', 'sampto', 100);
+wfdbx.write_record('r', r.signals, 360, 'gains', 200, 'adcres', 11, ...
+    'units', 'mV', 'names', {'a', 'b'});
+end
+
+function write_record_checks_before_writing()
+% Each invalid argument is refused before any file is touched: the
+% existing record is unchanged, and no temporary file is left.
+write_100s_copy();
+names = {'r.hea', 'r.dat'};
+before = snapshot(names);
+x = zeros(5, 2);
+kw = {'gains', 200, 'adcres', 12, 'units', 'mV'};
+bad = {{'signals', zeros(2, 2, 2)}, 'signals must be a 1-D or 2-D array'; ...
+    {'baselines', 1.5}, 'baselines must be whole numbers'; ...
+    {'baselines', NaN}, 'baselines must be whole numbers'; ...
+    {'baselines', 2^31}, 'baselines must be whole numbers'; ...
+    {'baselines', 'x'}, 'baselines must be whole numbers'; ...
+    {'baselines', {[], 0.5}}, 'baselines must be whole numbers'; ...
+    {'adczeros', -2^31 - 1}, 'adczeros must be whole numbers'; ...
+    {'adczeros', [0 0.5]}, 'adczeros must be whole numbers'; ...
+    {'adczeros', {0, 'a'}}, 'adczeros must be whole numbers'; ...
+    {'adcres', 12.5}, 'adcres must be whole numbers'; ...
+    {'adcres', 'x'}, 'adcres must be whole numbers'; ...
+    {'adcres', NaN}, 'adcres must be whole numbers'; ...
+    {'adcres', [12 0]}, 'ADC resolution(s) must be specified'; ...
+    {'adcres', {12, []}}, 'ADC resolution(s) must be specified'; ...
+    {'gains', [200 Inf]}, 'gains must be finite'};
+if ~wfdbx.internal.is_octave()
+    % (characters beyond 255: MATLAB's characters are 16-bit; Octave's are
+    % bytes, and cannot hold them)
+    mu = char(956);
+    bad = [bad; ...
+        {{'units', ['m' mu]}, ['units ''m' mu ''' has a character that is ' ...
+        'not Latin-1 (one byte per character)']}; ...
+        {{'names', {'a', mu}}, ['signal name ''' mu '''']}; ...
+        {{'comments', {'ok', mu}}, ['comment ''' mu '''']}; ...
+        {{'record', ['r' mu]}, ['record name ''r' mu '''']}];
+end
+for k = 1:size(bad, 1)
+    a = bad{k, 1};
+    sig = x;
+    rec = 'r';
+    args = kw;
+    if strcmp(a{1}, 'signals')
+        sig = a{2};
+    elseif strcmp(a{1}, 'record')
+        rec = a{2};
+    else
+        args = [args, a]; %#ok<AGROW>
+    end
+    m = '';
+    try
+        wfdbx.write_record(rec, sig, 360, args{:});
+    catch err
+        m = err.message;
+    end
+    assert_true(strncmp(m, bad{k, 2}, numel(bad{k, 2})), ...
+        sprintf('write_record check %d: %s', k, m));
+    assert_true(isequal(snapshot(names), before), ...
+        sprintf('write_record check %d: files unchanged', k));
+end
+end
+
+function write_record_failure_leaves_files()
+% A failure while writing leaves the existing files intact: both are
+% written to temporary files, renamed over them at the end.
+S = wfdbx.internal.sig_state();
+io = wfdbx.internal.io_state();
+write_100s_copy();
+x = reshape(0:19, 2, [])';
+kw = {'gains', 200, 'adcres', 12, 'units', 'mV'};
+% a write error in the signal file (a symbolic link to /dev/full, which
+% is written directly): the existing header is not replaced
+if ~ispc() && exist('/dev/full', 'file') && wfdbx.internal.is_octave()
+    copyfile('r.hea', 'w.hea');
+    h = readfile('w.hea');
+    symlink('/dev/full', 'w.dat');
+    wfdbx.wfdbquiet();
+    assert_error_msg(@() wfdbx.write_record('w', x, 250, kw{:}), ...
+        'write error on record w', 'write error in the signal file');
+    wfdbx.wfdbverbose();
+    assert_eq(readfile('w.hea'), h, 'header unchanged after a write error');
+    delete('w.hea');
+    delete('w.dat');
+end
+names = {'r.hea', 'r.dat'};
+before = snapshot(names);
+% a directory in the way of the header: the signal file is not replaced
+copyfile('r.dat', 'q.dat');
+q = readfile('q.dat');
+mkdir('q.hea');
+wfdbx.wfdbquiet();
+assert_error_msg(@() wfdbx.write_record('q', x, 250, kw{:}), ...
+    'can''t create header for record q', 'a directory in the way');
+wfdbx.wfdbverbose();
+assert_eq(readfile('q.dat'), q, 'signal file unchanged');
+rmdir('q.hea');
+delete('q.dat');
+assert_true(isequal(snapshot(names), before), 'files unchanged');
+assert_true(S.nosig == 0 && ~io.staging, 'library state clean');
+% the staging functions: a failure removes the temporary file
+wfdbx.internal.staging_begin();
+f = wfdbx.internal.wfdb_fopen('r.dat', 'wb');
+f.write(uint8([1 2 3]));
+f.close();
+assert_eq(numel(dir('.r.dat.*.tmp')), 1, 'a temporary file while staging');
+assert_eq(wfdbx.internal.staging_end(false), false, 'staging_end(false)');
+assert_true(isequal(snapshot(names), before), 'files unchanged (staging)');
+% success: the files are those written in place before, with the
+% permissions of the files they replace
+if wfdbx.internal.is_octave() && ~ispc()
+    system('chmod 640 r.dat');
+end
+wfdbx.write_record('r', x, 250, kw{:});
+if wfdbx.internal.is_octave() && ~ispc()
+    info = stat('r.dat');
+    assert_eq(mod(info.mode, 512), 416, 'permissions kept (0640)');
+end
+r = wfdbx.read_record('r');
+assert_eq(r.signals, x, 'record replaced');
+assert_true(isempty(dir('.*.tmp')), 'no temporary file left');
+% a symbolic link: the file it leads to is replaced
+if wfdbx.internal.is_octave() && ~ispc()
+    symlink('r.hea', 'l.hea');
+    symlink('r.dat', 'l.dat');
+    wfdbx.write_record('l', x(1:3, :), 250, kw{:});
+    [~, err] = readlink('l.dat');
+    assert_eq(err, 0, 'the link is kept');
+    r = wfdbx.read_record('r');
+    assert_eq(r.signals, x(1:3, :), 'written through the link');
+    delete('l.hea');
+    delete('l.dat');
+end
+delete('r.hea');
+delete('r.dat');
+end
+
+function getinfo_record_line()
+% The record line is found as readheader finds it: the first line with a
+% token (separated by spaces, tabs, CRs and LFs) that does not begin with
+% '#'.  A comment before it is not an info string, even after an empty or
+% blank first line (C's getinfo took the empty line for the record line);
+% in legacy mode, the C rule applies.
+LF = char(10);
+CRLF = [char(13) LF];
+sig = ['fmt16.dat 16 200 12 0 0 0 0 a' LF];
+C = {'le', [LF '# Age: 40' LF 'le 1 250 10' LF sig '# Age: 63' LF], ...
+    {' Age: 63'}, {' Age: 40', ' Age: 63'}; ...
+    'lw', [' ' char(9) CRLF '# Age: 40' CRLF 'lw 1 250 10' CRLF ...
+    strrep(sig, LF, CRLF) '# Age: 63' CRLF], ...
+    {' Age: 63'}, {' Age: 40', ' Age: 63'}; ...
+    'lc', ['# first' LF LF '# Age: 40' LF ' ' char(9) LF '  # indented' LF ...
+    'lc 1 250 10' LF sig '# Age: 63' LF '#last' LF], ...
+    {' Age: 63', 'last'}, {' Age: 40', ' Age: 63', 'last'}; ...
+    'ln', ['# only' LF LF '# comments' LF], cell(1, 0), {' comments'}};
+for k = 1:size(C, 1)
+    [name, text, normal, legacy] = C{k, :};
+    writefile([name '.hea'], text);
+    for mode = 0:1
+        previous = wfdbx.wfdbx_set_legacy(mode);
+        got = cell(1, 0);
+        c = wfdbx.getinfo(name);
+        while ischar(c)
+            got{end + 1} = c; %#ok<AGROW>
+            c = wfdbx.getinfo([]);
+        end
+        wfdbx.wfdbx_set_legacy(previous);
+        wfdbx.wfdbquit();
+        if mode
+            want = legacy;
+        else
+            want = normal;
+        end
+        assert_eq(got, want, sprintf('getinfo %s, legacy %d', name, mode));
+    end
+    if ~strcmp(name, 'ln')
+        h = wfdbx.read_header(name);
+        assert_eq(h.comments', normal, ['read_header comments ' name]);
+        assert_eq(h.metadata, {'Age', '63'}, ['read_header metadata ' name]);
+        h = wfdbx.read_header(name, 'legacy', true);
+        assert_eq(h.comments', legacy, ['legacy comments ' name]);
+        assert_eq(h.metadata, {'Age', '63'}, ['legacy metadata ' name]);
+        r = wfdbx.read_record(name, 'legacy', true, 'checksum_warning', false);
+        assert_eq(r.comments', legacy, ['read_record legacy comments ' name]);
+    end
+    delete([name '.hea']);
+end
+end
+
+function write_annotations_checks_before_writing()
+% Each invalid argument is refused before the existing annotation file is
+% touched (the reserved codes 59-63 corrupted it; the time -2^63 was
+% dropped, with putann's "time overflow" message, and success reported).
+A = wfdbx.internal.ann_state();
+wfdbx.write_annotations('100s', 'qrs', [10 20 30], 'symbols', 'N');
+before = snapshot({'100s.qrs'});
+bad = {{'samples', [1 2; 3 4]}, 'samples must be a 1-D array'; ...
+    {'samples', zeros(1, 1, 3)}, 'samples must be a 1-D array'; ...
+    {'codes', ones(3, 2)}, 'codes must be a 1-D array'; ...
+    {'subtypes', zeros(3, 3)}, 'subtypes must be a 1-D array'; ...
+    {'nums', ones(1, 1, 3)}, 'nums must be a 1-D array'; ...
+    {'codes', [1 1 1], 'symbols', {'N', 'N'; 'N', 'N'}}, ...
+    'symbols must be a 1-D array'; ...
+    {'samples', [-2^63, 5, 6]}, ['annotation time -9223372036854775808 ' ...
+    'cannot be written (annotation times must be integers from ' ...
+    '-9223372036854775807 to 9223372036854775806)']; ...
+    {'samples', int64([1 5 9223372036854775807])}, ['annotation time ' ...
+    '9223372036854775807 cannot be written']; ...
+    {'codes', -1}, 'annotation code -1 is out of range (0 to 58)'; ...
+    {'codes', [1 64 1]}, 'annotation code 64 is out of range (0 to 58)'};
+for c = 59:63
+    bad(end + 1, :) = {{'codes', [1 c 1]}, sprintf(['annotation code %d is ' ...
+        'reserved (59 to 63 are the control codes of the annotation file ' ...
+        'format)'], c)}; %#ok<AGROW>
+end
+bad(end + 1, :) = {{'codes', uint8([1 63 1])}, 'annotation code 63 is reserved'};
+if ~wfdbx.internal.is_octave()
+    mu = char(956);
+    bad(end + 1, :) = {{'aux', {[], mu, []}}, ['aux text ''' mu ''' has a ' ...
+        'character that is not Latin-1 (one byte per character)']};
+end
+for k = 1:size(bad, 1)
+    a = bad{k, 1};
+    t = [1 2 3];
+    args = {};
+    if strcmp(a{1}, 'samples')
+        t = a{2};
+    else
+        args = a;
+    end
+    if ~any(strcmp(args, 'codes'))
+        args = [args, {'symbols', 'N'}]; %#ok<AGROW>
+    end
+    m = '';
+    try
+        wfdbx.write_annotations('100s', 'qrs', t, args{:});
+    catch err
+        m = err.message;
+    end
+    assert_true(strncmp(m, bad{k, 2}, numel(bad{k, 2})), ...
+        sprintf('write_annotations check %d: %s', k, m));
+    assert_true(isequal(snapshot({'100s.qrs'}), before), ...
+        sprintf('write_annotations check %d: file unchanged', k));
+    assert_true(isempty(A.oad) || all(cellfun('isempty', A.oad)), ...
+        'no annotator open');
+end
+% code 58, and a time far from the previous one (SKIPs), can be written
+wfdbx.write_annotations('100s', 'ext', [0 2^33], 'codes', [58 1]);
+a = wfdbx.read_annotations('100s', 'ext');
+assert_eq([a.samples, a.codes], [0 58; 2^33 1], 'code 58, time 2^33');
+delete('100s.ext');
+delete('100s.qrs');
+end
+
+function write_annotations_failure_leaves_file()
+% A failure leaves the existing file intact: the file is written to a
+% temporary file, renamed over it when complete.
+wfdbx.write_annotations('100s', 'qrs', [10 20 30], 'symbols', 'N');
+before = snapshot({'100s.qrs'});
+% (the staging functions: a failure removes the temporary file)
+wfdbx.internal.staging_begin();
+f = wfdbx.internal.wfdb_fopen('100s.qrs', 'wb');
+f.write(uint8([1 2 3]));
+f.close();
+g = wfdbx.internal.wfdb_fopen('./100s.qrs', 'rb');     % (the same file)
+assert_eq(g.readall(), uint8([1 2 3]), 'reopened while staging');
+g.close();
+wfdbx.internal.staging_end(false);
+assert_true(isequal(snapshot({'100s.qrs'}), before), 'file unchanged');
+% a write error (a symbolic link to /dev/full, written directly)
+if ~ispc() && exist('/dev/full', 'file') && wfdbx.internal.is_octave()
+    symlink('/dev/full', '100s.full');
+    wfdbx.wfdbquiet();
+    assert_error_msg(@() wfdbx.write_annotations('100s', 'full', [1 2], ...
+        'symbols', 'V'), 'write error on annotator full for record 100s', ...
+        'write error');
+    wfdbx.wfdbverbose();
+    delete('100s.full');
+end
+% out of order: sorted (in this process, and in legacy mode by the
+% sortann program), then renamed over the existing file, with its
+% permissions
+if wfdbx.internal.is_octave() && ~ispc()
+    system('chmod 600 100s.qrs');
+end
+for legacy = [false, true]
+    wfdbx.wfdbquiet();
+    wfdbx.write_annotations('100s', 'qrs', [30 10 20], 'symbols', 'N', ...
+        'legacy', legacy);
+    wfdbx.wfdbverbose();
+    a = wfdbx.read_annotations('100s', 'qrs');
+    assert_eq(a.samples', [10 20 30], sprintf('sorted (legacy %d)', legacy));
+    assert_true(isempty(dir('.*.tmp')), 'no temporary file left');
+    if wfdbx.internal.is_octave() && ~ispc()
+        info = stat('100s.qrs');
+        assert_eq(mod(info.mode, 512), 384, 'permissions kept (0600)');
+    end
+end
+delete('100s.qrs');
+end
+
+function read_annotations_arguments()
+% sampfrom and sampto are checked as read_record checks them, before the
+% file is opened, and the file is closed on every path.
+A = wfdbx.internal.ann_state();
+ref = wfdbx.read_annotations('100s', 'atr', 'sampfrom', 100, 'sampto', 2000);
+a = wfdbx.read_annotations('100s', 'atr', 'sampfrom', 100.0, 'sampto', 2000.0);
+assert_eq(a.samples, ref.samples, 'whole numbers as doubles');
+cases = {1.5, [], 'sampfrom must be a whole number'; ...
+    NaN, [], 'sampfrom must be a whole number'; ...
+    0, Inf, 'sampto must be a whole number'; ...
+    0, 10.25, 'sampto must be a whole number'; ...
+    {1}, [], 'sampfrom must be a sample number or a time string'; ...
+    [1 2], [], 'sampfrom must be a sample number or a time string'; ...
+    0, {1}, 'sampto must be a sample number or a time string'; ...
+    2^63, [], 'sampfrom is beyond the range of a 64-bit integer'; ...
+    -1, [], 'sampfrom must not be negative'};
+for k = 1:size(cases, 1)
+    assert_error_msg(@() wfdbx.read_annotations('100s', 'nosuch', ...
+        'sampfrom', cases{k, 1}, 'sampto', cases{k, 2}), ...
+        ['read_annotations: ' cases{k, 3}], sprintf('read_annotations %d', k));
+end
+% the annotators are closed after an error
+copyfile('100s.atr', 'nohdr.atr');
+m = '';
+try
+    wfdbx.read_annotations('nohdr', 'atr', 'sampto', '0:1');
+catch err
+    m = err.message;
+end
+assert_eq(m, 'sampling frequency of record nohdr is not specified', ...
+    'time string without a frequency');
+assert_true(all(cellfun('isempty', A.iad)), 'no input annotator left open');
+b = readfile('100s.atr');
+writefile('cut.atr', b(1:101));
+m = '';
+wfdbx.wfdbquiet();
+try
+    wfdbx.read_annotations('cut', 'atr', 'fs', 360);
+catch err
+    m = err.message;
+end
+wfdbx.wfdbverbose();
+assert_eq(m, 'can''t read annotation file atr of record cut (getann status -3)', ...
+    'truncated annotation file');
+assert_true(all(cellfun('isempty', A.iad)), 'no input annotator left open (2)');
+delete('nohdr.atr');
+delete('cut.atr');
 end
 
 function highres_progress()

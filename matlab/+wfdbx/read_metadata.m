@@ -26,15 +26,18 @@ function M = read_metadata(record, varargin)
 %   lines such as "# Age: 63" or "# Dx: 164889003".  The rules:
 %
 %   * An entry is an info string (a line beginning with '#' after the
-%     record line, as the C function getinfo() reads it) that contains a
-%     colon.  The key is the text between the '#' and the first colon, the
-%     value the rest of the line; spaces, tabs, VT, FF and CR at either end
-%     of each are removed, so '#Age:45', '# Age: 45' and '#  Age : 45' all
-%     give {'Age', '45'}.  An info string without a colon, or whose key is
-%     empty or contains '#', is a free comment: it is not returned, and it
-%     is never changed.  Comment lines before the record line are not info
-%     strings.  Only the header file (.hea) is read, not the .info file
-%     that wfdbx.getinfo also reads.
+%     record line, as wfdbx.getinfo reads it) that contains a colon.  The
+%     record line is the first line that holds something other than white
+%     space and does not begin (after white space) with '#', as the header
+%     parser finds it.  The key is the text between the '#' and the first
+%     colon, the value the rest of the line; spaces, tabs, VT, FF and CR
+%     at either end of each are removed, so '#Age:45', '# Age: 45' and
+%     '#  Age : 45' all give {'Age', '45'}.  An info string without a
+%     colon, or whose key is empty or contains '#', is a free comment: it
+%     is not returned, and it is never changed.  Comment lines (and empty
+%     or blank lines) before the record line are not info strings.  Only
+%     the header file (.hea) is read, not the .info file that
+%     wfdbx.getinfo also reads.
 %   * Keys are compared without regard to letter case (A-Z and a-z only).
 %     If a header has more than one entry for a key (a file written by
 %     other software), the first is returned, and the warning

@@ -604,6 +604,11 @@ for s = 0:n - 1
     end
 end
 S.cksum_quiet = true;
+% WFDB-x: a sample that cannot be read ends the reading with status -3,
+% even in the frame at which a checksum is verified (whose status, -4,
+% replaces -3 in getvec); that incomplete frame is not counted, nor are its
+% samples checked (see wfdbx.getframes)
+S.read_failed = false;
 quiet = onCleanup(@() set_cksum_quiet(S, false)); %#ok<NASGU>
 data_sig = find(fmts ~= 0);
 while true
@@ -611,7 +616,7 @@ while true
     if checked && isempty(residual)
         want = min(rows, ns - m);
     end
-    [x, stat, last] = wfdbx.getframes(want);
+    [x, stat, last] = wfdbx.getframes(want, 0, true);
     if stat == -4
         x = [x; last]; %#ok<AGROW>
     end
@@ -651,6 +656,7 @@ while true
     end
 end
 S.cksum_quiet = false;
+S.read_failed = false;
 % (with skewed signals, getvec returns the frames of the files less the
 % largest skew)
 skew = 0;
@@ -709,7 +715,9 @@ end
 end
 
 function set_cksum_quiet(S, on)
+% (also clears the flag read_failed: see above)
 S.cksum_quiet = on;
+S.read_failed = false;
 end
 
 function n = file_size(ig)

@@ -8,9 +8,14 @@ function H = meta_parse(data)
 %
 %     content, eol  1-by-N cell arrays: the content and line ending of each
 %                   line
-%     rec           index of the record line, the first line whose content
-%                   does not begin with '#' (as the C function getinfo()
-%                   reads a header), or 0 if there is none
+%     rec           index of the record line, or 0 if there is none: the
+%                   first line whose content (up to a NUL byte) has a token
+%                   (separated by spaces, tabs, CRs and LFs) that does not
+%                   begin with '#', as the header parser of the library
+%                   (readheader) finds it, in every mode (the C function
+%                   getinfo() took the first line that does not begin with
+%                   '#'; WFDB-x's wfdbx.getinfo follows readheader, except
+%                   in legacy mode)
 %     info          indices of the info strings: the lines after the
 %                   record line whose content begins with '#'
 %     line, key, value, fkey
@@ -70,8 +75,17 @@ H.key = cell(1, 0);
 H.value = cell(1, 0);
 H.fkey = cell(1, 0);
 for j = 1:n
+    % (the record line: the first line that has a token, separated by
+    % spaces, tabs, CRs and LFs, up to a NUL byte, that does not begin with
+    % '#', as the header parser of the library, readheader, finds it, in
+    % every mode)
     c = content{j};
-    if isempty(c) || c(1) ~= '#'
+    z = find(c == char(0), 1);
+    if ~isempty(z)
+        c = c(1:z-1);
+    end
+    k = find(~(c == ' ' | c == char(9) | c == LF | c == CR), 1);
+    if ~isempty(k) && c(k) ~= '#'
         H.rec = j;
         break;
     end

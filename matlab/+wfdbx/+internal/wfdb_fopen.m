@@ -6,10 +6,13 @@ function f = wfdb_fopen(fname, mode)
 %   when an output file cannot be created, the directories in its name are
 %   created and the file is tried again.  Directories cannot be opened for
 %   reading.  WFDB-x: an http:// or https:// URL can only be read, if
-%   network access is allowed (wfdbx.internal.fetch_open); names
-%   containing '..' are accepted.  In legacy mode, names containing '..'
+%   network access is allowed (wfdbx.internal.fetch_open); a name with
+%   another URL scheme (ftp://, sftp://, file://, ...) is refused, with a
+%   message the first time; names containing '..' are accepted.  In legacy mode, names containing '..'
 %   or '://' are refused (as by the reference C library, built without
-%   network support).
+%   network support).  WFDB-x: while a high-level writer stages its output
+%   files (wfdbx.internal.staging_begin), a destination opened for writing
+%   is written to a temporary file (wfdbx.internal.staged_open).
 %
 %   Translation of the C function wfdb_fopen() (lib/wfdbio.c, WFDB 10.7.0).
 
@@ -22,8 +25,10 @@ function f = wfdb_fopen(fname, mode)
 % code.
 %
 % Changes from the original: an http:// or https:// URL is read only if
-% network access is allowed, and names containing '..' are accepted (refused
-% in legacy mode, as by the C library built without NETFILES). Each change
+% network access is allowed, a name with another URL scheme is refused, and
+% names containing '..' are accepted (refused
+% in legacy mode, as by the C library built without NETFILES); the files of
+% the high-level writers are written to temporary files. Each change
 % is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -49,6 +54,25 @@ elseif wfdbx.internal.is_url(fname)
         f = wfdbx.internal.fetch_open(fname);
     end
     return;
+elseif wfdbx.internal.has_scheme(fname)
+    % WFDB-x: another URL scheme (ftp://, sftp://, file://, ...)
+    io = wfdbx.internal.io_state();
+    if ~io.scheme_warned
+        io.scheme_warned = true;
+        wfdbx.internal.wfdb_error(['WFDB-x: can''t open %s: only ' ...
+            'http:// and https:// URLs can be read (mount the server ' ...
+            'as a local folder, or download the files)\n'], fname);
+    end
+    return;
+end
+io = wfdbx.internal.io_state();
+if io.staging
+    % WFDB-x: a file of a high-level writer, written to a temporary file
+    % (see wfdbx.internal.staging_begin)
+    [f, staged] = wfdbx.internal.staged_open(fname, mode);
+    if staged
+        return;
+    end
 end
 fid = fopen(fname, mode);
 if fid >= 0 && mode(1) == 'r' && ~wfdbx.internal.is_octave() && ...

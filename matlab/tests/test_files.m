@@ -45,6 +45,9 @@ legacy_unchanged();
 highlevel_local();
 tool_file_paths(d);
 tool_files();
+if ~ispc()          % (':' cannot be in a file name on MS-Windows)
+    other_schemes();
+end
 if wfdbx.internal.is_octave() && ~ispc()
     environment(here);
 end
@@ -101,6 +104,7 @@ st.output_dir_init = true;
 st.network = 0;
 st.env_network = 0;
 st.network_warned = false;
+st.scheme_warned = false;
 st.fetched_urls = cell(1, 0);
 st.fetched_data = cell(1, 0);
 end
@@ -342,7 +346,7 @@ end
 function header_containment()
 bad = {'../100s.dat', '/100s.dat', '~/100s.dat', '~', ...
     'http://127.0.0.1:1/a.dat', 'https://127.0.0.1:1/a.dat', ...
-    'data/../../100s.dat', '..', 'a/../b.dat'};
+    'ftp://h/a.dat', 'data/../../100s.dat', '..', 'a/../b.dat'};
 copyfile('fmt16.dat', fullfile('sub', 'ok.dat'));
 wfdbx.wfdbquiet();
 for k = 1:numel(bad)
@@ -626,6 +630,77 @@ err = regexprep(err, 'warning: function [^\n]*shadows a core library function\n'
 assert_eq(s, 0, ['status of ' code]);
 end
 
+function capture_begin()
+% Keep the messages printed through wfdb_error (see capture_end).
+st = wfdbx.internal.io_state();
+st.capture = true;
+st.captured = cell(0, 2);
+end
+
+function m = capture_end()
+% The messages kept since capture_begin (in order, joined).
+st = wfdbx.internal.io_state();
+st.capture = false;
+m = [st.captured{:, 2}];
+if isempty(m)
+    m = '';
+end
+st.captured = cell(0, 2);
+end
+
+function other_schemes()
+% a name with a URL scheme other than http:// and https:// is refused
+% (with a message, once), with or without network access, and is never
+% opened as a local name: ftp:/h/sr.hea (the local path that the name
+% ftp://h/sr would designate) is not read
+defaults();
+make_sr('ftp:/h');
+wfdbx.wfdbx_set_network(1);
+capture_begin();
+r = cell(1, 6);
+r{1} = wfdbx.isigopen('ftp://h/sr', 2);
+wfdbx.wfdbquit();
+r{2} = wfdbx.isigopen('sftp://h/sr', 2);
+wfdbx.wfdbquit();
+r{3} = wfdbx.wfdbx_input_path('ftp://h/sr.hea');
+r{4} = wfdbx.wfdbx_output_path('ftp://h/x.wav');
+r{5} = wfdbx.wfdbx_set_input_dir('ftp://h');
+r{6} = wfdbx.isigopen('sr', 2);
+wfdbx.wfdbquit();
+m = capture_end();
+assert_eq(r, {-1, -1, [], [], [], -1}, 'other schemes refused');
+pre = sprintf(['WFDB-x: can''t open ftp://h/sr.hea: only http:// and ' ...
+    'https:// URLs can be read (mount the server as a local folder, or ' ...
+    'download the files)\ninit: can''t open header for record ftp://h/sr\n']);
+assert_eq(m(1:min(end, numel(pre))), pre, 'other schemes: the messages');
+assert_eq(numel(strfind(m, 'WFDB-x:')), 1, 'other schemes: one message');
+defaults();
+% an output directory with a URL scheme is refused
+wfdbx.wfdbquiet();
+assert_eq(wfdbx.wfdbx_set_output_dir('ftp://h/out'), [], ...
+    'output dir with a scheme');
+assert_eq(wfdbx.wfdberror(), sprintf(['wfdbx_set_output_dir: the output ' ...
+    'directory must be a local directory\n']), 'output dir scheme message');
+wfdbx.wfdbverbose();
+% a one-letter prefix is not a scheme (a local directory c:)
+make_sr('c:');
+assert_eq(wfdbx.isigopen('c://sr', 2), 2, 'one-letter prefix');
+wfdbx.wfdbquit();
+% legacy mode refuses every name containing ://, without a message
+st = wfdbx.internal.io_state();
+st.scheme_warned = false;
+wfdbx.wfdbx_set_legacy(1);
+capture_begin();
+n = wfdbx.isigopen('ftp://h/sr', 2);
+wfdbx.wfdbquit();
+m = capture_end();
+wfdbx.wfdbx_set_legacy(0);
+assert_eq(n, -1, 'legacy: other scheme');
+assert_eq(m, sprintf('init: can''t open header for record ftp://h/sr\n'), ...
+    'legacy: other scheme, no message');
+defaults();
+end
+
 % ---------------------------------------------------------------------------
 % Network access (a local server)
 
@@ -724,7 +799,11 @@ assert_true(all(ismember({'/100s.hea', '/100s.dat', '/100s.atr'}, L)), ...
 wfdbx.wfdbx_set_input_dir(srv.url);
 rec = wfdbx.read_record('100s', 'sampto', 1);
 assert_eq(rec.signals, [995 1011], 'URL input dir');
-assert_eq(numel(requests(srv)), numel(L), 'cached');
+% the files read are kept; the .info files, which could not be read, are
+% requested again
+L2 = requests(srv);
+assert_eq(L2(numel(L)+1:end), {'/100s.info', '/100s.inf'}, ...
+    'files read kept, failures requested again');
 assert_eq(wfdbx.wfdbfile('hea', '100s'), [srv.url '100s.hea'], 'wfdbfile URL');
 wfdbx.wfdbx_set_input_dir(srv.url(1:end-1));    % (without the final '/')
 assert_eq(wfdbx.wfdbfile('hea', '100s'), [srv.url '100s.hea'], ...
@@ -752,7 +831,8 @@ assert_error(@() wfdbx.read_record('nosuch'), 'missing header (404)');
 assert_error(@() wfdbx.read_record('bad'), 'remote containment');
 n = numel(requests(srv));
 assert_error(@() wfdbx.read_record('nosuch'), 'missing header again');
-assert_eq(numel(requests(srv)), n, 'the failure is cached');
+L = requests(srv);
+assert_eq(L(n+1:end), {'/www/nosuch.hea'}, 'the failure requested again');
 L = requests(srv);
 assert_true(~any(ismember({'/100s.dat', '/www/../100s.dat'}, L)), ...
     'nothing outside the header''s directory requested');

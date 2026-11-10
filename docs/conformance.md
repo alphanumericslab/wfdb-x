@@ -118,7 +118,7 @@ A case of the modern suite can run a tool in legacy mode by giving
 package does not have (the output directory of WFDB-x, used as a prefix in
 legacy mode: the `toolfiles-*-legacy-*` cases); its results, like those of
 every case of the modern suite, come from the C reference with the
-divergences. The legacy suite has 883 cases and the modern suite 1135.
+divergences. The legacy suite has 886 cases and the modern suite 1155.
 
 A case whose input makes the C tool crash, or fail in a way that depends on
 the machine, cannot have results from C. Such a case names, with

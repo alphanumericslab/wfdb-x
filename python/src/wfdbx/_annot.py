@@ -1687,7 +1687,17 @@ def oannclose(n):
             # the sortann program, as legacy mode does.
             from ._signal import wfdbx_get_legacy
             if wfdbx_get_legacy():
-                sorted_ok = _run_sortann(oa.rname, oa.info.name) == 0
+                # WFDB-x: a file that write_annotations is writing to a
+                # temporary file (see wio._staging_begin) is renamed over
+                # its destination first, where the sortann program finds
+                # it; after a write error, it is not (the existing file is
+                # left as it was), and it is not sorted.
+                if wio._io.staging is not None and oa.fname and \
+                        wio._staged_key(oa.fname) in wio._io.staging and \
+                        (errflag or not wio._staging_commit_one(oa.fname)):
+                    sorted_ok = False
+                else:
+                    sorted_ok = _run_sortann(oa.rname, oa.info.name) == 0
             else:
                 sorted_ok = _sort_ann_file(oa.fname, oa.info.name) == 0
             if sorted_ok:

@@ -49,7 +49,7 @@ class MetadataTest {
     @Test
     fun sharedCases() {
         val lines = readFile("${metadataDir()}/cases.tsv")!!.latin1().split('\n').filter { it.isNotEmpty() && !it.startsWith("#") }
-        assertEquals(49, lines.size)
+        assertEquals(56, lines.size)
         for (line in lines) {
             val c = line.split('\t')
             assertEquals(10, c.size, line)

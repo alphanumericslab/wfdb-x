@@ -5,7 +5,7 @@
 > MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
 > identical results to the original C package and to each other. This is the
 > Rust implementation.
-> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> [Website (wfdb-x.org) and the other languages](https://wfdb-x.org)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
 > · [User's manual (PDF)](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/user-manual/wfdb-x-user-manual.pdf)
@@ -179,7 +179,7 @@ The result is a `Record`:
 | `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
 | `base_time_ms` | start time in milliseconds after midnight, such as `50403500` for 14:00:03.500 |
 | `base_date` | start date as `[year, month, day]` |
-| `comments` | the info strings of the header |
+| `comments` | the info strings of the header: its lines that begin with `#` after the record line (an empty or blank first line is not the record line) |
 | `checksum_ok` | `false` if the data do not match the header's checksums |
 
 `base_time`, `base_time_ms` and `base_date` are `None` when the header does
@@ -265,7 +265,9 @@ let opt = WriteOptions {
 write_record_physical("sine", &x, 2, fs, &opt)?;
 ```
 
-This writes the header `sine.hea` and the signal file `sine.dat`. The
+This writes the header `sine.hea` and the signal file `sine.dat`. A
+trailing `.hea` of the record name is removed, as by the readers
+(`write_record("sine.hea", ...)` also writes `sine.hea` and `sine.dat`). The
 sampling frequency, the gain and ADC resolution of each signal, and the
 units of each calibrated signal are required; there are no defaults. The
 sampling frequency must be finite and > 0, and the gains finite. A gain
@@ -276,7 +278,12 @@ must not be empty, there must be at least one signal, `base_time`, if
 given, must be a valid time, and the `metadata` entries must be valid,
 with no two keys that differ only in letter case and none that is also the
 key of an entry in `comments`. All of this is checked before any file is
-created.
+touched. (Text is bytes, and ADC values are `i32`, so the checks of the
+other languages for header text that is not Latin-1, and for ADC values that
+are not whole numbers within the range of a 32-bit integer, have no
+counterpart in Rust.) The files are written to temporary files in the
+destination directory and replace the existing files only when both are
+complete (see [Errors and warnings](#errors-and-warnings)).
 
 | Argument or option | Meaning |
 |---|---|
@@ -309,15 +316,24 @@ write_annotations("sine", "qrs", &ann, 0.0, None)?;   // writes sine.qrs
 ```
 
 The arguments are `record`, `annotator`, the annotations, `fs` and an
-optional existing output directory. Give the annotation types as `symbols`
-or as `codes`. If both are given (as `read_annotations` returns them), each
+optional existing output directory. The annotation types are given as
+`symbols` or as `codes`; one of them is required when there is at least one
+annotation ("symbols or codes must be given"), and with no annotations an
+empty file is written. If both are given (as `read_annotations` returns them), each
 mnemonic must be that of the code at its position. `subtypes`, `chans`,
 `nums` and `aux` are optional. Each of
 these fields is either empty or has one entry per annotation; anything else
 is an error, reported before the file is created. As in C, the subtype,
 channel and annotator number are stored in one byte each (other values wrap
 around). An `fs` other than 0 is stored in the file as the frequency of its
-sample numbers; it must be finite and > 0.
+sample numbers; it must be finite and > 0. Annotation times must not be
+`i64::MIN` or `i64::MAX`, which the annotation file format reserves
+("annotation time T cannot be written"), and codes must be from 0 to 58: 59
+to 63 are the control codes of the file format ("annotation code 61 is
+reserved"), and other values do not fit in it ("annotation code 64 is out of
+range (0 to 58)"). All of this is checked before the file is touched; the
+file is written to a temporary file and replaces an existing one only when
+it is complete.
 
 If the annotations are not in time order, the file is sorted when it is
 written. `write_annotations_with` takes an `AnnWriteOptions` with the fields
@@ -346,7 +362,11 @@ Keys and values are bytes: the functions take `&str`, `&[u8]` or
 `(Vec<u8>, Vec<u8>)` pairs).
 
 * **Reading.** An entry is a comment line after the record line (an info
-  string, as the C function `getinfo` reads it) that contains a colon. The
+  string, as `getinfo` reads it) that contains a colon. The record line is
+  the first line that holds something other than spaces, tabs and CRs and
+  does not begin with `#`, as the header parser finds it: an empty or blank
+  line before it, and the comments before it, are not read (in every
+  mode). The
   key is the text before the first colon, the value the rest of the line,
   both without spaces at either end: `#Age:45`, `# Age: 45` and
   `#  Age : 45` all give `("Age", "45")`. Comment lines without a colon are
@@ -406,10 +426,20 @@ text, exactly as given, and does not de-identify it.
 
 * A record, header or annotation file that cannot be read or written gives
   an error, such as "can't read record REC".
-* A signal file that is shorter than its header says gives the error
-  "can't read signal data of record REC (getvec status -3)". An annotation
+* A signal file that is shorter than its header says, or cannot be read,
+  gives the error "can't read signal data of record REC (getvec status
+  -3)", also when the checksums do not match either (the C function
+  `getvec` then reports the checksum error, -4, for the incomplete last
+  frame); an incomplete frame is never returned. `read_record` allocates
+  memory for the samples as it reads them (at most 2^26 values in advance),
+  not for the length that the header gives. An annotation
   file that ends early, or cannot be read to its end, gives the error
   "can't read annotation file ANN of record REC (getann status -3)".
+* A negative `from` in `read_record` or `read_annotations` gives an error
+  ("read_record: from must not be negative", "read_annotations: from must
+  not be negative"), before any file is opened. Whatever the outcome,
+  `read_record` and `read_annotations` close their input files before they
+  return.
 * Invalid arguments, and a value the operation needs but the record does not
   give, give an error. For example, a time string such as `"0:10"` needs the
   sampling frequency, and `physical_signal` needs the gain of the signal.
@@ -426,14 +456,27 @@ text, exactly as given, and does not de-identify it.
 * A tool, or a program that uses the WFDB library functions, never writes a
   signal file over one of the signal files it is reading. Opening such an
   output fails with "output file NAME is also an input file". `write_record`
-  reads nothing, so it overwrites any existing files of the same name.
+  reads nothing, so it replaces any existing files of the same name.
+* `write_record` and `write_annotations` check all their arguments before
+  they touch any file, and write their files to temporary files in the
+  destination directory (`.NAME.XXXXXXXX.tmp`), renamed over the
+  destinations once all of them are complete, with the permissions of the
+  files they replace: a failure while writing (a full disk, for example)
+  leaves the existing files as they were, and no temporary file is left. A
+  destination that is a symbolic link is followed (the file it leads to is
+  replaced); one that is not a regular file (a device, a FIFO) is written
+  directly, as before.
 * A file that cannot be written completely, for example when the disk is
   full, gives the error "write error on record REC" (`write_record`) or
   "write error on annotator ANN for record REC" (`write_annotations`), also
-  in legacy mode.
-* `write_record` checks `samps_per_frame` before anything else: each value
-  must be at least 1 ("samps_per_frame must hold integers >= 1"), and the
-  number of samples must be a multiple of the frame size.
+  in legacy mode; so does an annotation that `putann` cannot write.
+* `write_record` checks its arguments in this order: the record name, the
+  number of signals, `samps_per_frame` (each value must be at least 1:
+  "samps_per_frame must hold integers >= 1"), the number of values of each
+  per-signal option, the number of samples (a multiple of the frame size),
+  the gains, the ADC resolutions, the units, the gains of signals given in
+  physical units, the sampling frequency, finite gains, the samples in
+  physical units, the metadata and the base time.
 
 `Error::message()` and `Display` give the text of an error. The WFDB
 library functions that a high-level function calls may also print their own
@@ -554,9 +597,9 @@ The signal files that a header names are read from the header's directory.
 
 ### Record names
 
-A record name is given without the `.hea` extension (the readers, and
-`write_annotations`, also accept a trailing `.hea`; `write_record` does
-not). It is one of:
+A record name is given without the `.hea` extension (the readers,
+`write_annotations` and `write_record` also accept a trailing `.hea`, which
+is removed). It is one of:
 
 * a full path, absolute (`/data/mitdb/100`) or in the home directory
   (`~/Documents/100s`), used as given;
@@ -605,9 +648,14 @@ let opt = ReadOptions {
 let rec = read_record("100", &opt)?;
 ```
 
-Network access uses the `curl` program, which must be installed. Remote
-files are read once and kept until the program ends. A download gives up
-when it cannot connect, or receives nothing, for 30 seconds.
+Network access uses the `curl` program, which must be installed. A remote
+file that has been read is kept for the rest of the session; one that could
+not be read is requested again the next time it is opened. A download gives
+up when it cannot connect, or receives nothing, for 30 seconds. Only
+`http://` and `https://` URLs can be read: a name that begins with another
+URL scheme, such as `ftp://` or `sftp://`, is refused, with or without
+network access, and never read as a local file name (mount the server as a
+local folder, e.g. with sshfs or rclone, or download the files).
 
 ## Signal parameters
 
@@ -839,3 +887,10 @@ included, may use it on the LGPL's terms. The command-line tools (the
 package, are distributed under the GNU General Public License, version 3 or
 (at your option) any later version
 ([LICENSE-GPL](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE-GPL)). Each source file states its license.
+The crate's license expression is therefore `LGPL-2.1-or-later AND
+GPL-3.0-or-later AND BSD-3-Clause`. The file
+[NOTICE](https://github.com/alphanumericslab/wfdb-x/blob/main/NOTICE),
+included in the crate (in the `rust` directory) with both licenses
+(`LICENSE`, `LICENSE-GPL`), summarizes this and gives the copyright notice
+and license (BSD-3-Clause) of libFLAC 1.4.3, whose stream decoder the FLAC
+decoder of the crate translates.

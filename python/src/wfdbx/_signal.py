@@ -570,6 +570,14 @@ class _SigState:
         # WFDB-x: 1 while a high-level reader reads (getvec's checksum
         # message is then not printed: the reader warns instead)
         self.cksum_quiet = 0
+        # WFDB-x: set to 1 by _getskewedframe when a sample cannot be read
+        # (getvec status -3: a signal file that ends before the length that
+        # its header gives, a decoder or I/O error, a segment that cannot
+        # be opened), whatever status getvec then returns (a checksum
+        # error, -4, is found in the same frame, and its status replaces
+        # -3).  The high-level readers clear it before reading, and treat it
+        # as a read error; the C-style functions only set it.
+        self.read_failed = 0
         self.nvsig = 0
         self.tspf = 0
         self.vspfmax = 0
@@ -1730,9 +1738,11 @@ def _getskewedframe(vector, vstart=0):
                 ig.count = 0
                 if ig.stat == -2:
                     stat = -3
+                    s_.read_failed = 1      # WFDB-x (see _SigState)
                 elif info.nsamp > 0:
                     wfdb_error("getvec: unexpected EOF in signal %d\n", s)
                     stat = -3
+                    s_.read_failed = 1
                 elif s_.in_msrec and s_.segarray is not None and \
                         s_.segp < s_.segend:
                     s_.segp += 1
@@ -1741,6 +1751,7 @@ def _getskewedframe(vector, vstart=0):
                         wfdb_error("getvec: error opening segment %s\n",
                                    s_.segarray[s_.segp].recname)
                         stat = -3
+                        s_.read_failed = 1
                         return stat
                     else:
                         s_.istime = s_.segarray[s_.segp].samp0
@@ -3275,6 +3286,15 @@ def _strip_info(buf):
     return buf
 
 
+def _comment_or_blank(line):
+    """True if readheader skips line (a str of one character per byte)
+    when it looks for the record line: the line has no token (separated by
+    spaces, tabs, CRs and LFs, up to a NUL character), or its first token
+    begins with '#'."""
+    t = cstr(line).lstrip(" \t\n\r")
+    return t == "" or t.startswith("#")
+
+
 def getinfo(record=None):
     """Return the next info string of a record, or None when there are no more.
 
@@ -3283,8 +3303,17 @@ def getinfo(record=None):
     record name starts again from the first string of that record; passing
     None continues with the record most recently opened or named.
 
+    The record line is found as the header parser (readheader) finds it:
+    the first line that has a token (separated by spaces, tabs, CRs and
+    LFs) that does not begin with '#'; every later line that begins with
+    '#' is an info string, and a header with no record line has none.
+
     Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0): same
-    arguments and results.
+    arguments and results, except for the record line (WFDB-x): the C
+    function takes the first line that does not begin with '#', so that an
+    empty or blank line before the record line is taken for it, and the
+    comments between them are returned as info strings.  In legacy mode,
+    the C rule applies.
     """
     s_ = _s
     if record is not None:
@@ -3305,20 +3334,30 @@ def getinfo(record=None):
                 # As in wfdb_getline(), the buffer keeps its previous
                 # contents when the end of the file is reached.
                 buf = ""
+                legacy = wfdbx_get_legacy() != 0
+                found = False
                 while True:
                     line = ifile.getline()
                     if line == "":
                         break
                     buf = line
-                    if not buf.startswith("#"):
+                    if legacy:
+                        if not buf.startswith("#"):
+                            break
+                    elif not _comment_or_blank(buf):
+                        # WFDB-x: the record line, as readheader finds it
+                        found = True
                         break
-                while True:
-                    line = ifile.getline()
-                    if line == "":
-                        break
-                    buf = line
-                    if buf.startswith("#"):
-                        break
+                if not legacy and not found:
+                    buf = ""        # WFDB-x: no record line, no info
+                else:
+                    while True:
+                        line = ifile.getline()
+                        if line == "":
+                            break
+                        buf = line
+                        if buf.startswith("#"):
+                            break
                 while cstr(buf) != "":
                     if buf.startswith("#"):
                         s_.pinfo.append(_strip_info(cstr(buf))[1:])
@@ -4458,10 +4497,14 @@ def _getframes_into(out, row, n, cols=None, keep_checksum_frame=False):
     signal, in order).  Returns (m, stat): the number of frames read and
     the getvec() status of the first frame that could not be read (or the
     number of signals if all n frames were read).  With
-    keep_checksum_frame (WFDB-x, for the high-level reader), the frame for
+    keep_checksum_frame (WFDB-x, for the high-level readers), the frame for
     which getvec() returns -4 (a checksum error: the frame was read
     completely, it is the last one of the record) is included, and stat is
-    -4."""
+    -4; but if a sample could not be read (_s.read_failed, which the caller
+    clears before reading, is set), the frame is not included, whatever
+    status getvec() returned, and stat is -3 (getvec returns -4 for a frame
+    in which a signal file ended early, if the checksum of a signal is
+    verified at that frame)."""
     s_ = _s
     nsig = s_.nvsig if s_.nvsig > s_.nisig else s_.nisig
     stat = nsig
@@ -4477,6 +4520,11 @@ def _getframes_into(out, row, n, cols=None, keep_checksum_frame=False):
         if s_.sfreq != f and s_.getframes_sfreq is None and \
                 not (f != f and s_.sfreq != s_.sfreq):     # (NaN)
             s_.getframes_sfreq = (row + got, f)
+        if keep_checksum_frame and s_.read_failed:
+            # WFDB-x: an incomplete frame is never returned
+            if stat == -4 or stat >= -1:
+                stat = -3
+            break
         if stat < 0 and not (stat == -4 and keep_checksum_frame):
             break
         out[row + got] = v[:nsig] if cols is None else [v[c] for c in cols]

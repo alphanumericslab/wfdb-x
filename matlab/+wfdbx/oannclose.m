@@ -10,7 +10,10 @@ function oannclose(an)
 %   in the same process (wfdbx.internal.ann_sortfile), while the C library
 %   (as legacy mode, wfdbx.wfdbx_set_legacy) runs sortann in a separate
 %   process (in legacy mode, the sortann tool with --legacy, in the output
-%   directory if one is set: wfdbx.wfdbx_set_output_dir).
+%   directory if one is set: wfdbx.wfdbx_set_output_dir).  In legacy mode,
+%   a file that wfdbx.write_annotations writes to a temporary file replaces
+%   its destination before sortann runs (and is neither renamed nor sorted
+%   after a write error).
 %
 %   See also wfdbx.annopen, wfdbx.putann, wfdbx.iannclose.
 %
@@ -29,7 +32,9 @@ function oannclose(an)
 %
 % Changes from the original: an out-of-order output annotation file is
 % rearranged in this process (the C library ran the sortann program through
-% the shell); write_annotations' 'sort' option can decide for one call. Each
+% the shell); write_annotations' 'sort' option can decide for one call, and
+% the temporary file that it writes replaces its destination before the
+% sortann program runs in legacy mode. Each
 % change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
@@ -83,7 +88,17 @@ if oa.out_of_order
             'Rearranging annotations for output annotator %s ...', oa.name);
         % WFDB-x: the file is sorted in this process; the C library ran
         % the sortann program, as legacy mode does.
-        if wfdbx.wfdbx_get_legacy()
+        io = wfdbx.internal.io_state();
+        if wfdbx.wfdbx_get_legacy() && io.staging && ischar(oa.fname) && ...
+                any(strcmp(io.staging_keys, wfdbx.internal.staged_key(oa.fname))) && ...
+                (errflag || ~wfdbx.internal.staging_commit_one(oa.fname))
+            % WFDB-x: a file that write_annotations is writing to a
+            % temporary file (see wfdbx.internal.staging_begin) is renamed
+            % over its destination first, where the sortann program finds
+            % it; after a write error, it is not (the existing file is left
+            % as it was), and it is not sorted.
+            s = -1;
+        elseif wfdbx.wfdbx_get_legacy()
             wfdbx.internal.cout();
             % WFDB-x: the child runs with --legacy (as the original), and
             % in the output directory if one is set (where the file is)

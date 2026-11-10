@@ -48,12 +48,23 @@ and checked by hand.
 line ending: CR LF, LF, or none (the last line of a file that does not end
 with a line feed). The content of a line is the line without its ending.
 
-**Info strings.** The record line is the first line whose content does not
-begin with `#`; the lines before it are comments that are not info strings,
-and are never read or changed. Every line after the record line whose
-content begins with `#` is an info string. This is how the C function
-`getinfo()` reads a header (so a comment between two signal lines is an
-info string too). Only the header file (`.hea`) is read, never the `.info`
+**Info strings.** The record line is the first line whose content has a
+first token (a run of bytes other than space, tab, CR and LF, before any
+NUL byte) that does not begin with `#`, as the header parser of the C library
+(`readheader`) finds it: empty lines, blank lines (spaces, tabs and CRs
+only) and comment lines before it (a `#` after leading spaces or tabs
+included) are skipped. The lines before it are not info strings, and are
+never read or changed. Every line after the record line whose content
+begins with `#` (in its first byte) is an info string, so a comment
+between two signal lines is an info string too. This is how the function
+`getinfo()` of WFDB-x reads a header (since version 1.2.2), in every mode
+for the metadata functions. The original C `getinfo()`, and WFDB-x's
+`getinfo()` in legacy mode, take the first line that does not begin with
+`#` for the record line: for a header whose first line is empty
+(`headers/leading.hea`: an empty line, `# Age: preamble`, the record line,
+the signal lines and `# Age: actual`), they also return `Age: preamble`,
+which the metadata functions never read or change (read gives
+`[("Age", "actual")]`, and set replaces the `# Age: actual` line). Only the header file (`.hea`) is read, never the `.info`
 file that `getinfo()` also reads. A header with no record line has no info
 strings; changing its metadata is an argument error.
 
@@ -123,13 +134,21 @@ created.
 
 ## Checks with the C programs
 
-`check_c.py` runs the original C programs `rdsamp` and `wfdbdesc` on every
-header of `headers/` and `expected/`, with the signal files of the test
-record 100s. It checks that `wfdbdesc` prints exactly the info strings of
-the header, and that `rdsamp` reads the same samples as with the unchanged
+`check_c.py` runs the C programs `rdsamp` and `wfdbdesc` on every header
+of `headers/` and `expected/`, with the signal files of the test record
+100s. It checks that `wfdbdesc` prints exactly the info strings of the
+header, and that `rdsamp` reads the same samples as with the unchanged
 input header, with nothing printed on its standard error output (so no
-checksum error). From the repository root:
+checksum error). By default, the programs are those of the C reference of
+WFDB-x (built by `tests/reference/build_reference.sh`, with
+`divergences.patch`), whose `getinfo()` finds the record line by the rule
+above. With `--original`, they are those of the unmodified package
+(`WFDBX_ORIGINAL=1`, as `benchmarks/c/build.sh` builds them), and the
+expected info strings are those of the original `getinfo()` (for the
+headers made from `leading` and `leadingblank`, the comment before the
+record line too). From the repository root:
 
 ```sh
-python3 tests/metadata/check_c.py --c-bin benchmarks/build/c/wfdb/bin
+python3 tests/metadata/check_c.py --c-bin build/wfdb-ref/bin
+python3 tests/metadata/check_c.py --original --c-bin benchmarks/build/c/wfdb/bin
 ```

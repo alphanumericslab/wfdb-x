@@ -474,6 +474,11 @@ void check_data(const std::string &name, const std::vector<WFDB_Siginfo> &si,
 
     {
         bool quiet = detail::wfdbx_set_checksum_quiet(true);
+        // WFDB-x: a sample that cannot be read ends the reading with status
+        // -3, even in the frame at which a checksum is verified (whose
+        // status, -4, replaces -3 in getvec); that incomplete frame is not
+        // counted, nor are its samples checked.
+        bool read_checked = detail::wfdbx_set_read_checked(true);
         while (true) {
             long long want = rows;
             if (checked && !residual) want = std::min(rows, ns - m);
@@ -507,6 +512,7 @@ void check_data(const std::string &name, const std::vector<WFDB_Siginfo> &si,
             if (stat == -4) continue;
             if (got < want) break;
         }
+        detail::wfdbx_set_read_checked(read_checked);
         detail::wfdbx_set_checksum_quiet(quiet);
     }
     // (with skewed signals, getvec returns the frames of the files less the

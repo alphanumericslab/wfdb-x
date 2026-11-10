@@ -3,7 +3,7 @@
 # update_metadata), and the metadata of read_header and write_record.
 #
 # The info strings of a header are its comment lines (lines that begin with
-# '#') after the record line, as the C function getinfo() reads them. Many
+# '#') after the record line, as the function getinfo() reads them. Many
 # datasets store facts about the recording in them as "Key: value" pairs,
 # for example:
 #
@@ -17,9 +17,11 @@
 # * Lines. A header is split after each line feed (LF). Each line has a line
 #   ending: CR LF, LF, or none (the last line of a file that does not end
 #   with a line feed). The content of a line is the line without its ending.
-# * Reading. The record line is the first line whose content does not begin
-#   with '#'; the comment lines before it are not info strings, and are
-#   never read or changed. Every later line that begins with '#' is an info
+# * Reading. The record line is the first line whose content, up to a NUL
+#   byte, has a token (separated by spaces, tabs, CRs and LFs) that does not
+#   begin with '#', as the header parser of the library (readheader) finds
+#   it, in every mode; the comment lines (and empty or blank lines) before
+#   it are not info strings, and are never read or changed. Every later line that begins with '#' is an info
 #   string (so a comment between two signal lines is one too). An info
 #   string is an entry if it contains a colon: the key is the text between
 #   the '#' and the first colon, the value the rest of the line, each without
@@ -161,9 +163,14 @@ end
 
 function _MdHeader(data::Vector{UInt8})
     lines = _md_split_lines(data)
+    # The record line, as readheader finds it (the C function getinfo()
+    # takes the first line that does not begin with '#', so an empty or
+    # blank line before the record line; WFDB-x's getinfo follows
+    # readheader, except in legacy mode; the metadata functions follow
+    # readheader in every mode).
     rec = 0
     for (i, ln) in enumerate(lines)
-        if !_md_comment(ln.content)
+        if !_comment_or_blank(ln.content)
             rec = i
             break
         end
@@ -529,7 +536,10 @@ between the `#` and the first colon, and the value is the rest of the line,
 each without the spaces and tabs at either end: `#Age:45`, `# Age: 45` and
 `#  Age : 45` all give `"Age" => "45"`. An info string without a colon, or
 whose key is empty or contains `#`, is a free comment, which is not
-returned. Comment lines before the record line are not info strings. Only
+returned. Comment lines before the record line are not info strings (the
+record line is found as the header parser finds it: the first line that
+holds something other than white space and does not begin, after white
+space, with `#`). Only
 the header file (`.hea`) is read, not the `.info` file that `getinfo` also
 reads.
 

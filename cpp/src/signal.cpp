@@ -17,7 +17,11 @@
 // an output signal file is never one of the input files of the open record; a
 // header written under a path names the record, its signal files and its
 // segments relative to its own directory; FLAC signal files are read and
-// written with WFDB-x's FLAC codec (flac.cpp) instead of libFLAC; additions:
+// written with WFDB-x's FLAC codec (flac.cpp) instead of libFLAC; getinfo
+// finds the record line as readheader does (the original took an empty or
+// blank first line for it); a sample that cannot be read is recorded
+// (read_failed), so that the high-level readers never return an incomplete
+// frame; additions:
 // wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
 // wfdbx_time_needs_freq, getvecs, and the functions used by the high-level
 // functions and check_record; legacy mode (wfdbx_set_legacy) restores the
@@ -286,7 +290,15 @@ std::optional<std::string> msrec_dir;   // directory and name of the header
 std::optional<std::string> msrec_name;  // of the current multi-segment
                                         // record (msrec_name: if any)
 bool user_segments = false;
-bool checksum_quiet = false;            // see wfdbx_set_checksum_quiet             // true while setmsheader reads the
+bool checksum_quiet = false;            // see wfdbx_set_checksum_quiet
+// WFDB-x: set by getskewedframe when a sample cannot be read (getvec status
+// -3: a signal file that ends before the length that its header gives, a
+// decoder or I/O error, a segment that cannot be opened), whatever status
+// getvec then returns (a checksum error, -4, found in the same frame
+// replaces -3).  While read_checked is on (see wfdbx_set_read_checked: the
+// high-level readers), getvecs stops before such a frame, with status -3.
+bool read_failed = false;
+bool read_checked = false;             // true while setmsheader reads the
                                         // headers of the segments it was given
 
 // Set by readheader
@@ -2245,9 +2257,11 @@ int getskewedframe(WFDB_Sample *vector)
                 if (ig->stat == -2) {
                     // error in decoding compressed data
                     stat = -3;
+                    read_failed = true;     // WFDB-x (see read_failed)
                 } else if (is->info.nsamp > 0L) {
                     wfdb_error("getvec: unexpected EOF in signal %d\n", s);
                     stat = -3;
+                    read_failed = true;
                 } else if (in_msrec && have_segarray && segp >= 0 &&
                            segp < segend) {
                     is->info.cksum = cksum;
@@ -2257,6 +2271,7 @@ int getskewedframe(WFDB_Sample *vector)
                         wfdb_error("getvec: error opening segment %s\n",
                                    name.c_str());
                         stat = -3;
+                        read_failed = true;
                         return stat;    // avoid looping if segment is bad
                     } else {
                         istime = segarray[segp].samp0;
@@ -2604,6 +2619,14 @@ bool wfdbx_set_checksum_quiet(bool on)
 {
     bool previous = checksum_quiet;
     checksum_quiet = on;
+    return previous;
+}
+
+bool wfdbx_set_read_checked(bool on)
+{
+    bool previous = read_checked;
+    read_checked = on;
+    read_failed = false;
     return previous;
 }
 
@@ -3757,6 +3780,12 @@ long long getvecs(WFDB_Sample *out, long long n, int *status)
                 stat = getframe(out);
             else
                 stat = getvec(out);
+            if (read_checked && read_failed) {
+                // WFDB-x: an incomplete frame is not returned to a
+                // high-level reader (see read_failed)
+                if (stat == -4 || stat >= -1) stat = -3;
+                break;
+            }
             if (stat < 0) break;
             k++;
             out += stride;
@@ -3768,6 +3797,10 @@ long long getvecs(WFDB_Sample *out, long long n, int *status)
             stride = nisig;
         for (k = 0; k < n; k++) {
             stat = getvec(out);
+            if (read_checked && read_failed) {   // WFDB-x (see above)
+                if (stat == -4 || stat >= -1) stat = -3;
+                break;
+            }
             if (stat < 0) break;
             out += stride;
         }
@@ -4305,6 +4338,20 @@ int putinfo(const char *s)
     return 0;
 }
 
+namespace {
+
+// WFDB-x: true if readheader skips `line` when it looks for the record line:
+// the line has no token (separated by spaces, tabs, CRs and LFs, up to a
+// null character), or its first token begins with '#'.
+bool comment_or_blank(const std::string &line)
+{
+    const char *p = line.c_str();
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    return *p == '\0' || *p == '#';
+}
+
+} // namespace
+
 // getinfo: On the first call, read all info strings from the .hea file and
 // (if available) the .info file for the specified record, and return the
 // first one.  On subsequent calls, return the next info string.  Return
@@ -4351,15 +4398,34 @@ std::optional<std::string> getinfo(const char *record_arg)
             if (ifile) {
                 // As with wfdb_getline(), the buffer keeps its previous
                 // contents when the end of the file is reached.
+                // WFDB-x: the record line is found as readheader finds it:
+                // the first line that has a token (separated by spaces,
+                // tabs, CRs and LFs, up to a null character) that does not
+                // begin with '#'.  C takes the first line that does not
+                // begin with '#', so that an empty or blank line before the
+                // record line is taken for it, and the comments between
+                // them are returned as info strings; legacy mode keeps the
+                // C rule.  Without a record line, the .hea file gives no
+                // info strings.
+                const bool legacy = wfdbx_get_legacy() != 0;
+                bool found = false;
                 std::string buf, line;
                 while (ifile->getline(line)) {
                     buf = line;
-                    if (buf[0] != '#') break;   // skip initial comments
+                    if (legacy) {
+                        if (buf[0] != '#') break;   // skip initial comments
+                    } else if (!comment_or_blank(buf)) {
+                        found = true;
+                        break;
+                    }
                 }
-                while (ifile->getline(line)) {
-                    buf = line;
-                    if (buf[0] == '#') break;   // skip header content
-                }
+                if (!legacy && !found)
+                    buf.clear();
+                else
+                    while (ifile->getline(line)) {
+                        buf = line;
+                        if (buf[0] == '#') break;   // skip header content
+                    }
                 while (!buf.empty() && buf[0]) {    // read and save info
                     if (buf[0] == '#') save(buf);
                     if (ifile->getline(line) == 0) break;
@@ -4746,6 +4812,21 @@ void wfdbx_header_values(WFDB_Time *nsamp, long *bt, WFDB_Date *bd)
     *nsamp = in_msrec ? msnsamples : nsamples;
     *bt = btime;
     *bd = bdate;
+}
+
+bool wfdbx_check_basetime(const char *s)
+{
+    const long bt = btime;
+    const WFDB_Date bd = bdate, pd = pdays;
+    std::string ds(date_string, sizeof date_string),
+        ts(time_string, sizeof time_string);
+    bool ok = setbasetime(s) >= 0;
+    btime = bt;
+    bdate = bd;
+    pdays = pd;
+    std::memcpy(date_string, ds.data(), sizeof date_string);
+    std::memcpy(time_string, ts.data(), sizeof time_string);
+    return ok;
 }
 
 } // namespace detail

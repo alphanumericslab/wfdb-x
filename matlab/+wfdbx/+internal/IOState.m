@@ -34,12 +34,21 @@ classdef IOState < handle
 %     env_network    the default from WFDBX_NETWORK (0 or 1)
 %     network_warned true once the "network access is disabled" message
 %                    was printed
-%     fetched_urls, fetched_data   the URLs fetched (cell row) and their
-%                    contents (uint8 rows; [] for a failure)
+%     scheme_warned  true once the "only http:// and https:// URLs can be
+%                    read" message was printed (see wfdbx.internal.wfdb_fopen)
+%     fetched_urls, fetched_data   the URLs read (cell row) and their
+%                    contents (uint8 rows; a failure is not kept)
 %   WFDB-x: write errors (see wfdbx.wfdbx_write_errors):
 %     write_errors   the number of write errors since the program started
 %     stdout_failed  true once the standard output could not be written
 %                    (see wfdbx.internal.cout)
+%   WFDB-x: the output files of a high-level writer, written to temporary
+%   files (see wfdbx.internal.staging_begin):
+%     staging        true while a writer stages its files
+%     staging_keys, staging_tmps, staging_dests   cell rows: the absolute
+%                    names of the destinations opened, their temporary
+%                    files, and the files they lead to (symbolic links
+%                    followed)
 %
 %   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
 
@@ -53,7 +62,8 @@ classdef IOState < handle
 %
 % Changes from the original: fields hold the settings that locate files
 % (input directory, output directory, network access), the remote files
-% fetched, and the write errors. Each change is marked "WFDB-x:" in the
+% fetched, the write errors, and the temporary files of the high-level
+% writers. Each change is marked "WFDB-x:" in the
 % code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
@@ -94,9 +104,14 @@ classdef IOState < handle
         network = []
         env_network = 0
         network_warned = false
+        scheme_warned = false
         fetched_urls = cell(1, 0)
         fetched_data = cell(1, 0)
         write_errors = 0
         stdout_failed = false
+        staging = false
+        staging_keys = cell(1, 0)
+        staging_tmps = cell(1, 0)
+        staging_dests = cell(1, 0)
     end
 end

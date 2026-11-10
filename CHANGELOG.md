@@ -8,6 +8,142 @@ change existing behavior, and a new major number (x.0.0) for changes that
 can break existing code. Every version implements version 10.7.0 of the
 WFDB Software Package.
 
+## 1.2.2
+
+Corrections from the fourth review of version 1.2.1, two corrections of
+remote files, and three found by a review of the user's manual, in all seven
+languages. The C-style functions and the command-line tools keep the
+behavior of C, except for `getinfo`, the URL schemes and `time2sec` without
+a sampling frequency (below).
+
+* **Truncated records.** A signal file that ends before the length that its
+  header gives (or cannot be read) is a read error of `read_record` (`can't
+  read signal data of record REC (getvec status -3)`) even when the
+  checksum of a signal is verified at the incomplete frame: `getvec`
+  returns the checksum status (-4) for that frame, which replaced the end of
+  file (-3), so `read_record` returned the incomplete frame as data (a
+  format-16 file holding the samples 1 and 2, whose header gives 3 samples,
+  was read as 1, 2, 257, with a checksum warning). The high-level readers
+  now track a read failure separately from the checksum, and never return
+  an incomplete frame; `check_record` reports such a file as shorter than
+  its header says, without a checksum error for the incomplete frame. A
+  checksum error alone is still a warning.
+* **`read_record` allocates no more than it can read.** The result was
+  allocated from the length that the header gives (a header giving 10^12
+  samples for a file of 4 bytes attempted to allocate 3.64 TiB); at most
+  2^26 samples are now allocated in advance, and the array grows as the
+  samples are read.
+* **The writers check everything before touching any file, and leave the
+  existing files intact after a failure.** `write_record` refuses, before
+  any file is opened, arrays that are not 1-D or 2-D, baselines, ADC zeros
+  and ADC resolutions that are not whole numbers within the range of a
+  32-bit integer (a fraction was truncated, NaN failed after the signal
+  file was written), and a record name, signal names, units or comments
+  that cannot be written as header text (a character that is not
+  Latin-1 in Python: `units="μV"` left the existing header empty).
+  `write_annotations` refuses arrays of times that are not 1-D (a 2-D
+  array truncated the existing file), the annotation codes 59 to 63 (the
+  control codes `SKIP`, `NUM`, `SUB`, `CHN` and `AUX` of the MIT format,
+  which corrupted the file) and any code outside 0 to 58, and the times
+  -2^63 and 2^63 - 1, which `putann` refuses ("time overflow"): they were
+  dropped, and success reported. An error that `putann` reports is now an
+  error of `write_annotations`. Both writers write their files to
+  temporary files in the destination directory, renamed over the
+  destinations when all of them are complete, and removed after a failure;
+  the files written are unchanged, byte for byte.
+* **`read_annotations` checks `sampfrom` and `sampto`** as `read_record`
+  does (whole numbers, `sampfrom` not negative; a fraction, NaN or an
+  infinite value is an error, before the file is opened), and closes the
+  annotation file whatever happens.
+* **Where the record line of a header is.** `getinfo` took the first line
+  that does not begin with `#` for the record line, while the header
+  parser (`readheader`) takes the first line that holds a token not
+  beginning with `#`; for a header whose first line is empty or blank, the
+  comments before the record line were returned as info strings (in
+  `comments` and in the notes of `wfdbdesc`). `getinfo` now finds the
+  record line as `readheader` does, except in legacy mode, a deliberate
+  divergence from the C package (`tests/reference/divergences.patch`;
+  [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md)). The metadata functions
+  follow the same rule in every mode. Four new cases of the conformance
+  suite and three of the legacy suite (now 886), and seven new cases of
+  the metadata tests (now 56), check it; `tests/metadata/check_c.py`
+  checks the headers with the C reference of WFDB-x, or, with
+  `--original`, with the unmodified package.
+* **A remote file that could not be read is requested again.** A download
+  that failed (a server error, a timeout, a file not yet published) was
+  remembered until the process ended, so the file could not be read even
+  after the server recovered. Only the files that have been read are now
+  kept; the next open of a file that could not be read requests it again.
+* **Only `http://` and `https://` URLs.** A name that begins with another
+  URL scheme (`ftp://`, `sftp://`, `file://`, ...) was opened as a local
+  path (`ftp://h/db/100` as the directory `ftp:`, then `h/db/100`), so that
+  a local directory named `ftp:` could be read in place of the server. Such
+  a name is now refused in normal mode, with or without network access,
+  with the message `WFDB-x: can't open NAME: only http:// and https:// URLs
+  can be read (mount the server as a local folder, or download the files)`;
+  so too an input directory, a file named in a header, the files that a
+  tool reads or creates itself, and an output directory with such a scheme.
+  A one-letter prefix (`c://x`, like a drive letter) is not a scheme. FTP
+  and SFTP are not supported; a server reached by them can be mounted as a
+  local folder (`sshfs`, `rclone mount`). Legacy mode is unchanged (every
+  name containing `://` is refused, as by the original library built
+  without network support). 13 new cases of the conformance suite check
+  both corrections.
+* **`time2sec -r` needs the sampling frequency of the record.** For a
+  record whose header gives no sampling frequency, `time2sec -r REC TIME`
+  divided by 0 and printed `-9223372036854775808` with the exit status 0;
+  it now exits with status 2 (`time2sec: sampling frequency of record REC
+  is not specified`), as do the other tools that need the frequency (also
+  when the header cannot be read). A deliberate divergence from the C tool,
+  which converted the time at its default of 250 Hz, a result unrelated to
+  the record, since WFDB-x assumes no frequency that a record does not give
+  ([`docs/DIVERGENCES.md`](docs/DIVERGENCES.md)); legacy mode keeps the C
+  behavior. Three new cases of the conformance suite (now 1155) check it.
+* **`write_annotations` requires a label for each annotation**, in every
+  language: with one annotation or more and neither symbols nor codes, it
+  is an argument error ("symbols or codes must be given"; in R, whose
+  arguments are `symbol` and `code`, "symbol or code must be given"),
+  before any file is touched. C++, Rust and Julia wrote such annotations
+  with the code 0, which is not an annotation code; Python, R and Kotlin
+  refused even an empty list of annotations, which now writes an empty
+  file.
+* **`write_record` removes a trailing `.hea`** from the record name, as the
+  readers do: `write_record("x.hea", ...)` writes `x.hea` and `x.dat`.
+  Python failed ("can't create signal file for record x.hea"), and the
+  other languages named the signal file `x.hea.dat`.
+* **Website.** The website of WFDB-x is now
+  [wfdb-x.org](https://wfdb-x.org); the README, the user's manual,
+  `CITATION.cff` and the package metadata (Python, Rust, C++, R, Kotlin)
+  give it.
+* **NOTICE.** A [`NOTICE`](NOTICE) file at the root of the repository says
+  which parts are under which license (the tools under the GPL, version 3
+  or later; everything else under the LGPL, version 2.1 or later), and
+  gives the copyright notice and license (BSD-3-Clause) of libFLAC 1.4.3,
+  whose stream decoder WFDB-x translates. It ships, with `LICENSE` and
+  `LICENSE-GPL`, in every package: the Python wheel and source
+  distribution, the R package (`inst/NOTICE`), the C++ installation
+  (`share/doc/wfdbx`), the Rust crate, the Julia and MATLAB/Octave
+  directories, and the `META-INF` of every Kotlin jar. The license
+  expressions of the Python, Rust and Kotlin packages and of
+  `CITATION.cff` add `BSD-3-Clause` for the translated decoder.
+* **C++ package.** The installation provides `wfdbxConfigVersion.cmake`,
+  so `find_package(wfdbx 1.2.2 CONFIG REQUIRED)` works; the `wfdbx` target
+  requires C++17 of the programs that link it
+  (`target_compile_features`); the tests that run the tools find them in
+  the build directory of multi-configuration generators (Visual Studio,
+  Ninja Multi-Config).
+* **Permissions of changed headers.** The metadata functions, and the
+  writers' temporary files, never make a file more readable than the file
+  it replaces: Kotlin and R create their temporary files owner-only, and
+  MATLAB/Octave keeps the permissions of a header whatever characters its
+  name contains (without running a shell command).
+* **License labels.** The R package declares `License: file LICENSE`
+  instead of `GPL (>= 3)`: its new file `LICENSE` states which parts are
+  under the LGPL (the library) and which under the GPL (the tools). In
+  MATLAB/Octave, the dispatcher of the `wfdbx` command
+  (`+wfdbx/+internal/cli_main.m`, `app_run.m`), which only the tools use,
+  is under the GPL, as the launchers of the other languages are.
+
 ## 1.2.1
 
 * **C++ on Windows** builds again: the code that runs a program (for URLs, through

@@ -36,7 +36,9 @@
 // wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
 // wfdbx_write_errors, wfdbx_note_write_error, wfdbx_fclose_output,
 // wfdbx_input_path and wfdbx_output_path (where a program opens the files that
-// it reads or creates itself); legacy mode (wfdbx_set_legacy) restores the
+// it reads or creates itself); while a high-level writer writes, its files
+// are written to temporary files that replace their destinations when all are
+// complete (Staging); legacy mode (wfdbx_set_legacy) restores the
 // original behavior (the WFDB path, without network access). Each change is marked "WFDB-x:" in the code;
 // docs/DIVERGENCES.md gives the reasons.
 //
@@ -50,9 +52,11 @@
 // the Free Software Foundation, either version 2.1 of the License, or (at
 // your option) any later version. See LICENSE.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -1211,13 +1215,16 @@ fn expand_record(record: &[u8]) -> Vec<u8> {
 static WFDB_WARNED: AtomicBool = AtomicBool::new(false);
 static NETWORK_WARNED: AtomicBool = AtomicBool::new(false);
 static CURL_WARNED: AtomicBool = AtomicBool::new(false);
+static SCHEME_WARNED: AtomicBool = AtomicBool::new(false);
 
-/// The remote files fetched by this process, by URL (`None`: the fetch
-/// failed), so that each URL is requested at most once.
+/// The remote files read by this process, by URL, so that a URL read once
+/// is not requested again; a failure is not kept, so a later open of the
+/// URL requests it again (a server that was unavailable may have
+/// recovered).
 static FETCHED: OnceLock<Mutex<FetchCache>> = OnceLock::new();
 
-/// Contents (or `None`: failure) of the fetched URLs.
-type FetchCache = HashMap<Vec<u8>, Option<Vec<u8>>>;
+/// Contents of the URLs read.
+type FetchCache = HashMap<Vec<u8>, Vec<u8>>;
 
 const OUTPUT_URL_ERROR: &[u8] =
     b"wfdbx_set_output_dir: the output directory must be a local directory\n";
@@ -1225,6 +1232,23 @@ const OUTPUT_URL_ERROR: &[u8] =
 /// Whether `s` is an `http://` or `https://` URL.
 pub(crate) fn is_url(s: &[u8]) -> bool {
     s.starts_with(b"http://") || s.starts_with(b"https://")
+}
+
+/// Whether `s` begins with a URL scheme followed by `://`: a letter, then at
+/// least one letter, digit, `+`, `-` or `.` (`http://`, `https://`,
+/// `ftp://`, `sftp://`, `file://`, ...). A drive letter (`C:`) is not a
+/// scheme. In normal mode, a name with a scheme is a URL, never a local file
+/// name, and only an `http://` or `https://` URL can be read (see
+/// [`Wfdb::wfdb_fopen`]).
+pub(crate) fn has_scheme(s: &[u8]) -> bool {
+    if !s.first().is_some_and(u8::is_ascii_alphabetic) {
+        return false;
+    }
+    let n = s
+        .iter()
+        .position(|&c| !(c.is_ascii_alphanumeric() || c == b'+' || c == b'-' || c == b'.'))
+        .unwrap_or(s.len());
+    n >= 2 && s[n..].starts_with(b"://")
 }
 
 /// Whether `c` is a directory separator (`/`, and on Windows also `\`).
@@ -1248,7 +1272,7 @@ fn join(dir: &[u8], name: &[u8], sep: u8) -> Vec<u8> {
 /// directory or below it: a relative name that does not begin with `~` and
 /// has no `..` component (on Windows, no drive letter either).
 pub(crate) fn in_header_dir(name: &[u8]) -> bool {
-    if is_absolute_path(name) || is_url(name) || name.first() == Some(&b'~') {
+    if is_absolute_path(name) || has_scheme(name) || name.first() == Some(&b'~') {
         return false;
     }
     if cfg!(windows) && name.get(1) == Some(&b':') {
@@ -1460,8 +1484,8 @@ fn mkdir(d: &[u8]) -> bool {
 ///
 /// Translation of the C function wfdb_fopen() (lib/wfdbio.c, WFDB 10.7.0):
 /// same arguments and results. Differences: a URL is read only if network
-/// access is on, and names containing ".." are accepted; see
-/// docs/DIVERGENCES.md.
+/// access is on (and only an http:// or https:// URL), and names containing
+/// ".." are accepted; see docs/DIVERGENCES.md.
 pub fn wfdb_fopen(fname: &[u8], mode: &[u8]) -> Option<WfdbFile> {
     with_default(|w| w.wfdb_fopen(fname, mode))
 }
@@ -1480,6 +1504,12 @@ pub(crate) fn local_fopen(fname: &[u8], mode: &[u8], legacy: bool) -> Option<Wfd
         return None;
     }
     let out = mode.first() != Some(&b'r'); // WFDB-x: see wfdbx_write_errors
+                                           // WFDB-x: a file of a high-level writer (see Staging)
+    match staged_open(fname, mode) {
+        Staged::No => {}
+        Staged::Fail => return None,
+        Staged::File(f) => return Some(f),
+    }
     if let Some(mut f) = WfdbFile::fopen(fname, mode) {
         f.out = out;
         return Some(f);
@@ -1501,6 +1531,315 @@ pub(crate) fn local_fopen(fname: &[u8], mode: &[u8], legacy: bool) -> Option<Wfd
         }
     }
     None
+}
+
+// WFDB-x: the high-level writers (write_record, write_annotations) check all
+// their arguments before any file is touched, and write their files so that a
+// failure leaves the existing files intact (1.2.2): while they write, each file
+// that the library creates is written to a temporary file in the directory of
+// its destination (".NAME.XXXXXXXX.tmp", created with owner-only permissions),
+// and the temporary files are renamed over their destinations together once
+// all of them are complete (staging_end), or removed if anything failed. The
+// library opens the destination by its name as usual (in messages, and for the
+// in-process sorting of annotation files, which reads and rewrites the
+// temporary file). A destination that exists and is not a regular file (a
+// device such as /dev/full, a FIFO) is opened directly, as before; for a
+// symbolic link, the file it leads to is replaced. The state is kept per
+// thread (the library state of a thread is used by one writer at a time).
+
+/// A staged destination: the key (its absolute name), the temporary file,
+/// and the file that it replaces (the destination, with symbolic links
+/// resolved).
+struct StagedFile {
+    key: PathBuf,
+    tmp: PathBuf,
+    dest: PathBuf,
+}
+
+thread_local! {
+    /// The staged files of the high-level writer running in this thread, in
+    /// the order of their creation, or `None` when no writer is staging.
+    static STAGING: RefCell<Option<Vec<StagedFile>>> = const { RefCell::new(None) };
+}
+
+/// The staging of the output files of a high-level writer (see above),
+/// from [`Staging::begin`] to [`Staging::end`]; if it is dropped before
+/// `end` (a panic), the temporary files are removed.
+pub(crate) struct Staging(());
+
+impl Staging {
+    /// Start staging the output files of a high-level writer.
+    pub(crate) fn begin() -> Staging {
+        STAGING.with(|s| *s.borrow_mut() = Some(Vec::new()));
+        Staging(())
+    }
+
+    /// End the staging: see [`staging_end`].
+    pub(crate) fn end(self, commit: bool) -> bool {
+        staging_end(commit)
+    }
+}
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        staging_end(false); // (nothing left after `end`)
+    }
+}
+
+/// End the staging: if `commit`, rename every temporary file over its
+/// destination (after all of them are complete) and return `true`, or, if a
+/// rename fails, remove the temporary files not yet renamed and return
+/// `false`; otherwise remove them all and return `false`.
+fn staging_end(commit: bool) -> bool {
+    let Some(files) = STAGING.with(|s| s.borrow_mut().take()) else {
+        return commit;
+    };
+    let mut ok = commit;
+    for f in files {
+        if ok && replace_with(&f.tmp, &f.dest).is_ok() {
+            continue;
+        }
+        ok = false;
+        let _ = std::fs::remove_file(&f.tmp);
+    }
+    ok
+}
+
+/// Rename the temporary file of the staged destination `fname` over it now
+/// (before the end of the staging); `true` if done. (The temporary file is
+/// removed if the rename fails.)
+pub(crate) fn staging_commit_one(fname: &[u8]) -> bool {
+    let key = staged_key(fname);
+    let Some(f) = STAGING.with(|s| {
+        let mut s = s.borrow_mut();
+        let files = s.as_mut()?;
+        let i = files.iter().position(|f| f.key == key)?;
+        Some(files.remove(i))
+    }) else {
+        return false;
+    };
+    if replace_with(&f.tmp, &f.dest).is_ok() {
+        return true;
+    }
+    let _ = std::fs::remove_file(&f.tmp);
+    false
+}
+
+/// `true` if `fname` is a destination staged by the running writer.
+pub(crate) fn is_staged(fname: &[u8]) -> bool {
+    let key = staged_key(fname);
+    STAGING.with(|s| {
+        s.borrow()
+            .as_ref()
+            .is_some_and(|files| files.iter().any(|f| f.key == key))
+    })
+}
+
+/// The absolute name of `fname` (relative to the current directory, with
+/// `.` and `..` components resolved by name, as Python's `os.path.abspath`).
+fn staged_key(fname: &[u8]) -> PathBuf {
+    use std::path::Component;
+    let p = cstd::bytes_to_path(fname);
+    let full = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(p)
+    };
+    let mut out = PathBuf::new();
+    for c in full.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// What `staged_open` gives.
+enum Staged {
+    /// Not staged: opened as usual.
+    No,
+    /// The temporary file cannot be created or opened.
+    Fail,
+    /// The temporary file that stands for the destination.
+    File(WfdbFile),
+}
+
+/// Open `fname` (a destination, mode `"rb"`, `"wb"` or `"ab"`) while a
+/// writer is staging: the temporary file that stands for it, created for
+/// `"wb"` and `"ab"` if there is none yet (a new, empty file).
+fn staged_open(fname: &[u8], mode: &[u8]) -> Staged {
+    if STAGING.with(|s| s.borrow().is_none()) {
+        return Staged::No;
+    }
+    let key = staged_key(fname);
+    let found = STAGING.with(|s| {
+        s.borrow()
+            .as_ref()
+            .and_then(|files| files.iter().find(|f| f.key == key).map(|f| f.tmp.clone()))
+    });
+    let tmp = match found {
+        Some(t) => t,
+        None => {
+            if mode.first() == Some(&b'r') {
+                return Staged::No; // (a file not written here)
+            }
+            let dest = real_dest(&key);
+            match std::fs::metadata(&dest) {
+                Ok(m) if m.is_dir() => return Staged::Fail,
+                Ok(m) if !m.is_file() => return Staged::No, // (a device, a FIFO)
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Staged::No,
+            }
+            let dir = dest.parent().map(Path::to_path_buf).unwrap_or_default();
+            if !dir.is_dir() {
+                // (missing directories are created, as wfdb_fopen does)
+                for (i, &c) in fname.iter().enumerate() {
+                    if c == b'/' && i > 0 {
+                        mkdir(&fname[..i]);
+                    }
+                }
+            }
+            let base = dest
+                .file_name()
+                .map(|b| b.to_os_string())
+                .unwrap_or_default();
+            let Some(tmp) = create_temp(&dir, &base) else {
+                return Staged::Fail;
+            };
+            STAGING.with(|s| {
+                if let Some(files) = s.borrow_mut().as_mut() {
+                    files.push(StagedFile {
+                        key,
+                        tmp: tmp.clone(),
+                        dest,
+                    });
+                }
+            });
+            tmp
+        }
+    };
+    match WfdbFile::fopen(&cstd::os_to_bytes(tmp.into_os_string()), mode) {
+        Some(mut f) => {
+            f.out = mode.first() != Some(&b'r');
+            Staged::File(f)
+        }
+        None => Staged::Fail,
+    }
+}
+
+/// The file that writing `key` in place would change: `key` with its
+/// symbolic links resolved (as far as they lead to existing files).
+fn real_dest(key: &Path) -> PathBuf {
+    if let Ok(p) = std::fs::canonicalize(key) {
+        return p;
+    }
+    if let Ok(target) = std::fs::read_link(key) {
+        // (a symbolic link to a file that does not exist yet)
+        let t = key.parent().unwrap_or(Path::new("")).join(target);
+        return real_dest(&t);
+    }
+    match (key.parent(), key.file_name()) {
+        (Some(d), Some(n)) => match std::fs::canonicalize(d) {
+            Ok(d) => d.join(n),
+            Err(_) => key.to_path_buf(),
+        },
+        _ => key.to_path_buf(),
+    }
+}
+
+/// Create a new, empty temporary file `.BASE.XXXXXXXX.tmp` in `dir` (as
+/// `mkstemp`: a name not in use, owner-only permissions), and return its
+/// name.
+fn create_temp(dir: &Path, base: &std::ffi::OsStr) -> Option<PathBuf> {
+    use std::sync::atomic::AtomicU64;
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    for _ in 0..100 {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos() as u64);
+        let mut x = nanos
+            ^ (u64::from(std::process::id()) << 32)
+            ^ COUNTER
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let mut name = std::ffi::OsString::from(".");
+        name.push(base);
+        name.push(".");
+        let mut suffix = String::new();
+        for _ in 0..8 {
+            // (xorshift)
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            suffix.push(CHARS[(x % CHARS.len() as u64) as usize] as char);
+        }
+        name.push(suffix);
+        name.push(".tmp");
+        let path = dir.join(name);
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            o.mode(0o600);
+        }
+        match o.open(&path) {
+            Ok(_) => return Some(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+/// Rename `tmp` over `dest`, with the permissions that writing `dest` in
+/// place gives: its own if it exists, else those of a new file (0666 less
+/// the umask).
+fn replace_with(tmp: &Path, dest: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = match std::fs::metadata(dest) {
+            Ok(m) => m.permissions().mode() & 0o7777,
+            Err(_) => new_file_mode(tmp.parent().unwrap_or(Path::new("."))),
+        };
+        std::fs::set_permissions(tmp, std::fs::Permissions::from_mode(mode))?;
+    }
+    std::fs::rename(tmp, dest)
+}
+
+/// The permissions of a new file (0666 less the umask): from
+/// `/proc/self/status` where the system gives it, else from a file created
+/// in `dir` for the purpose.
+#[cfg(unix)]
+fn new_file_mode(dir: &Path) -> u32 {
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        for line in status.lines() {
+            if let Some(v) = line.strip_prefix("Umask:") {
+                if let Ok(m) = u32::from_str_radix(v.trim(), 8) {
+                    return 0o666 & !m;
+                }
+            }
+        }
+    }
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    if let Some(probe) = create_temp(dir, std::ffi::OsStr::new("umask")) {
+        let _ = std::fs::remove_file(&probe);
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true).mode(0o666);
+        if o.open(&probe).is_ok() {
+            let mode = std::fs::metadata(&probe).map_or(0o644, |m| m.permissions().mode() & 0o777);
+            let _ = std::fs::remove_file(&probe);
+            return mode;
+        }
+    }
+    0o644
 }
 
 // WFDB-x: write errors. Decided by Reza Sameni, Oct 2026: a program must not
@@ -1942,7 +2281,7 @@ impl Wfdb {
         }
         self.io.output_dir_init = true;
         if let Some(p) = cstd::getenv("WFDBX_OUTPUT_DIR").filter(|p| !p.is_empty()) {
-            if is_url(&p) {
+            if has_scheme(&p) {
                 self.wfdb_error(OUTPUT_URL_ERROR);
             } else {
                 self.io.env_output_dir = Some(p.clone());
@@ -1963,7 +2302,8 @@ impl Wfdb {
     ///
     /// # Errors
     ///
-    /// A URL is refused with the message "wfdbx_set_output_dir: the output
+    /// A URL (any name that begins with a URL scheme, such as `https://` or
+    /// `ftp://`) is refused with the message "wfdbx_set_output_dir: the output
     /// directory must be a local directory". The setting is then unchanged, and
     /// the current value is returned.
     ///
@@ -1979,7 +2319,7 @@ impl Wfdb {
     pub fn wfdbx_set_output_dir(&mut self, dir: impl OptBytes) -> Option<Vec<u8>> {
         self.init_output_dir();
         let dir = dir.opt_bytes().map(cstd::cstr);
-        if dir.is_some_and(is_url) {
+        if dir.is_some_and(has_scheme) {
             self.wfdb_error(OUTPUT_URL_ERROR);
             return self.io.output_dir.clone();
         }
@@ -2001,7 +2341,12 @@ impl Wfdb {
 
     /// Turns network access on (`on > 0`) or off (`on == 0`). With network
     /// access on, names that are `http://` or `https://` URLs are read with the
-    /// `curl` program.
+    /// `curl` program. A remote file that has been read is kept for the rest of
+    /// the process; one that could not be read is requested again the next
+    /// time it is opened. Only `http://` and `https://` URLs can be read: a
+    /// name that begins with another URL scheme, such as `ftp://` or `sftp://`,
+    /// is refused (an error, with or without network access), and never read
+    /// as a local file name.
     ///
     /// A negative `on` restores the default: on if the environment variable
     /// `WFDBX_NETWORK` is a nonzero number, otherwise off. Returns the previous
@@ -2062,7 +2407,7 @@ impl Wfdb {
             return None;
         }
         let r = expand_record(name);
-        if is_url(&r) {
+        if has_scheme(&r) {
             return None;
         }
         Some(self.resolve(&r, true))
@@ -2086,7 +2431,9 @@ impl Wfdb {
     /// `name` is a file name; `None`, `""` and `"-"` (the standard input, if
     /// the program treats it so) are returned as given (`None` as `None`).
     /// Returns `None` if `name` is a URL, or becomes one when the input
-    /// directory is prefixed to it: such a file cannot be opened in this way.
+    /// directory is prefixed to it (in normal mode, any name that begins with
+    /// a URL scheme, such as `ftp://`): such a file cannot be opened in this
+    /// way.
     ///
     /// # Examples
     ///
@@ -2107,7 +2454,7 @@ impl Wfdb {
             return Some(name.to_vec());
         }
         let r = self.resolve(name, false);
-        if is_url(&r) {
+        if has_scheme(&r) {
             None
         } else {
             Some(r)
@@ -2130,7 +2477,8 @@ impl Wfdb {
     ///
     /// `name` is a file name; `None`, `""` and `"-"` (the standard output, if
     /// the program treats it so) are returned as given (`None` as `None`).
-    /// Returns `None` if `name` is a URL (which cannot be written).
+    /// Returns `None` if `name` is a URL (in normal mode, any name that begins
+    /// with a URL scheme), which cannot be written.
     ///
     /// # Examples
     ///
@@ -2162,6 +2510,9 @@ impl Wfdb {
                 None => (name.to_vec(), false),
             }
         } else {
+            if has_scheme(name) {
+                return None;
+            }
             let prefixed = self.io.output_dir.is_some()
                 && name.first() != Some(&b'~')
                 && !is_absolute_path(name);
@@ -2196,7 +2547,7 @@ impl Wfdb {
         if name.first() == Some(&b'~') {
             return expand_home(name);
         }
-        if is_absolute_path(name) || is_url(name) {
+        if is_absolute_path(name) || has_scheme(name) {
             return name.to_vec();
         }
         let dir = if output {
@@ -2436,14 +2787,15 @@ impl Wfdb {
     /// created and the file is opened again.
     ///
     /// WFDB-x, normal mode: an `http://` or `https://` URL is fetched (read
-    /// only; see [`Wfdb::wfdbx_set_network`]), and names containing `..`
-    /// are accepted. Legacy mode, as in C (built without network support):
+    /// only; see [`Wfdb::wfdbx_set_network`]), a name with another URL scheme
+    /// (`ftp://`, `sftp://`, `file://`, ...) is refused, with a message the
+    /// first time, and names containing `..` are accepted. Legacy mode, as in C (built without network support):
     /// names containing `..` or `://` are rejected.
     ///
     /// Translation of the C function wfdb_fopen() (lib/wfdbio.c, WFDB 10.7.0):
     /// same arguments and results. Differences: a URL is read only if network
-    /// access is on, and names containing ".." are accepted; see
-    /// docs/DIVERGENCES.md.
+    /// access is on (and only an http:// or https:// URL), and names
+    /// containing ".." are accepted; see docs/DIVERGENCES.md.
     pub fn wfdb_fopen(&mut self, fname: &[u8], mode: &[u8]) -> Option<WfdbFile> {
         let fname = cstd::cstr(fname);
         if self.wfdbx_get_legacy() != 0 {
@@ -2456,12 +2808,22 @@ impl Wfdb {
                 None
             };
         }
+        if has_scheme(fname) {
+            if !SCHEME_WARNED.swap(true, Ordering::Relaxed) {
+                self.wfdb_error(crate::cformat!(
+                    b"WFDB-x: can't open %s: only http:// and https:// URLs can be read (mount the server as a local folder, or download the files)\n",
+                    fname
+                ));
+            }
+            return None;
+        }
         local_fopen(fname, mode, false)
     }
 
     /// WFDB-x: opens a URL for reading: if network access is allowed, the
-    /// file is read in full by `curl` (once per process: the contents, or
-    /// the failure, are kept), and read from memory.
+    /// file is read in full by `curl` (once per process: the contents are
+    /// kept; a failure is not, so the next open requests the URL again), and
+    /// read from memory.
     fn fetch_open(&mut self, url: &[u8]) -> Option<WfdbFile> {
         if self.wfdbx_get_network() == 0 {
             if !NETWORK_WARNED.swap(true, Ordering::Relaxed) {
@@ -2480,26 +2842,26 @@ impl Wfdb {
             .cloned();
         let data = match cached {
             Some(d) => d,
-            None => {
-                let d = match run_curl(url) {
-                    Ok(d) => Some(d),
-                    Err(not_found) => {
-                        if not_found && !CURL_WARNED.swap(true, Ordering::Relaxed) {
-                            self.wfdb_error(
-                                "WFDB-x: network access needs the curl program, which was not found\n",
-                            );
-                        }
-                        None
+            None => match run_curl(url) {
+                Ok(d) => {
+                    cache
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .insert(url.to_vec(), d.clone());
+                    d
+                }
+                Err(not_found) => {
+                    // a failure is not kept
+                    if not_found && !CURL_WARNED.swap(true, Ordering::Relaxed) {
+                        self.wfdb_error(
+                            "WFDB-x: network access needs the curl program, which was not found\n",
+                        );
                     }
-                };
-                cache
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .insert(url.to_vec(), d.clone());
-                d
-            }
+                    return None;
+                }
+            },
         };
-        let mut f = WfdbFile::from_bytes(data?);
+        let mut f = WfdbFile::from_bytes(data);
         f.remote = true;
         Some(f)
     }

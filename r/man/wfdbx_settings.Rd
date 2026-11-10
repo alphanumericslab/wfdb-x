@@ -39,7 +39,7 @@ wfdbx_output_path(name)
     program treats it so) are returned as given.}
 }
 \details{
-  WFDB-x reads and writes files exactly where you name them.  A full path,
+  WFDB-x reads and writes files exactly where they are named.  A full path,
   a \code{~} path or a URL is used as given.  Any other name, such as
   \code{"100"}, \code{"mitdb/100"} or \code{"../data/100"}, is read from
   the input directory and written to the output directory.  A URL cannot
@@ -58,9 +58,15 @@ wfdbx_output_path(name)
   \code{\link{wfdbquit}} keeps the settings.
 
   The files of a PhysioNet database are at
-  \samp{https://physionet.org/files/<database>/<version>/}.  Remote files
-  are read once and kept for the rest of the R session.  A download gives
-  up when it cannot connect, or receives nothing, for 30 seconds.  When
+  \samp{https://physionet.org/files/<database>/<version>/}.  A remote file
+  that has been read is kept for the rest of the R session; one that could
+  not be read is requested again the next time it is opened.  A download
+  gives up when it cannot connect, or receives nothing, for 30 seconds.
+  Only \samp{http://} and \samp{https://} URLs can be read: a name that
+  begins with another URL scheme, such as \samp{ftp://} or
+  \samp{sftp://}, is refused, with or without network access, and never
+  read as a local file name (mount the server as a local folder, e.g. with
+  sshfs or rclone, or download the files).  When
   network access is off, opening a URL fails with a message that says how
   to turn it on.
 
@@ -95,10 +101,12 @@ wfdbx_output_path(name)
   \code{wfdbx_input_path} and \code{wfdbx_output_path} return the path
   to open (a character string), or \code{NULL} if \code{name} is
   \code{NULL} or a URL, or (\code{wfdbx_input_path}) becomes one when the
-  input directory is prefixed to it: such a file cannot be opened in this
-  way.
+  input directory is prefixed to it (in normal mode, any name that begins
+  with a URL scheme, such as \samp{ftp://}): such a file cannot be opened
+  in this way.
 
-  \code{wfdbx_set_output_dir} does not accept a URL: it prints an error
+  \code{wfdbx_set_output_dir} does not accept a URL (any name that begins
+  with a URL scheme, such as \samp{https://} or \samp{ftp://}): it prints an error
   message, leaves the setting unchanged, and returns it.
 }
 \section{Origin}{

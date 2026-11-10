@@ -5,7 +5,7 @@
 > MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
 > identical results to the original C package and to each other. This is the
 > R implementation.
-> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> [Website (wfdb-x.org) and the other languages](https://wfdb-x.org)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
 > · [User's manual (PDF)](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/user-manual/wfdb-x-user-manual.pdf)
@@ -147,7 +147,7 @@ The result is a list with these elements:
 | `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
 | `base_time_ms` | start time in milliseconds after midnight, such as `50403500` for 14:00:03.500 |
 | `base_date` | start date as `c(year, month, day)` |
-| `comments` | the info strings of the header |
+| `comments` | the info strings of the header: its lines that begin with `#` after the record line (see [Header metadata](#header-metadata) for how the record line is found), without the `#` |
 | `checksum_ok` | `FALSE` if the data do not match the header's checksums |
 
 `base_time`, `base_time_ms` and `base_date` are `NULL` when the header does
@@ -213,7 +213,8 @@ write_record("rand", x, fs = 360, fmt = 16, physical = TRUE,
 ```
 
 This writes the header `rand.hea` and the signal file `rand.dat`. The
-record name is given without the `.hea` extension: a plain name (`"rec"`)
+record name is given without the `.hea` extension (a trailing `.hea` is
+removed, as by the readers): a plain name (`"rec"`)
 or a relative path (`"data/rec"`), created in the output directory if one
 is set, otherwise in the current directory, missing directories included;
 or a full path, absolute or in the home directory (`"~/Documents/rec"`),
@@ -233,8 +234,8 @@ vector with one value per signal.
 | `signals` | matrix with one row per sample and one column per signal; ADC units (integers within the range of a 32-bit integer), or physical units with `physical = TRUE` (`NA` is written as an invalid sample; an infinite value, or one beyond the range of 32-bit ADC units, is an error) |
 | `fs` | sampling frequency in Hz (finite, > 0) |
 | `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
-| `gains`, `adcres`, `units` | gain (finite), ADC resolution in bits, and physical units |
-| `baselines`, `adczeros`, `names` | optional signal specifications |
+| `gains`, `adcres`, `units` | gain (finite), ADC resolution in bits (a whole number >= 1), and physical units |
+| `baselines`, `adczeros`, `names` | optional signal specifications (baselines and ADC zeros: whole numbers within the range of a 32-bit integer) |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
 | `metadata` | `Key: value` entries, written after the comments as `# Key: value`: a named list or a named character vector (see [Header metadata](#header-metadata)) |
 | `samps_per_frame` | samples per frame of each signal, for a multi-frequency record |
@@ -242,6 +243,15 @@ vector with one value per signal.
 | `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) |
 
 `write_record` returns `NULL`, invisibly.
+
+Existing files of the same name are replaced safely: both files are
+written to temporary files (`.NAME.XXXXXXXX.tmp`, created with owner-only
+permissions) in the directory of their destinations, which replace the
+existing files (keeping their permissions; 0666 less the umask for new
+files) only when both are complete. An error leaves the existing files as
+they were, and no temporary file is left. A symbolic link stays one (the
+file it leads to is replaced), and a destination that is not a regular
+file (a device, a FIFO) is written directly.
 
 ### Writing annotations: `write_annotations`
 
@@ -261,15 +271,26 @@ written. With `dir` (a directory that must exist, for this call only), the
 name must be a plain name, without a directory: the file is
 `DIR/RECORD.ANNOTATOR`.
 
-Give the annotation types as `symbol` or as `code`; both can be given
+The annotation types are given as `symbol` or as `code`; for one
+annotation or more, one of them is required ("symbol or code must be
+given"), and with no annotations an empty file is written. Both can be given
 (as `read_annotations` returns them) only if they agree: each symbol must
 be the mnemonic of its code (an empty symbol agrees with any code), or
 `write_annotations` stops with "symbols and codes disagree at annotation
 K" (K counting from 0). `subtype`, `chan`, `num` and `aux` are optional,
 and `fs` (finite, > 0) records the frequency in which `sample` is
-counted. The times must be integers within the range of a 64-bit integer,
-and `sample`, `code`, `subtype`, `chan` and `num` must not hold `NA`,
-`NaN` or infinite values; these are checked before the file is created. Each of `symbol`, `code`, `subtype`, `chan`, `num`
+counted. The times must be integers from -2^63 + 1 to 2^63 - 2 (the
+smallest and largest 64-bit integers are reserved by the file format:
+"annotation time T cannot be written (annotation times must be integers
+from -9223372036854775807 to 9223372036854775806)"), the codes must be 0
+to 58 (59 to 63 are the control codes of the file format: "annotation code
+C is reserved (59 to 63 are the control codes of the annotation file
+format)"; other values: "annotation code C is out of range (0 to 58)"),
+`sample`, `code`, `subtype`, `chan` and `num` must be vectors (a matrix:
+"samples must be a 1-D array", "code must be a 1-D array", ...) and must
+not hold `NA`, `NaN` or infinite values, and an aux text must not hold a
+character beyond U+00FF (see [Errors and warnings](#errors-and-warnings));
+these are checked before the file is created or changed. Each of `symbol`, `code`, `subtype`, `chan`, `num`
 and `aux` is one value for all annotations, or a vector with one value per
 annotation; any other length is an error, before the file is created. As
 in C, subtypes and annotator numbers are stored as signed bytes and
@@ -281,6 +302,10 @@ written. `sort = FALSE` keeps the given order (without the library's
 advice to run `sortann`) and `sort = TRUE` always sorts, for that call
 only. Without `sort`, the `WFDBANNSORT` environment variable decides
 (sorting is on unless it is `0`).
+
+An existing file is replaced as by `write_record`: the new file is written
+(and sorted) as a temporary file in the same directory, which replaces it
+only when it is complete.
 
 ### Header metadata
 
@@ -298,7 +323,16 @@ update_metadata("rec", list(Age = "65", Dx = NULL))   # several changes; NULL or
 ```
 
 * **Reading.** An entry is a comment line after the record line (an info
-  string, as the C function `getinfo` reads it) that contains a colon. The
+  string, as `getinfo` reads it) that contains a colon. The record line is
+  found as the header parser of the library finds it: the first line that
+  holds something other than spaces, tabs, CRs and LFs and does not begin
+  (after them) with `#`. Comment lines, and empty or blank lines, before it
+  are not info strings. (The C function `getinfo` took the first line that
+  does not begin with `#`, so an empty first line, for the record line;
+  `getinfo`, the `comments` of `read_header` and `read_record`, and the
+  notes of `wfdbdesc` follow the header parser, except in legacy mode,
+  where the C rule applies; the metadata functions follow it in every
+  mode.) The
   key is the text before the first colon, the value the rest of the line,
   both without spaces at either end: `#Age:45`, `# Age: 45` and
   `#  Age : 45` all give the entry `Age = "45"`. Comment lines without a
@@ -327,9 +361,11 @@ update_metadata("rec", list(Age = "65", Dx = NULL))   # several changes; NULL or
   is empty), with the spelling of the key given. A changed entry keeps its
   position; a new one goes after the last comment line of the header. Every
   other byte of the header is kept, including its line endings. The header
-  is replaced in one step (a temporary file in the same directory, renamed
-  over it, keeping its permissions), and all the arguments are checked
-  first, so an error leaves it unchanged. Nothing is written if nothing
+  is replaced in one step (a temporary file in the same directory, created
+  with owner-only permissions before anything is written to it, then
+  renamed over it, keeping its permissions: a header that only its owner
+  can read is never readable by others meanwhile), and all the arguments
+  are checked first, so an error leaves it unchanged. Nothing is written if nothing
   changes.
 * **Files.** The header is found as `read_header` finds it (`input_dir`
   and `network` work the same way, for the call only). A change is written
@@ -353,8 +389,13 @@ gives the full rules.
 
 * A record, header or annotation file that cannot be read or written stops
   with an R error, such as "can't read record REC".
-* A signal file that is shorter than its header says stops with an error:
-  "can't read signal data of record REC (getvec status -3)".
+* A signal file that is shorter than its header says, or that cannot be
+  read, stops with an error: "can't read signal data of record REC (getvec
+  status -3)", also when its samples do not match the checksums either; no
+  incomplete frame is ever returned. `sampto` reads the frames before the
+  end of a truncated file. `read_record` allocates memory as it reads, not
+  from the length the header gives. `check_record` reports such a file as
+  `length_short`.
 * An annotation file that ends unexpectedly (or cannot be read to its end)
   stops `read_annotations` with an error: "can't read annotation file ANN
   of record REC (getann status -3)". With `sampto`, only the part of the
@@ -373,14 +414,31 @@ gives the full rules.
   uncalibrated signal), and a `base_time` that cannot be parsed is an
   error ("invalid base_time 'TEXT'"). A vector of per-signal values must have
   one value per signal, and the samples must be valid (see `signals`
-  above). All the arguments are checked first, and nothing is written if
-  one is invalid. Whatever happens, `write_record` and `write_annotations`
-  close their output signals and annotators before they return.
-* A negative `sampfrom` in `read_record` is an error, and so is a
-  `sampfrom` or `sampto` that is not a whole number (a fraction, `NA`,
-  `NaN` or an infinite value: "sampfrom must be a whole number"). Whatever
-  happens, `read_record` and `read_header` close the record's signals
-  before they return.
+  above). `signals` must not have more than two dimensions ("signals must
+  be a 1-D or 2-D array"); the ADC resolutions must be whole numbers ("ADC
+  resolution(s) must be specified" if one is missing or below 1, "adcres
+  must be whole numbers within the range of a 32-bit integer" for a
+  fraction, `NaN` or text), and so must the ADC zeros and baselines, in
+  legacy mode too ("adczeros must be whole numbers within the range of a
+  32-bit integer", "baselines must be ..."). Text is written as its bytes,
+  one byte per character (Latin-1): in an R session in UTF-8, a record
+  name, signal name, units, comment or aux text that holds a character
+  beyond U+00FF, which would be written as several bytes, is an error
+  ("units 'TEXT' has a character that is not Latin-1 (one byte per
+  character)"). All the arguments are checked first, and no file is
+  created or changed if one is invalid. Whatever happens, `write_record`
+  and `write_annotations` close their output signals and annotators, and
+  remove their temporary files, before they return; after an error, the
+  existing files are as they were. An error that the library reports while
+  writing annotations is "write error on annotator ANN for record REC".
+* A negative `sampfrom` in `read_record` or `read_annotations` is an
+  error, and so is a `sampfrom` or `sampto` that is not a whole number (a
+  fraction, `NA`, `NaN` or an infinite value: "sampfrom must be a whole
+  number"), or that is neither one number nor one time string ("sampfrom
+  must be a sample number or a time string"); these are checked before
+  any file is opened. Whatever happens, `read_record`, `read_header` and
+  `read_annotations` close the record's signals and annotators before they
+  return.
 * `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
   only: the mode in force before the call is restored afterwards.
 * Invalid arguments, and a value the operation needs but the record does not
@@ -396,7 +454,7 @@ gives the full rules.
 * A tool, or a program that uses the WFDB library functions, never writes a
   signal file over one of the signal files it is reading. Opening such an
   output fails with "output file NAME is also an input file". `write_record`
-  reads nothing, so it overwrites any existing files of the same name.
+  reads nothing, so it replaces any existing files of the same name.
 
 Use `tryCatch` to handle these errors and warnings in a program. The
 high-level functions call `wfdbquit()`, which closes anything opened with
@@ -507,8 +565,8 @@ The signal files that a header names are read from the header's directory.
 
 ### Record names
 
-A record name is given without the `.hea` extension (the readers also
-accept a trailing `.hea`; `write_record` does not). It is one of:
+A record name is given without the `.hea` extension (a trailing `.hea` is
+removed, by the readers and the writers). It is one of:
 
 * a full path, absolute (`/data/mitdb/100`) or in the home directory
   (`~/Documents/100s`), used as given;
@@ -551,9 +609,13 @@ rec <- read_record("100", input_dir = "https://physionet.org/files/mitdb/1.0.0/"
                    network = TRUE)
 ```
 
-Remote files are read once and kept for the rest of the R session. A
+A remote file that has been read is kept for the rest of the R session;
+one that could not be read is requested again the next time it is opened. A
 download gives up when it cannot connect, or receives nothing, for 30
-seconds.
+seconds. Only `http://` and `https://` URLs can be read: a name that begins
+with another URL scheme, such as `ftp://` or `sftp://`, is refused, with or
+without network access, and never read as a local file name (mount the
+server as a local folder, e.g. with sshfs or rclone, or download the files).
 
 ## Signal parameters
 
@@ -811,3 +873,9 @@ included, may use it on the LGPL's terms. The command-line tools (the
 package, are distributed under the GNU General Public License, version 3 or
 (at your option) any later version
 ([LICENSE-GPL](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE-GPL)). Each source file states its license.
+The package declares this in its `DESCRIPTION` as `License: file LICENSE`;
+[LICENSE](LICENSE) states which files are under which license.
+The file [NOTICE](inst/NOTICE), installed with the package (`system.file("NOTICE",
+package = "wfdbx")`), summarizes these licenses and gives the BSD-3-Clause
+notice of libFLAC, whose stream decoder the FLAC decoder of WFDB-x (`R/flac.R`)
+translates.

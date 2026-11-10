@@ -71,12 +71,21 @@ The package is attached with \code{library(wfdbx)}. Its version is given by
 \code{packageVersion("wfdbx")}, and by the driver script of the tools:
 
 \begin{lstlisting}[style=shell]
-Rscript -e 'cat(format(packageVersion("wfdbx")), "\n")'    # 1.2.1
-Rscript r/inst/bin/wfdbx.R --version                        # WFDB-x 1.2.1
+Rscript -e 'cat(format(packageVersion("wfdbx")), "\n")'    # 1.2.2
+Rscript r/inst/bin/wfdbx.R --version                        # WFDB-x 1.2.2
 \end{lstlisting}
 
 The help pages of the package (\code{?read\_record}, \code{?read\_metadata},
 \code{?isigopen}, \ldots) document each function; \code{?wfdbx} gives an overview.
+
+The package holds code under two licenses, which its file \file{LICENSE} states (its
+\file{DESCRIPTION} says \code{License: file LICENSE}): the GPL, version 3 or later, for
+the tools (\file{R/apps\_*.R}, \file{R/cli.R} and the driver), and the LGPL, version 2.1
+or later, for everything else. It installs, with these licenses (\file{COPYING}, the GPL,
+and \file{COPYING.LESSER}, the LGPL), the file \file{NOTICE}
+(\code{system.file("NOTICE", package = "wfdbx")}), which summarizes the licenses of
+\wfdbx{} and gives the BSD-3-Clause notice of libFLAC, whose stream decoder the FLAC
+decoder of \wfdbx{} (\file{flac.R}) translates.
 
 \subsection{The command-line tools}
 
@@ -166,30 +175,33 @@ metadata functions).
 \label{sec:r-conventions}
 
 \paragraph{Record names and directories.} A record is named as in the other parts of
-WFDB-x (\cref{chap:records,chap:files}), without the \code{.hea} extension (the readers
-also accept a trailing \code{.hea}; \code{write\_record} does not). A record name is a
-full path, absolute (\code{"/data/mitdb/100"}) or in the home directory
-(\code{"\textasciitilde/Documents/100s"}), used as given; a relative path, such as \code{"100s"} or
-\code{"data/100s"}, read from the input directory if one is set, otherwise from the
-current directory, and written to the output directory if one is set, otherwise to the
-current directory (missing directories are created); or a URL
+WFDB-x (\cref{chap:records,chap:files}), without the \code{.hea} extension (the readers,
+\code{write\_annotations} and \code{write\_record} also accept a trailing \code{.hea},
+which is removed). A record name is a full path, absolute (\code{"/data/mitdb/100"}) or in the
+home directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path,
+such as \code{"100s"} or \code{"data/100s"}, read from the input directory if one is set,
+otherwise from the current directory, and written to the output directory if one is set,
+otherwise to the current directory (missing directories are created); or a URL
 (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
-on, which cannot be written. A writer given a name with a path creates the files in that
-directory, and the header names the record and its signal file without the path
+on, which cannot be written. Only \code{http://} and \code{https://} URLs are read: a
+name that begins with another URL scheme (\code{ftp://}, \code{file://}, \ldots) is
+refused, with or without network access (\cref{sec:network}). Nothing is searched for
+(legacy mode searches the WFDB path). A writer given a name with a path creates the files
+in that directory, and the header names the record and its signal file without the path
 (\code{rec}, \code{rec.dat}), so that the record opens under any path that leads to it;
 in legacy mode, as in the original, the header gives the name with its path. The input
-and output directories are the current directory unless they are set, with \code{wfdbx\_set\_input\_dir} and
-\code{wfdbx\_set\_output\_dir} (\cref{sec:r-settings}) or with the environment variables
-\code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}. URLs are read only when network
-access is on. The functions that read take the arguments \code{input\_dir} and
-\code{network}, and those that write take \code{dir}: they apply to that one call, and the
-previous settings are restored when it returns, also after an error. \code{NULL}, the
-default of these arguments, keeps the current setting (for \code{dir}, \code{""} too).
+and output directories are the current directory unless they are set, with
+\code{wfdbx\_set\_input\_dir} and \code{wfdbx\_set\_output\_dir} (\cref{sec:r-settings})
+or with the environment variables \code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}.
+The functions that read take the arguments \code{input\_dir} and \code{network}, and
+those that write take \code{dir}: they apply to that one call, and the previous settings
+are restored when it returns, also after an error. \code{NULL}, the default of these
+arguments, keeps the current setting (for \code{dir}, \code{""} too).
 \code{input\_dir} applies to relative names only, not to full paths or URLs. With
 \code{dir}, the name must be a plain name (\code{"rec"}): the files are created in
-\code{dir}, and the record opens from that directory under its plain name.
-The signal files that a header names are read from the header's directory. A name with
-another extension, such as \code{"rec.edf"}, is read as an EDF file.
+\code{dir}, and the record opens from that directory under its plain name. The signal
+files that a header names are read from the header's directory. A name with another
+extension, such as \code{"rec.edf"}, is read as an EDF file.
 
 \paragraph{Times.} The arguments \code{sampfrom} and \code{sampto} are sample numbers
 (whole numbers) or WFDB time strings, as \code{strtim} reads them: \code{"0:10"} (10
@@ -293,17 +305,23 @@ with the checksums of the header (\cref{sec:r-warnings}).
   returned either way, and \code{checksum\_ok} of the result is \code{FALSE}.
 \end{params}
 \returns{A list (\cref{tab:r-record}).}
-\raises{Stops with an error if the header or a signal file cannot be read (``can't read
-record REC''), if the record has no signals, if \code{sampfrom} cannot be reached (``can't
-seek to sample N of record REC''), or if a signal file is shorter than its header says
-(``can't read signal data of record REC (getvec status -3)''); if \code{sampfrom} is
-negative (``sampfrom must not be negative''), or \code{sampfrom} or \code{sampto} is not a
-whole number (a fraction, \code{NA}, \code{NaN} or an infinite value: ``sampfrom must be
-a whole number''); if a channel is not in the record (``record REC has no signal C''), if
-a time string needs the sampling frequency and the header gives none (``sampling
-frequency of record REC is not specified''), or if \code{physical = TRUE} and a signal
-read has no gain (``signal K of record REC is uncalibrated''). Warns on a checksum error
-(see \code{checksum\_warning}).}
+\raises{Stops with an error if \code{sampfrom} is negative (``sampfrom must not be
+negative''), or \code{sampfrom} or \code{sampto} is not a whole number (a fraction,
+\code{NA}, \code{NaN} or an infinite value: ``sampfrom must be a whole number''), is
+beyond the range of a 64-bit integer (``sampfrom is beyond the range of a 64-bit
+integer''), or is neither one number nor one time string (``sampfrom must be a sample
+number or a time string''); if the header cannot be read or the record has no signals
+(``can't read record REC''), or its signals cannot be opened (``can't open signals of
+record REC''); if a time string needs the sampling frequency and the header gives none
+(``sampling frequency of record REC is not specified''); if a channel is not in the
+record (``record REC has no signal C''); if \code{physical = TRUE} and a signal read has
+no gain (``signal K of record REC is uncalibrated''); if \code{sampfrom} cannot be
+reached (``can't seek to sample N of record REC''); or if a signal file is shorter than
+its header says or cannot be read (``can't read signal data of record REC (getvec status
+S)'', S being the status of \code{getvec}, such as $-3$), even if the samples do not
+match the checksums either: no incomplete frame is
+ever returned (\code{sampto} reads the frames before the end of a truncated file). Warns
+on a checksum error (see \code{checksum\_warning}).}
 \begin{lstlisting}[language=R,style=example]
 library(wfdbx)
 
@@ -406,10 +424,11 @@ argument \code{fs}.
   the sampling frequency.
 \item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
   file \file{RECORD.atr}.
-\item[sampfrom] The first time to read: a sample number or a time string. Default
-  \code{0}: the beginning of the file.
+\item[sampfrom] The first time to read: a sample number (a whole number $\ge 0$) or a
+  time string. Default \code{0}: the beginning of the file.
 \item[sampto] The time at which to stop: annotations at or after it are not read. A
-  sample number or a time string. Default \code{NULL}: the end of the file.
+  sample number (a whole number) or a time string. Default \code{NULL}: the end of the
+  file.
 \item[fs] The sampling frequency, in Hz (a number $> 0$), to use when the record has no
   header or its header gives none; it is ignored otherwise. Default \code{NULL}: none.
 \item[input\_dir] The input directory for this call only (optional): a local directory, a
@@ -426,10 +445,17 @@ argument \code{fs}.
 are counted: the one written in the annotation file, if there is one, or else the
 sampling frequency; it is 0 if none of them is known.}
 \raises{Stops with an error if the annotation file cannot be opened (``can't read
-annotator ANN for record REC'') or read, or if it ends before its end-of-file marker
-(``can't read annotation file ANN of record REC (getann status -3)''); if \code{fs} is
+annotator ANN for record REC''); if \code{sampfrom} cannot be reached (``can't seek in
+annotator ANN''); if the file cannot be read, or ends before its end-of-file marker,
+before \code{sampto} is reached (``can't read annotation file ANN of record REC (getann
+status S)'', S being the status of \code{getann}, such as $-3$); if \code{sampfrom}
+or \code{sampto} is not valid, checked as by \code{read\_record} before any file is
+opened (``sampfrom must be a whole number'', ``sampfrom must be a sample number or a time
+string'', ``sampfrom is beyond the range of a 64-bit integer'', ``sampfrom must not be
+negative'', and the same for \code{sampto}, which may be negative); if \code{fs} is
 given and is not $> 0$ (``fs must be > 0''); or if a time string needs the sampling
-frequency and none is known.}
+frequency and none is known. Whatever happens, the annotation file is closed
+(\code{wfdbquit}) before the function returns.}
 \begin{lstlisting}[language=R,style=example]
 library(wfdbx)
 
@@ -471,16 +497,25 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
 \end{lstlisting}
 Writes signals as a new record: the header \file{RECORD.hea} and one signal file,
 \file{RECORD.dat}, which holds all the signals (so they share one format). Existing files
-of these names are overwritten. The sampling frequency, the gain and ADC resolution of
+of these names are replaced: both files are written to temporary files
+(\file{.NAME.XXXXXXXX.tmp}, created with owner-only permissions) in the directory of their
+destinations, which replace the existing files (with their permissions; 0666 less the
+umask for new files) only when both are complete, so that an error leaves the existing
+files as they were. A symbolic link stays one (the file it leads to is replaced); a
+destination that is not a regular file (a device, a FIFO) is written directly. The
+sampling frequency, the gain and ADC resolution of
 each signal, and the units of each calibrated signal must be given: there are no
 defaults. The per-signal arguments (\code{fmt}, \code{gains}, \code{baselines},
 \code{adczeros}, \code{adcres}, \code{units}, \code{names}) take one value for all the
 signals, or a vector (or list) with one value per signal. All the arguments, the samples
-included, are checked before any file is created; whatever happens, the output signals
-are closed (\code{wfdbquit}) before the function returns.
+included, are checked before any file is created or changed; whatever happens, the output
+signals are closed (\code{wfdbquit}) and no temporary file is left before the function
+returns. Text (the record name, \code{names}, \code{units}, \code{comments}) is written as
+its bytes, one byte per character (Latin-1): in an R session in UTF-8, a string that holds
+a character beyond U+00FF, which would be written as several bytes, is an error.
 \begin{params}
 \item[record] Record name (a non-empty character string), without the \code{.hea}
-  extension: a plain name (\code{"rec"}) or a relative path (\code{"data/rec"}), created
+  extension (a trailing \code{".hea"} is removed, as by the readers): a plain name (\code{"rec"}) or a relative path (\code{"data/rec"}), created
   in the output directory if one is set, otherwise in the current directory, missing
   directories included; or a full path, absolute or in the home directory
   (\code{"\textasciitilde/Documents/rec"}), used as given. With a path, the files are created in that
@@ -489,7 +524,7 @@ are closed (\code{wfdbquit}) before the function returns.
   (in legacy mode, as in the original, the header gives the name with its path). A URL
   cannot be written.
 \item[signals] The samples: a numeric matrix with one row per sample and one column per
-  signal; a vector is one signal. In ADC units (the default), the values are integers
+  signal; a vector is one signal (an array of more than two dimensions is an error). In ADC units (the default), the values are integers
   within the range of a 32-bit integer, and \code{NA} is written as an invalid sample;
   with \code{physical = TRUE}, they are in physical units.
 \item[fs] The sampling frequency, in Hz: a finite number $> 0$. Required.
@@ -499,10 +534,12 @@ are closed (\code{wfdbquit}) before the function returns.
 \item[gains] The gain of each signal, in ADC units per physical unit: a finite number;
   \code{0} marks an uncalibrated signal, which is allowed only for samples given in ADC
   units. Negative gains are allowed. Required (no default).
-\item[baselines] The ADC value that corresponds to 0 physical units. Default
-  \code{NULL}: the ADC zero of the signal.
-\item[adczeros] The ADC value at the middle of the ADC range. Default \code{0}.
-\item[adcres] The ADC resolution, in bits (an integer $\ge 1$). Required (default
+\item[baselines] The ADC value that corresponds to 0 physical units: a whole number
+  within the range of a 32-bit integer. Default \code{NULL} (or \code{NA}): the ADC zero of
+  the signal.
+\item[adczeros] The ADC value at the middle of the ADC range: a whole number within the
+  range of a 32-bit integer. Default \code{0}.
+\item[adcres] The ADC resolution, in bits (a whole number $\ge 1$). Required (default
   \code{NULL}: not given).
 \item[units] The physical units, such as \code{"mV"}, as a character vector or a list.
   Required for each signal whose gain is not 0. Default \code{NULL}: not given.
@@ -537,23 +574,36 @@ are closed (\code{wfdbquit}) before the function returns.
 \end{params}
 \returns{\code{NULL}, invisibly.}
 \raises{Stops with an error if \code{record} is empty (``record name must not be
-empty''); if \code{signals} has no signals (``at least one signal is required''); if
+empty''); if \code{signals} has more than two dimensions (``signals must be a 1-D or 2-D
+array''); if \code{signals} has no signals (``at least one signal is required''); if
 \code{fs}, a gain, an ADC resolution or the units of a calibrated signal is missing or
-invalid (``fs must be finite and > 0'', ``gains must be specified'', ``gains must be
-finite'', ``ADC resolution(s) must be specified'', ``units must be specified''); if
+invalid (``fs must be specified and > 0'', ``fs must be finite and > 0'', ``gains must
+be specified'', ``gains must be
+finite'', ``ADC resolution(s) must be specified'', ``units must be specified''); if an ADC
+resolution, ADC zero or baseline is not a whole number within the range of a 32-bit
+integer (``adcres must be whole numbers within the range of a 32-bit integer'', and the
+same for \code{adczeros} and \code{baselines}, in legacy mode too); if the record name, a
+signal name, the units or a comment has a character beyond U+00FF (``record name 'X' has
+a character that is not Latin-1 (one byte per character)'', ``signal name 'X' \ldots'',
+``units 'X' \ldots'', ``comment 'X' \ldots''); if
 \code{base\_time} cannot be parsed (``invalid base\_time 'TEXT'\,''); if a vector of
 per-signal values does not have one value per signal (``NAME must have one value per
 signal''); if a signal in physical units has a gain of 0 (``signal K is uncalibrated'');
 if a sample is not valid (``samples in ADC units must be integers'', ``samples in ADC
-units must be within the range of a 32-bit integer''); if the signals do not all have the
-same format; if a \code{samps\_per\_frame} value is not an integer $\ge 1$ (``samps\_per\_frame
+units must be within the range of a 32-bit integer'', or, with \code{physical = TRUE},
+``signal K has a sample that is infinite or beyond the range of 32-bit ADC units''); if
+the signals do not all have the same format (``all signals of a record written by
+write\_record must have the same format''); if a \code{samps\_per\_frame} value is
+not an integer $\ge 1$ (``samps\_per\_frame
 must hold integers >= 1''), or the number of columns of \code{signals} is not their sum
 (``signals has N columns, but samps\_per\_frame adds up to M''); if \code{metadata} is not
 valid (an error of class \code{wfdbx\_argument\_error}, \cref{sec:r-warnings}); if
 \code{record} contains a directory and \code{dir} is given, or \code{dir} does not exist
-(``directory DIR does not exist''); and if the signal file or the header cannot be created,
-or cannot be written completely, for example on a full disk (``write error on record
-REC'').}
+(``directory DIR does not exist''); and if the signal file or the header cannot be
+created (``can't create signal file for record REC'', ``can't create header for record
+REC''), or cannot be written completely, for example on a full disk (``write error on
+record REC''), the existing files being then left as they were. The arguments are checked in the
+order of the Python implementation (\cref{sec:python-writing}).}
 \begin{lstlisting}[language=R,style=example]
 library(wfdbx)
 
@@ -597,13 +647,15 @@ write_annotations(record, annotator, sample, symbol = NULL, code = NULL,
                   dir = NULL, legacy = FALSE, sort = NULL)
 \end{lstlisting}
 Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
-that name is overwritten. The record need not have a header. The annotation types are
+that name is replaced: the new file is written (and sorted, if needed) as a temporary file,
+created with owner-only permissions in the same directory, which replaces it only when it
+is complete, so that an error leaves it as it was. The record need not have a header. The annotation types are
 given as \code{symbol} or as \code{code} (\cref{chap:formats}). Each per-annotation
 argument is one value for all the annotations, or a vector with exactly one value per
 annotation. If the annotations are not in time order, the file is sorted when it is
 written, unless \code{sort = FALSE}. All the arguments are checked before the file is
-created; whatever happens, the annotator is closed (\code{wfdbquit}) before the function
-returns.
+created or changed; whatever happens, the annotator is closed (\code{wfdbquit}) and no
+temporary file is left before the function returns.
 \begin{params}
 \item[record] Record name (a character string), without the \code{.hea} extension (a
   trailing \code{".hea"} is also accepted): a plain name or a relative path
@@ -613,15 +665,17 @@ returns.
   that place (\file{data/100s.qrs}). A URL cannot be written.
 \item[annotator] Annotator name: the suffix of the file, made of letters, digits,
   \code{\_}, \code{-} and \code{\textasciitilde}.
-\item[sample] The annotation times, in samples: integers within the range of a 64-bit
-  integer, one per annotation. It may also be a data frame returned by
+\item[sample] The annotation times, in samples (a vector): integers from $-2^{63}+1$ to
+  $2^{63}-2$ (the smallest and largest 64-bit integers are reserved by the file format),
+  one per annotation. It may also be a data frame returned by
   \code{read\_annotations}, whose columns then give the other fields (\code{code},
   \code{subtype}, \code{chan}, \code{num} and \code{aux}) unless they are given.
 \item[symbol] The mnemonics of the annotation types, such as \code{"N"} or \code{"V"}:
   one per annotation, or one string for all. An unknown mnemonic becomes code 0
   (\code{NOTQRS}). Default \code{NULL}: the types are given by \code{code}.
-\item[code] The annotation codes (\code{NORMAL}, \code{PVC}, \ldots), instead of
-  \code{symbol}: one per annotation, or one value for all. If both are given (as
+\item[code] The annotation codes (\code{NORMAL}, \code{PVC}, \ldots), from 0 to 58 (59 to
+  63 are the control codes of the file format), instead of \code{symbol}: one per
+  annotation, or one value for all. If both are given (as
   \code{read\_annotations} returns them), each symbol must be the mnemonic of its code (an
   empty symbol agrees with any code). Default \code{NULL}.
 \item[subtype] The subtype of each annotation, stored as a signed byte (other values wrap
@@ -631,8 +685,9 @@ returns.
 \item[num] The annotator number of each annotation, stored as a signed byte. Default
   \code{0}.
 \item[aux] The auxiliary text of each annotation, with \code{NA} where there is none: a
-  character vector, or one text for all. Texts longer than 255 bytes are cut. Default
-  \code{NULL}: none.
+  character vector, or one text for all. Texts longer than 255 bytes are cut. A text is
+  written as its bytes (Latin-1): in an R session in UTF-8, a character beyond U+00FF is
+  an error. Default \code{NULL}: none.
 \item[fs] If given (a finite number $> 0$), the frequency in which the times are
   counted, written to the file. Default \code{NULL}: none is written.
 \item[dir] The directory (which must exist) in which to create the file, for this call
@@ -646,17 +701,27 @@ returns.
   it is \code{0}).
 \end{params}
 \returns{The status of the last \code{putann} (0), invisibly.}
-\raises{Stops with an error if neither \code{symbol} nor \code{code} is given (``symbol
-or code must be given''); if both are given and disagree (``symbols and codes disagree at
+\raises{Stops with an error if neither \code{symbol} nor \code{code} is given for one
+annotation or more (``symbol or code must be given''; with no annotations, an empty file is
+written); if both are given and disagree (``symbols and codes disagree at
 annotation K'', K counting from 0); if a vector of per-annotation values does not have one
-value per annotation (``NAME must have one value per annotation''); if a time is not an
-integer within the range of a 64-bit integer; if a code, subtype, channel or annotator
+value per annotation (``NAME must have one value per annotation''); if \code{sample},
+\code{symbol}, \code{code}, \code{subtype}, \code{chan} or \code{num} is a matrix
+(``samples must be a 1-D array'', ``NAME must be a 1-D array''); if a time is not an
+integer within the range of a 64-bit integer (``annotation times must be integers within
+the range of a 64-bit integer''), or is $-2^{63}$ (``annotation time T cannot be written
+(annotation times must be integers from -9223372036854775807 to
+9223372036854775806)''); if a code is not from 0 to 58 (``annotation code C is reserved
+(59 to 63 are the control codes of the annotation file format)'', ``annotation code C is
+out of range (0 to 58)''); if an aux text has a character beyond U+00FF (``aux text 'X'
+has a character that is not Latin-1 (one byte per character)''); if a code, subtype, channel or annotator
 number is \code{NA}, \code{NaN} or infinite (``NAME must not be NA, NaN or infinite''); if
 \code{fs} is not finite and $> 0$; if \code{sort} is not \code{NULL}, \code{TRUE} or
 \code{FALSE}; if \code{record} contains a directory and \code{dir} is given, or \code{dir}
 does not exist; and if the annotation file cannot be created (``can't create annotator ANN
-for record REC'') or cannot be written completely (``write error on annotator ANN for
-record REC'').}
+for record REC'') or cannot be written completely, or the library reports an error while
+writing it (``write error on annotator ANN for record REC''), the existing file being then
+left as it was.}
 \begin{lstlisting}[language=R,style=example]
 library(wfdbx)
 
@@ -759,15 +824,24 @@ These functions read and change the metadata of a header: its info strings of th
 \code{\# Key: value}, such as \code{\# Age: 63} (\cref{chap:metadata}). In short: keys are
 compared without regard to letter case (A-Z and a-z only); a key must not be empty and
 must not contain \code{:}, \code{\#}, a line break or a NUL byte, and a value must not
-contain a line break or a NUL byte; spaces at either end of keys and values are removed.
-Keys and values are handled as bytes: a character string is taken as its bytes, never
-re-encoded, and a raw vector is also accepted, as given. A change rewrites the header in
-one step (a temporary file in the same directory, renamed over the header, keeping its
-permission bits), keeping every other byte of it; all the arguments are checked first, so
-an error leaves the header unchanged, and nothing is written if nothing changes (unless
-\code{dir} is given). Only the \file{.hea} file is read (not a \file{.info} file); for a
-multi-segment record, it is the master header, unless a segment is named. The output
-directory is not used: a change is written to the header that was read, or to \code{dir}.
+contain a line break or a NUL byte; spaces, tabs, VT, FF and CR at either end of keys and
+values are removed. Keys and values are handled as bytes: a character string is taken as
+its bytes, never re-encoded, and a raw vector is also accepted, as given. The info
+strings are the lines that begin with \code{\#} after the record line, which is found as
+the header parser of the library finds it, in every mode: the first line that holds
+something other than spaces, tabs, CRs and LFs and does not begin (after them) with
+\code{\#}; comments and empty or blank lines before it are not info strings. (The C
+function \code{getinfo} takes the first line that does not begin with \code{\#}, so an
+empty first line, for the record line; in WFDB-x, \code{getinfo}, the comments of
+\code{read\_header} and \code{read\_record} and the notes of \cmd{wfdbdesc} follow the
+header parser, except in legacy mode.) A change rewrites the header in one step, keeping
+every other byte of it: the new header is written to a temporary file in the same
+directory, created with owner-only permissions, which is then renamed over the header
+and given its permission bits. All the arguments are checked first, so an error leaves
+the header unchanged, and nothing is written if nothing changes (unless \code{dir} is
+given). Only the \file{.hea} file is read (not a \file{.info} file); for a multi-segment
+record, it is the master header, unless a segment is named. The output directory is not
+used: a change is written to the header that was read, or to \code{dir}.
 
 The entries are a named character vector: the names are the keys and the elements the
 values, in file order, with the spelling of the file, such as \code{c(Age = "63", Sex =
@@ -1031,8 +1105,9 @@ appear.
 \code{base\_date} & the start date as an integer vector \code{c(year, month, day)}, or
   \code{NULL} if the header gives none \\
 \code{sampfrom} & the number of the first sample returned \\
-\code{comments} & a character vector of the info strings of the header (without the
-  \code{\#}) \\
+\code{comments} & a character vector of the info strings of the header: its lines that
+  begin with \code{\#} after the record line (found as the header parser finds it,
+  \cref{sec:r-metadata}), without the \code{\#} \\
 \code{checksum\_ok} & \code{FALSE} if the samples do not match the checksums of the
   header; checksums are checked only when a read reaches the end of the record, so a
   shorter read gives \code{TRUE} \\
@@ -1063,8 +1138,9 @@ appear.
   space at either end, and \code{adcres} is 0 if the header does not give it \\
 \code{base\_time}, \code{base\_time\_ms}, \code{base\_date} & the start time and date, as
   in the result of \code{read\_record} \\
-\code{comments} & a character vector of the info strings of the header (without the
-  \code{\#}) \\
+\code{comments} & a character vector of the info strings of the header: its lines that
+  begin with \code{\#} after the record line (found as the header parser finds it,
+  \cref{sec:r-metadata}), without the \code{\#} \\
 \code{metadata} & the metadata entries of the header, as \code{read\_metadata} returns
   them: a named character vector, in file order (empty for an EDF file and for the
   standard input) \\
@@ -1160,10 +1236,14 @@ appear.
 \paragraph{Errors.} The high-level functions report errors as R errors (conditions of
 class \code{"error"}, raised by \code{stop}), whose messages are given in the entries of
 this section; \code{tryCatch} handles them. Each function checks its arguments before it
-creates or changes a file, so an invalid argument leaves the files as they were. The
-library may also print a message on the standard error when it cannot open a file (as in
-\code{init: can't open header for record REC}); \code{wfdbquiet()} turns these messages
-off (\cref{sec:r-library}).
+creates or changes a file, so an invalid argument leaves the files as they were; the
+writers replace existing files only when the new ones are complete, so an error while
+writing leaves them as they were too. A signal file that ends before the length its header
+gives is an error of \code{read\_record} (``getvec status -3''), never hidden by a
+checksum error, and a problem (\code{length\_short}) in the report of
+\code{check\_record}. The library may also print a message on the standard error when it
+cannot open a file (as in \code{init: can't open header for record REC});
+\code{wfdbquiet()} turns these messages off (\cref{sec:r-library}).
 
 The errors of the metadata functions, and those of the argument \code{metadata} of
 \code{write\_record}, also have a class that tells their kind (\cref{tab:r-errors}), so
@@ -1438,7 +1518,8 @@ restored. The C function \code{setwfdb(p)} sets the input directory too, and
 \code{wfdbx\_get\_input\_dir()} & returns the input directory, or \code{NULL} if none is
   set \\
 \code{wfdbx\_set\_output\_dir(dir)} & sets the output directory: a local directory or a
-  \code{\textasciitilde} path (a URL is refused, with a message, and the setting is
+  \code{\textasciitilde} path (a name that begins with a URL scheme, such as
+  \code{https://} or \code{ftp://}, is refused, with a message, and the setting is
   unchanged); \code{NULL} or \code{""} restores the default (\code{WFDBX\_OUTPUT\_DIR}, or
   else the current directory). Returns the previous output directory, or \code{NULL} \\
 \code{wfdbx\_get\_output\_dir()} & returns the output directory, or \code{NULL} if none
@@ -1465,15 +1546,17 @@ restored. The C function \code{setwfdb(p)} sets the input directory too, and
   reads itself, as \code{wfdb\_open} finds a file of that name: in normal mode, a
   relative name under the input directory, if one is set, a \code{\textasciitilde} name
   expanded, an absolute name as given; in legacy mode, the name as given. \code{""} and
-  \code{"-"} are returned as given; \code{NULL} for \code{NULL} or a URL, or when the
-  input directory makes the name a URL \\
+  \code{"-"} are returned as given; \code{NULL} for \code{NULL}, an \code{http://} or
+  \code{https://} URL, or, in normal mode, a name that begins with another URL scheme
+  (also once the input directory is prefixed to it) \\
 \code{wfdbx\_output\_path(name)} & returns the path where a program creates a file that
   it writes itself, as \code{wfdb\_open} creates a file of that name: in normal mode, a
   relative name under the output directory, if one is set, a \code{\textasciitilde} name
   expanded, an absolute name as given; in legacy mode, any name under the output
   directory, if one is set, as a plain prefix. When the output directory is prefixed,
   the missing directories of the path are created. \code{""} and \code{"-"} are returned
-  as given; \code{NULL} for \code{NULL} or a URL \\
+  as given; \code{NULL} for \code{NULL}, an \code{http://} or \code{https://} URL, or,
+  in normal mode, a name that begins with another URL scheme \\
 \end{xltabular}
 
 \subsection{Examples}
@@ -1566,7 +1649,7 @@ The driver script also takes these options, instead of a tool:
 \cmd{Rscript wfdbx.R TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with
   its status \\
 \cmd{Rscript wfdbx.R --list} & lists the names of the tools, one per line \\
-\cmd{Rscript wfdbx.R --version} & prints the version, \code{WFDB-x 1.2.1} \\
+\cmd{Rscript wfdbx.R --version} & prints the version, \code{WFDB-x 1.2.2} \\
 \cmd{Rscript wfdbx.R --help}, \cmd{Rscript wfdbx.R -h} & prints the usage \\
 \bottomrule
 \end{tabularx}
@@ -1576,8 +1659,8 @@ Without arguments, the script prints the usage and exits with status 1; an unkno
 is an error (``wfdbx: unknown tool 'TOOL' (try 'wfdbx -{}-list')'', status 1), and an R
 error in a tool is reported as \code{wfdbx: error: MESSAGE} (status 1; with the
 environment variable \code{WFDBX\_DEBUG} set, the call stack follows). When an output file
-or the standard output cannot be written (a full disk, for example), a tool reports it and
-exits with status 1 (legacy mode keeps the original status, 0). The files that a tool
+or the standard output cannot be written (a full disk, for example), a tool reports it
+(``PROGRAM: write error on standard output'') and exits with status 1 (with \opt{-{}-legacy}, it keeps the original exit status). The files that a tool
 reads or creates itself follow the input and output directories, as the records do: the
 \opt{-i} file of \code{wrsamp}, \code{edf2mit}, \code{wav2mit}, \code{a2m} and
 \code{ad2m}, the input files of \code{ahaecg2mit} and the \opt{-S} script of
@@ -1670,6 +1753,8 @@ needed in an R session.
   ignored, with a message) \\
 \code{WFDB\_FLAC\_CHECK\_MD5} & if set, the MD5 signature of FLAC signal files is
   verified when they are read \\
+\code{HOME} (\code{USERPROFILE} on Windows) & the home directory, for
+  \code{\textasciitilde} paths \\
 \code{WFDBX\_DEBUG} & if set, the driver script prints the call stack of an R error in a
   tool \\
 \code{WFDBX\_NO\_CACHE} & \code{1} to turn the start-up cache of the driver script off \\
@@ -1680,8 +1765,9 @@ needed in an R session.
 \end{table}
 
 Remote files are downloaded with the program \cmd{curl} if it is installed, and with R's
-\code{url()} otherwise; each is read once and kept for the rest of the R session, and a
-download gives up when it cannot connect, or receives nothing, for 30 seconds.
+\code{url()} otherwise; a file that has been read is kept for the rest of the R session, one
+that could not be read is requested again the next time it is opened, and a download gives
+up when it cannot connect, or receives nothing, for 30 seconds.
 
 % ==========================================================================================
 \section{Testing}
@@ -1701,7 +1787,9 @@ check}), runs each test file, and prints one line per file and one per failed ch
 exits with status 1 if a check fails. The tests check the library functions with expected
 values of the C library, the high-level functions, the bulk paths against the
 sample-by-sample paths, \code{printf} and \code{strtod} against the GNU C library, the
-FLAC codec, \code{check\_record}, and the header metadata functions against the cases
+FLAC codec, \code{check\_record} (against the reports of the corpus that
+\file{python/tests/check\_corpus.py} writes, run with \cmd{python3}; skipped without it),
+and the header metadata functions against the cases
 shared by the seven languages (in \file{tests/metadata}: results, warnings and the
 headers, byte for byte). Network access is tested against a local HTTP server
 (127.0.0.1, run with \cmd{python3}; skipped without it). The tests work in temporary
@@ -1715,7 +1803,7 @@ R CMD build r && R CMD check --no-manual wfdbx_*.tar.gz
 \end{lstlisting}
 
 The cross-language conformance suite compares the output of the tools with that of the
-original C programs, case by case: 1135 cases, and 883 in legacy mode, which runs each
+original C programs, case by case: 1155 cases, and 886 in legacy mode, which runs each
 tool with \opt{--legacy}. It runs the driver script \file{r/inst/bin/wfdbx.R}. From the
 root of the repository:
 

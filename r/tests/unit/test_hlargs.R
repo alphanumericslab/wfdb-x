@@ -171,3 +171,28 @@ expect_equal(read_record("w", sampfrom = 1, sampto = 3)$signals, x[2:3, ] + 0,
              "read_record whole numbers")
 expect_equal(read_record("w", sampto = NULL)$signals, x + 0, "read_record sampto NULL: to the end")
 check(clean(), "read_record: state clean")
+
+# ---- write_record: a trailing ".hea" is removed, as by the readers (1.2.2)
+for (physical in c(FALSE, TRUE)) {
+  unlink(c("th.hea", "th.dat"))
+  write_record("th.hea", if (physical) matrix(1:3 / 200, 3, 1) else matrix(1:3, 3, 1), 250,
+               gains = 200, adcres = 16, units = "mV", physical = physical)
+  check(file.exists("th.hea") && file.exists("th.dat") && !file.exists("th.hea.dat"),
+        paste("write_record trailing .hea: files, physical =", physical))
+  expect_equal(as.vector(read_record("th")$signals), c(1, 2, 3),
+               paste("write_record trailing .hea: samples, physical =", physical))
+}
+fails(write_record("", matrix(1:3, 3, 1), 250, gains = 200, adcres = 16, units = "mV"),
+      "record name must not be empty", "write_record trailing .hea: empty name")
+
+# ---- write_annotations: a label is required for each annotation; with no
+# annotations, an empty file is written (1.2.2)
+fails(write_annotations("100s", "lbl", c(100, 460)), "symbol or code must be given",
+      "write_annotations labels required")
+write_annotations("100s", "lbl", numeric(0))
+check(file.exists("100s.lbl"), "write_annotations no annotations: file written")
+wfdbquiet()
+expect_equal(nrow(read_annotations("100s", "lbl")), 0L,
+             "write_annotations no annotations: empty file")
+wfdbverbose()
+check(clean(), "write_annotations no annotations: state clean")

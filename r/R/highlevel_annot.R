@@ -54,6 +54,10 @@
 #' the annotations at or after sampfrom and before sampto.  Modification
 #' labels at the start of the file are consumed by annopen, as in C.
 #'
+#' sampfrom and sampto are checked as read_record checks them (see
+#' .hl_sample_number), before any file is opened; whatever happens, the
+#' annotation file is closed (wfdbquit) before the function returns.
+#'
 #' Errors: stop() if the annotator cannot be opened, or if reading ends
 #' with a getann status other than 0 and -1 (e.g. -3, unexpected EOF),
 #' with the message "can't read annotation file ANN of record REC (getann
@@ -97,69 +101,79 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
                              input_dir = NULL, network = NULL,
                              legacy = FALSE) .hl_keep_settings(.hl_legacy(legacy, .hl_input(input_dir, network, {
   legacy <- wfdbx_get_legacy()
+  # WFDB-x: sampfrom and sampto are checked as read_record checks them,
+  # before anything is opened (a fraction, NA, NaN or an infinite value is
+  # an error, not truncated)
+  sampfrom <- .hl_sample_number(sampfrom, "sampfrom")
+  sampto <- .hl_sample_number(sampto, "sampto")
+  if (is.numeric(sampfrom) && sampfrom < 0)
+    stop("sampfrom must not be negative")
   if (!is.null(fs) && (length(fs) != 1L || !is.numeric(fs) || is.na(fs) || fs <= 0))
     stop("fs must be > 0")
   wfdbquit()
-  sps <- sampfreq(record)
-  if (sps <= 0 && !is.null(fs)) {
-    setsampfreq(sps <- as.numeric(fs))
-  } else if (sps < 0 && legacy) {
-    setsampfreq(sps <- WFDB_DEFFREQ)      # legacy mode (original behavior)
-  }
-  if (sps <= 0 && !legacy) {
-    for (t in list(sampfrom, sampto)) {
-      if (is.character(t) && wfdbx_time_needs_freq(t)) {
-        wfdbquit()
-        stop("sampling frequency of record ", record, " is not specified")
+  # (whatever happens, the annotation file is closed before returning)
+  tryCatch({
+    sps <- sampfreq(record)
+    if (sps <= 0 && !is.null(fs)) {
+      setsampfreq(sps <- as.numeric(fs))
+    } else if (sps < 0 && legacy) {
+      setsampfreq(sps <- WFDB_DEFFREQ)      # legacy mode (original behavior)
+    }
+    if (sps <= 0 && !legacy) {
+      for (t in list(sampfrom, sampto)) {
+        if (is.character(t) && wfdbx_time_needs_freq(t))
+          stop("sampling frequency of record ", record, " is not specified")
       }
     }
-  }
-  if (annopen(record, list(anninfo(annotator, WFDB_READ)), 1) < 0) {
-    wfdbquit()
-    stop(sprintf("can't read annotator %s for record %s", annotator, record))
-  }
-  frm <- .hl_ann_time(sampfrom)
-  if (is.null(frm)) frm <- 0
-  to <- .hl_ann_time(sampto)
-  if (frm != 0 && iannsettime(frm) < 0) {
-    wfdbquit()
-    stop(sprintf("can't seek in annotator %s", annotator))
-  }
-  # (nofail: the annotations that getann returns before it fails; the
-  # failing call is made only if no annotation at or after sampto was read)
-  A <- .getann_bulk(0, Inf, nofail = TRUE)
-  n <- length(A$time)
-  k <- if (is.null(to)) NA else match(TRUE, A$time >= to)
-  if (!is.na(k)) {
-    n <- k - 1L
-  } else {
-    stat <- getann(0)$stat
-    # -1: the end of the file; anything else (e.g. -3, unexpected EOF)
-    # is an error
-    if (stat != 0 && stat != -1) {
-      wfdbquit()
-      stop(sprintf("can't read annotation file %s of record %s (getann status %d)",
-                   annotator, record, as.integer(stat)))
+    if (annopen(record, list(anninfo(annotator, WFDB_READ)), 1) < 0)
+      stop(sprintf("can't read annotator %s for record %s", annotator, record))
+    frm <- .hl_ann_time(sampfrom)
+    if (is.null(frm)) frm <- 0
+    to <- .hl_ann_time(sampto)
+    if (frm != 0 && iannsettime(frm) < 0)
+      stop(sprintf("can't seek in annotator %s", annotator))
+    # (nofail: the annotations that getann returns before it fails; the
+    # failing call is made only if no annotation at or after sampto was
+    # read)
+    A <- .getann_bulk(0, Inf, nofail = TRUE)
+    n <- length(A$time)
+    k <- if (is.null(to)) NA else match(TRUE, A$time >= to)
+    if (!is.na(k)) {
+      n <- k - 1L
+    } else {
+      stat <- getann(0)$stat
+      # -1: the end of the file; anything else (e.g. -3, unexpected EOF)
+      # is an error
+      if (stat != 0 && stat != -1)
+        stop(sprintf("can't read annotation file %s of record %s (getann status %d)",
+                     annotator, record, as.integer(stat)))
     }
-  }
-  s <- seq_len(n)
-  afs <- getiafreq(0)
-  res <- data.frame(sample = A$time[s], symbol = annstr(A$anntyp[s]), code = A$anntyp[s],
-                    subtype = A$subtyp[s], chan = A$chan[s], num = A$num[s],
-                    aux = .hl_aux_text(A$aux[s]), stringsAsFactors = FALSE)
-  attr(res, "record") <- record
-  attr(res, "annotator") <- annotator
-  attr(res, "fs") <- afs
-  wfdbquit()
+    s <- seq_len(n)
+    afs <- getiafreq(0)
+    res <- data.frame(sample = A$time[s], symbol = annstr(A$anntyp[s]), code = A$anntyp[s],
+                      subtype = A$subtyp[s], chan = A$chan[s], num = A$num[s],
+                      aux = .hl_aux_text(A$aux[s]), stringsAsFactors = FALSE)
+    attr(res, "record") <- record
+    attr(res, "annotator") <- annotator
+    attr(res, "fs") <- afs
+  }, finally = wfdbquit())
   res
 })))
 
 #' Write an annotation file (as wrann does).
 #'
-#' sample: the annotation times, integers within the range of a 64-bit
-#' integer (or a data frame as returned by read_annotations, whose columns
-#' then give all fields).  Give symbol (mnemonics such as "N") or code
-#' (annotation type codes); both only if they agree (each symbol is the
+#' sample: the annotation times, a vector of integers from -2^63 + 1 to
+#' 2^63 - 2 (the smallest and largest 64-bit integers are reserved by the
+#' file format: "annotation time T cannot be written ..."), or a data
+#' frame as returned by read_annotations, whose columns then give all
+#' fields.  Codes are 0 to 58 (59 to 63, the control codes of the file
+#' format, are "reserved"; other values are "out of range"); aux texts are
+#' written as their bytes (a character beyond U+00FF in a UTF-8 string is
+#' an error, see .hl_check_latin1); sample, symbol, code, subtype, chan
+#' and num must not be matrices ("NAME must be a 1-D array").  symbol
+#' (mnemonics such as "N") or code (annotation type codes) must be given for
+#' one annotation or more ("symbol or code must be given"; with no
+#' annotations, an empty file is written); both only if they agree (each symbol is the
 #' mnemonic of its code; an empty symbol agrees with any code), else the
 #' error is "symbols and codes disagree at annotation K" (K from 0).  NA,
 #' NaN and infinite values are errors in sample, code, subtype, chan and
@@ -193,10 +207,14 @@ read_annotations <- function(record, annotator, sampfrom = 0, sampto = NULL, fs 
 #'
 #' Errors: stop() if the annotator cannot be created ("can't create
 #' annotator A for record R"), or if the file cannot be written completely,
-#' for example when the disk is full ("write error on annotator A for
-#' record R", after the library's message), and on invalid arguments.
-#' The arguments are checked before the file is created; whatever
-#' happens, the annotator is closed (wfdbquit) before the function returns,
+#' for example when the disk is full, or putann reports an error ("write
+#' error on annotator A for record R", after the library's message), and
+#' on invalid arguments.  The arguments are checked before the file is
+#' created or changed; the file is written to a temporary file (created
+#' owner-only) in its directory, which replaces the existing file only
+#' when it is complete (see .staging_begin).  Whatever happens, the
+#' annotator is closed (wfdbquit) and no temporary file is left before the
+#' function returns,
 #' and the getvec mode and the time resolution of output annotators are
 #' left as they were (fs applies to this file only; WFDB-x).
 write_annotations <- function(record, annotator, sample, symbol = NULL, code = NULL,
@@ -232,31 +250,34 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
     if (missing(num) && !is.null(df$num)) num <- df$num
     if (is.null(aux) && !is.null(df$aux)) aux <- df$aux
   }
+  # WFDB-x: every argument is checked before the file is touched
+  if (!is.null(dim(sample)) && length(dim(sample)) != 1L)
+    stop("samples must be a 1-D array")
   n <- length(sample)
   # WFDB-x: a per-annotation argument is one value for all annotations, or
-  # one value per annotation
+  # one value per annotation (a vector: an array of more than one
+  # dimension is an error)
   per <- function(v, name) {
+    if (!is.null(dim(v)) && length(dim(v)) != 1L) stop(name, " must be a 1-D array")
     if (length(v) != 1L && length(v) != n)
       stop(name, " must have one value per annotation")
-    rep_len(v, n)
+    rep_len(as.vector(v), n)
   }
   # WFDB-x: the times are integers within the range of WFDB_Time
   time <- suppressWarnings(as.numeric(sample))
   if (!all(is.finite(time) & time == trunc(time) & time >= -2^63 & time < 2^63))
     stop("annotation times must be integers within the range of a 64-bit integer")
+  both <- !is.null(code) && !is.null(symbol)
   if (is.null(code)) {
-    if (is.null(symbol)) stop("symbol or code must be given")
+    if (is.null(symbol)) {
+      # WFDB-x: a label is required for each annotation (1.2.2: also in the
+      # other languages); no annotations write an empty file
+      if (n > 0L) stop("symbol or code must be given")
+      symbol <- character(0)
+    }
     code <- strann(as.character(per(symbol, "symbol")))
-  } else if (!is.null(symbol)) {
-    # WFDB-x: symbol and code may both be given (as read_annotations
-    # returns them) if they agree: each symbol is that of its code (an
-    # empty symbol, as read_annotations gives for a code without a
-    # mnemonic, agrees with any code)
+  } else if (both) {
     sym <- as.character(per(symbol, "symbol"))
-    cv <- suppressWarnings(as.numeric(per(code, "code")))
-    bad <- which(!is.na(sym) & nzchar(sym) & !(strann(sym) == cv) %in% TRUE)
-    if (length(bad))
-      stop(sprintf("symbols and codes disagree at annotation %d", bad[1L] - 1L))
   }
   # WFDB-x: NA (or NaN, or an infinite value) is an error
   finite <- function(v, name) {
@@ -268,12 +289,47 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
   subtype <- finite(subtype, "subtype")
   chan <- finite(chan, "chan")
   num <- finite(num, "num")
+  # WFDB-x: the times that the MIT format can store: the smallest 64-bit
+  # integer, -2^63, is reserved, as is the largest, 2^63 - 1 (which a
+  # double cannot hold: it is beyond the range above), and putann refuses
+  # them ("time overflow": the annotation was dropped); any other time is
+  # stored (with SKIPs for intervals beyond 1023 samples)
+  bad <- which(time == -2^63)
+  if (length(bad))
+    stop(sprintf(paste0("annotation time %.0f cannot be written (annotation times must be ",
+                        "integers from -9223372036854775807 to 9223372036854775806)"),
+                 time[bad[1L]]))
+  # WFDB-x: the annotation codes are 0 to 58 (ACMAX is 49, and 50 to 58 are
+  # free); 59 to 63 are the control codes of the MIT format (SKIP, NUM,
+  # SUB, CHN, AUX), which corrupt the file, and other values do not fit in
+  # its 6 bits
+  bad <- which(code < 0 | code > 58)
+  if (length(bad)) {
+    c1 <- code[bad[1L]]
+    shown <- if (c1 == trunc(c1)) sprintf("%.0f", c1) else format(c1, digits = 15)
+    if (c1 > 58 && c1 <= 63 && c1 == trunc(c1))
+      stop(sprintf(paste0("annotation code %s is reserved (59 to 63 are the control codes ",
+                          "of the annotation file format)"), shown))
+    stop(sprintf("annotation code %s is out of range (0 to 58)", shown))
+  }
+  if (both) {
+    # WFDB-x: symbol and code may both be given (as read_annotations
+    # returns them) if they agree: each symbol is that of its code (an
+    # empty symbol, as read_annotations gives for a code without a
+    # mnemonic, agrees with any code)
+    bad <- which(!is.na(sym) & nzchar(sym) & !(strann(sym) == code) %in% TRUE)
+    if (length(bad))
+      stop(sprintf("symbols and codes disagree at annotation %d", bad[1L] - 1L))
+  }
   auxl <- vector("list", n)
   if (!is.null(aux)) {
     aux <- as.character(per(aux, "aux"))
     ok <- which(!is.na(aux))
     # (each distinct string is converted once)
     u <- unique(aux[ok])
+    # WFDB-x: text is written as its bytes, one byte per character (see
+    # .hl_check_latin1)
+    for (a in u) .hl_check_latin1(a, "aux text")
     ub <- lapply(u, function(a) {
       b <- charToRaw(a)
       if (length(b) > 255L) b <- b[1:255]   # (the length byte)
@@ -290,15 +346,27 @@ write_annotations <- function(record, annotator, sample, symbol = NULL, code = N
   # wfdbquit above, which closes any annotator opened before)
   .ann$sort_override <- sort
   on.exit(.ann$sort_override <- NULL, add = TRUE)
-  if (!is.null(afs)) setafreq(afs)
-  # (the annotator is closed however this ends)
-  on.exit(wfdbquit(), add = TRUE, after = FALSE)
-  if (annopen(record, list(anninfo(annotator, WFDB_WRITE)), 1) < 0)
-    stop(sprintf("can't create annotator %s for record %s", annotator, record))
-  st <- .putann_bulk(0, list(time = time, anntyp = code,
-                             subtyp = subtype, chan = chan, num = num, aux = auxl))
-  wfdbquit()
-  if (wfdbx_write_errors() > errors)
+  # WFDB-x: the file is written to a temporary file in the directory of its
+  # destination, which is renamed over it when it is complete (and, if
+  # needed, sorted); after a failure, it is removed, and the existing file
+  # is left as it was (see .staging_begin)
+  .staging_begin()
+  complete <- FALSE
+  renamed <- FALSE
+  st <- 0
+  tryCatch({
+    # (the annotator is closed however this ends)
+    tryCatch({
+      if (!is.null(afs)) setafreq(afs)
+      if (annopen(record, list(anninfo(annotator, WFDB_WRITE)), 1) < 0)
+        stop(sprintf("can't create annotator %s for record %s", annotator, record))
+      st <- .putann_bulk(0, list(time = time, anntyp = code,
+                                 subtyp = subtype, chan = chan, num = num, aux = auxl))
+    }, finally = wfdbquit())
+    # WFDB-x: an error that putann reports is an error
+    complete <- st >= 0 && wfdbx_write_errors() == errors
+  }, finally = renamed <- .staging_end(complete))
+  if (!renamed)
     stop(sprintf("write error on annotator %s for record %s", annotator, record))
   invisible(st)
 }

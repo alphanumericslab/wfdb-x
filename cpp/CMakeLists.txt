@@ -14,9 +14,9 @@
 
 cmake_minimum_required(VERSION 3.14)
 
-project(wfdbx VERSION 1.2.1
+project(wfdbx VERSION 1.2.2
   DESCRIPTION "A reimplementation of the WFDB Software Package (library and command-line tools) in C++, part of WFDB-x: the same package in seven languages, tested to give byte-for-byte identical results"
-  HOMEPAGE_URL "https://github.com/alphanumericslab/wfdb-x"
+  HOMEPAGE_URL "https://wfdb-x.org"
   LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -68,6 +68,9 @@ target_include_directories(wfdbx
 set_target_properties(wfdbx PROPERTIES VERSION ${PROJECT_VERSION}
   WINDOWS_EXPORT_ALL_SYMBOLS ON)
 add_library(wfdbx::wfdbx ALIAS wfdbx)
+# (consumers of the library, built or installed, compile with C++17 at
+# least: the headers use std::optional)
+target_compile_features(wfdbx PUBLIC cxx_std_17)
 
 # The command-line tools: one executable per file in apps/ (files whose
 # names begin with '_' are shared helpers).
@@ -109,8 +112,11 @@ if(WFDBX_BUILD_TESTS)
       # (the legacy annotation sorting tests run the sortann tool, and the
       # tests of the files the tools open themselves run wrsamp, mit2wav and
       # mit2edf)
+      # (the directory of the tools of the configuration built: with a
+      # multi-configuration generator, such as Ninja Multi-Config or Visual
+      # Studio, a subdirectory of bin)
       target_compile_definitions(wfdbx_tests PRIVATE
-        WFDBX_TOOLS_DIR="${CMAKE_BINARY_DIR}/bin")
+        WFDBX_TOOLS_DIR="$<TARGET_FILE_DIR:sortann>")
       add_dependencies(wfdbx_tests sortann wrsamp mit2wav mit2edf)
     endif()
   endif()
@@ -125,3 +131,19 @@ install(TARGETS wfdbx ${WFDBX_TOOLS}
 install(DIRECTORY include/wfdbx DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT wfdbxTargets NAMESPACE wfdbx:: FILE wfdbxConfig.cmake
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/wfdbx)
+# The version file, so that find_package(wfdbx 1.2 CONFIG) checks the
+# version (any later version of the same major version is accepted).
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+  ${CMAKE_CURRENT_BINARY_DIR}/wfdbxConfigVersion.cmake
+  VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wfdbxConfigVersion.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/wfdbx)
+# The licenses (LGPL for the library, GPL for the tools) and the NOTICE file
+# (which gives them, and the BSD notice of the libFLAC code that the FLAC
+# decoder follows), from the root of the repository.
+install(FILES
+  ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE-GPL
+  ${CMAKE_CURRENT_SOURCE_DIR}/../NOTICE
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/wfdbx)

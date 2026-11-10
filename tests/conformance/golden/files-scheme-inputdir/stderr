@@ -1,0 +1,2 @@
+WFDB-x: can't open ftp://h/db/sr.hea: only http:// and https:// URLs can be read (mount the server as a local folder, or download the files)
+init: can't open header for record sr

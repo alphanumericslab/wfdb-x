@@ -933,7 +933,11 @@ end
         @test all(s -> s.adcres == 0 && s.units === nothing, n.siginfo)
         @test hlerr(() -> W.write_record_physical(w, "wp", [1.0 2.0], 100.0)) ==
               "write_record: gains must be specified"
+        # (WFDB-x 1.2.2: the ADC resolutions are checked first)
         @test hlerr(() -> W.write_record_physical(w, "wp", [1.0 2.0], 100.0; gains=[200.0, 0.0])) ==
+              "write_record: ADC resolution(s) must be specified"
+        @test hlerr(() -> W.write_record_physical(w, "wp", [1.0 2.0], 100.0; gains=[200.0, 0.0],
+                                                  adcres=16, units="mV")) ==
               "write_record: signal 1 is uncalibrated"
         @test hlerr(() -> W.write_record_physical(w, "wp", [1.0 2.0], -1.0; gains=200.0,
                                                   adcres=16, units="mV")) ==
@@ -2713,6 +2717,36 @@ end
     end
 end
 
+@testset "write_annotations: labels required" begin
+    # a label is required for each annotation; with no annotations, an
+    # empty file is written (1.2.2)
+    with_data() do w
+        @test hlerr(() -> W.write_annotations(w, "100s", "lbl",
+                                              Annotations(samples=[100, 460]))) ==
+              "write_annotations: symbols or codes must be given"
+        @test !isfile("100s.lbl") && closed(w)
+        W.write_annotations(w, "100s", "lbl", Annotations(samples=Int64[]))
+        @test isfile("100s.lbl")
+        @test isempty(W.read_annotations(w, "100s", "lbl").samples)
+    end
+end
+
+@testset "write_record: trailing .hea" begin
+    # a trailing ".hea" is removed, as by the readers (1.2.2)
+    with_data() do w
+        x = reshape(Int32[1, 2, 3], :, 1)
+        for physical in (false, true)
+            rm("th.hea"; force=true); rm("th.dat"; force=true)
+            f = physical ? W.write_record_physical : W.write_record
+            f(w, "th.hea", physical ? x ./ 200 : x, 250; gains=200, adcres=16, units="mV")
+            @test isfile("th.hea") && isfile("th.dat") && !isfile("th.hea.dat")
+            @test W.read_record(w, "th").samples == x
+        end
+        @test hlerr(() -> W.write_record(w, "", x, 250; gains=200, adcres=16, units="mV")) ==
+              "write_record: the record name must not be empty"
+    end
+end
+
 @testset "read_record: whole sample numbers; closed on any error" begin
     with_data() do w
         W.wfdbquiet(w)
@@ -2857,5 +2891,237 @@ end
         end
         @test filesize("o16.dat") == 6
         @test err == ""
+    end
+end
+
+# WFDB-x 1.2.2: the corrections of the fourth review (as the tests of the
+# same names in python/tests/test_signals.py).
+
+# The contents of the files named (nothing for a missing file), and the
+# names of the files of the current directory.
+snapshot(names) = (Dict(n => (isfile(n) ? read(n) : nothing) for n in names),
+                   sort(readdir(".")))
+no_tmp() = !any(f -> endswith(f, ".tmp"), readdir("."))
+
+@testset "read_record: truncated frame with a checksum" begin
+    with_data() do w
+        # A format-16 file holding the samples 1 and 2, whose header gives 3
+        # samples: getvec reports the unexpected end of file (-3), and then
+        # the checksum error (-4) of the frame at which the checksum is
+        # verified, whose status replaces -3. read_record raises the read
+        # error, and never returns the incomplete frame.
+        write("tr.dat", reinterpret(UInt8, Int16[1, 2]))
+        write("tr.hea", "tr 1 250 3\ntr.dat 16 200 16 0 1 0 0 s\n")
+        local msg
+        err = lib_stderr() do
+            msg = hlerr(() -> W.read_record(w, "tr"))
+        end
+        @test msg == "can't read signal data of record tr (getvec status -3)"
+        @test occursin("getvec: unexpected EOF in signal 0", err)
+        @test closed(w) && !w.sig.read_failed && !w.sig.cksum_quiet
+        # the C-style getvec keeps the C behavior: -4 for the incomplete frame
+        lib_stderr() do
+            @test W.isigopen(w, "tr", [Siginfo()], 1) == 1
+            @test vec_(w, 1) == Int32[1, 1]
+            @test vec_(w, 1) == Int32[1, 2]
+            @test vec_(w, 1)[1] == -4
+            W.wfdbquit(w)
+        end
+        # the frames before it are read when to stops before it
+        @test W.read_record(w, "tr"; to=2).samples == reshape(Int32[1, 2], 2, 1)
+        # check_record reports the short file, not a checksum error
+        rep = W.check_record(w, "tr")
+        @test [i.code for i in rep.issues if i.severity == "error"] == ["length_short"]
+        @test occursin("the signal files end after 2 frames, before the 3 given in the header",
+                       sprint(show, rep))
+        # a checksum error alone (all samples read) is still a warning
+        write("tr.hea", "tr 1 250 2\ntr.dat 16 200 16 0 1 0 0 s\n")
+        r = @test_logs (:warn, r"checksum error in record tr") W.read_record(w, "tr")
+        @test r.samples == reshape(Int32[1, 2], 2, 1) && !r.checksum_ok
+    end
+end
+
+@testset "read_record: bounded allocation" begin
+    with_data() do w
+        # A header that gives 10^12 samples for a signal file of 4 bytes: the
+        # reader allocates no more than 2^26 samples in advance, and reports
+        # the short file as a read error.
+        write("big.dat", UInt8[1, 0, 2, 0])
+        write("big.hea", "big 1 250 1000000000000\nbig.dat 16 200 16 0 0 0 0 s\n")
+        lib_stderr() do
+            @test hlerr(() -> W.read_record(w, "big")) ==
+                  "can't read signal data of record big (getvec status -3)"
+            @test W.read_record(w, "big"; to=2).samples == reshape(Int32[1, 2], 2, 1)
+            @test hlerr(() -> W.read_record(w, "big"; to=10^12)) ==
+                  "can't read signal data of record big (getvec status -3)"
+        end
+        # a long record is still read whole, growing the matrix
+        x = Int32.(permutedims(reshape(collect(0:299999), 3, :)) .% 30000)
+        W.write_record(w, "long", x, 100; gains=200, adcres=16, units="mV")
+        h = read("long.hea", String)
+        write("long.hea", replace(h, "long 3 100 100000" => "long 3 100"))   # (no length)
+        @test W.read_record(w, "long").samples == x
+    end
+end
+
+# A copy of the first 100 samples of 100s, as the record r.
+function write_100s_copy(w)
+    W.write_record(w, "r", W.read_record(w, "100s"; to=100).samples, 360; gains=200,
+                   adcres=11, units="mV", names=["a", "b"])
+    ["r.hea", "r.dat"]
+end
+
+@testset "write_record checks before writing" begin
+    with_data() do w
+        # Each invalid argument is refused before any file is touched: the
+        # existing record is unchanged, and no temporary file is left.
+        names = write_100s_copy(w)
+        before = snapshot(names)
+        x = zeros(Int32, 5, 2)
+        whole(name) = "write_record: $name must be whole numbers within the range of a " *
+                      "32-bit integer"
+        for (kw, msg) in (((baselines=1.5,), whole("baselines")),
+                          ((baselines=NaN,), whole("baselines")),
+                          ((baselines=2^31,), whole("baselines")),
+                          ((baselines="x",), whole("baselines")),
+                          ((baselines=[0, Inf],), whole("baselines")),
+                          ((adczeros=-2^31 - 1,), whole("adczeros")),
+                          ((adczeros=[0, 0.5],), whole("adczeros")),
+                          ((adcres=12.5,), whole("adcres")),
+                          ((adcres="x",), whole("adcres")),
+                          ((adcres=NaN,), whole("adcres")),
+                          ((adcres=[12, 0],), "write_record: ADC resolution(s) must be specified"),
+                          ((adcres=[12, nothing],),
+                           "write_record: ADC resolution(s) must be specified"),
+                          ((gains=[200, Inf],), "write_record: gains must be finite"))
+            for physical in (false, true)
+                a = merge((gains=200, adcres=12, units="mV"), kw)
+                f = physical ? W.write_record_physical : W.write_record
+                @test hlerr(() -> f(w, "r", physical ? Float64.(x) : x, 360; a...)) == msg
+                @test snapshot(names) == before
+                @test closed(w)
+            end
+        end
+        # the ADC values are checked in legacy mode too
+        for (kw, msg) in (((baselines=1.5,), whole("baselines")),
+                          ((adczeros=2^31,), whole("adczeros")),
+                          ((adcres=1.5,), whole("adcres")))
+            @test hlerr(() -> W.write_record(w, "r", x, 360; legacy=true, kw...)) == msg
+            @test snapshot(names) == before
+        end
+        # an order: a missing ADC resolution before the units
+        @test hlerr(() -> W.write_record(w, "r", x, 360; gains=200)) ==
+              "write_record: ADC resolution(s) must be specified"
+        @test hlerr(() -> W.write_record(w, "r", x, 360; gains=200, adcres=12.0)) ==
+              "write_record: units must be specified"
+        @test snapshot(names) == before
+        # whole values given as floats are written as integers
+        W.write_record(w, "f", x, 360; gains=200, adcres=12.0, adczeros=[1.0, 2],
+                       baselines=-3.0, units="mV")
+        si = W.read_header(w, "f").siginfo
+        @test [s.adcres for s in si] == [12, 12] && [s.adczero for s in si] == [1, 2] &&
+              [s.baseline for s in si] == [-3, -3]
+    end
+end
+
+@testset "write_record failure leaves files" begin
+    with_data() do w
+        # A failure while writing (here, the header cannot be created, or
+        # the samples cannot be written) leaves the existing files intact:
+        # both are written to temporary files, renamed over them at the end.
+        names = write_100s_copy(w)
+        before = snapshot(names)
+        x = Int32.(reshape(collect(0:19), 2, 10)')
+        kw = (gains=200, adcres=12, units="mV")
+        m = @eval W.newheader(w::W.WfdbLib, record::Vector{UInt8}) = Int32(-1)
+        try
+            # (invokelatest: the method defined above)
+            @test hlerr(() -> Base.invokelatest(W.write_record, w, "r", x, 250; kw...)) ==
+                  "can't create header for record r"
+        finally
+            Base.delete_method(which(W.newheader, (W.WfdbLib, Vector{UInt8})))
+        end
+        @test snapshot(names) == before
+        @eval W._putframes!(w::W.WfdbLib, frames::Matrix{Int32}, i0::Int, i1::Int) =
+            error("disk on fire")
+        try
+            @test_throws ErrorException("disk on fire") Base.invokelatest(W.write_record, w,
+                                                                          "r", x, 250; kw...)
+        finally
+            Base.delete_method(which(W._putframes!, (W.WfdbLib, Matrix{Int32}, Int, Int)))
+        end
+        @test snapshot(names) == before
+        @test closed(w) && w.io.staging === nothing
+        # a directory in the way of the header: the signal file is not
+        # created
+        mkdir("q.hea")
+        lib_stderr() do
+            @test hlerr(() -> W.write_record(w, "q", x, 250; kw...)) ==
+                  "can't create header for record q"
+        end
+        @test !ispath("q.dat") && no_tmp()
+        # success: the files are those written in place before, with the
+        # permissions of the files they replace
+        chmod("r.dat", 0o640)
+        W.write_record(w, "r", x, 250; kw...)
+        @test filemode("r.dat") & 0o777 == 0o640
+        @test W.read_record(w, "r").samples == x
+        @test no_tmp()
+        # a symbolic link: the file it leads to is replaced
+        if !Sys.iswindows()
+            mkdir("sub")
+            W.write_record(w, "sub/t", x, 250; kw...)
+            symlink("sub/t.dat", "t.dat")
+            W.write_record(w, "t", 2 .* x, 250; kw...)
+            @test islink("t.dat") && W.read_record(w, "t").samples == 2 .* x
+            @test read("t.dat") == read("sub/t.dat")
+            @test no_tmp() && !any(f -> endswith(f, ".tmp"), readdir("sub"))
+        end
+    end
+end
+
+@testset "getinfo: the record line" begin
+    with_data() do w
+        # The record line is found as readheader finds it: the first line
+        # with a token (separated by spaces, tabs, CRs and LFs) that does not
+        # begin with '#'. A comment before it is not an info string, even
+        # after an empty or blank first line (C's getinfo took the empty line
+        # for the record line); in legacy mode, the C rule applies.
+        sig = "fmt16.dat 16 200 12 0 0 0 0 a\n"
+        for (name, text, normal, legacy) in (
+                ("le", "\n# Age: 40\nle 1 250 10\n" * sig * "# Age: 63\n",
+                 [" Age: 63"], [" Age: 40", " Age: 63"]),
+                ("lw", " \t\r\n# Age: 40\r\nlw 1 250 10\r\n" * replace(sig, "\n" => "\r\n") *
+                 "# Age: 63\r\n", [" Age: 63"], [" Age: 40", " Age: 63"]),
+                ("lc", "# first\n\n# Age: 40\n \t\n  # indented\nlc 1 250 10\n" * sig *
+                 "# Age: 63\n#last\n", [" Age: 63", "last"], [" Age: 40", " Age: 63", "last"]),
+                ("ln", "# only\n\n# comments\n", String[], [" comments"]))
+            write(name * ".hea", text)
+            for (mode, want) in ((0, normal), (1, legacy))
+                previous = W.wfdbx_set_legacy(w, mode)
+                got = String[]
+                try
+                    c = W.getinfo(w, name)
+                    while c !== nothing
+                        push!(got, String(copy(c)))
+                        c = W.getinfo(w, nothing)
+                    end
+                finally
+                    W.wfdbx_set_legacy(w, previous)
+                end
+                @test got == want
+                W.wfdbquit(w)
+            end
+            name == "ln" && continue
+            @test String.(W.read_header(w, name).comments) == normal
+            @test String.(W.read_header(w, name; legacy=true).comments) == legacy
+            md = [String(copy(k)) => String(copy(v)) for (k, v) in W.read_header(w, name).metadata]
+            @test md == ["Age" => "63"]
+            md = [String(copy(k)) => String(copy(v))
+                  for (k, v) in W.read_header(w, name; legacy=true).metadata]
+            @test md == ["Age" => "63"]
+            @test String.(W.read_record(w, name; legacy=true,
+                                        checksum_warning=false).comments) == legacy
+        end
     end
 end

@@ -17,7 +17,10 @@
 // program, run without a shell; the original's HTTP and FTP code (NETFILES) is
 // not translated; ".." is accepted in names, and only the last component of a
 // record name is checked; write errors are counted (wfdbx_write_errors), and
-// the tools exit with status 1 after one; additions: wfdbx_set_input_dir,
+// the tools exit with status 1 after one; while a high-level writer writes,
+// its output files are written to temporary files that replace their
+// destinations only when all are complete (wfdbx_staging_begin); additions:
+// wfdbx_set_input_dir,
 // wfdbx_get_input_dir, wfdbx_set_output_dir, wfdbx_get_output_dir,
 // wfdbx_set_network, wfdbx_get_network, wfdbx_write_errors,
 // wfdbx_note_write_error, and wfdbx_input_path and wfdbx_output_path (where a
@@ -52,10 +55,14 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <filesystem>
 #include <map>
+#include <random>
+#include <vector>
 
 #if defined(_WIN32)
 #include <direct.h>
+#include <share.h>
 #include <fcntl.h>
 #include <io.h>
 #include <process.h>
@@ -119,9 +126,10 @@ struct IOState {
     bool output_dir_init = false;
     int network = -1;           // -1 until first needed
     int env_network = 0;
-    // WFDB-x: the URLs fetched (contents, or nullopt for a failure)
-    std::map<std::string, std::optional<std::string>> fetched;
+    // WFDB-x: the URLs read (their contents; a failure is not kept)
+    std::map<std::string, std::string> fetched;
     bool network_warned = false, curl_warned = false;
+    bool scheme_warned = false;     // see wfdb_fopen
 };
 
 IOState &io()
@@ -213,6 +221,24 @@ bool is_url(const std::string &s)
     return s.compare(0, 7, "http://") == 0 || s.compare(0, 8, "https://") == 0;
 }
 
+// WFDB-x: true if s begins with a URL scheme followed by "://": a letter,
+// then at least one letter, digit, '+', '-' or '.' (http://, https://,
+// ftp://, sftp://, file://, ...).  A drive letter (C:) is not a scheme.  In
+// normal mode, a name with a scheme is a URL, never a local file name, and
+// only an http:// or https:// URL can be read (see wfdb_fopen).
+bool has_scheme(const std::string &s)
+{
+    auto alpha = [](char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+    };
+    if (s.empty() || !alpha(s[0])) return false;
+    size_t p = 1;
+    while (p < s.size() && (alpha(s[p]) || (s[p] >= '0' && s[p] <= '9') ||
+                            s[p] == '+' || s[p] == '-' || s[p] == '.'))
+        p++;
+    return p >= 2 && s.compare(p, 3, "://") == 0;
+}
+
 // WFDB-x: true if c is a directory separator ('/', and on MS-Windows '\').
 bool is_dsep(char c)
 {
@@ -288,7 +314,7 @@ void init_output_dir()
     st.output_dir_init = true;
     const char *p = std::getenv("WFDBX_OUTPUT_DIR");
     if (p && *p) {
-        if (is_url(p))
+        if (has_scheme(p))
             wfdb_error("%s", output_url_error);
         else
             st.env_output_dir = st.output_dir = std::string(p);
@@ -367,7 +393,7 @@ std::string join(const std::string &dir, const std::string &name, char sep)
 std::string resolve(const std::string &name, bool output)
 {
     if (!name.empty() && name[0] == '~') return expand_home(name);
-    if (is_absolute_path(name) || is_url(name)) return name;
+    if (is_absolute_path(name) || has_scheme(name)) return name;
     if (output)
         init_output_dir();
     else
@@ -383,7 +409,8 @@ std::string resolve(const std::string &name, bool output)
 // contains no ".." component (on MS-Windows, no drive letter either).
 bool in_header_dir(const std::string &name)
 {
-    if (is_absolute_path(name) || is_url(name) || (!name.empty() && name[0] == '~'))
+    if (is_absolute_path(name) || has_scheme(name) ||
+        (!name.empty() && name[0] == '~'))
         return false;
 #if defined(_WIN32)
     if (name.size() > 1 && name[1] == ':') return false;
@@ -524,9 +551,10 @@ const std::string &wfdb_filename() { return io().filename; }
 // (following redirections, failing on an HTTP status of 400 or more, and
 // giving up if connecting takes 30 seconds or no data arrives for 30 seconds;
 // there is no limit on the total time, since record files can be large),
-// reading its standard output.  The result (the contents, or a failure) is
-// kept for the rest of the process, so that each URL is requested at most
-// once.  The file is read from a temporary copy.
+// reading its standard output.  The contents are kept for the rest of the
+// process, so that a URL read once is not requested again; a failure is not
+// kept, so a later open of the URL requests it again (a server that was
+// unavailable may have recovered).  The file is read from a temporary copy.
 
 std::string wfdbx_quote_arg(const std::string &a)
 {
@@ -659,14 +687,12 @@ FilePtr fetch_open(const std::string &url)
             wfdb_error("WFDB-x: network access needs the curl program, which "
                        "was not found\n");
         }
-        it = st.fetched.emplace(url, stat > 0 ? std::optional<std::string>(
-                                                    std::move(data))
-                                              : std::nullopt).first;
+        if (stat <= 0) return nullptr;  // a failure is not kept
+        it = st.fetched.emplace(url, std::move(data)).first;
     }
-    if (!it->second) return nullptr;
     std::FILE *fp = std::tmpfile();
     if (fp == nullptr) return nullptr;
-    const std::string &data = *it->second;
+    const std::string &data = it->second;
     if (!data.empty() && std::fwrite(data.data(), 1, data.size(), fp) !=
                              data.size()) {
         std::fclose(fp);
@@ -678,6 +704,213 @@ FilePtr fetch_open(const std::string &url)
 
 } // namespace
 
+// WFDB-x: the high-level writers (write_record, write_annotations) check all
+// their arguments before any file is touched, and write their files so that
+// a failure leaves the existing files intact (1.2.2): while they write
+// (between wfdbx_staging_begin and wfdbx_staging_end), each file that the
+// library opens for writing is written to a temporary file in the directory
+// of its destination (".NAME.XXXXXXXX.tmp", created with owner-only
+// permissions), and the temporary files are renamed over their destinations
+// together once all of them are complete, or removed if anything failed.
+// The library opens the destination by its name as usual (in messages, and
+// for the in-process sorting of annotation files, which reads and rewrites
+// the temporary file: reopening a destination during the staging opens its
+// temporary file).  A destination that exists and is not a regular file (a
+// device such as /dev/full, a FIFO) is opened directly, as before; for a
+// symbolic link, the file it leads to is replaced.  URLs and the standard
+// streams are not staged.  (The equivalent of _staging_begin and the
+// functions that follow it in python/src/wfdbx/_wfdbio.py.)
+namespace {
+
+namespace fs = std::filesystem;
+
+struct Staged {
+    std::string key;    // the destination, as an absolute path
+    std::string tmp;    // its temporary file
+    std::string dest;   // the file it leads to (symbolic links resolved)
+};
+
+struct StagingState {
+    bool active = false;
+    std::vector<Staged> files;      // in the order of their creation
+};
+
+StagingState &staging()
+{
+    static StagingState state;
+    return state;
+}
+
+std::string staged_key(const std::string &fname)
+{
+    std::error_code ec;
+    fs::path p = fs::absolute(fs::path(fname), ec);
+    if (ec) return fname;
+    return p.lexically_normal().string();
+}
+
+Staged *find_staged(const std::string &key)
+{
+    for (Staged &f : staging().files)
+        if (f.key == key) return &f;
+    return nullptr;
+}
+
+#if !defined(_WIN32)
+mode_t current_umask()
+{
+    mode_t m = umask(0);
+    umask(m);
+    return m;
+}
+#endif
+
+// Create an empty temporary file ".BASE.XXXXXXXX.tmp" in the directory
+// `dirpart` (empty or ending with a separator), with owner-only
+// permissions; returns its name, or "" on failure.
+std::string create_staging_temp(const std::string &dirpart,
+                                const std::string &base)
+{
+#if defined(_WIN32)
+    std::random_device rd;
+    for (int attempt = 0; attempt < 100; attempt++) {
+        char suffix[16];
+        std::snprintf(suffix, sizeof suffix, "%08x",
+                      static_cast<unsigned>(rd()));
+        std::string name = dirpart + "." + base + "." + suffix + ".tmp";
+        int fd = -1;
+        if (_sopen_s(&fd, name.c_str(),
+                     _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _SH_DENYNO,
+                     _S_IREAD | _S_IWRITE) == 0) {
+            _close(fd);
+            return name;
+        }
+        if (errno != EEXIST) return std::string();
+    }
+    return std::string();
+#else
+    std::string tmpl = dirpart + "." + base + ".XXXXXXXX.tmp";
+    std::vector<char> buf(tmpl.begin(), tmpl.end());
+    buf.push_back('\0');
+    int fd = mkstemps(buf.data(), 4);
+    if (fd < 0) return std::string();
+    ::close(fd);
+    return std::string(buf.data());
+#endif
+}
+
+// Rename the temporary file `tmp` over `dest`, with the permissions that
+// writing `dest` in place gives: its own if it exists, else those of a new
+// file (0666 less the umask).  Returns false on failure.
+bool replace_with(const std::string &tmp, const std::string &dest)
+{
+    std::error_code ec;
+    fs::file_status st = fs::status(dest, ec);
+    if (!ec && fs::exists(st)) {
+        fs::permissions(tmp, st.permissions() & fs::perms::mask, ec);
+    } else {
+        ec.clear();
+#if !defined(_WIN32)
+        fs::permissions(tmp, static_cast<fs::perms>(0666 & ~current_umask()),
+                        ec);
+#endif
+    }
+    if (ec) return false;
+    fs::rename(tmp, dest, ec);
+    return !ec;
+}
+
+// Open `fname` (a destination; mode "rb", "wb" or "ab") while staging: the
+// temporary file that stands for it, created for "wb" and "ab" if there is
+// none yet.  Sets `staged` to false if fname is not staged ("rb" of a file
+// not written here, or a destination that is not a regular file), which is
+// then opened as usual; returns nullptr (with `staged` true) if the
+// temporary file cannot be created or opened.
+FilePtr staged_open(const char *fname, const char *mode, bool &staged)
+{
+    staged = true;
+    const std::string key = staged_key(fname);
+    Staged *f = find_staged(key);
+    if (!f) {
+        if (mode[0] == 'r') {
+            staged = false;
+            return nullptr;
+        }
+        std::error_code ec;
+        fs::path dp = fs::weakly_canonical(fs::path(key), ec);
+        std::string dest = ec ? key : dp.string();
+        if (fs::is_directory(dest, ec)) return nullptr;
+        ec.clear();
+        fs::file_status st = fs::status(dest, ec);
+        if (!ec && fs::exists(st) && !fs::is_regular_file(st)) {
+            staged = false;
+            return nullptr;
+        }
+        std::string dirpart = wfdbx_dirname(dest);
+        std::string base = dest.substr(dirpart.size());
+        ec.clear();
+        if (!dirpart.empty() && !fs::is_directory(dirpart, ec)) {
+            // (missing directories are created, as wfdb_fopen does)
+            std::string p(fname);
+            for (size_t i = 0; i < p.size(); i++)
+                if (p[i] == '/') (void)MKDIR(p.substr(0, i).c_str());
+        }
+        std::string tmp = create_staging_temp(dirpart, base);
+        if (tmp.empty()) return nullptr;
+        staging().files.push_back({key, tmp, dest});
+        f = &staging().files.back();
+    }
+    std::FILE *fp = std::fopen(f->tmp.c_str(), mode);
+    if (!fp) return nullptr;
+    return std::make_unique<WFDBFile>(fp, false, WFDB_LOCAL, mode[0] != 'r');
+}
+
+} // namespace
+
+void wfdbx_staging_begin()
+{
+    staging().active = true;
+    staging().files.clear();
+}
+
+bool wfdbx_is_staged(const std::string &fname)
+{
+    return staging().active && !fname.empty() &&
+           find_staged(staged_key(fname)) != nullptr;
+}
+
+bool wfdbx_staging_commit_one(const std::string &fname)
+{
+    StagingState &st = staging();
+    if (!st.active || fname.empty()) return false;
+    const std::string key = staged_key(fname);
+    for (size_t i = 0; i < st.files.size(); i++)
+        if (st.files[i].key == key) {
+            Staged f = st.files[i];
+            st.files.erase(st.files.begin() + static_cast<long>(i));
+            if (replace_with(f.tmp, f.dest)) return true;
+            std::remove(f.tmp.c_str());
+            return false;
+        }
+    return false;
+}
+
+bool wfdbx_staging_end(bool commit)
+{
+    StagingState &st = staging();
+    if (!st.active) return commit;
+    std::vector<Staged> files;
+    files.swap(st.files);
+    st.active = false;
+    bool ok = commit;
+    for (const Staged &f : files) {
+        if (ok && replace_with(f.tmp, f.dest)) continue;
+        ok = false;
+        std::remove(f.tmp.c_str());
+    }
+    return ok;
+}
+
 FilePtr wfdb_fopen(const char *fname, const char *mode)
 {
     if (fname == nullptr) return nullptr;
@@ -686,8 +919,25 @@ FilePtr wfdb_fopen(const char *fname, const char *mode)
         // ".." or "://" are refused.
         if (std::strstr(fname, "..") || std::strstr(fname, "://"))
             return nullptr;
-    } else if (is_url(fname))   // WFDB-x: ".." is accepted; a URL is fetched
+    } else if (is_url(fname)) { // WFDB-x: ".." is accepted; a URL is fetched
         return mode[0] == 'r' ? fetch_open(fname) : nullptr;
+    } else if (has_scheme(fname)) {
+        // WFDB-x: a name with any other URL scheme (ftp://, sftp://,
+        // file://, ...) is refused, with a message the first time
+        IOState &st = io();
+        if (!st.scheme_warned) {
+            st.scheme_warned = true;
+            wfdb_error("WFDB-x: can't open %s: only http:// and https:// URLs "
+                       "can be read (mount the server as a local folder, or "
+                       "download the files)\n", fname);
+        }
+        return nullptr;
+    }
+    if (staging().active) {     // WFDB-x: a high-level writer's file
+        bool staged;
+        FilePtr f = staged_open(fname, mode, staged);
+        if (staged) return f;
+    }
     if (mode[0] == 'r' && is_directory(fname)) return nullptr;
     bool out = mode[0] != 'r';
     std::FILE *fp = std::fopen(fname, mode);
@@ -849,7 +1099,7 @@ std::optional<std::string> wfdbx_output_file(const char *name)
     if (name == nullptr || *name == '\0' || std::strcmp(name, "-") == 0)
         return std::nullopt;
     std::string r = expand_record(name);
-    if (is_url(r)) return std::nullopt;
+    if (has_scheme(r)) return std::nullopt;
     return resolve(r, true);
 }
 
@@ -1189,7 +1439,7 @@ std::optional<std::string> wfdbx_set_output_dir(const char *dir)
 {
     IOState &st = io();
     init_output_dir();
-    if (dir && is_url(dir)) {
+    if (dir && has_scheme(dir)) {
         wfdb_error("%s", output_url_error);
         return st.output_dir;
     }
@@ -1236,7 +1486,7 @@ std::optional<std::string> wfdbx_input_path(const char *name)
     if (*name == '\0' || std::strcmp(name, "-") == 0 || wfdbx_get_legacy())
         return std::string(name);
     std::string r = resolve(name, false);
-    if (is_url(r)) return std::nullopt;
+    if (has_scheme(r)) return std::nullopt;
     return r;
 }
 
@@ -1252,6 +1502,7 @@ std::optional<std::string> wfdbx_output_path(const char *name)
         prefixed = st.output_dir.has_value();
         r = prefixed ? *st.output_dir + DSEP + name : std::string(name);
     } else {
+        if (has_scheme(name)) return std::nullopt;
         prefixed = st.output_dir && name[0] != '~' && !is_absolute_path(name);
         r = resolve(name, true);
     }

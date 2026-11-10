@@ -19,7 +19,10 @@
 # never searched for, and a name that leaves that directory is refused; an
 # output signal file is never one of the input files of the open record; a
 # header written under a path names the record, its signal files and its
-# segments relative to its own directory; FLAC signal files are read and
+# segments relative to its own directory; getinfo finds the record line as
+# the header parser does (an empty or blank line before it is not taken for
+# it); a sample that cannot be read is recorded (.sig$read_failed) for the
+# high-level readers; FLAC signal files are read and
 # written with WFDB-x's FLAC codec (flac.R) instead of libFLAC; additions:
 # wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args, wfdbx_time_needs_freq,
 # getframes and putframes; legacy mode (wfdbx_set_legacy) restores the original
@@ -106,6 +109,13 @@ sig_reset <- function() {
   # WFDB-x: TRUE while a high-level reader reads (getvec's checksum message
   # is then not printed: the reader warns instead)
   st$cksum_quiet <- FALSE
+  # WFDB-x: set to TRUE by .getskewedframe when a sample cannot be read
+  # (getvec status -3: a signal file that ends before the length that its
+  # header gives, a decoder or I/O error, a segment that cannot be opened),
+  # whatever status getvec then returns (a checksum error, -4, found in the
+  # same frame replaces -3).  The high-level readers clear it before
+  # reading and treat it as a read error; the C-style functions only set it.
+  st$read_failed <- FALSE
   st$msbtime <- 0
   st$msbdate <- 0
   st$msnsamples <- 0
@@ -1616,9 +1626,11 @@ wfdbx_legacy_args <- function(argv) {
         ig$count <- 0
         if (ig$stat == -2) {
           stat <- -3
+          st$read_failed <- TRUE        # WFDB-x (see sig_reset)
         } else if (info$nsamp > 0) {
           wfdb_error("getvec: unexpected EOF in signal %d\n", s)
           stat <- -3
+          st$read_failed <- TRUE
         } else if (st$in_msrec && !is.null(st$segarray) && st$segp < st$segend) {
           st$segp <- st$segp + 1
           # (the samples read so far stay in the frame, as C writes them
@@ -1627,6 +1639,7 @@ wfdbx_legacy_args <- function(argv) {
           if (.isigopen(st$segarray[[st$segp + 1]]$recname, st$nvsig)$nsig <= 0) {
             wfdb_error("getvec: error opening segment %s\n",
                        st$segarray[[st$segp + 1]]$recname)
+            st$read_failed <- TRUE
             return(list(stat = -3, v = vec))
           } else {
             st$istime <- st$segarray[[st$segp + 1]]$samp0
@@ -2864,8 +2877,25 @@ putinfo <- function(s) {
   b[seq_len(n)]
 }
 
+# TRUE if readheader skips the line b (byte codes, up to a NUL) when it
+# looks for the record line (WFDB-x): the line has no token (separated by
+# spaces, tabs, CRs and LFs), or its first token begins with '#'.  (VT and
+# FF are token characters, as in readheader's strtok.)
+.comment_or_blank <- function(b) {
+  k <- which(!(b %in% c(32L, 9L, 10L, 13L)))
+  !length(k) || b[k[1L]] == 35L
+}
+
 #' The next info string of a record (getinfo(record) starts with the first
 #' one, getinfo(NULL) gives the next); NULL when there are no more.
+#' The record line is found as the header parser (readheader) finds it:
+#' the first line that has a token (separated by spaces, tabs, CRs and LFs)
+#' that does not begin with '#'; every later line that begins with '#' is
+#' an info string, and a header with no record line has none (WFDB-x: the
+#' C function takes the first line that does not begin with '#', so that an
+#' empty or blank line before the record line is taken for it, and the
+#' comments between them are returned as info strings; in legacy mode, the
+#' C rule applies).  The .info file is read in every case.
 getinfo <- function(record = NULL) {
   st <- .sig
   if (!is.null(record)) wfdb_freeinfo()
@@ -2888,17 +2918,29 @@ getinfo <- function(record = NULL) {
         # (as in wfdb_getline(), the buffer keeps its previous contents
         # when the end of the file is reached)
         buf <- integer(0)
+        legacy <- wfdbx_get_legacy()
+        found <- FALSE
         repeat {
           line <- .hline(ifile)
           if (is.null(line)) break
           buf <- line
-          if (!(length(buf) && buf[1L] == 35L)) break
+          if (legacy) {
+            if (!(length(buf) && buf[1L] == 35L)) break
+          } else if (!.comment_or_blank(buf)) {
+            # WFDB-x: the record line, as readheader finds it
+            found <- TRUE
+            break
+          }
         }
-        repeat {
-          line <- .hline(ifile)
-          if (is.null(line)) break
-          buf <- line
-          if (length(buf) && buf[1L] == 35L) break
+        if (!legacy && !found) {
+          buf <- integer(0)           # WFDB-x: no record line, no info
+        } else {
+          repeat {
+            line <- .hline(ifile)
+            if (is.null(line)) break
+            buf <- line
+            if (length(buf) && buf[1L] == 35L) break
+          }
         }
         while (length(buf)) {
           if (buf[1L] == 35L) add(buf)
@@ -3961,13 +4003,18 @@ wfdb_freeinfo <- function() {
 #' smaller than the number of signals in a segment that lacks some of them.)
 getframes <- function(n, minstat = 0) .getframes(n, minstat)
 
-# getframes; with keep_checksum_frame (WFDB-x, for the high-level reader),
+# getframes; with keep_checksum_frame (WFDB-x, for the high-level readers),
 # a vector for which getvec returns -4 (a checksum error: the samples are
 # valid, their sum does not match the header) is included in the matrix and
 # reading continues (in high-resolution mode, getvec returns -4 for each
 # of the vectors of the frame at which the checksum is verified); stat is
 # then -4 unless reading stops at a status below -1.  (.bulk_frames never
-# decodes that frame.)
+# decodes that frame.)  But if a sample could not be read (.sig$read_failed,
+# which the caller clears before reading, is set), the vector is not
+# included, whatever status getvec returned, reading stops, and stat is -3
+# (getvec returns -4 for a frame in which a signal file ended early, if the
+# checksum of a signal is verified at that frame): an incomplete frame is
+# never returned.
 # (the vector of the getvec calls that a bulk block stands for: the next
 # getvec call starts from it, as C's caller passes the same vector again, and
 # leaves the samples it does not read unchanged)
@@ -4022,6 +4069,11 @@ getframes <- function(n, minstat = 0) .getframes(n, minstat)
       r <- .getvec(st$gvec)
       st$gvec <- r$v
       stat <- r$stat
+      if (keep_checksum_frame && st$read_failed) {
+        # WFDB-x: an incomplete frame is never returned
+        if (stat == -4 || stat >= -1) stat <- -3
+        break
+      }
       if (stat == -4 && keep_checksum_frame) {
         cksum_err <- TRUE
       } else if (stat < minstat || stat < 0) {

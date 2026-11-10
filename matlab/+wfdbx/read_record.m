@@ -63,19 +63,32 @@ function rec = read_record(record, varargin)
 %     base_time_ms  start time in milliseconds after midnight (50403500 for
 %                 14:00:03.500), or []
 %     base_date   start date as [year month day], or []
-%     comments    the info strings of the header (a cell column)
+%     comments    the info strings of the header (a cell column): its
+%                 lines that begin with '#' after the record line (found as
+%                 the header parser finds it: an empty or blank first line
+%                 is not the record line; in legacy mode, as the C function
+%                 getinfo() finds it), without the '#'
 %     checksum_ok false if the data do not match the header's checksums
 %
 %   Errors: an error (identifier 'wfdbx:read_record') is thrown if the
 %   record cannot be read, if a signal file is shorter than its header says
-%   ("can't read signal data of record REC (getvec status -3)"), if a
+%   or cannot be read ("can't read signal data of record REC (getvec status
+%   -3)"), even if the checksums do not match either: no incomplete frame
+%   is ever returned; if a
 %   requested signal does not exist, if 'sampfrom' is negative, if
 %   'sampfrom' or 'sampto' is not a whole number (a fraction, NaN or an
-%   infinite value), if a time
-%   string needs the sampling frequency and the header gives none, or if
-%   'physical' is true and a selected signal is uncalibrated.  If the data do not match the header's
-%   checksums, all the data are returned with the warning 'wfdbx:checksum'.
-%   Checksums are only checked when a read reaches the end of the record.
+%   infinite value: "read_record: sampfrom must be a whole number"), if it
+%   is neither a number nor a time string ("read_record: sampfrom must be
+%   a sample number or a time string"), if a time string needs the
+%   sampling frequency and the header gives none, or if 'physical' is
+%   true and a selected signal is uncalibrated.  If the data do not match
+%   the header's checksums (and every sample could be read), all the data
+%   are returned with the warning 'wfdbx:checksum'.  Checksums are only
+%   checked when a read reaches the end of the record.
+%
+%   The memory allocated in advance does not depend on the length that the
+%   header gives (which may be far more than the signal files hold): the
+%   frames are read in chunks of about 2^22 samples, joined at the end.
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
 %   WFDB library functions; whatever happens, errors included, the input
@@ -129,8 +142,8 @@ legacy = wfdbx.internal.hl_legacy(opt.legacy, 'read_record'); %#ok<NASGU>
 restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, 'read_record'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 opt.legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
-check_sample_number(opt.sampfrom, 'sampfrom');
-check_sample_number(opt.sampto, 'sampto');
+wfdbx.internal.hl_sample_number(opt.sampfrom, 'sampfrom', 'read_record');
+wfdbx.internal.hl_sample_number(opt.sampto, 'sampto', 'read_record');
 if isnumeric(opt.sampfrom) && any(opt.sampfrom(:) < 0)
     error('wfdbx:read_record', 'read_record: sampfrom must not be negative');
 end
@@ -251,15 +264,21 @@ CHUNK = max(CHUNK - mod(CHUNK, unit), unit);
 parts = {};
 cksum_error = false;
 S.cksum_quiet = true;       % (getvec's checksum message: see below)
+% WFDB-x: a sample that cannot be read is an error, whatever status getvec
+% returns: a checksum error is found in the frame in which a signal file
+% ended early, and its status (-4) replaces -3; the incomplete frame is not
+% returned (see wfdbx.getframes)
+S.read_failed = false;
 quiet = onCleanup(@() set_cksum_quiet(S, false)); %#ok<NASGU>
 while remaining > 0
     n = min(CHUNK, remaining);
-    [x, stat, last] = wfdbx.getframes(n);
+    [x, stat, last] = wfdbx.getframes(n, 0, true);
     % WFDB-x: -4, a checksum error: the samples are valid (the vector for
     % which getvec returned -4 included), only their sum does not match
     % the header: a warning (see below), not an error.  In high-resolution
     % mode getvec returns -4 for each sample vector of the frame at which
-    % the checksums are verified, so the reading continues to -1.
+    % the checksums are verified, so the reading continues to -1.  (If a
+    % sample of that frame could not be read, the status is -3.)
     if stat == -4
         x = [x; last]; %#ok<AGROW>
         cksum_error = true;
@@ -285,6 +304,7 @@ while remaining > 0
     end
 end
 S.cksum_quiet = false;
+S.read_failed = false;
 if cksum_error && opt.checksum_warning
     warning('wfdbx:checksum', ['checksum error in record %s: the signal ' ...
         'data do not match the checksums in its header'], record);
@@ -343,20 +363,7 @@ rec.checksum_ok = ~cksum_error;
 end
 
 function set_cksum_quiet(S, on)
+% (also clears the flag read_failed: see above)
 S.cksum_quiet = on;
-end
-
-function check_sample_number(t, name)
-% WFDB-x: a sample number (T numeric) must be a whole number within the
-% range of WFDB_Time; a fraction, NaN or an infinite value is an error.
-% [] (sampto: the end of the record) and time strings are not checked here.
-if isnumeric(t) && ~isempty(t)
-    if ~isscalar(t) || ~isreal(t) || ~isfinite(t) || t ~= fix(t)
-        error('wfdbx:read_record', 'read_record: %s must be a whole number', name);
-    end
-    if abs(double(t)) >= 2^63
-        error('wfdbx:read_record', ...
-            'read_record: %s is beyond the range of a 64-bit integer', name);
-    end
-end
+S.read_failed = false;
 end

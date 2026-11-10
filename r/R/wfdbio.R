@@ -20,6 +20,8 @@
 # program or R's url(); the original's HTTP and FTP code (NETFILES) is not
 # translated; ".." is accepted in names, and only the last component of a
 # record name is checked; write errors are counted (wfdbx_write_errors);
+# while a high-level writer writes, its output files are written to
+# temporary files that replace them when complete (.staging_begin);
 # additions: wfdbx_set_input_dir, wfdbx_get_input_dir, wfdbx_set_output_dir,
 # wfdbx_get_output_dir, wfdbx_set_network, wfdbx_get_network,
 # wfdbx_write_errors and wfdbx_note_write_error; legacy mode (wfdbx_set_legacy) restores the original
@@ -100,7 +102,14 @@ wfdbio_reset <- function() {
   st$network <- NULL           # (NULL: not read yet)
   st$env_network <- FALSE
   st$network_warned <- FALSE
-  st$fetched <- new.env(parent = emptyenv())  # URL -> contents (raw), or FALSE
+  st$scheme_warned <- FALSE    # (see wfdb_fopen)
+  st$fetched <- new.env(parent = emptyenv())  # URL -> contents (raw)
+  # WFDB-x: the output files of a high-level writer, written to temporary
+  # files (see .staging_begin): destination key -> temporary file, or NULL
+  # when no writer is staging its files; and destination key -> the file
+  # it leads to
+  st$staging <- NULL
+  st$staging_dest <- NULL
   invisible()
 }
 wfdbio_reset()
@@ -390,6 +399,13 @@ wfdbfile <- function(s, record) {
 # WFDB-x: TRUE if s is an http:// or https:// URL.
 .is_url <- function(s) startsWith(s, "http://") || startsWith(s, "https://")
 
+# WFDB-x: TRUE if s begins with a URL scheme followed by "://": a letter,
+# then at least one letter, digit, '+', '-' or '.' (http://, https://,
+# ftp://, sftp://, file://, ...).  A drive letter (C:) is not a scheme.  In
+# normal mode, a name with a scheme is a URL, never a local file name, and
+# only an http:// or https:// URL can be read (see wfdb_fopen).
+.has_scheme <- function(s) grepl("^[A-Za-z][A-Za-z0-9+.-]+://", s, useBytes = TRUE)
+
 # WFDB-x: TRUE for the bytes (integer codes) that are directory separators
 # ('/', and on MS-Windows '\\').
 .is_dsep <- function(c) c == 47L | (.Platform$OS.type == "windows" & c == 92L)
@@ -465,7 +481,7 @@ wfdbx_get_input_dir <- function() {
     st$output_dir_init <- TRUE
     v <- cgetenv("WFDBX_OUTPUT_DIR")
     if (!is.null(v) && nzchar(v)) {
-      if (.is_url(v)) wfdb_error(.OUTPUT_URL_ERROR) else st$env_output_dir <- st$output_dir <- v
+      if (.has_scheme(v)) wfdb_error(.OUTPUT_URL_ERROR) else st$env_output_dir <- st$output_dir <- v
     }
   }
   invisible()
@@ -477,13 +493,14 @@ wfdbx_get_input_dir <- function() {
 #' dir/name (in legacy mode, any name); dir may be relative to the current
 #' directory or a ~ name.  NULL or "" restores the default: the value of
 #' the environment variable WFDBX_OUTPUT_DIR if it is set, otherwise none
-#' (files are created as named).  A URL is refused: an error is reported,
+#' (files are created as named).  A URL (any name that begins with a URL
+#' scheme, such as https:// or ftp://) is refused: an error is reported,
 #' the setting is unchanged, and its current value is returned.  Not reset
 #' by wfdbquit.
 wfdbx_set_output_dir <- function(dir) {
   .init_output_dir()
   st <- .wfdb_io
-  if (!is.null(dir) && nzchar(dir) && .is_url(dir)) {
+  if (!is.null(dir) && nzchar(dir) && .has_scheme(dir)) {
     wfdb_error(.OUTPUT_URL_ERROR)
     return(invisible(st$output_dir))
   }
@@ -506,9 +523,13 @@ wfdbx_get_output_dir <- function() {
 #' otherwise forbidden.  Remote files are read in full (by the system
 #' program curl, or base R's url() without it: redirects are followed, an
 #' HTTP status of 400 or more is a failure, and reading gives up if
-#' connecting takes 30 s or no data arrives for 30 s) and kept for the rest of the process (each URL
-#' is requested at most once).  Never in legacy mode, which reads no remote
-#' files.
+#' connecting takes 30 s or no data arrives for 30 s).  A remote file that
+#' has been read is kept for the rest of the process; one that could not be
+#' read is requested again the next time it is opened.  Only http:// and
+#' https:// URLs can be read: a name that begins with another URL scheme,
+#' such as ftp:// or sftp://, is refused (an error, with or without network
+#' access), and never read as a local file name.  Never in legacy mode,
+#' which reads no remote files.
 wfdbx_set_network <- function(on) {
   previous <- wfdbx_get_network()
   st <- .wfdb_io
@@ -599,7 +620,7 @@ wfdbx_note_write_error <- function() {
 # one is set.
 .resolve <- function(name, output) {
   if (startsWith(name, "~")) return(.expand_home(name))
-  if (.is_absolute_path(name) || .is_url(name)) return(name)
+  if (.is_absolute_path(name) || .has_scheme(name)) return(name)
   if (output) {
     .init_output_dir()
     d <- .wfdb_io$output_dir
@@ -615,7 +636,7 @@ wfdbx_note_write_error <- function() {
 # header's directory or below it: a relative name that does not begin with
 # '~' and has no ".." component (on MS-Windows, no drive letter either).
 .in_header_dir <- function(name) {
-  if (.is_absolute_path(name) || .is_url(name) || startsWith(name, "~")) return(FALSE)
+  if (.is_absolute_path(name) || .has_scheme(name) || startsWith(name, "~")) return(FALSE)
   if (.Platform$OS.type == "windows") {
     if (substr(name, 2L, 2L) == ":") return(FALSE)
     name <- gsub("\\\\", "/", name, useBytes = TRUE)
@@ -726,7 +747,7 @@ wfdbx_note_write_error <- function() {
 .output_file <- function(name) {
   if (is.null(name) || !nzchar(name) || name == "-") return(NULL)
   r <- .expand_record(name)
-  if (.is_url(r)) return(NULL)
+  if (.has_scheme(r)) return(NULL)
   .resolve(r, TRUE)
 }
 
@@ -745,13 +766,14 @@ wfdbx_note_write_error <- function() {
 #' themselves, such as the -i file of wrsamp.  name: a file name; "" and
 #' "-" (the standard input, if the program treats it so) are returned as
 #' given.  Returns the path to open, or NULL if name is NULL or a URL, or
-#' becomes one when the input directory is prefixed to it: such a file
+#' becomes one when the input directory is prefixed to it (in normal mode,
+#' any name that begins with a URL scheme, such as ftp://): such a file
 #' cannot be opened in this way.
 wfdbx_input_path <- function(name) {
   if (is.null(name) || .is_url(name)) return(NULL)
   if (!nzchar(name) || name == "-" || wfdbx_get_legacy()) return(name)
   r <- .resolve(name, FALSE)
-  if (.is_url(r)) NULL else r
+  if (.has_scheme(r)) NULL else r
 }
 
 #' The path under which a program creates a file that it writes itself,
@@ -766,8 +788,8 @@ wfdbx_input_path <- function(name) {
 #' the library.  The tools use it for the files they create themselves,
 #' such as the WAV file of mit2wav.  name: a file name; "" and "-" (the
 #' standard output, if the program treats it so) are returned as given.
-#' Returns the path to create, or NULL if name is NULL or a URL (which
-#' cannot be written).
+#' Returns the path to create, or NULL if name is NULL or a URL (in normal
+#' mode, any name that begins with a URL scheme), which cannot be written.
 wfdbx_output_path <- function(name) {
   if (is.null(name) || .is_url(name)) return(NULL)
   if (!nzchar(name) || name == "-") return(name)
@@ -777,6 +799,7 @@ wfdbx_output_path <- function(name) {
     if (is.null(d)) return(name)
     r <- paste0(d, "/", name)
   } else {
+    if (.has_scheme(name)) return(NULL)
     if (is.null(d) || startsWith(name, "~") || .is_absolute_path(name))
       return(.resolve(name, TRUE))
     r <- .resolve(name, TRUE)
@@ -888,8 +911,9 @@ wfdb_open <- function(s, record, mode) {
   if (fname %in% c("stdin", "clipboard") || startsWith(fname, "~")) paste0("./", fname) else fname
 }
 
-# WFDB-x: read a remote file in full (once per process; failures are
-# remembered too): its contents (raw), or NULL.  As in WFDB-x's other
+# WFDB-x: read a remote file in full (once per process; a failure is not
+# kept, so the next call requests the URL again): its contents (raw), or
+# NULL.  As in WFDB-x's other
 # implementations, the system program curl reads it, following redirects,
 # failing for an HTTP status >= 400, and giving up if connecting takes
 # WFDBX_NET_TIMEOUT seconds or no data arrives for WFDBX_NET_TIMEOUT seconds,
@@ -899,12 +923,10 @@ wfdb_open <- function(s, record, mode) {
 # whole transfer, so none is set then.
 .fetch <- function(u) {
   cache <- .wfdb_io$fetched
-  if (exists(u, envir = cache, inherits = FALSE)) {
-    v <- get(u, envir = cache, inherits = FALSE)
-    return(if (is.raw(v)) v else NULL)
-  }
+  if (exists(u, envir = cache, inherits = FALSE))
+    return(get(u, envir = cache, inherits = FALSE))
   data <- if (nzchar(Sys.which("curl"))) .fetch_curl(u) else .fetch_url(u)
-  assign(u, if (is.null(data)) FALSE else data, envir = cache)
+  if (!is.null(data)) assign(u, data, envir = cache)
   data
 }
 
@@ -959,7 +981,9 @@ wfdb_open <- function(s, record, mode) {
 
 #' Open a file by name ("rb", "wb" or "ab"); returns a WFDB_FILE or NULL.
 #' An http:// or https:// URL can only be read, if network access is
-#' allowed (WFDB-x; see wfdbx_set_network).  For output, missing
+#' allowed (WFDB-x; see wfdbx_set_network); a name with another URL scheme
+#' (ftp://, sftp://, file://, ...) is refused, with a message the first
+#' time.  For output, missing
 #' directories are created (as C does).  In legacy mode, names containing
 #' ".." or "://" are refused (as by the reference C library, built without
 #' network support).
@@ -970,8 +994,21 @@ wfdb_fopen <- function(fname, mode) {
     if (grepl("..", fname, fixed = TRUE) || grepl("://", fname, fixed = TRUE)) return(NULL)
   } else if (.is_url(fname)) {
     return(if (m == "r") .fetch_open(fname) else NULL)
+  } else if (.has_scheme(fname)) {
+    st <- .wfdb_io
+    if (!st$scheme_warned) {
+      st$scheme_warned <- TRUE
+      wfdb_error(paste0("WFDB-x: can't open %s: only http:// and https:// URLs can be read ",
+                        "(mount the server as a local folder, or download the files)\n"),
+                 fname)
+    }
+    return(NULL)
   }
   rn <- .rfile_name(fname)
+  if (!is.null(.wfdb_io$staging)) {     # WFDB-x: a high-level writer's file
+    f <- .staged_open(fname, mode)
+    if (!isFALSE(f)) return(f)
+  }
   if (m == "r") {
     if (!file.exists(rn) || dir.exists(rn)) return(NULL)
     con <- tryCatch(suppressWarnings(file(rn, open = "rb", raw = TRUE)),
@@ -999,6 +1036,198 @@ wfdb_fopen <- function(fname, mode) {
                      if (.is_absolute_path(rn)) rn else file.path(getwd(), rn))
   if (m == "a") f$wpos <- suppressWarnings(file.size(rn))
   f
+}
+
+# ---------------------------------------------------------------------------
+# WFDB-x: the high-level writers (write_record, write_annotations) check all
+# their arguments before any file is touched, and write their files so that
+# a failure leaves the existing files intact (1.2.2): while they write
+# (.staging_begin to .staging_end), each file that the library creates is
+# written to a temporary file in the directory of its destination
+# (".NAME.XXXXXXXX.tmp", created with owner-only permissions before
+# anything is written to it), and the temporary files are renamed over
+# their destinations together once all of them are complete, with the
+# permissions of the files they replace (or those of a new file, 0666 less
+# the umask), or removed if anything failed.  The library opens the
+# destination by its name as usual (in messages, and for the in-process
+# sorting of annotation files, which reads and rewrites the temporary
+# file).  A destination that exists and is not a regular file (a device
+# such as /dev/full, a FIFO) is opened directly, as before; for a symbolic
+# link, the file it leads to is replaced.  URLs and the standard output are
+# never staged.
+
+#' Start staging the output files (see above).
+.staging_begin <- function() {
+  .wfdb_io$staging <- character(0)          # destination key -> temporary file
+  .wfdb_io$staging_dest <- character(0)     # destination key -> the file it leads to
+  invisible()
+}
+
+# The absolute path of fname (".." and "." resolved, symbolic links kept):
+# the key of a staged destination.
+.staged_key <- function(fname) {
+  p <- .rfile_name(fname)
+  if (.Platform$OS.type == "windows") return(normalizePath(p, winslash = "/", mustWork = FALSE))
+  if (!.is_absolute_path(p)) p <- paste0(getwd(), "/", p)
+  parts <- strsplit(p, "/", fixed = TRUE)[[1L]]
+  out <- character(0)
+  for (x in parts) {
+    if (!nzchar(x) || x == ".") next
+    if (x == "..") {
+      if (length(out)) out <- out[-length(out)]
+    } else {
+      out <- c(out, x)
+    }
+  }
+  paste0("/", paste(out, collapse = "/"))
+}
+
+# The file that the path p (absolute) leads to: symbolic links resolved,
+# also a link to a file that does not exist yet.
+.staged_realpath <- function(p) {
+  for (i in seq_len(40L)) {
+    if (file.exists(p)) return(normalizePath(p, winslash = "/", mustWork = FALSE))
+    l <- Sys.readlink(p)
+    if (is.na(l) || !nzchar(l)) break
+    p <- if (.is_absolute_path(l)) l else paste0(dirname(p), "/", l)
+  }
+  d <- dirname(p)
+  if (dir.exists(d)) paste0(normalizePath(d, winslash = "/", mustWork = FALSE), "/", basename(p)) else p
+}
+
+# TRUE if the existing file p is not a regular file (a device, a FIFO, a
+# socket).  (Base R does not give the type of a file: such files have a
+# size of 0, and only then is the test program asked.)
+.not_regular_file <- function(p) {
+  if (.Platform$OS.type == "windows") return(FALSE)
+  sz <- suppressWarnings(file.size(p))
+  if (is.na(sz) || sz > 0) return(FALSE)
+  st <- tryCatch(suppressWarnings(system2("test", c("-f", shell_quote(p)), stdout = FALSE,
+                                          stderr = FALSE)),
+                 error = function(e) 0L)
+  !identical(as.integer(st), 0L)
+}
+
+# Create a new, empty temporary file ".BASENAME.XXXXXXXX.tmp" in the
+# directory of dest, with owner-only permissions (0600) from its creation,
+# so that what is written to it (a header may hold patient data) is never
+# readable by other users; its path, or NULL if it cannot be created.
+.wfdbx_temp_file <- function(dest) {
+  d <- dirname(dest)
+  old <- Sys.umask("077")
+  on.exit(Sys.umask(old))
+  for (i in seq_len(100L)) {
+    # (tempfile's random part, not R's random number generator)
+    x <- basename(tempfile(""))
+    x <- substr(x, max(1L, nchar(x) - 7L), nchar(x))
+    tmp <- paste0(d, "/.", basename(dest), ".", x, ".tmp")
+    l <- Sys.readlink(tmp)
+    if (file.exists(tmp) || (!is.na(l) && nzchar(l))) next
+    ok <- tryCatch(suppressWarnings(file.create(tmp, showWarnings = FALSE)),
+                   error = function(e) FALSE)
+    if (!isTRUE(ok)) return(NULL)
+    Sys.chmod(tmp, "600", use_umask = FALSE)
+    return(tmp)
+  }
+  NULL
+}
+
+# Give the temporary file tmp the permissions that writing dest in place
+# gives (its own if it exists, else those of a new file: 0666 less the
+# umask) and rename it over dest; TRUE if done.
+.wfdbx_replace_with <- function(tmp, dest) {
+  mode <- if (file.exists(dest)) file.info(dest)$mode else
+    as.octmode(bitwAnd(438L, bitwNot(as.integer(Sys.umask(NA)))))
+  if (is.na(mode)) return(FALSE)
+  isTRUE(Sys.chmod(tmp, mode, use_umask = FALSE)) &&
+    isTRUE(suppressWarnings(file.rename(tmp, dest)))
+}
+
+.staged_unlink <- function(p) {
+  tryCatch(suppressWarnings(unlink(p)), error = function(e) NULL)
+  invisible()
+}
+
+# Open fname (a destination; mode "rb", "wb" or "ab") while staging: the
+# temporary file that stands for it, created for "wb" and "ab" if there is
+# none yet; NULL if it cannot be created; FALSE if fname is not staged
+# ("rb" of a file not written here, or a destination that is not a regular
+# file), and is opened as usual.
+.staged_open <- function(fname, mode) {
+  st <- .wfdb_io
+  m <- substr(mode, 1L, 1L)
+  key <- .staged_key(fname)
+  tmp <- st$staging[key]
+  if (is.na(tmp)) {
+    if (m == "r") return(FALSE)
+    dest <- .staged_realpath(key)
+    if (dir.exists(dest)) return(NULL)
+    if (file.exists(dest) && .not_regular_file(dest)) return(FALSE)
+    if (!dir.exists(dirname(dest))) {
+      # (missing directories are created, as wfdb_fopen does)
+      b <- charToRaw(fname)
+      for (k in which(b == as.raw(47L))) {
+        dd <- if (k > 1L) rawToChar(b[seq_len(k - 1L)]) else ""
+        if (nzchar(dd) && !file.exists(dd))
+          suppressWarnings(dir.create(dd, showWarnings = FALSE, mode = "0755"))
+      }
+      if (!dir.exists(dirname(dest))) return(NULL)
+    }
+    tmp <- .wfdbx_temp_file(dest)
+    if (is.null(tmp)) return(NULL)
+    st$staging[key] <- tmp
+    st$staging_dest[key] <- dest
+  }
+  rmode <- if (m == "r") "rb" else if (m == "a") "ab" else "wb"
+  con <- tryCatch(suppressWarnings(file(tmp, open = rmode, raw = TRUE)),
+                  error = function(e) NULL)
+  if (is.null(con)) return(NULL)
+  f <- wfdb_file_new(con, WFDB_LOCAL, fname, 0L, m, unname(tmp))
+  if (m == "a") f$wpos <- suppressWarnings(file.size(tmp))
+  f
+}
+
+# Rename the temporary file of the staged destination fname over it now
+# (before the end of the staging); TRUE if done.
+.staging_commit_one <- function(fname) {
+  st <- .wfdb_io
+  if (is.null(st$staging) || is.null(fname)) return(FALSE)
+  key <- .staged_key(fname)
+  tmp <- st$staging[key]
+  if (is.na(tmp)) return(FALSE)
+  dest <- st$staging_dest[[key]]
+  st$staging <- st$staging[names(st$staging) != key]
+  st$staging_dest <- st$staging_dest[names(st$staging_dest) != key]
+  if (.wfdbx_replace_with(tmp, dest)) return(TRUE)
+  .staged_unlink(tmp)
+  FALSE
+}
+
+# TRUE if fname is a destination being staged.
+.is_staged <- function(fname) {
+  st <- .wfdb_io$staging
+  !is.null(st) && !is.null(fname) && !is.na(st[.staged_key(fname)])
+}
+
+#' End the staging: if commit, rename every temporary file over its
+#' destination (after all of them are complete) and return TRUE, or, if a
+#' rename fails, remove the temporary files not yet renamed and return
+#' FALSE; otherwise remove them all and return FALSE.
+.staging_end <- function(commit) {
+  st <- .wfdb_io
+  tmps <- st$staging
+  dests <- st$staging_dest
+  st$staging <- NULL
+  st$staging_dest <- NULL
+  ok <- isTRUE(commit)
+  for (key in names(tmps)) {
+    if (ok) {
+      if (.wfdbx_replace_with(tmps[[key]], dests[[key]])) next
+      ok <- FALSE
+    }
+    .staged_unlink(tmps[[key]])
+  }
+  ok
 }
 
 #' Check that a record or annotator name contains only legal characters

@@ -36,7 +36,6 @@ import platform.posix.SEEK_CUR as P_SEEK_CUR
 import platform.posix.close
 import platform.posix.dup
 import platform.posix.errno
-import platform.posix.fchmod
 import platform.posix.fsync
 import platform.posix.isatty
 import platform.posix.lseek
@@ -181,33 +180,119 @@ internal actual object Platform {
 
     actual fun replaceFile(dest: ByteArray, data: ByteArray): Boolean {
         val name = cname(dest)
+        // (owner-only from its creation: the header may hold patient data)
+        val (tmp, fd) = createOwnerOnly(name) ?: return false
+        val f = RawFile(fd, true)
+        var ok = (data.isEmpty() || f.write(data, 0, data.size)) && fsync(fd) == 0
+        if (!f.close()) ok = false
+        if (ok && commit(tmp, name)) return true
+        unlink(tmp)
+        return false
+    }
+
+    actual fun createTempFile(dest: ByteArray): ByteArray? {
+        val (tmp, fd) = createOwnerOnly(cname(dest)) ?: return null
+        close(fd)
+        return tmp.encodeToByteArray()
+    }
+
+    actual fun commitFile(tmp: ByteArray, dest: ByteArray): Boolean = commit(cname(tmp), cname(dest))
+
+    actual fun absolutePath(path: ByteArray): ByteArray? {
+        val p = cname(path)
+        val full = if (p.startsWith("/")) p else (currentDir()?.let { cname(it) } ?: return null) + "/" + p
+        return normalize(full).encodeToByteArray()
+    }
+
+    actual fun realPath(path: ByteArray): ByteArray? {
+        var p = absolutePath(path)?.let { cname(it) } ?: return null
+        resolved(p)?.let { return it.encodeToByteArray() }
+        // (a missing file, or a link to one: the links are followed as far
+        // as they lead, as os.path.realpath does)
+        var n = 0
+        while (n++ < 40) {
+            val target = readLink(p) ?: break
+            val dir = p.substring(0, p.lastIndexOf('/') + 1)
+            p = normalize(if (target.startsWith("/")) target else dir + target)
+        }
+        val slash = p.lastIndexOf('/')
+        val parent = resolved(if (slash <= 0) "/" else p.substring(0, slash))
+        if (parent != null) p = (if (parent == "/") "" else parent) + p.substring(slash)
+        return p.encodeToByteArray()
+    }
+
+    actual fun isSpecialFile(path: ByteArray): Boolean {
+        val m = nativeFileMode(cname(path))
+        if (m < 0) return false
+        val type = m and 0xf000
+        return type != 0x8000 && type != 0x4000 // (S_IFREG, S_IFDIR)
+    }
+
+    /** [p] (absolute) without "." and ".." components and repeated slashes. */
+    private fun normalize(p: String): String {
+        val out = ArrayList<String>()
+        for (c in p.split('/')) {
+            when (c) {
+                "", "." -> {}
+                ".." -> if (out.isNotEmpty()) out.removeAt(out.size - 1)
+                else -> out.add(c)
+            }
+        }
+        return "/" + out.joinToString("/")
+    }
+
+    /** C realpath(p) of an existing file, or null. */
+    private fun resolved(p: String): String? {
+        val r = platform.posix.realpath(p, null) ?: return null
+        val s = r.toKString()
+        platform.posix.free(r)
+        return s
+    }
+
+    /** The target of the symbolic link [p], or null if it is not one. */
+    private fun readLink(p: String): String? {
+        val buf = ByteArray(4096)
+        val n = buf.usePinned { platform.posix.readlink(p, it.addressOf(0), buf.size.convert()) }.toInt()
+        if (n <= 0 || n >= buf.size) return null
+        return buf.copyOf(n).decodeToString()
+    }
+
+    /**
+     * Creates a new file `.NAME.XXXXXXXX.tmp` in the directory of [name],
+     * open for writing, with mode 0600 (owner only) from its creation
+     * (O_CREAT | O_EXCL); its name and descriptor, or null.
+     */
+    private fun createOwnerOnly(name: String): Pair<String, Int>? {
         val slash = name.lastIndexOf('/')
         val dir = name.substring(0, slash + 1)
         val base = name.substring(slash + 1)
-        if (base.isEmpty()) return false
-        var tmp: String? = null
-        var fd = -1
+        if (base.isEmpty()) return null
         for (attempt in 0 until 100) {
             val suffix = CharArray(8) { TMP_CHARS[kotlin.random.Random.nextInt(TMP_CHARS.length)] }.concatToString()
             val cand = "$dir.$base.$suffix.tmp"
-            fd = open(cand, O_WRONLY or O_CREAT or O_EXCL, 438) // 0666 (and the umask), as any new file
-            if (fd >= 0) {
-                tmp = cand
-                break
-            }
-            if (errno != EEXIST) return false
+            val fd = open(cand, O_WRONLY or O_CREAT or O_EXCL, 384) // 0600
+            if (fd >= 0) return Pair(cand, fd)
+            if (errno != EEXIST) return null
         }
-        if (tmp == null) return false
-        val f = RawFile(fd, true)
-        var ok = (data.isEmpty() || f.write(data, 0, data.size)) && fsync(fd) == 0
-        if (ok) {
-            val mode = nativeFileMode(name)
-            if (mode >= 0) fchmod(fd, (mode and 0xfff).convert())
+        return null
+    }
+
+    /**
+     * Gives [tmp] the permission bits that writing [dest] in place would
+     * give (those of dest if it exists, else 0666 less the umask), then
+     * renames it over dest.
+     */
+    private fun commit(tmp: String, dest: String): Boolean {
+        val mode = nativeFileMode(dest)
+        val bits = if (mode >= 0) {
+            mode and 0xfff
+        } else {
+            val m = platform.posix.umask(0.convert())
+            platform.posix.umask(m)
+            438 and m.toInt().inv() // 0666 less the umask
         }
-        if (!f.close()) ok = false
-        if (ok && rename(tmp, name) == 0) return true
-        unlink(tmp)
-        return false
+        if (platform.posix.chmod(tmp, bits.convert()) != 0) return false
+        return rename(tmp, dest) == 0
     }
 
     actual fun pathId(path: ByteArray): FileId? = nativePathId(cname(path))

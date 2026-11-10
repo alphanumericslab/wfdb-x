@@ -7,10 +7,11 @@ function f = fetch_open(url)
 %   is read in full (redirects are followed; an HTTP status of 400 or more
 %   is a failure, and reading gives up if connecting takes 30 s or no data
 %   arrives for 30 s, with no limit on the total time, since record files
-%   can be large), once per process: the
-%   contents, or the failure, are kept for later opens of the same URL.
-%   Failures are silent (the callers print their usual messages).  The
-%   contents are served from a temporary file, deleted when F is closed.
+%   can be large), once per process: the contents are kept for later
+%   opens of the same URL; a failure is not kept, so a later open requests
+%   the URL again.  Failures are silent (the callers print their usual
+%   messages).  The contents are served from a temporary file, deleted
+%   when F is closed.
 %
 %   Part of the translation of lib/wfdbio.c (WFDB 10.7.0).
 
@@ -23,9 +24,9 @@ function f = fetch_open(url)
 % code.
 %
 % Changes from the original: URLs are read only if network access is
-% allowed, once per process, and through curl, webread or websave (the C
-% library used libcurl). Each change is marked "WFDB-x:" in the code;
-% docs/DIVERGENCES.md gives the reasons.
+% allowed, once per process (a failure is not kept), and through curl,
+% webread or websave (the C library used libcurl). Each change is marked
+% "WFDB-x:" in the code; docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/wfdbio.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1988-2013 George B. Moody; revised 2010-2022 by Benjamin
@@ -51,8 +52,10 @@ end
 k = find(strcmp(st.fetched_urls, url), 1);
 if isempty(k)
     data = fetch(url);
-    st.fetched_urls{end+1} = url;
-    st.fetched_data{end+1} = data;
+    if isa(data, 'uint8')       % (a failure is not kept)
+        st.fetched_urls{end+1} = url;
+        st.fetched_data{end+1} = data;
+    end
 else
     data = st.fetched_data{k};
 end

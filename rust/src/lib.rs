@@ -56,7 +56,9 @@
 //! written to the output directory ([`wfdbx_set_output_dir`],
 //! `WFDBX_OUTPUT_DIR`). Both are the current directory unless you set them.
 //! A URL is opened only when network access is on ([`wfdbx_set_network`],
-//! `WFDBX_NETWORK=1`).
+//! `WFDBX_NETWORK=1`), and only `http://` and `https://` URLs can be read: a
+//! name with another URL scheme (`ftp://`, `sftp://`, `file://`, ...) is
+//! refused.
 //!
 //! ## The WFDB library functions
 //!

@@ -14,7 +14,7 @@
 # your option) any later version. See LICENSE.
 #
 # The info strings of a header are its comment lines (lines that begin with
-# '#') after the record line, as the C function getinfo() reads them.  Many
+# '#') after the record line, as the function getinfo() reads them.  Many
 # datasets store facts about the recording in them as "Key: value" pairs,
 # such as "# Age: 63".  The functions of this file read and change such
 # entries; read_header also returns them (its element metadata), and
@@ -26,9 +26,13 @@
 #   a colon.  The key is the text before the first colon, and the value the
 #   rest of the line; spaces, tabs, VT, FF and CR are removed at both ends
 #   of each.  An info string without a colon, or whose key is then empty or
-#   contains '#', is a free comment: never returned, never changed.  Comment
-#   lines before the record line are not info strings.  Only the .hea file
-#   is read, not the .info file that getinfo() also reads.
+#   contains '#', is a free comment: never returned, never changed.  The
+#   record line is the first line that holds something other than white
+#   space (spaces, tabs, CRs, LFs) and does not begin, after white space,
+#   with '#', as the header parser finds it; comment lines (and empty or
+#   blank lines) before it are not info strings, and are never read or
+#   changed.  Only the .hea file is read, not the .info file that getinfo()
+#   also reads.
 # * Keys are compared without regard to letter case (A-Z and a-z only).  If
 #   a header has several entries for a key, reading returns the first, with
 #   a warning; set and update refuse to change that key, and remove removes
@@ -39,9 +43,10 @@
 #   its line (and its line ending); a new one is inserted after the last
 #   info string, or after the last line that is not blank.  Every other
 #   byte of the header is kept.  The new header is written to a temporary
-#   file in the destination's directory, which then replaces the
-#   destination (keeping its permission bits); nothing is written if
-#   nothing changes (unless dir is given).
+#   file in the destination's directory, created with owner-only
+#   permissions (0600), which then replaces the destination (keeping its
+#   permission bits); nothing is written if nothing changes (unless dir is
+#   given).
 #
 # Text is handled as bytes, as in the rest of the package: headers are read
 # as raw vectors, keys and values are taken as their bytes (charToRaw of a
@@ -133,15 +138,29 @@
   list(key = key, value = .md_trim(text[-seq_len(i)]))
 }
 
+# TRUE if the line b (raw, without its line ending) can be the record line,
+# as the header parser of the library (readheader) finds it: up to the
+# first NUL byte, it has a token (separated by spaces, tabs, CRs and LFs)
+# that does not begin with '#'.  (The C function getinfo() takes the first
+# line that does not begin with '#', so an empty or blank line before the
+# record line; WFDB-x's getinfo follows readheader, except in legacy mode.
+# The metadata functions follow readheader in every mode.)
+.md_is_record_line <- function(b) {
+  z <- match(.MD_NUL, b)
+  if (!is.na(z)) b <- b[seq_len(z - 1L)]
+  k <- which(!(b %in% as.raw(c(32, 9, 13, 10))))
+  length(k) > 0L && b[k[1L]] != .MD_HASH
+}
+
 # A parsed header: its lines (content, eol), rec (the index of the record
-# line: the first line that does not begin with '#'; NA if there is none),
+# line: see .md_is_record_line; NA if there is none),
 # info (the indices of the info strings) and entries (a list of
 # list(line, key, value), in file order).
 .md_parse <- function(data) {
   h <- .md_split(data)
   h$data <- data
   starts <- vapply(h$content, .md_starts_hash, NA)
-  rec <- match(FALSE, starts)
+  rec <- match(TRUE, vapply(h$content, .md_is_record_line, NA))
   h$rec <- rec
   h$info <- integer(0)
   h$entries <- list()
@@ -369,10 +388,15 @@
 }
 
 # Write data (raw) to dest through a temporary file in the same directory,
-# which then replaces dest (rename), keeping its permission bits.  The
-# temporary file is removed on any failure (file error).
+# which then replaces dest (rename).  The temporary file is created with
+# owner-only permissions (0600) before anything is written to it, so that
+# the header (which may hold patient data) is never readable by other
+# users meanwhile (WFDB-x); once written, it is given the permissions of
+# dest (or, for a new header, those of a new file: 0666 less the umask),
+# and renamed.  It is removed on any failure (file error).
 .md_write <- function(dest, data, record) {
-  tmp <- tempfile(paste0(".", basename(dest), "."), tmpdir = dirname(dest), fileext = ".tmp")
+  tmp <- .wfdbx_temp_file(dest)
+  if (is.null(tmp)) .md_stop("file", "can't write header for record ", record)
   done <- FALSE
   on.exit(if (!done && file.exists(tmp)) unlink(tmp))
   fail <- function(e) FALSE
@@ -382,13 +406,7 @@
       writeBin(data, con)
       TRUE
     }, finally = close(con))
-    # (a file written by file() has the permissions 0666 without the umask,
-    # as a new header written by the library; an existing one keeps its own)
-    if (w && file.exists(dest)) {
-      mode <- file.info(dest)$mode
-      w <- !is.na(mode) && isTRUE(Sys.chmod(tmp, mode, use_umask = FALSE))
-    }
-    w && isTRUE(file.rename(tmp, dest))
+    w && .wfdbx_replace_with(tmp, dest)
   }, error = fail, warning = fail)
   if (!ok) .md_stop("file", "can't write header for record ", record)
   done <- TRUE

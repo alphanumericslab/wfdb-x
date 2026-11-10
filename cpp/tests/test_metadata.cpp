@@ -261,7 +261,7 @@ WFDBX_TEST(metadata_shared_cases)
         return;
     }
     std::vector<Case> cases = read_cases();
-    CHECK_EQ(cases.size(), size_t(49));
+    CHECK_EQ(cases.size(), size_t(56));
     for (const Case &c : cases) run_case(c);
 }
 

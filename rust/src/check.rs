@@ -523,6 +523,12 @@ impl Wfdb {
                                                    // whose samples the library reads ahead)
         let checked =
             ns > 0 && !self.wfdbx_is_edf() && (0..nsig).all(|s| self.wfdbgetskew(s as u32) == 0);
+        // WFDB-x: a sample that cannot be read ends the reading with status
+        // -3, even in the frame at which a checksum is verified (whose
+        // status, -4, replaces -3 in getvec); that incomplete frame is not
+        // counted, nor are its samples checked (see Wfdb::getvecs_status).
+        self.sig.read_failed = false;
+        self.sig.read_checked = true;
         loop {
             let mut want = rows as i64;
             if checked && residual.is_none() {
@@ -562,6 +568,8 @@ impl Wfdb {
                 break;
             }
         }
+        self.sig.read_failed = false;
+        self.sig.read_checked = false;
         // (with skewed signals, getvec returns the frames of the files less
         // the largest skew)
         let skew = (0..nsig)

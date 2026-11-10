@@ -64,6 +64,12 @@ check_record(record, annotators = character(0), input_dir = NULL,
   (\code{\link{getafreq}}) are left as they were, also after an error
   (opening an EDF record sets both, as in C).
 
+  A signal file that ends before the length that its header gives is
+  reported as \code{"length_short"} (\samp{the signal files end after N
+  frames, before the M given in the header}), also when a checksum is
+  verified at the frame in which it ends; that incomplete frame is not
+  counted, and its samples are not checked (WFDB-x 1.2.2).
+
   It checks for problems similar to those found by Benjamin Moody's
   wfdbcheck (\url{https://github.com/bemoody/wfdbcheck}).
 }

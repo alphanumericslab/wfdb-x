@@ -1,7 +1,9 @@
 """Header metadata: "Key: value" info strings in the header of a record.
 
 The info strings of a header are its comment lines (lines that begin with
-'#') after the record line, as the C function getinfo() reads them. Many
+'#') after the record line, as the function getinfo() reads them. The record
+line is the first line that holds something other than white space and
+does not begin (after white space) with '#', as the header parser finds it. Many
 datasets store facts about the recording in them as "Key: value" pairs, for
 example::
 
@@ -33,8 +35,8 @@ Rules:
   "#Age:45", "# Age: 45" and "#  Age : 45" all give ("Age", "45"). An info
   string without a colon, or whose key is empty or contains '#', is a free
   comment: it is not returned, and it is never changed. Comment lines
-  before the record line are not info strings, and are never read or
-  changed. Only the header file (.hea) is read, not the .info file that
+  (and empty or blank lines) before the record line are not info strings,
+  and are never read or changed. Only the header file (.hea) is read, not the .info file that
   getinfo() also reads.
 * **Keys.** Keys are compared without regard to letter case (A-Z and a-z),
   so get_metadata(record, "age") finds "Age". A header should not hold two
@@ -140,10 +142,16 @@ def _fold(key):
 
 
 def _record_line(lines):
-    """The index of the record line: the first line that does not begin
-    with '#' (as getinfo() reads a header), or None if there is none."""
+    """The index of the record line, or None if there is none: the first
+    line that has a token (separated by spaces, tabs, CRs and LFs, up to a
+    NUL byte) that does not begin with '#', as the header parser of the
+    library (readheader) finds it.  (The C function getinfo() takes the
+    first line that does not begin with '#', so an empty or blank line
+    before the record line; WFDB-x's getinfo follows readheader, except in
+    legacy mode.  The metadata functions follow readheader in every mode.)"""
     for i, ln in enumerate(lines):
-        if not ln.content.startswith(b"#"):
+        t = ln.content.split(b"\0", 1)[0].lstrip(b" \t\r\n")
+        if t and not t.startswith(b"#"):
             return i
     return None
 

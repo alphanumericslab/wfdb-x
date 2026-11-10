@@ -373,10 +373,15 @@ private fun Wfdb.checkData(name: ByteArray, si: Array<Siginfo>, prefix: String, 
     // (the checksums: not for EDF, nor for a record with skewed signals,
     // whose samples the library reads ahead)
     val checked = ns > 0 && !wfdbxIsEdf() && (0 until nsig).all { wfdbgetskew(it) == 0 }
+    // WFDB-x: a sample that cannot be read ends the reading with status -3,
+    // even in the frame at which a checksum is verified (whose status, -4,
+    // replaces -3 in getvec); that incomplete frame is not counted, nor are
+    // its samples checked (see getvecsStatusAt).
+    wfdbxClearReadFailed()
     while (true) {
         var want = rows.toLong()
         if (checked && residual == null) want = minOf(want, ns - m)
-        val r = getvecs_status(buf, want) // (at most want vectors)
+        val r = getvecsStatusAt(buf, 0, want, true) // (at most want vectors)
         stat = r.status
         var got = maxOf(r.count, 0L)
         if (stat == -4) got++ // (a checksum error: the frame was read completely)
@@ -406,6 +411,7 @@ private fun Wfdb.checkData(name: ByteArray, si: Array<Siginfo>, prefix: String, 
     // (with skewed signals, getvec returns the frames of the files less the
     // largest skew)
     val skew = (0 until nsig).maxOfOrNull { wfdbgetskew(it) } ?: 0
+    wfdbxClearReadFailed()
     wfdbquit()
     if (skew != 0 && m > 0) m += skew.toLong()
     for (s in 0 until nsig) {

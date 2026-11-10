@@ -1,0 +1,27 @@
+WFDB-x for R (package wfdbx)
+Copyright (C) 2026 Reza Sameni
+
+The package holds code under two licenses:
+
+* The library (the WFDB library functions, the high-level functions such
+  as read_record and write_record, the metadata functions, check_record,
+  and the tests) is distributed under the GNU Lesser General Public
+  License, version 2.1 or (at your option) any later version: the file
+  COPYING.LESSER of the installed package (inst/COPYING.LESSER in the
+  sources).
+
+* The command-line tools (R/apps_*.R, R/cli.R with wfdbx_tool and
+  wfdbx_tools, and the driver inst/bin/wfdbx.R), translations of the
+  tools of the original WFDB Software Package, are distributed under the
+  GNU General Public License, version 3 or (at your option) any later
+  version: the file COPYING of the installed package (inst/COPYING in the
+  sources).
+
+Each source file states its license. The file NOTICE of the installed
+package (inst/NOTICE in the sources) summarizes these licenses and gives
+the BSD-3-Clause notice of libFLAC, whose stream decoder the FLAC decoder
+of WFDB-x (R/flac.R) translates.
+
+WFDB-x is an independent reimplementation of the WFDB Software Package,
+version 10.7.0; the original package is Copyright (C) 1983-2022 George B.
+Moody and the WFDB contributors.

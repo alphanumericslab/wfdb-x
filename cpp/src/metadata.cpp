@@ -25,8 +25,10 @@
 //
 // * A header is split after each line feed; each line keeps its line ending
 //   (CR LF, LF, or none for a last line without one).  The record line is
-//   the first line that does not begin with '#'; every later line that
-//   begins with '#' is an info string.  Only the .hea file is read, never
+//   the first line that holds something other than spaces, tabs, CRs and
+//   LFs (up to a null byte) and does not begin, after them, with '#', as the
+//   header parser of the library finds it; every later line that begins
+//   with '#' is an info string.  Only the .hea file is read, never
 //   the .info file that getinfo() also reads.
 // * An info string is an entry if the text after its '#' contains a colon:
 //   the key is the text before the first colon, the value the rest, both
@@ -151,6 +153,20 @@ struct Entry {
     std::string key, value;
 };
 
+// True if `content` (a line without its line ending) can be the record line,
+// as the header parser of the library (readheader) finds it: it has a token
+// (separated by spaces, tabs, CRs and LFs, up to a null byte) that does not
+// begin with '#'.  (C's getinfo() takes the first line that does not begin
+// with '#', so an empty or blank line before the record line; WFDB-x's
+// getinfo() follows readheader, except in legacy mode.  The metadata
+// functions follow readheader in every mode.)
+bool is_record_line(const std::string &content)
+{
+    const char *p = content.c_str();
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    return *p != '\0' && *p != '#';
+}
+
 // A parsed header: its lines, the index of the record line (nullopt if it
 // has none), the indices of the info strings, and the entries in file order.
 struct ParsedHeader {
@@ -162,7 +178,7 @@ struct ParsedHeader {
     explicit ParsedHeader(const std::string &data) : lines(split_lines(data))
     {
         for (size_t i = 0; i < lines.size(); i++)
-            if (!starts_with_hash(lines[i].content)) {
+            if (is_record_line(lines[i].content)) {
                 rec = i;
                 break;
             }

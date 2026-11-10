@@ -65,13 +65,17 @@ class NetworkTest {
             assertEquals("rec 0\n", f.readToEnd().latin1())
             f.close()
             assertEquals("$base/db/rec.hea", w.wfdb_filename().latin1())
-            // fetched once per process
+            // a file that has been read is kept: fetched once per process
             val n = requests.get()
             w.wfdb_open("hea", "rec", WFDB_READ)!!.close()
             assertEquals(n, requests.get())
             // redirects are followed; a status of 400 or more is a failure
             assertEquals("rec 0\n", w.wfdb_open("hea", "$base/moved/rec", WFDB_READ)!!.readToEnd().latin1())
             assertNull(w.wfdb_open("hea", "nosuch", WFDB_READ))
+            // a failure is not kept: the URL is requested again
+            val m = requests.get()
+            assertNull(w.wfdb_open("hea", "nosuch", WFDB_READ))
+            assertEquals(m + 1, requests.get())
             // remote files are read-only; legacy mode reads no URLs
             assertNull(w.wfdb_fopen("$base/db/x".latin1(), "wb"))
             w.wfdbx_set_legacy(1)
@@ -157,10 +161,11 @@ class NetworkTest {
             assertEquals(0, count("/a.dat"))
             // a remote multi-segment record (its segments at the same URL)
             assertEquals(2 * 45000, samples(w, "multi")!!.size)
-            // a missing header (the failure is kept: fetched once)
-            assertTrue(w.isigopen("nosuch", null, 0) < 0)
+            // a missing header (the failure is not kept: requested again)
             assertTrue(w.isigopen("nosuch", null, 0) < 0)
             assertEquals(1, count("/db/nosuch.hea"))
+            assertTrue(w.isigopen("nosuch", null, 0) < 0)
+            assertEquals(2, count("/db/nosuch.hea"))
             // no network access: nothing is fetched
             val n = log.size
             val w2 = Wfdb()

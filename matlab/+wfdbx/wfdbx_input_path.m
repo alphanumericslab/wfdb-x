@@ -13,7 +13,8 @@ function p = wfdbx_input_path(name)
 %   standard input, if the program treats it so) are returned as given.
 %
 %   P is the path to open, or [] if NAME is a URL, or becomes one when the
-%   input directory is prefixed to it: such a file cannot be opened in
+%   input directory is prefixed to it (in normal mode, any name that begins
+%   with a URL scheme, such as ftp://): such a file cannot be opened in
 %   this way.
 %
 %   Example (reads a text file from the input directory):
@@ -53,7 +54,7 @@ if isempty(name) || strcmp(name, '-') || wfdbx.wfdbx_get_legacy()
     return;
 end
 p = wfdbx.internal.resolve_name(name, false);
-if wfdbx.internal.is_url(p)
+if wfdbx.internal.has_scheme(p)
     p = [];
 end
 end

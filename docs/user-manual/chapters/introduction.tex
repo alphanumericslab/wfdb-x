@@ -52,9 +52,11 @@ everything else: it never assumes a sampling frequency, gain, ADC resolution
 or units that a record does not give; it reads and writes files only where
 they are named, and opens URLs only when network access is turned on; it
 sorts annotation files itself, without losing annotations; a tool never
-writes a signal file over a signal file it is reading; and a tool that cannot
-write its output exits with status 1. \Cref{chap:behavior} describes each of
-them, and \emph{legacy mode}, which restores the original behavior exactly.
+writes a signal file over a signal file it is reading; a tool that cannot
+write its output exits with status 1; and \code{getinfo} finds the record
+line of a header as the header parser does. \Cref{chap:behavior} describes
+each of them, and \emph{legacy mode}, which restores the original behavior
+exactly.
 
 The interactive viewer of the C package (WAVE), its plotting programs, and
 the analysis programs of its \file{psd/} directory are outside the scope of
@@ -71,6 +73,8 @@ language.
 \section{The seven implementations}
 \label{sec:implementations}
 
+The website of WFDB-x is \url{https://wfdb-x.org}, and its source code is in
+the repository \url{https://github.com/alphanumericslab/wfdb-x}.
 All seven implement the complete library and all 33 tools. Each has a
 directory of the repository, with a \file{README.md} that gives its
 requirements, installation instructions and examples, and a chapter of
@@ -102,7 +106,7 @@ MATLAB / GNU Octave & \file{matlab/} &
   untested) & \cmd{wfdbx rdsamp -r 100s} \\
 Kotlin (Android, iOS, JVM) & \file{kotlin/} & \cmd{cd kotlin \&\&
   ./gradlew publishToMavenLocal}, then
-  \cmd{implementation("io.github.\allowbreak alphanumericslab:\allowbreak wfdbx:1.2.1")} (Gradle,
+  \cmd{implementation("io.github.\allowbreak alphanumericslab:\allowbreak wfdbx:1.2.2")} (Gradle,
   with \code{mavenLocal()}) & \cmd{kotlin/bin/wfdbx rdsamp -r 100s} \\
 \bottomrule
 \end{tabularx}
@@ -235,7 +239,7 @@ way. This is verified by tests whose expected results were produced by the
 original C code, not written by hand:
 \begin{itemize}
 \item \textbf{The conformance suite} (\file{tests/conformance/}, described in
-  \file{docs/conformance.md}): 1135 command-line test cases, run by a
+  \file{docs/conformance.md}): 1155 command-line test cases, run by a
   harness that does not depend on the language of the implementation. Their
   expected results were produced by the C programs, built from the original
   sources (\file{third\_party/wfdb-main.zip}) with FLAC support and with
@@ -243,7 +247,7 @@ original C code, not written by hand:
   deliberate differences, applied. The exceptions are 20 cases whose input
   makes the C programs crash; their expected results are the behavior that
   \wfdbx{} defines for that input (\cref{sec:crashes}). A second suite, for
-  legacy mode, has 883 cases: the cases of the original package, run with
+  legacy mode, has 886 cases: the cases of the original package, run with
   \opt{--legacy} and compared with the results of the unmodified C package.
   Every implementation passes all the cases of both suites on the reference
   platform, x86-64 Linux with glibc.
@@ -255,7 +259,7 @@ original C code, not written by hand:
 \item \textbf{Unit tests} of the library and of the high-level functions, in
   each language directory, with expected values printed by the C library
   (\file{tests/reference/api\_expect.c}).
-\item \textbf{Metadata tests} (\file{tests/metadata/}): 49 cases of the
+\item \textbf{Metadata tests} (\file{tests/metadata/}): 56 cases of the
   header metadata functions, which every implementation must pass with
   byte-identical headers, and a check that the original C programs read the
   changed headers as before (\cref{chap:metadata}).
@@ -298,7 +302,21 @@ each version:
 \item 1.2.1: the library under the GNU Lesser General Public License,
   version 2.1 or later, with the command-line tools still under the GNU
   General Public License, version 3 or later (\cref{sec:license}); and the
-  C++ library builds on Windows again.
+  C++ library builds on Windows again;
+\item 1.2.2: corrections in all seven languages, without new functions
+  (\cref{sec:corrections-1-2-2}): the high-level readers report a signal
+  file that ends early as a read error even when a checksum error is found
+  in its last frame, and never return an incomplete frame; the high-level
+  writers check every argument before they touch any file, refuse the
+  annotation codes outside 0 to 58 (59 to 63 are reserved) and the times
+  $-2^{63}$ and $2^{63}-1$, and write through temporary files that replace
+  the existing files only when all of them are complete; \code{getinfo}
+  finds the record line of a header as the header parser does (except in
+  legacy mode); a remote file whose download failed is requested again the
+  next time it is opened, and a name with a URL scheme other than
+  \code{http://} and \code{https://} is refused instead of being read as a
+  local file name (\cref{sec:network}); and the file \file{NOTICE} (the
+  licenses, and the notice of libFLAC) is included in every package.
 \end{itemize}
 
 The version numbers of \wfdbx{} are independent of the version of the WFDB
@@ -413,3 +431,19 @@ its license. The original C sources, kept unmodified in
 License, version 2 or later, for the library, and the GNU General Public
 License, version 2 or later, for the tools; their ``or later'' terms allow
 those of \wfdbx{}.
+
+The file \file{NOTICE}, at the root of the repository, says which parts of
+\wfdbx{} are under which license. It also gives the copyright notice and the
+license (BSD-3-Clause) of libFLAC 1.4.3, by Josh Coalson and the Xiph.Org
+Foundation: the FLAC decoder of each implementation is a translation of the
+stream decoder of libFLAC, and these files carry libFLAC's notice (libFLAC
+itself is not included in \wfdbx{}, which needs no external library at run
+time). \file{NOTICE} is shipped with the licenses (\file{LICENSE} and
+\file{LICENSE-GPL}; in the R package, \file{COPYING.LESSER} and
+\file{COPYING}, with a file \file{LICENSE}, named by its
+\code{License: file LICENSE}, that says which files are under which
+license) in the package of every language: the Python wheel and source
+distribution, the R package (\file{inst/NOTICE}), the files
+installed by the C++ build (in \file{share/doc/wfdbx}), the Rust crate, the
+Julia package, the Kotlin jars (\file{META-INF}) and the directory
+\file{matlab/}.

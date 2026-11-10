@@ -3,7 +3,8 @@ function p = resolve_name(name, output)
 %   P = wfdbx.internal.resolve_name(NAME, OUTPUT) (WFDB-x) returns where
 %   the file NAME is read (OUTPUT false) or written (OUTPUT true): a name
 %   beginning with '~' with the home directory expanded
-%   (wfdbx.internal.expand_home), an absolute name or a URL as given, and
+%   (wfdbx.internal.expand_home), an absolute name or a URL (any name
+%   with a URL scheme, see wfdbx.internal.has_scheme) as given, and
 %   any other (relative) name under the input directory (for reading) or
 %   the output directory (for writing), if one is set, joined with exactly
 %   one separator ('/' after a URL); '~' in the directory is expanded.
@@ -26,7 +27,7 @@ if ~isempty(name) && name(1) == '~'
     p = wfdbx.internal.expand_home(name);
     return;
 end
-if wfdbx.internal.is_absolute_path(name) || wfdbx.internal.is_url(name)
+if wfdbx.internal.is_absolute_path(name) || wfdbx.internal.has_scheme(name)
     p = name;
     return;
 end

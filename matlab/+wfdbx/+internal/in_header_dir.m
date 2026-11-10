@@ -19,8 +19,8 @@ function tf = in_header_dir(name)
 % your option) any later version. See LICENSE.
 
 tf = false;
-if wfdbx.internal.is_absolute_path(name) || wfdbx.internal.is_url(name) || ...
-        (~isempty(name) && name(1) == '~')
+if wfdbx.internal.is_absolute_path(name) || ...
+        wfdbx.internal.has_scheme(name) || (~isempty(name) && name(1) == '~')
     return;
 end
 if ispc()

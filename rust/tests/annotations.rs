@@ -1290,6 +1290,32 @@ fn write_annotations_byte_fields() {
 }
 
 #[test]
+fn write_annotations_labels_required() {
+    // a label is required for each annotation; with no annotations, an
+    // empty file is written (1.2.2)
+    let d = DataDir::new("labels");
+    let mut w = d.wfdb();
+    let a = record::Annotations {
+        samples: vec![100, 460],
+        ..Default::default()
+    };
+    let e = w
+        .write_annotations("100s", "lbl", &a, 0.0, None)
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "write_annotations: symbols or codes must be given"
+    );
+    assert!(!std::path::Path::new("100s.lbl").exists());
+    w.write_annotations("100s", "lbl", &record::Annotations::default(), 0.0, None)
+        .unwrap();
+    let r = w
+        .read_annotations("100s", "lbl", None, None, None, false)
+        .unwrap();
+    assert_eq!(r.len(), 0);
+}
+
+#[test]
 fn write_annotations_field_lengths() {
     // A per-annotation field is empty or has one entry per annotation;
     // anything else is an error, before the file is created. A later call
@@ -1437,4 +1463,217 @@ fn highlevel_keeps_gvmode() {
         w.wfdbquit();
         assert!(w.getgvmode() & WFDB_HIGHRES != 0);
     }
+}
+
+// ---------------------------------------------------------------------------
+// WFDB-x 1.2.2: write_annotations checks every argument before it touches
+// the file, and writes through a temporary file; read_annotations checks
+// `from` as read_record does
+
+/// The contents of every file of the current directory, by name.
+fn dir_files() -> std::collections::BTreeMap<String, Vec<u8>> {
+    std::fs::read_dir(".")
+        .unwrap()
+        .map(|e| e.unwrap())
+        .filter(|e| e.file_type().unwrap().is_file())
+        .map(|e| {
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                std::fs::read(e.path()).unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// `true` if no temporary file is left in the current directory.
+fn no_tmp_files() -> bool {
+    std::fs::read_dir(".")
+        .unwrap()
+        .all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".tmp"))
+}
+
+/// `n` annotations "N" at the times `samples`.
+fn normal_beats(samples: &[i64]) -> record::Annotations {
+    record::Annotations {
+        samples: samples.to_vec(),
+        symbols: vec!["N".into(); samples.len()],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn write_annotations_checks_before_writing() {
+    // Each invalid argument is refused before the existing annotation file
+    // is touched (the reserved codes 59-63 corrupted it; the times -2^63
+    // and 2^63 - 1 were dropped, with putann's "time overflow" message, and
+    // success reported).
+    let d = DataDir::new("checks122");
+    let mut w = d.wfdb();
+    w.write_annotations("100s", "qrs", &normal_beats(&[10, 20, 30]), 0.0, None)
+        .unwrap();
+    let before = dir_files();
+    let codes = |c: Vec<i32>| record::Annotations {
+        samples: vec![1, 2, 3],
+        codes: c,
+        ..Default::default()
+    };
+    let mut bad = vec![
+        (
+            normal_beats(&[i64::MIN, 5, 6]),
+            "annotation time -9223372036854775808 cannot be written (annotation times must be integers from -9223372036854775807 to 9223372036854775806)".to_string(),
+        ),
+        (
+            normal_beats(&[1, 5, i64::MAX]),
+            "annotation time 9223372036854775807 cannot be written".to_string(),
+        ),
+        (
+            codes(vec![-1, -1, -1]),
+            "annotation code -1 is out of range (0 to 58)".to_string(),
+        ),
+        (
+            codes(vec![1, 64, 1]),
+            "annotation code 64 is out of range (0 to 58)".to_string(),
+        ),
+        (
+            record::Annotations {
+                codes: vec![1, 1],
+                ..normal_beats(&[1, 2, 3])
+            },
+            "codes must have one entry per annotation".to_string(),
+        ),
+    ];
+    for c in 59..64 {
+        bad.push((
+            codes(vec![1, c, 1]),
+            format!("annotation code {c} is reserved (59 to 63 are the control codes of the annotation file format)"),
+        ));
+    }
+    // (with symbols too, the codes are checked)
+    bad.push((
+        record::Annotations {
+            codes: vec![1, 60, 1],
+            ..normal_beats(&[1, 2, 3])
+        },
+        "annotation code 60 is reserved".to_string(),
+    ));
+    for (a, msg) in &bad {
+        let e = w
+            .write_annotations("100s", "qrs", a, 0.0, None)
+            .unwrap_err();
+        assert!(e.message().contains(msg.as_str()), "{msg}: {e}");
+        assert!(e.message().starts_with("write_annotations: "), "{e}");
+        assert_eq!(dir_files(), before, "{msg}");
+    }
+    assert!(no_tmp_files());
+    // code 58, and a time far from the previous one (SKIPs), can be written
+    let ext = record::Annotations {
+        samples: vec![0, 1 << 33],
+        codes: vec![58, 1],
+        ..Default::default()
+    };
+    w.write_annotations("100s", "ext", &ext, 0.0, None).unwrap();
+    let r = w
+        .read_annotations("100s", "ext", None, None, None, false)
+        .unwrap();
+    assert_eq!(r.samples, [0, 1 << 33]);
+    assert_eq!(r.codes, [58, 1]);
+}
+
+#[test]
+fn write_annotations_through_temporary_file() {
+    // The file is written to a temporary file, renamed over the existing
+    // one when it is complete: out of order, it is sorted (in this process,
+    // and in legacy mode by the sortann program) and then renamed; a file
+    // that cannot be created leaves nothing behind.
+    let d = DataDir::new("staged");
+    let sortann = PathBuf::from(env!("CARGO_BIN_EXE_sortann"));
+    let path = std::env::var_os("PATH");
+    std::env::set_var("PATH", sortann.parent().unwrap());
+    let mut w = d.wfdb();
+    w.wfdbquiet();
+    w.write_annotations("100s", "qrs", &normal_beats(&[10, 20, 30]), 0.0, None)
+        .unwrap();
+    for legacy in [0, 1] {
+        w.wfdbx_set_legacy(legacy);
+        w.write_annotations("100s", "qrs", &normal_beats(&[30, 10, 20]), 0.0, None)
+            .unwrap();
+        w.wfdbx_set_legacy(0);
+        let r = w
+            .read_annotations("100s", "qrs", None, None, None, false)
+            .unwrap();
+        assert_eq!(r.samples, [10, 20, 30], "legacy {legacy}");
+        assert!(no_tmp_files());
+    }
+    if let Some(p) = path {
+        std::env::set_var("PATH", p);
+    }
+    // a directory in the way: nothing is created
+    std::fs::create_dir("100s.dir").unwrap();
+    let before = dir_files();
+    let e = w
+        .write_annotations("100s", "dir", &normal_beats(&[1]), 0.0, None)
+        .unwrap_err();
+    assert_eq!(e.message(), "can't create annotator dir for record 100s");
+    assert_eq!(dir_files(), before);
+    assert!(no_tmp_files());
+    // a symbolic link: the file that it leads to is replaced
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("target.atr", "100s.lnk").unwrap();
+        w.write_annotations("100s", "lnk", &normal_beats(&[1, 2]), 0.0, None)
+            .unwrap();
+        assert!(std::fs::symlink_metadata("100s.lnk")
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let r = w
+            .read_annotations("100s", "lnk", None, None, None, false)
+            .unwrap();
+        assert_eq!(r.samples, [1, 2]);
+        assert!(std::path::Path::new("target.atr").is_file());
+    }
+}
+
+#[test]
+fn read_annotations_arguments() {
+    // `from` is checked as read_record checks it, before the file is
+    // opened, and the file is closed on every path.
+    let d = DataDir::new("args122");
+    let mut w = d.wfdb();
+    w.wfdbquiet();
+    let r = w
+        .read_annotations(
+            "100s",
+            "atr",
+            Some(100.into()),
+            Some(2000.into()),
+            None,
+            false,
+        )
+        .unwrap();
+    assert!(!r.is_empty() && r.samples.iter().all(|&t| (100..2000).contains(&t)));
+    let e = w
+        .read_annotations("100s", "nosuch", Some((-1).into()), None, None, false)
+        .unwrap_err();
+    assert_eq!(e.message(), "read_annotations: from must not be negative");
+    // ... before fs
+    let e = w
+        .read_annotations("100s", "nosuch", Some((-1).into()), None, Some(-1.0), false)
+        .unwrap_err();
+    assert_eq!(e.message(), "read_annotations: from must not be negative");
+    let mut a = Annotation::default();
+    // the annotators are closed after an error
+    std::fs::remove_file("100s.hea").unwrap();
+    let e = w
+        .read_annotations("100s", "atr", None, Some("0:1".into()), None, false)
+        .unwrap_err();
+    assert!(e.message().contains("sampling frequency"), "{e}");
+    assert_eq!(w.getann(0, &mut a), -2);
+    let atr = std::fs::read("100s.atr").unwrap();
+    std::fs::write("cut.atr", &atr[..101]).unwrap();
+    let e = w
+        .read_annotations("cut", "atr", None, None, Some(360.0), false)
+        .unwrap_err();
+    assert!(e.message().contains("getann status -3"), "{e}");
+    assert_eq!(w.getann(0, &mut a), -2);
 }

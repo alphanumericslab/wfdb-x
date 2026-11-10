@@ -107,7 +107,7 @@ end
 The entry point of the command-line driver `bin/wfdbx.jl TOOL ARGS...`:
 run the tool `args[1]` with the arguments `args[2:end]`, writing to the
 process's standard output and error, and return its exit status. With
-`--version`, print the version of WFDB-x (such as "WFDB-x 1.2.1") and
+`--version`, print the version of WFDB-x (such as "WFDB-x 1.2.2") and
 return 0. With no arguments or an unknown tool name, print a message on the
 standard error and return 1.
 
@@ -150,8 +150,9 @@ a fresh library state, and the bytes `stdin` as its standard input.
 - `dir`: the working directory of the tool (default: the current one).
 - `env`: environment variables to set while the tool runs, as an iterable
   of `name => value` pairs (e.g. `["WFDB" => "/path/to/data"]`) or a
-  `Dict`. The variables `WFDB`, `WFDBCAL`, `WFDBANNSORT` and `WFDBGVMODE`
-  are restored afterwards; other variables set this way are not.
+  `Dict`. The variables `WFDB`, `WFDBCAL`, `WFDBANNSORT`, `WFDBGVMODE`,
+  `WFDBX_INPUT_DIR`, `WFDBX_OUTPUT_DIR` and `WFDBX_NETWORK` are restored
+  afterwards; other variables set this way are not.
 
 The caller's library state ([`lib()`](@ref)) and standard streams are
 restored when the tool returns. Throws an `ArgumentError` if there is no

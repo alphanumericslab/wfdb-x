@@ -3,7 +3,8 @@ function previous = wfdbx_set_output_dir(d)
 %   PREVIOUS = wfdbx.wfdbx_set_output_dir(DIR) makes the library create every
 %   output file named by a relative name (headers, signal files, annotation
 %   files) in the local folder DIR.  Names given as full paths or ~ paths
-%   are used as given.  A URL is refused with an error message, and the
+%   are used as given.  A URL (any name that begins with a URL scheme, such
+%   as https:// or ftp://) is refused with an error message, and the
 %   setting is unchanged.
 %
 %   wfdbx.wfdbx_set_output_dir([]) restores the default: the environment
@@ -36,7 +37,7 @@ d = wfdbx.internal.strarg(d);
 st = wfdbx.internal.io_state();
 wfdbx.internal.init_output_dir(st);
 previous = st.output_dir;
-if ischar(d) && wfdbx.internal.is_url(d)
+if ischar(d) && wfdbx.internal.has_scheme(d)
     wfdbx.internal.wfdb_error(['wfdbx_set_output_dir: the output ' ...
         'directory must be a local directory\n']);
 elseif ischar(d) && ~isempty(d)

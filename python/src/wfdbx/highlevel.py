@@ -105,7 +105,14 @@ __all__ = ["Record", "Header", "Annotations", "read_record",
            "read_header"]
 
 _CHUNK_SAMPLES = 1 << 21    # samples (frames x signals) read per chunk
+# WFDB-x: the most samples (frames x signals read) allocated in advance by
+# read_record, whatever the header or sampto gives (a header can give far
+# more samples than its signal files hold); the array grows as needed.
+_MAX_RESERVE = 1 << 26
 _MAXAUX = 255           # maximum length of an aux string (one length byte)
+_MAXCODE = 58           # the largest annotation code (59-63: control codes)
+_TIME_MIN = -(1 << 63)  # WFDB_TIME_MIN and WFDB_TIME_MAX, reserved: putann
+_TIME_MAX = (1 << 63) - 1   # refuses them ("time overflow")
 # WFDB-x: legacy mode only: the ADC resolution (bits) that write_record
 # wrote when adcres was not given (the sample width of the format, or 16).
 _LEGACY_DEFRES = {80: 8, 508: 8, 212: 12, 310: 10, 311: 10, 24: 24, 524: 24,
@@ -142,7 +149,10 @@ class Record:
       base_date     start date as (year, month, day), or None if the header
                     gives none
       sampfrom      number of the first sample returned
-      comments      list of the info strings of the header
+      comments      list of the info strings of the header: its lines
+                    that begin with '#' after the record line (found as the
+                    header parser finds it: an empty or blank first line is
+                    not the record line), without the '#'
       checksum_ok   False if the data do not match the header's checksums.
                     Checksums are only checked when a read reaches the end of
                     the record, so a shorter read gives True.
@@ -177,7 +187,10 @@ class Header:
                     base_time is None
       base_date     start date as (year, month, day), or None if the header
                     gives none
-      comments      list of the info strings of the header
+      comments      list of the info strings of the header: its lines
+                    that begin with '#' after the record line (found as the
+                    header parser finds it: an empty or blank first line is
+                    not the record line), without the '#'
       metadata      list of the (key, value) pairs of the "Key: value"
                     entries of the header, in file order, as read_metadata()
                     returns them (see help(wfdbx.metadata))
@@ -391,6 +404,46 @@ def _digital_samples(x, np):
         raise ValueError("samples in ADC units must be within the range of "
                          "a 32-bit integer")
     return x.astype(np.int64) if x.dtype.kind == "f" else x
+
+
+def _whole_int32(values, name):
+    """The values (a list; None stays None) as Python ints: each must be a
+    whole number (an integer, or a float with a whole value) within the
+    range of a 32-bit integer (WFDB-x: the fields of a signal
+    specification are C ints; a fraction was truncated, and NaN, text or a
+    value beyond that range failed while the files were being written)."""
+    out = []
+    for v in values:
+        if v is None:
+            out.append(None)
+            continue
+        try:
+            if isinstance(v, numbers.Integral):
+                x = int(v)
+            else:
+                f = float(v)
+                if not (math.isfinite(f) and f == math.floor(f)):
+                    raise ValueError
+                x = int(f)
+        except (TypeError, ValueError, OverflowError):
+            x = None
+        if x is None or not _INT32_MIN <= x <= _INT32_MAX:
+            raise ValueError("%s must be whole numbers within the range of "
+                             "a 32-bit integer" % name)
+        out.append(x)
+    return out
+
+
+def _check_latin1(text, what):
+    """Raise ValueError if text (a str) has a character that is not Latin-1
+    (WFDB-x: text is one byte per character; such a character failed
+    after the files had been opened)."""
+    if isinstance(text, str):
+        try:
+            text.encode("latin-1")
+        except UnicodeEncodeError:
+            raise ValueError("%s %r has a character that is not Latin-1 "
+                             "(one byte per character)" % (what, text))
 
 
 def _gvmode_option(func):
@@ -608,7 +661,9 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
       IOError     if the header or a signal file cannot be read, if the
                   record has no signals, if sampfrom is beyond the end of the
                   record, or if a signal file is shorter than its header says
-                  ("can't read signal data of record REC (getvec status -3)")
+                  or cannot be read ("can't read signal data of record REC
+                  (getvec status -3)"), even if the checksums do not match
+                  either: no incomplete frame is ever returned
       ValueError  if sampfrom is negative, if sampfrom or sampto is not a
                   whole number (a fraction, NaN or an infinite value), if a
                   channel is not in the record, if a time string needs the
@@ -690,7 +745,11 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
         # The output array is allocated once, for the number of frames to be
         # read according to the header (or sampto), and grown only if the
         # record turns out to be longer (or its length is not given); each
-        # chunk is decoded straight into its rows.
+        # chunk is decoded straight into its rows.  WFDB-x: at most
+        # _MAX_RESERVE samples are allocated in advance (a header may give
+        # far more than its signal files hold: 10**12 samples for a file of
+        # 4 bytes would be terabytes); beyond that, the array grows as the
+        # frames are read.
         chunk = max(4096, _CHUNK_SAMPLES // max(nsig, 1))
         # (whole frames, and a multiple of 6 of them, so that formats 212, 310
         # and 311 end each chunk on a whole packed unit: the frames are then
@@ -704,12 +763,18 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
         if want is not None and (expected is None or want < expected):
             expected = want
         size = expected if expected is not None else chunk
+        size = min(size, max(chunk, _MAX_RESERVE // max(len(cols), 1) + 1))
         data = np.empty((size, len(cols)), np.int32)
         probe = np.empty((1, len(cols)), np.int32)
         sel_cols = None if cols == list(range(nsig)) else cols
         nread = 0
         cksum_error = False
         sig._s.cksum_quiet = 1
+        # WFDB-x: a sample that cannot be read is an error, whatever status
+        # getvec returns: a checksum error is found in the frame in which a
+        # signal file ended early, and its status (-4) replaces -3; the
+        # incomplete frame is not returned (see sig._getframes_into).
+        sig._s.read_failed = 0
         try:
             while want is None or nread < want:
                 n = chunk if want is None else min(chunk, want - nread)
@@ -735,7 +800,8 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                 # their sum does not match the header: a warning (see below),
                 # not an error. In high-resolution mode getvec returns -4 for
                 # each sample vector of the last frame, so reading continues
-                # until -1 (or sampto).
+                # until -1 (or sampto).  (If a sample of that frame could not
+                # be read, the status is -3: see sig._s.read_failed.)
                 if stat == -4:
                     cksum_error = True
                     continue
@@ -749,6 +815,7 @@ def read_record(record, channels=None, sampfrom=0, sampto=None,
                     break
         finally:
             sig._s.cksum_quiet = 0
+            sig._s.read_failed = 0
         if cksum_error and checksum_warning:
             warnings.warn("checksum error in record %s: the signal data do "
                           "not match the checksums in its header" % record,
@@ -801,10 +868,11 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
                  gives the sampling frequency.
       annotator  annotator name: the suffix of the annotation file. "atr"
                  reads the file record.atr.
-      sampfrom   first time to read: a sample number or a time string (see
-                 read_record). Default: 0.
-      sampto     time at which to stop. Annotations at or after it are not
-                 read. Default: the end of the file.
+      sampfrom   first time to read: a sample number (a whole number >= 0)
+                 or a time string (see read_record). Default: 0.
+      sampto     time at which to stop: a sample number (a whole number) or
+                 a time string. Annotations at or after it are not read.
+                 Default: the end of the file.
       fs         sampling frequency (> 0) to use when the record has no
                  header, or its header gives none. It is ignored otherwise.
       input_dir  input directory for this call only (optional): a local
@@ -824,11 +892,19 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
       IOError     if the annotation file cannot be opened or read, or if it
                   ends before its end-of-file marker ("can't read annotation
                   file ANN of record REC (getann status -3)")
-      ValueError  if fs is given and is not > 0, or if a time string needs
-                  the sampling frequency and none is known
+      ValueError  if fs is given and is not > 0, if sampfrom is negative,
+                  if sampfrom or sampto is not a whole number (a fraction,
+                  NaN or an infinite value: "sampfrom must be a whole
+                  number"), or if a time string needs the sampling
+                  frequency and none is known. The arguments are checked
+                  before the annotation file is opened (a time string is
+                  converted with the sampling frequency of the record's
+                  header, which is read for it).
 
-    The time resolution of output annotators (getafreq) and the getvec mode
-    (getgvmode) are left as they were (opening an EDF record sets both).
+    Whatever happens, the annotation file is closed (wfdbquit) before the
+    function returns, and the time resolution of output annotators
+    (getafreq) and the getvec mode (getgvmode) are left as they were
+    (opening an EDF record sets both).
 
     Example (100s is the sample record included with WFDB-x: the first
     minute of record 100 of the MIT-BIH Arrhythmia Database, in the
@@ -842,55 +918,63 @@ def read_annotations(record, annotator, sampfrom=0, sampto=None, fs=None, *,
     Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
+    # WFDB-x: sampfrom and sampto are checked as read_record checks them,
+    # before anything is opened (a fraction, NaN or an infinite value is an
+    # error, not truncated)
+    sampfrom = _sample_number(sampfrom, "sampfrom")
+    sampto = _sample_number(sampto, "sampto")
+    if not isinstance(sampfrom, str) and sampfrom is not None and \
+            sampfrom < 0:
+        raise ValueError("sampfrom must not be negative")
     if fs is not None and not fs > 0:
         raise ValueError("fs must be > 0")
     init.wfdbquit()
-    # WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
-    # had no header); the fs argument specifies one.
-    sps = sig.sampfreq(record)
-    if sps <= 0 and fs is not None:
-        sig.setsampfreq(float(fs))
-    elif sps < 0 and _legacy():
-        sig.setsampfreq(sig.WFDB_DEFFREQ)   # legacy mode (original behavior)
-    _check_time_freq(record, sampfrom, sampto)
-    if ann.annopen(record, [ann.Anninfo(annotator, WFDB_READ)], 1) < 0:
+    # (whatever happens, the annotation file is closed before returning)
+    try:
+        # WFDB-x: no default sampling frequency (C assumed 250 Hz if the
+        # record had no header); the fs argument specifies one.
+        sps = sig.sampfreq(record)
+        if sps <= 0 and fs is not None:
+            sig.setsampfreq(float(fs))
+        elif sps < 0 and _legacy():
+            sig.setsampfreq(sig.WFDB_DEFFREQ)   # legacy mode (original)
+        _check_time_freq(record, sampfrom, sampto)
+        if ann.annopen(record, [ann.Anninfo(annotator, WFDB_READ)], 1) < 0:
+            raise IOError("can't read annotator %s for record %s" %
+                          (annotator, record))
+        frm = _time(sampfrom) or 0
+        to = _time(sampto)
+        if frm and ann.iannsettime(frm) < 0:
+            raise IOError("can't seek in annotator %s" % annotator)
+        a = ann.Annotation()
+        t, c, s, ch, nm, aux = [], [], [], [], [], []
+        while True:
+            stat = ann.getann(0, a)
+            if stat != 0:
+                break
+            if to is not None and a.time >= to:
+                break
+            t.append(a.time)
+            c.append(a.anntyp)
+            s.append(a.subtyp)
+            ch.append(a.chan)
+            nm.append(a.num)
+            aux.append(a.aux_string())
+        # WFDB-x: a status other than 0 and -1 (e.g. -3, unexpected EOF: the
+        # file is truncated) is an error, not the end of the file
+        if stat not in (0, -1):
+            raise IOError("can't read annotation file %s of record %s "
+                          "(getann status %d)" % (annotator, record, stat))
+        afs = ann.getiafreq(0)
+        res = Annotations(record=record, annotator=annotator,
+                          samples=np.array(t, np.int64),
+                          codes=np.array(c, np.int64),
+                          symbols=[ann.annstr(x) for x in c],
+                          subtypes=np.array(s, np.int64),
+                          chans=np.array(ch, np.int64),
+                          nums=np.array(nm, np.int64), aux=aux, fs=afs)
+    finally:
         init.wfdbquit()
-        raise IOError("can't read annotator %s for record %s" %
-                      (annotator, record))
-    frm = _time(sampfrom) or 0
-    to = _time(sampto)
-    if frm and ann.iannsettime(frm) < 0:
-        init.wfdbquit()
-        raise IOError("can't seek in annotator %s" % annotator)
-    a = ann.Annotation()
-    t, c, s, ch, nm, aux = [], [], [], [], [], []
-    while True:
-        stat = ann.getann(0, a)
-        if stat != 0:
-            break
-        if to is not None and a.time >= to:
-            break
-        t.append(a.time)
-        c.append(a.anntyp)
-        s.append(a.subtyp)
-        ch.append(a.chan)
-        nm.append(a.num)
-        aux.append(a.aux_string())
-    # WFDB-x: a status other than 0 and -1 (e.g. -3, unexpected EOF: the
-    # file is truncated) is an error, not the end of the file
-    if stat not in (0, -1):
-        init.wfdbquit()
-        raise IOError("can't read annotation file %s of record %s "
-                      "(getann status %d)" % (annotator, record, stat))
-    afs = ann.getiafreq(0)
-    res = Annotations(record=record, annotator=annotator,
-                      samples=np.array(t, np.int64),
-                      codes=np.array(c, np.int64),
-                      symbols=[ann.annstr(x) for x in c],
-                      subtypes=np.array(s, np.int64),
-                      chans=np.array(ch, np.int64),
-                      nums=np.array(nm, np.int64), aux=aux, fs=afs)
-    init.wfdbquit()
     return res
 
 
@@ -906,16 +990,21 @@ def write_record(record, signals, fs, fmt=16, gains=None,
 
     The files are named ``record + ".hea"`` and ``record + ".dat"``. All
     signals go into the one signal file, so they must share one format.
-    Existing files with these names are overwritten.
+    Existing files with these names are replaced: both files are written to
+    temporary files in the destination directory, which replace the
+    existing files only when both are complete, so that an error leaves the
+    existing files as they were.
 
-    You must give the sampling frequency, the gain and ADC resolution of each
-    signal, and the units of each calibrated signal. There are no defaults.
+    The sampling frequency, the gain and ADC resolution of each signal, and
+    the units of each calibrated signal must be given. There are no
+    defaults.
     The per-signal arguments (fmt, gains, baselines, adczeros, adcres, units,
     names) take one value for all signals, or a list with one value per
     signal.
 
     Arguments:
-      record     record name, without the .hea extension: a plain name ("rec")
+      record     record name, without the .hea extension (a trailing ".hea" is
+                 removed, as by the readers): a plain name ("rec")
                  or a relative path ("data/rec"), created in the output
                  directory if one is set (see wfdbx_set_output_dir), otherwise
                  in the current directory, missing directories included; or a
@@ -926,8 +1015,8 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                  the record opens under any path that leads to it (in legacy
                  mode, as in the original, the header gives the name with its
                  path). A URL cannot be written.
-      signals    array with one row per sample and one column per signal.
-                 A 1-D array is one signal. The values are integer ADC units
+      signals    array with one row per sample and one column per signal
+                 (2-D). A 1-D array is one signal. The values are integer ADC units
                  (integers, or floats with whole values, within the range of
                  a 32-bit integer), or physical units if physical=True.
       fs         sampling frequency in Hz (finite, > 0)
@@ -936,16 +1025,20 @@ def write_record(record, signals, fs, fmt=16, gains=None,
       gains      gain in ADC units per physical unit (finite). 0 marks a
                  signal as uncalibrated, which is only allowed for ADC
                  units.
-      baselines  ADC value that corresponds to 0 physical units. Default:
+      baselines  ADC value that corresponds to 0 physical units (a whole
+                 number within the range of a 32-bit integer). Default:
                  the ADC zero.
-      adczeros   ADC value at the middle of the ADC range. Default: 0.
-      adcres     ADC resolution in bits (>= 1)
-      units      physical units, such as "mV". Required for each signal with
-                 a gain other than 0.
-      names      signal descriptions. Default: none.
+      adczeros   ADC value at the middle of the ADC range (a whole number
+                 within the range of a 32-bit integer). Default: 0.
+      adcres     ADC resolution in bits (a whole number >= 1)
+      units      physical units, such as "mV" (Latin-1 text, one byte per
+                 character, as all text in wfdbx). Required for each
+                 signal with a gain other than 0.
+      names      signal descriptions (Latin-1 text). Default: none.
       base_time  start time, with an optional date: "hh:mm:ss dd/mm/yyyy".
                  Default: none.
-      comments   list of info strings, written to the header
+      comments   list of info strings (Latin-1 text), written to the
+                 header
       metadata   "Key: value" entries to write to the header, after the
                  comments, as "# Key: value": a mapping from key to value
                  (strings), or a sequence of (key, value) pairs. The keys
@@ -975,11 +1068,17 @@ def write_record(record, signals, fs, fmt=16, gains=None,
       TypeError          if metadata is neither a mapping nor a sequence of
                          (key, value) pairs, or holds a key or value that is
                          not a string
-      ValueError         if record is empty, if signals has no signals ("at
+      ValueError         if record is empty, if signals is not a 1-D or
+                         2-D array, if it has no signals ("at
                          least one signal is required"), if fs, a gain, an
                          ADC resolution or the units of a calibrated signal
                          is missing or invalid (fs and the gains must be
-                         finite, and fs > 0), if base_time cannot be parsed,
+                         finite, and fs > 0), if a baseline, an ADC zero or
+                         an ADC resolution is not a whole number within the
+                         range of a 32-bit integer, if the record name, a
+                         signal name, the units or a comment has a
+                         character that is not Latin-1, if base_time cannot
+                         be parsed,
                          if a list of
                          per-signal values does not have one value per signal,
                          if a signal in physical units has a gain of 0, if a
@@ -994,8 +1093,9 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                          or cannot be written completely (for example, when
                          the disk is full: "write error on record R")
 
-    The arguments are checked before any file is created. Whatever happens,
-    the output signals are closed (wfdbquit) before the function returns,
+    The arguments are checked before any file is created or changed.
+    Whatever happens, the output signals are closed (wfdbquit) and no
+    temporary file is left before the function returns,
     and the time resolution of output annotators (getafreq) and the getvec
     mode (getgvmode) are left as they were.
 
@@ -1011,9 +1111,15 @@ def write_record(record, signals, fs, fmt=16, gains=None,
     Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
+    # WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
+    record = wio.wfdb_striphea(record)
     if not record:
         raise ValueError("record name must not be empty")
+    _check_latin1(record, "record name")
     x = np.asarray(signals)
+    # WFDB-x: every argument is checked before any file is touched
+    if x.ndim not in (1, 2):
+        raise ValueError("signals must be a 1-D or 2-D array")
     if x.ndim == 1:
         x = x[:, None]
     nsig = x.shape[1] if samps_per_frame is None else len(samps_per_frame)
@@ -1056,8 +1162,12 @@ def write_record(record, signals, fs, fmt=16, gains=None,
     else:
         if gains is None or any(g is None for g in gains_):
             raise ValueError("gains must be specified")
-        if adcres is None or \
-                any(r is None or not int(r) >= 1 for r in res):
+        if adcres is None or any(r is None for r in res):
+            raise ValueError("ADC resolution(s) must be specified")
+        # WFDB-x: whole numbers within the range of an int (a fraction was
+        # truncated, NaN or text failed after the signal file was written)
+        res = _whole_int32(res, "adcres")
+        if any(r < 1 for r in res):
             raise ValueError("ADC resolution(s) must be specified")
         for k in range(nsig):
             if gains_[k] != 0 and not units_[k]:
@@ -1073,11 +1183,19 @@ def write_record(record, signals, fs, fmt=16, gains=None,
         raise ValueError("gains must be finite")
     if base_time is not None:
         _check_base_time(base_time)
-    res = [int(r) for r in res]
-    zeros = per(adczeros, "adczeros", 0)
+    res = _whole_int32(res, "adcres")
+    zeros = _whole_int32([0 if z is None else z for z in
+                          per(adczeros, "adczeros", 0)], "adczeros")
     bases = per(baselines, "baselines")
     bases = [zeros[k] if bases[k] is None else bases[k] for k in range(nsig)]
+    bases = _whole_int32(bases, "baselines")
     names_ = per(names, "names")
+    # WFDB-x: the text written to the header must be Latin-1 (one byte per
+    # character), as all text in wfdbx; a character that is not failed
+    # after the signal file was written, and left the header empty
+    for k in range(nsig):
+        _check_latin1(names_[k], "signal name")
+        _check_latin1(units_[k], "units")
     fs = float(fs)
     if physical:
         cols = []
@@ -1111,29 +1229,42 @@ def write_record(record, signals, fs, fmt=16, gains=None,
         raise ValueError("all signals of a record written by write_record "
                          "must have the same format")
     comments = list(comments or [])
+    for c in comments:
+        _check_latin1(c, "comment")
     if metadata is not None:
         comments += _meta.info_lines(metadata, comments)
     init.wfdbquit()
     errors = wio.wfdbx_write_errors()
-    # (the output signals are closed however this ends)
+    # WFDB-x: the signal file and the header are written to temporary files
+    # in the directories of their destinations, which are renamed over them
+    # when both are complete; after a failure, they are removed, and the
+    # existing files are left as they were (see wio._staging_begin).
+    wio._staging_begin()
+    complete = False
     try:
-        if sig.osigfopen(si, nsig) != nsig:
-            raise IOError("can't create signal file for record %s" % record)
-        sig.setsampfreq(fs)
-        # The counter frequency and base count survive wfdbquit() (as in
-        # the C library); a new record written here has neither.
-        sig.setcfreq(0.0)
-        sig.setbasecount(0.0)
-        if base_time is not None:
-            sig.setbasetime(base_time)
-        sig._putframes(x)       # (as putvec for each frame, but faster)
-        if sig.newheader(record) < 0:
-            raise IOError("can't create header for record %s" % record)
-        for c in comments:
-            sig.putinfo(c)
+        # (the output signals are closed however this ends)
+        try:
+            if sig.osigfopen(si, nsig) != nsig:
+                raise IOError("can't create signal file for record %s" %
+                              record)
+            sig.setsampfreq(fs)
+            # The counter frequency and base count survive wfdbquit() (as in
+            # the C library); a new record written here has neither.
+            sig.setcfreq(0.0)
+            sig.setbasecount(0.0)
+            if base_time is not None:
+                sig.setbasetime(base_time)
+            sig._putframes(x)       # (as putvec for each frame, but faster)
+            if sig.newheader(record) < 0:
+                raise IOError("can't create header for record %s" % record)
+            for c in comments:
+                sig.putinfo(c)
+        finally:
+            init.wfdbquit()
+        complete = wio.wfdbx_write_errors() == errors
     finally:
-        init.wfdbquit()
-    if wio.wfdbx_write_errors() > errors:
+        renamed = wio._staging_end(complete)
+    if not renamed:
         raise IOError("write error on record %s" % record)
 
 
@@ -1160,13 +1291,17 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
                  RECORD.ANNOTATOR at that place ("data/100s.qrs"). A URL cannot
                  be written.
       annotator  annotator name: the suffix of the file. An existing file is
-                 overwritten.
-      samples    annotation times, in samples: integers within the range
-                 of a 64-bit integer
+                 replaced: the new file is written to a temporary file in
+                 the same directory, which replaces it only when it is
+                 complete, so that an error leaves it as it was.
+      samples    annotation times, in samples (a 1-D array or sequence):
+                 integers from -2**63 + 1 to 2**63 - 2 (the smallest and
+                 largest 64-bit integers are reserved by the file format)
       symbols    mnemonics such as "N" or "V", one per annotation (or one
                  string for all). An unknown mnemonic becomes code 0
                  (NOTQRS).
-      codes      annotation codes, instead of ``symbols``: one per
+      codes      annotation codes (0 to 58; 59 to 63 are the control codes
+                 of the file format), instead of ``symbols``: one per
                  annotation, or one value for all. If both are given (as
                  read_annotations returns them), each symbol must be that
                  of its code (an empty symbol is not checked).
@@ -1193,21 +1328,32 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
       None
 
     Raises:
-      ValueError         if neither symbols nor codes is given, if both are
+      ValueError         if neither symbols nor codes is given for one
+                         annotation or more ("symbols or codes must be
+                         given"; with no annotations, an empty file is
+                         written), if both are
                          given and disagree ("symbols and codes disagree at
-                         annotation K"), if a list of per-annotation values
-                         does not have one value per annotation, if a time
-                         is not an integer within the range of a 64-bit
-                         integer, if a sample, code, subtype, chan or num is
-                         NaN (or None), if fs is not finite and > 0, or if
-                         record contains a directory and dir is given
+                         annotation K"), if samples (or a sequence of codes,
+                         subtypes, chans or nums) is not 1-D, if a list of
+                         per-annotation values does not have one value per
+                         annotation, if a time is not an integer within the
+                         range of a 64-bit integer, or is -2**63 or
+                         2**63 - 1 ("annotation time T cannot be written"),
+                         if a code is not from 0 to 58 ("annotation code C
+                         is reserved", "... is out of range"), if a sample,
+                         code, subtype, chan or num is NaN (or None), if an
+                         aux text has a character that is not Latin-1, if fs
+                         is not finite and > 0, or if record contains a
+                         directory and dir is given
       FileNotFoundError  if dir does not exist
       IOError            if the annotation file cannot be created, or cannot
-                         be written completely ("write error on annotator A
+                         be written completely, or the library reports an
+                         error while writing it ("write error on annotator A
                          for record R")
 
-    The arguments are checked before the file is created. Whatever happens,
-    the annotator is closed (wfdbquit) before the function returns, and the
+    The arguments are checked before the file is created or changed.
+    Whatever happens, the annotator is closed (wfdbquit) and no temporary
+    file is left before the function returns, and the
     time resolution of output annotators (getafreq) and the getvec mode
     (getgvmode) are left as they were (fs applies to this file only).
 
@@ -1221,12 +1367,17 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
     Part of WFDB-x; not in the original WFDB package.
     """
     import numpy as np
+    # WFDB-x: every argument is checked before the file is touched
+    if np.ndim(samples) != 1:
+        raise ValueError("samples must be a 1-D array")
     n = len(samples)
 
     def check(v, name):
         # WFDB-x: a sequence must have one value per annotation
         if isinstance(v, (list, tuple)) or \
                 (isinstance(v, np.ndarray) and v.ndim > 0):
+            if name != "aux" and np.ndim(v) != 1:
+                raise ValueError("%s must be a 1-D array" % name)
             if len(v) != n:
                 raise ValueError("%s must have one value per annotation" %
                                  name)
@@ -1236,7 +1387,11 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
         check(symbols, "symbols")
     if codes is None:
         if symbols is None:
-            raise ValueError("symbols or codes must be given")
+            # WFDB-x: a label is required for each annotation (1.2.2: also
+            # in the other languages); an empty list writes an empty file
+            if n:
+                raise ValueError("symbols or codes must be given")
+            symbols = []
         if isinstance(symbols, str):
             codes = ann.strann(symbols)
         else:
@@ -1295,6 +1450,32 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
     times = ints(samples, "samples", time=True)
     codes, subtypes, chans, nums = ints(codes, "codes"), \
         ints(subtypes, "subtypes"), ints(chans, "chans"), ints(nums, "nums")
+    # WFDB-x: the times that the MIT format can store: the smallest and the
+    # largest 64-bit integers are reserved (putann refuses them, "time
+    # overflow", and the annotation was dropped); any other time is stored
+    # (with SKIPs for intervals beyond 1023 samples)
+    t_arr = np.asarray(times[:n], dtype=np.int64)
+    bad = (t_arr == _TIME_MIN) | (t_arr == _TIME_MAX)
+    if bad.any():
+        raise ValueError("annotation time %d cannot be written (annotation "
+                         "times must be integers from %d to %d)" %
+                         (int(t_arr[np.argmax(bad)]), _TIME_MIN + 1,
+                          _TIME_MAX - 1))
+    # WFDB-x: the annotation codes are 0 to 58 (ACMAX is 49, and 50 to 58
+    # are free); 59 to 63 are the control codes of the MIT format (SKIP,
+    # NUM, SUB, CHN, AUX), which corrupt the file, and other values do not
+    # fit in its 6 bits
+    c_arr = codes[:n] if isinstance(codes, np.ndarray) else \
+        np.array(codes[:n], dtype=object)
+    bad = (c_arr < 0) | (c_arr > _MAXCODE)
+    if np.any(bad):
+        c = int(c_arr[int(np.argmax(bad))])
+        if _MAXCODE < c <= 63:
+            raise ValueError("annotation code %d is reserved (59 to 63 are "
+                             "the control codes of the annotation file "
+                             "format)" % c)
+        raise ValueError("annotation code %d is out of range (0 to %d)" %
+                         (c, _MAXCODE))
     if both:
         # WFDB-x: symbols and codes may both be given (as read_annotations
         # returns them) if they agree: each symbol is that of its code (an
@@ -1314,29 +1495,46 @@ def write_annotations(record, annotator, samples, symbols=None, codes=None,
             texts = ["" if x is None else x for x in texts]
     else:
         texts = [aux] * n
-    auxes = ("".join(texts).encode("latin-1"),
-             np.fromiter(map(len, texts), np.int64, len(texts)))
+    try:
+        joined = "".join(texts).encode("latin-1")
+    except UnicodeEncodeError:
+        for x in texts:
+            _check_latin1(x, "aux text")
+        raise
+    auxes = (joined, np.fromiter(map(len, texts), np.int64, len(texts)))
     init.wfdbquit()
     errors = wio.wfdbx_write_errors()
-    # (the annotator is closed however this ends)
+    # WFDB-x: the file is written to a temporary file in the directory of
+    # its destination, which is renamed over it when it is complete (and,
+    # if needed, sorted); after a failure, it is removed, and the existing
+    # file is left as it was (see wio._staging_begin)
+    wio._staging_begin()
+    complete = False
     try:
-        if afs is not None:
-            ann.setafreq(afs)
-        if ann.annopen(record, [ann.Anninfo(annotator, WFDB_WRITE)], 1) < 0:
-            raise IOError("can't create annotator %s for record %s" %
-                          (annotator, record))
-        # (as putann for each annotation, but encoded at once)
-        ann._putanns(0, times[:n], codes[:n], subtypes[:n], chans[:n],
-                     nums[:n], auxes, packed_aux=True)
-        ann._a.sort_override = None if sort is None else bool(sort)
+        # (the annotator is closed however this ends)
         try:
-            init.wfdbquit()
+            if afs is not None:
+                ann.setafreq(afs)
+            if ann.annopen(record, [ann.Anninfo(annotator, WFDB_WRITE)],
+                           1) < 0:
+                raise IOError("can't create annotator %s for record %s" %
+                              (annotator, record))
+            # (as putann for each annotation, but encoded at once)
+            # WFDB-x: an error that putann reports is an error
+            put_failed = ann._putanns(0, times[:n], codes[:n],
+                                      subtypes[:n], chans[:n], nums[:n],
+                                      auxes, packed_aux=True) < 0
+            ann._a.sort_override = None if sort is None else bool(sort)
+            try:
+                init.wfdbquit()
+            finally:
+                ann._a.sort_override = None
         finally:
-            ann._a.sort_override = None
+            init.wfdbquit()
+            # (the previous time resolution is restored by _keep_settings)
+        complete = not put_failed and wio.wfdbx_write_errors() == errors
     finally:
-        init.wfdbquit()
-        # (the previous time resolution is restored by _keep_settings)
-
-    if wio.wfdbx_write_errors() > errors:
+        renamed = wio._staging_end(complete)
+    if not renamed:
         raise IOError("write error on annotator %s for record %s" %
                       (annotator, record))

@@ -23,7 +23,8 @@ classdef SigState < handle
 %   user_segments is true while setmsheader reads the headers of the
 %   segments it was given; cksum_quiet is true while a high-level reader
 %   reads (getvec then records its checksum message without printing it);
-%   bulk_read and bulk_vectors are the switch and counter of the bulk
+%   read_failed is set by getskewedframe when a sample cannot be read
+%   (status -3), and cleared by the high-level readers; bulk_read and bulk_vectors are the switch and counter of the bulk
 %   reader (wfdbx.internal.bulk_frames).
 %
 %   Part of the translation of lib/signal.c (WFDB 10.7.0).
@@ -39,9 +40,9 @@ classdef SigState < handle
 % Changes from the original: fields hold the directory of the last header
 % read, the directory and name of the current multi-segment record, the
 % legacy-mode setting, whether checksum messages are quieted during a
-% high-level read, and the switch and counter of the bulk reader. Each
-% change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
-% reasons.
+% high-level read, whether a sample could not be read, and the switch and
+% counter of the bulk reader. Each change is marked "WFDB-x:" in the code;
+% docs/DIVERGENCES.md gives the reasons.
 %
 % Original C code: lib/signal.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 1989-2013 George B. Moody; revised 2011-2022 by Benjamin
@@ -62,6 +63,12 @@ classdef SigState < handle
         msrec_name = []
         user_segments = false
         cksum_quiet = false     % WFDB-x: true during a high-level read
+        % WFDB-x: set to true by getskewedframe when a sample cannot be
+        % read (getvec status -3), whatever status getvec then returns (a
+        % checksum error, -4, found in the same frame replaces -3); the
+        % high-level readers clear it before and after reading, and treat
+        % it as a read error; the C-style functions only set it
+        read_failed = false
         % timing
         ffreq = 0
         ifreq = 0

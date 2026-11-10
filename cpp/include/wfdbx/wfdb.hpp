@@ -242,9 +242,11 @@ using Seginfo = WFDB_Seginfo;
 // (wfdbx_set_output_dir()), by default the current directory; an absolute
 // name, a "~" name or a URL is used as given.  The signal files and segments
 // named in a header are in the directory of that header (or below it).  URLs
-// are opened only with network access (wfdbx_set_network()).  Legacy mode:
-// as the C library, records are searched for in the directories of the WFDB
-// path (see setwfdb()), without network access.
+// are opened only with network access (wfdbx_set_network()), and only
+// http:// and https:// URLs can be read: a name with another URL scheme
+// (ftp://, sftp://, file://, ...) is refused.  Legacy mode: as the C
+// library, records are searched for in the directories of the WFDB path (see
+// setwfdb()), without network access.
 
 /// @name Opening and closing records
 /// @{
@@ -647,8 +649,9 @@ void wfdbx_note_write_error();
 /// "" restores the default: the environment variable WFDBX_OUTPUT_DIR if it
 /// is set, otherwise the current directory.
 ///
-/// Returns the previous value (std::nullopt if none).  A URL is refused with
-/// the error "wfdbx_set_output_dir: the output directory must be a local
+/// Returns the previous value (std::nullopt if none).  A URL (any name that
+/// begins with a URL scheme, such as https:// or ftp://) is refused with the
+/// error "wfdbx_set_output_dir: the output directory must be a local
 /// directory"; the setting is then unchanged, and its current value is
 /// returned.  wfdbquit() does not change the setting.
 ///
@@ -684,11 +687,15 @@ std::optional<std::string> wfdbx_get_input_dir();
 /// allowed if the environment variable WFDBX_NETWORK is a nonzero number,
 /// otherwise forbidden.  Returns the previous setting (1 or 0).
 ///
-/// URLs are read with the curl program, which must be installed.  Each URL
-/// is read at most once while the program runs.  A download gives up when
-/// it cannot connect, or receives nothing, for 30 seconds.  With network
-/// access forbidden, opening a URL fails with the error "WFDB-x: network
-/// access is disabled; ...".
+/// URLs are read with the curl program, which must be installed.  A remote
+/// file that has been read is kept while the program runs; one that could
+/// not be read is requested again the next time it is opened.  A download
+/// gives up when it cannot connect, or receives nothing, for 30 seconds.
+/// With network access forbidden, opening a URL fails with the error
+/// "WFDB-x: network access is disabled; ...".  Only http:// and https://
+/// URLs can be read: a name that begins with another URL scheme, such as
+/// ftp:// or sftp://, is refused (an error, with or without network
+/// access), and never read as a local file name.
 ///
 ///     wfdbx_set_network(1);
 ///
@@ -709,7 +716,8 @@ int wfdbx_get_network();
 /// `name` is a file name; "" and "-" (the standard input, if the program
 /// treats it so) are returned as given.  Returns std::nullopt if `name` is
 /// nullptr or a URL, or becomes one when the input directory is prefixed to
-/// it: such a file cannot be opened in this way.
+/// it (in normal mode, any name that begins with a URL scheme, such as
+/// ftp://): such a file cannot be opened in this way.
 ///
 ///     wfdbx_set_input_dir("data");
 ///     std::FILE *f = std::fopen(wfdbx_input_path("samples.txt")->c_str(),
@@ -730,7 +738,8 @@ std::optional<std::string> wfdbx_input_path(const char *name);
 ///
 /// `name` is a file name; "" and "-" (the standard output, if the program
 /// treats it so) are returned as given.  Returns std::nullopt if `name` is
-/// nullptr or a URL (which cannot be written).
+/// nullptr or a URL (in normal mode, any name that begins with a URL
+/// scheme), which cannot be written.
 ///
 ///     wfdbx_set_output_dir("out");
 ///     std::FILE *f = std::fopen(wfdbx_output_path("notes.txt")->c_str(),
@@ -833,8 +842,18 @@ void flushcal();
 /// the first; otherwise return the next one (reading those of the open
 /// record on the first call).  Returns nullopt when there are no more.
 ///
+/// The record line is found as the header parser (readheader) finds it:
+/// the first line that has a token (separated by spaces, tabs, CRs and
+/// LFs, up to a null character) that does not begin with '#'; every later
+/// line that begins with '#' is an info string, and a header with no record
+/// line has none.
+///
 /// Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0): same
-/// arguments and results.
+/// arguments and results, except for the record line (WFDB-x): the C
+/// function takes the first line that does not begin with '#', so that an
+/// empty or blank line before the record line is taken for it, and the
+/// comments between them are returned as info strings.  In legacy mode, the
+/// C rule applies.
 std::optional<std::string> getinfo(const char *record);
 /// Append `info` as an info string to the info file opened by setinfo(),
 /// or otherwise to the header last written; returns 0, or -1 if there is
@@ -1093,7 +1112,12 @@ std::string wfdbdefwfdbcal();
 /// `status` is not null, it receives the value returned by the last getvec()
 /// call: the negative status of the first frame that could not be read
 /// (-1 at the end of the data, < -1 on an error, e.g. -3 for an unexpected
-/// end of file), or the number of values per frame if all n were read.
+/// end of file), or the number of signals (the value that getvec()
+/// returns for a frame) if all n were read.
+/// (While read_record() or check_record() reads, a frame in which a sample
+/// could not be read ends the reading with the status -3, even if getvec()
+/// returns -4 for it, a checksum error verified in the same frame; the
+/// frame is not counted.)
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 long long getvecs(WFDB_Sample *out, long long n, int *status = nullptr);

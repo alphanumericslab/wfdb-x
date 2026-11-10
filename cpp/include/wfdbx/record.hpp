@@ -146,6 +146,9 @@ public:
     /// strtim() for the record currently open.  A time of day gives the
     /// positive sample number it corresponds to.
     WFDB_Time resolve() const;
+    /// The sample number, if the time was given as one (not as a string);
+    /// std::nullopt otherwise.
+    std::optional<WFDB_Time> sample() const { return t_; }
 private:
     std::optional<WFDB_Time> t_;
     std::optional<std::string> s_;
@@ -197,8 +200,13 @@ struct Record {
     /// date.
     std::optional<std::array<int, 3>> base_date;
     WFDB_Time sampfrom = 0;     ///< sample number of the first returned sample
-    /// Info strings of the record: the comments of the header, and the
-    /// lines of its .info file if it has one (see getinfo()).
+    /// Info strings of the record: the comments of the header (its lines
+    /// that begin with '#' after the record line, without the '#'), and
+    /// the lines of its .info file if it has one (see getinfo()).  The
+    /// record line is found as the header parser finds it: the first line
+    /// that holds something other than spaces, tabs, CRs and LFs and does
+    /// not begin, after them, with '#' (an empty or blank first line is not
+    /// the record line, except in legacy mode).
     std::vector<std::string> comments;
     /// false if the signal data do not match the checksums in the header,
     /// true otherwise.  Checksums are only checked when a read reaches the
@@ -269,7 +277,11 @@ struct ReadOptions : InputOptions {
 /// are the same after the call as before it (opening an EDF record sets
 /// both).  A signal file that is shorter than its header says, or that
 /// cannot be read or decoded, throws "can't read signal data of record R
-/// (getvec status S)".  If the header gives no sampling frequency, rec.fs is
+/// (getvec status -3)", even if the checksums do not match either (the
+/// frame in which the file ends is then the one at which they are
+/// verified): an incomplete frame is never returned.  No more than 2^26
+/// samples are allocated in advance, whatever length the header or opt.to
+/// gives.  If the header gives no sampling frequency, rec.fs is
 /// 0, and a time string in opt.from or opt.to that needs it throws "sampling
 /// frequency of record R is not specified".  Data that do not match the
 /// header's checksums are returned, with a warning (see
@@ -386,7 +398,10 @@ struct Annotations {
 /// WFDB package, for this call only.  `input` says where the files are found
 /// (see InputOptions).
 ///
-/// Throws Error if the annotation file cannot be read, if `fs` is given and
+/// Throws Error if `from` is a negative sample number
+/// ("read_annotations: from must not be negative", as read_record()
+/// checks it; checked first, before anything is opened), if the annotation
+/// file cannot be read, if `fs` is given and
 /// is not greater than 0 ("read_annotations: fs must be > 0"), or if a time
 /// string in `from` or `to` needs a frequency that is not known ("sampling
 /// frequency of record R is not specified").  A file that ends early or
@@ -394,9 +409,10 @@ struct Annotations {
 /// A of record R (getann status S)", where S is the status getann() returned
 /// (e.g. -3, unexpected end of file).
 ///
-/// The time resolution of output annotators (getafreq()) and the getvec
-/// mode (getgvmode()) are the same after the call as before it (opening an
-/// EDF record sets both).
+/// Whatever happens, the annotation file is closed (wfdbquit()) before
+/// the function returns, and the time resolution of output annotators
+/// (getafreq()) and the getvec mode (getgvmode()) are the same after the
+/// call as before it (opening an EDF record sets both).
 ///
 ///     // The sample record 100s (see read_record()), in tests/data:
 ///     wfdbx::wfdbx_set_input_dir("tests/data");
@@ -458,8 +474,9 @@ struct WriteOptions {
 /// multi-frequency record.  WFDB_INVALID_SAMPLE marks invalid samples.  `fs`
 /// is the sampling frequency in Hz.
 ///
-/// `record` is the record name, without the .hea extension: a plain name
-/// ("rec") or a relative path ("data/rec"), created in the output directory
+/// `record` is the record name, without the .hea extension (a trailing
+/// ".hea" is removed, as by the readers): a plain name ("rec") or a
+/// relative path ("data/rec"), created in the output directory
 /// if one is set (see wfdbx_set_output_dir()), otherwise in the current
 /// directory, missing directories included; or a full path, absolute or in
 /// the home directory ("~/Documents/rec"), used as given.  With a path, the
@@ -469,21 +486,32 @@ struct WriteOptions {
 /// original, the header gives the name with its path).  A URL cannot be
 /// written.
 ///
-/// Throws Error if a samps_per_frame value is less than 1
-/// ("samps_per_frame must hold integers >= 1", checked first), if the
-/// record name is empty, if nsig is not greater than 0 ("at least one signal
-/// is required"), if a per-signal vector of `opt` has another length than
-/// 0, 1 or nsig, if fs is not finite or not greater than 0, if a gain is not
-/// finite ("gains must be finite"), if the gains, the ADC resolutions or the
-/// units of a calibrated signal are missing ("gains must be specified", "ADC
-/// resolution(s) must be specified", "units must be specified"), if
-/// samples.size() is not a multiple of the frame size, if opt.base_time is
-/// not a valid time ("incorrect base time 'T'"), if an entry of
-/// opt.metadata is not valid (ArgumentError; see WriteOptions::metadata), if
-/// the files cannot be
-/// created, or if they cannot be written completely (for example, when the
-/// disk is full: "write error on record R").  Every check except the last
-/// two comes before any file is created.  With opt.dir, it also throws if
+/// Throws Error, in this order, if the record name is empty, if a
+/// samps_per_frame value is less than 1 ("samps_per_frame must hold
+/// integers >= 1"), if nsig is not greater than 0 ("at least one signal is
+/// required"), if a per-signal vector of `opt` has another length than 0, 1
+/// or nsig, if the gains, the ADC resolutions (each at least 1) or the
+/// units of a calibrated signal are missing ("gains must be specified",
+/// "ADC resolution(s) must be specified", "units must be specified"), if fs
+/// is not finite or not greater than 0, if a gain is not finite ("gains
+/// must be finite"), if opt.base_time is not a valid time ("incorrect base
+/// time 'T'"), if samples.size() is not a multiple of the frame size, if an
+/// entry of opt.metadata is not valid (ArgumentError; see
+/// WriteOptions::metadata); and then if the files cannot be created, or if
+/// they cannot be written completely (for example, when the disk is full:
+/// "write error on record R").  Every check except the last two comes
+/// before any file is created or changed.  (The ADC resolutions, zeros and
+/// baselines are ints, and the text is bytes, so that any value of these
+/// types can be written.)
+///
+/// Existing files of the same names are replaced: the header and the
+/// signal file are written to temporary files in the directories of their
+/// destinations (".NAME.XXXXXXXX.tmp"), which replace the existing files,
+/// with their permissions (or, for a new file, 0666 less the umask), only
+/// when both are complete.  An error leaves the existing files as they
+/// were, and no temporary file.  For a symbolic link, the file it leads to
+/// is replaced; an existing file that is not a regular file (a device, a
+/// FIFO) is written directly.  With opt.dir, it also throws if
 /// the directory does not exist ("directory D does not exist") or the
 /// record name contains one ("record name must not contain a directory when
 /// dir is given").  The output signals are closed (wfdbquit()) before the
@@ -547,12 +575,24 @@ void write_record_physical(const std::string &record,
 /// sorts, for this call only.  Without `sort`, the WFDBANNSORT environment
 /// variable decides: sorting is on unless it is 0.
 ///
-/// Throws Error if symbols and codes are both given and disagree
-/// ("symbols and codes disagree at annotation K", K counted from 0), if
-/// `fs` is not 0 and not a finite frequency > 0, if
-/// the file cannot be created, if it cannot be written completely ("write
-/// error on annotator A for record R"), or for a `dir` as write_record()
-/// does.  The arguments are checked before the file is created.  The
+/// Throws Error, in this order, if a field has another length than 0 or
+/// n, if there is at least one annotation and neither symbols nor codes is
+/// given ("symbols or codes must be given"; with no annotations, an empty
+/// file is written), if `fs` is not 0 and not a finite frequency > 0, if a time is the
+/// smallest or the largest 64-bit integer, which the file format reserves
+/// ("annotation time T cannot be written (annotation times must be integers
+/// from -9223372036854775807 to 9223372036854775806)"), if a code is not
+/// from 0 to 58 ("annotation code C is reserved (59 to 63 are the control
+/// codes of the annotation file format)", or "annotation code C is out of
+/// range (0 to 58)"), if symbols and codes are both given and disagree
+/// ("symbols and codes disagree at annotation K", K counted from 0); then
+/// if the file cannot be created, if it cannot be written completely or
+/// putann() reports an error ("write error on annotator A for record R"),
+/// or for a `dir` as write_record() does.  The arguments are checked before
+/// the file is created or changed.  An existing file is replaced as by
+/// write_record(): the new file is written to a temporary file in the same
+/// directory, which replaces it only when it is complete (and, if needed,
+/// sorted), so that an error leaves it as it was.  The
 /// annotator is closed (wfdbquit()) before the function returns, and the
 /// time resolution of output annotators (getafreq()) and the getvec mode
 /// (getgvmode()) are left as they were (`fs` applies to this file only).
@@ -600,7 +640,10 @@ struct CheckReport {
 
 /// Check a record and its annotation files, and report every problem: the
 /// header, the signal specifications, the signal files (all samples are
-/// read) and the annotation files of `annotators` (such as {"atr"}).
+/// read; a signal file that ends early, or cannot be read, ends the reading
+/// before its incomplete frame, and is reported as such even in the frame
+/// at which the checksums are verified) and the annotation files of
+/// `annotators` (such as {"atr"}).
 /// Problems in the record are reported, never thrown.  `input` says where
 /// the files are found (see InputOptions).  The checks run in normal mode,
 /// even if legacy mode is on, and the library prints no messages during the
@@ -652,8 +695,11 @@ CheckReport check_record(const std::string &record,
 //   are removed.  So "#Age:45", "# Age: 45" and "#  Age : 45" all give
 //   ("Age", "45").  An info string without a colon, or whose key is empty or
 //   contains '#', is a free comment: it is not returned, and it is never
-//   changed.  Comment lines before the record line are not info strings, and
-//   are never read or changed.  Only the header file (.hea) is read, not the
+//   changed.  The record line is the first line that holds something other
+//   than spaces, tabs, CRs and LFs (up to a NUL) and does not begin, after
+//   them, with '#', as the header parser finds it, in every mode.  Comment
+//   lines (and empty or blank lines) before the record line are not info
+//   strings, and are never read or changed.  Only the header file (.hea) is read, not the
 //   .info file that getinfo() also reads.
 // * Keys are compared without regard to letter case (A-Z and a-z only), so
 //   get_metadata(record, "age") finds "Age".  If a header holds several

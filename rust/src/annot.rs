@@ -48,7 +48,9 @@ use crate::cstd;
 use crate::ecgcodes::{wfdb_ammap, wfdb_mamap, ACMAX, NOTE, NOTQRS};
 use crate::types::*;
 use crate::wfdb::{with_default, OptBytes, Wfdb, NULL};
-use crate::wfdbio::{local_fopen, run_sortann, wfdb_striphea, WfdbFile};
+use crate::wfdbio::{
+    is_staged, local_fopen, run_sortann, staging_commit_one, wfdb_striphea, WfdbFile,
+};
 
 // Annotation word format
 const CODE: u32 = 0o176000; // annotation code segment of word
@@ -1452,8 +1454,17 @@ impl Wfdb {
                 // WFDB-x: the file is sorted in this process (sort_ann_file);
                 // the C library ran the sortann program, as legacy mode does.
                 let sorted = if self.wfdbx_get_legacy() != 0 {
-                    let dir = self.wfdbx_get_output_dir();
-                    run_sortann(&oa.rname, &name, dir.as_deref()) == 0
+                    // WFDB-x: a file that write_annotations is writing to a
+                    // temporary file (see wfdbio::Staging) is renamed
+                    // over its destination first, where the sortann program
+                    // finds it; after a write error, it is not (the existing
+                    // file is left as it was), and it is not sorted.
+                    if is_staged(&oa.fname) && (errflag || !staging_commit_one(&oa.fname)) {
+                        false
+                    } else {
+                        let dir = self.wfdbx_get_output_dir();
+                        run_sortann(&oa.rname, &name, dir.as_deref()) == 0
+                    }
                 } else {
                     self.sort_ann_file(&oa.fname, &name) == 0
                 };

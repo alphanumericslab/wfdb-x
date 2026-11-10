@@ -40,7 +40,11 @@ running MATLAB:
   current ones: `cout`/`cerr`/`WFDBFile.sync` (`fflush`), `stdin_bytes`
   (reading fid 0), `md5` (`hash`; Java in MATLAB, `md5_pure` otherwise),
   `tool_command`, `wfdb_fopen` (MATLAB can open directories),
-  `std_stream` (`stat`, `S_ISREG`, `S_ISCHR`), and `symlink` in the tests).
+  `std_stream` (`stat`, `S_ISREG`, `S_ISCHR`), `temp_create` (`stat`,
+  `lstat`, `umask`; `fileattrib` in MATLAB), `staged_open`
+  (`canonicalize_file_name`, `lstat`, `readlink`, `S_ISREG`; Java in
+  MATLAB), `staging_rename` (`rename`; `movefile` in MATLAB), and
+  `symlink`, `readlink`, `stat` in the tests).
 * **`&&` and `||`** need scalar operands. Octave applies `all()` to an
   array operand (and treats `[]` as false) where MATLAB throws an error,
   so a non-scalar operand passes the tests and fails in MATLAB.
@@ -140,7 +144,10 @@ with the exact authors and years of [`docs/AUTHORS.md`](../docs/AUTHORS.md):
 * tools (`+wfdbx/+apps/`) say "original program" and "Original C program:
   app/<tool>.c", and "This program is free software", under the GNU
   General Public License, version 3 or later ("See LICENSE-GPL."), as do
-  the drivers of `bin/`;
+  the drivers of `bin/` and the code that only the tools use, the
+  dispatcher `+internal/cli_main.m` and `+internal/app_run.m` (the
+  helpers that the library also uses, such as `tool_command.m`, which
+  `oannclose` calls to run `sortann` in legacy mode, stay under the LGPL);
 * WFDB-x's own code (C library emulation, high-level API, drivers, FLAC
   codec, tests) says, after the first sentence, "It has no counterpart in
   the original package." (tests: "It tests WFDB-x; it has no counterpart
@@ -349,13 +356,13 @@ help text):
 | `st = io_state()` | the I/O state (`IOState`) |
 | `wfdb_error(fmt, ...)` | `wfdb_error`: saves the message; prints it unless `wfdbquiet` |
 | `f = wfdb_open(s, record, mode)` | `wfdb_open`: the one location a name designates (`resolve_name`, `open_at`); in legacy mode, the WFDB path search; returns a `WFDBFile` or `[]` |
-| `p = resolve_name(name, output)`, `f = open_at(p, s)`, `expand_home(n)`, `is_url(n)`, `is_absolute_path(n)` | WFDB-x name resolution: a relative name under the input (or output) directory, an absolute, `~` or URL name as given; the file at that location (both spellings) |
+| `p = resolve_name(name, output)`, `f = open_at(p, s)`, `expand_home(n)`, `is_url(n)`, `has_scheme(n)`, `is_absolute_path(n)` | WFDB-x name resolution: a relative name under the input (or output) directory, an absolute, `~` or URL name (any URL scheme: `has_scheme`; only `is_url`, http:// or https://, can be read) as given; the file at that location (both spellings) |
 | `f = open_in(dir, s, name, record)`, `wfdb_dirname(p)` | a file named in a header, in the header's directory, with the containment check |
 | `in_header_dir(name)`, `expand_record(r)`, `output_file(name)` | the containment rule; the trailing-'/' expansion of `wfdb_open`; the local file that an output name designates |
 | `is_input_file(fname)` | (signal module) true if an output signal file is a signal file of the open input record, segments included (Octave: `stat` device and inode; MATLAB: `java.nio.file.Files.isSameFile`); `openosig` refuses such a file in normal mode |
 | `init_input_dir(st)`, `init_output_dir(st)`, `put_input_dir(st, d)`, `path_components(p)` | the settings (environment variables read once), and the path scanner shared by `wfdb_parse_path` and `setwfdb` |
-| `f = fetch_open(url)` | a remote file (network access allowed), fetched once per session (the system program `curl`; if it is not found, `webread` in Octave, `websave` in MATLAB) and served from a temporary file deleted by `close()` |
-| `f = wfdb_fopen(fname, mode)` | `wfdb_fopen` (`'rb'`, `'wb'`, `'ab'`) |
+| `f = fetch_open(url)` | a remote file (network access allowed), kept for the rest of the session once read, a failure not kept (the system program `curl`; if it is not found, `webread` in Octave, `websave` in MATLAB) and served from a temporary file deleted by `close()` |
+| `f = wfdb_fopen(fname, mode)` | `wfdb_fopen` (`'rb'`, `'wb'`, `'ab'`); in normal mode, a name with a URL scheme other than http:// and https:// is refused, with a message the first time |
 | `wfdb_parse_path(p)`, `wfdb_addtopath(s)`, `getiwfdb(p)` | path handling (legacy mode) |
 | `wfdb_checkname(p, what)`, `wfdb_setirec(p)`, `wfdb_getirec()`, `wfdb_striphea(p)` | the same |
 | `m = ecg_map()` | annotation mapping tables (`EcgMap`) |
@@ -390,8 +397,39 @@ does not reset them. The signal module notes the directory of the header
 read last (`SigState.hdr_dir`) and of the master header of a
 multi-segment record (`msrec_dir`, `msrec_name`), so that signal files and
 segments are opened next to their header (`open_in`). Remote files are
-read only in normal mode with network access on; legacy mode keeps the
-original code (`wfdb_fopen` refuses names containing `..` or `://`).
+read only in normal mode with network access on, and only from http:// and
+https:// URLs (a name with another URL scheme is refused, never read as a
+local file name); legacy mode keeps the original code (`wfdb_fopen` refuses names containing `..` or `://`).
+
+**Writing through temporary files** (WFDB-x 1.2.2). `write_record` and
+`write_annotations` check all their arguments, then call
+`wfdbx.internal.staging_begin` before they open their files and
+`staging_end(complete)` when they are done (an `onCleanup` object also
+ends the staging if they are interrupted). While staging (`IOState`
+`staging`, `staging_keys`, `staging_tmps`, `staging_dests`),
+`wfdb_fopen` passes each name to `staged_open`: a destination opened
+with `'wb'` or `'ab'` (keyed by its absolute path, `staged_key`; not a
+URL, not the standard output, which `wfdb_open` handles before) is
+created as a temporary file `.NAME.XXXXXXXX.tmp` in the directory of the
+file it leads to (symbolic links followed), by `temp_create`; reopening
+the same destination (`'rb'`, `'wb'`, `'ab'`) opens the same temporary
+file (the in-process sort of `oannclose` reads and rewrites it); a
+destination that is a directory fails to open; an existing destination
+that is not a regular file (`/dev/full`, a FIFO) is opened directly.
+`staging_end(true)` renames every temporary file over its destination
+(`staging_rename`: `rename` in Octave, `movefile` in MATLAB) after all
+are complete; after an error or a write error, they are all removed. In
+legacy mode, `oannclose` renames an out-of-order annotation file over its
+destination (`staging_commit_one`) before it runs the `sortann` program,
+and neither renames nor sorts it after a write error. `temp_create`
+gives a temporary file, from its creation, the permissions that its
+destination will have: those of the existing destination (Octave has no
+`chmod`: the file is created under a `umask` that leaves exactly the read
+and write permissions of the destination, so that a private 0600 file is
+never readable by others; MATLAB sets them with `fileattrib`), or those
+of a new file (0666 less the umask). No shell command is run on any name
+(Octave's `copyfile` and `movefile` run one). The metadata functions
+replace headers the same way (`meta_write`).
 
 ## Signals (lib/signal.c)
 
@@ -469,7 +507,23 @@ library state (`istime`, each signal's `samp`, `cksum`, `nsamp`, `gvc`,
 vectors in high resolution), so that formats 212, 310 and 311 end each
 chunk on a whole packed unit, joins them at the end (a record read in one
 chunk is not copied), and converts to physical units in place, in blocks
-of rows. The `SigState` properties `bulk_read` (set it to false to turn
+of rows.
+
+**Read errors in the high-level readers** (WFDB-x 1.2.2).
+`getskewedframe` sets the `SigState` flag `read_failed` wherever it sets
+the status -3 (a decoder or I/O error, "unexpected EOF in signal N", an
+error opening a segment), whatever status `getvec` then returns (a
+checksum error, -4, found in the same frame replaces -3). `read_record`
+and `check_record` clear it before and after reading, and call
+`wfdbx.getframes(n, 0, true)`: after a `getvec` call with the flag set,
+the frame is not returned, the status becomes -3 (if it was -4 or >= -1),
+and the reading stops; `read_record` then throws "can't read signal data
+of record REC (getvec status -3)", and `check_record` reports
+`length_short`. The C-style `getvec`, `getframe` and the tools are
+unchanged. `read_record` never allocates from the header's length: it
+reads chunks of at most about 2^22 samples and joins them.
+
+The `SigState` properties `bulk_read` (set it to false to turn
 the bulk path off: the tests compare both paths), `bulk_vectors` (the
 number of vectors read in blocks) and `bulk_block` (the tests make it
 small) are not reset by `wfdbquit`.
@@ -643,6 +697,7 @@ through `putinfo`). The helpers in `+wfdbx/+internal/`:
 
 | Function | Purpose |
 |---|---|
+| `meta_parse` record line | the first line whose content (up to a NUL byte) has a token, separated by spaces, tabs, CRs and LFs, that does not begin with `#` (as `readheader` finds it), in every mode; `wfdbx.getinfo` uses the same rule in normal mode, and C's (the first line that does not begin with `#`) in legacy mode |
 | `meta_id(fname)` | the error identifiers: `wfdbx:FNAME` (argument errors) and `wfdbx:FNAME:file` (a header that cannot be read or written, a `'dir'` that does not exist) |
 | `meta_text`, `meta_key`, `meta_value`, `meta_changes` | the checks of the arguments (keys, values, N-by-2 cell arrays of changes; `[]` is "remove") |
 | `meta_trim`, `meta_fold`, `meta_entry` | trimming (space, tab, VT, FF, CR), letter case (A-Z only), the key and value of one info string |
@@ -650,7 +705,7 @@ through `putinfo`). The helpers in `+wfdbx/+internal/`:
 | `meta_read(record, input_dir, network, id)` | the header's bytes, read with `wfdb_open` (type `hea`) |
 | `meta_entries(data, record)` | the entries, one per key (warning `wfdbx:duplicate_key`) |
 | `meta_change(record, keys, values, opt, id)` | the changes (set, remove, in order), written if the header changes or `'dir'` is given |
-| `meta_write(dest, data, record, id)` | a temporary file `.NAME.XXXX.tmp` in the destination's folder (a copy of the destination, for its permissions; in Octave only for names of plain characters, as Octave's `copyfile` runs a shell command), renamed over it (`rename` in Octave, `movefile` in MATLAB); removed on any failure |
+| `meta_write(dest, data, record, id)` | a temporary file `.NAME.XXXXXXXX.tmp` in the destination's folder, created by `temp_create` with the permissions of the destination (whatever its name: no shell command is run), renamed over it (`rename` in Octave, `movefile` in MATLAB); removed on any failure |
 | `meta_info_lines(metadata, comments, id)` | the info strings of `write_record`'s `'metadata'` |
 
 Text is one char per byte, as elsewhere; the code applies no regular
@@ -792,3 +847,5 @@ octave-cli --no-gui --norc -q --eval "cd matlab/tests; run_tests"  # unit tests
 arguments that throws on failure; `assert_eq(actual, expected, what)` helps)
 and exits with status 1 on failure when run non-interactively.
 `run_tests('wfdbio')` runs the tests whose names match a pattern.
+`test_metadata` runs the 56 metadata cases shared by the seven languages
+(`tests/metadata/cases.tsv`).

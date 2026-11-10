@@ -11,11 +11,12 @@ C tools, so that a script written for the WFDB tools runs unchanged with \wfdbx{
 exceptions are the deliberate divergences of \cref{chap:behavior}: no built-in signal
 parameters (hence the options \opt{-F}, \opt{-G}, \opt{-R} and \opt{-U} added to some
 tools), files found only where they are named, annotation files sorted without loss, an
-output signal file never written over an input file, and write errors reported in the exit
-status. The original behavior remains available with \opt{-{}-legacy}
+output signal file never written over an input file, write errors reported in the exit
+status, and the record line of a header found by \code{getinfo} as the header parser finds
+it (the \code{Notes} of \cmd{wfdbdesc}). The original behavior remains available with \opt{-{}-legacy}
 (\cref{sec:tools-legacy}).
 
-Every implementation is checked against the C tools by the same conformance suite (1135
+Every implementation is checked against the C tools by the same conformance suite (1155
 cases): the standard output, the standard error, the exit status and the files written are
 compared byte for byte. The examples of this chapter were produced by the Python
 implementation, run in a copy of the directory \file{tests/data} of the repository, which
@@ -99,8 +100,9 @@ annotator (\opt{-r 100s -a atr} is the file \file{100s.atr}). The tools find eve
 that they read through the library, as \cref{chap:files} describes: a relative name is
 taken relative to the \emph{input directory}, set by the environment variable
 \code{WFDBX\_INPUT\_DIR} (by default the current directory), an absolute name, a \code{\textasciitilde}
-name or a URL is used as given, and nothing is searched for. A URL is opened only when
-network access is turned on, by \code{WFDBX\_NETWORK=1}. Files written through the library
+name or a URL is used as given, and nothing is searched for. A URL (only \code{http://} and
+\code{https://} URLs are read) is opened only when network access is turned on, by
+\code{WFDBX\_NETWORK=1}. Files written through the library
 (headers, signal files, annotation files) are created in the \emph{output directory},
 \code{WFDBX\_OUTPUT\_DIR} (by default the current directory). For example, to read record
 100 of the MIT-BIH Arrhythmia Database from PhysioNet:
@@ -119,8 +121,8 @@ and the \file{.des}, \file{.ecg}, \file{.key} and \file{.txt} files of \cmd{pars
 They follow the same rules as the files of the library (\cref{sec:tool-files}): a relative
 name is read from the input directory, or created in the output directory (with its
 missing directories), a \code{\textasciitilde} name is expanded, an absolute name is used
-as given, and \code{-} keeps its meaning. A URL is not accepted for these files: the tool
-reports that it cannot read, or create, the file. In legacy mode, the input files are
+as given, and \code{-} keeps its meaning. A URL is not accepted for these files, also when
+the input directory is a URL: the tool reports that it cannot read, or create, the file. In legacy mode, the input files are
 opened as named, relative to the current directory, and the output directory, if one is
 set, is a plain prefix of the names of the output files.
 
@@ -159,8 +161,9 @@ every following argument that does not begin with a hyphen.
 \opt{-h} prints the tool's usage summary on the standard error. A tool that needs an
 argument that was not given (often the record name) prints the same summary. The exit
 status after \opt{-h} is that of the C tool, 0 or 1 depending on the tool (each entry says
-which). Help texts longer than 23 lines (\cmd{ann2rr}, \cmd{wrsamp}) pause after 23 lines,
-print \code{-{}-More-{}-} and read a line from the standard input, as the C tools do. The usage
+which); as in C, \cmd{wfdbdesc}, \cmd{sampfreq} and \cmd{revise} take \opt{-h} alone as a
+record name. The help texts of \cmd{ann2rr} and \cmd{wrsamp} pause after 23
+lines, print \code{-{}-More-{}-} and read a line from the standard input, as the C tools do. The usage
 line of each tool is given at the start of its entry below.
 
 \subsection{Legacy mode}
@@ -182,8 +185,9 @@ recognized: it is treated as any other argument. Legacy mode is meant for reprod
 
 Text output goes to the standard output, and messages, prompts and help texts to the
 standard error. Some tools read the standard input (\cmd{wrsamp} without \opt{-i},
-\cmd{wrann}, \cmd{rr2ann}, \cmd{parsescp}, \cmd{readid}) and some write binary data to the
-standard output (\cmd{wfdbcat}, \cmd{makeid}, and \cmd{wrsamp} without \opt{-o}).
+\cmd{edf2mit -i -}, \cmd{wrann}, \cmd{rr2ann}, \cmd{parsescp}, \cmd{readid}) and some write
+binary data to the standard output (\cmd{wfdbcat}, \cmd{makeid}, \cmd{parsescp -a}, and
+\cmd{wrsamp} without \opt{-o}).
 
 \subsection{Exit status}
 \label{sec:tools-status}
@@ -371,7 +375,7 @@ integer after scaling (\opt{-x}).
 \item[-R] The ADC resolution in bits; a quoted list gives one per signal, as for \opt{-G}.
   Required with \opt{-o}.
 \item[-s] Any character of the string that follows separates input fields (by default:
-  space, tab, carriage return or comma).
+  space, tab, carriage return or comma; only tab if the first line contains a tab).
 \item[-t] Stop copying at the input line that follows (a number, $\ge 1$).
 \item[-U] The units of the signals; a quoted list gives one per signal, as for \opt{-G}.
   Required with \opt{-o} for calibrated signals, unless the input gives the units.
@@ -414,7 +418,9 @@ usage: wfdbdesc RECORD [-readable]
 Prints the contents of a record's header in readable form: the info strings (\code{Notes}),
 the starting time, the length, the sampling frequency, and for each signal its file,
 description, gain and units, initial value, storage format, ADC resolution and zero,
-baseline and checksum. For a multi-segment record, it also describes the segments.
+baseline and checksum. For a multi-segment record, it also gives the layout (fixed or
+variable) and, for a fixed layout, the length of the first segment, whose signals it
+describes.
 \begin{params}
 \item[RECORD] The record to describe.
 \item[-readable] Describe only the signals whose files can be opened (by default, every
@@ -458,7 +464,11 @@ sample intervals only), a gain of 0 as \code{uncalibrated} (C:
 \code{uncalibrated; assume 200}), and unspecified units as \code{adu/nd}; the C tool assumed
 250\,Hz, 12 bits and millivolts. For a record whose header gives no length, the size of the
 first signal file, from which the length is computed, is measured in the header's
-directory, where the library reads the file (C: in the current directory).
+directory, where the library reads the file (C: in the current directory). The notes are
+the info strings that \code{getinfo} returns, after the record line found as the header
+parser finds it (\cref{sec:record-line-divergence}): for a header whose first line is
+empty, the comments before the record line are not printed (the C tool, and
+\cmd{wfdbdesc -{}-legacy}, print them as notes).
 
 % ------------------------------------------------------------------------------------------
 \apientry{wfdbtime}{Convert times and sample numbers}
@@ -507,8 +517,16 @@ $ time2sec -r 100s s1000
 2.778
 \end{lstlisting}
 \returns{Exit status 0.}
-\raises{Exit status 1 for other arguments (also for \opt{-h}), after the usage summary.}
-\textit{Differences from the C tool}: none, apart from \opt{-{}-legacy}.
+\raises{Exit status 1 for other arguments (also for \opt{-h}), after the usage summary.
+Exit status 2 with \opt{-r} if the header of the record cannot be read, or gives no
+sampling frequency (\code{time2sec: sampling frequency of record RECORD is not
+specified}).}
+\textit{Differences from the C tool}: with \opt{-r}, a record whose header gives no
+sampling frequency (or cannot be read) is an error. The C tool converted the time at its
+default frequency of 250\,Hz, a result unrelated to the record, because \wfdbx{} assumes no
+frequency that a record does not give (\cref{sec:no-defaults}); until version 1.2.1,
+\wfdbx{} divided by the unspecified frequency (0) and printed \code{-9223372036854775808}
+with the exit status 0. With \opt{-{}-legacy}, the C behavior (250\,Hz).
 
 % ------------------------------------------------------------------------------------------
 \apientry{sampfreq}{Print the sampling frequency of a record}
@@ -668,9 +686,10 @@ To change the sampling frequency, gains or signals, \cmd{xform} is the tool to u
   number of samples); overrides \opt{-t}.
 \item[-m] Keep the segments of a multi-segment input record, if possible. The master
   header of the new record is created in the output directory, as the other files are.
-\item[-O] Write the samples in the storage format that follows (by default, the best fit
-  to the ADC resolution).
-\item[-s] Do not copy the info strings of the input header.
+\item[-O] Write the samples in the storage format that follows (by default, the format of
+  the input signals, or, if they differ, the best fit to the largest ADC resolution).
+\item[-s] Do not write info strings in the new header (neither those of the input nor the
+  \code{Produced by snip} line).
 \item[-t] Stop at the time that follows (default: the end of the record).
 \end{params}
 \begin{lstlisting}[style=text]
@@ -908,12 +927,13 @@ by the library itself, without losing annotations, instead of by running \cmd{so
 \begin{lstlisting}[style=signature,language={}]
 usage: sortann -r RECORD -a ANNOTATOR [OPTIONS ...]
 \end{lstlisting}
-Rearranges the annotations of a file in canonical order: by time, then annotation number,
-then channel. A later annotation with the same time, number and channel replaces an
-earlier one, and \code{NOTQRS} annotations are dropped. The sorted file replaces the input
-if \opt{-o} is not given and the input is not already sorted; an already sorted input is
-reported (\code{sortann: input is already ordered -{}- no output written}) and nothing is
-written.
+Rearranges the annotations of a file in canonical order: by time, then \code{num}, then
+\code{chan}. A later annotation with the same time, \code{num} and \code{chan} replaces an
+earlier one, and \code{NOTQRS} annotations are dropped. Without \opt{-o}, the sorted file is
+written under the name of the input (in the output directory, so that it replaces the
+input when the input and output directories are the same), unless the input is already
+sorted: that is reported (\code{sortann: input is already ordered -{}- no output written})
+and nothing is written.
 \begin{params}
 \item[-r] The record, \textit{RECORD} (required). As in C, \opt{-r}\textit{DIR} (the
   directory attached to the option) sets the input directory before the record name.
@@ -1156,6 +1176,7 @@ prolog, with the sampling frequency, number of signals and resolution of the WAV
   (default: the WAV file name without \file{.wav}).
 \item[-U] The physical units (required unless the gain is 0).
 \end{params}
+For example, for the WAV file written by the example of \cmd{mit2wav} below:
 \begin{lstlisting}[style=text]
 $ wav2mit -i 100s.wav -r w2 -G 200 -U mV
 $ cat w2.hea
@@ -1178,9 +1199,11 @@ input directory (C: from the current directory).
 usage: mit2wav -o FILE.wav -r RECORD [ OPTIONS ... ]
 \end{lstlisting}
 Writes the signals of a record to a WAV file (16-bit PCM, one channel per signal, at the
-sampling frequency of the record), the samples shifted left to 16 bits. With \opt{-n}, it
-also writes a header that describes the WAV file as a record, with the gains and baselines
-adjusted to the shift.
+sampling frequency of the record), the samples shifted left to 16 bits (the WAV header gives
+the largest ADC resolution as the number of bits per sample). The samples are written
+through the library, and the WAV header is then put in front of them, in the same file.
+With \opt{-n}, it also writes a header that describes the WAV file as a record, with the
+gains and baselines adjusted to the shift.
 \begin{params}
 \item[-o] The WAV file to write, \textit{FILE.wav} (required; the name must end in
   \file{.wav}), created in the output directory (\cref{sec:tools-files}).
@@ -1196,11 +1219,6 @@ wavrec 2 360 21600
 100s.wav 16+44 6400 16 0 -928 -31712 0 MLII
 100s.wav 16+44 6400 16 0 -416 4288 0 V5
 \end{lstlisting}
-The samples are written through the library, then the WAV header is put in front of them,
-in the same file: the file that the library created, in the output directory if one is set.
-(The C tool, with temporary files, rewrites the file of that name in the current directory;
-before version 1.2.0, with an output directory set, the WAV header was therefore left in the
-current directory, and the samples, without a header, in the output directory.)
 \returns{Exit status 0.}
 \raises{Exit status 1 for an error in the arguments; 2 if the record cannot be opened; 3 if
 its signals cannot be read, it gives no sampling frequency, or the header of \opt{-n}
@@ -1219,7 +1237,8 @@ usage: wfdb2mat -r RECORD [OPTIONS ...]
 Writes the samples of a record (in ADC units, less the ADC zero) as a MATLAB/Octave
 \file{.mat} file (MATLAB 5 format) holding a matrix \code{val} of one row per signal, and a
 header that describes the \file{.mat} file as a record: format 80, 16 or 32 (the smallest
-that holds the input formats) after a 192-byte prolog. Both are named after the record
+that holds the ADC resolutions of the signals, or their storage formats where the resolution
+is not specified) after a 192-byte prolog. Both are named after the record
 with an \code{m} appended: \file{100sm.mat} and \file{100sm.hea} for \code{100s} (the help
 text, that of the C tool, says \textit{RECORD}\file{.mat}). A summary of the conversion is
 printed on the standard output.
@@ -1250,8 +1269,9 @@ above, call the 'rdmat.m' function from the wfdb-matlab
 toolbox: https://physionet.org/physiotools/matlab/wfdb-app-matlab/
 \end{lstlisting}
 \returns{Exit status 0.}
-\raises{Exit status 1 for an error in the arguments, an output larger than 2\,GB, or an
-output file that cannot be opened; 2 if the record or a signal cannot be opened, or the
+\raises{Exit status 1 for an error in the arguments, an empty interval
+(\code{wfdb2mat: no output}), an output larger than 2\,GB, or an output file that cannot be
+opened; 2 if the record or a signal cannot be opened, or the
 record gives no sampling frequency.}
 \textit{Differences from the C tool} (\cref{chap:behavior}): the record must give its
 sampling frequency (C: 250\,Hz); uncalibrated signals stay uncalibrated in the output
@@ -1433,8 +1453,8 @@ $ cat 1001.hea
 1001.dat 212 400/mV 12 0 300 -1026 0 ECG1
 \end{lstlisting}
 \returns{Exit status 0 (also when an input file is ignored or cannot be opened).}
-\raises{Exit status 1 without input files, with \opt{-h} (the usage), or for a missing or
-invalid \opt{-F}, \opt{-G}, \opt{-R} or \opt{-U}.}
+\raises{Exit status 1 without arguments, with \opt{-h} as the first argument (the usage), or
+for a missing or invalid \opt{-F}, \opt{-G}, \opt{-R} or \opt{-U}.}
 \textit{Differences from the C tool} (\cref{chap:behavior}): the new options \opt{-F},
 \opt{-G}, \opt{-R} and \opt{-U}, required (\opt{-U} unless the gain is 0), which precede the
 input files in any order (the C tool had only \opt{-s}, as the first argument, and assumed
@@ -1556,8 +1576,8 @@ file and the header the age and sex, and \opt{-v} prints all the patient data of
 \opt{-a} writes a copy of the input with these fields removed.
 \end{phibox}
 \returns{Exit status 0.}
-\raises{Exit status 1 for an error in the arguments, an input shorter than 6 bytes, or a
-reference-beat subtraction zone larger than the template; 2 if the declared length of the
+\raises{Exit status 1 for an error in the arguments, an input shorter than 6 bytes, a CRC
+error (without \opt{-f}), or a reference-beat subtraction zone larger than the template; 2 if the declared length of the
 input cannot be allocated; 3 if the input is shorter than its declared length.}
 \textit{Differences from the C tool} (\cref{chap:behavior}): the record is written with the
 sampling frequency given in the SCP file, and is not written if the file gives none

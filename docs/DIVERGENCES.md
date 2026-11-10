@@ -6,8 +6,9 @@ exceptions described here: **it has no built-in signal parameters**; it
 access unless the user asks for it); it **sorts out-of-order annotation
 files itself**, instead of running a separate program, and **without losing
 annotations** as the original `sortann` does; it **never writes a signal
-file over a signal file it is reading**; and its tools **report write
-errors in their exit status**. It also gives a defined result for input on
+file over a signal file it is reading**; its tools **report write
+errors in their exit status**; and `getinfo` **finds the record line of a
+header as the header parser does**. It also gives a defined result for input on
 which the C package crashes (see
 [Input on which the C package crashes](#input-on-which-the-c-package-crashes)).
 They are deliberate, the same in all seven implementations, and tested like
@@ -124,6 +125,7 @@ only when the requested operation needs it:
 | `wfdb2mat` | uncalibrated signals stay uncalibrated in the output header (C: 200 adu/mV); unspecified units are written as `nd` (C: `mV`) |
 | `revise` | a missing ADC resolution stays unspecified (C: 12 bits) |
 | `sampfreq` | prints 0 for a record whose header does not give a frequency (C: 250) |
+| `time2sec` | with `-r`, needs the frequency of the record, and exits with status 2 if the header gives none or cannot be read (since 1.2.2). C converted the time at 250 Hz, a result unrelated to the record; until version 1.2.1, WFDB-x divided by the unspecified frequency (0) and printed `-9223372036854775808` with the exit status 0. Without `-r`, times are converted at 1000 Hz, as in C |
 | `parsescp` | writes the sampling frequency given in the SCP file (C always wrote 500 Hz) and does not write a record if the file gives none (C assumed 500 Hz) |
 
 The messages are "`TOOL: sampling frequency of record RECORD is not
@@ -204,6 +206,7 @@ A name says exactly where the file is, and nothing else is tried:
 | an absolute path: `/data/100`, `C:\data\100`, `\\server\share\100` | that path | that path |
 | a home path: `~/data/100`, `~user/data/100` | the home directory (expanded by WFDB-x) | the same |
 | a URL: `https://.../100` | that URL, if network access is on | (not possible) |
+| a name with another URL scheme: `ftp://.../100`, `sftp://...`, `file://...` | (not possible: an error) | (not possible) |
 | anything else: `100`, `mitdb/100`, `../other/100` | the **input directory** + the name | the **output directory** + the name |
 
 **Whatever is set as the input directory, a local directory or a URL,
@@ -272,12 +275,15 @@ The tools use the environment variables.
   `network` option); otherwise the library says once that network access is
   disabled: `WFDB-x: network access is disabled; set WFDBX_NETWORK=1 or
   call wfdbx_set_network(1) to open URL`. All seven implementations can read
-  URLs (C++ and Rust through the system `curl` program, which they run
-  without a shell; a missing `curl` is reported when a URL is opened;
-  Kotlin through `java.net.HttpURLConnection` on the JVM and Android, and
-  `NSURLSession` on iOS).
+  URLs (how each downloads is given below; C++ and Rust run the system
+  `curl` program without a shell, and a missing `curl` is reported when a
+  URL is opened).
 * **Remote files** are read-only. Each is downloaded in full the first time
-  it is opened and kept for the rest of the process. Redirects are
+  it is opened and kept for the rest of the process; a download that fails
+  is not kept, so the next time the file is opened it is requested again (a
+  server that was unavailable may have recovered; until version 1.2.1, the
+  failure was kept, and the file could not be read until the process
+  ended). Redirects are
   followed, and an HTTP status of 400 or more is a failure. A download
   gives up if connecting takes 30 seconds or no data arrive for 30
   seconds; there is no limit on its total time, so large files on slow
@@ -286,6 +292,24 @@ The tools use the environment variables.
   MATLAB/Octave use `curl` when it is installed, and otherwise R's `url()`
   or MATLAB's `webread`/`websave`; Kotlin uses `java.net.HttpURLConnection`
   on the JVM and Android (and `NSURLSession` on iOS).
+* **Only `http://` and `https://` URLs.** A name that begins with another
+  URL scheme (a letter, then at least one letter, digit, `+`, `-` or `.`,
+  then `://`: `ftp://`, `ftps://`, `sftp://`, `file://`, ...) is refused in
+  normal mode, with or without network access, with a message the first
+  time: `WFDB-x: can't open NAME: only http:// and https:// URLs can be
+  read (mount the server as a local folder, or download the files)`. So
+  too for an input directory with such a scheme, a file named in a header,
+  the files that a tool reads or creates itself, and an output name; an
+  output directory with a URL scheme is refused, as a URL is. Such a name
+  is never opened as a local file name (until version 1.2.1, `ftp://h/100`
+  was opened as the local path `ftp:/h/100`). A one-letter prefix, such as
+  `c://x` (like the drive letter of `C:\`), is not a scheme. FTP and SFTP
+  are not supported (the C library read FTP URLs when it was built with
+  libcurl); a server reached by FTP or SFTP can be mounted as a local
+  folder (with `sshfs`, `curlftpfs` or `rclone mount`, for example), and
+  its records read by their local paths, or the files downloaded first. In
+  legacy mode, every name containing `://` is refused, without a message,
+  as by the original library built without network support.
 * **Absolute names** are opened as given. The C library joined them to each
   entry of the WFDB path (`./` followed by the name, for the current
   directory), so it found them only when the path had an empty entry or
@@ -380,7 +404,7 @@ runs its own `sortann` tool, with `--legacy`: Python as `python -m
 wfdbx.apps.sortann`, C++ and Rust from the directory of the running
 program or else from the `PATH`, R, Julia and MATLAB/Octave through a
 new process of the same language, and Kotlin through a new JVM (`java -cp
-CLASSPATH wfdbx.cli.MainKt sortann`; an iOS app cannot run it).
+CLASSPATH wfdbx.cli.MainKt sortann`; an Android or iOS app cannot run it).
 
 ## Sorting does not lose annotations
 
@@ -463,6 +487,42 @@ close (found when it closes them); `wfdbx_write_errors()` returns that
 count, and `wfdbx_note_write_error()` adds to it for a program that writes
 a file itself. In legacy mode the tools exit with the original status and
 print no new messages.
+
+## The record line of a header is found as the header parser finds it
+
+The info strings of a header are its lines that begin with `#` after the
+record line. The C package has two rules for finding the record line: the
+header parser (`readheader` in `lib/signal.c`) takes the first line whose
+first token (tokens are separated by spaces, tabs, CRs and LFs) does not
+begin with `#`, so it skips empty and blank lines and comment lines, but `getinfo`
+takes the first line that does not begin with `#`. For a header whose first
+line is empty or blank, such as
+
+```
+(an empty line)
+# Age: 40
+rec 1 250 10
+rec.dat 16 200 12 0 0 0 0 ECG
+# Age: 63
+```
+
+the original `getinfo` takes the empty line for the record line, and
+returns `Age: 40`, a comment before the record line, as an info string, as
+well as `Age: 63`: `wfdbdesc` prints both as notes, and the record's
+`comments` hold both.
+
+WFDB-x's `getinfo` (since version 1.2.2) finds the record line as
+`readheader` does, so that the info strings are the same lines that the
+header parser leaves after the record line: `Age: 63` only. A header with
+no record line has no info strings. The info strings after the record line
+are found as before: every line whose first character is `#` (a comment
+between two signal lines included). This applies to the `comments` of
+`read_header` and `read_record`, to the notes of `wfdbdesc`, and to
+`getinfo` itself; the metadata functions (`read_metadata` and the others,
+and the `metadata` of `read_header`) follow the same rule in every mode,
+legacy mode included. In legacy mode, `getinfo` follows the original rule.
+The conformance cases `edge-hdr-leading-*` check both (in the legacy suite,
+against the unmodified package).
 
 ## Input on which the C package crashes
 
@@ -615,17 +675,67 @@ have no legacy counterpart:
 * **Write errors and frame checks in the high-level writers.**
   `write_record` and `write_annotations` raise an error (`write error on
   record REC`, `write error on annotator ANN for record REC`) when a file
-  cannot be written completely, instead of returning as if it had been
-  written. `write_record` also refuses, before creating any file, frame
+  cannot be written completely, or when `putann` reports an error, instead
+  of returning as if it had been written. `write_record` also refuses,
+  before creating any file, frame
   sizes that are not integers of at least 1 (`samps_per_frame must hold
   integers >= 1`) and signals whose number of columns is not the number of
   samples in a frame (`signals has N columns, but samps_per_frame adds up
   to M`), instead of writing only some of the columns. In legacy mode too.
+* **The high-level writers check every argument before touching any file,
+  and leave the existing files intact after a failure** (version 1.2.2).
+  `write_record` refuses an array of signals that is not 1-D or 2-D
+  (`signals must be a 1-D or 2-D array`), baselines, ADC zeros and ADC
+  resolutions that are not whole numbers within the range of a 32-bit
+  integer (`baselines must be whole numbers within the range of a 32-bit
+  integer`; a fraction was truncated, and NaN or text failed after the
+  signal file was written), and a record name, signal names, units or
+  comments that cannot be written as header text (in Python, a character
+  that is not Latin-1: `units 'μV' has a character that is not Latin-1
+  (one byte per character)`). `write_annotations` refuses an array of times
+  (or of codes, subtypes, channels or numbers) that is not 1-D (`samples
+  must be a 1-D array`), annotation codes outside 0 to 58 (`annotation
+  code 61 is reserved (59 to 63 are the control codes of the annotation
+  file format)`, `annotation code 64 is out of range (0 to 58)`: the codes
+  59 to 63 are the control codes `SKIP`, `NUM`, `SUB`, `CHN` and `AUX` of
+  the MIT format, and an annotation written with one of them corrupts the
+  file), and the times -2^63 and 2^63 - 1 (`annotation time T cannot be
+  written (annotation times must be integers from -9223372036854775807 to
+  9223372036854775806)`), which `putann` refuses (`time overflow`, see
+  [`KNOWN_C_BEHAVIORS.md`](KNOWN_C_BEHAVIORS.md)); every other time can
+  be written (a gap of more than 2^31 - 1 samples takes one `SKIP` per
+  2^31 samples). Both writers then write their files to temporary files
+  in the directories of the destinations (`.NAME.XXXXXXXX.tmp`), which are
+  renamed over the destinations once all of them are complete, and removed
+  after a failure, so that a failure never leaves a truncated header,
+  signal file or annotation file in place of an existing one (a destination
+  that is not a regular file, such as a device, is written directly; for a
+  symbolic link, the file it leads to is replaced). The files written are
+  unchanged, byte for byte, and keep the permissions of the files they
+  replace. (In legacy mode, an annotation file that must be sorted is
+  renamed over its destination before the `sortann` program sorts it
+  there.) The C-style functions (`putann`, `putvec`, `newheader`, ...) and
+  the tools keep the behavior of C. In legacy mode too.
 * **Read errors in the high-level readers.** `read_record` and the other
   high-level readers raise an error (`can't read signal data of record REC
   (getvec status S)`) when a signal file ends before the length its header
   gives, or cannot be read, instead of returning the samples read so far as
-  if the record ended there. A checksum error (all samples read, but their
+  if the record ended there. A read failure is tracked separately from the
+  checksum (version 1.2.2): when a signal file ends in the frame at which
+  the checksum of a signal is verified, `getvec` returns -4 (checksum
+  error) for that frame, replacing -3, and `read_record` returned the
+  incomplete frame (a format-16 file holding the samples 1 and 2, whose
+  header gives 3 samples, gave 1, 2, 257); it now raises the read error
+  (`getvec status -3`), and never returns an incomplete frame, and
+  `check_record` reports the file as shorter than its header says (with no
+  checksum error). `read_record` allocates at most 2^26 samples in
+  advance, whatever length the header gives, and grows its result as the
+  samples are read, so that a header that gives far more samples than its
+  files hold ends in the read error, not in an attempt to allocate memory
+  for them. `read_annotations` checks `sampfrom` and `sampto` as
+  `read_record` does (`sampfrom must be a whole number`, `sampfrom must not
+  be negative`), before the file is opened, and closes the file whatever
+  happens. A checksum error (all samples read, but their
   sum differs from the header's checksum) is a warning instead: every frame
   is returned, the last one included (the C-style `getvec` reports the
   error on that frame, and `rdsamp` stops before printing it), with the
@@ -663,8 +773,10 @@ have no legacy counterpart:
   without changing anything else in the header (camelCase in Kotlin:
   `readMetadata`, ...); `read_header` returns them, and `write_record`
   writes them (its `metadata` argument). The info strings are those that
-  the C function `getinfo` reads from the `.hea` file (comment lines after
-  the record line); an entry is one that contains a colon, its key the
+  function `getinfo` reads from the `.hea` file (comment lines after
+  the record line, found as the header parser finds it, in every mode: see
+  [The record line of a header](#the-record-line-of-a-header-is-found-as-the-header-parser-finds-it));
+  an entry is one that contains a colon, its key the
   text before the first colon and its value the rest, both without spaces
   at either end, so `#Age:45` and `# Age : 45` both give `Age` and `45`.
   Keys are compared without regard to letter case, and a header must not
@@ -711,7 +823,8 @@ described above.
   through the WFDB search path (without network access), out-of-order
   annotation files are sorted by running `sortann` (without a shell), which
   loses annotations as the original does, an output file may be one of
-  the input files, the whole record name is checked when a header is
+  the input files, `getinfo` takes the first line that does not begin with
+  `#` for the record line, the whole record name is checked when a header is
   written, and headers name records and files as given. The input directory and `WFDBX_NETWORK` are not used in
   legacy mode, which reads no remote files, and the tools open the files
   that they read themselves as named; the output directory is used, also
@@ -732,7 +845,7 @@ described above.
 
 Legacy mode reproduces the original package exactly, and it is tested
 against its results: the legacy suite of the conformance tests
-([`tests/conformance/legacy`](../tests/conformance/README.md), 883 cases, run
+([`tests/conformance/legacy`](../tests/conformance/README.md), 886 cases, run
 with `harness.py check --legacy`) runs the original package's cases with
 `--legacy` and compares them with results produced by the unmodified C
 package, and the library's legacy values are checked in

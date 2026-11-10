@@ -86,6 +86,10 @@ Reference platform: x86-64 Linux, glibc, `-DWFDB_LARGETIME`.
   suffix parsing, default ADC resolution by format, units truncated to 50
   and descriptions to 100 characters, default description
   `record REC, signal N`.
+* `getinfo` (WFDB-x): the record line is the first line with a token
+  (separated by spaces, tabs, CRs and LFs) that does not begin with `#`, as
+  `readheader` finds it; in legacy mode, the first line that does not begin
+  with `#` (see `DIVERGENCES.md`).
 * Skew is converted from samples to frames with rounding; deskewing uses a
   ring buffer of `skewmax + 1` frames.
 * `getskewedframe`: the checksum of a signal is verified (with an error

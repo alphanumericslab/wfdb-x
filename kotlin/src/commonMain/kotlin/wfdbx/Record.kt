@@ -65,19 +65,22 @@ import wfdbx.cstd.latin1
  * what failed, such as `can't read record 100s` or
  * `can't read signal data of record 100s (getvec status -3)`.
  *
- * The metadata functions, and the `metadata` argument of [writeRecord],
- * throw the subclass [WfdbArgumentException] for an invalid argument, and
- * a WfdbException for a file that cannot be read or written.
+ * The metadata functions, the writers ([writeRecord], [writeAnnotations];
+ * WFDB-x 1.2.2: they check every argument before any file is touched) and
+ * the argument checks of [readAnnotations] throw the subclass
+ * [WfdbArgumentException] for an invalid argument, and a WfdbException for
+ * a file that cannot be read or written.
  */
 open class WfdbException(message: String) : Exception(message)
 
 /**
  * A [WfdbException] for an invalid argument of a header metadata function
  * ([readMetadata], [getMetadata], [setMetadata], [removeMetadata],
- * [updateMetadata]) or of the `metadata` argument of [writeRecord], such
- * as `metadata key 'a:b' must not contain ':'` (Python's ValueError); a
- * file that cannot be read or written is a plain WfdbException (Python's
- * IOError).
+ * [updateMetadata]), of a writer ([writeRecord], [writeAnnotations]) or of
+ * [readAnnotations], such as `metadata key 'a:b' must not contain ':'` or
+ * `writeAnnotations: annotation code 60 is reserved (...)` (Python's
+ * ValueError); a file that cannot be read or written is a plain
+ * WfdbException (Python's IOError).
  *
  * Part of WFDB-x; not in the original WFDB package.
  */
@@ -173,7 +176,15 @@ data class Record(
     val baseDate: BaseDate?,
     /** Number of the first sample returned. */
     val sampfrom: Long,
-    /** The info strings of the header (and of the record's .info file, if any). */
+    /**
+     * The info strings of the header (and of the record's .info file, if
+     * any): their lines that begin with '#' after the record line,
+     * without the '#' (the record line is found as the header parser finds
+     * it: the first line that holds something other than spaces, tabs, CRs
+     * and LFs and does not begin, after them, with '#', so that an empty or
+     * blank first line is not the record line; in legacy mode, as C's
+     * getinfo, the first line that does not begin with '#').
+     */
     val comments: List<String>,
     /**
      * False if the data do not match the header's checksums. Checksums are
@@ -273,7 +284,15 @@ data class Header(
     val baseTimeMs: Long?,
     /** Start date, as in [Record.baseDate]. */
     val baseDate: BaseDate?,
-    /** The info strings of the header. */
+    /**
+     * The info strings of the header (and of the record's .info file, if
+     * any): their lines that begin with '#' after the record line,
+     * without the '#' (the record line is found as the header parser finds
+     * it: the first line that holds something other than spaces, tabs, CRs
+     * and LFs and does not begin, after them, with '#', so that an empty or
+     * blank first line is not the record line; in legacy mode, as C's
+     * getinfo, the first line that does not begin with '#').
+     */
     val comments: List<String>,
     /**
      * The "Key: value" entries of the header (of the .hea file only, not
@@ -684,8 +703,9 @@ private const val CHUNK_FRAMES = 1L shl 20
  *   specified"), if `physical` is true and a signal has no gain ("signal N
  *   of record REC is uncalibrated"), if `from` is beyond the end ("can't
  *   seek to sample N of record REC"), or if a signal file is shorter than
- *   its header says ("can't read signal data of record REC (getvec status
- *   -3)")
+ *   its header says or cannot be read ("can't read signal data of record
+ *   REC (getvec status -3)"), even if the checksums do not match either:
+ *   no incomplete frame is ever returned
  *
  * On any error once the record is open, its input signals are closed, and
  * the getvec mode and the settings changed for the call are restored.
@@ -790,6 +810,11 @@ private fun Wfdb.readRecordImpl(
     var used = 0 // values read
     var checksumError = false
     val quiet = wfdbxSetCksumQuiet(true) // (getvec's own message is replaced by the warning below)
+    // WFDB-x: a sample that cannot be read is an error, whatever status
+    // getvec returns: a checksum error is found in the frame in which a
+    // signal file ended early, and its status (-4) replaces -3; the
+    // incomplete frame is not returned (see getvecsStatusAt).
+    wfdbxClearReadFailed()
     try {
         while (remaining == null || remaining > 0) {
             val have = (used / nsig).toLong()
@@ -803,7 +828,7 @@ private fun Wfdb.readRecordImpl(
             // (if they do not fit, the vectors are read into a separate
             // array first, so that `all` grows only if there are more)
             val probe = if (need > all.size) IntArray((n * nsig).toInt()) else null
-            val r = if (probe == null) getvecsStatusAt(all, used, n) else getvecsStatusAt(probe, 0, n)
+            val r = if (probe == null) getvecsStatusAt(all, used, n, true) else getvecsStatusAt(probe, 0, n, true)
             val stat = r.status
             var got = maxOf(r.count, 0L)
             if (remaining != null) remaining -= got
@@ -811,7 +836,8 @@ private fun Wfdb.readRecordImpl(
                 // WFDB-x: a checksum error: the vector read last holds valid
                 // data and is kept; reading continues (in high-resolution
                 // mode, each vector of the last frame returns -4), and a
-                // warning follows.
+                // warning follows. (If a sample of that frame could not be
+                // read, the status is -3: see SigState.readFailed.)
                 got++
                 checksumError = true
                 if (remaining != null) remaining -= 1
@@ -832,6 +858,7 @@ private fun Wfdb.readRecordImpl(
         }
     } finally {
         wfdbxSetCksumQuiet(quiet)
+        wfdbxClearReadFailed()
     }
     if (checksumError && checksumWarning) {
         val msg = "checksum error in record $record: the signal data do not match the checksums in its header"
@@ -897,8 +924,10 @@ private fun toPhysical(samples: IntArray, nout: Int, bl: DoubleArray, g: DoubleA
 /**
  * Reads an annotation file.
  *
- * The time resolution of output annotators ([getafreq]) and the getvec mode
- * ([getgvmode]) are left as they were (opening an EDF record sets both).
+ * Whatever happens, the annotation file is closed ([wfdbquit]) before the
+ * function returns, and the time resolution of output annotators
+ * ([getafreq]) and the getvec mode ([getgvmode]) are left as they were
+ * (opening an EDF record sets both).
  *
  * Part of WFDB-x; not in the original WFDB package.
  *
@@ -927,8 +956,10 @@ private fun toPhysical(samples: IntArray, nout: Int, bl: DoubleArray, g: DoubleA
  * @param legacy behave as the original WFDB package
  * @return the [Annotations], in file order. Its `fs` is 0 if neither the
  *   record nor [fs] gives a sampling frequency.
- * @throws WfdbException if [fs] is not > 0 ("readAnnotations: fs must be >
- *   0"), if the file cannot be opened ("can't read annotator ANN for record
+ * @throws WfdbException if [from] is a negative sample number
+ *   ("readAnnotations: from must not be negative") or [fs] is not > 0
+ *   ("readAnnotations: fs must be > 0"), both checked before any file is
+ *   opened ([WfdbArgumentException]), if the file cannot be opened ("can't read annotator ANN for record
  *   REC"), if a time string needs the sampling frequency and none is known,
  *   or if the file ends before its end-of-file marker ("can't read
  *   annotation file ANN of record REC (getann status -3)")
@@ -950,8 +981,11 @@ fun Wfdb.readAnnotations(
     network: Boolean? = null,
     legacy: Boolean = false,
 ): Annotations {
+    // WFDB-x: from is checked as readRecord checks it, before anything is
+    // opened (a time string cannot give a negative time)
+    if (from is TimeSpec.Sample && from.sample < 0) throw WfdbArgumentException("readAnnotations: from must not be negative")
     // (`!(f > 0)` also rejects NaN)
-    if (fs != null && !(fs > 0.0)) throw WfdbException("readAnnotations: fs must be > 0")
+    if (fs != null && !(fs > 0.0)) throw WfdbArgumentException("readAnnotations: fs must be > 0")
     return withSettings {
         withLegacy(legacy) { withInput(inputDir, network) { readAnnotationsImpl(record, annotator, from, to, fs) } }
     }
@@ -961,6 +995,17 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
     val rec = fname(record)
     val an = fname(annotator)
     wfdbquit()
+    // (whatever happens, the annotation file is closed before returning)
+    try {
+        return readAnnotationsOpen(record, annotator, rec, an, from, to, fs)
+    } finally {
+        wfdbquit()
+    }
+}
+
+private fun Wfdb.readAnnotationsOpen(
+    record: String, annotator: String, rec: ByteArray, an: ByteArray, from: TimeSpec?, to: TimeSpec?, fs: Double?,
+): Annotations {
     // WFDB-x: no default sampling frequency (C assumed 250 Hz if the record
     // had no header, as legacy mode does); fs gives one, as rdann -F does.
     val sps = sampfreq(rec)
@@ -983,7 +1028,6 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
         record = record, annotator = annotator, fs = getiafreq(0), samples = r.times, codes = r.codes,
         symbols = r.symbols, subtypes = r.subtypes, chans = r.chans, nums = r.nums, aux = r.aux,
     )
-    wfdbquit()
     return res
 }
 
@@ -993,10 +1037,14 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
 /**
  * Writes samples in ADC units as a new record: a header (RECORD.hea) and
  * one signal file (RECORD.dat) holding all signals. Existing files with
- * these names are overwritten.
+ * these names are replaced: both files are written to temporary files in
+ * the destination directory (`.NAME.XXXXXXXX.tmp`, readable and writable
+ * by their owner only), which replace the existing files only when both are
+ * complete (with the permissions of the files they replace), so that an
+ * error leaves the existing files as they were; no temporary file is left.
  *
- * You must give the sampling frequency, the gain and ADC resolution of
- * each signal, and the units of each calibrated signal: there are no
+ * The sampling frequency, the gain and ADC resolution of each signal,
+ * and the units of each calibrated signal must be given: there are no
  * defaults. Each per-signal argument ([gains], [baselines], [adczeros],
  * [adcres], [units], [names], [sampsPerFrame]) takes one value for all
  * signals, or one value per signal.
@@ -1006,8 +1054,9 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @param record record name, without the .hea extension: a plain name
- *   ("rec") or a relative path ("data/rec"), created in the output
+ * @param record record name, without the .hea extension (a trailing ".hea"
+ *   is removed, as by the readers): a plain name ("rec") or a relative path
+ *   ("data/rec"), created in the output
  *   directory if one is set (see [wfdbxSetOutputDir]), otherwise in the
  *   current directory, missing directories included; or a full path,
  *   absolute or in the home directory ("~/Documents/rec"), used as given.
@@ -1028,12 +1077,14 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  *   (default: the ADC zero)
  * @param adczeros ADC value at the middle of the ADC range (default 0)
  * @param adcres ADC resolution in bits (>= 1)
- * @param units physical units, such as "mV"; required for each signal
- *   with a gain other than 0 (null for an uncalibrated signal)
- * @param names signal descriptions (default: none)
+ * @param units physical units, such as "mV" (text of one byte per
+ *   character, ISO-8859-1, as all text of the high-level API); required for
+ *   each signal with a gain other than 0 (null for an uncalibrated signal)
+ * @param names signal descriptions (ISO-8859-1 text; default: none)
  * @param baseTime start time, with an optional date: "hh:mm:ss
  *   dd/mm/yyyy" (default: none); checked before any file is created
- * @param comments info strings, written at the end of the header
+ * @param comments info strings (ISO-8859-1 text), written at the end of
+ *   the header
  * @param sampsPerFrame samples per frame of each signal, at least 1, for
  *   a multi-frequency record (default 1)
  * @param dir directory (which must exist) in which to create the files, for
@@ -1049,31 +1100,36 @@ private fun Wfdb.readAnnotationsImpl(record: String, annotator: String, from: Ti
  *   may be the key of an entry in [comments], and a null value is not
  *   allowed. WFDB-x: metadata often holds patient information; it is
  *   written as given, without de-identification.
- * @throws WfdbException (every argument is checked before any file is
- *   created) "writeRecord: sampsPerFrame must hold integers >= 1" (checked
- *   first, also in legacy mode), "writeRecord: the record name must not be
- *   empty", "writeRecord: at least one signal is required", "writeRecord:
- *   NAME must have one value per signal" (a per-signal argument with more
- *   than one value, but not one per signal; [gains] or [adcres] with fewer:
- *   as missing values, except in legacy mode), "writeRecord: the sampling
- *   frequency must be > 0" (not checked in legacy mode), "writeRecord: the
- *   sampling frequency must be finite", "writeRecord: gains must be
- *   specified", "writeRecord: gains must be finite", "writeRecord: ADC
- *   resolution(s) must be specified", "writeRecord: units must be
- *   specified", "writeRecord: incorrect base time 'TIME'" (after the
- *   library's own message), "writeRecord: the number of samples is not a
- *   multiple of the frame size", "record name must not contain a directory
- *   when dir is given", "directory DIR does not exist", "can't create
- *   signal file for record REC" (also when the output would overwrite a
- *   file being read), "can't create header for record REC", "write error
- *   on record REC" (the signal file or the header cannot be written
- *   completely, for example when the disk is full; also in legacy mode);
- *   [WfdbArgumentException] if an entry of [metadata] is not valid
+ * @throws WfdbArgumentException (a [WfdbException]; every argument is
+ *   checked before any file is created or changed, in this order)
+ *   "writeRecord: sampsPerFrame must hold integers >= 1" (checked first,
+ *   also in legacy mode), "writeRecord: the record name must not be empty",
+ *   "writeRecord: record name 'X' has a character that is not Latin-1 (one
+ *   byte per character)", "writeRecord: at least one signal is required",
+ *   "writeRecord: NAME must have one value per signal" (a per-signal
+ *   argument with more than one value, but not one per signal; [gains] or
+ *   [adcres] with fewer: as missing values, except in legacy mode); in
+ *   normal mode "writeRecord: gains must be specified", "writeRecord: ADC
+ *   resolution(s) must be specified" (missing, or < 1), "writeRecord: units
+ *   must be specified"; "writeRecord: the sampling frequency must be > 0"
+ *   (not checked in legacy mode), "writeRecord: the sampling frequency must
+ *   be finite", "writeRecord: gains must be finite", "writeRecord: signal
+ *   name 'X' has a character that is not Latin-1 (one byte per character)",
+ *   "writeRecord: units 'X' has a character ...", "writeRecord: the number
+ *   of samples is not a multiple of the frame size", "writeRecord: comment
+ *   'X' has a character ...", an entry of [metadata] that is not valid
  *   ("writeRecord: metadata key 'a:b' must not contain ':'", "writeRecord:
  *   value of metadata key 'Age' must not be null", "writeRecord: metadata
  *   key 'AGE' is given more than once (keys are compared without regard to
  *   letter case)", "writeRecord: metadata key 'Age' is also given in
- *   comments", ...)
+ *   comments", ...), "writeRecord: incorrect base time 'TIME'" (after the
+ *   library's own message); [WfdbException] "record name must not contain
+ *   a directory when dir is given", "directory DIR does not exist", "can't
+ *   create signal file for record REC" (also when the output would
+ *   overwrite a file being read), "can't create header for record REC",
+ *   "write error on record REC" (the signal file or the header cannot be
+ *   written completely, for example when the disk is full, or cannot
+ *   replace the existing file; also in legacy mode)
  *
  * ```
  * writeRecord("copy", rec.samples, rec.nsig, rec.fs, gains = rec.gains.toDoubleArray(),
@@ -1100,6 +1156,8 @@ fun Wfdb.writeRecord(
     metadata: List<Pair<String, String?>>? = null,
 ) {
     checkWriteSpf(sampsPerFrame)
+    // WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
+    val record = stripHea(record)
     val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame, metadata)
     withSettings { withOutputDir(dir, record) { withLegacy(legacy) { writeAdc(record, samples, nsig, fs, spec) } } }
 }
@@ -1117,9 +1175,10 @@ fun Wfdb.writeRecord(
  *
  * Part of WFDB-x; not in the original WFDB package.
  *
- * @throws WfdbException as [writeRecord], "writeRecord: signal N is
- *   uncalibrated" if a gain is 0, and "writeRecord: sample I is infinite or
- *   beyond the range of 32-bit ADC units"
+ * @throws WfdbException as [writeRecord]; [WfdbArgumentException]
+ *   "writeRecord: signal N is uncalibrated" if a gain is 0, and
+ *   "writeRecord: sample I is infinite or beyond the range of 32-bit ADC
+ *   units"
  *
  * ```
  * val x = DoubleArray(3600) { sin(it / 50.0) }
@@ -1147,6 +1206,8 @@ fun Wfdb.writeRecord(
     metadata: List<Pair<String, String?>>? = null,
 ) {
     checkWriteSpf(sampsPerFrame)
+    // WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
+    val record = stripHea(record)
     val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame, metadata)
     withSettings {
         withOutputDir(dir, record) {
@@ -1161,7 +1222,7 @@ fun Wfdb.writeRecord(
                     if (gain == 0.0 && leg) {
                         gain = WFDB_DEFGAIN // WFDB-x: legacy mode (original behavior)
                     } else if (gain == 0.0) {
-                        throw WfdbException("writeRecord: signal $k is uncalibrated") // WFDB-x: no default gain
+                        argFail("writeRecord: signal $k is uncalibrated") // WFDB-x: no default gain
                     }
                     val zero = perSignal(spec.adczeros, k) ?: 0
                     val base = perSignal(spec.baselines, k) ?: zero
@@ -1183,7 +1244,7 @@ fun Wfdb.writeRecord(
                         // 32-bit ADC units, cannot be written (C's conversion is
                         // undefined)
                         if (!(r >= Int.MIN_VALUE.toDouble() && r <= Int.MAX_VALUE.toDouble())) {
-                            throw WfdbException("writeRecord: sample $it is infinite or beyond the range of 32-bit ADC units")
+                            argFail("writeRecord: sample $it is infinite or beyond the range of 32-bit ADC units")
                         }
                         d2i(r)
                     }
@@ -1204,30 +1265,75 @@ private class WriteSpec(
 private fun gainOf(gains: DoubleArray?, k: Int, legacy: Boolean): Double {
     val g = perSignal(gains, k)
     if (legacy) return g ?: WFDB_DEFGAIN
-    return g ?: throw WfdbException("writeRecord: gains must be specified")
+    return g ?: argFail("writeRecord: gains must be specified")
 }
 
 /** The ADC resolution of signal [k] (WFDB-x: no default; C inferred it from the format, as legacy mode does). */
 private fun adcresOf(adcres: IntArray?, k: Int, fmt: Int, legacy: Boolean): Int {
     val r = perSignal(adcres, k)
     if (legacy) return r ?: legacyAdcres(fmt)
-    if (r == null || r < 1) throw WfdbException("writeRecord: ADC resolution(s) must be specified")
+    if (r == null || r < 1) argFail("writeRecord: ADC resolution(s) must be specified")
     return r
 }
 
+/** An argument error of a writer (WFDB-x: Python's ValueError). */
+private fun argFail(message: String): Nothing = throw WfdbArgumentException(message)
+
+/**
+ * Throws an argument error if [text] has a character beyond U+00FF
+ * (WFDB-x: text in the files is one byte per character, ISO-8859-1; such
+ * a character was written as its low byte): "FUNC: WHAT 'TEXT' has a
+ * character that is not Latin-1 (one byte per character)".
+ */
+private fun checkLatin1(text: String?, what: String, func: String) {
+    if (text != null && text.any { it.code > 0xff }) {
+        argFail("$func: $what ${pyRepr(text)} has a character that is not Latin-1 (one byte per character)")
+    }
+}
+
+/**
+ * The record name [record] without a trailing ".hea" (if it is longer than
+ * 4 characters), as [wfdb_striphea] removes it for the readers. The other
+ * characters are kept as given (those beyond U+00FF are refused later).
+ */
+private fun stripHea(record: String): String =
+    if (record.endsWith(".hea") && wfdb_striphea(record.latin1()).size == record.length - 4) {
+        record.dropLast(4)
+    } else {
+        record
+    }
+
 /**
  * Checks the arguments of writeRecord that need no library call (WFDB-x:
- * before anything is written): the record name is not empty, there is at
- * least one signal, the per-signal arguments hold valid numbers of values
- * ([checkPerSignal]), the sampling frequency is valid ([checkWriteFreq]),
- * and the gains are finite.
+ * before anything is written), in this order: the record name is not
+ * empty and is Latin-1 text, there is at least one signal, the per-signal
+ * arguments hold valid numbers of values ([checkPerSignal]); in normal
+ * mode, a gain is given for each signal, then an ADC resolution >= 1, then
+ * units for each calibrated signal; the sampling frequency is valid
+ * ([checkWriteFreq]), the gains are finite, and the signal names and the
+ * units are Latin-1 text.
  */
 private fun checkWriteArgs(record: String, nsig: Int, fs: Double, spec: WriteSpec, legacy: Boolean) {
-    if (record.isEmpty()) throw WfdbException("writeRecord: the record name must not be empty")
-    if (nsig <= 0) throw WfdbException("writeRecord: at least one signal is required")
+    if (record.isEmpty()) argFail("writeRecord: the record name must not be empty")
+    checkLatin1(record, "record name", "writeRecord")
+    if (nsig <= 0) argFail("writeRecord: at least one signal is required")
     checkPerSignal(spec, nsig, legacy)
+    if (!legacy) {
+        for (k in 0 until nsig) gainOf(spec.gains, k, false)
+        for (k in 0 until nsig) adcresOf(spec.adcres, k, spec.fmt, false)
+        for (k in 0 until nsig) {
+            // WFDB-x: there are no default units (C left them out: millivolts)
+            if (gainOf(spec.gains, k, false) != 0.0 && perSignal(spec.units, k).isNullOrEmpty()) {
+                argFail("writeRecord: units must be specified")
+            }
+        }
+    }
     checkWriteFreq(fs, legacy)
-    if (spec.gains != null && spec.gains.any { !it.isFinite() }) throw WfdbException("writeRecord: gains must be finite")
+    if (spec.gains != null && spec.gains.any { !it.isFinite() }) argFail("writeRecord: gains must be finite")
+    for (k in 0 until nsig) {
+        checkLatin1(perSignal(spec.names, k), "signal name", "writeRecord")
+        checkLatin1(perSignal(spec.units, k), "units", "writeRecord")
+    }
 }
 
 /**
@@ -1248,14 +1354,14 @@ private fun checkPerSignal(spec: WriteSpec, nsig: Int, legacy: Boolean) {
     )
     for ((name, n, required) in lens) {
         if (n != null && n > 1 && n != nsig && !(required && !legacy && n < nsig)) {
-            throw WfdbException("writeRecord: $name must have one value per signal")
+            argFail("writeRecord: $name must have one value per signal")
         }
     }
 }
 
 /** Checks the samples per frame (in both modes, before anything else): each signal has at least one sample per frame. */
 private fun checkWriteSpf(spf: IntArray?) {
-    if (spf != null && spf.any { it < 1 }) throw WfdbException("writeRecord: sampsPerFrame must hold integers >= 1")
+    if (spf != null && spf.any { it < 1 }) argFail("writeRecord: sampsPerFrame must hold integers >= 1")
 }
 
 /**
@@ -1263,8 +1369,8 @@ private fun checkWriteSpf(spf: IntArray?) {
  * is not checked in legacy mode, as in the original package).
  */
 private fun checkWriteFreq(fs: Double, legacy: Boolean) {
-    if (!(fs > 0.0) && !legacy) throw WfdbException("writeRecord: the sampling frequency must be > 0")
-    if (!fs.isFinite()) throw WfdbException("writeRecord: the sampling frequency must be finite")
+    if (!(fs > 0.0) && !legacy) argFail("writeRecord: the sampling frequency must be > 0")
+    if (!fs.isFinite()) argFail("writeRecord: the sampling frequency must be finite")
 }
 
 private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Double, spec: WriteSpec) {
@@ -1278,9 +1384,7 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
         s.fname = datName
         s.desc = (perSignal(spec.names, k) ?: "").latin1()
         s.gain = gainOf(spec.gains, k, legacy)
-        val u = perSignal(spec.units, k)
-        // WFDB-x: there are no default units (C left them out: millivolts)
-        if (!legacy && s.gain != 0.0 && u.isNullOrEmpty()) throw WfdbException("writeRecord: units must be specified")
+        val u = perSignal(spec.units, k) // (required for a calibrated signal: see checkWriteArgs)
         s.units = if (u.isNullOrEmpty()) null else u.latin1()
         s.fmt = spec.fmt
         s.spf = perSignal(spec.sampsPerFrame, k) ?: 1
@@ -1291,35 +1395,58 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
         s
     }
     if (samples.size % frame != 0) {
-        throw WfdbException("writeRecord: the number of samples is not a multiple of the frame size")
+        argFail("writeRecord: the number of samples is not a multiple of the frame size")
     }
     // WFDB-x: the metadata entries, checked before anything is written, and
     // written after the comments, through putinfo, as "# Key: value"
     val comments = spec.comments ?: emptyList()
+    for (c in comments) checkLatin1(c, "comment", "writeRecord")
     val info = if (spec.metadata == null) comments else comments + metadataInfoLines(spec.metadata, comments)
     wfdbquit()
     // WFDB-x: the base time is checked before anything is written (it is
     // set again below, once the signal file is open).
-    if (spec.baseTime != null && setbasetime(spec.baseTime.latin1()) < 0) {
-        fail("writeRecord: incorrect base time '${spec.baseTime}'")
+    if (spec.baseTime != null && (spec.baseTime.any { it.code > 0xff } || setbasetime(spec.baseTime.latin1()) < 0)) {
+        argFail("writeRecord: incorrect base time '${spec.baseTime}'")
     }
     val errors = wfdbx_write_errors()
+    // WFDB-x: the signal file and the header are written to temporary files
+    // in the directories of their destinations, which are renamed over them
+    // when both are complete; after a failure, they are removed, and the
+    // existing files are left as they were (see stagingBegin).
+    stagingBegin()
+    var complete = false
+    var renamed = false
     try {
-        if (osigfopen(si, nsig) != nsig) fail("can't create signal file for record $record")
-        setsampfreq(fs)
-        // The counter frequency and base count survive wfdbquit() (as in the
-        // C library); a new record written here has neither.
-        setcfreq(0.0)
-        setbasecount(0.0)
-        if (spec.baseTime != null) setbasetime(spec.baseTime.latin1())
-        putframes(samples, samples.size / frame)
-        if (newheader(rec) < 0) fail("can't create header for record $record")
-        for (c in info) putinfo(c.latin1())
+        try {
+            if (osigfopen(si, nsig) != nsig) fail("can't create signal file for record $record")
+            setsampfreq(fs)
+            // The counter frequency and base count survive wfdbquit() (as in
+            // the C library); a new record written here has neither.
+            setcfreq(0.0)
+            setbasecount(0.0)
+            if (spec.baseTime != null) setbasetime(spec.baseTime.latin1())
+            writeFrames(samples, samples.size / frame)
+            if (writeHeader(rec) < 0) fail("can't create header for record $record")
+            for (c in info) putinfo(c.latin1())
+        } finally {
+            // (the output signals are closed whatever happens)
+            wfdbquit()
+        }
+        complete = wfdbx_write_errors() == errors
     } finally {
-        // (the output signals are closed whatever happens)
-        wfdbquit()
+        renamed = stagingEnd(complete)
     }
-    if (wfdbx_write_errors() > errors) throw WfdbException("write error on record $record")
+    if (!renamed) throw WfdbException("write error on record $record")
+}
+
+private fun Wfdb.writeFrames(samples: IntArray, nframes: Int) {
+    val h = io.testPutframes
+    if (h != null) h(samples, nframes) else putframes(samples, nframes)
+}
+
+private fun Wfdb.writeHeader(rec: ByteArray): Int {
+    val h = io.testNewheader
+    return if (h != null) h(rec) else newheader(rec)
 }
 
 /**
@@ -1344,21 +1471,26 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  *   absolute or in the home directory ("~/Documents/100s"), is used as
  *   given. The file is RECORD.ANNOTATOR at that place ("data/100s.qrs"). A
  *   URL cannot be written.
- * @param annotator annotator name: the suffix of the file (an existing file
- *   is overwritten)
- * @param samples annotation times, in samples
+ * @param annotator annotator name: the suffix of the file. An existing file
+ *   is replaced: the new file is written to a temporary file in the same
+ *   directory (readable and writable by its owner only), which replaces it
+ *   only when it is complete (with its permissions), so that an error
+ *   leaves it as it was.
+ * @param samples annotation times, in samples: from -2^63 + 1 to 2^63 - 2
+ *   (the smallest and largest 64-bit integers are reserved by the file
+ *   format)
  * @param symbols mnemonics such as "N" or "V" (an unknown mnemonic becomes
  *   code 0, NOTQRS)
- * @param codes annotation codes (if both are given, they must agree with
- *   [symbols])
+ * @param codes annotation codes, 0 to 58 (59 to 63 are the control codes of
+ *   the file format; if both are given, they must agree with [symbols])
  * @param subtypes subtype of each annotation (null: 0; as in C, stored in
  *   one byte: other values wrap around to -128 to 127)
  * @param chans channel number of each annotation (null: 0; stored in one
  *   byte: other values wrap around to 0 to 255)
  * @param nums annotator number of each annotation (null: 0; stored in one
  *   byte: other values wrap around to -128 to 127)
- * @param aux auxiliary text of each annotation, or null where there is none
- *   (texts longer than 255 bytes are cut)
+ * @param aux auxiliary text of each annotation (ISO-8859-1 text), or null
+ *   where there is none (texts longer than 255 bytes are cut)
  * @param fs if given (finite, > 0), written to the file as the frequency
  *   in which the times are counted
  * @param sort true to always sort, false to keep the order given (without
@@ -1367,16 +1499,28 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
  *   this call only. [record] must then be a plain name, without a
  *   directory: the file is DIR/RECORD.ANNOTATOR.
  * @param legacy behave as the original WFDB package
- * @throws WfdbException (the arguments are checked before any file is
- *   created) if neither symbols nor codes is given ("symbols or codes must
- *   be given"), if both are given and the code of a symbol is not the code
- *   at its position ("writeAnnotations: symbols and codes disagree at
- *   annotation K", K counting from 0), if an array does not have one value
- *   per annotation, if fs is not finite and > 0 ("writeAnnotations: fs must
- *   be finite and > 0"), if the file cannot be created ("can't create
- *   annotator ANN for record REC"), if it cannot be written completely, for
- *   example when the disk is full ("write error on annotator ANN for record
- *   REC"; also in legacy mode), or as for [writeRecord]'s dir
+ * @throws WfdbArgumentException (a [WfdbException]; the arguments are
+ *   checked before the file is created or changed, in this order) if an
+ *   array does not have one value per annotation ("writeAnnotations: NAME
+ *   must have one value per annotation"), if fs is not finite and > 0
+ *   ("writeAnnotations: fs must be finite and > 0"), if a time is -2^63 or
+ *   2^63 - 1 ("writeAnnotations: annotation time T cannot be written
+ *   (annotation times must be integers from -9223372036854775807 to
+ *   9223372036854775806)", the first such time), if neither symbols nor
+ *   codes is given for one annotation or more ("symbols or codes must be
+ *   given"; with no annotations, an empty file is written), if a code is not
+ *   from 0 to 58 ("writeAnnotations: annotation code C is reserved (59 to
+ *   63 are the control codes of the annotation file format)", or "...
+ *   annotation code C is out of range (0 to 58)", the first such code), if
+ *   both are given and the code of a symbol is not the code at its position
+ *   ("writeAnnotations: symbols and codes disagree at annotation K", K
+ *   counting from 0), if an aux text has a character beyond U+00FF
+ *   ("writeAnnotations: aux text 'X' has a character that is not Latin-1
+ *   (one byte per character)"); [WfdbException] if the file cannot be
+ *   created ("can't create annotator ANN for record REC"), if it cannot be
+ *   written completely, for example when the disk is full, or the library
+ *   reports an error while writing it ("write error on annotator ANN for
+ *   record REC"; also in legacy mode), or as for [writeRecord]'s dir
  *
  * ```
  * writeAnnotations("rand", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N", "N", "V"))
@@ -1399,7 +1543,7 @@ fun Wfdb.writeAnnotations(
 ) {
     val n = samples.size
     fun check(name: String, size: Int?) {
-        if (size != null && size != n) throw WfdbException("writeAnnotations: $name must have one value per annotation")
+        if (size != null && size != n) argFail("writeAnnotations: $name must have one value per annotation")
     }
     check("symbols", symbols?.size)
     check("codes", codes?.size)
@@ -1408,14 +1552,43 @@ fun Wfdb.writeAnnotations(
     check("nums", nums?.size)
     check("aux", aux?.size)
     // (`!(f > 0)` also rejects NaN)
-    if (fs != null && !(fs > 0.0 && fs.isFinite())) throw WfdbException("writeAnnotations: fs must be finite and > 0")
+    if (fs != null && !(fs > 0.0 && fs.isFinite())) argFail("writeAnnotations: fs must be finite and > 0")
+    // WFDB-x: the times that the MIT format can store: the smallest and the
+    // largest 64-bit integers are reserved (putann refuses them, "time
+    // overflow", and the annotation was dropped); any other time is stored
+    // (with SKIPs for intervals beyond 1023 samples)
+    for (t in samples) {
+        if (t == Long.MIN_VALUE || t == Long.MAX_VALUE) {
+            argFail(
+                "writeAnnotations: annotation time $t cannot be written (annotation times must be integers " +
+                    "from ${Long.MIN_VALUE + 1} to ${Long.MAX_VALUE - 1})",
+            )
+        }
+    }
     withSettings {
         withOutputDir(dir, record) {
             withLegacy(legacy) {
                 val types = codes ?: IntArray(n).also { t ->
-                    if (symbols == null) throw WfdbException("symbols or codes must be given")
+                    // WFDB-x: a label is required for each annotation (1.2.2:
+                    // also in the other languages); an empty list without
+                    // labels writes an empty file
+                    if (symbols == null && n > 0) argFail("symbols or codes must be given")
                     val cache = HashMap<String, Int>()
-                    for (k in 0 until n) t[k] = cache.getOrPut(symbols[k]) { strann(symbols[k].latin1()) }
+                    val sy = symbols.orEmpty() // (null only with no annotations)
+                    for (k in 0 until n) t[k] = cache.getOrPut(sy[k]) { strann(sy[k].latin1()) }
+                }
+                // WFDB-x: the annotation codes are 0 to 58 (ACMAX is 49, and
+                // 50 to 58 are free); 59 to 63 are the control codes of the
+                // MIT format (SKIP, NUM, SUB, CHN, AUX), which corrupt the
+                // file, and other values do not fit in its 6 bits
+                for (c in types) {
+                    if (c in (MAXCODE + 1)..63) {
+                        argFail(
+                            "writeAnnotations: annotation code $c is reserved (59 to 63 are the control codes " +
+                                "of the annotation file format)",
+                        )
+                    }
+                    if (c < 0 || c > MAXCODE) argFail("writeAnnotations: annotation code $c is out of range (0 to $MAXCODE)")
                 }
                 if (codes != null && symbols != null) {
                     // WFDB-x: symbols and codes may both be given (as
@@ -1424,41 +1597,68 @@ fun Wfdb.writeAnnotations(
                     for (k in 0 until n) {
                         val sym = symbols[k]
                         if (sym.isNotEmpty() && strann(sym.latin1()) != codes[k]) {
-                            throw WfdbException("writeAnnotations: symbols and codes disagree at annotation $k")
+                            argFail("writeAnnotations: symbols and codes disagree at annotation $k")
                         }
                     }
                 }
+                // WFDB-x: aux texts are one byte per character (a character
+                // beyond U+00FF was written as its low byte)
+                if (aux != null) for (x in aux) checkLatin1(x, "aux text", "writeAnnotations")
                 val zeros = IntArray(n)
                 val auxes = arrayOfNulls<ByteArray>(n)
                 if (aux != null) for (k in 0 until n) auxes[k] = auxField(aux[k])
                 val rec = fname(record)
                 wfdbquit()
                 val errors = wfdbx_write_errors()
-                // (fs applies to this file only: the previous time resolution is
-                // restored by withSettings)
-                if (fs != null) setafreq(fs)
-                if (annopen(rec, arrayOf(Anninfo(fname(annotator), WFDB_WRITE)), 1) < 0) {
-                    fail("can't create annotator $annotator for record $record")
-                }
-                // (as putann for each annotation, but encoded at once)
+                // WFDB-x: the file is written to a temporary file in the
+                // directory of its destination, which is renamed over it when
+                // it is complete (and, if needed, sorted); after a failure, it
+                // is removed, and the existing file is left as it was (see
+                // stagingBegin).
+                stagingBegin()
+                var complete = false
+                var renamed = false
                 try {
-                    putanns(0, n, samples, types, subtypes ?: zeros, chans ?: zeros, nums ?: zeros, auxes)
-                } catch (e: Throwable) {
-                    wfdbquit() // (the annotator is closed whatever happens)
-                    throw e
-                }
-                val previous = ann.sortOverride
-                ann.sortOverride = sort
-                try {
-                    wfdbquit()
+                    var putFailed = false
+                    try {
+                        // (fs applies to this file only: the previous time
+                        // resolution is restored by withSettings)
+                        if (fs != null) setafreq(fs)
+                        if (annopen(rec, arrayOf(Anninfo(fname(annotator), WFDB_WRITE)), 1) < 0) {
+                            fail("can't create annotator $annotator for record $record")
+                        }
+                        // (as putann for each annotation, but encoded at once;
+                        // WFDB-x: an error that putann reports is an error)
+                        val hook = io.testPutanns
+                        putFailed = (
+                            if (hook != null) {
+                                hook()
+                            } else {
+                                putanns(0, n, samples, types, subtypes ?: zeros, chans ?: zeros, nums ?: zeros, auxes)
+                            }
+                            ) < 0
+                        val previous = ann.sortOverride
+                        ann.sortOverride = sort
+                        try {
+                            wfdbquit()
+                        } finally {
+                            ann.sortOverride = previous
+                        }
+                    } finally {
+                        wfdbquit() // (the annotator is closed whatever happens)
+                    }
+                    complete = !putFailed && wfdbx_write_errors() == errors
                 } finally {
-                    ann.sortOverride = previous
+                    renamed = stagingEnd(complete)
                 }
-                if (wfdbx_write_errors() > errors) throw WfdbException("write error on annotator $annotator for record $record")
+                if (!renamed) throw WfdbException("write error on annotator $annotator for record $record")
             }
         }
     }
 }
+
+/** The largest annotation code that can be written (59 to 63 are the control codes of the MIT format). */
+private const val MAXCODE = 58
 
 /** The aux field (length byte first) of an aux string: its first 255 characters (null for null or ""). */
 private fun auxField(x: String?): ByteArray? {

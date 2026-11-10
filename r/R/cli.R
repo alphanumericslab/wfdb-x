@@ -50,7 +50,7 @@ cli_main <- function(args) {
       return(0)
     }
     if (tool == "--version") {
-      cout("WFDB-x 1.2.1\n")
+      cout("WFDB-x 1.2.2\n")
       cout()
       return(0)
     }

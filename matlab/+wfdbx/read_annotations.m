@@ -17,8 +17,10 @@ function ann = read_annotations(record, annotator, varargin)
 %   these options:
 %
 %     'sampfrom'  read the annotations at or after this time: a sample
-%                 number or a time string (default 0)
-%     'sampto'    read the annotations before this time (default: all)
+%                 number (a whole number, not negative) or a time string
+%                 (default 0)
+%     'sampto'    read the annotations before this time: a sample number
+%                 (a whole number) or a time string (default: all)
 %     'fs'        sampling frequency in Hz, used when the record has no
 %                 header or its header gives none (default: none)
 %     'input_dir' input directory for this call only (optional): a
@@ -46,13 +48,22 @@ function ann = read_annotations(record, annotator, varargin)
 %   Errors: an error (identifier 'wfdbx:read_annotations') is thrown if the
 %   annotation file cannot be opened, if it ends unexpectedly or cannot be
 %   read before 'sampto' ("can't read annotation file ANNOTATOR of record
-%   RECORD (getann status S)"), or if a time string needs the sampling
-%   frequency and none is known.
+%   RECORD (getann status S)"), if a time string needs the sampling
+%   frequency and none is known, if 'fs' is not > 0, or if 'sampfrom' or
+%   'sampto' is not valid: "read_annotations: sampfrom must be a whole
+%   number" (a fraction, NaN or an infinite value), "... must be a sample
+%   number or a time string" (a cell array, a vector, ...), "... is beyond
+%   the range of a 64-bit integer", "read_annotations: sampfrom must not
+%   be negative" (the same for sampto, which may be negative).  The
+%   arguments are checked, as by wfdbx.read_record, before any file is
+%   opened.
 %
 %   The function calls wfdbx.wfdbquit, which closes anything opened with the
-%   WFDB library functions; the getvec mode (wfdbx.getgvmode) and the time
-%   resolution of output annotators (wfdbx.getafreq) are left as they were
-%   (opening an EDF record sets both).
+%   WFDB library functions; whatever happens, errors included, the
+%   annotation file is closed again (wfdbx.wfdbquit) before it returns.
+%   The getvec mode (wfdbx.getgvmode) and the time resolution of output
+%   annotators (wfdbx.getafreq) are left as they were (opening an EDF
+%   record sets both).
 %
 %   Example (100s, the first minute of record 100 of the MIT-BIH Arrhythmia
 %   Database, is included with WFDB-x in the folder tests/data of a copy of
@@ -108,12 +119,33 @@ restore_input = wfdbx.internal.hl_input(opt.input_dir, opt.network, ...
     'read_annotations'); %#ok<NASGU>
 % the library's legacy mode also applies (wfdbx.wfdbx_set_legacy)
 opt.legacy = opt.legacy || wfdbx.wfdbx_get_legacy() ~= 0;
+% WFDB-x: sampfrom and sampto are checked as read_record checks them, before
+% anything is opened (a fraction, NaN or an infinite value is an error, not
+% truncated)
+wfdbx.internal.hl_sample_number(opt.sampfrom, 'sampfrom', 'read_annotations');
+wfdbx.internal.hl_sample_number(opt.sampto, 'sampto', 'read_annotations');
+if isnumeric(opt.sampfrom) && any(opt.sampfrom(:) < 0)
+    error('wfdbx:read_annotations', ...
+        'read_annotations: sampfrom must not be negative');
+end
 if ~isempty(opt.fs) && ~(isnumeric(opt.fs) && isscalar(opt.fs) && opt.fs > 0)
     error('wfdbx:read_annotations', 'fs must be > 0');
 end
+wfdbx.wfdbquit();
+% (whatever happens, the annotation file is closed before returning)
+try
+    ann = read_ann(record, annotator, opt);
+catch err
+    wfdbx.wfdbquit();
+    rethrow(err);
+end
+wfdbx.wfdbquit();
+end
+
+function ann = read_ann(record, annotator, opt)
+% The body of read_annotations, after the options are checked.
 sampfrom = opt.sampfrom;
 sampto = opt.sampto;
-wfdbx.wfdbquit();
 % WFDB-x: no default sampling frequency (C used WFDB_DEFFREQ, 250 Hz, if
 % the record had no header); 'fs' gives one, as -F does for rdann.
 f = wfdbx.sampfreq(record);
@@ -209,7 +241,6 @@ ann.chans = A.chan(:);
 ann.nums = A.num(:);
 ann.aux = aux;
 ann.fs = wfdbx.getiafreq(0);
-wfdbx.wfdbquit();
 end
 
 function A = cat_ann(A, B)

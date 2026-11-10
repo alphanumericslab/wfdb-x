@@ -31,7 +31,9 @@
 // an output signal file is never one of the input files of the open record; a
 // header written under a path names the record, its signal files and its
 // segments relative to its own directory; FLAC signal files are read and
-// written with WFDB-x's FLAC codec (flac.rs) instead of libFLAC; additions:
+// written with WFDB-x's FLAC codec (flac.rs) instead of libFLAC; getinfo
+// finds the record line as the header parser does (an empty or blank first
+// line is not the record line); additions:
 // wfdbx_set_legacy, wfdbx_get_legacy, wfdbx_legacy_args,
 // wfdbx_time_needs_freq, getvecs, getvecs_status, and wfdbx_bulk_read,
 // wfdbx_bulk_vectors and wfdbx_input_state (for tests); legacy mode
@@ -199,6 +201,17 @@ pub struct SigState {
     /// WFDB-x: true during a high-level read: getvec's checksum message is
     /// recorded but not printed.
     pub(crate) cksum_quiet: bool,
+    /// WFDB-x: set by `getskewedframe` when a sample cannot be read (status
+    /// -3: a signal file that ends before the length that its header gives,
+    /// a decoder or I/O error, a segment that cannot be opened), whatever
+    /// status `getvec` then returns (a checksum error, -4, found in the same
+    /// frame replaces -3). The high-level readers clear it before and
+    /// after reading; the C-style functions only set it.
+    pub(crate) read_failed: bool,
+    /// WFDB-x: true while a high-level reader reads (`read_record`,
+    /// `check_record`): `getvecs` then stops at a frame in which a sample
+    /// could not be read (`read_failed`), with status -3.
+    pub(crate) read_checked: bool,
     /// WFDB-x: true if `getvecs` must not use its bulk path (see
     /// `Wfdb::wfdbx_bulk_read`; for tests).
     bulk_off: bool,
@@ -321,6 +334,8 @@ impl Default for SigState {
             msrec_name: None,
             user_segments: false,
             cksum_quiet: false,
+            read_failed: false,
+            read_checked: false,
             bulk_off: false,
             bulk_vectors: 0,
             bulk_groups: Vec::new(),
@@ -3247,7 +3262,9 @@ impl Wfdb {
                         if st.igd[group].stat == -2 {
                             // error in decoding compressed data
                             stat = -3;
+                            st.read_failed = true; // WFDB-x (see SigState)
                         } else if st.isd[s].info.nsamp > 0 {
+                            st.read_failed = true;
                             let msg = cformat!(b"getvec: unexpected EOF in signal %d\n", s as i32);
                             self.wfdb_error(msg);
                             stat = -3;
@@ -3300,6 +3317,7 @@ impl Wfdb {
             if self.isigopen(&name, &mut [], nvsig) <= 0 {
                 let msg = cformat!(b"getvec: error opening segment %s\n", name);
                 self.wfdb_error(msg);
+                self.sig.read_failed = true; // WFDB-x (see SigState)
                 return -3; // avoid looping if segment is bad
             }
             self.sig.istime = self.sig.segarray[self.sig.segp as usize].samp0;
@@ -5004,6 +5022,16 @@ impl Wfdb {
     /// for an unexpected end of file), or the number of values per vector
     /// if all `n` were read (0 if `n <= 0`). Not part of the C library.
     ///
+    /// WFDB-x: during a high-level read (`read_record`, `check_record`), a
+    /// vector in which a sample could not be read (a signal file that ends
+    /// before the length that its header gives, a decoder or I/O error, a
+    /// segment that cannot be opened) ends the reading with status -3, and
+    /// is not counted, whatever status `getvec` returned for it (`getvec`
+    /// returns -4 for the frame in which a signal file ends early if a
+    /// checksum is verified at that frame). A -4 alone (a checksum error:
+    /// the vector was read completely) is returned as it is, and the vector
+    /// is then in `out` after the vectors counted.
+    ///
     /// Part of WFDB-x; not in the original WFDB package.
     pub fn getvecs_status(&mut self, out: &mut [i32], n: i64) -> (i64, i32) {
         if n <= 0 {
@@ -5031,6 +5059,10 @@ impl Wfdb {
                     // (the caller's array is too short for another vector)
                     let mut tmp = vec![0; need];
                     stat = self.getframe_impl(&mut tmp);
+                    if self.sig.read_checked && self.sig.read_failed {
+                        stat = read_failed_status(stat);
+                        break;
+                    }
                     let m = out.len().saturating_sub(pos).min(stride);
                     if stat == -4 {
                         // (valid data with a checksum mismatch)
@@ -5050,6 +5082,10 @@ impl Wfdb {
                 // (getframe, not getskewedframe: a segment opened by an
                 // earlier frame may need deskewing)
                 stat = self.getframe_impl(&mut out[pos..]);
+                if self.sig.read_checked && self.sig.read_failed {
+                    stat = read_failed_status(stat);
+                    break;
+                }
                 if stat < 0 {
                     break;
                 }
@@ -5077,6 +5113,10 @@ impl Wfdb {
                     break;
                 }
                 stat = self.getvec(&mut out[pos..]);
+                if self.sig.read_checked && self.sig.read_failed {
+                    stat = read_failed_status(stat);
+                    break;
+                }
                 if stat < 0 {
                     break;
                 }
@@ -6020,8 +6060,18 @@ impl Wfdb {
     /// and return the first; with `NULL`, return the next one. `None` when
     /// there are no more.
     ///
+    /// The record line is found as the header parser (`readheader`) finds
+    /// it: the first line that has a token (separated by spaces, tabs, CRs
+    /// and LFs, up to a null character) that does not begin with `#`; every
+    /// later line that begins with `#` is an info string, and a header with
+    /// no record line has none (the `.info` file is still read).
+    ///
     /// Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0):
-    /// same arguments and results.
+    /// same arguments and results, except for the record line (WFDB-x): the
+    /// C function takes the first line that does not begin with `#`, so that
+    /// an empty or blank line before the record line is taken for it, and
+    /// the comments between them are returned as info strings. In legacy
+    /// mode, the C rule applies.
     pub fn getinfo(&mut self, record: impl OptBytes) -> Option<Vec<u8>> {
         let record = record.opt_bytes().map(|r| cstd::cstr(r).to_vec());
         if record.is_some() {
@@ -6073,16 +6123,28 @@ impl Wfdb {
                     // contents when the end of the file is reached.
                     let mut buf: Vec<u8> = Vec::new();
                     let mut line: Vec<u8> = Vec::new();
+                    let legacy = self.wfdbx_get_legacy() != 0;
+                    let mut found = false;
                     while ifile.getline(&mut line) > 0 {
                         buf.clone_from(&line);
-                        if buf[0] != b'#' {
-                            break; // skip initial comments
+                        if legacy {
+                            if buf[0] != b'#' {
+                                break; // skip initial comments
+                            }
+                        } else if !comment_or_blank(&buf) {
+                            // WFDB-x: the record line, as readheader finds it
+                            found = true;
+                            break;
                         }
                     }
-                    while ifile.getline(&mut line) > 0 {
-                        buf.clone_from(&line);
-                        if buf[0] == b'#' {
-                            break; // skip header content
+                    if !legacy && !found {
+                        buf.clear(); // WFDB-x: no record line, no info
+                    } else {
+                        while ifile.getline(&mut line) > 0 {
+                            buf.clone_from(&line);
+                            if buf[0] == b'#' {
+                                break; // skip header content
+                            }
                         }
                     }
                     while !buf.is_empty() && buf[0] != 0 {
@@ -7025,6 +7087,28 @@ pub fn getvec(vector: &mut [i32]) -> i32 {
 /// arguments and results.
 pub fn getframe(vector: &mut [i32]) -> i32 {
     with_default(|w| w.getframe(vector))
+}
+
+/// WFDB-x: true if `readheader` skips `line` when it looks for the record
+/// line: the line has no token (separated by spaces, tabs, CRs and LFs, up
+/// to a null character), or its first token begins with `#`.
+fn comment_or_blank(line: &[u8]) -> bool {
+    let l = cstd::cstr(line);
+    match l.iter().position(|c| !b" \t\n\r".contains(c)) {
+        None => true,
+        Some(i) => l[i] == b'#',
+    }
+}
+
+/// WFDB-x: the status of a vector in which a sample could not be read
+/// (see [`Wfdb::getvecs_status`]): -3, unless `getvec` returned another
+/// error below -1 other than a checksum error (-4).
+fn read_failed_status(stat: i32) -> i32 {
+    if stat == -4 || stat >= -1 {
+        -3
+    } else {
+        stat
+    }
 }
 
 /// C `getvecs` on the default instance (see [`Wfdb::getvecs`]).

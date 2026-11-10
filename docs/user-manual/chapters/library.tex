@@ -356,8 +356,6 @@ argument that C fills is omitted.
   \code{list(stat, si)}; \code{getvec()} and \code{getframe()} return
   \code{list(stat, v)}; \code{getann(an)} returns \code{list(stat, annot)};
   \code{getcal(desc, units)} returns \code{list(stat, cal)};
-  \code{setheader} returns \code{list(stat, si)} (with the units and
-  descriptions as \code{setheader} truncates them);
   \code{getseginfo()} returns the list of \code{seginfo} lists;
   \code{wfdbx\_legacy\_args(argv)} returns \code{list(argv, legacy)}.
 \item The C structures are lists with the C field names, made by
@@ -493,8 +491,9 @@ Every function documented in this chapter exists in the seven languages
 \code{getvecs\_status}) in C++, Rust, Julia and Kotlin; it is documented under
 \code{getframes}. A few helpers have no counterpart in the Python
 implementation, and therefore no entry here: \code{putframes} (R,
-MATLAB/Octave), \code{wfdbx\_fclose\_output} (Rust, Kotlin),
-\code{wfdb\_error\_fmt} (Rust), \code{aux\_string} (R; a method of
+MATLAB/Octave), \code{wfdbx\_fclose\_output} (Rust, Kotlin; in Julia,
+\code{WFDBX.wfdbx\_fclose\_output}, not exported), \code{wfdb\_error\_fmt}
+(Rust; in Kotlin, the method \code{w.wfdb\_error\_fmt}), \code{aux\_string} (R; a method of
 \code{Annotation} in Python) and the structure constructors of R and
 MATLAB/Octave. In R, \code{sample} is named \code{wfdb\_sample}.
 \end{note}
@@ -591,8 +590,8 @@ header is returned. \code{isigopen(record, NULL, 0)} thus gives the number of
 signals, to allocate \code{siarray} before opening them, and sets the time
 base of the record for \code{strtim} and \code{timstr}.
 
-A record name that contains a \code{.}, other than in a final \code{.hea},
-names an EDF file, read as a record (\cref{chap:formats}). A multi-segment
+A record name whose last component contains a \code{.}, other than in a
+final \code{.hea}, names an EDF file, read as a record (\cref{chap:formats}). A multi-segment
 record opens its segments as they are read (see \code{getseginfo}).
 \begin{params}
 \item[record] The record name.
@@ -654,8 +653,8 @@ The Programmer's Guide allows \code{nsig} 0 with \code{siarray} \code{NULL},
 to close the output signals; the C function then reads before the start of
 its internal array. In WFDB-x, in every language, \code{osigopen(record, NULL,
 0)} closes the output signals already open (unless \code{record} begins with
-\code{+}), reads the header (and returns -1 if it cannot be read), opens
-nothing, and returns 0 (\cref{sec:crashes}). \code{osigfopen(NULL, 0)} also
+\code{+}), reads the header (and returns -1 if it cannot be read, -2 if it is
+not valid), opens nothing, and returns 0 (\cref{sec:crashes}). \code{osigfopen(NULL, 0)} also
 closes the output signals.
 
 WFDB-x: a signal file is created under the output directory, and a signal
@@ -721,7 +720,8 @@ are, to apply to the annotation times.
 \item[nsig] The maximum number of input signals to open.
 \end{params}
 \returns{The negative result of \code{annopen} if it fails; otherwise the
-result of \code{isigopen}: the number of signals opened, 0 if none (no
+result of \code{isigopen}: the number of signals opened (with \code{nsig} 0,
+the number of signals of the record, none being opened), 0 if none (no
 message if \code{nsig} is 0), or -1, -2, -3.}
 
 In R, \code{wfdbinit(record, aiarray, nsig)} has no \code{nann} argument, and
@@ -784,7 +784,8 @@ sample at the highest sampling frequency, and the other signals are repeated
 the chosen frequency by linear interpolation. Skewed signals are corrected
 for their skew. The checksum of a signal is verified when the number of
 samples given in the header has been read, unless the signals were
-positioned (\code{isigsettime}, \code{isgsettime}) before.
+positioned (\code{isigsettime}, \code{isgsettime}) before (it is not verified
+in multi-segment records, EDF files and signals of format 0).
 \begin{params}
 \item[vector] An array with room for one sample per input signal, filled by
   the function.
@@ -792,7 +793,8 @@ positioned (\code{isigsettime}, \code{isgsettime}) before.
 \returns{The number of input signals, on success; 0 if no input signals are
 open; -1 at the end of the data (the contents of \code{vector} are then not
 valid); -3 at an unexpected end of a signal file (or a FLAC decoding error);
--4 on a checksum error, detected on the last frame (which is valid).}
+-4 on a checksum error, detected on the last frame (which is valid, unless a
+signal file ended in that frame: as in C, -4 then replaces -3).}
 \raises{\code{getvec: unexpected EOF in signal N}; \code{getvec: checksum
 error in signal N}; \code{getvec: error opening segment SEG}.}
 
@@ -804,7 +806,8 @@ Reads the next frame: every sample of every input signal for one frame
 interval, the \code{spf} samples of signal 0 first, then those of signal 1,
 and so on. For a record whose signals all have one sample per frame,
 \code{getframe} and \code{getvec} (without \code{setifreq}) read the same
-vectors. \code{setgvmode} and \code{setifreq} do not affect it.
+vectors. The \code{WFDB\_HIGHRES} mode and \code{setifreq} do not affect it
+(\code{WFDB\_GVPAD} does, see \code{setgvmode}).
 \begin{params}
 \item[vector] An array with room for the sum of the \code{spf} fields of the
   input signals, filled by the function.
@@ -912,7 +915,8 @@ Tells whether the value most recently returned by \code{sample} is valid, so
 that \code{while (sample\_valid())} reads to the end of the record and
 \code{sample\_valid() > 0} selects the values usable in a computation.
 \returns{1 if the value was valid; 0 if \code{t} was after the end of the
-record (the value is padding); -1 if the value was
+record (the value is padding) or the signals could not be positioned; -1 if
+the value was
 \code{WFDB\_INVALID\_SAMPLE} (the signal is not available at \code{t}, or the
 signal number is not valid).}
 
@@ -1144,7 +1148,7 @@ char *datstr(WFDB_Date d);
 \end{lstlisting}
 Converts a Julian date (a day number; these Julian dates begin at midnight
 local time, not at noon) to text, \code{" dd/mm/yyyy"}, with a leading space,
-which the Programmer's Guide does not mention (\code{datstr(1753639)} is
+which the Programmer's Guide does not mention (\code{datstr(2374674)} is
 \code{" 14/07/1789"}). The Gregorian calendar applies from 15 October 1582;
 years before 1 A.D. are negative (there is no year 0).
 \begin{params}
@@ -1392,14 +1396,22 @@ of order is sorted when it is closed (see \code{oannclose}). The first
 \code{putann} to a file writes, before the annotation, the time resolution set
 by \code{setafreq} and the modification labels of the mnemonics and
 descriptions changed by \code{setannstr} and \code{setanndesc}. In an AHA
-file, at most 6 bytes of \code{aux} are written.
+file, at most 6 bytes of \code{aux} are written. As in C, the annotation
+code is not checked: an annotation written with one of the codes 59 to 63,
+the control codes of the MIT format (\cref{sec:formats-mit-annotations}), is read back as a
+control word, which corrupts the rest of the file, and a code above 63
+loses its high bits; in an MIT file, every time other than
+\code{WFDB\_TIME\_MIN} and \code{WFDB\_TIME\_MAX} is written, with as many \code{SKIP} words as its
+distance from the previous annotation needs. The high-level writers
+(\code{write\_annotations}) refuse these codes and times before they write
+anything (\cref{sec:additions}).
 \begin{params}
 \item[a] The output annotator number (0 for the first output annotator of
   \code{annopen}).
 \item[annot] The annotation, filled by the caller.
 \end{params}
-\returns{0 on success; -1 on a write error, or for a time equal to
-\code{WFDB\_TIME\_MIN} or \code{WFDB\_TIME\_MAX}; -2 if \code{a} is not an
+\returns{0 on success; -1 on a write error, or (MIT format) for a time equal
+to \code{WFDB\_TIME\_MIN} or \code{WFDB\_TIME\_MAX}; -2 if \code{a} is not an
 open output annotator.}
 \raises{\code{putann: can't write annotation file N}; \code{putann: write
 error on annotation file ATR}; \code{putann: time overflow in annotation file
@@ -1549,7 +1561,8 @@ int setannstr(int annotation_code, const char *annotation_mnemonic_string);
 Sets the mnemonic of a code in the table of \code{annstr} and \code{strann}
 (\code{NULL} is taken as \code{""}). With a positive code, the change is also
 marked to be recorded, as a modification label, in the output annotation
-files opened afterwards, so that other programs read the files with these
+files to which no annotation has been written yet (the labels are written by
+the first \code{putann}), so that other programs read the files with these
 mnemonics. With a negative code, the mnemonic of \code{-code} is changed for
 this program only. \code{wfdbquit} does not reset the table.
 \begin{params}
@@ -1579,8 +1592,8 @@ string).}
 int setanndesc(int annotation_code, const char *annotation_description);
 \end{lstlisting}
 As \code{setannstr}, for the table of \code{anndesc}: a positive code also
-marks the description to be recorded in the output annotation files opened
-afterwards, a negative code changes the description of \code{-code} for this
+marks the description to be recorded in the output annotation files to which
+no annotation has been written yet, a negative code changes the description of \code{-code} for this
 program only.
 \begin{params}
 \item[annotation\_code] The code (or its negation).
@@ -1905,8 +1918,9 @@ memory: for types of signals, the levels and shape of their calibration
 pulses and their customary plotting scale (\code{WFDB\_Calinfo},
 \cref{sec:library-structures}). A calibration file has one entry per line:
 the signal type (\code{*} for any), a tab, then the low and high levels
-(\code{-} for an AC-coupled signal's low level, or for a high level equal to
-the low level), the pulse shape (\code{square}, \code{sine},
+(\code{-} for an AC-coupled signal's low level; \code{-} as the high level,
+which \code{newcal} writes for a high level equal to the low level, makes
+both levels 0), the pulse shape (\code{square}, \code{sine},
 \code{sawtooth}, or anything else for an undefined shape), the scale and the
 units, separated by spaces or tabs; lines that begin with \code{\#} and
 incomplete lines are ignored.
@@ -2042,8 +2056,9 @@ and written back; the info strings must be copied explicitly
 (\code{getinfo}, \code{putinfo}). As in C, and although the argument is
 declared \code{const}, the \code{units} of each structure are cut at their
 first blank and the \code{desc} at their first line break, in the caller's
-structures (in R and MATLAB/Octave, the changed structures are returned:
-\code{list(stat, si)}, \code{[stat, si]}).
+structures (in MATLAB/Octave, the changed structures are returned as a second
+output value, \code{[stat, si]}; in R, \code{setheader} returns the status
+only, and the caller's lists are not changed).
 \begin{params}
 \item[record] The record name.
 \item[siarray] The signal specifications.
@@ -2051,7 +2066,8 @@ structures (in R and MATLAB/Octave, the changed structures are returned:
 \end{params}
 \returns{0 on success; -1 if the record name is illegal or the header cannot
 be created.}
-\raises{\code{newheader: can't create header for record REC}.}
+\raises{\code{init: illegal character N in record name}; \code{newheader:
+can't create header for record REC}.}
 
 \apientry{setmsheader}{Write the header of a multi-segment record}
 \begin{lstlisting}[language=C,style=signature]
@@ -2123,7 +2139,15 @@ the line without its \code{\#} and its line ending.
 \raises{\code{getinfo: caller did not specify record name}.}
 
 WFDB-x: the header and the \file{.info} file are read only where the record
-name says (\cref{chap:behavior}).
+name says (\cref{chap:behavior}). The record line is found as the header
+parser (\code{readheader}) finds it: the first line that has a token
+(separated by spaces, tabs, carriage returns and line feeds) that does not
+begin with \code{\#}; the info strings of the header are the later lines that
+begin with \code{\#}, and a header without a record line has none. In legacy
+mode, the record line is, as in C, the first line that does not begin with
+\code{\#}, so that an empty or blank first line is taken for it and the
+comments that follow it before the real record line are returned as info
+strings (\cref{sec:record-line-divergence}).
 
 \apientry{putinfo}{Write an info string}
 \begin{lstlisting}[language=C,style=signature]
@@ -2292,7 +2316,8 @@ own messages.
 
 In Python, \code{wfdb\_error(fmt, *args)}; in Rust and Kotlin,
 \code{wfdb\_error(msg)} takes a message already formatted (Rust also has
-\code{wfdb\_error\_fmt(fmt, args)}); in Julia, \code{WFDBX.wfdb\_error(fmt,
+\code{wfdb\_error\_fmt(fmt, args)}, and Kotlin the method
+\code{w.wfdb\_error\_fmt(fmt, args)}); in Julia, \code{WFDBX.wfdb\_error(fmt,
 args...)} (not exported). The formatting is that of the GNU C library in
 every language.
 
@@ -2458,7 +2483,8 @@ std::optional<std::string> wfdbx_set_input_dir(const char *dir);
 Sets the input directory: every file named by a relative name (\code{100s},
 \code{mitdb/100}, \code{../other/100}) is read from it; an absolute name, a
 \code{\textasciitilde} name or a URL is used as given. It may be a local
-directory, a \code{\textasciitilde} path, or the URL of a directory, such as
+directory, a \code{\textasciitilde} path, or the \code{http://} or
+\code{https://} URL of a directory, such as
 \code{https://physionet.org/files/mitdb/1.0.0/} (which also needs network
 access, \code{wfdbx\_set\_network}). The name is used as it is (it may contain
 spaces). The setting applies to the library functions, the high-level
@@ -2500,7 +2526,8 @@ mode it is a plain prefix of every output name, absolute names included.
 \begin{params}
 \item[dir] A local directory or a \code{\textasciitilde} path; \code{NULL} or
   \code{""} restores the default: the value of \code{WFDBX\_OUTPUT\_DIR} if it
-  is set, otherwise the current directory. A URL is refused.
+  is set, otherwise the current directory. A URL (any name that begins with a
+  URL scheme, such as \code{https://} or \code{ftp://}) is refused.
 \end{params}
 \returns{The previous output directory; \code{NULL} if none was set. For a
 URL, the current output directory, unchanged.}
@@ -2522,8 +2549,11 @@ int wfdbx_set_network(int on);
 \end{lstlisting}
 Allows or forbids reading files from \code{http://} and \code{https://}
 URLs; it is forbidden by default. A remote file is read in full the first
-time it is opened and kept for the rest of the process; a download gives up
-if it cannot connect, or receives nothing, for 30 seconds. With network
+time it is opened and kept for the rest of the process (a download that
+fails is not kept: the file is requested again the next time it is opened);
+a download gives up if it cannot connect, or receives nothing, for 30
+seconds. A name with another URL scheme, such as \code{ftp://}, is refused,
+whatever this setting (\cref{sec:network}). With network
 access forbidden, the first attempt to open a URL prints \code{WFDB-x:
 network access is disabled; set WFDBX\_NETWORK=1 or call wfdbx\_set\_network(1)
 to open URL}, and the file cannot be opened. Legacy mode reads no remote
@@ -2623,8 +2653,9 @@ write error (\cref{chap:behavior}).
 void wfdbx_note_write_error();
 \end{lstlisting}
 Adds one to the count of \code{wfdbx\_write\_errors}, for a program that
-writes a file itself and could not write it. (Rust and Kotlin also have
-\code{wfdbx\_fclose\_output(file, pname, name)}, which closes such a file,
+writes a file itself and could not write it. (Rust and Kotlin, and Julia
+without exporting it, also have \code{wfdbx\_fclose\_output(file, pname,
+name)}, which closes such a file,
 and reports \code{PNAME: write error on NAME} and counts it on failure.)
 
 \apientry{wfdbx\_input\_path}{Where a program reads a file itself}
@@ -2648,8 +2679,9 @@ directory \file{data}, \code{wfdbx\_input\_path("samples.txt")} returns
 \end{params}
 \returns{The path to open; \code{NULL} (\code{std::nullopt}, \code{None},
 \code{nothing}, ...) if \code{name} is \code{NULL} or a URL, or becomes a URL
-when the input directory is prefixed to it: such a file cannot be opened in
-this way.}
+when the input directory is prefixed to it (in normal mode, any name that
+begins with a URL scheme, such as \code{ftp://}): such a file cannot be
+opened in this way.}
 
 \apientry{wfdbx\_output\_path}{Where a program creates a file itself}
 \begin{lstlisting}[language=C++,style=signature]
@@ -2673,8 +2705,8 @@ For example, with the output directory \file{out},
   program treats it so) are returned as given.
 \end{params}
 \returns{The path to create; \code{NULL} (\code{std::nullopt}, \code{None},
-\code{nothing}, ...) if \code{name} is \code{NULL} or a URL (which cannot be
-written).}
+\code{nothing}, ...) if \code{name} is \code{NULL} or a URL (in normal mode,
+any name that begins with a URL scheme), which cannot be written.}
 
 \apientry{getframes}{Read many sample vectors at once}
 \begin{lstlisting}[language=C++,style=signature]

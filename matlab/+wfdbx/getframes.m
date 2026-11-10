@@ -1,4 +1,4 @@
-function [v, stat, last] = getframes(n, minstat)
+function [v, stat, last] = getframes(n, minstat, hl)
 %GETFRAMES Read up to N sample vectors at once (fast).
 %   [V, STAT] = wfdbx.getframes(N) is equivalent to calling wfdbx.getvec
 %   up to N times, stopping at the first negative status: V has one row
@@ -20,6 +20,15 @@ function [v, stat, last] = getframes(n, minstat)
 %   all N vectors were read, or if no input signals are open).  For a
 %   checksum error (STAT -4) it is the last frame of the record, read
 %   completely (WFDB-x; wfdbx.read_record returns it).
+%
+%   [V, STAT, LAST] = wfdbx.getframes(N, MINSTAT, true) is for the
+%   high-level readers (WFDB-x): if a sample could not be read (the flag
+%   read_failed of wfdbx.internal.sig_state(), which the caller clears
+%   before reading, is set), the reading stops, the frame is neither
+%   included in V nor returned in LAST, and STAT is -3 if getvec returned
+%   -4 or a status >= -1 (getvec returns -4 for a frame in which a signal
+%   file ended early, if the checksum of a signal is verified at that
+%   frame).
 %
 %   Whenever possible (signals in files of any format, including
 %   multi-frequency records in both getvec modes, FLAC files and the
@@ -60,8 +69,11 @@ function [v, stat, last] = getframes(n, minstat)
 % the Free Software Foundation, either version 2.1 of the License, or (at
 % your option) any later version. See LICENSE.
 
-if nargin < 2
+if nargin < 2 || isempty(minstat)
     minstat = 0;
+end
+if nargin < 3
+    hl = false;
 end
 S = wfdbx.internal.sig_state();
 nsig = max(S.nvsig, S.nisig);
@@ -100,6 +112,13 @@ while got < n
     end
     io.capture_row = got;       % (for the messages kept by wfdb_error)
     [stat, vec] = wfdbx.getvec(vec);
+    if hl && S.read_failed
+        % WFDB-x: an incomplete frame is never returned
+        if stat == -4 || stat >= -1
+            stat = -3;
+        end
+        break;
+    end
     if stat < minstat || stat < 0
         last = vec(1:nsig);
         break;

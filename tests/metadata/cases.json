@@ -41,6 +41,16 @@
    "op": "read"
   },
   {
+   "name": "read_leading",
+   "header": "leading",
+   "op": "read"
+  },
+  {
+   "name": "read_leadingblank",
+   "header": "leadingblank",
+   "op": "read"
+  },
+  {
    "name": "get_basic_case",
    "header": "basic",
    "op": "get",
@@ -81,6 +91,12 @@
    "header": "basic",
    "op": "get",
    "key": "a:b"
+  },
+  {
+   "name": "get_leading",
+   "header": "leading",
+   "op": "get",
+   "key": "age"
   },
   {
    "name": "set_basic_replace",
@@ -237,6 +253,27 @@
    "value": "x\u0000y"
   },
   {
+   "name": "set_leading_replace",
+   "header": "leading",
+   "op": "set",
+   "key": "Age",
+   "value": "50"
+  },
+  {
+   "name": "set_leading_add",
+   "header": "leading",
+   "op": "set",
+   "key": "Sex",
+   "value": "F"
+  },
+  {
+   "name": "set_leadingblank_add",
+   "header": "leadingblank",
+   "op": "set",
+   "key": "Age",
+   "value": "50"
+  },
+  {
    "name": "remove_basic",
    "header": "basic",
    "op": "remove",
@@ -271,6 +308,12 @@
    "header": "odd",
    "op": "remove",
    "key": "produced by xform from record 100, beginning at 0"
+  },
+  {
+   "name": "remove_leading",
+   "header": "leading",
+   "op": "remove",
+   "key": "AGE"
   },
   {
    "name": "update_basic",

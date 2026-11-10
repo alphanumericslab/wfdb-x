@@ -234,6 +234,19 @@ class RecordTest {
     }
 
     @Test
+    fun writeRecordTrailingHea() = withData("trailhea") { d, w ->
+        // a trailing ".hea" is removed, as by the readers (1.2.2)
+        val x = intArrayOf(1, 2, 3)
+        w.writeRecord("th.hea", x, 1, 250.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"))
+        assertTrue(fileExists(d.path("th.hea")) && fileExists(d.path("th.dat")))
+        assertFalse(fileExists(d.path("th.hea.dat")))
+        assertContentEquals(x, w.readRecord("th").samples)
+        fails("writeRecord: the record name must not be empty") {
+            w.writeRecord("", x, 1, 250.0, gains = doubleArrayOf(200.0), adcres = intArrayOf(16), units = listOf("mV"))
+        }
+    }
+
+    @Test
     fun writeRecordFrameChecks() = withData("spfchk") { d, w ->
         // Each signal has at least one sample per frame, checked before
         // anything else (in both modes); nothing is written otherwise.

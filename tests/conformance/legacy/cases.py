@@ -840,3 +840,25 @@ case("parsescp", "-w -o ex", cid="wrerr-parsescp-des", full=["ex.des"],
      stdin=_rd("example.scp"))
 case("rdsamp", "-r 100s", cid="wrerr-stdout-rdsamp", stdout_full=True)
 case("rdann", "-r 100s -a atr", cid="wrerr-stdout-rdann", stdout_full=True)
+
+# ---------------------------------------------------------------------------
+# Where the record line is (1.2.2): a header whose first line is empty or
+# blank, followed by a comment, the record line, a signal line and a comment.
+# readheader takes the record line to be the first line that has a token not
+# beginning with '#'; the original getinfo takes the first line that does not
+# begin with '#' (the empty line), and so returns the comment before the
+# record line as an info string.  WFDB-x's getinfo finds the record line as
+# readheader does (the Notes of wfdbdesc show "Age: 63" only), except in
+# legacy mode (both lines, as the original).
+_LEADING = {
+    "le": "\n# Age: 40\nle 1 250 10\nfmt16.dat 16 200 12 0 0 0 0 a\n"
+          "# Age: 63\n",
+    "lw": " \t\r\n# Age: 40\r\nlw 1 250 10\r\n"
+          "fmt16.dat 16 200 12 0 0 0 0 a\r\n# Age: 63\r\n",
+    "lc": "# first\n\n# Age: 40\n \t\n  # indented\nlc 1 250 10\n"
+          "fmt16.dat 16 200 12 0 0 0 0 a\n# Age: 63\n#last\n",
+}
+for _r, _cid in (("le", "edge-hdr-leading-empty-line"),
+                 ("lw", "edge-hdr-leading-blank-line-crlf"),
+                 ("lc", "edge-hdr-leading-comments-and-blanks")):
+    case("wfdbdesc", _r, cid=_cid, files={_r + ".hea": _LEADING[_r]})

@@ -53,8 +53,9 @@ A header is a text file of lines separated by line feeds; a carriage return
 may precede each line feed. Its fields are separated by spaces or tabs. The
 lines are of four kinds:
 \begin{itemize}
-\item the \emph{record line}, the first line that is neither empty nor a
-  comment;
+\item the \emph{record line}, the first line that holds something other
+  than spaces, tabs and carriage returns, and whose first such character is
+  not \code{\#} (\cref{sec:info-strings});
 \item one \emph{signal specification line} per signal, for an ordinary
   record, or one \emph{segment specification line} per segment, for a
   multi-segment record (\cref{sec:multisegment});
@@ -178,7 +179,23 @@ library function \code{getinfo} reads them: every line after the record line
 whose first character is \code{\#} is an info string, even one between two
 signal lines. A line that begins with a space before its \code{\#} is not
 an info string. The comment lines before the record line are not info
-strings. \code{getinfo} then returns the comment lines of the record's info
+strings, and a header without a record line has none.
+
+The record line is found as the header parser of the library
+(\code{readheader}) finds it: the first line whose first token (separated by
+spaces, tabs, carriage returns and line feeds) does not begin with
+\code{\#}. Empty and blank lines before it are therefore skipped, as are
+comment lines, even those that begin with spaces. The C function
+\code{getinfo} has another rule, the first line that does not begin with
+\code{\#}: for a header whose first line is empty or blank, it takes that
+line for the record line, and also returns the comments before the real
+record line as info strings. Since version 1.2.2, \wfdbx{}'s \code{getinfo}
+follows the header parser, except in legacy mode, which keeps the C rule;
+the \code{comments} of the high-level readers, the notes of \cmd{wfdbdesc}
+and the metadata functions (in every mode) follow the same rule
+(\cref{sec:record-line-divergence} gives an example).
+
+After the header, \code{getinfo} returns the comment lines of the record's info
 file, \emph{record}\file{.info}, if there is one. \code{putinfo} writes an
 info string, as \code{\#} followed by the string and a CR LF line ending,
 into the header being written, or into the info file opened by
@@ -433,8 +450,10 @@ labels a point of the record, such as a beat. It is the file
 \midrule
 \code{time} & The time of the annotation, in sample intervals from the
   beginning of the record (a 64-bit integer). \\
-\code{anntyp} & The \emph{annotation code}, from 1 to \code{ACMAX} (49),
-  such as \code{NORMAL} (1) or \code{PVC} (5). Each code has a
+\code{anntyp} & The \emph{annotation code}, such as \code{NORMAL} (1) or
+  \code{PVC} (5). The codes 1 to \code{ACMAX} (49) are defined; 59 to 63
+  are the control codes of the MIT format (below), not annotation codes.
+  Each code has a
   \emph{mnemonic}, such as \code{N} or \code{V}, and a description
   (\code{annstr}, \code{anndesc}); \cref{chap:formats} lists them. \\
 \code{subtyp} & The subtype, a signed 8-bit integer ($-128$ to 127). \\

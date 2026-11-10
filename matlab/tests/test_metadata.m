@@ -216,7 +216,7 @@ end
 
 function shared_cases(meta, base)
 C = read_cases(meta);
-assert_eq(numel(C), 49, 'number of shared cases');
+assert_eq(numel(C), 56, 'number of shared cases');
 for k = 1:numel(C)
     c = C(k);
     d = fresh(base);
@@ -481,6 +481,21 @@ wfdbx.set_metadata(rec, 'Age', '64');
 assert_eq(wfdbx.get_metadata(rec, 'Age'), '64', 'changed');
 assert_eq(mode_of([rec '.hea']), 416, 'permissions kept (0640)');
 assert_eq(listing(d), {'basic.hea'}, 'permissions: no other file');
+% a private header whose name has parentheses, spaces and characters that
+% a shell would interpret: it stays private (0600), and no shell command
+% runs on its name
+name = 'rec (copy) $x`y''z';
+putfile([name '.hea'], readfile([rec '.hea']));
+delete([rec '.hea']);
+[s, ~] = system(['chmod 600 ' q([name '.hea'])]);
+assert_eq(s, 0, 'chmod 600');
+assert_eq(mode_of([name '.hea']), 384, 'mode set (0600)');
+wfdbx.set_metadata(name, 'Age', '65');
+assert_eq(wfdbx.get_metadata(name, 'Age'), '65', 'changed (unusual name)');
+assert_eq(mode_of([name '.hea']), 384, 'permissions kept (0600, unusual name)');
+wfdbx.update_metadata(name, {'Sex', 'F'; 'Age', []});
+assert_eq(mode_of([name '.hea']), 384, 'permissions kept (update_metadata)');
+assert_eq(listing(d), {[name '.hea']}, 'unusual name: no other file');
 cd(base);
 rmdir(d, 's');
 end

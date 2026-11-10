@@ -12,8 +12,10 @@
 // original ran through the shell; the sort does not lose an out-of-order
 // annotation at time 0 (num 0, chan 0), nor those inserted after it; the sort
 // option of the high-level write_annotations decides, for its call, whether
-// the file is sorted; legacy mode (wfdbx_set_legacy) restores the original
-// behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
+// the file is sorted; a file that the high-level write_annotations writes to
+// a temporary file is renamed over its destination before the sortann
+// program sorts it (legacy mode); legacy mode (wfdbx_set_legacy) restores
+// the original behavior. Each change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md
 // gives the reasons.
 //
 // Original C code: lib/annot.c, WFDB Software Package 10.7.0.
@@ -1290,10 +1292,22 @@ void oannclose(WFDB_Annotator n)
                 // legacy mode does.
                 // (The program runs in the output directory, if one is set,
                 // where the file is.)
-                int status = wfdbx_get_legacy()
-                    ? run_sortann(oa->rname, oa->info.name,
-                                  wfdbx_get_output_dir())
-                    : sort_ann_file(oa->fname, oa->info.name);
+                int status;
+                if (wfdbx_get_legacy()) {
+                    // WFDB-x: a file that write_annotations is writing to a
+                    // temporary file (see wfdbx_staging_begin) is renamed
+                    // over its destination first, where the sortann program
+                    // finds it; after a write error, it is not (the
+                    // existing file is left as it was), and it is not
+                    // sorted.
+                    if (wfdbx_is_staged(oa->fname) &&
+                        (errflag || !wfdbx_staging_commit_one(oa->fname)))
+                        status = -1;
+                    else
+                        status = run_sortann(oa->rname, oa->info.name,
+                                             wfdbx_get_output_dir());
+                } else
+                    status = sort_ann_file(oa->fname, oa->info.name);
                 if (status == 0) {
                     wfdb_error("done!\n");
                     oa->out_of_order = 0;

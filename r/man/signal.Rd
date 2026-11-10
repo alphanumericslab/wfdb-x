@@ -288,6 +288,15 @@ wfdbflush()
     \item{\code{getinfo}}{the next info string (a character string), or
       \code{NULL} if there are no more.  \code{getinfo(record)} returns
       the first one of \code{record}, \code{getinfo(NULL)} the next one.
+      The info strings are the lines of the header that begin with
+      \samp{#} after the record line (without the \samp{#} and the line
+      ending), then those of the \file{.info} file.  WFDB-x: the record
+      line is found as the header parser finds it, the first line that has
+      a token (separated by spaces, tabs, CRs and LFs) that does not begin
+      with \samp{#}, and a header with no record line has no info strings;
+      the C function takes the first line that does not begin with
+      \samp{#}, so that an empty or blank line before the record line is
+      taken for it, as in legacy mode.
       \code{wfdb_freeinfo} discards the strings read, so that the next
       \code{getinfo(NULL)} starts again from the first info string of the
       open record.}
@@ -333,8 +342,10 @@ wfdbflush()
   and wfdbinit(), wfdbquit() and wfdbflush() (lib/wfdbinit.c, WFDB
   10.7.0): same arguments and results. Differences: no sampling
   frequency, gain or ADC resolution is assumed, the files named in a
-  header are read only from its directory, and an output signal file is
-  never one of the input files; see \file{docs/DIVERGENCES.md}.
+  header are read only from its directory, an output signal file is
+  never one of the input files, and \code{getinfo} finds the record line
+  as the header parser does (except in legacy mode); see
+  \file{docs/DIVERGENCES.md}.
 }
 \seealso{
   \code{\link{read_record}} and \code{\link{write_record}} for whole

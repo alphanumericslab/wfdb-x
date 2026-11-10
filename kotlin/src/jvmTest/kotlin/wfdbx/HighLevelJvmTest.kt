@@ -254,7 +254,8 @@ class HighLevelJvmTest {
                 assertEquals(listOf("/100s.hea", "/100s.dat", "/100s.info", "/100s.inf", "/100s.atr"), srv.log.toList())
                 // the input directory as a URL; files named in a header are read from its directory
                 assertEquals(1, w.readRecord("100s", to = TimeSpec(1), inputDir = srv.url).nsamples)
-                assertEquals(5, srv.log.size) // (cached)
+                // the files read are kept; the .info files, which could not be read, are requested again
+                assertEquals(listOf("/100s.info", "/100s.inf"), srv.log.drop(5))
                 assertEquals(listOf(-7, 32), w.readRecord("rec", to = TimeSpec(2), inputDir = srv.url + "sub").samples.toList())
                 assertTrue("/sub/data/a.dat" in srv.log)
                 assertFailsWith<WfdbException> { w.readRecord("bad", inputDir = srv.url + "sub") }

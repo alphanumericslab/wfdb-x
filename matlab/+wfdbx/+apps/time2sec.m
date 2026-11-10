@@ -10,6 +10,10 @@ function status = time2sec(args)
 %   into seconds; a time of day in square brackets (e.g., [9:0:0]) is
 %   converted to the elapsed time from the beginning of RECORD.
 %
+%   WFDB-x: with -r, the record must specify its sampling frequency (the
+%   C program assumed 250 Hz, as legacy mode does); otherwise the status
+%   is 2.
+%
 %   Example:
 %       wfdbx.apps.time2sec({'1:30'})
 %
@@ -26,8 +30,12 @@ function status = time2sec(args)
 % behavior of the original program, but it is new code, not the original C
 % code.
 %
-% Changes from the original: none, apart from the language and the --legacy
-% option (as the first argument, it restores the original behavior).
+% Changes from the original: with -r, a record whose header cannot be read,
+% or gives no sampling frequency, is an error (exit status 2; "time2sec:
+% sampling frequency of record REC is not specified"), since WFDB-x assumes
+% no sampling frequency: the original used the default of 250 Hz (WFDB-x,
+% 1.2.2; see docs/DIVERGENCES.md). The --legacy option (as the first
+% argument) restores the original behavior.
 %
 % Original C program: app/time2sec.c, WFDB Software Package 10.7.0.
 %   Copyright (C) 2003-2009 George B. Moody.
@@ -48,13 +56,28 @@ function status = main(argv)
 argc = numel(argv);
 status = 0;
 if argc == 4 && strcmp(argv{2}, '-r')
-    wfdbx.isigopen(argv{3}, 0);
+    % WFDB-x: in normal mode, no sampling frequency is assumed: a record
+    % whose header cannot be read, or gives none, is an error (the
+    % original used the default of 250 Hz; a frequency of 0 gave a
+    % meaningless result with the exit status 0)
+    legacy = wfdbx.wfdbx_get_legacy();
+    if wfdbx.isigopen(argv{3}, 0) < 0 && ~legacy
+        status = 2;
+        return;
+    end
+    if wfdbx.sampfreq([]) <= 0 && ~legacy
+        wfdbx.internal.ceprintf('%s: sampling frequency of record %s is not specified\n', ...
+            argv{1}, argv{3});
+        status = 2;
+        return;
+    end
     t = wfdbx.strtim(argv{4});
     if t < 0
         t = -t;
     end
     sf = wfdbx.sampfreq([]);
-    % (as in C: with no sampling frequency, t / sf is infinite or NaN)
+    % (legacy mode, as in C: with no sampling frequency, t / sf is
+    % infinite or NaN)
     seconds = wfdbx.internal.d2l(t / sf);
     t = t - seconds * sf;
     milliseconds = wfdbx.internal.cint32(wfdbx.internal.d2l((t * 1000) / sf + 0.5));

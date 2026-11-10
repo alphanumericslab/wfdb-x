@@ -6,7 +6,11 @@ function [stat, vector] = getskewedframe(S, vector)
 %   signals, -1 at the end of the record, -3 for a read error, -4 for a
 %   checksum error.  Segments of multi-segment records are switched as
 %   needed, and variable-layout segments are mapped with sigmap.  S is
-%   the signal state (wfdbx.internal.sig_state()).
+%   the signal state (wfdbx.internal.sig_state()).  WFDB-x: when a sample
+%   cannot be read (status -3: an unexpected end of a signal file, a
+%   decoder or I/O error, a segment that cannot be opened), S.read_failed
+%   is set to true, whatever status is then returned (a checksum error,
+%   -4, found in the same frame replaces -3).
 %
 %   Translation of the C function getskewedframe() (lib/signal.c, WFDB
 %   10.7.0).
@@ -20,7 +24,9 @@ function [stat, vector] = getskewedframe(S, vector)
 % code.
 %
 % Changes from the original: a checksum error is not printed during a
-% high-level read (which warns instead), but recorded for wfdberror. Each
+% high-level read (which warns instead), but recorded for wfdberror; a
+% sample that cannot be read sets the flag read_failed of the signal
+% state, which the high-level readers check. Each
 % change is marked "WFDB-x:" in the code; docs/DIVERGENCES.md gives the
 % reasons.
 %
@@ -148,9 +154,11 @@ for s = 1:nisig
         if igstat <= 0
             if igstat == -2
                 stat = -3;
+                S.read_failed = true;   % WFDB-x (see SigState)
             elseif info.nsamp > 0
                 wfdbx.internal.wfdb_error('getvec: unexpected EOF in signal %d\n', s - 1);
                 stat = -3;
+                S.read_failed = true;
             elseif in_msrec && ~isempty(S.segarray) && S.segp < S.segend
                 if need_sigmap
                     S.ovec = vec;
@@ -162,6 +170,7 @@ for s = 1:nisig
                     wfdbx.internal.wfdb_error('getvec: error opening segment %s\n', ...
                         S.segarray(S.segp + 1).recname);
                     stat = -3;
+                    S.read_failed = true;
                     return;
                 else
                     S.istime = S.segarray(S.segp + 1).samp0;

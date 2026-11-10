@@ -410,6 +410,11 @@ function _check_data(w::Wfdb, name::Vector{UInt8}, si::Vector{Siginfo}, prefix::
     # whose samples the library reads ahead)
     checked = ns > 0 && st.isedf == 0 && all(s -> wfdbgetskew(w, s) == 0, 0:n-1)
     st.cksum_quiet = true
+    # WFDB-x: a sample that cannot be read ends the reading with status -3,
+    # even in the frame at which a checksum is verified (whose status, -4,
+    # replaces -3 in getvec); that incomplete frame is not counted, nor are
+    # its samples checked (see _getvecs_into).
+    st.read_failed = false
     try
         while true
             want = Int64(rows)
@@ -440,6 +445,7 @@ function _check_data(w::Wfdb, name::Vector{UInt8}, si::Vector{Siginfo}, prefix::
         end
     finally
         st.cksum_quiet = false
+        st.read_failed = false
     end
     # (with skewed signals, getvec returns the frames of the files less the
     # largest skew)

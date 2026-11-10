@@ -11,7 +11,7 @@
 \chapterlanguage{kotlin}
 
 The Kotlin implementation of WFDB-x is the Kotlin Multiplatform library \code{wfdbx}, with
-the Gradle coordinates \code{io.github.alphanumericslab:wfdbx:1.2.1}, in the directory
+the Gradle coordinates \code{io.github.alphanumericslab:wfdbx:1.2.2}, in the directory
 \file{kotlin} of the repository. It is written in common Kotlin code, which runs on every
 JVM, on Android and on iOS, with the Kotlin standard library as its only dependency, and
 never calls the C library. It is meant for mobile applications and JVM programs that read
@@ -78,7 +78,7 @@ to its dependencies:
 
 \begin{lstlisting}[language=Kotlin]
 dependencies {
-    implementation("io.github.alphanumericslab:wfdbx:1.2.1")
+    implementation("io.github.alphanumericslab:wfdbx:1.2.2")
 }
 \end{lstlisting}
 
@@ -102,9 +102,20 @@ directory \file{kotlin} by:
 
 \begin{lstlisting}[style=shell]
 ./gradlew fatJar
-bin/wfdbx --version                # WFDB-x 1.2.1
+bin/wfdbx --version                # WFDB-x 1.2.2
 bin/wfdbx --list                   # the tools
 \end{lstlisting}
+
+\subsection{Licenses}
+
+The library is distributed under the GNU Lesser General Public License, version 2.1 or
+later, and the command-line tools (\code{wfdbx.apps}, \code{wfdbx.cli}) under the GNU
+General Public License, version 3 or later; the FLAC decoder, translated from libFLAC,
+also carries libFLAC's BSD-3-Clause notice. Every jar of the build (the library jars, the
+sources jars and \file{wfdbx-all.jar}) holds the files \file{LICENSE},
+\file{LICENSE-GPL} and \file{NOTICE} of the repository in \file{META-INF}
+(\file{NOTICE} gives the licenses and the notice of libFLAC), and the POM of the
+published artifacts lists the three licenses.
 
 \subsection{The sample record}
 \label{sec:kotlin-resources}
@@ -123,8 +134,9 @@ output directories are set to a directory of the app, such as
 \code{context.filesDir.path} on Android (\cref{sec:kotlin-settings}). Reading URLs on
 Android needs the \code{INTERNET} permission; files are downloaded with
 \code{java.net.HttpURLConnection} on the JVM and Android, and with \code{NSURLSession} on
-iOS. Legacy-mode sorting of annotation files runs the \code{sortann} program, which an
-iOS app cannot do (the sort of normal mode, done in the library, works everywhere).
+iOS. Legacy-mode sorting of annotation files runs the \code{sortann} program in a new JVM
+(\code{java -cp \ldots}), which an Android or iOS app cannot do (the sort of normal mode,
+done in the library, works everywhere).
 
 % ==========================================================================================
 \section{Quick start}
@@ -195,8 +207,8 @@ also a top-level function with the same name and the same parameters, such as
 \code{wfdbDefault()} (one per thread; \code{withDefault \{ w -> ... \}} runs a block with
 it). The entries of this section give the declarations of the extension functions; the
 top-level functions have the same parameters, defaults and results. Separate \code{Wfdb}
-objects share no state (except the process-wide list of open output files and the cache
-of fetched URLs), so several records can be read at once, in one thread or in several; a
+objects share no state (except the process-wide list of open output files, the count of
+write errors and the cache of fetched URLs), so several records can be read at once, in one thread or in several; a
 \code{Wfdb} object is used by one thread at a time.
 
 \begin{lstlisting}[language=Kotlin]
@@ -212,9 +224,9 @@ default means ``not given'' (for \code{inputDir} and \code{network}: the current
 setting).
 
 \paragraph{Record names and directories.} A record is named as in the other parts of
-WFDB-x (\cref{chap:records,chap:files}), without the \file{.hea} extension (the readers,
-and \code{writeAnnotations}, also accept a trailing \code{.hea}; \code{writeRecord} does
-not). A record name is a full path, absolute (\code{"/data/mitdb/100"}) or in the home
+WFDB-x (\cref{chap:records,chap:files}), without the \file{.hea} extension (the readers
+and the writers, \code{writeRecord} and \code{writeAnnotations}, also accept a trailing
+\code{.hea}, which is removed). A record name is a full path, absolute (\code{"/data/mitdb/100"}) or in the home
 directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
 (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
 otherwise from the current directory, and written to the output directory if one is set,
@@ -224,15 +236,14 @@ on, which cannot be written. A writer given a name with a path creates the files
 directory, and the header names the record and its signal file without the path
 (\code{rec}, \code{rec.dat}), so that the record opens under any path that leads to it;
 in legacy mode, as in the original, the header gives the name with its path. The input
-and output directories are the current directory unless they are set, with \code{wfdbxSetInputDir} and \code{wfdbxSetOutputDir}
+and output directories are set with \code{wfdbxSetInputDir} and \code{wfdbxSetOutputDir}
 (\cref{sec:kotlin-settings}) or with the environment variables \code{WFDBX\_INPUT\_DIR}
-and \code{WFDBX\_OUTPUT\_DIR}. URLs are read only when network access is on. The
-functions that read take the parameters \code{inputDir} and \code{network}, and those
+and \code{WFDBX\_OUTPUT\_DIR}. The functions that read take the parameters \code{inputDir} and \code{network}, and those
 that write take \code{dir}: they apply to that one call, and the previous settings are
 restored when it returns, also after an error. \code{inputDir} is optional, and applies
 to relative names only, not to full paths or URLs; with \code{dir}, the record name must
-be a plain name (\code{"rec"}), and the record opens from that directory under it. The signal files that a header names are
-read from the header's directory. Record, annotator and directory names are converted to
+be a plain name (\code{"rec"}), and the record opens from that directory under it. The
+signal files that a header names are read from the header's directory. Record, annotator and directory names are converted to
 bytes with the platform's file name encoding.
 
 \paragraph{Times.} The parameters \code{from} and \code{to} are \code{TimeSpec} values: a
@@ -363,6 +374,8 @@ restored.
 \item[legacy] \code{true} to behave as the original WFDB package (legacy mode, for this
   call only). Default \code{false}.
 \end{params}
+At most $2^{26}$ values are allocated in advance, whatever length the header gives; the
+array grows as the frames are read.
 \returns{A \code{Record} (\cref{tab:kotlin-record}).}
 \raises{\code{WfdbException} if the header or a signal file cannot be read (``can't read
 record REC''), if a channel is not in the record (``record REC has no signal C''), if
@@ -370,9 +383,12 @@ record REC''), if a channel is not in the record (``record REC has no signal C''
 time string needs the sampling frequency and the header gives none (``sampling frequency
 of record REC is not specified''), if \code{physical} is \code{true} and a signal read has
 no gain (``signal N of record REC is uncalibrated''), if \code{from} is beyond the end of
-the record (``can't seek to sample N of record REC''), or if a signal file is shorter than
-its header says (``can't read signal data of record REC (getvec status -3)''). Warns on a
-checksum error (see \code{checksumWarning} and \code{onWarning}).}
+the record (``can't seek to sample N of record REC''), if a signal file is shorter than
+its header says or cannot be read (``can't read signal data of record REC (getvec status
+-3)''), even if a checksum error is found in the same frame: an incomplete frame is never
+returned, or if the samples do not fit in one array (``record REC is too long to be read
+at once''). Warns on a checksum error alone (see \code{checksumWarning} and
+\code{onWarning}).}
 \begin{lstlisting}[language=Kotlin,style=example]
 import wfdbx.*
 
@@ -502,11 +518,14 @@ without a header or whose header gives none, the argument \code{fs}.
 \returns{An \code{Annotations} object (\cref{tab:kotlin-annotations}). Its \code{fs} is
 the frequency in which the times are counted: the one written in the annotation file, if
 there is one, or else the sampling frequency; it is 0 if none of them is known.}
-\raises{\code{WfdbException} if \code{fs} is given and is not $> 0$ (``readAnnotations:
-fs must be > 0''), if the annotation file cannot be opened (``can't read annotator ANN for
+\raises{\code{WfdbArgumentException}, before any file is opened, if \code{from} is a
+negative sample number (``readAnnotations: from must not be negative''), or if \code{fs}
+is given and is not $> 0$ (``readAnnotations: fs must be > 0''); \code{WfdbException} if
+the annotation file cannot be opened (``can't read annotator ANN for
 record REC''), if a time string needs the sampling frequency and none is known, or if the
 file ends before its end-of-file marker (``can't read annotation file ANN of record REC
-(getann status -3)'').}
+(getann status -3)''). Whatever happens, the annotation file is closed
+(\code{wfdbquit}) before the function returns.}
 \begin{lstlisting}[language=Kotlin,style=example]
 import wfdbx.*
 
@@ -578,7 +597,12 @@ fun Wfdb.writeRecord(
 \end{lstlisting}
 Writes samples as a new record: the header \file{RECORD.hea} and one signal file,
 \file{RECORD.dat}, which holds all the signals. Existing files of these names are
-overwritten. The first overload takes the samples in ADC units (an \code{IntArray}), the
+replaced: both files are written to temporary files in the destination directory
+(\file{.NAME.XXXXXXXX.tmp}, readable and writable by their owner only), which replace the
+existing files, keeping their permissions, only when both are complete, so that an error
+leaves the existing files as they were and no temporary file. A symbolic link is kept
+(the file it leads to is replaced), and a destination that is not a regular file (a
+device, a FIFO) is written directly. The first overload takes the samples in ADC units (an \code{IntArray}), the
 second in physical units (a \code{DoubleArray}), converted to ADC units as
 $\mathrm{round}(x \cdot \mathit{gain}) + \mathit{baseline}$, with halves rounded away from
 zero; NaN becomes an invalid sample, and an infinite value, or one whose ADC value is
@@ -586,10 +610,13 @@ beyond the range of 32-bit integers, is an error. The sampling frequency, the ga
 ADC resolution of each signal, and the units of each calibrated signal must be given:
 there are no defaults. The per-signal arguments (\code{gains}, \code{baselines},
 \code{adczeros}, \code{adcres}, \code{units}, \code{names}, \code{sampsPerFrame}) take one
-value for all the signals, or one value per signal. All the arguments are checked before
-any file is created, and the output signals are closed whatever happens.
+value for all the signals, or one value per signal. The record name, the signal names, the
+units and the comments are text of one byte per character (ISO-8859-1). All the arguments
+are checked before any file is created or changed, and the output signals are closed
+whatever happens.
 \begin{params}
-\item[record] Record name (not empty), without the \file{.hea} extension: a plain name
+\item[record] Record name (not empty), without the \file{.hea} extension (a trailing
+  \code{".hea"} is removed, as by the readers): a plain name
   (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output directory
   if one is set, otherwise in the current directory, missing directories included; or a
   full path, absolute or in the home directory (\code{"\textasciitilde/Documents/rec"}),
@@ -639,24 +666,28 @@ any file is created, and the output signals are closed whatever happens.
   value is not allowed. Default \code{null}: none.
 \end{params}
 \returns{Nothing (\code{Unit}).}
-\raises{\code{WfdbException}, before any file is created: ``writeRecord: sampsPerFrame
-must hold integers >= 1'' (checked first, also in legacy mode), ``writeRecord: the record
-name must not be empty'', ``writeRecord: at least one signal is required'',
-``writeRecord: NAME must have one value per signal'', ``writeRecord: the sampling
-frequency must be > 0'' (not checked in legacy mode), ``writeRecord: the sampling
-frequency must be finite'', ``writeRecord: gains must be specified'', ``writeRecord:
-gains must be finite'', ``writeRecord: ADC resolution(s) must be specified'',
-``writeRecord: units must be specified'', ``writeRecord: incorrect base time 'TIME'{}'',
-``writeRecord: the number of samples is not a multiple of the frame size'',
+\raises{\code{WfdbArgumentException}, before any file is created or changed, in this
+order: ``writeRecord: sampsPerFrame must hold integers >= 1'' (checked first, also in
+legacy mode), ``writeRecord: the record name must not be empty'', ``writeRecord: record
+name 'X' has a character that is not Latin-1 (one byte per character)'', ``writeRecord:
+at least one signal is required'', ``writeRecord: NAME must have one value per signal'';
+in normal mode ``writeRecord: gains must be specified'', ``writeRecord: ADC
+resolution(s) must be specified'' (missing, or $< 1$), ``writeRecord: units must be
+specified''; ``writeRecord: the sampling frequency must be > 0'' (not checked in legacy
+mode), ``writeRecord: the sampling frequency must be finite'', ``writeRecord: gains must
+be finite'', ``writeRecord: signal name 'X' has a character that is not Latin-1 (one
+byte per character)'', ``writeRecord: units 'X' has a character \ldots'',
 ``writeRecord: signal N is uncalibrated'' and ``writeRecord: sample I is infinite or
-beyond the range of 32-bit ADC units'' (physical units), ``record name must not contain a
-directory when dir is given'', ``directory DIR does not exist''; a
-\code{WfdbArgumentException} if an entry of \code{metadata} is not valid (``writeRecord:
+beyond the range of 32-bit ADC units'' (physical units), ``writeRecord: the number of
+samples is not a multiple of the frame size'', ``writeRecord: comment 'X' has a
+character \ldots'', an entry of \code{metadata} that is not valid (``writeRecord:
 metadata key 'a:b' must not contain ':'{}'', ``writeRecord: value of metadata key 'Age'
 must not be null'', ``writeRecord: metadata key 'Age' is also given in comments'',
-\ldots). \code{WfdbException} if the signal file or the header cannot be created
-(``can't create signal file for record REC'', ``can't create header for record REC''),
-or cannot be written completely, for example on a full disk (``write error on record
+\ldots), ``writeRecord: incorrect base time 'TIME'{}''. \code{WfdbException}: ``record
+name must not contain a directory when dir is given'', ``directory DIR does not exist'';
+if the signal file or the header cannot be created (``can't create signal file for record
+REC'', ``can't create header for record REC''), or cannot be written completely, for
+example on a full disk, or cannot replace the existing file (``write error on record
 REC'').}
 \begin{lstlisting}[language=Kotlin,style=example]
 import wfdbx.*
@@ -723,13 +754,16 @@ fun Wfdb.writeAnnotations(
 )
 \end{lstlisting}
 Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
-that name is overwritten. The record need not have a header. The annotation types are
+that name is replaced: the new file is written to a temporary file in the same directory
+(readable and writable by its owner only), which replaces it, keeping its permissions,
+only when it is complete (and, if needed, sorted), so that an error leaves it as it
+was. The record need not have a header. The annotation types are
 given as \code{symbols} or as \code{codes} (\cref{chap:formats}). If the annotations are
 not in time order, the file is sorted when it is written, unless \code{sort = false}. The
 second overload writes the annotations of an \code{Annotations} object, as
 \code{readAnnotations} returns them: its samples, codes, subtypes, channels, annotator
 numbers and aux strings (its record, annotator and \code{fs} are not used). All the
-arguments are checked before the file is created.
+arguments are checked before the file is created or changed.
 \begin{params}
 \item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
   also accepted): a plain name or a relative path (\code{"data/100s"}) is created in the
@@ -739,12 +773,15 @@ arguments are checked before the file is created.
   cannot be written.
 \item[annotator] Annotator name: the suffix of the file, made of letters, digits,
   \code{\_}, \code{-} and \code{\textasciitilde}.
-\item[samples] The annotation times, in samples, one per annotation.
+\item[samples] The annotation times, in samples, one per annotation: from $-2^{63} + 1$ to
+  $2^{63} - 2$ (the smallest and largest 64-bit integers are reserved by the file
+  format).
 \item[symbols] The mnemonics of the annotation types, such as \code{"N"} or \code{"V"},
   one per annotation. An unknown mnemonic becomes code 0 (\code{NOTQRS}). Default
   \code{null}: the types are given by \code{codes}.
-\item[codes] The annotation codes (\code{NORMAL}, \code{PVC}, \ldots), one per annotation,
-  instead of \code{symbols}. If both are given (as \code{readAnnotations} returns them),
+\item[codes] The annotation codes (\code{NORMAL}, \code{PVC}, \ldots), from 0 to 58 (59 to
+  63 are the control codes of the file format), one per annotation, instead of
+  \code{symbols}. If both are given (as \code{readAnnotations} returns them),
   each symbol must be that of its code (an empty symbol is not checked). Default
   \code{null}.
 \item[subtypes] The subtype of each annotation, stored as a signed byte (other values wrap
@@ -753,8 +790,8 @@ arguments are checked before the file is created.
   values wrap around to $0 \ldots 255$). Default \code{null}: 0.
 \item[nums] The annotator number of each annotation, stored as a signed byte. Default
   \code{null}: 0.
-\item[aux] The auxiliary text of each annotation, with \code{null} where there is none.
-  Texts longer than 255 bytes are cut. Default \code{null}: none.
+\item[aux] The auxiliary text of each annotation (ISO-8859-1 text), with \code{null}
+  where there is none. Texts longer than 255 bytes are cut. Default \code{null}: none.
 \item[fs] If given (a finite number $> 0$), the frequency in which the times are counted,
   written to the file. Default \code{null}: none is written.
 \item[sort] \code{true} to always sort the file, \code{false} to keep the given order
@@ -769,15 +806,23 @@ arguments are checked before the file is created.
   \code{readAnnotations} returns it.
 \end{params}
 \returns{Nothing (\code{Unit}).}
-\raises{\code{WfdbException}, before the file is created, if neither \code{symbols} nor
-\code{codes} is given (``symbols or codes must be given''), if both are given and
-disagree (``writeAnnotations: symbols and codes disagree at annotation K'', K counting
-from 0), if an array does not have one value per annotation (``writeAnnotations: NAME
-must have one value per annotation''), if \code{fs} is not finite and $> 0$
-(``writeAnnotations: fs must be finite and > 0''), or as for the \code{dir} of
-\code{writeRecord}; if the file cannot be created (``can't create annotator ANN for record
-REC''), or cannot be written completely (``write error on annotator ANN for record
-REC'').}
+\raises{\code{WfdbArgumentException}, before the file is created or changed, in this
+order: if an array does not have one value per annotation (``writeAnnotations: NAME must
+have one value per annotation''), if \code{fs} is not finite and $> 0$
+(``writeAnnotations: fs must be finite and > 0''), if a time is $-2^{63}$ or $2^{63} - 1$
+(``writeAnnotations: annotation time T cannot be written (annotation times must be
+integers from -9223372036854775807 to 9223372036854775806)''), if neither \code{symbols}
+nor \code{codes} is given for one annotation or more (``symbols or codes must be given'';
+with no annotations, an empty file is written), if a code is not from 0 to
+58 (``writeAnnotations: annotation code C is reserved (59 to 63 are the control codes of
+the annotation file format)'', or ``writeAnnotations: annotation code C is out of range (0
+to 58)''), if both are given and disagree (``writeAnnotations: symbols and codes disagree
+at annotation K'', K counting from 0), if an aux text has a character beyond U+00FF
+(``writeAnnotations: aux text 'X' has a character that is not Latin-1 (one byte per
+character)''); \code{WfdbException} as for the \code{dir} of \code{writeRecord}, if the
+file cannot be created (``can't create annotator ANN for record REC''), or cannot be
+written completely, or the library reports an error while writing it (``write error on
+annotator ANN for record REC'').}
 \begin{lstlisting}[language=Kotlin,style=example]
 import wfdbx.*
 
@@ -883,9 +928,14 @@ compared without regard to letter case (A--Z and a--z only); a key must not be e
 must not contain \code{:}, \code{\#}, a line break or a NUL character, and a value must
 not contain a line break or a NUL character; spaces, tabs, VT, FF and CR at either end of
 keys and values are removed; text is one character per byte (ISO-8859-1), and a character
-beyond U+00FF is an argument error. A change rewrites the header in one step: the new
-header is written to a temporary file in the header's directory, which then replaces the
-header, keeping its permission bits where the platform has them; every other byte of the
+beyond U+00FF is an argument error. The info strings are the comment lines after the
+record line, which is found as the header parser finds it, in every mode: the first line
+that holds something other than spaces, tabs, CRs and LFs and does not begin (after them)
+with \code{\#}; comments and blank lines before it are never read or changed. A change
+rewrites the header in one step: the new header is written to a temporary file in the
+header's directory, readable and writable by its owner only until it is complete (a
+header may hold patient data), which then replaces the header, keeping its permission
+bits where the platform has them; every other byte of the
 header is kept, and all the arguments are checked first, so an error leaves the header
 unchanged. If nothing changes (and \code{dir} is not given), nothing is written. Only the
 \file{.hea} file is read (not a \file{.info} file); for a multi-segment record, it is the
@@ -1328,7 +1378,11 @@ content in \code{equals}. A \code{BaseDate} has the properties \code{year}, \cod
   if the header gives none \\
 \code{sampfrom} & the number of the first sample returned (\code{Long}) \\
 \code{comments} & the info strings of the header (without the \code{\#}), and of the
-  record's \file{.info} file, if any \\
+  record's \file{.info} file, if any: the lines that begin with \code{\#} after the
+  record line, found as the header parser finds it (the first line that holds something
+  other than spaces, tabs, CRs and LFs and does not begin, after them, with \code{\#}; in
+  legacy mode, as C's \code{getinfo}, the first line that does not begin with
+  \code{\#}) \\
 \code{checksumOk} & \code{false} if the samples do not match the checksums of the
   header; checksums are checked only when a read reaches the end of the record, so a
   shorter read gives \code{true} \\
@@ -1369,7 +1423,8 @@ content in \code{equals}. A \code{BaseDate} has the properties \code{year}, \cod
   either end, and \code{adcres} is 0 if the header does not give it \\
 \code{baseTime}, \code{baseTimeMs}, \code{baseDate} & the start time and date, as in
   \code{Record} \\
-\code{comments} & the info strings of the header (without the \code{\#}) \\
+\code{comments} & the info strings of the header (without the \code{\#}), found after
+  the record line as in \code{Record} \\
 \code{metadata} & the (key, value) pairs of the metadata entries of the header
   (\code{List<Pair<String, String>{}>}), in file order, as \code{readMetadata} returns
   them; empty for an EDF file or a header read from the standard input \\
@@ -1510,13 +1565,17 @@ these messages off (\cref{sec:kotlin-library}).
 \endfoot
 \code{WfdbException} & every error of a high-level function: a header, signal file or
   annotation file cannot be found, read, created or written completely (for example on a
-  full disk); a signal or annotation file ends before its header or its end-of-file marker
-  says; an argument is invalid, or the operation needs a value that the record does not
+  full disk; the writers then leave the existing files as they were); a signal or
+  annotation file ends before its header or its end-of-file marker says (``can't read
+  signal data of record REC (getvec status -3)'', even if a checksum error is found in
+  the same frame); an argument is invalid, or the operation needs a value that the record does not
   give (a time in seconds without a sampling frequency, physical units without a gain);
   the directory given as \code{dir} does not exist \\
-\code{WfdbArgumentException} & a subclass of \code{WfdbException}, thrown by the metadata
-  functions (and for the \code{metadata} argument of \code{writeRecord}) for an invalid
-  argument: an invalid key or value, a key given twice, a header with two entries for the
+\code{WfdbArgumentException} & a subclass of \code{WfdbException}, thrown for an
+  invalid argument by \code{writeRecord} and \code{writeAnnotations} (before any file is
+  touched: text that is not Latin-1, a reserved annotation code or time, \ldots), by the
+  checks of \code{readAnnotations}, and by the metadata functions (and for the
+  \code{metadata} argument of \code{writeRecord}): an invalid key or value, a key given twice, a header with two entries for the
   key to set, a header without a record line, a header read from a URL without
   \code{dir}, an empty record name or \code{"-"} (Python's \code{ValueError}); a header
   that cannot be read or written, or a \code{dir} that does not exist, is a plain
@@ -1613,7 +1672,8 @@ settings) is held by a \code{Wfdb} object. Each C function is an extension funct
 nsig)}, called as \code{w.isigopen(...)}, and also a top-level function with the same name
 and arguments, \code{isigopen(...)}, which uses the default instance of the calling thread
 (\code{wfdbDefault()}), for line-by-line ports of C programs. Separate \code{Wfdb} objects
-share no state, so several records can be open at once, in one thread or in several; a
+share no state (except the process-wide structures of \cref{sec:kotlin-conventions}), so
+several records can be open at once, in one thread or in several; a
 \code{Wfdb} object is used by one thread at a time (it may be handed from one thread to
 another). As in C, the open record, its input signals, the output signals and the
 annotators remain open between calls, until \code{wfdbquit()} closes them;
@@ -1882,7 +1942,7 @@ The command also takes these options, instead of a tool:
 \cmd{bin/wfdbx TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with its
   status \\
 \cmd{bin/wfdbx --list} & lists the names of the tools, one per line \\
-\cmd{bin/wfdbx --version} & prints the version, \code{WFDB-x 1.2.1} \\
+\cmd{bin/wfdbx --version} & prints the version, \code{WFDB-x 1.2.2} \\
 \cmd{bin/wfdbx --help}, \cmd{bin/wfdbx -h} & prints the usage \\
 \bottomrule
 \end{tabularx}
@@ -1891,8 +1951,9 @@ The command also takes these options, instead of a tool:
 Without arguments, the command prints the usage and exits with status 1; an unknown tool
 is an error (``wfdbx: unknown tool 'TOOL' (try 'wfdbx --list')'', status 1), and an
 uncaught exception is reported as \code{wfdbx: error: MESSAGE} (status 1). When an output
-file or the standard output cannot be written (a full disk, for example), a tool reports
-it and exits with status 1 (legacy mode keeps the original status, 0).
+file cannot be written completely (a full disk, for example), or the standard output
+cannot be written (``TOOL: write error on standard output''), a tool exits with status 1;
+in legacy mode, it keeps the original status, as in C.
 
 The files that a tool reads or creates itself are found where the library finds its own
 files: the \opt{-i} file of \code{wrsamp}, \code{edf2mit}, \code{wav2mit}, \code{a2m} and
@@ -1951,7 +2012,8 @@ and the processes it starts see.
 \code{WFDBGVMODE} & the default getvec mode (\code{setgvmode} with a negative mode) \\
 \code{WFDBCAL} & the calibration file read by \code{calopen(null)} (default
   \file{wfdbcal}) \\
-\code{WFDB} & the WFDB path, used in legacy mode only \\
+\code{WFDB} & the WFDB path, used in legacy mode only (outside legacy mode, it is
+  ignored, with a message) \\
 \code{WFDB\_FLAC\_CHECK\_MD5} & if set, the MD5 signature of FLAC signal files is
   verified when they are read \\
 \code{WFDBX\_KOTLIN\_JAR} & the jar that \file{bin/wfdbx} runs (default
@@ -1984,7 +2046,7 @@ HTTP server (127.0.0.1). The tests copy \file{tests/data} to a scratch directory
 never change the current directory.
 
 The cross-language conformance suite compares the output of the tools with that of the
-original C programs, case by case: 1135 cases, and 883 in legacy mode, which runs each
+original C programs, case by case: 1155 cases, and 886 in legacy mode, which runs each
 tool with \opt{--legacy}. It runs the launcher \file{kotlin/bin/wfdbx}, so the jar is
 built first. From the root of the repository:
 

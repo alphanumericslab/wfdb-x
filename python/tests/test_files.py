@@ -440,7 +440,8 @@ def test_header_relative_files(settings):
 
 @pytest.mark.parametrize("name", [
     "../100s.dat", "/100s.dat", "~/100s.dat", "~", "http://127.0.0.1:1/a.dat",
-    "https://127.0.0.1:1/a.dat", "data/../../100s.dat", "..", "a/../b.dat"])
+    "https://127.0.0.1:1/a.dat", "ftp://h/a.dat", "data/../../100s.dat", "..",
+    "a/../b.dat"])
 def test_header_containment(settings, name):
     putfile("sub/bad.hea", "bad 2 360 10\n%s 16\nok.dat 16\n" % name)
     shutil.copyfile("fmt16.dat", "sub/ok.dat")
@@ -508,6 +509,41 @@ def test_network_off(server):
     assert server.log == []
 
 
+@pytest.mark.skipif(os.name == "nt", reason="':' cannot be in a file name")
+def test_other_schemes(settings):
+    # a name with a URL scheme other than http:// and https:// is refused
+    # (with a message, once), with or without network access, and is never
+    # opened as a local name: ftp:/h/sr.hea (the local path that the name
+    # ftp://h/sr would designate) is not read
+    make_sr("ftp:/h")
+    out, err = run("w.wfdbx_set_network(1)\n"
+                   "print(w.isigopen('ftp://h/sr', [], 2))\n"
+                   "print(w.isigopen('sftp://h/sr', [], 2))\n"
+                   "print(w.wfdbx_input_path('ftp://h/sr.hea'))\n"
+                   "print(w.wfdbx_output_path('ftp://h/x.wav'))\n"
+                   "print(w.wfdbx_set_input_dir('ftp://h'))\n"
+                   "print(w.isigopen('sr', [], 2))\n")
+    assert out == "-1\n-1\nNone\nNone\nNone\n-1\n"
+    assert err.startswith(
+        "WFDB-x: can't open ftp://h/sr.hea: only http:// and https:// URLs "
+        "can be read (mount the server as a local folder, or download the "
+        "files)\ninit: can't open header for record ftp://h/sr\n")
+    assert err.count("WFDB-x:") == 1
+    # an output directory with a URL scheme is refused
+    w.wfdbquiet()
+    assert w.wfdbx_set_output_dir("ftp://h/out") is None
+    assert w.wfdberror() == ("wfdbx_set_output_dir: the output directory "
+                             "must be a local directory\n")
+    # a one-letter prefix is not a scheme (a local directory c:)
+    make_sr("c:")
+    assert w.isigopen("c://sr", [], 2) == 2
+    # legacy mode refuses every name containing ://, without a message
+    out, err = run("w.wfdbx_set_legacy(1)\nprint(w.isigopen('ftp://h/sr', "
+                   "[], 2))\n")
+    assert out == "-1\n"
+    assert err == "init: can't open header for record ftp://h/sr\n"
+
+
 def test_network_on(server):
     w.wfdbx_set_network(1)
     rec = w.read_record(server.url + "100s", sampto=3)
@@ -519,7 +555,9 @@ def test_network_on(server):
                           "/100s.inf", "/100s.atr"]
     w.wfdbx_set_input_dir(server.url)
     assert w.read_record("100s", sampto=1).signals.tolist() == [[995, 1011]]
-    assert len(server.log) == 5                   # (cached)
+    # the files read are kept; the .info files, which could not be read,
+    # are requested again
+    assert server.log[5:] == ["/100s.info", "/100s.inf"]
     assert w.wfdbfile("hea", "100s") == server.url + "100s.hea"
     w.wfdbx_set_input_dir(server.url[:-1])    # (without the final '/')
     assert w.wfdbfile("hea", "100s") == server.url + "100s.hea"
@@ -546,8 +584,8 @@ def test_network_subdirectories_and_errors(server):
     assert w.wfdberror().startswith("isigopen: none of the signals")
     n = len(server.log)
     with pytest.raises(IOError):
-        w.read_record("nosuch")                 # (the failure is cached)
-    assert len(server.log) == n
+        w.read_record("nosuch")                 # (requested again)
+    assert server.log[n:] == ["/www/nosuch.hea"]
     assert "/100s.dat" not in server.log and "/www/../100s.dat" not in \
         server.log
     # redirects are followed (the header's directory is that of its URL)

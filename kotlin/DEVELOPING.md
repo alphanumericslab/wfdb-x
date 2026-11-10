@@ -23,7 +23,14 @@ the high-level API.
 * Repositories: Maven Central, or the repository named by the Gradle
   property `mavenMirror` (`-PmavenMirror=URL`, or `mavenMirror=URL` in
   `~/.gradle/gradle.properties`), for plugins and dependencies alike.
-* Coordinates: `io.github.alphanumericslab:wfdbx:1.2.1`; Kotlin package
+* Packaging: every jar (library, sources, `wfdbx-all.jar`) holds
+  `META-INF/LICENSE`, `META-INF/LICENSE-GPL` and `META-INF/NOTICE` (the
+  files of the repository root; `tasks.withType<org.gradle.jvm.tasks.Jar>`
+  in `build.gradle.kts`, a type that also covers the sources jars of the
+  Kotlin plugin); the POM lists LGPL-2.1-or-later, GPL-3.0-or-later and
+  BSD-3-Clause (the FLAC decoder, translated from libFLAC). Check with
+  `unzip -l build/libs/wfdbx-all.jar | grep META-INF`.
+* Coordinates: `io.github.alphanumericslab:wfdbx:1.2.2`; Kotlin package
   `wfdbx` (`wfdbx.cstd` for the C standard library emulation; `wfdbx.apps`
   for the tools and `wfdbx.cli` for the launcher's `main`).
 
@@ -92,7 +99,8 @@ for line-by-line ports of C programs. The default instance is one per
 thread (`ThreadLocal` on the JVM, `@ThreadLocal` on Native). A `Wfdb` is not
 thread-safe: use each instance from one thread at a time; separate instances
 share nothing but the process-wide structures guarded by `withGlobalLock`
-(open output streams, fetched URLs).
+(open output streams, the remote files read; a failure to read one is not
+kept).
 
 Rules for library code (they matter, because a mistake compiles and calls
 the wrong instance):
@@ -220,7 +228,8 @@ named in a header (containment check). `pathId(name)` and the internal
 `RawFile` (read, write, seek, position, size, blksize, fileId, close) and
 `Platform` (open, stdin, freopenStdin, writeStdout, writeStderr,
 stdoutIsTty, stdoutTell, getenv, setenv, isDirectory, mkdir, remove,
-replaceFile, pathId, readFile, currentUid, timeNow, fetchUrl, runSortann, exit, currentDir,
+replaceFile, createTempFile, commitFile, absolutePath, realPath,
+isSpecialFile, pathId, readFile, currentUid, timeNow, fetchUrl, runSortann, exit, currentDir,
 nameBytes, nameString), plus `withGlobalLock`
 and the per-thread default instances. Keep platform code minimal; add a
 declaration there rather than platform code elsewhere.
@@ -236,6 +245,18 @@ declaration there rather than platform code elsewhere.
 * Native: POSIX file descriptors; Linux runs `curl` and `sortann` with
   `posix_spawnp` (no shell; `env -C DIR` for a working directory); iOS uses
   `NSURLSession` and cannot run `sortann`.
+* Temporary files (`replaceFile`, `createTempFile`, `commitFile`; WFDB-x
+  1.2.2): a temporary file `.NAME.XXXXXXXX.tmp` is created in the directory
+  of its destination with owner-only permissions from the start (JVM:
+  `Files.createFile` with the POSIX attribute `rw-------` where the file
+  system has POSIX permissions; Native: `open` with `O_CREAT | O_EXCL` and
+  mode 0600), so that its contents (a header may hold patient data) are
+  never readable by other users; once complete, it is given the permission
+  bits of the destination if it exists, or those of a new file (0666 less
+  the umask: Native reads the umask with `umask`; the JVM, which cannot,
+  creates an empty probe file in the directory, reads its mode and removes
+  it), and renamed over the destination. `TempFilesJvmTest` checks the
+  mode at creation and after the rename.
 
 ### Native code
 
@@ -293,7 +314,17 @@ reading (`wfdbxBulkVectors` and `wfdbxInputState` are for the tests).
 Internal accessors for the high-level API and `check_record`:
 `wfdbxHeaderNsamples`, `wfdbxRecordNsamples`, `wfdbxIsEdf`,
 `wfdbxCksumResiduals`, `wfdbxGroupFileSizes`, `wfdbxBaseTimeDate`,
-`wfdbxSetCksumQuiet` (getvec's checksum message recorded, not printed).
+`wfdbxSetCksumQuiet` (getvec's checksum message recorded, not printed),
+`wfdbxClearReadFailed`. `SigState.readFailed` (WFDB-x 1.2.2) is set by
+`getskewedframe` wherever its status becomes -3 (a decoder or I/O error,
+"unexpected EOF in signal N" with `nsamp > 0`, "error opening segment"),
+whatever status getvec then returns (a checksum error, -4, found in the
+same frame replaces -3). `getvecsStatusAt(..., highLevel = true)` (used by
+`readRecord` and `checkRecord`, which clear the flag before and after
+reading) checks it after each frame: if it is set, the frame is not stored
+nor counted, the status becomes -3 (if it was -4 or >= -1), and reading
+stops. The C-style `getvec`, `getframe`, `getvecs` and the tools are
+unchanged.
 
 Rules followed by the port (keep them when changing it):
 
@@ -390,7 +421,9 @@ python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy [TOOL|CASE
   `getvecsStatusAt` (getvecs into an offset of one growing array: no copy
   per block), in blocks of whole frames, a multiple of 6 of them, so that
   formats 212, 310 and 311 end each block on a whole packed unit. The
-  array is allocated for the length the header gives; once it is full, the
+  array is allocated for the length the header gives (or `to`), but for at
+  most 2^26 values (a header may give far more samples than its files
+  hold); once it is full, the
   next block is read into a separate array, and the array grows only if
   that block is not empty. Physical units are computed in pieces of 512
   frames, with the baseline and the gain of each value of a piece in two
@@ -431,14 +464,47 @@ python3 tests/conformance/harness.py check --impl kotlin -j8 --legacy [TOOL|CASE
   `IOError`). The duplicate-key warning goes to `onWarning`, or to
   `wfdb_error("WFDB-x: ...\n")`, as the checksum warning. A changed header
   is written by `Platform.replaceFile`: a temporary file
-  `.NAME.XXXXXXXX.tmp` in the destination's directory, flushed, given the
-  destination's permission bits (JVM: the `unix:mode` attribute, or the
-  POSIX permissions; Native: `stat` and `fchmod`), then renamed over it
-  (`ATOMIC_MOVE`; `rename(2)`), and removed on any failure. `readHeader`
+  `.NAME.XXXXXXXX.tmp` in the destination's directory, created with
+  owner-only permissions (see [Platform layer](#platform-layer)), flushed,
+  given the destination's permission bits (JVM: the `unix:mode` attribute,
+  or the POSIX permissions; Native: `stat` and `chmod`) or those of a new
+  file, then renamed over it (`ATOMIC_MOVE`; `rename(2)`), and removed on
+  any failure. The record line of a header is found as `readheader` finds
+  it (`commentOrBlank` in `Signal.kt`: the first line with a token,
+  separated by spaces, tabs, CRs and LFs up to a NUL byte, that does not
+  begin with `#`), in every mode; `getinfo` follows the same rule, except in
+  legacy mode (C's rule: the first line that does not begin with `#`). `readHeader`
   reads the metadata from the `.hea` file after closing the record
   (none for an EDF file or the standard input), and `writeRecord` checks
   its `metadata` argument before `wfdbquit()` and writes the entries
   through `putinfo` after the comments.
+* The writers (WFDB-x 1.2.2; port of `_staging_begin`, `_staged_open`,
+  `_staging_end` and `_staging_commit_one` of `python/src/wfdbx/_wfdbio.py`)
+  check every argument before any file is touched, throwing
+  `WfdbArgumentException`, with the messages of the Python reference after
+  the function name ("writeRecord: units 'μV' has a character that is not
+  Latin-1 (one byte per character)"; text is checked for characters beyond
+  U+00FF, which `latin1()` would cut to their low byte; the record name too,
+  although it is written with the file name encoding, so that every
+  implementation can read the header). `writeRecord` and
+  `writeAnnotations` then write through temporary files: between
+  `stagingBegin()` and `stagingEnd(commit)` (`Wfdbio.kt`), `wfdb_fopen`
+  opens each destination ("wb", "ab"; keyed by its absolute name; not a URL
+  nor `-`) as a temporary file in the directory of the file it leads to
+  (`Platform.realPath`: the target of a symbolic link), created by
+  `Platform.createTempFile` (missing directories are created first);
+  reopening a destination ("rb" too: the in-process sort of `oannclose`
+  goes through `stagedPath`) opens the same temporary file; a destination
+  that is a directory fails as before, and one that is not a regular file
+  (`Platform.isSpecialFile`: a device, a FIFO) is opened directly.
+  `stagingEnd(true)`, after the files are closed without a write error,
+  renames them all (`Platform.commitFile`), and otherwise removes them; a
+  failed rename removes the rest and throws "write error on ...". In legacy
+  mode, `oannclose` renames an out-of-order annotation file over its
+  destination before running `sortann` (`stagingCommitOne`), and after a
+  write error neither renames nor sorts it. `IoState.testPutframes`,
+  `testNewheader` and `testPutanns` let the tests simulate a failure while
+  the files are written.
 * `checkRecord` needs `Platform.currentDir()` (the directory of a
   multi-segment record's header given by a relative name), and
   `checkSimulatedFileSize` lets a test simulate a signal file larger than
@@ -472,8 +538,10 @@ against `rust/target/release/sortann`, which matches the C program.
 | `RecordTest.kt`, `AnnotationsTest.kt` | the high-level API (ports of the high-level parts of `python/tests/test_signals.py`, `test_annotations.py` and `rust/tests/signals.rs`, `annotations.rs`): round trips in every format, bulk reading and writing against the per-frame paths, the bulk annotation encoder against putann, checksums, truncated signal and annotation files, the sort option, record names, legacy mode |
 | `jvmTest/CheckCorpusTest.kt` | `checkRecord` on the corpus of `python/tests/check_corpus.py` (an empty diff against its `expected.txt`; skipped with a message without python3) |
 | `jvmTest/HighLevelJvmTest.kt` | the top-level functions, the input options and network access (local HTTP server), `checkRecord` without the corpus |
-| `MetadataTest.kt` | the header metadata functions: the 49 shared cases of `tests/metadata/cases.tsv` (results, warnings, headers byte for byte against `tests/metadata/expected/`, header unchanged after an error, no other file left), `readHeader` and `writeRecord` metadata, errors and messages, `.info` ignored, input directory and `dir` (port of `python/tests/test_metadata.py`) |
+| `MetadataTest.kt` | the header metadata functions: the 56 shared cases of `tests/metadata/cases.tsv` (results, warnings, headers byte for byte against `tests/metadata/expected/`, header unchanged after an error, no other file left), `readHeader` and `writeRecord` metadata, errors and messages, `.info` ignored, input directory and `dir` (port of `python/tests/test_metadata.py`) |
 | `jvmTest/MetadataJvmTest.kt` | the metadata functions: permissions kept, a header read from a URL (local HTTP server) |
+| `CorrectionsTest.kt` | the corrections of 1.2.2 (port of the 1.2.2 tests of `python/tests/test_signals.py` and `test_annotations.py`): a truncated frame with a checksum error, the bounded allocation of `readRecord`, the writers' checks before writing and their temporary files after a failure, the arguments of `readAnnotations`, the record line of `getinfo` |
+| `jvmTest/TempFilesJvmTest.kt` | temporary files: owner-only at creation, the permissions of the replaced file (a 0600 header stays 0600), of a new file, symbolic links kept, a device written directly |
 | `jvmTest/ReadmeExamplesTest.kt` | the examples of README.md |
 
 The parts of the Rust tests that use the high-level API (`read_record`,

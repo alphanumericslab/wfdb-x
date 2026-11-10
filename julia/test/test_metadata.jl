@@ -126,7 +126,7 @@ else
             end
         end
     end
-    @test n == 49
+    @test n == 56
 end
 
 @testset "read_header and write_record" begin

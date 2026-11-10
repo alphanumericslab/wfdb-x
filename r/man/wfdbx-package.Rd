@@ -74,14 +74,19 @@
   when network access is on.  See \code{\link{wfdbx_set_input_dir}}.
 }
 \section{License}{
-  The library of WFDB-x is distributed under the GNU Lesser General Public
-  License, version 2.1 or later (file \file{COPYING.LESSER} in the
-  installed package, \file{LICENSE} in the sources), and its command-line
+  The package holds code under two licenses, which its file
+  \file{LICENSE} states (\code{License: file LICENSE} in its
+  DESCRIPTION). The library of WFDB-x is distributed under the GNU Lesser
+  General Public License, version 2.1 or later (file
+  \file{COPYING.LESSER} of the installed package), and its command-line
   tools (\code{wfdbx_tool}, \code{wfdbx_tools} and the programs they
-  run: \file{R/apps_*.R} and \file{R/cli.R} in the sources) under the
-  GNU General Public License, version 3 or later (file \file{COPYING},
-  \file{LICENSE-GPL} in the sources). The package as a whole is distributed under the GNU General
-  Public License, version 3 or later.
+  run: \file{R/apps_*.R}, \file{R/cli.R} and \file{inst/bin/wfdbx.R} in
+  the sources) under the GNU General Public License, version 3 or later
+  (file \file{COPYING}). Each source file states its license. The file
+  \file{NOTICE} of the installed package
+  (\code{system.file("NOTICE", package = "wfdbx")}) summarizes these
+  licenses and gives the BSD-3-Clause notice of libFLAC, whose stream
+  decoder the FLAC decoder of WFDB-x (\file{R/flac.R}) translates.
 }
 \author{
   The WFDB library and tools were written by George B. Moody, with

@@ -388,7 +388,8 @@ end
         cp("fmt16.dat", "sub/ok.dat")
         W.wfdbquiet(w)
         for name in ("../100s.dat", "/100s.dat", "~/100s.dat", "~", "http://127.0.0.1:1/a.dat",
-                     "https://127.0.0.1:1/a.dat", "data/../../100s.dat", "..", "a/../b.dat")
+                     "https://127.0.0.1:1/a.dat", "ftp://h/a.dat", "data/../../100s.dat", "..",
+                     "a/../b.dat")
             putfile("sub/bad.hea", "bad 2 360 10\n$name 16\nok.dat 16\n")
             @test W.isigopen(w, "sub/bad", nothing, 2) == 1    # (the second file opens)
             @test String(W.wfdberror(w)) ==
@@ -458,6 +459,47 @@ end
     end
 end
 
+@testset "other URL schemes" begin
+    # a name with a URL scheme other than http:// and https:// is refused
+    # (with a message, once), with or without network access, and is never
+    # opened as a local name: ftp:/h/sr.hea (the local path that the name
+    # ftp://h/sr would designate) is not read
+    Sys.iswindows() && return @test_skip "':' cannot be in a file name"
+    with_files("schemes") do w, _
+        make_sr("ftp:/h")
+        W.wfdbx_set_network(w, true)
+        local r
+        err = errors_of() do
+            r = (W.isigopen(w, "ftp://h/sr", nothing, 2), W.isigopen(w, "sftp://h/sr", nothing, 2),
+                 W.wfdbx_input_path(w, "ftp://h/sr.hea"), W.wfdbx_output_path(w, "ftp://h/x.wav"),
+                 W.wfdbx_set_input_dir(w, "ftp://h"), W.isigopen(w, "sr", nothing, 2))
+        end
+        @test r == (-1, -1, nothing, nothing, nothing, -1)
+        @test startswith(err, "WFDB-x: can't open ftp://h/sr.hea: only http:// and https:// URLs " *
+                              "can be read (mount the server as a local folder, or download the " *
+                              "files)\ninit: can't open header for record ftp://h/sr\n")
+        @test count("WFDB-x:", err) == 1
+        # an output directory with a URL scheme is refused
+        w = Wfdb()
+        W.wfdbquiet(w)
+        @test W.wfdbx_set_output_dir(w, "ftp://h/out") === nothing
+        @test String(W.wfdberror(w)) ==
+              "wfdbx_set_output_dir: the output directory must be a local directory\n"
+        # a one-letter prefix is not a scheme (a local directory c:)
+        make_sr("c:")
+        @test W.isigopen(w, "c://sr", nothing, 2) == 2
+        W.wfdbquit(w)
+        # legacy mode refuses every name containing ://, without a message
+        w = Wfdb()
+        W.wfdbx_set_legacy(w, true)
+        err = errors_of() do
+            r = W.isigopen(w, "ftp://h/sr", nothing, 2)
+        end
+        @test r == -1
+        @test err == "init: can't open header for record ftp://h/sr\n"
+    end
+end
+
 @testset "network on" begin
     with_files("neton") do w, cwd
         with_server(cwd) do srv
@@ -471,7 +513,9 @@ end
             n = length(srv.log)
             W.wfdbx_set_input_dir(w, srv.url)
             @test W.read_record(w, "100s"; to=1).samples == Int32[995 1011]
-            @test length(srv.log) == n          # (cached)
+            # the files read are kept; the .info files, which could not be
+            # read, are requested again
+            @test srv.log[n+1:end] == ["/100s.info", "/100s.inf"]
             @test W.wfdbfile(w, "hea", "100s") == b(srv.url * "100s.hea")
             W.wfdbx_set_input_dir(w, srv.url[1:end-1])     # (without the final '/')
             @test W.wfdbfile(w, "hea", "100s") == b(srv.url * "100s.hea")
@@ -498,8 +542,8 @@ end
             @test_throws W.WfdbError W.read_record(w, "bad")
             @test startswith(String(W.wfdberror(w)), "isigopen: none of the signals")
             n = length(srv.log)
-            @test_throws W.WfdbError W.read_record(w, "nosuch")    # (the failure is cached)
-            @test length(srv.log) == n
+            @test_throws W.WfdbError W.read_record(w, "nosuch")    # (requested again)
+            @test srv.log[n+1:end] == ["/www/nosuch.hea"]
             @test !("/100s.dat" in srv.log) && !("/www/../100s.dat" in srv.log)
             # redirects are followed (the header's directory is that of its URL)
             W.wfdbx_set_input_dir(w, nothing)

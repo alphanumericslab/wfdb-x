@@ -841,6 +841,15 @@ mutable struct PathComponent
 end
 
 "The state of wfdbio.c (the `io` field of a `Wfdb`)."
+# WFDB-x: a file staged by a high-level writer: the absolute name by which
+# it is opened (key), the temporary file that stands for it, and the file
+# that it replaces (dest: key, or the file a symbolic link leads to).
+struct _Staged
+    key::String
+    tmp::String
+    dest::String
+end
+
 mutable struct IoState
     wfdbpath::Union{Nothing,Vector{UInt8}}
     wfdbpath_init::Union{Nothing,Vector{UInt8}}
@@ -866,12 +875,17 @@ mutable struct IoState
     env_network::Bool
     wfdb_warned::Bool                           # (messages printed once)
     network_warned::Bool
-    fetched::Dict{Vector{UInt8},Union{Nothing,Vector{UInt8}}}  # URL -> contents
+    scheme_warned::Bool                         # (see wfdb_fopen)
+    fetched::Dict{Vector{UInt8},Vector{UInt8}}  # URL -> contents
+    # WFDB-x: the output files of a high-level writer, written to temporary
+    # files (see _staging_begin), or nothing when no writer is staging its
+    # files
+    staging::Union{Nothing,Vector{_Staged}}
 end
 IoState() = IoState(nothing, nothing, PathComponent[], true, false, UInt8[], UInt8[], UInt8[],
                     Int32(1), nothing, nothing, false, false, nothing, nothing, nothing, false,
-                    Int8(-1), false, false, false,
-                    Dict{Vector{UInt8},Union{Nothing,Vector{UInt8}}}())
+                    Int8(-1), false, false, false, false,
+                    Dict{Vector{UInt8},Vector{UInt8}}(), nothing)
 
 _legacy(w::Wfdb) = wfdbx_get_legacy(w) != 0
 
@@ -940,7 +954,9 @@ Open a file as the WFDB library does. A directory cannot be opened for
 reading; when a file cannot be created (`"wb"` or `"ab"`), the missing
 directories in its path are created and the file is opened again. WFDB-x:
 an `http://` or `https://` URL can only be read, and only if network access
-is allowed (see [`wfdbx_set_network`](@ref)). In legacy mode, names
+is allowed (see [`wfdbx_set_network`](@ref)); a name with another URL scheme
+(`ftp://`, `sftp://`, `file://`, ...) is refused, with a message the first
+time. In legacy mode, names
 containing `..` or `://` are refused (as by the reference C library, built
 without network support).
 
@@ -955,6 +971,17 @@ function wfdb_fopen(w::Wfdb, fname::ByteStr, mode::ByteStr)
         (_contains(fname, b"..") || _contains(fname, b"://")) && return nothing
     elseif _is_url(fname)
         return (!isempty(mode) && mode[1] == UInt8('r')) ? _fetch_open(w, fname) : nothing
+    elseif _has_scheme(fname)
+        if !w.io.scheme_warned
+            w.io.scheme_warned = true
+            wfdb_error(w, "WFDB-x: can't open %s: only http:// and https:// URLs can be read (mount the server as a local folder, or download the files)\n",
+                       fname)
+        end
+        return nothing
+    end
+    if w.io.staging !== nothing     # WFDB-x: a high-level writer's file
+        f = _staged_open(w, fname, mode)
+        f === false || return f
     end
     (!isempty(mode) && mode[1] == UInt8('r') && _is_directory(fname)) && return nothing
     f = cfopen(fname, mode)
@@ -973,6 +1000,175 @@ function wfdb_fopen(w::Wfdb, fname::ByteStr, mode::ByteStr)
     # WFDB-x: an output file (see fclose)
     f !== nothing && (f.out = mode[1] != UInt8('r'))
     f
+end
+
+# WFDB-x: the high-level writers (write_record, write_annotations) check all
+# their arguments before any file is touched, and write their files so that
+# a failure leaves the existing files intact (1.2.2): while they write, each
+# file that the library creates is written to a temporary file in the
+# directory of its destination (".NAME.XXXXXXXX.tmp", readable and writable
+# by its owner only until it is renamed), and the temporary files are
+# renamed over their destinations together once all of them are complete
+# (_staging_end), or removed if anything failed. The library opens the
+# destination by its name as usual (in messages, and for the in-process
+# sorting of annotation files, which reads and rewrites the temporary
+# file). A destination that exists and is not a regular file (a device such
+# as /dev/full, a FIFO) is opened directly, as before; for a symbolic link,
+# the file it leads to is replaced. URLs and the standard output are never
+# staged.
+
+"Start staging the output files of `w` (see above)."
+_staging_begin(w::Wfdb) = (w.io.staging = _Staged[]; nothing)
+
+_staged_key(fname::Vector{UInt8}) = abspath(bstr(fname))
+
+function _staged_find(w::Wfdb, key::String)
+    st = w.io.staging
+    st === nothing && return 0
+    something(findfirst(x -> x.key == key, st), 0)
+end
+
+# The file that path designates: the target of a symbolic link (followed
+# while it leads to another one), with the symbolic links of its directory
+# resolved (as Python's os.path.realpath).
+function _staging_dest(path::String)
+    p = path
+    for _ in 1:40
+        islink(p) || break
+        t = readlink(p)
+        p = normpath(isabspath(t) ? t : joinpath(dirname(p), t))
+    end
+    d = dirname(p)
+    d = try
+        isdir(d) ? realpath(d) : d
+    catch
+        d
+    end
+    joinpath(d, basename(p))
+end
+
+const _STAGING_COUNT = Ref(0)
+
+# Create a new temporary file ".BASE.XXXXXXXX.tmp" in the directory d, with
+# permissions 0600 (O_CREAT | O_EXCL); its name, or nothing.
+function _staging_mktemp(d::String, base::String)
+    chars = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    FS = Base.Filesystem
+    for _ in 1:100
+        _STAGING_COUNT[] += 1
+        h = hash((time_ns(), getpid(), _STAGING_COUNT[], objectid(d)))
+        x = String(UInt8[chars[Int((h >> (6 * i)) % 62)+1] for i in 0:7])
+        name = joinpath(d, "." * base * "." * x * ".tmp")
+        flags = FS.JL_O_WRONLY | FS.JL_O_CREAT | FS.JL_O_EXCL
+        fd = @static if _HAVE_POSIX_IO
+            ccall(:open, Cint, (Cstring, Cint, Cuint...), name, flags, 0o600)
+        else
+            ccall(:_wopen, Cint, (Cwstring, Cint, Cint...), name, flags | _O_BINARY, 0o600)
+        end
+        if fd >= 0
+            raw_close(fd)
+            return name
+        end
+        ispath(name) || return nothing      # (an error other than EEXIST)
+    end
+    nothing
+end
+
+# Open fname (a destination, mode "rb", "wb" or "ab") while staging: the
+# temporary file that stands for it, created for "wb" and "ab" if there is
+# none yet; nothing if it cannot be created; false if fname is not staged
+# ("rb" of a file not written here, or a destination that is not a regular
+# file), and is opened as usual.
+function _staged_open(w::Wfdb, fname::Vector{UInt8}, mode::Vector{UInt8})
+    (isempty(fname) || 0x00 in fname || isempty(mode)) && return false
+    key = _staged_key(fname)
+    k = _staged_find(w, key)
+    if k == 0
+        mode[1] == UInt8('r') && return false
+        dest = _staging_dest(key)
+        isdir(dest) && return nothing
+        try
+            (ispath(dest) && !isfile(dest)) && return false
+        catch
+            return false
+        end
+        d = dirname(dest)
+        if !isdir(d)
+            # (missing directories are created, as wfdb_fopen does)
+            for (i, c) in enumerate(fname)
+                c == UInt8('/') && _mkdir(fname[1:i-1])
+            end
+        end
+        tmp = _staging_mktemp(d, basename(dest))
+        tmp === nothing && return nothing
+        push!(w.io.staging, _Staged(key, tmp, dest))
+        k = length(w.io.staging)
+    end
+    f = cfopen(w.io.staging[k].tmp, mode)
+    f !== nothing && (f.out = mode[1] != UInt8('r'))
+    f
+end
+
+# The permissions are those that writing dest in place gives: its own if it
+# exists, else those of a new file (0666 less the umask).
+function _staging_replace(x::_Staged)
+    mode = try
+        isfile(x.dest) ? filemode(x.dest) & 0o7777 : nothing
+    catch
+        nothing
+    end
+    if mode === nothing
+        @static if _HAVE_POSIX_IO
+            m = ccall(:umask, Cuint, (Cuint,), 0o022)
+            ccall(:umask, Cuint, (Cuint,), m)
+            mode = 0o666 & ~m
+        else
+            mode = 0o666
+        end
+    end
+    try
+        chmod(x.tmp, mode)
+        Base.Filesystem.rename(x.tmp, x.dest)
+        return true
+    catch e
+        e isa Base.IOError || e isa SystemError || rethrow()
+        return false
+    end
+end
+
+_staging_unlink(path::String) = (try rm(path; force=true) catch end; nothing)
+
+# Rename the temporary file of the staged destination fname over it now
+# (before the end of the staging); true if done.
+function _staging_commit_one(w::Wfdb, fname::Vector{UInt8})
+    isempty(fname) && return false
+    k = _staged_find(w, _staged_key(fname))
+    k == 0 && return false
+    x = popat!(w.io.staging, k)
+    _staging_replace(x) && return true
+    _staging_unlink(x.tmp)
+    false
+end
+
+# Is fname a staged destination (see oannclose)?
+_staging_has(w::Wfdb, fname::Vector{UInt8}) =
+    !isempty(fname) && !(0x00 in fname) && _staged_find(w, _staged_key(fname)) != 0
+
+# End the staging: if commit, rename every temporary file over its
+# destination (after all of them are complete) and return true, or, if a
+# rename fails, remove the temporary files not yet renamed and return
+# false; otherwise remove them all and return false.
+function _staging_end(w::Wfdb, commit::Bool)
+    st = w.io.staging
+    w.io.staging = nothing
+    st === nothing && return commit
+    ok = commit
+    for x in st
+        ok && _staging_replace(x) && continue
+        ok = false
+        _staging_unlink(x.tmp)
+    end
+    ok
 end
 
 "`wfdb_striphea(record)`: the record name without a trailing `.hea`.
@@ -1296,6 +1492,26 @@ _startswith(a::AbstractVector{UInt8}, p::AbstractVector{UInt8}) =
 # True if name is an http:// or https:// URL.
 _is_url(name::AbstractVector{UInt8}) = _startswith(name, b"http://") || _startswith(name, b"https://")
 
+_is_scheme_char(c::UInt8) = UInt8('a') <= c <= UInt8('z') || UInt8('A') <= c <= UInt8('Z') ||
+                            UInt8('0') <= c <= UInt8('9') || c == UInt8('+') || c == UInt8('-') ||
+                            c == UInt8('.')
+
+# True if name begins with a URL scheme followed by "://": a letter, then at
+# least one letter, digit, '+', '-' or '.' (http://, https://, ftp://,
+# sftp://, file://, ...). A drive letter (C:) is not a scheme. In normal
+# mode, a name with a scheme is a URL, never a local file name, and only an
+# http:// or https:// URL can be read (see wfdb_fopen).
+function _has_scheme(name::AbstractVector{UInt8})
+    (isempty(name) || !(UInt8('a') <= name[1] <= UInt8('z') || UInt8('A') <= name[1] <= UInt8('Z'))) &&
+        return false
+    i = 2
+    while i <= length(name) && _is_scheme_char(name[i])
+        i += 1
+    end
+    i >= 3 && i + 2 <= length(name) && name[i] == UInt8(':') && name[i+1] == UInt8('/') &&
+        name[i+2] == UInt8('/')
+end
+
 # True if c is a directory separator ('/', and on Windows '\').
 _is_dsep(c::UInt8) = c == UInt8('/') || (Sys.iswindows() && c == UInt8('\\'))
 
@@ -1375,7 +1591,7 @@ function _init_output_dir!(w::Wfdb)
     io.output_dir_init && return nothing
     io.output_dir_init = true
     v = _nonempty_env("WFDBX_OUTPUT_DIR")
-    if v !== nothing && _is_url(v)
+    if v !== nothing && _has_scheme(v)
         wfdb_error(w, _OUTPUT_URL_ERROR)
     else
         io.env_output_dir = v
@@ -1392,7 +1608,8 @@ Set the output directory, and return the previous one as bytes, or
 
 Every file named by a relative name is created in the output directory. A
 full path or a `~` path is used as given. `dir` is a local directory or a
-`~` path. Missing directories are created when a file is written. A URL is
+`~` path. Missing directories are created when a file is written. A URL
+(any name that begins with a URL scheme, such as `https://` or `ftp://`) is
 refused: the error `"wfdbx_set_output_dir: the output directory must be a
 local directory"` is reported, and the setting is unchanged.
 
@@ -1415,7 +1632,7 @@ Part of WFDB-x; not in the original WFDB package.
 function wfdbx_set_output_dir(w::Wfdb, dir::OptByteStr)
     _init_output_dir!(w)
     d = _dirarg(dir)
-    if _is_url(d)
+    if _has_scheme(d)
         wfdb_error(w, _OUTPUT_URL_ERROR)
         return wfdbx_get_output_dir(w)
     end
@@ -1449,8 +1666,12 @@ off by default.
 variable `WFDBX_NETWORK` is a non-zero number, and off otherwise. The
 setting belongs to the library state `w`.
 
-Remote files are read once and kept for the rest of the session. A download
-gives up when it cannot connect, or receives nothing, for 30 seconds.
+A remote file that has been read is kept for the rest of the session; one
+that could not be read is requested again the next time it is opened. A
+download gives up when it cannot connect, or receives nothing, for 30
+seconds. Only `http://` and `https://` URLs can be read: a name that begins
+with another URL scheme, such as `ftp://` or `sftp://`, is refused (an
+error, with or without network access), and never read as a local file name.
 
 # Examples
 ```julia-repl
@@ -1612,7 +1833,7 @@ end
 # directory (for reading) or the output directory (for writing), if set.
 function _resolve(w::Wfdb, name::Vector{UInt8}, output::Bool)
     !isempty(name) && name[1] == UInt8('~') && return _expand_home(name)
-    (_is_absolute_path(name) || _is_url(name)) && return name
+    (_is_absolute_path(name) || _has_scheme(name)) && return name
     if output
         _init_output_dir!(w)
         d = w.io.output_dir
@@ -1628,7 +1849,7 @@ end
 # directory or below it: a relative name that does not begin with '~' and
 # has no ".." component (on Windows, no drive letter either).
 function _in_header_dir(name::Vector{UInt8})
-    (_is_absolute_path(name) || _is_url(name) || (!isempty(name) && name[1] == UInt8('~'))) &&
+    (_is_absolute_path(name) || _has_scheme(name) || (!isempty(name) && name[1] == UInt8('~'))) &&
         return false
     if Sys.iswindows()
         length(name) > 1 && name[2] == UInt8(':') && return false
@@ -1788,7 +2009,7 @@ function wfdbx_output_file(w::Wfdb, name::OptByteStr)
     n = name === nothing ? UInt8[] : cstr(bytes(name))
     (isempty(n) || n == b"-") && return nothing
     r = _expand_record(n)
-    _is_url(r) ? nothing : _resolve(w, r, true)
+    _has_scheme(r) ? nothing : _resolve(w, r, true)
 end
 
 # WFDB-x: files that a program opens itself. Decided by Reza Sameni, Nov
@@ -1811,7 +2032,8 @@ themselves, such as the `-i` file of `wrsamp`.
 `name` is a file name; `nothing` is returned for `nothing`, and `""` and
 `"-"` (the standard input, if the program treats it so) are returned as
 given. The result is the path to open, as bytes, or `nothing` if `name` is a
-URL, or becomes one when the input directory is prefixed to it: such a file
+URL, or becomes one when the input directory is prefixed to it (in normal
+mode, any name that begins with a URL scheme, such as `ftp://`): such a file
 cannot be opened in this way.
 
 # Examples
@@ -1831,7 +2053,7 @@ function wfdbx_input_path(w::Wfdb, name::OptByteStr)
     _is_url(n) && return nothing
     (isempty(n) || n == b"-" || _legacy(w)) && return n
     r = _resolve(w, n, false)
-    _is_url(r) ? nothing : r
+    _has_scheme(r) ? nothing : r
 end
 
 """
@@ -1853,7 +2075,8 @@ tools use it for the files they create themselves, such as the WAV file of
 `name` is a file name; `nothing` is returned for `nothing`, and `""` and
 `"-"` (the standard output, if the program treats it so) are returned as
 given. The result is the path to create, as bytes, or `nothing` if `name` is
-a URL (which cannot be written).
+a URL (in normal mode, any name that begins with a URL scheme), which cannot
+be written.
 
 # Examples
 Writes a text file in the output directory:
@@ -1876,6 +2099,7 @@ function wfdbx_output_path(w::Wfdb, name::OptByteStr)
         (d === nothing || isempty(d)) && return n
         r = UInt8[d; DSEP; n]
     else
+        _has_scheme(n) && return nothing
         (d === nothing || isempty(d) || n[1] == UInt8('~') || _is_absolute_path(n)) &&
             return _resolve(w, n, true)
         r = _resolve(w, n, true)
@@ -1941,8 +2165,8 @@ function _downloader(downloads)
     _DOWNLOADER[] = dl
 end
 
-# The contents of a URL (read once per library state; failures are
-# remembered too), or nothing.
+# The contents of a URL (read once per library state; a failure is not
+# kept, so the next call requests the URL again), or nothing.
 function _fetch(w::Wfdb, url::Vector{UInt8})
     haskey(w.io.fetched, url) && return w.io.fetched[url]
     data = try
@@ -1957,7 +2181,7 @@ function _fetch(w::Wfdb, url::Vector{UInt8})
         e isa InterruptException && rethrow()
         nothing
     end
-    w.io.fetched[copy(url)] = data
+    data === nothing || (w.io.fetched[copy(url)] = data)
     data
 end
 

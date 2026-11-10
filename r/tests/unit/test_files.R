@@ -387,7 +387,8 @@ check(nrow(read_record("sub/sib", legacy = TRUE)$signals) > 0,
 ok <- TRUE
 file.copy("fmt16.dat", "sub/ok.dat")
 for (name in c("../100s.dat", "/100s.dat", "~/100s.dat", "~", "http://127.0.0.1:1/a.dat",
-               "https://127.0.0.1:1/a.dat", "data/../../100s.dat", "..", "a/../b.dat")) {
+               "https://127.0.0.1:1/a.dat", "ftp://h/a.dat", "data/../../100s.dat", "..",
+               "a/../b.dat")) {
   putfile("sub/bad.hea", sprintf("bad 2 360 10\n%s 16\nok.dat 16\n", name))
   n <- isigopen("sub/bad", 2)$nsig      # (the second file opens)
   ok <- ok && n == 1 && identical(wfdberror(), sprintf(paste0(
@@ -442,6 +443,57 @@ setwfdb(".")
 wfdbquit()
 wfdbx_set_legacy(FALSE)
 wfdbverbose()
+
+# ---------------------------------------------------------------------------
+# Other URL schemes: a name with a URL scheme other than http:// and https://
+# is refused (with a message, once), with or without network access, and is
+# never opened as a local name: ftp:/h/sr.hea (the local path that the name
+# ftp://h/sr would designate) is not read
+
+if (.Platform$OS.type != "windows") {     # (':' cannot be in a file name)
+  SCHEME <- paste0("WFDB-x: can't open %s: only http:// and https:// URLs can be read ",
+                   "(mount the server as a local folder, or download the files)\n")
+  defaults()
+  make_sr("ftp:/h")
+  wfdbx_set_network(1)
+  wfdbquiet()
+  wfdb_error("z\n")
+  expect_equal(wfdbfile("hea", "ftp://h/sr"), NULL, "scheme: not opened")
+  expect_equal(wfdberror(), sprintf(SCHEME, "ftp://h/sr.hea"), "scheme: message")
+  expect_equal(nsig("ftp://h/sr"), -1, "scheme: isigopen")
+  expect_equal(wfdberror(), "init: can't open header for record ftp://h/sr\n",
+               "scheme: the usual message")
+  wfdb_error("z\n")
+  expect_equal(wfdbfile("hea", "sftp://h/sr"), NULL, "scheme: sftp:// not opened")
+  expect_equal(wfdberror(), "z\n", "scheme: message once")
+  expect_equal(list(wfdbx_input_path("ftp://h/sr.hea"), wfdbx_output_path("ftp://h/x.wav"),
+                    wfdbx_set_input_dir("ftp://h"), nsig("sr")),
+               list(NULL, NULL, NULL, -1), "scheme: paths and input directory")
+  wfdbverbose()
+  # an output directory with a URL scheme is refused
+  defaults()
+  wfdbquiet()
+  expect_equal(wfdbx_set_output_dir("ftp://h/out"), NULL, "scheme: output dir refused")
+  expect_equal(wfdberror(), "wfdbx_set_output_dir: the output directory must be a local directory\n",
+               "scheme: output dir message")
+  # a one-letter prefix is not a scheme (a local directory c:)
+  make_sr("c:")
+  expect_equal(nsig("c://sr"), 2, "scheme: one letter is not a scheme")
+  wfdbquit()
+  # legacy mode refuses every name containing ://, without a message
+  defaults()
+  wfdbx_set_legacy(TRUE)
+  wfdbquiet()
+  wfdb_error("z\n")
+  expect_equal(wfdbfile("hea", "ftp://h/sr"), NULL, "scheme: legacy")
+  expect_equal(wfdberror(), "z\n", "scheme: legacy, no message")
+  expect_equal(nsig("ftp://h/sr"), -1, "scheme: legacy isigopen")
+  expect_equal(wfdberror(), "init: can't open header for record ftp://h/sr\n",
+               "scheme: legacy message")
+  wfdbquit()
+  wfdbx_set_legacy(FALSE)
+  wfdbverbose()
+}
 
 # ---------------------------------------------------------------------------
 # High-level options (local)
@@ -532,7 +584,9 @@ if (!nzchar(py)) {
   wfdbx_set_input_dir(url)
   expect_equal(unname(read_record("100s", sampto = 1)$signals), matrix(c(995, 1011), 1),
                "network: URL input dir")
-  expect_equal(length(reqs()), 5L, "network: cached")
+  # the files read are kept; the .info files, which could not be read, are
+  # requested again
+  expect_equal(reqs()[-(1:5)], c("/100s.info", "/100s.inf"), "network: cached")
   expect_equal(wfdbfile("hea", "100s"), paste0(url, "100s.hea"), "network: wfdbfile")
   wfdbx_set_input_dir(sub("/$", "", url))
   expect_equal(wfdbfile("hea", "100s"), paste0(url, "100s.hea"), "network: one separator")
@@ -554,7 +608,7 @@ if (!nzchar(py)) {
   check(startsWith(wfdberror(), "isigopen: none of the signals"), "network: containment message")
   n <- length(reqs())
   check(nzchar(errmsg(read_record("nosuch"))), "network: 404 again")
-  expect_equal(length(reqs()), n, "network: failures are cached")
+  expect_equal(reqs()[-seq_len(n)], "/www/nosuch.hea", "network: failures are not cached")
   check(!any(c("/100s.dat", "/www/../100s.dat") %in% reqs()[-(1:5)]), "network: nothing outside")
   wfdbverbose()
   wfdbx_set_input_dir(NULL)

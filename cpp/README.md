@@ -6,7 +6,7 @@
 > MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
 > identical results to the original C package and to each other. This is the
 > C++ implementation.
-> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> [Website (wfdb-x.org) and the other languages](https://wfdb-x.org)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
 > · [User's manual (PDF)](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/user-manual/wfdb-x-user-manual.pdf)
@@ -66,7 +66,12 @@ cmake --install cpp/build --prefix /usr/local    # optional
 
 The library is `cpp/build/libwfdbx.a` and the tools are in `cpp/build/bin/`.
 The install step copies the library, the headers (`include/wfdbx/`), the
-tools and a CMake package file. These options change what is built:
+tools, the CMake package files (`lib/cmake/wfdbx/`, or `lib64/cmake/wfdbx/` on
+the systems whose library directory is `lib64`: `wfdbxConfig.cmake` and
+`wfdbxConfigVersion.cmake`) and the license files `LICENSE`, `LICENSE-GPL`
+and `NOTICE` (to `share/doc/wfdbx/`; see
+[Authors and license](#authors-and-license)). These options change what is
+built:
 
 | Option | Default | Effect |
 |---|---|---|
@@ -78,9 +83,13 @@ To use the installed library from a CMake project, add these lines to its
 `CMakeLists.txt`:
 
 ```cmake
-find_package(wfdbx REQUIRED)
+find_package(wfdbx 1.2.2 CONFIG REQUIRED)
 target_link_libraries(myprogram PRIVATE wfdbx::wfdbx)
 ```
+
+The version is optional; any later version of the same major version is
+accepted. The headers need C++17, which the `wfdbx::wfdbx` target requires
+of the programs that link to it, whatever their own `CMAKE_CXX_STANDARD`.
 
 To compile a program directly, link it with `-lwfdbx`:
 
@@ -192,12 +201,21 @@ The result is a `Record`:
 | `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
 | `base_time_ms` | start time in milliseconds after midnight, such as `50403500` for 14:00:03.500 |
 | `base_date` | start date as `{year, month, day}` |
-| `comments` | the info strings of the header |
+| `comments` | the info strings of the header: its lines that begin with `#` after the record line, without the `#` (see below), and the lines of a `.info` file |
 | `checksum_ok` | `false` if the data do not match the header's checksums |
 
 `base_time`, `base_time_ms` and `base_date` are `std::nullopt` when the
 header does not give them, and so are the `units` of a signal. Invalid
 samples are `WFDB_INVALID_SAMPLE`, or NaN in physical units.
+
+The record line of a header is found as the header parser of the library
+finds it: the first line that holds something other than spaces, tabs, CRs
+and LFs and does not begin (after them) with `#`. Comment lines before it,
+even after an empty or blank first line, are not info strings, and a header
+without a record line has none. (The C function `getinfo` took an empty or
+blank first line for the record line, and returned the comments that
+follow it; legacy mode keeps that rule. The same rule gives the notes of
+`wfdbdesc`.)
 
 ### Reading a header: `read_header`
 
@@ -236,8 +254,11 @@ The full signature is
 `read_annotations(record, annotator, from, to, fs, legacy, input)`.
 `annotator` is the file suffix (`"atr"` reads `100s.atr`). The optional `fs`
 gives the sampling frequency when the record has no header, or its header
-gives none. `input` is an `InputOptions`, as for `read_header`. The result
-is an `Annotations` object, in file order:
+gives none. `input` is an `InputOptions`, as for `read_header`. A negative
+sample number in `from` throws `wfdbx::Error` ("read_annotations: from must
+not be negative") before anything is opened; a time string gives a positive
+sample number. The annotation file is closed (`wfdbquit()`) whatever
+happens. The result is an `Annotations` object, in file order:
 
 | Member | Contents |
 |---|---|
@@ -268,7 +289,9 @@ w.names = {"A", "B"};
 wfdbx::write_record_physical("rand", x, 2, 360, w);
 ```
 
-This writes the header `rand.hea` and the signal file `rand.dat`. The
+This writes the header `rand.hea` and the signal file `rand.dat`. A
+trailing `.hea` of the record name is removed, as by the readers
+(`write_record("rand.hea", ...)` also writes `rand.hea` and `rand.dat`). The
 samples are given frame by frame, as in `Record::samples`. The sampling
 frequency, the gain and ADC resolution of each signal, and the units of each
 calibrated signal are required; there are no defaults. A gain of 0 marks a
@@ -276,6 +299,24 @@ signal as uncalibrated, which is only allowed for samples given in ADC
 units; negative gains are allowed. The sampling frequency and the gains must
 be finite. Per-signal fields take one value for all signals, or one value
 per signal; any other length throws `wfdbx::Error`.
+
+Every argument is checked before any file is touched, in this order: the
+record name, `samps_per_frame`, the number of signals, the lengths of the
+per-signal fields, the gains, the ADC resolutions (each at least 1: "ADC
+resolution(s) must be specified"), the units, the gains of a record in
+physical units, the sampling frequency, the finiteness of the gains, the
+base time, the samples (whole frames, and, for `write_record_physical`,
+values that fit in an ADC value), and the metadata. The ADC resolutions,
+zeros and baselines are `int`s, and the text is bytes, so that any value of
+these types can be written. Existing files of the same names are replaced:
+the header and the signal file are written to temporary files in their
+directories (`.NAME.XXXXXXXX.tmp`, readable by their owner only while they
+are written), which replace the existing files only when both are complete,
+with the permissions of the files they replace (or, for a new file, 0666
+less the umask). An error leaves the existing files as they were, and no
+temporary file. For a symbolic link, the file it leads to is replaced; an
+existing file that is not a regular file (a device such as `/dev/full`, a
+FIFO) is written directly.
 
 | Field of `WriteOptions` | Meaning |
 |---|---|
@@ -301,8 +342,10 @@ wfdbx::write_annotations("rand", "qrs", qrs);
 ```
 
 The full signature is `write_annotations(record, annotator, ann, fs, dir,
-sort)`. Give the annotation types as `symbols` or as `codes`. Both may be
-given, as `read_annotations` returns them, if they agree: each non-empty
+sort)`. The annotation types are given as `symbols` or as `codes`; one of
+them is required when there is at least one annotation ("symbols or codes
+must be given"), and with no annotations an empty file is written. Both may
+be given, as `read_annotations` returns them, if they agree: each non-empty
 symbol must be the mnemonic of the code at the same position (otherwise
 "symbols and codes disagree at annotation K", K counted from 0). `subtypes`,
 `chans`, `nums` and `aux` are optional. Each of these fields is either empty
@@ -315,7 +358,20 @@ restored). `dir` is the directory (which must exist) in which to create the
 file, for that call only; the record name must then be a plain name, and the
 file is `DIR/RECORD.ANNOTATOR`. Without `dir`, the file is created as the
 record name says (see [Record names](#record-names)). The arguments are
-checked before the file is created.
+checked before the file is touched: the field lengths, the presence of
+`symbols` or `codes`, `fs`, the times, the
+codes, then the agreement of symbols and codes. A time must be from
+-9223372036854775807 to 9223372036854775806 (the smallest and largest 64-bit
+integers are reserved by the file format: "annotation time T cannot be
+written ..."), and a code from 0 to 58: 59 to 63 are the control codes of
+the annotation file format ("annotation code C is reserved (59 to 63 are
+the control codes of the annotation file format)"), and other values are
+"out of range (0 to 58)". An existing file is replaced as by
+`write_record`: the new file is written to a temporary file in the same
+directory, which replaces it only when it is complete (and sorted, if
+needed), so that an error leaves it as it was. An error that `putann`
+reports, or a write error, throws "write error on annotator ANN for record
+REC".
 
 If the annotations are not in time order, the file is sorted when it is
 written. `sort = false` keeps the given order (without the library's
@@ -341,7 +397,11 @@ wfdbx::update_metadata("rec", {{"Age", "65"}, {"Dx", std::nullopt}});
 ```
 
 * **Reading.** An entry is a comment line after the record line (an info
-  string, as the C function `getinfo` reads it) that contains a colon. The
+  string, as `getinfo` reads it) that contains a colon. The record line is
+  the first line that holds something other than spaces, tabs, CRs and LFs
+  and does not begin, after them, with `#`, in every mode (so comment lines
+  before it, even after an empty or blank first line, are never read or
+  changed). The
   key is the text before the first colon, the value the rest of the line,
   both without spaces at either end: `#Age:45`, `# Age: 45` and
   `#  Age : 45` all give `{"Age", "45"}`. Comment lines without a colon are
@@ -410,8 +470,14 @@ text, exactly as given, and does not de-identify it. The comments of
 * A record, header or annotation file that cannot be read or written throws
   `wfdbx::Error`, such as "can't read record nosuchrecord". `e.what()`
   returns the message.
-* A signal file that is shorter than its header says throws `wfdbx::Error`:
-  "can't read signal data of record REC (getvec status -3)".
+* A signal file that is shorter than its header says, or that cannot be
+  read or decoded, throws `wfdbx::Error`: "can't read signal data of record
+  REC (getvec status -3)", also when the checksums do not match either (the
+  frame in which the file ends is the one at which they are verified). An
+  incomplete frame is never returned, and the library still prints
+  "getvec: unexpected EOF in signal N". `check_record` reports such a file
+  as `length_short` ("the signal files end after N frames, before the M
+  given in the header").
 * An annotation file that ends early or cannot be read throws
   `wfdbx::Error`: "can't read annotation file ANN of record REC (getann
   status S)". A read that stops (at `to`) before the damaged part returns
@@ -427,24 +493,36 @@ text, exactly as given, and does not de-identify it. The comments of
   in its header". `checksum_warning = false` turns the warning off;
   `rec.checksum_ok` is `false` either way. Checksums are only checked when a
   read reaches the end of the record.
-* `write_record` throws `wfdbx::Error` if a `samps_per_frame` value is less
-  than 1 ("write_record: samps_per_frame must hold integers >= 1", checked
-  before anything else), if the record name is empty, if there are no
-  signals ("write_record: at least one signal is required"), if the number
-  of samples is not a multiple of the frame size, or if `base_time` is not
-  a valid time ("write_record: incorrect base time 'T'"), or if an entry
-  of `metadata` is not valid (`wfdbx::ArgumentError`).
+* `write_record` throws `wfdbx::Error` if the record name is empty, if a
+  `samps_per_frame` value is less than 1 ("write_record: samps_per_frame
+  must hold integers >= 1"), if there are no signals ("write_record: at
+  least one signal is required"), if an ADC resolution is missing or less
+  than 1 ("write_record: ADC resolution(s) must be specified"), if
+  `base_time` is not a valid time ("write_record: incorrect base time
+  'T'"), if the number of samples is not a multiple of the frame size, or
+  if an entry of `metadata` is not valid (`wfdbx::ArgumentError`).
   `write_record_physical` also throws if a sample is infinite or out of the
   range of a 32-bit ADC value (NaN is stored as an invalid sample). Nothing
-  is written then.
+  is written then, and the existing files are left as they were (see the
+  order of the checks above).
+* `write_annotations` throws `wfdbx::Error` if there is at least one
+  annotation and neither `symbols` nor `codes` is given
+  ("write_annotations: symbols or codes must be given"), and for a reserved
+  time or code ("write_annotations: annotation time T cannot be written (annotation
+  times must be integers from -9223372036854775807 to
+  9223372036854775806)", "write_annotations: annotation code C is reserved
+  (59 to 63 are the control codes of the annotation file format)",
+  "... is out of range (0 to 58)"), before the file is touched.
 * `read_record` throws `wfdbx::Error` if `from` is negative. `write_record` and `write_annotations` throw
   `wfdbx::Error` when a file cannot be written completely, for example on a
   full disk: "write error on record REC", "write error on annotator ANN for
-  record REC" (also in legacy mode).
+  record REC" (also in legacy mode). The existing files are then left as
+  they were (unless the destination is a device or a FIFO, written
+  directly).
 * A tool, or a program that uses the WFDB library functions, never writes a
   signal file over one of the signal files it is reading. Opening such an
   output fails with "output file NAME is also an input file".
-  `write_record` reads nothing, so it overwrites any existing files of the
+  `write_record` reads nothing, so it replaces any existing files of the
   same name.
 
 The messages of the library are printed on the standard error.
@@ -571,8 +649,8 @@ The signal files that a header names are read from the header's directory.
 
 ### Record names
 
-A record name is given without the `.hea` extension (the readers also
-accept a trailing `.hea`; `write_record` does not). It is one of:
+A record name is given without the `.hea` extension (the readers and
+`write_record` also accept a trailing `.hea`, which is removed). It is one of:
 
 * a full path, absolute (`/data/mitdb/100`) or in the home directory
   (`~/Documents/100s`), used as given;
@@ -617,9 +695,14 @@ opt.network = true;
 wfdbx::Record rec = wfdbx::read_record("100", opt);
 ```
 
-Network access uses the `curl` program, which must be installed. Remote
-files are read once and kept until the program ends. A download gives up
-when it cannot connect, or receives nothing, for 30 seconds.
+Network access uses the `curl` program, which must be installed. A remote
+file that has been read is kept for the rest of the session; one that could
+not be read is requested again the next time it is opened. A download gives
+up when it cannot connect, or receives nothing, for 30 seconds. Only
+`http://` and `https://` URLs can be read: a name that begins with another
+URL scheme, such as `ftp://` or `sftp://`, is refused, with or without
+network access, and never read as a local file name (mount the server as a
+local folder, e.g. with sshfs or rclone, or download the files).
 
 ## Signal parameters
 
@@ -799,7 +882,7 @@ describes what changes in legacy mode.
 From the root of the repository, after building:
 
 ```sh
-ctest --test-dir cpp/build                                  # unit tests
+(cd cpp/build && ctest)                                     # unit tests
 python3 tests/conformance/harness.py check --impl cpp -j8   # conformance suite
 ```
 
@@ -844,5 +927,11 @@ included, may use it on the LGPL's terms. The command-line tools (the
 package, are distributed under the GNU General Public License, version 3 or
 (at your option) any later version
 ([LICENSE-GPL](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE-GPL)). Each source file states its license.
+The FLAC decoder (`src/flac.cpp`, `src/flac.hpp`) is a translation of the
+stream decoder of libFLAC, whose BSD-3-Clause notice it carries. The file
+[NOTICE](https://github.com/alphanumericslab/wfdb-x/blob/main/NOTICE)
+gives these licenses and libFLAC's notice; `cmake --install` installs it
+with `LICENSE` and `LICENSE-GPL` in `share/doc/wfdbx/`, and a distribution
+of the library or the tools must include them.
 
 <!-- {% endraw %} -->

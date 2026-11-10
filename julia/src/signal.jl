@@ -309,6 +309,15 @@ mutable struct SigState
     # message is then not printed: the reader warns instead)
     cksum_quiet::Bool
 
+    # WFDB-x: set by getskewedframe when a sample cannot be read (getvec
+    # status -3: a signal file that ends before the length that its header
+    # gives, a decoder or I/O error, a segment that cannot be opened),
+    # whatever status getvec then returns (a checksum error, -4, found in
+    # the same frame replaces -3). The high-level readers clear it before
+    # reading and treat it as a read error; the C-style functions only set
+    # it.
+    read_failed::Bool
+
     # WFDB-x: work space of the bulk reader (the frames read, the frames of
     # the layout of a variable-layout record, and a tile of decoded samples)
     bframes::Vector{Int32}
@@ -329,7 +338,7 @@ SigState() = SigState(
     0,
     false,
     nothing, nothing, nothing, false,
-    false,
+    false, false,
     Int32[], Int32[], Int32[])
 
 # ---------------------------------------------------------------------------
@@ -2242,9 +2251,11 @@ function getskewedframe(w::Wfdb, vecstart::Vector{Int32}, off::Int)
                 if ig.stat == -2
                     # error in decoding compressed data
                     stat = Int32(-3)
+                    st.read_failed = true       # WFDB-x (see SigState)
                 elseif info.nsamp > 0
                     wfdb_error(w, "getvec: unexpected EOF in signal %d\n", Int32(s - 1))
                     stat = Int32(-3)
+                    st.read_failed = true
                 elseif st.in_msrec != 0 && st.have_segarray && st.segp >= 0 && st.segp < st.segend
                     info.cksum = cksum
                     switch = true
@@ -2277,6 +2288,7 @@ function getskewedframe(w::Wfdb, vecstart::Vector{Int32}, off::Int)
         name = copy(st.segarray[st.segp+1].recname)
         if isigopen(w, name, nothing, st.nvsig) <= 0
             wfdb_error(w, "getvec: error opening segment %s\n", name)
+            st.read_failed = true               # WFDB-x (see SigState)
             return Int32(-3)    # avoid looping if segment is bad
         end
         st.istime = st.segarray[st.segp+1].samp0
@@ -3839,9 +3851,14 @@ As [`getvecs`](@ref), also returning the value returned by the last
 read (-1 at the end of the data, `< -1` on an error, e.g. -3 for an
 unexpected end of file), or the number of values per vector if all `n` were
 read (0 if `n <= 0`). (An addition to the C library.) With
-`keep_checksum_frame=true` (WFDB-x, for the high-level reader), the vector
+`keep_checksum_frame=true` (WFDB-x, for the high-level readers), the vector
 for which `getvec` returns -4 (a checksum error: it was read completely, it
-is the last one of the record) is included in the count and in `out`.
+is the last one of the record) is included in the count and in `out`; but
+if a sample could not be read (the library's `read_failed` flag, which the
+caller clears before reading, is set), that vector is not included,
+whatever status `getvec` returned, and the status is -3 (`getvec` returns
+-4 for a frame in which a signal file ended early, if the checksum of a
+signal is verified at that frame).
 
 Part of WFDB-x; not in the original WFDB package.
 """
@@ -3886,6 +3903,11 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
                 # (the caller's array is too short for another vector)
                 tmp = zeros(Int32, need)
                 stat = getframe_at(w, tmp, 0)
+                if keep_checksum_frame && st.read_failed
+                    # WFDB-x: an incomplete frame is never returned
+                    (stat == -4 || stat >= -1) && (stat = Int32(-3))
+                    break
+                end
                 keep = stat == -4 && keep_checksum_frame
                 stat < 0 && !keep && break
                 m = min(max(length(out) - pos, 0), stride)
@@ -3896,6 +3918,11 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
                 continue
             end
             stat = getframe_at(w, out, pos)
+            if keep_checksum_frame && st.read_failed
+                # WFDB-x: an incomplete frame is never returned
+                (stat == -4 || stat >= -1) && (stat = Int32(-3))
+                break
+            end
             if stat < 0
                 # WFDB-x: the frame of a checksum error is complete
                 (stat == -4 && keep_checksum_frame) && (k += 1)
@@ -3929,6 +3956,10 @@ function _getvecs_into(w::Wfdb, out::Vector{Int32}, off::Int, n::Int64, keep_che
                 end
             end
             stat = _call_at(getvec_at, w, out, pos)
+            if keep_checksum_frame && st.read_failed
+                (stat == -4 || stat >= -1) && (stat = Int32(-3))
+                break
+            end
             if stat < 0
                 (stat == -4 && keep_checksum_frame) && (k += 1)
                 break
@@ -4826,6 +4857,17 @@ function putinfo(w::Wfdb, s::ByteStr)
     Int32(0)
 end
 
+# WFDB-x: true if readheader skips the line when it looks for the record
+# line: the line (up to its first NUL byte) has no token (separated by
+# spaces, tabs, CRs and LFs), or its first token begins with '#'.
+function _comment_or_blank(line::AbstractVector{UInt8})
+    for c in cstr(line)
+        (c == UInt8(' ') || c == UInt8('\t') || c == UInt8('\n') || c == UInt8('\r')) && continue
+        return c == UInt8('#')
+    end
+    true
+end
+
 # Save an info string: the line after its initial '#', without its line
 # ending, up to its first null character.
 function _save_info!(st::SigState, b::Vector{UInt8})
@@ -4846,8 +4888,17 @@ strings of the record (from its header and `.info` file) and return the
 first; with `nothing`, return the next one. `nothing` when there are no
 more.
 
+The record line is found as the header parser (`readheader`) finds it: the
+first line that has a token (separated by spaces, tabs, CRs and LFs, up to
+a NUL byte) that does not begin with `#`; every later line that begins with
+`#` is an info string, and a header with no record line has none.
+
 Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0): same
-arguments and results.
+arguments and results, except for the record line (WFDB-x): the C function
+takes the first line that does not begin with `#`, so that an empty or
+blank line before the record line is taken for it, and the comments
+between them are returned as info strings. In legacy mode, the C rule
+applies; see docs/DIVERGENCES.md.
 """
 function getinfo(w::Wfdb, record::OptByteStr)
     st = w.sig
@@ -4882,13 +4933,25 @@ function getinfo(w::Wfdb, record::OptByteStr)
                 # contents when the end of the file is reached.
                 buf = UInt8[]
                 line = UInt8[]
+                legacy = wfdbx_get_legacy(w) != 0
+                found = false
                 while getline!(ifile, line) > 0
                     buf = copy(line)
-                    buf[1] != UInt8('#') && break     # skip initial comments
+                    if legacy
+                        buf[1] != UInt8('#') && break     # skip initial comments
+                    elseif !_comment_or_blank(buf)
+                        # WFDB-x: the record line, as readheader finds it
+                        found = true
+                        break
+                    end
                 end
-                while getline!(ifile, line) > 0
-                    buf = copy(line)
-                    buf[1] == UInt8('#') && break     # skip header content
+                if !legacy && !found
+                    buf = UInt8[]       # WFDB-x: no record line, no info
+                else
+                    while getline!(ifile, line) > 0
+                        buf = copy(line)
+                        buf[1] == UInt8('#') && break     # skip header content
+                    end
                 end
                 while !isempty(buf) && buf[1] != 0x00
                     # read and save info

@@ -5,7 +5,9 @@ Every test case runs one WFDB command-line tool in a fresh copy of
 tests/data, and records its standard output, standard error, exit status,
 and any files it creates or modifies.  HOME is the subdirectory home of that
 work directory; a case that uses {url} also gets a local HTTP server
-(127.0.0.1) serving a copy of it.  The work directory, HOME and the URL of
+(127.0.0.1) serving a copy of it (a file under flaky/ on that server fails,
+with the status 503, the first time it is requested, and is then served as
+usual: a server that recovers).  The work directory, HOME and the URL of
 the server are written as {cwd}, {home} and {url} in the recorded outputs.
 A case can also name output files that are links to /dev/full, and send the
 standard output there, to test write errors (/dev/full fails every write;
@@ -155,16 +157,30 @@ def snapshot(d):
 
 class _Server:
     """A local HTTP server (127.0.0.1, a free port) serving directory d, in a
-    thread; base is its URL, ending in "/"."""
+    thread; base is its URL, ending in "/".  The first request for a path
+    under /flaky/ fails (503, service unavailable); later ones succeed."""
 
     def __init__(self, d):
         import functools
         import http.server
         import threading
 
+        failed = set()          # the /flaky/ paths requested once
+        lock = threading.Lock()
+
         class Handler(http.server.SimpleHTTPRequestHandler):
             def log_message(self, *args):
                 pass
+
+            def do_GET(self):
+                if self.path.startswith("/flaky/"):
+                    with lock:
+                        first = self.path not in failed
+                        failed.add(self.path)
+                    if first:
+                        self.send_error(503)
+                        return
+                super().do_GET()
 
         self.httpd = http.server.ThreadingHTTPServer(
             ("127.0.0.1", 0),

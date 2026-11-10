@@ -26,12 +26,16 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <map>
 #include <random>
 #include <string>
 #include <vector>
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
 
 using namespace wfdbx;
 namespace fs = std::filesystem;
@@ -408,14 +412,32 @@ WFDBX_TEST(write_record_requires_gains)
     CHECK(slurp("g.hea").find("g.dat 16 0 16 0 1 ") != std::string::npos);
     CHECK_EQ(error_of([&] { write_record_physical("g", p, 2, 100, w); }),
              "write_record: signal 1 is uncalibrated");
-    // The sampling frequency must be > 0.
+    // The sampling frequency must be > 0 (checked after the units).
     w.gains = {100};
+    w.units = {"mV"};
     for (double fs : {0.0, -1.0}) {
         CHECK_EQ(error_of([&] { write_record("g", x, 2, fs, w); }),
                  "write_record: the sampling frequency must be > 0");
         CHECK_EQ(error_of([&] { write_record_physical("g", p, 2, fs, w); }),
                  "write_record: the sampling frequency must be > 0");
     }
+}
+
+// A trailing ".hea" is removed, as by the readers (1.2.2).
+WFDBX_TEST(write_record_trailing_hea)
+{
+    DataDir d;
+    std::vector<WFDB_Sample> x = {1, 2, 3};
+    WriteOptions w;
+    w.gains = {200};
+    w.adcres = {16};
+    w.units = {std::string("mV")};
+    write_record("th.hea", x, 1, 250, w);
+    CHECK(fs::exists("th.hea") && fs::exists("th.dat"));
+    CHECK(!fs::exists("th.hea.dat"));
+    CHECK(read_record("th").samples == x);
+    CHECK_EQ(error_of([&] { write_record("", x, 1, 250, w); }),
+             "write_record: the record name must not be empty");
 }
 
 // No built-in ADC resolution or units (WFDB-x divergence, round 2).
@@ -1277,6 +1299,20 @@ WFDBX_TEST(write_annotations_field_lengths)
     CHECK(r.codes[1] == PVC && r.nums[2] == 2);
 }
 
+// A label is required for each annotation; with no annotations, an empty
+// file is written (1.2.2).
+WFDBX_TEST(write_annotations_labels_required)
+{
+    DataDir d;
+    Annotations a;
+    a.samples = {100, 460};
+    CHECK_EQ(error_of([&] { write_annotations("100s", "lbl", a); }),
+             "write_annotations: symbols or codes must be given");
+    CHECK(!fs::exists("100s.lbl"));
+    write_annotations("100s", "lbl", Annotations{});
+    CHECK(read_annotations("100s", "lbl").size() == 0);
+}
+
 // subtypes, chans and nums are stored in 8 bits, as C stores them (the
 // expected bytes are those written by the C tool wrann for the same
 // annotations).
@@ -1659,4 +1695,485 @@ WFDBX_TEST(highlevel_keeps_gvmode)
         setafreq(0.0);
     }
     setgvmode(gvmode);
+}
+
+// ---------------------------------------------------------------------------
+// WFDB-x 1.2.2: truncated records, writer checks, record line (the
+// counterparts of the tests of the same names in python/tests/test_signals.py
+// and test_annotations.py)
+
+namespace {
+
+void write_bytes(const std::string &name, const std::string &data)
+{
+    std::ofstream f(name, std::ios::binary);
+    f << data;
+}
+
+// The contents of every regular file of the current directory.
+std::map<std::string, std::string> dir_files()
+{
+    std::map<std::string, std::string> m;
+    for (const auto &e : fs::directory_iterator("."))
+        if (e.is_regular_file())
+            m[e.path().filename().string()] = slurp(e.path().string());
+    return m;
+}
+
+// True if a temporary file (*.tmp) is in the current directory.
+bool tmp_left()
+{
+    for (const auto &e : fs::directory_iterator("."))
+        if (e.path().extension() == ".tmp") return true;
+    return false;
+}
+
+} // namespace
+
+// A format-16 file holding the samples 1 and 2, whose header gives 3
+// samples: getvec reports the unexpected end of file (-3), and then the
+// checksum error (-4) of the frame at which the checksum is verified, whose
+// status replaces -3.  read_record throws the read error, and never returns
+// the incomplete frame.
+WFDBX_TEST(read_record_truncated_frame_with_checksum)
+{
+    DataDir d;
+    write_bytes("tr.dat", std::string("\1\0\2\0", 4));
+    write_bytes("tr.hea", "tr 1 250 3\ntr.dat 16 200 16 0 1 0 0 s\n");
+    for (bool legacy : {false, true}) {
+        ReadOptions o;
+        o.legacy = legacy;
+        std::string msg, out;
+        {
+            wfdbx_tests::StderrCapture cap;
+            msg = error_of([&] { read_record("tr", o); });
+            out = cap.text();
+        }
+        CHECK_EQ(msg, "can't read signal data of record tr (getvec status -3)");
+        CHECK(out.find("getvec: unexpected EOF in signal 0") !=
+              std::string::npos);
+        CHECK(library_clean());
+        // the frames before it are read when `to` stops before it
+        o.to = 2;
+        CHECK(read_record("tr", o).samples == (std::vector<WFDB_Sample>{1, 2}));
+    }
+    // the C-style getvec keeps the C behavior: -4 for the incomplete frame
+    wfdbquiet();
+    WFDB_Siginfo si;
+    REQUIRE(isigopen("tr", &si, 1) == 1);
+    WFDB_Sample v[1];
+    CHECK(getvec(v) == 1 && v[0] == 1);
+    CHECK(getvec(v) == 1 && v[0] == 2);
+    CHECK_EQ(getvec(v), -4);
+    wfdbquit();
+    // ... and so does getvecs, outside the high-level readers
+    REQUIRE(isigopen("tr", &si, 1) == 1);
+    std::vector<WFDB_Sample> buf(8);
+    int stat = 0;
+    CHECK_EQ(getvecs(buf.data(), 8, &stat), 2LL);
+    CHECK_EQ(stat, -4);
+    wfdbquit();
+    wfdbverbose();
+    // check_record reports the short file, not a checksum error
+    CheckReport rep = check_record("tr");
+    std::vector<std::string> errors;
+    for (const Issue &i : rep.issues)
+        if (i.severity == "error") errors.push_back(i.code);
+    CHECK(errors == std::vector<std::string>{"length_short"});
+    CHECK(rep.to_string().find("the signal files end after 2 frames, before "
+                               "the 3 given in the header") !=
+          std::string::npos);
+    // a checksum error alone (all samples read) is still a warning
+    write_bytes("tr.hea", "tr 1 250 2\ntr.dat 16 200 16 0 1 0 0 s\n");
+    Record r;
+    {
+        wfdbx_tests::StderrCapture cap;
+        r = read_record("tr");
+        CHECK(cap.text().find("checksum error in record tr") !=
+              std::string::npos);
+    }
+    CHECK(r.samples == (std::vector<WFDB_Sample>{1, 2}) && !r.checksum_ok);
+    CHECK(library_clean());
+}
+
+// A header that gives 10^12 samples for a signal file of 4 bytes: the reader
+// allocates no more than it can read, and reports the short file as a read
+// error; a long record without a length is read whole.
+WFDBX_TEST(read_record_bounded_allocation)
+{
+    DataDir d;
+    write_bytes("big.dat", std::string("\1\0\2\0", 4));
+    write_bytes("big.hea",
+                "big 1 250 1000000000000\nbig.dat 16 200 16 0 0 0 0 s\n");
+    wfdbquiet();
+    CHECK(error_of([] { read_record("big"); }).find("getvec status -3") !=
+          std::string::npos);
+    ReadOptions o;
+    o.to = 2;
+    CHECK(read_record("big", o).samples == (std::vector<WFDB_Sample>{1, 2}));
+    o.to = static_cast<WFDB_Time>(1000000000000LL);
+    CHECK(error_of([&] { read_record("big", o); }).find("getvec status -3") !=
+          std::string::npos);
+    wfdbverbose();
+    std::vector<WFDB_Sample> x(300000);
+    for (size_t i = 0; i < x.size(); i++) x[i] = static_cast<int>(i % 30000);
+    write_record("long", x, 3, 100, mv_write_options());
+    std::string h = slurp("long.hea");
+    size_t p = h.find("long 3 100 100000");
+    REQUIRE(p != std::string::npos);
+    h.replace(p, 17, "long 3 100");     // (no length: grows from a chunk)
+    write_bytes("long.hea", h);
+    Record r = read_record("long");
+    CHECK(r.nsamples() == 100000 && r.samples == x);
+}
+
+// Each invalid argument is refused before any file is touched: the existing
+// record is unchanged, and no temporary file is left.
+WFDBX_TEST(write_record_checks_before_writing_files)
+{
+    DataDir d;
+    std::vector<WFDB_Sample> x(10);
+    for (size_t i = 0; i < x.size(); i++) x[i] = static_cast<int>(i);
+    std::vector<double> p(10, 0.5);
+    WriteOptions ok = mv_write_options();
+    write_record("r", x, 2, 360, ok);
+    const auto before = dir_files();
+    struct Bad {
+        std::function<void(WriteOptions &)> set;
+        std::string msg;
+    };
+    const std::vector<Bad> bad = {
+        {[](WriteOptions &w) { w.adcres = {12, 0}; },
+         "write_record: ADC resolution(s) must be specified"},
+        {[](WriteOptions &w) { w.adcres = {}; },
+         "write_record: ADC resolution(s) must be specified"},
+        // (the ADC resolutions come before the units)
+        {[](WriteOptions &w) { w.adcres = {}; w.units = {}; },
+         "write_record: ADC resolution(s) must be specified"},
+        {[](WriteOptions &w) { w.units = {}; },
+         "write_record: units must be specified"},
+        {[](WriteOptions &w) { w.gains = {200, std::numeric_limits<double>::infinity()}; },
+         "write_record: gains must be finite"},
+        {[](WriteOptions &w) { w.base_time = "garbage"; },
+         "write_record: incorrect base time 'garbage'"},
+        {[](WriteOptions &w) { w.metadata = {{"", "x"}}; },
+         ""},   // (an ArgumentError: any message)
+        {[](WriteOptions &w) { w.names = {"a", "b", "c"}; },
+         "write_record: names must have one value for all signals or one "
+         "value per signal (2)"},
+    };
+    for (const Bad &b : bad) {
+        WriteOptions w = ok;
+        b.set(w);
+        wfdbquiet();
+        std::string e1 = error_of([&] { write_record("r", x, 2, 250, w); });
+        std::string e2 = error_of([&] {
+            write_record_physical("r", p, 2, 250, w); });
+        wfdbverbose();
+        if (b.msg.empty())
+            CHECK(!e1.empty() && e1 == e2);
+        else {
+            CHECK_EQ(e1, b.msg);
+            CHECK_EQ(e2, b.msg);
+        }
+        CHECK(dir_files() == before);
+        CHECK(!tmp_left());
+    }
+    // the samples (a partial frame) and the empty name
+    std::vector<WFDB_Sample> odd(5, 0);
+    CHECK_EQ(error_of([&] { write_record("r", odd, 2, 250, ok); }),
+             "write_record: the number of samples is not a multiple of the "
+             "frame size");
+    CHECK_EQ(error_of([&] { write_record("", x, 2, 250, ok); }),
+             "write_record: the record name must not be empty");
+    CHECK(dir_files() == before);
+    CHECK(library_clean());
+}
+
+// A failure while writing leaves the existing files intact: both files are
+// written to temporary files, renamed over them at the end.
+WFDBX_TEST(write_record_failure_leaves_files)
+{
+    DataDir d;
+    std::vector<WFDB_Sample> x(20);
+    for (size_t i = 0; i < x.size(); i++) x[i] = static_cast<int>(i);
+    WriteOptions w = mv_write_options();
+    std::vector<WFDB_Sample> old = {7, 8, 9, 10};
+    write_record("r", old, 2, 360, w);
+    for (bool legacy : {false, true}) {
+        w.legacy = legacy;
+        // the header cannot be written (a directory is in its way): the
+        // signal file is not replaced
+        fs::create_directory("q.hea");
+        wfdbquiet();
+        CHECK_EQ(error_of([&] { write_record("q", x, 2, 250, w); }),
+                 "can't create header for record q");
+        wfdbverbose();
+        CHECK(!fs::exists("q.dat"));
+        CHECK(!tmp_left());
+        fs::remove("q.hea");
+        // the header is written to a device on which every write fails: the
+        // existing signal file is left as it was
+        if (fs::exists(dev_full)) {
+            fs::copy_file("r.hea", "r.hea.save");
+            fs::remove("r.hea");
+            fs::create_symlink(dev_full, "r.hea");
+            const std::string dat = slurp("r.dat");
+            wfdbquiet();
+            CHECK_EQ(error_of([&] { write_record("r", x, 2, 250, w); }),
+                     "write error on record r");
+            wfdbverbose();
+            CHECK_EQ(slurp("r.dat"), dat);
+            CHECK(!tmp_left());
+            fs::remove("r.hea");
+            fs::rename("r.hea.save", "r.hea");
+            CHECK(read_record("r").samples == old);
+        }
+    }
+    w.legacy = false;
+    CHECK(library_clean());
+#if !defined(_WIN32)
+    // success: the files are those written in place before, with the
+    // permissions of the files they replace (a new file: 0666 less the
+    // umask)
+    fs::permissions("r.dat", static_cast<fs::perms>(0640));
+    write_record("r", x, 2, 250, w);
+    CHECK((fs::status("r.dat").permissions() & fs::perms::mask) ==
+          static_cast<fs::perms>(0640));
+    CHECK(read_record("r").samples == x);
+    mode_t m = umask(022);
+    write_record("n", x, 2, 250, w);
+    umask(m);
+    CHECK((fs::status("n.hea").permissions() & fs::perms::mask) ==
+          static_cast<fs::perms>(0644));
+    // a symbolic link: the file it leads to is replaced
+    fs::create_directory("t");
+    write_record("t/s", old, 2, 250, w);
+    fs::create_symlink("t/s.dat", "s.dat");
+    fs::create_symlink("t/s.hea", "s.hea");
+    write_record("s", x, 2, 250, w);
+    CHECK(fs::is_symlink("s.dat") && fs::is_symlink("s.hea"));
+    CHECK(read_record("t/s").samples == x);
+    CHECK(!tmp_left());
+#endif
+    // missing directories are created, as before
+    write_record("new/dir/rec", x, 2, 250, w);
+    CHECK(read_record("new/dir/rec").samples == x);
+}
+
+// Each invalid argument is refused before the existing annotation file is
+// touched (the reserved codes 59-63 corrupted it; the times -2^63 and
+// 2^63 - 1 were dropped, with putann's "time overflow" message).
+WFDBX_TEST(write_annotations_checks_before_writing_file)
+{
+    DataDir d;
+    Annotations good;
+    good.samples = {10, 20, 30};
+    good.symbols = {"N", "N", "N"};
+    write_annotations("100s", "qrs", good);
+    const auto before = dir_files();
+    const WFDB_Time tmin = std::numeric_limits<WFDB_Time>::min();
+    const WFDB_Time tmax = std::numeric_limits<WFDB_Time>::max();
+    struct Bad {
+        std::vector<WFDB_Time> samples;
+        std::vector<int> codes;
+        std::string msg;
+    };
+    std::vector<Bad> bad = {
+        {{tmin, 5, 6}, {}, "write_annotations: annotation time "
+         "-9223372036854775808 cannot be written (annotation times must be "
+         "integers from -9223372036854775807 to 9223372036854775806)"},
+        {{1, 5, tmax}, {}, "write_annotations: annotation time "
+         "9223372036854775807 cannot be written (annotation times must be "
+         "integers from -9223372036854775807 to 9223372036854775806)"},
+        {{1, 2, 3}, {-1, 1, 1}, "write_annotations: annotation code -1 is "
+         "out of range (0 to 58)"},
+        {{1, 2, 3}, {1, 64, 1}, "write_annotations: annotation code 64 is "
+         "out of range (0 to 58)"},
+        {{1, 2, 3}, {1, 300, 60}, "write_annotations: annotation code 300 is "
+         "out of range (0 to 58)"},
+    };
+    for (int c = 59; c <= 63; c++)
+        bad.push_back({{1, 2, 3}, {1, c, 1}, "write_annotations: annotation "
+                       "code " + std::to_string(c) + " is reserved (59 to 63 "
+                       "are the control codes of the annotation file "
+                       "format)"});
+    for (const Bad &b : bad) {
+        Annotations a;
+        a.samples = b.samples;
+        if (b.codes.empty())
+            a.symbols = {"N", "N", "N"};
+        else
+            a.codes = b.codes;
+        std::string err;
+        {
+            wfdbx_tests::StderrCapture cap;
+            err = error_of([&] { write_annotations("100s", "qrs", a); });
+            CHECK_EQ(cap.text(), "");
+        }
+        CHECK_EQ(err, b.msg);
+        CHECK(dir_files() == before);
+        CHECK(!tmp_left());
+    }
+    // (with symbols too, the codes are checked)
+    Annotations a;
+    a.samples = {1, 2, 3};
+    a.symbols = {"N", "", "N"};
+    a.codes = {1, 59, 1};
+    CHECK_EQ(error_of([&] { write_annotations("100s", "qrs", a); }),
+             "write_annotations: annotation code 59 is reserved (59 to 63 are "
+             "the control codes of the annotation file format)");
+    CHECK(dir_files() == before);
+    // code 58, and a time far from the previous one (SKIPs), can be written
+    Annotations e;
+    e.samples = {0, 1LL << 33};
+    e.codes = {58, 1};
+    write_annotations("100s", "ext", e);
+    Annotations r = read_annotations("100s", "ext");
+    CHECK(r.samples == e.samples && r.codes == e.codes);
+    CHECK(library_clean());
+}
+
+namespace {
+
+std::string sortann_dir()
+{
+#ifdef WFDBX_TOOLS_DIR
+    std::error_code ec;
+    if (fs::exists(fs::path(WFDBX_TOOLS_DIR) / "sortann", ec) ||
+        fs::exists(fs::path(WFDBX_TOOLS_DIR) / "sortann.exe", ec))
+        return WFDBX_TOOLS_DIR;
+#endif
+    return "";
+}
+
+} // namespace
+
+// A failure leaves the existing annotation file intact; an out-of-order
+// file is sorted (in this process, and in legacy mode by the sortann
+// program) and then replaces the existing one.
+WFDBX_TEST(write_annotations_failure_leaves_file)
+{
+    DataDir d;
+    Annotations a;
+    a.samples = {10, 20, 30};
+    a.symbols = {"N", "N", "N"};
+    write_annotations("100s", "qrs", a);
+    const auto before = dir_files();
+    // the destination is a directory
+    fs::create_directory("100s.dq");
+    Annotations v;
+    v.samples = {1, 2};
+    v.symbols = {"V", "V"};
+    wfdbquiet();
+    CHECK_EQ(error_of([&] { write_annotations("100s", "dq", v); }),
+             "can't create annotator dq for record 100s");
+    wfdbverbose();
+    CHECK(dir_files() == before);
+    CHECK(!tmp_left());
+    // out of order: sorted, then renamed over the existing file
+    Annotations o;
+    o.samples = {30, 10, 20};
+    o.symbols = {"N", "V", "N"};
+    wfdbquiet();
+    write_annotations("100s", "qrs", o);
+    wfdbverbose();
+    CHECK(read_annotations("100s", "qrs").samples ==
+          (std::vector<WFDB_Time>{10, 20, 30}));
+    CHECK(!tmp_left());
+    if (!sortann_dir().empty()) {
+        write_annotations("100s", "qrs", a);
+        wfdbx_tests::EnvVar path("PATH", sortann_dir().c_str());
+        int prev = wfdbx_set_legacy(1);
+        wfdbquiet();
+        write_annotations("100s", "qrs", o);
+        wfdbverbose();
+        wfdbx_set_legacy(prev);
+        CHECK_EQ(wfdberror(), "done!\n");
+        CHECK(read_annotations("100s", "qrs").samples ==
+              (std::vector<WFDB_Time>{10, 20, 30}));
+        CHECK(!tmp_left());
+    } else
+        std::fprintf(stderr, "(sortann not built: legacy sorting skipped)\n");
+    CHECK(library_clean());
+}
+
+// `from` is checked as read_record checks it, before the file is opened,
+// and the file is closed on every path.
+WFDBX_TEST(read_annotations_arguments)
+{
+    DataDir d;
+    Annotations ref = read_annotations("100s", "atr", 100, 2000);
+    CHECK(!ref.samples.empty());
+    CHECK(read_annotations("100s", "atr", WFDB_Time(100),
+                           WFDB_Time(2000)).samples == ref.samples);
+    CHECK_EQ(error_of([] { read_annotations("100s", "nosuch", -1); }),
+             "read_annotations: from must not be negative");
+    CHECK_EQ(error_of([] {
+                 read_annotations("100s", "nosuch", -1, {}, 0.0); }),
+             "read_annotations: from must not be negative");
+    // (a negative `to` is not an error: nothing is read)
+    CHECK(read_annotations("100s", "atr", 0, -1).samples.empty());
+    // the annotators are closed after an error
+    fs::remove("100s.hea");
+    CHECK_EQ(error_of([] { read_annotations("100s", "atr", {}, "0:1"); }),
+             "sampling frequency of record 100s is not specified");
+    CHECK(library_clean());
+    write_bytes("cut.atr", slurp("100s.atr").substr(0, 101));
+    wfdbquiet();
+    CHECK(error_of([] { read_annotations("cut", "atr", {}, {}, 360.0); })
+              .find("getann status -3") != std::string::npos);
+    wfdbverbose();
+    CHECK(library_clean());
+}
+
+// The record line is found as readheader finds it: the first line with a
+// token (separated by spaces, tabs, CRs and LFs) that does not begin with
+// '#'.  A comment before it is not an info string, even after an empty or
+// blank first line (C's getinfo took the empty line for the record line);
+// in legacy mode, the C rule applies.
+WFDBX_TEST(getinfo_record_line)
+{
+    DataDir d;
+    const std::string sig = "fmt16.dat 16 200 12 0 0 0 0 a\n";
+    std::string sig_crlf = sig;
+    sig_crlf.insert(sig_crlf.size() - 1, "\r");
+    using V = std::vector<std::string>;
+    struct Case {
+        std::string name, text;
+        V normal, legacy;
+    };
+    const std::vector<Case> cases = {
+        {"le", "\n# Age: 40\nle 1 250 10\n" + sig + "# Age: 63\n",
+         {" Age: 63"}, {" Age: 40", " Age: 63"}},
+        {"lw", " \t\r\n# Age: 40\r\nlw 1 250 10\r\n" + sig_crlf +
+         "# Age: 63\r\n", {" Age: 63"}, {" Age: 40", " Age: 63"}},
+        {"lc", "# first\n\n# Age: 40\n \t\n  # indented\nlc 1 250 10\n" + sig +
+         "# Age: 63\n#last\n", {" Age: 63", "last"},
+         {" Age: 40", " Age: 63", "last"}},
+        {"ln", "# only\n\n# comments\n", {}, {" comments"}},
+    };
+    for (const Case &c : cases) {
+        write_bytes(c.name + ".hea", c.text);
+        for (int legacy : {0, 1}) {
+            int prev = wfdbx_set_legacy(legacy);
+            V got;
+            for (auto s = getinfo(c.name.c_str()); s; s = getinfo(nullptr))
+                got.push_back(*s);
+            wfdbx_set_legacy(prev);
+            CHECK(got == (legacy ? c.legacy : c.normal));
+            wfdbquit();
+        }
+        if (c.name == "ln") continue;
+        CHECK(read_header(c.name).comments == c.normal);
+        CHECK(read_header(c.name, true).comments == c.legacy);
+        const Metadata age = {{"Age", "63"}};
+        CHECK(read_header(c.name).metadata == age);
+        CHECK(read_header(c.name, true).metadata == age);
+        CHECK(read_metadata(c.name) == age);
+        ReadOptions o;
+        o.legacy = true;
+        o.checksum_warning = false;
+        CHECK(read_record(c.name, o).comments == c.legacy);
+    }
 }

@@ -20,7 +20,7 @@ Notes for developers of the C++ implementation. Users should read
   metadata functions and their exceptions `ArgumentError` and `FileError`.
 * `tests/` holds the unit tests (`tests.hpp` is the test framework, and
   `http_server.hpp` the local HTTP server on 127.0.0.1 of the network
-  tests). `tests/test_metadata.cpp` runs the shared metadata cases of
+  tests). `tests/test_metadata.cpp` runs the 56 shared metadata cases of
   `../tests/metadata/cases.tsv`. Some tests run tools of the same build
   (`sortann`, and `wrsamp`, `mit2wav` and `mit2edf` for the files that the
   tools open themselves, in `tests/test_files.cpp`); CMake builds them
@@ -48,6 +48,43 @@ and 311 end each call on a whole packed unit.
 `wfdbx_set_bulk_read(false)` turns it off; the tests in `tests/test_bulk.cpp`
 use it to compare both paths.
 
+## Read errors of the high-level readers
+
+`getskewedframe` sets the flag `read_failed` (in `src/signal.cpp`) wherever
+it sets the status -3 (a decoder or I/O error, "unexpected EOF in signal
+N" with a known length, "error opening segment"), whatever status `getvec`
+then returns: a checksum error verified in the same frame gives -4, which
+replaces -3. `read_record` and `check_record` turn on
+`detail::wfdbx_set_read_checked` (which also clears the flag) while they
+read: `getvecs` then stops before a frame in which the flag is set, and
+returns the status -3 (if the status was -4 or >= -1). A -4 alone (a
+checksum error, all samples read) keeps the frame, and reading continues.
+`getvec`, `getframe`, and `getvecs` outside the high-level readers (as
+`rdsamp` uses it) are unchanged. `read_record` reserves at most
+max(block, 2^26 / nsig + 1) frames in advance, whatever the header's length
+or `to` gives, and grows the buffer as it reads.
+
+## Writing through temporary files
+
+`write_record` and `write_annotations` check all their arguments first, then
+call `detail::wfdbx_staging_begin` (`src/wfdbio.cpp`). While the staging is
+active, `wfdb_fopen` opens each output file ("wb", "ab"), keyed by its
+absolute path, as a temporary file `.BASENAME.XXXXXXXX.tmp` (`mkstemps`,
+owner-only) in the directory of its destination (for a symbolic link, of
+the file it leads to); a later "rb", "wb" or "ab" of the same destination
+opens the same temporary file (the in-process annotation sort reads and
+rewrites it). URLs, the standard streams, directories and existing files
+that are not regular files (devices, FIFOs) are opened as before.
+`wfdbx_staging_end(commit)` gives each temporary file the permissions of its
+destination (or 0666 less the umask) and renames it over it, only when every
+file is complete and no write error occurred; otherwise it removes them all.
+In legacy mode, the out-of-order annotation file that `oannclose` sorts with
+the `sortann` program is renamed over its destination first
+(`wfdbx_staging_commit_one`), unless a write error occurred (it is then
+neither renamed nor sorted). The equivalents in Python are
+`_wfdbio._staging_begin`, `_staged_open`, `_staging_end` and
+`_staging_commit_one`.
+
 ## Write errors
 
 `WFDB_FILE::error()` and `eof()` use `ferror_unlocked` and `feof_unlocked`
@@ -72,11 +109,30 @@ added by `add_subdirectory`, without tools or tests).
 [docs/BENCHMARKS.md](../docs/BENCHMARKS.md) gives the results, including
 the tools `rdsamp` and `wfdbdesc` against the original C programs.
 
+## Packaging
+
+`cmake --install` installs the library, the headers, the tools, the CMake
+package files `wfdbxConfig.cmake` (the exported targets) and
+`wfdbxConfigVersion.cmake` (written by `write_basic_package_version_file`,
+SameMajorVersion), and `LICENSE`, `LICENSE-GPL` and `NOTICE` from the root
+of the repository, in `${CMAKE_INSTALL_DATADIR}/doc/wfdbx`. The `wfdbx`
+target requires `cxx_std_17` publicly, so that consumers compile its headers
+with C++17. The unit tests find the tools through `$<TARGET_FILE_DIR:sortann>`,
+which also works with multi-configuration generators (`ctest -C Release`
+after a Ninja Multi-Config or Visual Studio build). To check the package:
+
+```sh
+cmake --install cpp/build --prefix /tmp/wfdbx-prefix
+# then, in a project with find_package(wfdbx 1.2.2 CONFIG REQUIRED) and
+# target_link_libraries(... wfdbx::wfdbx):
+cmake -S consumer -B consumer/build -DCMAKE_PREFIX_PATH=/tmp/wfdbx-prefix
+```
+
 ## Testing
 
 ```sh
 cmake --build cpp/build
-ctest --test-dir cpp/build
+(cd cpp/build && ctest)
 python3 tests/conformance/harness.py check --impl cpp -j8
 python3 tests/conformance/harness.py check --impl cpp -j8 --legacy
 ```

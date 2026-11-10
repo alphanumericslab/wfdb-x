@@ -7,10 +7,14 @@ function previous = wfdbx_set_network(on)
 %   wfdbx.wfdbx_set_network([]) restores the default: on if the environment
 %   variable WFDBX_NETWORK is set to a nonzero number, otherwise off.
 %
-%   PREVIOUS is the previous setting (1 or 0).  Remote files are read once
-%   and kept for the rest of the session.  A download gives up when it
-%   cannot connect, or receives nothing, for 30 seconds.  The high-level
-%   readers also take this setting as their 'network' option.
+%   PREVIOUS is the previous setting (1 or 0).  A remote file that has been
+%   read is kept for the rest of the session; one that could not be read is
+%   requested again the next time it is opened.  A download gives up when
+%   it cannot connect, or receives nothing, for 30 seconds.  Only http://
+%   and https:// URLs can be read: a name that begins with another URL
+%   scheme, such as ftp:// or sftp://, is refused (an error, with or
+%   without network access), and never read as a local file name.  The
+%   high-level readers also take this setting as their 'network' option.
 %
 %   Example (record 100 of the MIT-BIH Arrhythmia Database, read from
 %   PhysioNet):

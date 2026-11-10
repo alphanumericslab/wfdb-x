@@ -57,9 +57,9 @@
 //!
 //! # Record names
 //!
-//! A record name is given without the `.hea` extension (the readers, and
-//! [`write_annotations`], also accept a trailing `.hea`; [`write_record`]
-//! does not). It is one of:
+//! A record name is given without the `.hea` extension (the readers,
+//! [`write_annotations`] and [`write_record`] also accept a trailing `.hea`,
+//! which is removed). It is one of:
 //!
 //! * a full path, absolute (`/data/mitdb/100`) or in the home directory
 //!   (`~/Documents/100s`), used as given;
@@ -112,7 +112,7 @@ use std::path::{Path, PathBuf};
 use crate::cstd::{self, d2i};
 use crate::types::*;
 use crate::wfdb::{with_default, Wfdb, NULL};
-use crate::wfdbio::wfdbx_write_errors;
+use crate::wfdbio::{wfdb_striphea, wfdbx_write_errors, Staging};
 
 /// The error type of the high-level functions.
 ///
@@ -144,6 +144,10 @@ impl std::fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// The largest annotation code that can be written (59 to 63 are the
+/// control codes of the annotation file format).
+const MAXCODE: i32 = 58;
 
 fn lossy(b: &[u8]) -> String {
     String::from_utf8_lossy(cstd::cstr(b)).into_owned()
@@ -266,8 +270,10 @@ pub struct Record {
     pub base_date: Option<[i32; 3]>,
     /// Sample number of the first returned sample.
     pub sampfrom: i64,
-    /// The info strings of the header (its comment lines), and those of the
-    /// record's `.info` file if it has one.
+    /// The info strings of the header (its comment lines after the record
+    /// line, found as the header parser finds it: an empty or blank first
+    /// line is not the record line; in legacy mode, as C's `getinfo` finds
+    /// it), and those of the record's `.info` file if it has one.
     pub comments: Vec<Vec<u8>>,
     /// `false` if the signal data do not match the checksums in the header.
     /// Checksums are only checked when a read reaches the end of the
@@ -521,7 +527,8 @@ impl Annotations {
     }
 }
 
-/// Options of [`write_record`] and [`write_record_physical`].
+/// Options of [`write_record`] and [`write_record_physical`] (text fields
+/// are bytes, written as given).
 ///
 /// A per-signal vector holds one value for all signals, or one value per
 /// signal. An optional one may also be empty, for its default value.
@@ -654,18 +661,31 @@ fn gain_of(gains: &[f64], k: usize, legacy: bool) -> Result<f64, Error> {
     }
 }
 
-/// Checks the arguments of `write_record` that need no library call (WFDB-x:
-/// before anything is written): the record name is not empty, there is at
-/// least one signal, the per-signal options hold valid numbers of values
-/// ([`check_per_signal`]), the sampling frequency is valid
-/// ([`check_write_freq`]), and the gains are finite.
-fn check_write_args(
+/// Checks the arguments of `write_record` that need no library call, in
+/// this order (WFDB-x: all before any file is touched): the record name is
+/// not empty; there is at least one signal, each with at least one sample
+/// per frame ([`check_write_spf`]); the per-signal options hold valid
+/// numbers of values ([`check_per_signal`]); the `n` samples are whole
+/// frames; the gains are given; the ADC
+/// resolutions are given (normal mode); the units of the calibrated
+/// signals are given (normal mode); with `physical`, no signal is
+/// uncalibrated (normal mode); the sampling frequency is valid
+/// ([`check_write_freq`]); the gains are finite. Returns the signal
+/// specifications and the number of samples per frame.
+///
+/// (The other languages also check here that the record name, the signal
+/// names, the units and the comments are Latin-1 text, and that the ADC
+/// values are whole numbers within the range of a 32-bit integer: in Rust,
+/// text is bytes and the ADC values are `i32`, so these hold by type.)
+fn write_checks(
     record: &[u8],
+    n: usize,
     nsig: usize,
     fs: f64,
     opt: &WriteOptions,
     legacy: bool,
-) -> Result<(), Error> {
+    physical: bool,
+) -> Result<(Vec<Siginfo>, usize), Error> {
     if record.is_empty() {
         return Err(Error::new(
             "write_record: the record name must not be empty",
@@ -674,10 +694,56 @@ fn check_write_args(
     if nsig == 0 {
         return Err(Error::new("write_record: at least one signal is required"));
     }
+    check_write_spf(opt)?;
     check_per_signal(opt, nsig, legacy)?;
+    let frame: usize = (0..nsig)
+        .map(|k| per_signal(&opt.samps_per_frame, k, 1) as usize)
+        .sum();
+    check_frames(n, frame)?;
+    let gains = (0..nsig)
+        .map(|k| gain_of(&opt.gains, k, legacy))
+        .collect::<Result<Vec<f64>, Error>>()?;
+    let adcres = (0..nsig)
+        .map(|k| adcres_of(&opt.adcres, k, opt.fmt, legacy))
+        .collect::<Result<Vec<i32>, Error>>()?;
+    let units = (0..nsig)
+        .map(|k| units_of(&opt.units, k, gains[k], legacy))
+        .collect::<Result<Vec<Option<Vec<u8>>>, Error>>()?;
+    if physical && !legacy {
+        // WFDB-x: no default gain (C assumed WFDB_DEFGAIN)
+        if let Some(k) = gains.iter().position(|&g| g == 0.0) {
+            return Err(Error::new(format!(
+                "write_record: signal {k} is uncalibrated"
+            )));
+        }
+    }
     check_write_freq(fs, legacy)?;
     if opt.gains.iter().any(|g| !g.is_finite()) {
         return Err(Error::new("write_record: gains must be finite"));
+    }
+    let mut fname = record.to_vec();
+    fname.extend_from_slice(b".dat");
+    let mut si = vec![Siginfo::default(); nsig];
+    for (k, s) in si.iter_mut().enumerate() {
+        s.fname = Some(fname.clone());
+        s.desc = Some(per_signal(&opt.names, k, Vec::new()));
+        s.gain = gains[k];
+        s.units = units[k].clone();
+        s.fmt = opt.fmt;
+        s.spf = per_signal(&opt.samps_per_frame, k, 1);
+        s.adczero = per_signal(&opt.adczeros, k, 0);
+        s.baseline = per_signal(&opt.baselines, k, s.adczero);
+        s.adcres = adcres[k];
+    }
+    Ok((si, frame))
+}
+
+/// Checks that `n` samples are whole frames of `frame` samples.
+fn check_frames(n: usize, frame: usize) -> Result<(), Error> {
+    if n % frame != 0 {
+        return Err(Error::new(
+            "write_record: the number of samples is not a multiple of the frame size",
+        ));
     }
     Ok(())
 }
@@ -1116,6 +1182,12 @@ impl Wfdb {
         let mut checksum_error = false;
         // (getvec's own checksum message is replaced by the warning below)
         self.sig.cksum_quiet = true;
+        // WFDB-x: a sample that cannot be read is an error, whatever status
+        // getvec returns: a checksum error is found in the frame in which a
+        // signal file ended early, and its status (-4) replaces -3; the
+        // incomplete frame is not returned (see Wfdb::getvecs_status).
+        self.sig.read_failed = false;
+        self.sig.read_checked = true;
         while remaining.map_or(true, |r| r > 0) {
             let n = match remaining {
                 Some(r) => r.min(block),
@@ -1137,7 +1209,8 @@ impl Wfdb {
                 // WFDB-x: a checksum error: the vector read last holds valid
                 // data and is returned; reading continues (in high-resolution
                 // mode, each vector of the last frame returns -4), and a
-                // warning follows.
+                // warning follows. (If a sample of that vector could not be
+                // read, getvecs_status gives -3 instead.)
                 keep += 1;
                 checksum_error = true;
                 if let Some(r) = remaining.as_mut() {
@@ -1154,6 +1227,8 @@ impl Wfdb {
                 // I/O error) is an error, not the end of the data (-1).
                 if stat < -1 {
                     self.sig.cksum_quiet = false;
+                    self.sig.read_failed = false;
+                    self.sig.read_checked = false;
                     return self.hl_fail(format!(
                         "can't read signal data of record {rname} (getvec status {stat})"
                     ));
@@ -1162,6 +1237,8 @@ impl Wfdb {
             }
         }
         self.sig.cksum_quiet = false;
+        self.sig.read_failed = false;
+        self.sig.read_checked = false;
         if checksum_error && opt.checksum_warning {
             self.wfdb_error(format!(
                 "WFDB-x: checksum error in record {rname}: the signal data do not match the checksums in its header\n"
@@ -1251,6 +1328,14 @@ impl Wfdb {
         fs: Option<f64>,
     ) -> Result<Annotations, Error> {
         let legacy = self.wfdbx_get_legacy() != 0;
+        // WFDB-x: `from` is checked as read_record checks it, before
+        // anything is opened (iannsettime would take a negative time as an
+        // absolute one). (A sample number is an integer here: the checks of
+        // fractions, NaN and infinite values of the other languages have no
+        // counterpart.)
+        if matches!(from, Some(TimeSpec::Sample(t)) if t < 0) {
+            return Err(Error::new("read_annotations: from must not be negative"));
+        }
         // (`!(f > 0.0)` also rejects NaN, as the tools' -F does)
         if fs.is_some_and(|f| f.is_nan() || f <= 0.0) {
             return Err(Error::new("fs must be > 0"));
@@ -1350,30 +1435,28 @@ impl Wfdb {
         opt: &WriteOptions,
     ) -> Result<(), Error> {
         let legacy = self.wfdbx_get_legacy() != 0;
-        check_write_args(record, nsig, fs, opt, legacy)?;
+        let (si, frame) = write_checks(record, samples.len(), nsig, fs, opt, legacy, false)?;
         // WFDB-x: the metadata, written after the comments
         let info = crate::metadata::info_lines(&opt.metadata, &opt.comments)?;
-        let mut si = vec![Siginfo::default(); nsig];
-        let mut frame = 0usize;
-        let mut fname = record.to_vec();
-        fname.extend_from_slice(b".dat");
-        for (k, s) in si.iter_mut().enumerate() {
-            s.fname = Some(fname.clone());
-            s.desc = Some(per_signal(&opt.names, k, Vec::new()));
-            s.gain = gain_of(&opt.gains, k, legacy)?;
-            s.units = units_of(&opt.units, k, s.gain, legacy)?;
-            s.fmt = opt.fmt;
-            s.spf = per_signal(&opt.samps_per_frame, k, 1);
-            s.adczero = per_signal(&opt.adczeros, k, 0);
-            s.baseline = per_signal(&opt.baselines, k, s.adczero);
-            s.adcres = adcres_of(&opt.adcres, k, opt.fmt, legacy)?;
-            frame += s.spf as usize;
-        }
-        if samples.len() % frame != 0 {
-            return Err(Error::new(
-                "write_record: the number of samples is not a multiple of the frame size",
-            ));
-        }
+        self.write_files(record, samples, &si, frame, fs, opt, &info)
+    }
+
+    /// Writes the files of `write_record` (its arguments checked): the
+    /// signal file and the header, written to temporary files in the
+    /// directories of their destinations, which are renamed over them when
+    /// both are complete; after a failure, they are removed, and the
+    /// existing files are left as they were (see `wfdbio::Staging`).
+    #[allow(clippy::too_many_arguments)]
+    fn write_files(
+        &mut self,
+        record: &[u8],
+        samples: &[i32],
+        si: &[Siginfo],
+        frame: usize,
+        fs: f64,
+        opt: &WriteOptions,
+        info: &[Vec<u8>],
+    ) -> Result<(), Error> {
         self.wfdbquit();
         // WFDB-x: the base time is checked before anything is written (it
         // is set again below, once the signal file is open).
@@ -1383,31 +1466,40 @@ impl Wfdb {
             }
         }
         let errors = wfdbx_write_errors();
-        if self.osigfopen(&si, nsig as u32) != nsig as i32 {
-            return self.hl_fail(format!(
-                "can't create signal file for record {}",
-                lossy(record)
-            ));
-        }
-        self.setsampfreq(fs);
-        // The counter frequency and base count survive wfdbquit() (as in
-        // the C library); a new record written here has neither.
-        self.setcfreq(0.0);
-        self.setbasecount(0.0);
-        if let Some(bt) = &opt.base_time {
-            self.setbasetime(bt);
-        }
-        for f in samples.chunks(frame) {
-            self.putvec(f);
-        }
-        if self.newheader(record) < 0 {
-            return self.hl_fail(format!("can't create header for record {}", lossy(record)));
-        }
-        for c in opt.comments.iter().chain(&info) {
-            self.putinfo(c);
-        }
-        self.wfdbquit();
-        if wfdbx_write_errors() > errors {
+        let staging = Staging::begin();
+        // (the output signals are closed however this ends)
+        let r = (|| {
+            let nsig = si.len();
+            if self.osigfopen(si, nsig as u32) != nsig as i32 {
+                return self.hl_fail(format!(
+                    "can't create signal file for record {}",
+                    lossy(record)
+                ));
+            }
+            self.setsampfreq(fs);
+            // The counter frequency and base count survive wfdbquit() (as in
+            // the C library); a new record written here has neither.
+            self.setcfreq(0.0);
+            self.setbasecount(0.0);
+            if let Some(bt) = &opt.base_time {
+                self.setbasetime(bt);
+            }
+            for f in samples.chunks(frame) {
+                self.putvec(f);
+            }
+            if self.newheader(record) < 0 {
+                return self.hl_fail(format!("can't create header for record {}", lossy(record)));
+            }
+            for c in opt.comments.iter().chain(info) {
+                self.putinfo(c);
+            }
+            self.wfdbquit();
+            Ok(())
+        })();
+        let complete = r.is_ok() && wfdbx_write_errors() == errors;
+        let renamed = staging.end(complete);
+        r?;
+        if !renamed {
             return Err(Error::new(format!(
                 "write error on record {}",
                 lossy(record)
@@ -1432,8 +1524,8 @@ impl Wfdb {
         fs: f64,
         opt: &WriteOptions,
     ) -> Result<(), Error> {
-        let record = record.as_ref();
-        check_write_spf(opt)?;
+        // WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
+        let record = &wfdb_striphea(record.as_ref())[..];
         self.with_settings(|w| {
             w.with_output_dir(opt.dir.as_deref(), record, |w| {
                 w.with_legacy(opt.legacy, |w| w.write_adc(record, samples, nsig, fs, opt))
@@ -1457,8 +1549,8 @@ impl Wfdb {
         fs: f64,
         opt: &WriteOptions,
     ) -> Result<(), Error> {
-        let record = record.as_ref();
-        check_write_spf(opt)?;
+        // WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
+        let record = &wfdb_striphea(record.as_ref())[..];
         self.with_settings(|w| {
             w.with_output_dir(opt.dir.as_deref(), record, |w| {
                 w.with_legacy(opt.legacy, |w| {
@@ -1477,30 +1569,17 @@ impl Wfdb {
         opt: &WriteOptions,
     ) -> Result<(), Error> {
         let legacy = self.wfdbx_get_legacy() != 0;
+        let (si, frame) = write_checks(record, samples.len(), nsig, fs, opt, legacy, true)?;
         // Gain and baseline of each column of a frame
-        let mut g: Vec<f64> = Vec::new();
-        let mut b: Vec<i32> = Vec::new();
-        check_write_args(record, nsig, fs, opt, legacy)?;
-        for k in 0..nsig {
-            let mut gain = gain_of(&opt.gains, k, legacy)?;
-            if gain == 0.0 && legacy {
-                gain = WFDB_DEFGAIN; // WFDB-x: legacy mode (original behavior)
-            } else if gain == 0.0 {
-                // WFDB-x: no default gain (C assumed WFDB_DEFGAIN)
-                return Err(Error::new(format!(
-                    "write_record: signal {k} is uncalibrated"
-                )));
-            }
-            let zero = per_signal(&opt.adczeros, k, 0);
-            let base = per_signal(&opt.baselines, k, zero);
-            let spf = per_signal(&opt.samps_per_frame, k, 1);
-            for _ in 0..spf {
+        let mut g: Vec<f64> = Vec::with_capacity(frame);
+        let mut b: Vec<i32> = Vec::with_capacity(frame);
+        for s in &si {
+            // (an uncalibrated signal: legacy mode only, as the original)
+            let gain = if s.gain == 0.0 { WFDB_DEFGAIN } else { s.gain };
+            for _ in 0..s.spf {
                 g.push(gain);
-                b.push(base);
+                b.push(s.baseline);
             }
-        }
-        if g.is_empty() {
-            return Err(Error::new("write_record: no signals"));
         }
         let mut adc: Vec<i32> = Vec::with_capacity(samples.len());
         for (i, &x) in samples.iter().enumerate() {
@@ -1524,7 +1603,9 @@ impl Wfdb {
             }
             adc.push(d2i(r));
         }
-        self.write_adc(record, &adc, nsig, fs, opt)
+        // WFDB-x: the metadata, written after the comments
+        let info = crate::metadata::info_lines(&opt.metadata, &opt.comments)?;
+        self.write_files(record, &adc, &si, frame, fs, opt, &info)
     }
 
     /// Writes an annotation file, using this `Wfdb` value (see
@@ -1603,6 +1684,47 @@ impl Wfdb {
                 )));
             }
         }
+        // WFDB-x: a label is required for each annotation (1.2.2: as in
+        // Python); with no annotations, an empty file is written
+        if n > 0 && ann.symbols.is_empty() && ann.codes.is_empty() {
+            return Err(Error::new(
+                "write_annotations: symbols or codes must be given",
+            ));
+        }
+        // (0: no frequency is stored)
+        if fs != 0.0 && !(fs.is_finite() && fs > 0.0) {
+            return Err(Error::new(
+                "write_annotations: fs must be finite and > 0 (or 0: none)",
+            ));
+        }
+        // WFDB-x: the times that the MIT format can store: the smallest and
+        // the largest 64-bit integers are reserved (putann refuses them,
+        // "time overflow", and the annotation was dropped); any other time
+        // is stored (with SKIPs for intervals beyond 1023 samples)
+        if let Some(&t) = ann
+            .samples
+            .iter()
+            .find(|&&t| t == i64::MIN || t == i64::MAX)
+        {
+            return Err(Error::new(format!(
+                "write_annotations: annotation time {t} cannot be written (annotation times must be integers from {} to {})",
+                i64::MIN + 1,
+                i64::MAX - 1
+            )));
+        }
+        // WFDB-x: the annotation codes are 0 to 58 (ACMAX is 49, and 50 to
+        // 58 are free); 59 to 63 are the control codes of the MIT format
+        // (SKIP, NUM, SUB, CHN, AUX), which corrupt the file, and other
+        // values do not fit in its 6 bits
+        if let Some(&c) = ann.codes.iter().find(|&&c| !(0..=MAXCODE).contains(&c)) {
+            return Err(Error::new(if (MAXCODE + 1..=63).contains(&c) {
+                format!(
+                    "write_annotations: annotation code {c} is reserved (59 to 63 are the control codes of the annotation file format)"
+                )
+            } else {
+                format!("write_annotations: annotation code {c} is out of range (0 to {MAXCODE})")
+            }));
+        }
         // WFDB-x: symbols and codes may both be given (as read_annotations
         // returns them) if they agree: each symbol is that of its code (an
         // empty symbol leaves the code).
@@ -1616,62 +1738,73 @@ impl Wfdb {
                 }
             }
         }
-        // (0: no frequency is stored)
-        if fs != 0.0 && !(fs.is_finite() && fs > 0.0) {
-            return Err(Error::new(
-                "write_annotations: fs must be finite and > 0 (or 0: none)",
-            ));
-        }
+        // (aux: bytes, written as given, up to 255 of them: nothing to check)
         self.wfdbquit();
         let errors = wfdbx_write_errors();
-        if fs > 0.0 {
-            self.setafreq(fs);
-        }
-        let ai = Anninfo {
-            name: annotator.to_vec(),
-            stat: WFDB_WRITE,
-        };
-        if self.annopen(record, &[ai], 1) < 0 {
-            // (the previous time resolution is restored by with_settings)
-            return self.hl_fail(format!(
-                "can't create annotator {} for record {}",
-                lossy(annotator),
-                lossy(record)
-            ));
-        }
-        for k in 0..n {
-            let mut a = Annotation {
-                time: ann.samples[k],
-                ..Default::default()
+        // WFDB-x: the file is written to a temporary file in the directory
+        // of its destination, which is renamed over it when it is complete
+        // (and, if needed, sorted); after a failure, it is removed, and the
+        // existing file is left as it was (see wfdbio::Staging)
+        let staging = Staging::begin();
+        let mut put_failed = false;
+        let r = (|| {
+            if fs > 0.0 {
+                self.setafreq(fs);
+            }
+            let ai = Anninfo {
+                name: annotator.to_vec(),
+                stat: WFDB_WRITE,
             };
-            match ann.symbols.get(k) {
-                Some(sym) if !sym.is_empty() => a.anntyp = self.strann(&sym[..]) as i8,
-                _ => {
-                    if let Some(&c) = ann.codes.get(k) {
-                        a.anntyp = c as i8;
+            if self.annopen(record, &[ai], 1) < 0 {
+                // (the previous time resolution is restored by with_settings)
+                return self.hl_fail(format!(
+                    "can't create annotator {} for record {}",
+                    lossy(annotator),
+                    lossy(record)
+                ));
+            }
+            for k in 0..n {
+                let mut a = Annotation {
+                    time: ann.samples[k],
+                    ..Default::default()
+                };
+                match ann.symbols.get(k) {
+                    Some(sym) if !sym.is_empty() => a.anntyp = self.strann(&sym[..]) as i8,
+                    _ => {
+                        if let Some(&c) = ann.codes.get(k) {
+                            a.anntyp = c as i8;
+                        }
                     }
                 }
+                if let Some(&x) = ann.subtypes.get(k) {
+                    a.subtyp = x as i8;
+                }
+                if let Some(&x) = ann.chans.get(k) {
+                    a.chan = x as u8;
+                }
+                if let Some(&x) = ann.nums.get(k) {
+                    a.num = x as i8;
+                }
+                if let Some(Some(x)) = ann.aux.get(k) {
+                    let data = &x[..x.len().min(usize::from(u8::MAX))]; // length byte limit
+                    let mut v = vec![data.len() as u8];
+                    v.extend_from_slice(data);
+                    a.aux = Some(v);
+                }
+                // WFDB-x: an error that putann reports is an error
+                if self.putann(0, &a) < 0 {
+                    put_failed = true;
+                }
             }
-            if let Some(&x) = ann.subtypes.get(k) {
-                a.subtyp = x as i8;
-            }
-            if let Some(&x) = ann.chans.get(k) {
-                a.chan = x as u8;
-            }
-            if let Some(&x) = ann.nums.get(k) {
-                a.num = x as i8;
-            }
-            if let Some(Some(x)) = ann.aux.get(k) {
-                let data = &x[..x.len().min(usize::from(u8::MAX))]; // length byte limit
-                let mut v = vec![data.len() as u8];
-                v.extend_from_slice(data);
-                a.aux = Some(v);
-            }
-            self.putann(0, &a);
-        }
-        self.wfdbquit();
-        // (the previous time resolution is restored by with_settings)
-        if wfdbx_write_errors() > errors {
+            // (the annotator is closed, and the file sorted if needed)
+            self.wfdbquit();
+            // (the previous time resolution is restored by with_settings)
+            Ok(())
+        })();
+        let complete = r.is_ok() && !put_failed && wfdbx_write_errors() == errors;
+        let renamed = staging.end(complete);
+        r?;
+        if !renamed {
             return Err(Error::new(format!(
                 "write error on annotator {} for record {}",
                 lossy(annotator),
@@ -1737,7 +1870,13 @@ impl Wfdb {
 /// * A time string of `opt` needs the sampling frequency, and the header does
 ///   not give it: "sampling frequency of record REC is not specified".
 /// * A signal file is shorter than its header says, or cannot be read:
-///   "can't read signal data of record REC (getvec status S)".
+///   "can't read signal data of record REC (getvec status S)", also when the
+///   checksums do not match either (`getvec` then reports the checksum
+///   error, -4, for the incomplete last frame, and S is -3): an incomplete
+///   frame is never returned.
+///
+/// The samples are stored as they are read: at most 2^26 values are
+/// allocated in advance, whatever length the header (or `opt.to`) gives.
 ///
 /// When the data do not match the checksums in the header, every sample is
 /// returned, [`Record::checksum_ok`] is `false`, and a warning is printed
@@ -1872,6 +2011,8 @@ pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<H
 ///
 /// # Errors
 ///
+/// * `from` is a negative sample number: "read_annotations: from must not
+///   be negative" (checked first, before any file is opened).
 /// * `fs` is not positive: "fs must be > 0".
 /// * The annotation file cannot be read, or `from` cannot be reached.
 /// * The annotation file ends early (it is truncated), or a read error
@@ -1880,9 +2021,10 @@ pub fn read_header_with(record: impl AsRef<[u8]>, opt: &ReadOptions) -> Result<H
 /// * A time string needs the sampling frequency, and none is known:
 ///   "sampling frequency of record REC is not specified".
 ///
-/// The time resolution of output annotators ([`Wfdb::getafreq`]) and the
-/// `getvec` mode ([`Wfdb::getgvmode`]) are left as they were (opening an EDF
-/// record sets both).
+/// Whatever happens, the annotation file is closed (`wfdbquit`) before the
+/// function returns, and the time resolution of output annotators
+/// ([`Wfdb::getafreq`]) and the `getvec` mode ([`Wfdb::getgvmode`]) are left
+/// as they were (opening an EDF record sets both).
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn read_annotations(
@@ -1937,7 +2079,8 @@ pub fn read_annotations_with(
 ///
 /// # Arguments
 ///
-/// * `record`: the record name, without the `.hea` extension: a plain name
+/// * `record`: the record name, without the `.hea` extension (a trailing
+///   `.hea` is removed, as by the readers): a plain name
 ///   (`"rec"`) or a relative path (`"data/rec"`), created in the output
 ///   directory if one is set (see [`Wfdb::wfdbx_set_output_dir`]), otherwise
 ///   in the current directory, missing directories included; or a full
@@ -1980,43 +2123,57 @@ pub fn read_annotations_with(
 ///
 /// # Errors
 ///
+/// The arguments are checked in this order (the messages begin with
+/// "write_record: "):
+///
 /// * `record` is empty: "the record name must not be empty".
 /// * There are no signals: "at least one signal is required".
-/// * `fs` is not positive ("the sampling frequency must be > 0"; not
-///   checked in legacy mode) or not finite ("the sampling frequency must be
-///   finite").
-/// * The gains are missing: "gains must be specified", or a gain is NaN or
-///   infinite: "gains must be finite". (A gain of 0 marks an uncalibrated
-///   signal; negative gains are allowed.)
-/// * [`WriteOptions::base_time`] cannot be parsed: "incorrect base time
-///   'TIME'" (after the library's own message).
-/// * The ADC resolutions are missing or less than 1: "ADC resolution(s) must
-///   be specified".
-/// * The units of a signal whose gain is not 0 are missing: "units must be
-///   specified".
 /// * A `samps_per_frame` value is less than 1: "samps_per_frame must hold
-///   integers >= 1" (checked first, also in legacy mode).
+///   integers >= 1" (also in legacy mode).
 /// * A per-signal option has more than one value, but not one value per
 ///   signal: "OPTION must have one value per signal" (`gains` or `adcres`
 ///   with fewer values: as missing values, except in legacy mode).
 /// * The number of samples is not a multiple of the frame size.
+/// * The gains are missing: "gains must be specified".
+/// * The ADC resolutions are missing or less than 1: "ADC resolution(s) must
+///   be specified".
+/// * The units of a signal whose gain is not 0 are missing: "units must be
+///   specified".
+/// * `fs` is not positive ("the sampling frequency must be > 0"; not
+///   checked in legacy mode) or not finite ("the sampling frequency must be
+///   finite").
+/// * A gain is NaN or infinite: "gains must be finite". (A gain of 0 marks
+///   an uncalibrated signal; negative gains are allowed.)
 /// * An entry of [`WriteOptions::metadata`] is not valid (as for
 ///   [`set_metadata`](crate::set_metadata)), two of its keys differ only
 ///   in letter case ("metadata key 'KEY' is given more than once (keys are
 ///   compared without regard to letter case)"), or one of its keys is the
 ///   key of an entry in `comments` ("metadata key 'KEY' is also given in
-///   comments"); these messages begin with "write_record: ".
+///   comments").
+/// * [`WriteOptions::base_time`] cannot be parsed: "incorrect base time
+///   'TIME'" (after the library's own message).
+///
+/// (Text is bytes and ADC values are `i32`: the checks of the other
+/// languages for text that is not Latin-1, and for ADC values that are not
+/// whole numbers within the range of a 32-bit integer, have no counterpart.)
+/// Then, before any file is touched:
+///
 /// * With [`WriteOptions::dir`], the directory does not exist or `record`
-///   contains a directory.
+///   contains a directory (checked first).
 /// * The signal file or the header cannot be created.
 /// * The signal file or the header cannot be written completely (for
 ///   example, when the disk is full): "write error on record RECORD" (also
 ///   in legacy mode).
 ///
-/// The arguments are checked before any file is created; whatever happens,
-/// the output signals are closed before the function returns, and the time
-/// resolution of output annotators ([`Wfdb::getafreq`]) and the `getvec`
-/// mode ([`Wfdb::getgvmode`]) are left as they were.
+/// The arguments are checked before any file is created or changed. The
+/// signal file and the header are written to temporary files in the
+/// directories of their destinations (`.NAME.XXXXXXXX.tmp`), which replace
+/// the existing files (keeping their permissions; a symbolic link is
+/// followed) only when both are complete, so that an error leaves the
+/// existing files as they were. Whatever happens, the output signals are
+/// closed and no temporary file is left before the function returns, and
+/// the time resolution of output annotators ([`Wfdb::getafreq`]) and the
+/// `getvec` mode ([`Wfdb::getgvmode`]) are left as they were.
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn write_record(
@@ -2059,9 +2216,10 @@ pub fn write_record(
 ///
 /// # Errors
 ///
-/// As [`write_record`]. Also if a gain is 0: "signal N is uncalibrated",
-/// and if a sample is infinite or its ADC value is beyond the range of
-/// `i32`: "sample I is infinite or beyond the range of 32-bit ADC units".
+/// As [`write_record`]. Also if a gain is 0: "signal N is uncalibrated"
+/// (checked after the units), and if a sample is infinite or its ADC value
+/// is beyond the range of `i32`: "sample I is infinite or beyond the range
+/// of 32-bit ADC units" (checked after the gains, before the metadata).
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn write_record_physical(
@@ -2088,7 +2246,8 @@ pub fn write_record_physical(
 /// * `annotator`: the file suffix: `"qrs"` writes `RECORD.qrs`.
 /// * `ann`: the annotations. Each of `symbols`, `codes`, `subtypes`,
 ///   `chans`, `nums` and `aux` is empty, or has one entry per annotation
-///   (one per `samples` entry). The type of each annotation is its
+///   (one per `samples` entry); `symbols` or `codes` is required when there
+///   is at least one annotation. The type of each annotation is its
 ///   `symbols` entry, a mnemonic such as `"N"` or `"V"`, or its `codes`
 ///   entry if there are no mnemonics or the mnemonic is empty; if both are
 ///   given, each mnemonic must be that of its code (as
@@ -2097,7 +2256,9 @@ pub fn write_record_physical(
 ///   the subtype, channel and annotator number are stored in one byte
 ///   each, and other values wrap around (the subtype and number to -128 to
 ///   127, the channel to 0 to 255). An unknown mnemonic gives `NOTQRS`.
-///   Aux text longer than 255 bytes is cut.
+///   Aux text longer than 255 bytes is cut. The times `i64::MIN` and
+///   `i64::MAX` are reserved by the file format, and the codes are 0 to 58
+///   (59 to 63 are its control codes).
 /// * `fs`: if not 0, stored in the file as the frequency of its sample
 ///   numbers (finite, > 0). `ann.fs` is not used.
 /// * `dir`: an existing directory in which to create the file, for this call
@@ -2125,26 +2286,44 @@ pub fn write_record_physical(
 /// # Ok::<(), wfdbx::record::Error>(())
 /// ```
 ///
-/// The arguments are checked before the file is created; whatever happens,
-/// the annotator is closed before the function returns, and the time
-/// resolution of output annotators ([`Wfdb::getafreq`]) and the `getvec`
+/// The arguments are checked before the file is created or changed. The file
+/// is written to a temporary file in the directory of its destination
+/// (`.NAME.XXXXXXXX.tmp`), which replaces an existing file (keeping its
+/// permissions; a symbolic link is followed) only when it is complete (and,
+/// if needed, sorted), so that an error leaves the existing file as it was.
+/// Whatever happens, the annotator is closed and no temporary file is left
+/// before the function returns, and the time resolution of output
+/// annotators ([`Wfdb::getafreq`]) and the `getvec`
 /// mode ([`Wfdb::getgvmode`]) are left as they were (`fs` applies to this
 /// file only).
 ///
 /// # Errors
 ///
+/// The arguments are checked in this order:
+///
 /// * A per-annotation field of `ann` is neither empty nor has one entry per
 ///   annotation: "write_annotations: FIELD must have one entry per
 ///   annotation (N), or none".
+/// * There is at least one annotation, and neither `ann.symbols` nor
+///   `ann.codes` is given: "write_annotations: symbols or codes must be
+///   given" (with no annotations, an empty file is written).
+/// * `fs` is neither 0 nor finite and positive: "write_annotations: fs must
+///   be finite and > 0 (or 0: none)".
+/// * A time is `i64::MIN` or `i64::MAX`: "write_annotations: annotation
+///   time T cannot be written (annotation times must be integers from
+///   -9223372036854775807 to 9223372036854775806)" (the first such time).
+/// * A code is not from 0 to 58: "write_annotations: annotation code C is
+///   reserved (59 to 63 are the control codes of the annotation file
+///   format)", or "write_annotations: annotation code C is out of range (0
+///   to 58)" (the first such code).
 /// * `ann.symbols` and `ann.codes` are both given, and the code of a
 ///   mnemonic is not the code at its position: "write_annotations: symbols
 ///   and codes disagree at annotation K".
-/// * `fs` is neither 0 nor finite and positive: "write_annotations: fs must
-///   be finite and > 0 (or 0: none)".
 /// * The annotation file cannot be created.
 /// * The annotation file cannot be written completely (for example, when
-///   the disk is full): "write error on annotator ANNOTATOR for record
-///   RECORD" (also in legacy mode).
+///   the disk is full), or `putann` reports an error while writing it:
+///   "write error on annotator ANNOTATOR for record RECORD" (also in legacy
+///   mode).
 /// * With `dir`, the directory does not exist ("directory DIR does not
 ///   exist"), or `record` contains a directory ("record name must not
 ///   contain a directory when dir is given").

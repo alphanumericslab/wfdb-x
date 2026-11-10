@@ -72,16 +72,21 @@ update_metadata(record, changes, input_dir = NULL, network = NULL,
 }
 \details{
   \strong{Reading.}  The info strings of a header are its comment lines
-  after the record line (the first line that does not begin with
-  \samp{#}), as the C function \code{\link{getinfo}} reads them.  An info
+  after the record line, as \code{\link{getinfo}} reads them.  The record
+  line is found as the header parser of the library finds it: the first
+  line that, up to a NUL byte, holds something other than spaces, tabs,
+  CRs and LFs and does not begin (after them) with \samp{#}, in every
+  mode (the C function \code{getinfo}, as \code{getinfo} in legacy mode,
+  takes the first line that does not begin with \samp{#}, which may be an
+  empty or blank line).  An info
   string is an entry if the text after its \samp{#} contains a colon.  The
   key is the text before the first colon, and the value the rest of the
   line; spaces, tabs, VT, FF and CR are removed at both ends of each.  So
   \samp{#Age:45}, \samp{# Age: 45} and \samp{#  Age : 45} all give the
   entry \code{Age = "45"}.  An info string without a colon, or whose key
   is then empty or contains \samp{#}, is a free comment: it is never
-  returned, and never changed.  Comment lines before the record line are
-  never read or changed.  Only the header file (\file{.hea}) is read, not
+  returned, and never changed.  Comment lines (and empty or blank lines)
+  before the record line are never read or changed.  Only the header file (\file{.hea}) is read, not
   the \file{.info} file that \code{getinfo} also reads.
 
   \strong{Keys} are compared without regard to letter case (A-Z and a-z
@@ -108,9 +113,12 @@ update_metadata(record, changes, input_dir = NULL, network = NULL,
   checked before the header is read, and every change before anything is
   written.  If nothing changes (and \code{dir} is not given), nothing is
   written.  The new header is written to a temporary file in the
-  directory of the destination, which then replaces the destination
-  (rename), keeping its permission bits; the temporary file is removed on
-  any failure.  So an error leaves the header unchanged.
+  directory of the destination, created with owner-only permissions
+  (0600) before anything is written to it (a header may hold patient
+  data, never readable meanwhile by other users), which is then given the
+  permissions of the destination (or, for a new file, 0666 less the
+  umask) and replaces it (rename); the temporary file is removed on any
+  failure.  So an error leaves the header unchanged.
 
   \strong{Which file.}  The header is opened as the library opens the
   header of a record (\code{wfdb_open} with type \code{"hea"}), as

@@ -481,9 +481,18 @@ def test_bulk_annotation_encoder_large(datadir, monkeypatch):
         anns = (times, codes, subtypes, chans, nums, aux)
         ref = _write_low_level("ref", anns, False, 360.0)
         w.setafreq(0.0)
-        w.write_annotations("rec", "hl", np.array(times), codes=codes,
-                            subtypes=subtypes, chans=np.array(chans),
-                            nums=nums, aux=aux, fs=360, sort=False)
+        # (write_annotations refuses the times that putann skips, the
+        # smallest and largest 64-bit integers; without them, it writes
+        # the same file, since putann leaves no trace of a skipped one)
+        keep = [k for k in range(n)
+                if times[k] not in (WFDB_TIME_MIN, WFDB_TIME_MAX)]
+        assert len(keep) < n
+        w.write_annotations("rec", "hl", np.array([times[k] for k in keep]),
+                            codes=[codes[k] for k in keep],
+                            subtypes=[subtypes[k] for k in keep],
+                            chans=np.array([chans[k] for k in keep]),
+                            nums=[nums[k] for k in keep],
+                            aux=[aux[k] for k in keep], fs=360, sort=False)
         assert open("rec.hl", "rb").read() == ref
         assert _write_low_level("blk", anns, True, 360.0) == ref
         # aux as given to putann: a length byte that differs from the
@@ -660,6 +669,16 @@ def test_write_annotations_write_error(datadir, capfd, n, legacy):
     assert "write error on annotation file full" in capfd.readouterr().err
 
 
+def test_write_annotations_labels_required(datadir):
+    # a label is required for each annotation; with no annotations, an
+    # empty file is written (1.2.2)
+    with pytest.raises(ValueError, match="symbols or codes must be given"):
+        w.write_annotations("100s", "lbl", [100, 460])
+    assert not os.path.exists("100s.lbl")
+    w.write_annotations("100s", "lbl", [])
+    assert len(w.read_annotations("100s", "lbl")) == 0
+
+
 def test_write_annotations_argument_lengths(datadir):
     # Per-annotation arguments are absent, one value for all, or one value
     # per annotation; anything else is an error before the file is created,
@@ -781,3 +800,106 @@ def test_highlevel_keeps_gvmode(datadir, previous):
     finally:
         w.wfdbquit()
         w.setgvmode(gvmode)
+
+
+# WFDB-x 1.2.2: the corrections of the fourth review.
+
+def _files():
+    """The contents of every file of the current directory."""
+    return {n: open(n, "rb").read() for n in sorted(os.listdir("."))
+            if os.path.isfile(n)}
+
+
+def test_write_annotations_checks_before_writing(datadir, capfd):
+    # Each invalid argument is refused before the existing annotation file
+    # is touched (a 2-D array of times truncated it; the reserved codes
+    # 59-63 corrupted it; the times -2**63 and 2**63 - 1 were dropped, with
+    # putann's "time overflow" message, and success reported).
+    import numpy as np
+    w.write_annotations("100s", "qrs", [10, 20, 30], symbols="N")
+    before = _files()
+    bad = [
+        (dict(samples=np.array([[1, 2], [3, 4]])), "samples must be a 1-D"),
+        (dict(samples=5), "samples must be a 1-D"),
+        (dict(codes=np.ones((3, 1), int)), "codes must be a 1-D"),
+        (dict(subtypes=[[0], [0], [0]]), "subtypes must be a 1-D"),
+        (dict(samples=[-2**63, 5, 6]), "annotation time -9223372036854775808 "
+         "cannot be written"),
+        (dict(samples=np.array([1, 5, 2**63 - 1])), "annotation time "
+         "9223372036854775807 cannot be written"),
+        (dict(codes=-1), "annotation code -1 is out of range"),
+        (dict(codes=[1, 64, 1]), "annotation code 64 is out of range"),
+        (dict(aux=[None, "μ", None]), "aux text 'μ' has a character"),
+    ] + [(dict(codes=[1, c, 1]), "annotation code %d is reserved" % c)
+         for c in range(59, 64)] + \
+        [(dict(codes=np.array([1, c, 1], np.uint8)),
+          "annotation code %d is reserved" % c) for c in (59, 63)]
+    for args, msg in bad:
+        a = dict(samples=[1, 2, 3])
+        a.update(args)
+        if "codes" not in a:
+            a["symbols"] = "N"
+        with pytest.raises(ValueError, match=msg):
+            w.write_annotations("100s", "qrs", a.pop("samples"), **a)
+        assert _files() == before, args
+    assert capfd.readouterr().err == ""
+    # code 58, and a time far from the previous one (SKIPs), can be written
+    w.write_annotations("100s", "ext", [0, 2**33], codes=[58, 1])
+    a = w.read_annotations("100s", "ext")
+    assert a.samples.tolist() == [0, 2**33] and a.codes.tolist() == [58, 1]
+
+
+def test_write_annotations_failure_leaves_file(datadir, monkeypatch):
+    # An error that putann reports is an error (it was ignored), and a
+    # failure leaves the existing file intact: the file is written to a
+    # temporary file, renamed over it when complete.
+    w.write_annotations("100s", "qrs", [10, 20, 30], symbols="N")
+    before = _files()
+    with monkeypatch.context() as m:
+        m.setattr(w._annot, "_putanns", lambda *a, **k: -1)
+        with pytest.raises(IOError, match="write error on annotator qrs "
+                           "for record 100s"):
+            w.write_annotations("100s", "qrs", [1, 2], symbols="V")
+    assert _files() == before
+    with monkeypatch.context() as m:
+        def fail(*a, **k):
+            raise IOError("disk on fire")
+        m.setattr(w._annot, "_putanns", fail)
+        with pytest.raises(IOError, match="disk on fire"):
+            w.write_annotations("100s", "qrs", [1, 2], symbols="V")
+    assert _files() == before
+    # out of order: sorted (in this process, and in legacy mode by the
+    # sortann program), then renamed over the existing file
+    for legacy in (False, True):
+        w.write_annotations("100s", "qrs", [30, 10, 20], symbols="N",
+                            legacy=legacy)
+        assert w.read_annotations("100s", "qrs").samples.tolist() == \
+            [10, 20, 30]
+        assert not [f for f in os.listdir(".") if f.endswith(".tmp")]
+
+
+def test_read_annotations_arguments(datadir):
+    # sampfrom and sampto are checked as read_record checks them, before
+    # the file is opened, and the file is closed on every path.
+    ref = w.read_annotations("100s", "atr", sampfrom=100, sampto=2000)
+    assert w.read_annotations("100s", "atr", sampfrom=100.0,
+                              sampto=2000.0).samples.tolist() == \
+        ref.samples.tolist()
+    for frm, to, msg in [(1.5, None, "sampfrom must be a whole number"),
+                         (float("nan"), None, "sampfrom must be a whole"),
+                         (0, float("inf"), "sampto must be a whole number"),
+                         (0, 10.25, "sampto must be a whole number"),
+                         ([1], None, "sampfrom must be a sample number"),
+                         (-1, None, "sampfrom must not be negative")]:
+        with pytest.raises(ValueError, match=msg):
+            w.read_annotations("100s", "nosuch", sampfrom=frm, sampto=to)
+    # the annotators are closed after an error
+    os.remove("100s.hea")
+    with pytest.raises(ValueError, match="sampling frequency"):
+        w.read_annotations("100s", "atr", sampto="0:1")
+    assert not any(x is not None for x in w._annot._a.iad)
+    with open("100s.atr", "rb") as f:
+        open("cut.atr", "wb").write(f.read()[:101])
+    with pytest.raises(IOError, match="getann status -3"):
+        w.read_annotations("cut", "atr", fs=360)
+    assert not any(x is not None for x in w._annot._a.iad)

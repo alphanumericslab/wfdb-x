@@ -5,7 +5,7 @@
 > MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
 > identical results to the original C package and to each other. This is the
 > Kotlin implementation.
-> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> [Website (wfdb-x.org) and the other languages](https://wfdb-x.org)
 > · [WFDB-x at a glance (overview figure)](https://github.com/alphanumericslab/wfdb-x#wfdb-x-at-a-glance)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
 > · [User's manual (PDF)](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/user-manual/wfdb-x-user-manual.pdf)
@@ -65,14 +65,14 @@ the library functions (and the C library) give.
 
 The library is built from a copy of the repository and installed in the
 local Maven repository (below); its Gradle coordinates are
-`io.github.alphanumericslab:wfdbx:1.2.1`. In a Gradle project (an Android
+`io.github.alphanumericslab:wfdbx:1.2.2`. In a Gradle project (an Android
 app, a JVM program, or the common source set of a Kotlin Multiplatform
 project) that lists `mavenLocal()` among its repositories, add it to the
 dependencies:
 
 ```kotlin
 dependencies {
-    implementation("io.github.alphanumericslab:wfdbx:1.2.1")
+    implementation("io.github.alphanumericslab:wfdbx:1.2.2")
 }
 ```
 
@@ -106,6 +106,13 @@ The command-line tools need the runnable jar of the tools,
 ./gradlew fatJar
 bin/wfdbx --list                   # the tools
 ```
+
+Every jar of the build (the library jars, the sources jars and
+`build/libs/wfdbx-all.jar`) holds the licenses and the notice of the
+repository in `META-INF`: `LICENSE` (LGPL-2.1-or-later), `LICENSE-GPL`
+(GPL-3.0-or-later) and `NOTICE` (the licenses, and the BSD-3-Clause notice
+of libFLAC, from which the FLAC decoder is translated). The POM of the
+published artifacts lists the three licenses.
 
 ## Quick start
 
@@ -214,7 +221,14 @@ units.
 signal files. It returns a `Header` with these fields: `name`, `fs`,
 `counterFreq`, `baseCounter`, `nsamples` (0 if the header does not give the
 length), `nsig`, `siginfo`, `baseTime`, `baseTimeMs`, `baseDate`,
-`comments` and `metadata`. `metadata` is the list of the `Key: value`
+`comments` and `metadata`. `comments` are the info strings of the
+header: its lines that begin with `#` after the record line, without the
+`#`. The record line is found as the header parser finds it: the first
+line that holds something other than spaces, tabs, CRs and LFs and does
+not begin (after them) with `#`, so that an empty or blank first line, and
+the comments before the record line, are skipped (in legacy mode, as in
+C's `getinfo`, the record line is the first line that does not begin with
+`#`). `metadata` is the list of the `Key: value`
 entries of the header (of the `.hea` file only, not of a `.info` file), in
 file order, as `readMetadata` returns them (see
 [Header metadata](#header-metadata); it is empty for an EDF file). The
@@ -242,7 +256,11 @@ val beats = (0 until ann.size).filter { isqrs(ann.codes[it]) != 0 }.map { ann.sa
 `record`, `inputDir`, `network` and `legacy` work as in `readRecord`.
 `annotator` is the file suffix (`"atr"` reads `100s.atr`). The optional `fs`
 gives the sampling frequency when the record has no header, or its header
-gives none. The result is an `Annotations` object, in file order:
+gives none. `from` must not be a negative sample number
+("readAnnotations: from must not be negative"), and `fs` must be > 0;
+both are checked before any file is opened (`WfdbArgumentException`).
+Whatever happens, the annotation file is closed before the function
+returns. The result is an `Annotations` object, in file order:
 
 | Field | Contents |
 |---|---|
@@ -264,7 +282,7 @@ writeRecord("rand", x, nsig = 2, fs = 360.0, fmt = 16, gains = doubleArrayOf(100
 
 This writes the header `rand.hea` and the signal file `rand.dat`, in the
 output directory if one is set, otherwise in the current directory. The
-record name is a plain name (`rec`) or a relative path (`data/rec`), created
+record name (a trailing `.hea` is removed, as by the readers) is a plain name (`rec`) or a relative path (`data/rec`), created
 in the output directory (missing directories included), or a full path,
 absolute or `~/...`, used as given; with a path, the header names the record
 and its signal file without the path (`rec`, `rec.dat`), so that the record
@@ -280,9 +298,26 @@ units, or a `DoubleArray` of physical units, converted to ADC units as
 value, or one beyond the range of 32-bit integers in ADC units, is an error).
 A gain of 0 marks a signal as uncalibrated, which is only allowed for
 samples in ADC units; negative gains are allowed. Per-signal arguments take one value for all signals,
-or one value per signal; anything else is an error. The arguments are
-checked before any file is created, and the output signals are closed
-whatever happens.
+or one value per signal; anything else is an error. The record name, the
+signal names, the units and the comments are text of one byte per
+character (ISO-8859-1): a character beyond U+00FF is an error ("writeRecord:
+units 'μV' has a character that is not Latin-1 (one byte per character)").
+
+Every argument is checked before any file is created or changed (an
+invalid argument throws a `WfdbArgumentException`), in this order: the
+record name (not empty, Latin-1), the number of signals, the number of
+values of each per-signal argument, the gains, the ADC resolutions
+("writeRecord: ADC resolution(s) must be specified"), the units, the
+sampling frequency, the signal names and units (Latin-1), the samples, the
+comments (Latin-1), the metadata and the base time. The signal file and the
+header are then written to temporary files in the directory of each file
+(`.NAME.XXXXXXXX.tmp`, readable and writable by their owner only while
+they are written), which replace the existing files only when both are
+complete, with the permissions of the files they replace (or of any new
+file); after an error, they are removed, and the existing files are left as
+they were. A symbolic link is kept (the file it leads to is replaced); a
+destination that is not a regular file (a device, a FIFO) is written
+directly. The output signals are closed whatever happens.
 
 | Argument | Meaning |
 |---|---|
@@ -306,14 +341,31 @@ writeAnnotations("rand", "qrs", longArrayOf(100, 460, 820), symbols = listOf("N"
 The file `RECORD.ANNOTATOR` is created where `writeRecord` would create the
 record (a trailing `.hea` of the record name is also accepted); with `dir`,
 the record name must be a plain name, and the file is `DIR/RECORD.ANNOTATOR`.
-Give the annotation types as `symbols` or as `codes`. Both may be given (as
+Give the annotation types as `symbols` or as `codes` ("symbols or codes
+must be given" otherwise; with no annotations, neither is needed, and an
+empty file is written). Both may be given (as
 `readAnnotations` returns them) if they agree: the code of each symbol must
 be the code at its position (an empty symbol agrees with any code), or
 "writeAnnotations: symbols and codes disagree at annotation K" (K counting
 from 0) is thrown. `subtypes`, `chans`, `nums` and `aux` are optional.
 Each of these arguments, when given, has one value per annotation; anything
-else is an error. `fs`, if given, must be finite and > 0. These checks are
-made before the file is created. As in C, the subtype, channel and annotator number are stored
+else is an error. `fs`, if given, must be finite and > 0. The times must
+be from -2^63 + 1 to 2^63 - 2: the smallest and the largest 64-bit
+integers are reserved by the file format ("writeAnnotations: annotation
+time T cannot be written (annotation times must be integers from
+-9223372036854775807 to 9223372036854775806)"). The codes must be from 0 to
+58: 59 to 63 are the control codes of the file format ("writeAnnotations:
+annotation code C is reserved (59 to 63 are the control codes of the
+annotation file format)"), and other values do not fit ("... annotation
+code C is out of range (0 to 58)"). The aux texts are Latin-1 text ("aux
+text 'X' has a character that is not Latin-1 (one byte per character)").
+These checks (`WfdbArgumentException`) are made before the file is created
+or changed, in this order: the number of values, `fs`, the times, the
+codes, the agreement of symbols and codes, the aux texts. The file is
+written to a temporary file, as `writeRecord` writes its files, which
+replaces the existing file only when it is complete (and, if needed,
+sorted); an error that the library reports while writing it is an error
+("write error on annotator ANN for record REC"). As in C, the subtype, channel and annotator number are stored
 in one byte each (other values wrap around). An `Annotations` object can also be written
 as it is: `writeAnnotations("rand", "atr2", ann)`. If the annotations are
 not in time order, the file is sorted when it is written. `sort = false`
@@ -337,7 +389,11 @@ updateMetadata("rec", mapOf("Age" to "65", "Dx" to null))   // several changes; 
 ```
 
 * **Reading.** An entry is a comment line after the record line (an info
-  string, as the C function `getinfo` reads it) that contains a colon. The
+  string, as `getinfo` reads it) that contains a colon. The record line is
+  the first line that holds something other than white space and does not
+  begin (after white space) with `#`, as the header parser finds it, in
+  every mode; comments and blank lines before it are never read or
+  changed. The
   key is the text before the first colon, the value the rest of the line,
   both without spaces at either end: `#Age:45`, `# Age: 45` and
   `#  Age : 45` all give `("Age", "45")`. Comment lines without a colon are
@@ -362,6 +418,7 @@ updateMetadata("rec", mapOf("Age" to "65", "Dx" to null))   // several changes; 
   position; a new one goes after the last comment line of the header. Every
   other byte of the header is kept, including its line endings. The header
   is replaced in one step (through a temporary file in its directory,
+  readable and writable by its owner only until it is complete, then
   renamed over it, keeping its permissions), and all the arguments are
   checked first, so an error leaves it unchanged. If nothing changes,
   nothing is written.
@@ -394,10 +451,17 @@ text, exactly as given, and does not de-identify it. The KDoc comments of
 
 * Every error of a high-level function throws a `WfdbException`, whose
   message says what failed, such as "can't read record 100s". The header
-  metadata functions, and the `metadata` argument of `writeRecord`, throw
-  its subclass `WfdbArgumentException` for an invalid argument.
-* A signal file that is shorter than its header says throws "can't read
-  signal data of record REC (getvec status -3)".
+  metadata functions, the writers (`writeRecord`, `writeAnnotations`) and
+  the checks of `readAnnotations` throw its subclass
+  `WfdbArgumentException` for an invalid argument.
+* A signal file that is shorter than its header says, or that cannot be
+  read, throws "can't read signal data of record REC (getvec status -3)",
+  even if a checksum error is found in the same frame (`readRecord` never
+  returns an incomplete frame); `checkRecord` reports such a file as
+  `length_short` ("the signal files end after N frames, before the M given
+  in the header"). A checksum error alone stays a warning (below).
+  `readRecord` allocates at most 2^26 values in advance, whatever length the
+  header gives, and grows its array as the frames are read.
 * An annotation file that ends before its end-of-file marker throws "can't
   read annotation file ANN of record REC (getann status -3)".
 * Invalid arguments, and a value the operation needs but the record does not
@@ -416,11 +480,12 @@ text, exactly as given, and does not de-identify it. The KDoc comments of
 * A tool, or a program that uses the WFDB library functions, never writes a
   signal file over one of the signal files it is reading. Opening such an
   output fails with "output file NAME is also an input file". `writeRecord`
-  reads nothing, so it overwrites any existing files of the same name.
+  reads nothing, so it replaces any existing files of the same name.
 * A file that cannot be written completely, for example when the disk is
   full, throws "write error on record REC" (`writeRecord`) or "write error
   on annotator ANN for record REC" (`writeAnnotations`), also in legacy
-  mode.
+  mode; the existing files are then left as they were, and no temporary
+  file is left.
 * `writeRecord` checks `sampsPerFrame` before anything else: each value
   must be at least 1 ("writeRecord: sampsPerFrame must hold integers >=
   1"), and the number of samples must be a multiple of the frame size.
@@ -561,8 +626,9 @@ The signal files that a header names are read from the header's directory.
 
 ### Record names
 
-A record name is given without the `.hea` extension (the readers, and
-`writeAnnotations`, also accept a trailing `.hea`; `writeRecord` does not).
+A record name is given without the `.hea` extension (the readers and the
+writers, `writeRecord` and `writeAnnotations`, also accept a trailing
+`.hea`, which is removed).
 It is one of:
 
 * a full path, absolute (`/data/mitdb/100`) or in the home directory
@@ -610,10 +676,16 @@ PhysioNet:
 val rec = readRecord("100", inputDir = "https://physionet.org/files/mitdb/1.0.0/", network = true)
 ```
 
-Remote files are read once and kept for the rest of the session. A download
-gives up when it cannot connect, or receives nothing, for 30 seconds. On the
-JVM and Android, files are downloaded with `java.net.HttpURLConnection` (an
-Android app needs the `INTERNET` permission); on iOS, with `NSURLSession`.
+A remote file that has been read is kept for the rest of the session; one
+that could not be read is requested again the next time it is opened. A
+download gives up when it cannot connect, or receives nothing, for 30
+seconds. On the JVM and Android, files are downloaded with
+`java.net.HttpURLConnection` (an Android app needs the `INTERNET`
+permission); on iOS, with `NSURLSession`. Only http:// and https:// URLs can
+be read: a name that begins with another URL scheme, such as ftp:// or
+sftp://, is refused, with or without network access, and never read as a
+local file name (mount the server as a local folder, e.g. with sshfs or
+rclone, or download the files).
 
 ## Signal parameters
 
@@ -801,9 +873,9 @@ describes what changes in legacy mode.
   the library's logic, with `./gradlew compileCommonMainKotlinMetadata`; they
   do not compile the native code (iOS, and Linux through
   `-Pwfdbx.linux=true`).
-  Legacy-mode sorting of annotation files runs the `sortann` program, which
-  an iOS app cannot do (the in-process sort of normal mode works
-  everywhere).
+  Legacy-mode sorting of annotation files runs the `sortann` program in a
+  new JVM (`java -cp ...`), which an Android or iOS app cannot do (the
+  in-process sort of normal mode works everywhere).
 * **Android.** Use the JVM artifact (API level 26 or later). The library
   uses `java.nio.file`; give it paths in the app's storage.
 * **FLAC.** Formats 508, 516 and 524 (FLAC-compressed signals) are read and
@@ -879,3 +951,7 @@ included, may use it on the LGPL's terms. The command-line tools (the
 package, are distributed under the GNU General Public License, version 3 or
 (at your option) any later version
 ([LICENSE-GPL](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE-GPL)). Each source file states its license.
+The FLAC decoder is translated from libFLAC, and carries libFLAC's
+BSD-3-Clause notice; [NOTICE](https://github.com/alphanumericslab/wfdb-x/blob/main/NOTICE)
+gives the licenses and that notice, and is in `META-INF` of every jar, with
+`LICENSE` and `LICENSE-GPL`.

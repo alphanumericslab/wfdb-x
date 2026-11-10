@@ -20,7 +20,7 @@ plugins {
 }
 
 group = "io.github.alphanumericslab"
-version = "1.2.1"
+version = "1.2.2"
 
 // The linuxX64 target needs the Kotlin/Native toolchain (downloaded from
 // download.jetbrains.com on first use). It is built when -Pwfdbx.linux=true
@@ -72,6 +72,16 @@ tasks.withType<Test>().configureEach {
 
 tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest>().configureEach {
     environment("WFDBX_TESTDATA", testData)
+}
+
+// The licenses (LICENSE: LGPL-2.1-or-later, the library; LICENSE-GPL:
+// GPL-3.0-or-later, the tools) and the NOTICE of the repository (with the
+// BSD-3-Clause notice of libFLAC, from which the FLAC decoder is translated)
+// go into META-INF of every jar: the library jars, the sources jars and
+// build/libs/wfdbx-all.jar.
+val licenseFiles = listOf("LICENSE", "LICENSE-GPL", "NOTICE").map { rootProject.layout.projectDirectory.file("../$it") }
+tasks.withType<org.gradle.jvm.tasks.Jar>().configureEach {
+    from(licenseFiles) { into("META-INF") }
 }
 
 // The runnable jar of the command-line tools, with the Kotlin standard
@@ -147,9 +157,10 @@ publishing {
                     "in Kotlin, part of WFDB-x: the same package in seven languages, tested to give " +
                     "byte-for-byte identical results",
             )
-            url.set("https://github.com/alphanumericslab/wfdb-x")
+            url.set("https://wfdb-x.org")
             licenses {
-                // the library; the command-line tools (wfdbx.apps, wfdbx.cli) are GPL-3.0-or-later
+                // the library; the command-line tools (wfdbx.apps, wfdbx.cli) are GPL-3.0-or-later;
+                // the FLAC decoder also carries libFLAC's BSD-3-Clause notice (NOTICE)
                 license {
                     name.set("LGPL-2.1-or-later")
                     url.set("https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html")
@@ -157,6 +168,11 @@ publishing {
                 license {
                     name.set("GPL-3.0-or-later")
                     url.set("https://www.gnu.org/licenses/gpl-3.0.html")
+                }
+                // the FLAC decoder, translated from libFLAC (see NOTICE)
+                license {
+                    name.set("BSD-3-Clause")
+                    url.set("https://opensource.org/license/bsd-3-clause")
                 }
             }
             scm {

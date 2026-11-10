@@ -1,0 +1,22 @@
+Record lc
+Notes
+=====
+ Age: 63
+last
+=====
+
+Starting time: not specified
+Length:     0:00.040 (10 sample intervals)
+Sampling frequency: 250 Hz
+1 signal
+Group 0, Signal 0:
+ File: fmt16.dat
+ Description: a
+ Gain: 200 adu/nd
+ Initial value: 0
+ Storage format: 16
+ I/O: can be unbuffered
+ ADC resolution: 12 bits
+ ADC zero: 0
+ Baseline: 0
+ Checksum: 0

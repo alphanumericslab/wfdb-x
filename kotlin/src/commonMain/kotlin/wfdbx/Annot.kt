@@ -1424,7 +1424,16 @@ fun Wfdb.oannclose(n: Int) {
             // WFDB-x: the file is sorted in this process (sortAnnFile); the
             // C library ran the sortann program, as legacy mode does.
             val sorted = if (legacy) {
-                run_sortann(oa.rname, name, wfdbx_get_output_dir()) == 0
+                // WFDB-x: a file that writeAnnotations is writing to a
+                // temporary file (see stagingBegin) is renamed over its
+                // destination first, where the sortann program finds it;
+                // after a write error, it is not (the existing file is left
+                // as it was), and it is not sorted.
+                if (isStaged(oa.fname) && (errflag || !stagingCommitOne(oa.fname))) {
+                    false
+                } else {
+                    run_sortann(oa.rname, name, wfdbx_get_output_dir()) == 0
+                }
             } else {
                 sortAnnFile(oa.fname, name) == 0
             }
@@ -1588,7 +1597,8 @@ class AnnList(private val legacy: Boolean = false) {
  */
 private fun Wfdb.sortAnnFile(fname: ByteArray, aname: ByteArray): Int {
     val msgs: Msgs = ArrayList()
-    val status = sortAnnFileBody(fname, aname, msgs)
+    // (WFDB-x: the temporary file of a file that writeAnnotations writes)
+    val status = sortAnnFileBody(stagedPath(fname), aname, msgs)
     report(msgs)
     return status
 }

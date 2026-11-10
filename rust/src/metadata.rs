@@ -1,7 +1,10 @@
 //! Header metadata: the `Key: value` info strings in the header of a record.
 //!
 //! The info strings of a header are its comment lines (lines that begin
-//! with `#`) after the record line, as the C function `getinfo` reads them.
+//! with `#`) after the record line, as the function `getinfo` reads them.
+//! The record line is the first line that holds something other than white
+//! space and does not begin (after white space) with `#`, as the header
+//! parser finds it.
 //! Many datasets store facts about the recording in them as `Key: value`
 //! pairs, for example:
 //!
@@ -62,8 +65,8 @@
 //!   each are removed. So `#Age:45`, `# Age: 45` and `#  Age : 45` all give
 //!   `("Age", "45")`. An info string without a colon, or whose key is empty
 //!   or contains `#`, is a free comment: it is not returned, and it is never
-//!   changed. Comment lines before the record line are not info strings,
-//!   and are never read or changed. Only the header file (`.hea`) is read,
+//!   changed. Comment lines (and empty or blank lines) before the record
+//!   line are not info strings, and are never read or changed. Only the header file (`.hea`) is read,
 //!   not the `.info` file that `getinfo` also reads. A header without a
 //!   record line has no entries, and cannot be changed.
 //! * **Keys.** Keys are compared without regard to letter case (A-Z and
@@ -281,9 +284,19 @@ impl Hdr {
     }
 
     fn from_lines(lines: Vec<Line>) -> Hdr {
-        // The record line: the first line that does not begin with '#' (as
-        // getinfo() reads a header).
-        let rec = lines.iter().position(|ln| !ln.content.starts_with(b"#"));
+        // The record line: the first line that has a token (separated by
+        // spaces, tabs, CRs and LFs, up to a null byte) that does not begin
+        // with '#', as the header parser of the library (readheader) finds
+        // it. (The C function getinfo() takes the first line that does not
+        // begin with '#', so an empty or blank line before the record line;
+        // WFDB-x's getinfo follows readheader, except in legacy mode. The
+        // metadata functions follow readheader in every mode.)
+        let rec = lines.iter().position(|ln| {
+            let t = cstd::cstr(&ln.content);
+            t.iter()
+                .position(|c| !b" \t\r\n".contains(c))
+                .is_some_and(|i| t[i] != b'#')
+        });
         let mut info = Vec::new();
         let mut entries = Vec::new();
         if let Some(r) = rec {

@@ -2,15 +2,13 @@ function meta_write(dest, data, record, id)
 %META_WRITE Replace a header file in one step.
 %   wfdbx.internal.meta_write(DEST, DATA, RECORD, ID) writes the bytes DATA
 %   (a char row) to a temporary file in the directory of DEST (named
-%   '.NAME.XXXX.tmp', NAME being the file name of DEST), which then
+%   '.NAME.XXXXXXXX.tmp', NAME being the file name of DEST), which then
 %   replaces DEST (rename), so that an error never leaves a partly written
-%   header.  If DEST exists, the temporary file is made as a copy of it
-%   (copyfile) before it is written, so that it has the permissions of
-%   DEST where the system allows; if that copy cannot be made or written
-%   (a read-only DEST), or in Octave for a name with other characters than
-%   letters, digits, spaces and . _ / + , = @ ~ - (Octave's copyfile runs
-%   a shell command), the temporary file is a new file with the default
-%   permissions.  On any failure the temporary file is removed and an
+%   header.  The temporary file is created by
+%   wfdbx.internal.temp_create with the permissions that DEST has (in
+%   Octave, its read and write permissions), whatever its name, so that
+%   the header keeps them (a private 0600 header stays 0600), and no shell
+%   command is run.  On any failure the temporary file is removed and an
 %   error (identifier ID.file) is thrown: "can't write header for record
 %   RECORD".
 %
@@ -27,43 +25,11 @@ function meta_write(dest, data, record, id)
 % the Free Software Foundation, either version 2.1 of the License, or (at
 % your option) any later version. See LICENSE.
 
-seps = find(dest == '/' | (ispc() & dest == '\'));
-if isempty(seps)
-    prefix = '';
-    base = dest;
-else
-    prefix = dest(1:seps(end));
-    base = dest(seps(end)+1:end);
-end
 tmp = '';
 fid = -1;
 try
-    while true
-        [~, token] = fileparts(tempname());
-        tmp = [prefix '.' base '.' token '.tmp'];
-        if ~isfile(tmp) && ~isfolder(tmp)
-            break;
-        end
-    end
-    % (the permissions of DEST, where the system keeps them in a copy;
-    % Octave's copyfile runs a shell command, so only for plain names)
-    plain = ['A':'Z' 'a':'z' '0':'9' '._/+,=@~ -'];
-    if ispc()
-        plain = [plain '\:'];
-    end
-    if isfile(dest) && (~wfdbx.internal.is_octave() || all(ismember(tmp, plain)))
-        if copyfile(dest, tmp)
-            fid = fopen(tmp, 'wb');
-            if fid < 0
-                delete(tmp);
-            end
-        elseif isfile(tmp)
-            delete(tmp);
-        end
-    end
-    if fid < 0
-        fid = fopen(tmp, 'wb');
-    end
+    % (with the permissions of DEST: see wfdbx.internal.temp_create)
+    [fid, tmp] = wfdbx.internal.temp_create(dest);
     if fid < 0
         error('wfdbx:meta_write', 'cannot create %s', tmp);
     end

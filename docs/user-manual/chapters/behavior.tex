@@ -8,7 +8,8 @@ signal parameters; it finds files only where they are named, and opens URLs
 only when network access is on; it sorts out-of-order annotation files
 itself, without losing annotations; it never writes a signal file over a
 signal file it is reading; its tools report write errors in their exit
-status; and it gives a defined result for input on which the C package
+status; its \code{getinfo} finds the record line of a header as the header
+parser does; and it gives a defined result for input on which the C package
 crashes. It also adds features that the C package does not have.
 
 These exceptions are the same in all seven implementations, and are tested
@@ -17,8 +18,8 @@ from the C package with the patch \file{tests/reference/divergences.patch}
 applied, which is the precise definition of the differences. The original
 behavior remains available in every case, on request, in \emph{legacy mode}
 (\cref{sec:legacy}). The file \file{docs/DIVERGENCES.md} gives the reasons
-for each difference in more detail, and \cref{sec:corrections-1-2-0} lists
-the corrections of version 1.2.0.
+for each difference in more detail, and \cref{sec:corrections-1-2-0,sec:corrections-1-2-2} list
+the corrections of versions 1.2.0 and 1.2.2.
 
 \section{No built-in sampling frequency, gain, ADC resolution or units}
 \label{sec:no-defaults}
@@ -105,7 +106,10 @@ with an error only when the requested operation needs it:
   XML output, and the gain of each selected signal for physical units
   (\opt{-p}); \cmd{sigamp}, \cmd{snip}, \cmd{wfdb2mat}, \cmd{mit2wav},
   \cmd{wfdbtime}, \cmd{xform} and \cmd{mit2edf} need the frequency (and
-  \cmd{mit2edf} the gain and ADC resolution of every signal).
+  \cmd{mit2edf} the gain and ADC resolution of every signal), and so does
+  \cmd{time2sec} with \opt{-r} (since 1.2.2; C converted the time at
+  250\,Hz, and \wfdbx{} until 1.2.1 printed a meaningless number,
+  \code{-9223372036854775808}, with the exit status 0).
 \item \cmd{wfdbdesc} prints \code{not specified} for an unspecified
   frequency and ADC resolution, \code{uncalibrated} for a gain of 0 (C:
   \code{uncalibrated; assume 200}), and \code{adu/nd} for unspecified units;
@@ -182,7 +186,8 @@ designates, as \cref{chap:files} describes: under the input or output
 directory for a relative name, as given for an absolute path, a
 \code{\textasciitilde} path or a URL, and relative to the header for the
 files that a header names, which must stay in the header's directory. URLs
-are opened only when network access is on. A name containing \code{..} is
+are opened only when network access is on, and only \code{http://} and
+\code{https://} URLs can be read. A name containing \code{..} is
 accepted. \code{setwfdb} and \code{getwfdb} set and return the input
 directory, and the \code{WFDB} environment variable is used only in legacy
 mode. Reading PhysioNet records must therefore be asked for explicitly
@@ -290,6 +295,43 @@ The library counts the output files that it could not write, flush or close;
 \code{wfdbx\_note\_write\_error()} adds one, for a program that writes a file
 itself.
 
+\section{The record line of a header is found as the header parser finds it}
+\label{sec:record-line-divergence}
+
+The info strings of a header are its lines that begin with \code{\#} after
+the record line (\cref{sec:info-strings}). The C package has two rules for
+finding the record line. The header parser (\code{readheader}) takes the
+first line whose first token (separated by spaces, tabs, carriage returns
+and line feeds) does not begin with \code{\#}, so it skips empty and blank
+lines as well as comment lines; but \code{getinfo} takes the first line that
+does not begin with \code{\#}. For a header whose first line is empty or
+blank, such as
+\begin{lstlisting}[style=text]
+(an empty line)
+# Age: 40
+rec 1 250 10
+rec.dat 16 200 12 0 0 0 0 ECG
+# Age: 63
+\end{lstlisting}
+the original \code{getinfo} takes the empty line for the record line, and
+returns \code{Age: 40}, a comment before the record line, as an info string,
+as well as \code{Age: 63}: \cmd{wfdbdesc} prints both as notes, and the
+\code{comments} of the record hold both.
+
+Since version 1.2.2, the \code{getinfo} of \wfdbx{} finds the record line as
+\code{readheader} does, so that the info strings are the lines that the
+header parser leaves after the record line: \code{Age: 63} only. A header
+with no record line has no info strings. The info strings after the record
+line are found as before: every line whose first character is \code{\#} (a
+comment between two signal lines included). This applies to \code{getinfo}
+itself, to the \code{comments} of \code{read\_header} and
+\code{read\_record}, and to the notes of \cmd{wfdbdesc}. The metadata
+functions (\code{read\_metadata} and the others, and the \code{metadata} of
+\code{read\_header}) follow the same rule in every mode, legacy mode
+included (\cref{chap:metadata}). In legacy mode, \code{getinfo} follows the
+original rule. The conformance cases \code{edge-hdr-leading-*} check both (in
+the legacy suite, against the unmodified package).
+
 \section{Input on which the C package crashes}
 \label{sec:crashes}
 
@@ -377,24 +419,73 @@ no legacy counterpart.
 \item \textbf{Write errors and frame checks in the high-level writers.}
   \code{write\_record} and \code{write\_annotations} raise an error
   (\code{write error on record REC}, \code{write error on annotator ANN for
-  record REC}) when a file cannot be written completely. \code{write\_record}
+  record REC}) when a file cannot be written completely, or when
+  \code{putann} reports an error (version 1.2.2). \code{write\_record}
   also refuses, before creating any file, frame sizes that are not integers
   of at least 1 (\code{samps\_per\_frame must hold integers >= 1}) and
   signals whose number of columns is not the number of samples in a frame
   (\code{signals has N columns, but samps\_per\_frame adds up to M}).
+\item \textbf{The high-level writers check every argument before touching
+  any file, and leave the existing files intact after a failure} (version
+  1.2.2). \code{write\_record} refuses an array of signals that is not 1-D or
+  2-D (\code{signals must be a 1-D or 2-D array}), baselines, ADC zeros and
+  ADC resolutions that are not whole numbers within the range of a 32-bit
+  integer (\code{baselines must be whole numbers within the range of a
+  32-bit integer}), and a record name, signal names, units or
+  comments that cannot be written as header text (in Python, a character
+  that is not Latin-1). \code{write\_annotations} refuses an array of times
+  (or of codes, subtypes, channels or numbers) that is not 1-D
+  (\code{samples must be a 1-D array}), annotation codes outside 0 to 58
+  (\code{annotation code 61 is reserved (59 to 63 are the control codes of
+  the annotation file format)}, \code{annotation code 64 is out of range (0
+  to 58)}: the codes 59 to 63 are the control codes \code{SKIP}, \code{NUM},
+  \code{SUB}, \code{CHN} and \code{AUX} of the MIT format, and an annotation
+  written with one of them corrupts the file), and the times $-2^{63}$ and
+  $2^{63}-1$ (\code{annotation time T cannot be written (annotation times
+  must be integers from -9223372036854775807 to 9223372036854775806)}),
+  which \code{putann} refuses (\cref{sec:known-c}); every other time can be
+  written. Both writers then write their files to temporary files in the
+  directories of the destinations (\file{.NAME.XXXXXXXX.tmp}), which are
+  renamed over the destinations once all of them are complete, and removed
+  after a failure, so that a failure never leaves a truncated header, signal
+  file or annotation file in place of an existing one. A destination that is
+  not a regular file, such as a device, is written directly; for a symbolic
+  link, the file it leads to is replaced, and the link is kept. The files
+  written are unchanged, byte for byte, and keep the permissions of the files
+  they replace. (In legacy mode, an annotation file that must be sorted is
+  renamed over its destination before the \cmd{sortann} program sorts it
+  there.) The library functions (\code{putann}, \code{putvec},
+  \code{newheader}, \ldots) and the tools keep the behavior of C.
 \item \textbf{Read errors in the high-level readers.} \code{read\_record}
   raises an error (\code{can't read signal data of record REC (getvec status
   S)}) when a signal file ends before the length its header gives, or cannot
-  be read, instead of returning the samples read so far. A checksum error is
-  a warning instead (\cref{sec:errors}).
+  be read, instead of returning the samples read so far. A read failure is
+  tracked separately from the checksum: when a signal file ends in the frame
+  at which the checksum of a signal is verified, for which \code{getvec}
+  returns $-4$ (checksum error) instead of $-3$, the high-level readers
+  still raise the read error (\code{getvec status -3}) and never return an
+  incomplete frame, and \code{check\_record} reports the file as shorter
+  than its header says, without a checksum error (version 1.2.2).
+  \code{read\_record} allocates at most $2^{26}$
+  samples in advance, whatever length the header gives, and grows its
+  result as the samples are read, so that a header that gives far more
+  samples than its files hold ends in the read error, not in an attempt to
+  allocate memory for them. \code{read\_annotations} checks
+  \code{sampfrom} and \code{sampto} as \code{read\_record} does (whole
+  numbers, \code{sampfrom} not negative), before the file is opened, and
+  closes the file whatever happens. A checksum error alone (every sample
+  read, but their sum differs from the header's checksum) is a warning
+  instead (\cref{sec:errors}).
 \item \textbf{Header metadata} (version 1.2.0): the functions
   \code{read\_metadata}, \code{get\_metadata}, \code{set\_metadata},
   \code{remove\_metadata} and \code{update\_metadata} read and change the
   \code{Key: value} info strings of a header without changing anything else
   in it, \code{read\_header} returns them, and \code{write\_record} writes
-  them (\cref{chap:metadata}). The library functions \code{getinfo},
-  \code{putinfo} and \code{setinfo}, and the tools, are unchanged, and the C
-  library reads the changed headers as before.
+  them (\cref{chap:metadata}). The info strings are those that
+  \code{getinfo} reads, after the record line found as the header parser
+  finds it, in every mode (\cref{sec:record-line-divergence}). The library
+  functions \code{putinfo} and \code{setinfo}, and the tools, are unchanged,
+  and the C library reads the changed headers as before.
 \item \textbf{The high-level functions leave the annotation time resolution
   and the getvec mode as they were} (version 1.2.0). Opening an EDF record
   sets the time resolution of output annotators (\code{setafreq}) to the
@@ -453,6 +544,105 @@ errors of the earlier versions:
   functions keep the behavior of C.
 \end{itemize}
 
+\section{Corrections of version 1.2.2}
+\label{sec:corrections-1-2-2}
+
+Version 1.2.2 corrects the following points, in all seven implementations.
+The library functions and the tools keep the behavior of C, except for
+\code{getinfo} and the URL schemes.
+\begin{itemize}
+\item \textbf{Truncated records.} A signal file that ends before the length
+  that its header gives, or that cannot be read, is a read error of
+  \code{read\_record} (\code{can't read signal data of record REC (getvec
+  status -3)}) even when the checksum of a signal is verified in the
+  incomplete frame. \code{getvec} returns the checksum status ($-4$) for that
+  frame, which replaced the end of file ($-3$), so \code{read\_record}
+  returned the incomplete frame as data: a format-16 file holding the
+  samples 1 and 2, whose header gives 3 samples, was read as 1, 2, 257, with
+  a checksum warning. The high-level readers now track a read failure
+  separately from the checksum, and never return an incomplete frame;
+  \code{check\_record} reports such a file as shorter than its header says.
+  A checksum error alone is still a warning (\cref{sec:additions}).
+\item \textbf{\code{read\_record} allocates no more than it can read.} Its
+  result was allocated from the length that the header gives (a header
+  giving $10^{12}$ samples for a file of 4 bytes attempted to allocate
+  terabytes); at most $2^{26}$ samples are now allocated in advance.
+\item \textbf{The high-level writers check everything before touching any
+  file, and leave the existing files intact after a failure}
+  (\cref{sec:additions}). \code{write\_record} refuses, before any file is
+  opened, arrays that are not 1-D or 2-D, baselines, ADC zeros and ADC
+  resolutions that are not whole numbers within the range of a 32-bit
+  integer, and text that cannot be written in a header (in Python,
+  \code{units="}$\mu$\code{V"} left the existing header empty).
+  \code{write\_annotations} refuses arrays of times that are not 1-D (a
+  2-D array truncated the existing file), the annotation codes 59 to 63 and
+  any code outside 0 to 58, and the times $-2^{63}$ and $2^{63}-1$, which
+  were dropped while success was reported. An error that \code{putann}
+  reports is an error of \code{write\_annotations}. Both writers write
+  through temporary files that replace the destinations only when all of
+  them are complete, keeping their permissions and symbolic links.
+\item \textbf{\code{read\_annotations} checks \code{sampfrom} and
+  \code{sampto}} as \code{read\_record} does (a fraction, NaN or an
+  infinite value is an error, before the file is opened: \code{sampfrom
+  must be a whole number}, \code{sampfrom must not be negative}), and closes
+  the annotation file whatever happens.
+\item \textbf{The record line of a header} is found by \code{getinfo} as
+  the header parser finds it, except in legacy mode, and by the metadata
+  functions in every mode (\cref{sec:record-line-divergence}): for a header
+  whose first line is empty or blank, the comments before the record line
+  were returned as info strings (in \code{comments} and in the notes of
+  \cmd{wfdbdesc}).
+\item \textbf{A remote file that could not be read is requested again}
+  (\cref{sec:network}). A download that failed (a server error, a timeout, a
+  file not yet published) was remembered until the process ended, so the
+  file could not be read even after the server recovered; only the files
+  that have been read are now kept.
+\item \textbf{Only \code{http://} and \code{https://} URLs}
+  (\cref{sec:network}). A name that begins with another URL scheme
+  (\code{ftp://}, \code{sftp://}, \code{file://}, \ldots) was opened as a
+  local path (\code{ftp://h/db/100} as the directory \file{ftp:}, then
+  \file{h/db/100}); it is now refused in normal mode, with or without
+  network access, with the message \code{WFDB-x: can't open NAME: only
+  http:// and https:// URLs can be read (mount the server as a local folder,
+  or download the files)}, and so are an input directory, a file named in a
+  header, the files that a tool reads or creates itself, and an output
+  directory with such a scheme. Legacy mode is unchanged.
+\item \textbf{\cmd{time2sec -r} needs the sampling frequency of the record}:
+  a record whose header gives none, or cannot be read, is an error (exit
+  status 2: \code{time2sec: sampling frequency of record RECORD is not
+  specified}). It printed \code{-9223372036854775808} with the exit status 0
+  (a division by the unspecified frequency, 0); the C tool converted the time
+  at 250\,Hz, as legacy mode still does (\cref{sec:no-defaults}).
+\item \textbf{\code{write\_annotations} requires a label for each
+  annotation}, in every language: with one annotation or more and neither
+  symbols nor codes, it is an argument error (\code{symbols or codes must be
+  given}; in R, \code{symbol or code must be given}), before any file is
+  touched. C++, Rust and Julia wrote such annotations with the code 0,
+  which is not an annotation code; Python, R and Kotlin refused even an
+  empty list, which now writes an empty file, as in the other languages.
+\item \textbf{\code{write\_record} removes a trailing \file{.hea}} from the
+  record name, as the readers do: \code{write\_record("x.hea", \ldots)}
+  writes \file{x.hea} and \file{x.dat}. Python failed (\code{can't create
+  signal file for record x.hea}), and the other languages named the signal
+  file \file{x.hea.dat}.
+\item \textbf{Metadata changes} keep the permissions of the header, whatever
+  its file name, and their temporary file is never more open than the header
+  (\cref{sec:metadata-writing}); corrections in R, MATLAB/Octave and
+  Kotlin.
+\item \textbf{Licenses.} The file \file{NOTICE} (the licenses of
+  \wfdbx{}, and the BSD-3-Clause notice of libFLAC, whose stream decoder the
+  FLAC decoders translate) is included in the package of every language,
+  with the license files (\cref{sec:license}). The R package declares
+  \code{License: file LICENSE}, and in MATLAB/Octave the dispatcher of the
+  \cmd{wfdbx} command (\file{+wfdbx/+internal/cli\_main.m} and
+  \file{app\_run.m}), which only the tools use, is under the GPL, as the
+  launchers of the other languages are.
+\item \textbf{C++ package.} The installation provides
+  \file{wfdbxConfigVersion.cmake}, so that
+  \code{find\_package(wfdbx 1.2.2 CONFIG REQUIRED)} checks the version, and
+  the \code{wfdbx} target requires C++17 of the programs that link to it.
+\end{itemize}
+
 \section{Legacy mode}
 \label{sec:legacy}
 
@@ -490,12 +680,14 @@ assume a gain of 200 (and a baseline of 0 for invalid signal numbers); files
 are found through the WFDB search path, without network access
 (\cref{sec:resolve}); out-of-order annotation files are sorted by running
 \cmd{sortann}, which loses annotations as the original does; an output file
-may be one of the input files; the whole record name is checked when a header
-is written, and headers name records and files as given. The input directory
-and \code{WFDBX\_NETWORK} are not used, no remote file is read, and the
-tools open the files that they read themselves as named; the output
-directory is used, also for the files that the tools create themselves. The tools exit with the original status after a
-write error, and print no new messages. In \code{write\_record}, legacy mode
+may be one of the input files; \code{getinfo} takes the first line that does
+not begin with \code{\#} for the record line; the whole record name is
+checked when a header is written, and headers name records and files as
+given. The input directory and \code{WFDBX\_NETWORK} are not used, no remote
+file is read (every name containing \code{://} is refused), and the tools
+open the files that they read themselves as named; the output directory is
+used, also for the files that the tools create themselves. The tools exit
+with the original status after a write error, and print no new messages. In \code{write\_record}, legacy mode
 gives a gain of 200 and makes the units optional; its default ADC
 resolution is the storage width of the format (8 bits for formats 80 and
 508, 10 for 310 and 311, 12 for 212, 24 for 24 and 524, 32 for 32) and 16
@@ -503,7 +695,7 @@ bits for every other format, which differs from \cmd{wrsamp --legacy} only
 for format 8 (12 bits there, as in the original \cmd{wrsamp}).
 
 Legacy mode is tested against the unmodified C package by the legacy suite
-of the conformance tests (883 cases, each run with \opt{--legacy}), and the
+of the conformance tests (886 cases, each run with \opt{--legacy}), and the
 library's legacy values by the unit tests.
 
 \begin{note}
@@ -539,16 +731,22 @@ too, unless \code{wfdbquiet()} was called, and returned by
   \code{TypeError} for an argument of the wrong type, and
   \code{FileNotFoundError} when an output directory (\code{dir}) does not
   exist.
-\item C++ throws \code{wfdbx::Error}, or, in the metadata functions, one
-  of its subclasses \code{ArgumentError} and \code{FileError} (in the
-  namespace \code{wfdbx}).
+\item C++ throws \code{wfdbx::Error}, or, in the metadata functions (and
+  in \code{write\_record}, for invalid metadata), one of its subclasses
+  \code{ArgumentError} and \code{FileError} (in the namespace
+  \code{wfdbx}).
 \item Rust returns a \code{Result} whose error type is
   \code{wfdbx::record::Error}.
-\item Julia throws a \code{WfdbError}.
-\item R signals an R error.
+\item Julia throws a \code{WfdbError}, or, for some invalid arguments of
+  the metadata functions and of \code{check\_record}, an
+  \code{ArgumentError}.
+\item R signals an R error (in the metadata functions, of class
+  \code{wfdbx\_argument\_error} or \code{wfdbx\_file\_error}).
 \item MATLAB/Octave throws an error, with an identifier such as
   \code{wfdbx:read\_record}.
-\item Kotlin throws a \code{WfdbException}.
+\item Kotlin throws a \code{WfdbException}, or, for an invalid argument of
+  the metadata functions, the writers and \code{readAnnotations}, its
+  subclass \code{WfdbArgumentException}.
 \end{itemize}
 The chapters of \cref{part:languages} list the errors of each function.
 
@@ -569,6 +767,9 @@ either case, so that a program can test for it. The library function
 \code{getvec} reports such an error as in C: \code{getvec: checksum error in
 signal N}, and the status $-4$ for the last frame; the tools, such as
 \cmd{rdsamp}, therefore stop before printing that frame, as the C tools do.
+A signal file that ends early is a read error of the high-level readers,
+not a checksum warning, even when the checksum is verified in its last,
+incomplete frame (\cref{sec:additions}).
 
 \section{Known C behaviors that WFDB-x reproduces}
 \label{sec:known-c}
@@ -583,6 +784,23 @@ Among them:
   checksum mismatch is found, so that programs that loop while
   \code{getvec(\ldots) >= 0}, such as \cmd{rdsamp}, stop before printing the
   last frame.
+\item \textbf{\code{getinfo} and the header parser disagree on where the
+  record line is.} For a header whose first line is empty or blank, the C
+  function \code{getinfo} takes that line for the record line, and returns
+  the comments between it and the real record line as info strings. This
+  is reproduced in legacy mode only: \wfdbx{}'s \code{getinfo} finds the
+  record line as the header parser does (\cref{sec:record-line-divergence}).
+\item \textbf{\code{putann} writes reserved annotation codes, and drops
+  the extreme times.} \code{putann} does not check the annotation code: an
+  annotation written with one of the codes 59 to 63, the control codes of
+  the MIT format, is read back as a control word, which corrupts the rest of
+  the file, and a code above 63 loses its high bits. An annotation at the
+  time \code{WFDB\_TIME\_MIN} or \code{WFDB\_TIME\_MAX} ($-2^{63}$ or
+  $2^{63}-1$) is refused with \code{putann: time overflow in annotation file
+  N} and the status $-1$, and nothing is written for it. The library
+  function \code{putann} of \wfdbx{} does the same; the high-level
+  \code{write\_annotations} refuses such codes and times before writing
+  anything (\cref{sec:additions}).
 \item \textbf{Modification labels.} \code{annopen} consumes the \code{NOTE}
   annotations at time 0 (subtype 0) at the beginning of an annotation file,
   so \code{getann} does not return them; a file whose table redefines

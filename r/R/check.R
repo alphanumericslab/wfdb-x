@@ -304,7 +304,11 @@
 # Read up to n frames (getvec semantics): list(v = matrix, one row per
 # frame read, stat = the status of the first frame that could not be read,
 # or the number of signals if all n were read).  A frame for which getvec
-# returns -4 is included, and reading stops after it.
+# returns -4 is included, and reading stops after it.  WFDB-x: a frame in
+# which a sample could not be read (.sig$read_failed, cleared by the
+# caller, is set) is not included, whatever status getvec returned, and
+# stat is then -3 (getvec returns -4 for a frame in which a signal file
+# ended early, if a checksum is verified at that frame).
 .chk_frames <- function(n) {
   st <- .sig
   nsig <- max(st$nvsig, st$nisig)
@@ -327,6 +331,10 @@
     r <- .getvec(st$gvec)
     st$gvec <- r$v
     stat <- r$stat
+    if (st$read_failed) {
+      if (stat == -4 || stat >= -1) stat <- -3
+      break
+    }
     if (stat < 0 && stat != -4) break
     if (is.null(acc) || nrows == nrow(acc)) {
       if (nrows > 0) {
@@ -416,7 +424,15 @@
   skews <- vapply(seq_len(n) - 1L, wfdbgetskew, 0)
   checked <- ns > 0 && !st$isedf && all(skews == 0)
   st$cksum_quiet <- TRUE
-  on.exit(st$cksum_quiet <- FALSE)
+  # WFDB-x: a sample that cannot be read ends the reading with status -3,
+  # even in the frame at which a checksum is verified (whose status, -4,
+  # replaces -3 in getvec); that incomplete frame is not counted, nor are
+  # its samples checked (see .chk_frames)
+  st$read_failed <- FALSE
+  on.exit({
+    st$cksum_quiet <- FALSE
+    st$read_failed <- FALSE
+  })
   repeat {
     want <- rows
     if (checked && is.null(residual)) want <- min(rows, ns - m)
@@ -452,6 +468,7 @@
     if (got < want) break
   }
   st$cksum_quiet <- FALSE
+  st$read_failed <- FALSE
   # (with skewed signals, getvec returns the frames of the files less the
   # largest skew)
   skew <- max(vapply(seq_len(n) - 1L, wfdbgetskew, 0))

@@ -252,7 +252,17 @@ WFDBX_TEST(files_fresh_process)
     }
     CHECK_EQ(wfdberror(), "WFDB-x: network access needs the curl program, "
                           "which was not found\n");
+    // another URL scheme: the open fails, with a message the first time
+    // only (with or without network access)
+    CHECK(!file("hea", "ftp://h/x"));
+    CHECK_EQ(wfdberror(), "WFDB-x: can't open ftp://h/x.hea: only http:// and "
+                          "https:// URLs can be read (mount the server as a "
+                          "local folder, or download the files)\n");
     wfdbx_set_network(0);
+    wfdbx_set_output_dir("ftp://h/out");    // (another message)
+    CHECK(!file("hea", "sftp://h/x"));
+    CHECK_EQ(wfdberror(), "wfdbx_set_output_dir: the output directory must "
+                          "be a local directory\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +360,7 @@ WFDBX_TEST(files_header_dir)
     // not in the header's directory: refused (the other group still opens)
     wfdbquiet();
     for (const char *bad : {"../100s.dat", "/100s.dat", "~/100s.dat",
-                            "http://127.0.0.1:1/100s.dat",
+                            "http://127.0.0.1:1/100s.dat", "ftp://h/100s.dat",
                             "data/../../100s.dat", ".."}) {
         put_file("fsub/bad.hea", std::string("bad 2 360 10\n") + bad +
                  " 16\ndata/a.dat 16\n");
@@ -426,12 +436,13 @@ WFDBX_TEST(files_network)
     CHECK(getann(0, &a) == 0 && a.time == 18 && a.anntyp == RHYTHM);
     wfdbquit();
     CHECK(file("hea", url + "100s") == url + "100s.hea");
-    // each URL is requested once (successes and failures are cached)
+    // a file read is requested once (it is kept); a failure is not kept,
+    // and is requested again
     CHECK_EQ(server.count("/100s.hea"), 1u);
     CHECK_EQ(server.count("/100s.dat"), 1u);
     CHECK(!file("hea", url + "nosuch"));
     CHECK(!file("hea", url + "nosuch"));
-    CHECK_EQ(server.count("/nosuch.hea"), 1u);
+    CHECK_EQ(server.count("/nosuch.hea"), 2u);
     // a URL input directory; a header naming data/a.dat; containment
     wfdbx_set_input_dir((url + "sub").c_str());     // (one '/' is added)
     CHECK_EQ(isig("dd"), 1);
@@ -492,6 +503,57 @@ WFDBX_TEST(files_network)
         CHECK(!file("hea", url + "100s"));
         CHECK(server.requests().size() == n);
         wfdbx_set_network(0);
+    }
+    wfdbverbose();
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Other URL schemes
+
+// A name with a URL scheme other than http:// and https:// is refused, with
+// or without network access, and is never opened as a local name: ftp:/h
+// (the local path that the name ftp://h/... would designate) is not read.
+// (The message, printed the first time, is tested in files_fresh_process.)
+WFDBX_TEST(files_other_schemes)
+{
+#if !defined(_WIN32)    // (':' cannot be in a file name)
+    DataDir d;
+    using O = std::optional<std::string>;
+    for (const char *dir : {"ftp:/h", "c:"}) {
+        fs::create_directories(dir);
+        for (const char *f : {"100s.hea", "100s.dat"})
+            fs::copy_file(f, fs::path(dir) / f);
+    }
+    wfdbquiet();
+    wfdbx_set_network(1);
+    CHECK_EQ(isig("ftp://h/100s"), -1);
+    CHECK_EQ(wfdberror(), "init: can't open header for record ftp://h/100s\n");
+    CHECK_EQ(isig("sftp://h/100s"), -1);
+    CHECK(!wfdbx_input_path("ftp://h/100s.hea"));
+    CHECK(!wfdbx_output_path("ftp://h/x.wav"));
+    CHECK(!fs::exists("ftp:/h/x.wav"));
+    CHECK(!wfdbx_set_input_dir("ftp://h"));
+    CHECK_EQ(isig("100s"), -1);
+    CHECK(!wfdbx_input_path("100s.hea"));
+    wfdbx_set_input_dir(nullptr);
+    wfdbx_set_network(0);
+    CHECK_EQ(isig("ftp://h/100s"), -1);
+    // an output directory with a URL scheme is refused
+    CHECK(!wfdbx_set_output_dir("ftp://h/out"));
+    CHECK_EQ(wfdberror(), "wfdbx_set_output_dir: the output directory must "
+                          "be a local directory\n");
+    CHECK(!wfdbx_get_output_dir());
+    // a one-letter prefix is not a scheme (a local directory c:)
+    CHECK_EQ(isig("c://100s"), 2);
+    wfdbquit();
+    CHECK(wfdbx_input_path("c://a.txt") == O("c://a.txt"));
+    // legacy mode refuses every name containing ://
+    {
+        LegacyOn legacy;
+        CHECK_EQ(isig("ftp://h/100s"), -1);
+        CHECK_EQ(wfdberror(),
+                 "init: can't open header for record ftp://h/100s\n");
     }
     wfdbverbose();
 #endif

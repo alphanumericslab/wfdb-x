@@ -36,29 +36,29 @@ macOS; the tests of the repository do not compile the native code (see
 | Tool | What it does | Cases | Python | C++ | MATLAB/Octave | Rust | Julia | R | Kotlin |
 |---|---|---:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **Signals** | | | | | | | | | |
-| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 328 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrsamp` | write a record from text (columns, scaling, any storage format) | 80 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbdesc` | describe the signals of a record (header contents) | 56 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rdsamp` | print signal samples (text, CSV, XML; ADC or physical units; time formats) | 334 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrsamp` | write a record from text (columns, scaling, any storage format) | 82 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbdesc` | describe the signals of a record (header contents) | 60 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sigamp` | measure signal amplitudes (RMS or peak-to-peak, by beat or window) | 51 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snip` | copy a segment of a record (any format) to a new record | 45 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `xform` | convert records: format, sampling frequency, gain, signal selection | 61 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sampfreq` | print the sampling (or counter) frequency of a record | 24 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signame` | print signal names | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `signum` | print the number of a named signal | 7 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wfdbcat` | copy WFDB files to the standard output | 8 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wfdbcat` | copy WFDB files to the standard output | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wfdbwhich` | print the path of a WFDB file | 17 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Time conversion** | | | | | | | | | |
 | `wfdbtime` | convert between sample numbers, elapsed and absolute times | 10 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `time2sec` | convert a time string to seconds | 22 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time2sec` | convert a time string to seconds | 25 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Annotations** | | | | | | | | | |
 | `rdann` | print annotations (filters by time, type, subtype, channel, number) | 78 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `wrann` | write an annotation file from text (`rdann` format) | 28 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `wrann` | write an annotation file from text (`rdann` format) | 30 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sortann` | sort an annotation file into time order | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ann2rr` | print RR intervals from annotations | 42 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rr2ann` | write an annotation file from RR intervals | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Format converters** | | | | | | | | | |
 | `edf2mit` | convert EDF/EDF+ to a WFDB record | 20 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mit2edf` | convert a WFDB record to EDF | 28 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mit2edf` | convert a WFDB record to EDF | 29 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `rdedfann` | print EDF+ annotations (as `rdann` text) | 12 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `wav2mit` | convert a WAV file to a WFDB record | 14 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mit2wav` | convert a WFDB record to a WAV file | 16 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -72,7 +72,7 @@ macOS; the tests of the repository do not compile the native code (see
 | `makeid` | write a record ID block (for AHA conversions) | 5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `readid` | read a record ID block | 4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `revise` | convert an old-style header to the current format | 9 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Total** | 33 tools | **1135** | 1135 | 1135 | 1135 | 1135 | 1135 | 1135 | 1135 |
+| **Total** | 33 tools | **1155** | 1155 | 1155 | 1155 | 1155 | 1155 | 1155 | 1155 |
 
 ## Library functions
 

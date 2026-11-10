@@ -118,14 +118,43 @@ internal expect object Platform {
     /**
      * Replaces the file [dest] with [data] in one step (WFDB-x: for the
      * header metadata functions): the data are written to a new temporary
-     * file in the directory of dest (named `.NAME.XXXXXXXX.tmp`), flushed
-     * to the disk, given the permission bits of dest if it exists (where
-     * the platform has them; a new file otherwise has those of any new
-     * file: 0666 less the umask), and renamed to dest, replacing it. On any
-     * failure the temporary file is removed and false is returned (dest is
-     * then unchanged).
+     * file in the directory of dest (named `.NAME.XXXXXXXX.tmp`, created
+     * readable and writable by its owner only, as by [createTempFile], so
+     * that the contents, possibly patient data, are never exposed to other
+     * users), flushed to the disk, given the permission bits of dest if it
+     * exists (where the platform has them; a new file otherwise has those
+     * of any new file: 0666 less the umask), and renamed to dest, replacing
+     * it (as [commitFile]). On any failure the temporary file is removed
+     * and false is returned (dest is then unchanged).
      */
     fun replaceFile(dest: ByteArray, data: ByteArray): Boolean
+
+    /**
+     * WFDB-x (for the high-level writers): creates a new, empty temporary
+     * file `.NAME.XXXXXXXX.tmp` in the directory of [dest] (NAME: its last
+     * component; X: random letters, digits or '_'), readable and writable
+     * by its owner only from its creation (mode 0600, where the platform
+     * has permissions); returns its path, or null if it cannot be created.
+     */
+    fun createTempFile(dest: ByteArray): ByteArray?
+
+    /**
+     * WFDB-x (for the high-level writers): gives the file [tmp] the
+     * permission bits that writing [dest] in place would give (those of
+     * dest if it exists, else those of a new file: 0666 less the umask),
+     * and renames it over dest. False on failure (tmp may then be left: the
+     * caller removes it).
+     */
+    fun commitFile(tmp: ByteArray, dest: ByteArray): Boolean
+
+    /** WFDB-x: [path] made absolute (from the current directory) and normalized ("." and ".." removed), without following links; null on failure. */
+    fun absolutePath(path: ByteArray): ByteArray?
+
+    /** WFDB-x: the file that [path] leads to: an absolute path with the symbolic links resolved as far as they lead (as Python's os.path.realpath); null on failure. */
+    fun realPath(path: ByteArray): ByteArray?
+
+    /** WFDB-x: whether [path] exists (following links) and is neither a regular file nor a directory (a device, a FIFO, a socket). */
+    fun isSpecialFile(path: ByteArray): Boolean
 
     /** The identity of the existing file [path] (following links), or null. */
     fun pathId(path: ByteArray): FileId?

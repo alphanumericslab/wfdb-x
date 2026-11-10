@@ -5,7 +5,7 @@
 > MATLAB/Octave, Rust, Julia, R and Kotlin, tested to give byte-for-byte
 > identical results to the original C package and to each other. This is the
 > Python implementation.
-> [Project page and the other languages](https://github.com/alphanumericslab/wfdb-x)
+> [Website (wfdb-x.org) and the other languages](https://wfdb-x.org)
 > · [Benchmarks](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
 > · [User's manual (PDF)](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/user-manual/wfdb-x-user-manual.pdf)
 > (chapter "Python" for this language)
@@ -129,7 +129,7 @@ The result is a `Record`:
 | `base_time` | start time and date as text, to the second, such as `"[14:00:03 21/06/2024]"` |
 | `base_time_ms` | start time in milliseconds after midnight, such as `50403500` for 14:00:03.500 |
 | `base_date` | start date as `(year, month, day)` |
-| `comments` | the info strings of the header |
+| `comments` | the info strings of the header: its lines that begin with `#` after the record line (an empty or blank first line is not the record line) |
 | `checksum_ok` | `False` if the data do not match the header's checksums |
 
 `base_time`, `base_time_ms` and `base_date` are `None` when the header does
@@ -241,7 +241,10 @@ wfdbx.update_metadata("rec", {"Age": "65", "Dx": None})   # several changes; Non
 ```
 
 * **Reading.** An entry is a comment line after the record line (an info
-  string, as the C function `getinfo` reads it) that contains a colon. The
+  string, as `getinfo` reads it) that contains a colon. The record line is
+  the first line that holds something other than spaces and tabs and does
+  not begin with `#`, as the header parser finds it: an empty or blank line
+  before it, and the comments before it, are not read. The
   key is the text before the first colon, the value the rest of the line,
   both without spaces at either end: `#Age:45`, `# Age: 45` and
   `#  Age : 45` all give `("Age", "45")`. Comment lines without a colon are
@@ -291,24 +294,44 @@ gives the full rules.
   are not integers (floats with whole values are integers) or that lie
   outside the range of a 32-bit integer, and samples in physical units that
   are infinite or whose ADC value lies outside that range, raise
-  `ValueError` before any file is created. (NaN in physical units is an
-  invalid sample.) In `write_annotations`, `symbols` and `codes` that
+  `ValueError` before any file is touched. So do an array of signals that
+  is not 1-D or 2-D, baselines, ADC zeros and ADC resolutions that are not
+  whole numbers within the range of a 32-bit integer, and a record name,
+  signal names, units or comments with a character that is not Latin-1
+  ("units 'μV' has a character that is not Latin-1 (one byte per
+  character)"). (NaN in physical units is an invalid sample.) In
+  `write_annotations`, `symbols` and `codes` that
   disagree ("symbols and codes disagree at annotation K"), an annotation
   time that is not an integer within the range of a
-  64-bit integer (NaN, an infinite value, a fraction or a huge value), NaN
-  or None in `samples`, `codes`, `subtypes`, `chans` or `nums`, and an `fs`
-  that is not finite and greater than 0 raise `ValueError` before the file
-  is created. Whatever the outcome, `write_record` and
+  64-bit integer (NaN, an infinite value, a fraction or a huge value), or
+  that is -2**63 or 2**63 - 1 (which the annotation file format reserves),
+  NaN or None in `samples`, `codes`, `subtypes`, `chans` or `nums`,
+  `samples` (or `codes`, `subtypes`, `chans`, `nums`) that are not 1-D, an
+  annotation code outside 0 to 58 ("annotation code 61 is reserved": 59 to
+  63 are the control codes of the format), aux texts that are not Latin-1,
+  and an `fs` that is not finite and greater than 0 raise `ValueError`
+  before the file is touched. Whatever the outcome, `write_record` and
   `write_annotations` close their output files and the library's output
   signals and annotators before they return.
-* A negative `sampfrom` in `read_record` raises `ValueError`, and so does a
-  `sampfrom` or `sampto` that is not a whole number (a fraction, NaN or an
-  infinite value). Whatever the outcome, `read_record` closes the input
-  signals before it returns.
+* `write_record` and `write_annotations` write their files to temporary
+  files in the destination directory (`.NAME.XXXXXXXX.tmp`), renamed over
+  the destinations once all of them are complete: a failure while writing
+  (a full disk, for example) leaves the existing files as they were, and
+  no temporary file is left.
+* A negative `sampfrom` in `read_record` and `read_annotations` raises
+  `ValueError`, and so does a `sampfrom` or `sampto` that is not a whole
+  number (a fraction, NaN or an infinite value), before any file is
+  opened. Whatever the outcome, `read_record` and `read_annotations` close
+  their input files before they return.
 * `read_record` sets the getvec mode (`highres`, `pad`) for its own reading
   only: the mode in force before the call is restored afterwards.
-* A signal file that is shorter than its header says raises `IOError`:
-  "can't read signal data of record REC (getvec status -3)".
+* A signal file that is shorter than its header says, or cannot be read,
+  raises `IOError`: "can't read signal data of record REC (getvec status
+  -3)", also when the checksums do not match either (the C function
+  `getvec` then reports the checksum error, -4, for the incomplete last
+  frame); an incomplete frame is never returned. `read_record` allocates
+  memory for the samples as it reads them, not for the length that the
+  header gives.
 * An annotation file that ends before its end-of-file marker raises
   `IOError`: "can't read annotation file ANN of record REC (getann status
   -3)".
@@ -425,8 +448,8 @@ The signal files that a header names are read from the header's directory.
 
 ### Record names
 
-A record name is given without the `.hea` extension (the readers also
-accept a trailing `.hea`; `write_record` does not). It is one of:
+A record name is given without the `.hea` extension (a trailing `.hea` is
+removed, by the readers and by `write_record`). It is one of:
 
 * a full path, absolute (`/data/mitdb/100`) or in the home directory
   (`~/Documents/100s`), used as given;
@@ -469,8 +492,13 @@ rec = wfdbx.read_record("100", input_dir="https://physionet.org/files/mitdb/1.0.
                         network=True)
 ```
 
-Remote files are read once and kept for the rest of the session. A download
-gives up when it cannot connect, or receives nothing, for 30 seconds.
+A remote file that has been read is kept for the rest of the session; one
+that could not be read is requested again the next time it is opened. A
+download gives up when it cannot connect, or receives nothing, for 30
+seconds. Only http:// and https:// URLs can be read: a name that begins with
+another URL scheme, such as ftp:// or sftp://, is refused, with or without
+network access, and never read as a local file name (mount the server as a
+local folder, e.g. with sshfs or rclone, or download the files).
 
 ## Signal parameters
 
@@ -708,3 +736,8 @@ included, may use it on the LGPL's terms. The command-line tools (the
 package, are distributed under the GNU General Public License, version 3 or
 (at your option) any later version
 ([LICENSE-GPL](https://github.com/alphanumericslab/wfdb-x/blob/main/LICENSE-GPL)). Each source file states its license.
+The file
+[NOTICE](https://github.com/alphanumericslab/wfdb-x/blob/main/NOTICE),
+included in the package with both licenses, summarizes this and gives the
+copyright notice and license (BSD-3-Clause) of libFLAC 1.4.3, whose stream
+decoder the FLAC decoder of `wfdbx` translates.

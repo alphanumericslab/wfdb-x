@@ -1304,9 +1304,19 @@ function oannclose(w::Wfdb, n::Integer)
             wfdb_error(w, "Rearranging annotations for output annotator %s ...", name)
             # WFDB-x: the file is sorted in this process; the C library ran
             # the sortann program, as legacy mode does.
-            sorted = wfdbx_get_legacy(w) != 0 ?
-                     run_sortann(oa.rname, name; dir=wfdbx_get_output_dir(w)) :
-                     _sort_ann_file(w, oa.fname, name)
+            sorted = if wfdbx_get_legacy(w) == 0
+                _sort_ann_file(w, oa.fname, name)
+            elseif w.io.staging !== nothing && _staging_has(w, oa.fname) &&
+                   (errflag || !_staging_commit_one(w, oa.fname))
+                # WFDB-x: a file that write_annotations is writing to a
+                # temporary file (see _staging_begin) is renamed over its
+                # destination first, where the sortann program finds it;
+                # after a write error, it is not (the existing file is left
+                # as it was), and it is not sorted.
+                -1
+            else
+                run_sortann(oa.rname, name; dir=wfdbx_get_output_dir(w))
+            end
             if sorted == 0
                 wfdb_error(w, "done!\n")
                 out_of_order = false

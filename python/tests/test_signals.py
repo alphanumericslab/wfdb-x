@@ -125,6 +125,17 @@ def test_write_record_requires_gains_and_frequency(datadir):
     assert r.gains == [200, 0] and r.units == ["mV", None]
 
 
+def test_write_record_trailing_hea(datadir):
+    # a trailing ".hea" is removed, as by the readers (1.2.2)
+    x = np.array([[1], [2], [3]])
+    w.write_record("th.hea", x, 250, gains=200, adcres=16, units="mV")
+    assert os.path.exists("th.hea") and os.path.exists("th.dat")
+    assert not os.path.exists("th.hea.dat")
+    assert w.read_record("th").signals.tolist() == [[1], [2], [3]]
+    with pytest.raises(ValueError, match="record name must not be empty"):
+        w.write_record("", x, 250, gains=200, adcres=16, units="mV")
+
+
 def test_write_record_requires_resolution_and_units(datadir):
     x = np.zeros((10, 2), np.int64)
     for res in (None, [16, None], [16], 0, [16, 0]):
@@ -1378,3 +1389,195 @@ def test_apps_nan_sampling_frequency(datadir, capfd):
     assert mit2edf.main(["mit2edf", "-r", "h1", "-o", "o.edf"]) == 0
     capfd.readouterr()
     assert len(open("o.edf", "rb").read()) == 512
+
+
+# WFDB-x 1.2.2: the corrections of the fourth review.
+
+def _snapshot(names):
+    """The contents of the files named (None for a missing file), and the
+    names of the files of the current directory."""
+    return {n: (open(n, "rb").read() if os.path.exists(n) else None)
+            for n in names}, sorted(os.listdir("."))
+
+
+def test_read_record_truncated_frame_with_checksum(datadir, capfd):
+    # A format-16 file holding the samples 1 and 2, whose header gives 3
+    # samples: getvec reports the unexpected end of file (-3), and then the
+    # checksum error (-4) of the frame at which the checksum is verified,
+    # whose status replaces -3.  read_record raises the read error, and
+    # never returns the incomplete frame (it returned [1, 2, 257]).
+    import struct
+    open("tr.dat", "wb").write(struct.pack("<2h", 1, 2))
+    open("tr.hea", "w").write("tr 1 250 3\ntr.dat 16 200 16 0 1 0 0 s\n")
+    with pytest.raises(IOError, match=r"can't read signal data of record "
+                       r"tr \(getvec status -3\)"):
+        w.read_record("tr")
+    capfd.readouterr()
+    assert _state_clean()
+    # the C-style getvec keeps the C behavior: -4 for the incomplete frame
+    si = []
+    assert w.isigopen("tr", si, 1) == 1
+    v = [0]
+    assert [w.getvec(v), v[0]] == [1, 1]
+    assert [w.getvec(v), v[0]] == [1, 2]
+    assert w.getvec(v) == -4
+    w.wfdbquit()
+    capfd.readouterr()
+    # the frames before it are read when sampto stops before it
+    assert w.read_record("tr", sampto=2).signals.ravel().tolist() == [1, 2]
+    # check_record reports the short file, not a checksum error
+    rep = w.check_record("tr")
+    assert [i.code for i in rep.issues if i.severity == "error"] == \
+        ["length_short"]
+    assert "the signal files end after 2 frames, before the 3 given in the " \
+        "header" in str(rep)
+    # a checksum error alone (all samples read) is still a warning
+    open("tr.hea", "w").write("tr 1 250 2\ntr.dat 16 200 16 0 1 0 0 s\n")
+    with pytest.warns(RuntimeWarning, match="checksum error in record tr"):
+        r = w.read_record("tr")
+    assert r.signals.ravel().tolist() == [1, 2] and not r.checksum_ok
+
+
+def test_read_record_bounded_allocation(datadir, capfd):
+    # A header that gives 10**12 samples for a signal file of 4 bytes: the
+    # reader allocates no more than it can read (it attempted 3.64 TiB),
+    # and reports the short file as a read error.
+    open("big.dat", "wb").write(b"\1\0\2\0")
+    open("big.hea", "w").write("big 1 250 1000000000000\n"
+                               "big.dat 16 200 16 0 0 0 0 s\n")
+    with pytest.raises(IOError, match=r"getvec status -3"):
+        w.read_record("big")
+    capfd.readouterr()
+    for sampto in (2, 10**12):
+        try:
+            r = w.read_record("big", sampto=sampto)
+            assert sampto == 2 and r.signals.ravel().tolist() == [1, 2]
+        except IOError:
+            assert sampto != 2
+    capfd.readouterr()
+    # a long record is still read whole, growing the array
+    x = np.arange(300000, dtype=np.int64).reshape(-1, 3) % 30000
+    w.write_record("long", x, 100, gains=200, adcres=16, units="mV")
+    with open("long.hea") as f:
+        h = f.read()
+    with open("long.hea", "w") as f:       # (no length: grows from a chunk)
+        f.write(h.replace("long 3 100 100000", "long 3 100"))
+    assert np.array_equal(w.read_record("long").signals, x)
+
+
+def _write_100s_copy():
+    w.write_record("r", w.read_record("100s", sampto=100).signals, 360,
+                   gains=200, adcres=11, units="mV", names=["a", "b"])
+    return ["r.hea", "r.dat"]
+
+
+def test_write_record_checks_before_writing(datadir):
+    # Each invalid argument is refused before any file is touched: the
+    # existing record is unchanged, and no temporary file is left.
+    names = _write_100s_copy()
+    before = _snapshot(names)
+    x = np.zeros((5, 2), np.int64)
+    kw = dict(gains=200, adcres=12, units="mV")
+    bad = [
+        (dict(units="μV"), "units 'μV' has a character that is not Latin-1"),
+        (dict(signals=np.zeros((2, 2, 2))), "1-D or 2-D"),
+        (dict(signals=np.array(5)), "1-D or 2-D"),
+        (dict(names=["a", "μ"]), "signal name 'μ'"),
+        (dict(comments=["ok", "μ"]), "comment 'μ'"),
+        (dict(baselines=1.5), "baselines must be whole numbers"),
+        (dict(baselines=float("nan")), "baselines must be whole numbers"),
+        (dict(baselines=2**31), "baselines must be whole numbers"),
+        (dict(baselines="x"), "baselines must be whole numbers"),
+        (dict(adczeros=-2**31 - 1), "adczeros must be whole numbers"),
+        (dict(adczeros=[0, 0.5]), "adczeros must be whole numbers"),
+        (dict(adcres=12.5), "adcres must be whole numbers"),
+        (dict(adcres="x"), "adcres must be whole numbers"),
+        (dict(adcres=[12, 0]), "ADC resolution"),
+        (dict(gains=[200, float("inf")]), "gains must be finite"),
+    ]
+    for args, msg in bad:
+        a = dict(kw, **args)
+        with pytest.raises(ValueError, match=msg):
+            w.write_record("r", a.pop("signals", x), 360, **a)
+        assert _snapshot(names) == before, args
+    with pytest.raises(ValueError, match="record name 'rμ'"):
+        w.write_record("rμ", x, 360, **kw)
+    assert _snapshot(names) == before
+
+
+def test_write_record_failure_leaves_files(datadir, monkeypatch):
+    # A failure while writing (here, the header cannot be created, or the
+    # samples cannot be written) leaves the existing files intact: both
+    # are written to temporary files, renamed over them at the end.
+    names = _write_100s_copy()
+    before = _snapshot(names)
+    x = np.arange(20).reshape(10, 2)
+    kw = dict(gains=200, adcres=12, units="mV")
+    with monkeypatch.context() as m:
+        m.setattr(w._signal, "newheader", lambda record: -1)
+        with pytest.raises(IOError,
+                           match="can't create header for record r"):
+            w.write_record("r", x, 250, **kw)
+    assert _snapshot(names) == before
+
+    def fail(x):
+        raise IOError("disk on fire")
+    with monkeypatch.context() as m:
+        m.setattr(w._signal, "_putframes", fail)
+        with pytest.raises(IOError, match="disk on fire"):
+            w.write_record("r", x, 250, **kw)
+    assert _snapshot(names) == before
+    assert _state_clean()
+    # a directory in the way of the header: the signal file is not replaced
+    os.mkdir("q.hea")
+    with pytest.raises(IOError, match="can't create header for record q"):
+        w.write_record("q", x, 250, **kw)
+    assert not os.path.exists("q.dat")
+    assert not [f for f in os.listdir(".") if f.endswith(".tmp")]
+    # success: the files are those written in place before, with the
+    # permissions of the files they replace
+    os.chmod("r.dat", 0o640)
+    w.write_record("r", x, 250, **kw)
+    assert os.stat("r.dat").st_mode & 0o777 == 0o640
+    assert w.read_record("r").signals.tolist() == x.tolist()
+    assert not [f for f in os.listdir(".") if f.endswith(".tmp")]
+
+
+def test_getinfo_record_line(datadir):
+    # The record line is found as readheader finds it: the first line with a
+    # token (separated by spaces, tabs, CRs and LFs) that does not begin
+    # with '#'.  A comment before it is not an info string, even after an
+    # empty or blank first line (C's getinfo took the empty line for the
+    # record line); in legacy mode, the C rule applies.
+    sig = "fmt16.dat 16 200 12 0 0 0 0 a\n"
+    for name, text, normal, legacy in [
+            ("le", "\n# Age: 40\nle 1 250 10\n" + sig + "# Age: 63\n",
+             [" Age: 63"], [" Age: 40", " Age: 63"]),
+            ("lw", " \t\r\n# Age: 40\r\nlw 1 250 10\r\n" +
+             sig.replace("\n", "\r\n") + "# Age: 63\r\n",
+             [" Age: 63"], [" Age: 40", " Age: 63"]),
+            ("lc", "# first\n\n# Age: 40\n \t\n  # indented\nlc 1 250 10\n" +
+             sig + "# Age: 63\n#last\n",
+             [" Age: 63", "last"], [" Age: 40", " Age: 63", "last"]),
+            ("ln", "# only\n\n# comments\n", [], [" comments"])]:
+        open(name + ".hea", "w", newline="").write(text)
+        for legacy_mode, want in ((0, normal), (1, legacy)):
+            previous = w.wfdbx_set_legacy(legacy_mode)
+            try:
+                got = []
+                c = w.getinfo(name)
+                while c is not None:
+                    got.append(c)
+                    c = w.getinfo(None)
+            finally:
+                w.wfdbx_set_legacy(previous)
+            assert got == want, (name, legacy_mode)
+            w.wfdbquit()
+        if name != "ln":
+            assert w.read_header(name).comments == normal
+            assert w.read_header(name, legacy=True).comments == legacy
+            assert w.read_header(name).metadata == [("Age", "63")]
+            assert w.read_header(name, legacy=True).metadata == \
+                [("Age", "63")]
+            assert w.read_record(name, legacy=True,
+                                 checksum_warning=False).comments == legacy

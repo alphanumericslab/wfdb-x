@@ -315,6 +315,7 @@ fn files_named_in_headers() {
         &abs[..],
         "~/a.dat",
         "http://127.0.0.1:9/a.dat",
+        "ftp://h/a.dat",
     ] {
         header(&d, "bad", name);
         // the header can be read; its signal file is refused
@@ -352,6 +353,70 @@ fn files_named_in_headers() {
             .samples,
         [1, 3, 2, 4]
     );
+    w.wfdbx_set_legacy(0);
+}
+
+#[test]
+#[cfg(not(windows))] // (':' cannot be in a file name)
+fn other_schemes() {
+    // A name with a URL scheme other than http:// and https:// is refused
+    // (with a message, once per process: no other test of this program opens
+    // such a name), with or without network access, and is never opened as
+    // a local name: ftp:/h/100s.hea (the local path that the name
+    // ftp://h/100s would designate) is not read.
+    let d = Dir::new("schemes");
+    for dir in ["ftp:/h", "c:"] {
+        d.copy("100s.hea", &format!("{dir}/100s.hea"));
+        d.copy("100s.dat", &format!("{dir}/100s.dat"));
+    }
+    let mut w = quiet();
+    w.wfdbx_set_network(1);
+    assert!(w.wfdb_open("hea", "ftp://h/100s", WFDB_READ).is_none());
+    assert_eq!(
+        w.wfdberror(),
+        b"WFDB-x: can't open ftp://h/100s.hea: only http:// and https:// URLs can be read (mount the server as a local folder, or download the files)\n"
+    );
+    let mut si = vec![Siginfo::default(); 2];
+    assert_eq!(w.isigopen("ftp://h/100s", &mut si, 2), -1);
+    assert_eq!(
+        w.wfdberror(),
+        b"init: can't open header for record ftp://h/100s\n"
+    );
+    let mut w2 = quiet(); // (the message is not printed again)
+    assert!(w2.wfdb_open("hea", "sftp://h/100s", WFDB_READ).is_none());
+    assert_eq!(
+        w2.wfdberror(),
+        b"WFDB library version 10.7.0 (Jun 10 2022).\n"
+    );
+    assert_eq!(w.wfdbx_input_path("ftp://h/100s.hea"), None);
+    assert_eq!(w.wfdbx_output_path("ftp://h/x.wav"), None);
+    assert!(w.wfdb_open("hea", "ftp://h/x", WFDB_WRITE).is_none());
+    assert!(!std::path::Path::new("ftp:/h/x.hea").exists());
+    assert_eq!(w.wfdbx_set_input_dir("ftp://h"), None);
+    assert!(w.read_header("100s", false).is_err());
+    assert_eq!(w.wfdbx_input_path("100s.hea"), None);
+    w.wfdbx_set_input_dir(NULL);
+    w.wfdbx_set_network(0);
+    assert!(w.read_header("ftp://h/100s", false).is_err());
+    // an output directory with a URL scheme is refused
+    assert_eq!(w.wfdbx_set_output_dir("ftp://h/out"), None);
+    assert_eq!(
+        w.wfdberror(),
+        b"wfdbx_set_output_dir: the output directory must be a local directory\n"
+    );
+    assert_eq!(w.wfdbx_get_output_dir(), None);
+    // a one-letter prefix is not a scheme (a local directory c:)
+    assert_eq!(w.isigopen("c://100s", &mut si, 2), 2);
+    w.wfdbquit();
+    assert_eq!(w.wfdbx_input_path("c://a.txt"), v("c://a.txt"));
+    // legacy mode refuses every name containing ://
+    w.wfdbx_set_legacy(1);
+    assert_eq!(w.isigopen("ftp://h/100s", &mut si, 2), -1);
+    assert_eq!(
+        w.wfdberror(),
+        b"init: can't open header for record ftp://h/100s\n"
+    );
+    assert_eq!(w.wfdbx_input_path("ftp://h/a"), v("ftp://h/a"));
     w.wfdbx_set_legacy(0);
 }
 
@@ -506,6 +571,7 @@ fn tool_file_paths() {
         assert_eq!(f(None), None);
         assert_eq!(f(Some("http://127.0.0.1:1/a.txt")), None);
         assert_eq!(f(Some("https://127.0.0.1:1/a.txt")), None);
+        assert_eq!(f(Some("ftp://h/a.txt")), None); // (any URL scheme)
     }
     assert!(!exists("sub"));
     // the input directory

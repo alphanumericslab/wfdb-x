@@ -1,0 +1,3 @@
+WFDB-x: can't open sftp://h/db/sr.hea: only http:// and https:// URLs can be read (mount the server as a local folder, or download the files)
+wfdbcat: `sftp://h/db/sr.hea' not found
+wfdbcat: `file:///h/db/sr.hea' not found

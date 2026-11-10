@@ -7,8 +7,12 @@
 // 10.7.0, by George B. Moody. The translation follows the logic and behavior
 // of the original program, but it is new code, not the original C code.
 //
-// Changes from the original: none, apart from the language and the --legacy
-// option (as the first argument, it restores the original behavior).
+// Changes from the original: with -r, a record whose header cannot be read,
+// or gives no sampling frequency, is an error (exit status 2; "time2sec:
+// sampling frequency of record REC is not specified"), since WFDB-x assumes
+// no sampling frequency: the original used the default of 250 Hz (WFDB-x,
+// 1.2.2; see docs/DIVERGENCES.md). The --legacy option (as the first
+// argument) restores the original behavior.
 //
 // Original C program: app/time2sec.c, WFDB Software Package 10.7.0.
 //   Copyright (C) 2003-2009 George B. Moody.
@@ -38,9 +42,21 @@ int main(int argc, char **argv)
     long seconds;
 
     if (argc == 4 && std::strcmp(argv[1], "-r") == 0) {
-        (void)isigopen(argv[2], nullptr, 0);
+        // WFDB-x: in normal mode, no sampling frequency is assumed: a record
+        // whose header cannot be read, or gives none, is an error (the
+        // original used the default of 250 Hz; a frequency of 0 gave a
+        // meaningless result with the exit status 0)
+        if (isigopen(argv[2], nullptr, 0) < 0 && !wfdbx_get_legacy())
+            std::exit(2);
+        if (sampfreq(nullptr) <= 0. && !wfdbx_get_legacy()) {
+            std::fprintf(stderr, "%s: sampling frequency of record %s is not "
+                         "specified\n", argv[0], argv[2]);
+            std::exit(2);
+        }
         t = static_cast<double>(strtim(argv[3]));
         if (t < 0) t = -t;
+        // (legacy mode, as in C: with no sampling frequency, t / sf is
+        // infinite or NaN)
         seconds = static_cast<long>(t / sampfreq(nullptr));
         t -= static_cast<double>(seconds * sampfreq(nullptr));
         milliseconds = static_cast<int>(

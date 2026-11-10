@@ -144,6 +144,11 @@ private fun idOf(p: Path?): FileId? {
 /** The characters of the random part of a temporary file name. */
 private const val TMP_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789_"
 
+/** The permissions of a temporary file at its creation: rw------- (owner only). */
+private val OWNER_ONLY = java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+    java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"),
+)
+
 private fun stdinChannel(): FileChannel = FileInputStream(FileDescriptor.`in`).channel
 
 internal actual object Platform {
@@ -249,56 +254,193 @@ internal actual object Platform {
 
     actual fun replaceFile(dest: ByteArray, data: ByteArray): Boolean {
         val d = path(dest) ?: return false
-        val base = d.fileName?.toString() ?: return false
-        val dir = d.parent ?: Paths.get("")
-        var tmp: Path? = null
+        // (owner-only from its creation: the header may hold patient data)
+        val t = createOwnerOnly(d) ?: return false
         try {
-            val rnd = java.util.concurrent.ThreadLocalRandom.current()
-            for (attempt in 0 until 100) {
-                val suffix = String(CharArray(8) { TMP_CHARS[rnd.nextInt(TMP_CHARS.length)] })
-                try {
-                    // (created as any new file: mode 0666 less the umask)
-                    tmp = Files.createFile(dir.resolve(".$base.$suffix.tmp"))
-                    break
-                } catch (e: FileAlreadyExistsException) {
-                }
-            }
-            val t = tmp ?: return false
             FileChannel.open(t, StandardOpenOption.WRITE).use { ch ->
                 val bb = ByteBuffer.wrap(data)
                 while (bb.hasRemaining()) ch.write(bb)
                 ch.force(true)
             }
-            if (Files.exists(d)) copyMode(d, t)
-            try {
-                Files.move(t, d, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            } catch (e: AtomicMoveNotSupportedException) {
-                Files.move(t, d, StandardCopyOption.REPLACE_EXISTING)
-            }
-            return true
+            if (commit(t, d)) return true
         } catch (e: Exception) {
-            tmp?.let {
-                try {
-                    Files.deleteIfExists(it)
-                } catch (e2: Exception) {
-                }
-            }
-            return false
+        }
+        try {
+            Files.deleteIfExists(t)
+        } catch (e: Exception) {
+        }
+        return false
+    }
+
+    actual fun createTempFile(dest: ByteArray): ByteArray? {
+        val d = path(dest) ?: return null
+        return createOwnerOnly(d)?.let { jnuBytes(it.toString()) }
+    }
+
+    actual fun commitFile(tmp: ByteArray, dest: ByteArray): Boolean {
+        val t = path(tmp) ?: return false
+        val d = path(dest) ?: return false
+        return try {
+            commit(t, d)
+        } catch (e: Exception) {
+            false
         }
     }
 
-    /** Gives [to] the permission bits of [from] (all 12 bits where the "unix" view exists, else the 9 POSIX ones; nothing where neither exists). */
-    private fun copyMode(from: Path, to: Path) {
+    actual fun absolutePath(path: ByteArray): ByteArray? {
+        val p = path(path) ?: return null
+        return try {
+            jnuBytes(p.toAbsolutePath().normalize().toString())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    actual fun realPath(path: ByteArray): ByteArray? {
+        var p = path(path)?.let {
+            try {
+                it.toAbsolutePath().normalize()
+            } catch (e: Exception) {
+                null
+            }
+        } ?: return null
         try {
-            val mode = (Files.getAttribute(from, "unix:mode") as Number).toInt() and 0xfff
-            Files.setAttribute(to, "unix:mode", mode)
+            if (Files.exists(p)) return jnuBytes(p.toRealPath().toString())
+            // (a missing file, or a link to one: the links are followed as
+            // far as they lead, as os.path.realpath does)
+            var n = 0
+            while (Files.isSymbolicLink(p) && n++ < 40) {
+                val parent = p.parent ?: break
+                p = parent.resolve(Files.readSymbolicLink(p)).normalize()
+            }
+            val parent = p.parent
+            val name = p.fileName
+            if (parent != null && name != null && Files.isDirectory(parent)) {
+                p = parent.toRealPath().resolve(name)
+            }
+        } catch (e: Exception) {
+        }
+        return jnuBytes(p.toString())
+    }
+
+    actual fun isSpecialFile(path: ByteArray): Boolean {
+        val p = path(path) ?: return false
+        return try {
+            Files.exists(p) && !Files.isRegularFile(p) && !Files.isDirectory(p)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Creates a new, empty file `.NAME.XXXXXXXX.tmp` in the directory of
+     * [dest], readable and writable by its owner only from its creation
+     * (POSIX permissions rw-------, where the file system has them;
+     * otherwise as any new file); null if it cannot be created.
+     */
+    private fun createOwnerOnly(dest: Path): Path? {
+        val base = dest.fileName?.toString() ?: return null
+        val dir = dest.parent ?: Paths.get("")
+        val rnd = java.util.concurrent.ThreadLocalRandom.current()
+        val posix = try {
+            (dest.parent ?: dest.toAbsolutePath().parent ?: dest).fileSystem.supportedFileAttributeViews().contains("posix")
+        } catch (e: Exception) {
+            false
+        }
+        for (attempt in 0 until 100) {
+            val suffix = String(CharArray(8) { TMP_CHARS[rnd.nextInt(TMP_CHARS.length)] })
+            val cand = dir.resolve(".$base.$suffix.tmp")
+            try {
+                return if (posix) Files.createFile(cand, OWNER_ONLY) else Files.createFile(cand)
+            } catch (e: FileAlreadyExistsException) {
+            } catch (e: Exception) {
+                return null
+            }
+        }
+        return null
+    }
+
+    /**
+     * Gives [tmp] the permission bits that writing [dest] in place would
+     * give (those of dest if it exists, else those of a new file in its
+     * directory: 0666 less the umask), then renames it over dest.
+     */
+    private fun commit(tmp: Path, dest: Path): Boolean {
+        if (Files.exists(dest)) copyMode(dest, tmp) else newFileMode(dest)?.let { setMode(tmp, it) }
+        try {
+            Files.move(tmp, dest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (e: AtomicMoveNotSupportedException) {
+            Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING)
+        }
+        return true
+    }
+
+    /**
+     * The permission bits of a new file in the directory of [dest] (0666
+     * less the umask, which the JVM cannot read): those of an empty file
+     * created there, and removed at once; null where there are none.
+     */
+    private fun newFileMode(dest: Path): Int? {
+        val base = dest.fileName?.toString() ?: return null
+        val dir = dest.parent ?: Paths.get("")
+        val rnd = java.util.concurrent.ThreadLocalRandom.current()
+        for (attempt in 0 until 100) {
+            val suffix = String(CharArray(8) { TMP_CHARS[rnd.nextInt(TMP_CHARS.length)] })
+            val probe = dir.resolve(".$base.$suffix.tmp")
+            try {
+                Files.createFile(probe)
+            } catch (e: FileAlreadyExistsException) {
+                continue
+            } catch (e: Exception) {
+                return null
+            }
+            try {
+                return modeOf(probe)
+            } finally {
+                try {
+                    Files.deleteIfExists(probe)
+                } catch (e: Exception) {
+                }
+            }
+        }
+        return null
+    }
+
+    /** The permission bits of [p] (12 where the "unix" view exists, else the 9 POSIX ones), or null. */
+    internal fun modeOf(p: Path): Int? {
+        try {
+            return (Files.getAttribute(p, "unix:mode") as Number).toInt() and 0xfff
+        } catch (e: Exception) {
+        }
+        return try {
+            var m = 0
+            for (perm in Files.getPosixFilePermissions(p)) m = m or (1 shl (8 - perm.ordinal))
+            m
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Gives [p] the permission bits [mode] (see [modeOf]); nothing where there are none. */
+    private fun setMode(p: Path, mode: Int) {
+        try {
+            Files.setAttribute(p, "unix:mode", mode)
             return
         } catch (e: Exception) {
         }
         try {
-            Files.setPosixFilePermissions(to, Files.getPosixFilePermissions(from))
+            val set = java.util.EnumSet.noneOf(java.nio.file.attribute.PosixFilePermission::class.java)
+            for (perm in java.nio.file.attribute.PosixFilePermission.values()) {
+                if (mode and (1 shl (8 - perm.ordinal)) != 0) set.add(perm)
+            }
+            Files.setPosixFilePermissions(p, set)
         } catch (e: Exception) {
         }
+    }
+
+    /** Gives [to] the permission bits of [from]. */
+    private fun copyMode(from: Path, to: Path) {
+        modeOf(from)?.let { setMode(to, it) }
     }
 
     actual fun pathId(path: ByteArray): FileId? {

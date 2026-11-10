@@ -1068,8 +1068,16 @@ oannclose <- function(n) {
       wfdb_error("Rearranging annotations for output annotator %s ...", oa$name)
       # WFDB-x: the file is sorted in this process; the C library ran the
       # sortann program, as legacy mode does.
-      st <- if (wfdbx_get_legacy()) .ann_run_sortann(oa$rname, oa$name) else
+      st <- if (wfdbx_get_legacy()) {
+        # WFDB-x: a file that write_annotations is writing to a temporary
+        # file (see .staging_begin) is renamed over its destination first,
+        # where the sortann program finds it; after a write error, it is
+        # not (the existing file is left as it was), and it is not sorted.
+        if (.is_staged(oa$fname) && (errflag || !.staging_commit_one(oa$fname))) -1 else
+          .ann_run_sortann(oa$rname, oa$name)
+      } else {
         .ann_sort_file(oa$fname, oa$name)
+      }
       if (st == 0) {
         wfdb_error("done!\n")
         oa$out_of_order <- 0

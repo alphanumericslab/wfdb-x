@@ -296,8 +296,10 @@ own home directory (from the password database), so that the package is
 not compiled again. `JULIA_DEPOT_PATH`, if set, is used as given.
 
 Remote files are read with the `Downloads` standard library, which is
-loaded only when the first URL is opened. Each URL is requested at most
-once per `Wfdb` instance.
+loaded only when the first URL is opened. A file that has been read is
+kept by the `Wfdb` instance; a failure is not kept, so a later open of the
+URL requests it again. A name with a URL scheme other than `http://` and
+`https://` is refused by `wfdb_fopen` (`_has_scheme`).
 
 ## Startup time
 
@@ -347,7 +349,17 @@ tools.
 `getvecs(v, n)` (a WFDB-x addition) reads `n` sample vectors at once;
 `read_record` uses it, a block of frames at a time, copying each block into
 the samples matrix (one column per signal, allocated once for the length of
-the record). Its bulk path (`_bulk_frames!` in `signal.jl`) decodes whole
+the record, but for no more than 2^26 samples in advance, `_MAX_RESERVE`:
+a header may give far more samples than its files hold; the matrix grows
+as needed). The high-level readers (`read_record`, `check_record`) read with
+`_getvecs_into(...; keep_checksum_frame=true)`, which keeps the frame of a
+checksum error (-4), unless the library flag `w.sig.read_failed` is set:
+`getskewedframe` sets it wherever its status becomes -3 (an unexpected end
+of file with samples still due, a decoder error, a segment that cannot be
+opened), since a checksum error found in the same frame replaces that
+status; the frame is then dropped and the status is -3. The readers clear
+the flag before reading and in `finally`; the C-style functions only set
+it. Its bulk path (`_bulk_frames!` in `signal.jl`) decodes whole
 frames straight from the input buffers, for every record without deskewing
 or resampling whose signals are in the formats 8, 16, 24, 32, 61, 80, 160,
 212, 310 or 311 (or null signals): records of several sampling frequencies
@@ -370,6 +382,33 @@ frames that fill a buffer and every frame of the other formats go through
 `putvec`, so that the files, checksums and library state are identical
 (`WFDBX._BULK_WRITE[] = false` turns it off). `rdsamp` formats its lines in
 raw units into a preallocated buffer (`_rdsamp_put_integer!`).
+
+The high-level writers check every argument before they touch a file
+(`_check_write_args` for `write_record` and `write_record_physical`, in the
+order of `write_record` in Python; the checks at the top of
+`write_annotations`), then write through temporary files
+(`_with_staging` in `highlevel.jl`, `_staging_begin`, `_staged_open`,
+`_staging_commit_one` and `_staging_end` in `wfdbio.jl`, as `_wfdbio.py`):
+while `w.io.staging` is set, `wfdb_fopen` opens each destination written
+(`"wb"`, `"ab"`; not URLs, the standard output, or an existing file that is
+not a regular file) as a temporary file `.NAME.XXXXXXXX.tmp` (mode 0600 at
+creation) in the directory of the destination (the target of a symbolic
+link), keyed by its absolute name, and opens it again for a later `"wb"`,
+`"ab"` or `"rb"` of the same name (the in-process annotation sort reads and
+rewrites it). At the end, the temporary files take the destinations'
+permissions (0666 less the umask for a new file) and are renamed over them
+once all are complete, or are removed. In legacy mode, `oannclose` renames
+an out-of-order annotation file over its destination before running the
+`sortann` program on it (and neither after a write error). Strings are
+written as their bytes, so there is no check of the text (the Latin-1 rule
+of Python does not apply).
+
+`getinfo` finds the record line as `readheader` does (`_comment_or_blank`
+in `signal.jl`: the first line with a token, separated by spaces, tabs, CRs
+and LFs up to a NUL, that does not begin with `#`); in legacy mode it keeps
+C's rule (the first line that does not begin with `#`). The metadata
+functions (`_MdHeader` in `metadata.jl`) use `_comment_or_blank` in every
+mode.
 
 The metadata functions (`metadata.jl`) read the header as bytes through
 `wfdb_open` (type `hea`), split it into lines that keep their line endings,

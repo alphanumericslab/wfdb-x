@@ -63,10 +63,15 @@ Pkg.develop(path="/path/to/wfdb-x/julia")
 \end{lstlisting}
 
 In the package REPL, \code{] dev /path/to/wfdb-x/julia} does the same. The package is
-\code{WFDBX}, version \code{1.2.1} (its library under the GNU Lesser General Public
+\code{WFDBX}, version \code{1.2.2} (its library under the GNU Lesser General Public
 License, version 2.1 or later, its tools under the GNU General Public License, version
-3 or later: \cref{sec:license}), and is loaded with \code{using WFDBX}. The first \code{using WFDBX} precompiles
-the package, running a workload of every part of the library and of every tool, so that
+3 or later: \cref{sec:license}), and is loaded with \code{using WFDBX}. The package is
+the directory \file{julia}, which holds copies of the license files (\file{LICENSE},
+\file{LICENSE-GPL}) and of the file \file{NOTICE} of the repository (the licenses of
+WFDB-x and the copyright notice and BSD-3-Clause license of libFLAC 1.4.3, whose stream
+decoder the FLAC decoder translates), so that a copy of that directory carries them. The
+first \code{using WFDBX} precompiles the package,
+running a workload of every part of the library and of every tool, so that
 later sessions and tool runs load it without compiling anything. Changing a source file
 of the package makes the next session precompile it again.
 
@@ -84,7 +89,7 @@ exec julia --startup-file=no --project=/path/to/wfdb-x/julia \
     /path/to/wfdb-x/julia/bin/wfdbx.jl "$@"
 \end{lstlisting}
 
-\cmd{wfdbx -{}-version} then prints the version of WFDB-x, \code{WFDB-x 1.2.1}. The
+\cmd{wfdbx -{}-version} then prints the version of WFDB-x, \code{WFDB-x 1.2.2}. The
 docstrings of the package document each function (\code{?read\_record} in the REPL), with
 examples.
 
@@ -107,9 +112,9 @@ Database cites it as described on PhysioNet.
 
 This program reads the header, ten seconds of the signals and the annotations of the
 sample record \code{100s}, from the directory \file{tests/data} of the repository (the
-input directory of each call), and computes the mean heart rate. It then writes the first ten seconds
-as a new record, \code{first10}, in the current directory, with a metadata entry in its
-header.
+input directory of each call), and computes the mean heart rate. It then writes the first
+ten seconds as a new record, \code{first10}, in the current directory, with two metadata
+entries in its header.
 
 \begin{lstlisting}[language=Julia,style=example]
 using WFDBX
@@ -201,34 +206,32 @@ default, given in the signature. An option whose default is \code{nothing} means
 given'': the default behavior or the current setting.
 
 \paragraph{Record names and directories.} A record is named as in the other parts of
-WFDB-x (\cref{chap:records,chap:files}). A full path, a \code{\textasciitilde} path or a
-URL is used as given; any other name, such as \code{"100s"} or \code{"mitdb/100"}, is read
-from the input directory and written to the output directory. Both are the current
-directory unless they are set, with \code{wfdbx\_set\_input\_dir} and
-\code{wfdbx\_set\_output\_dir} (\cref{sec:julia-settings}) or with the environment
-variables \code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}. So a record written under
-a plain name is written to the output directory and read again from the input directory:
-the two are the same unless one of them is set. URLs are read only when network access is
-on. The readers take the keyword arguments \code{input\_dir} and \code{network}, and the
-writers \code{dir}: they apply to that one call, and the previous settings are restored
-when it returns, also when it throws. The signal files that a header names are read from
-the header's directory.
-
-A record name is given without the \file{.hea} extension (the readers, and
-\code{write\_annotations}, also accept a trailing \code{.hea}; \code{write\_record} does
-not). It is a full path, absolute (\code{"/data/mitdb/100"}) or in the home directory
-(\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
+WFDB-x (\cref{chap:records,chap:files}), without the \file{.hea} extension (the readers,
+\code{write\_annotations} and \code{write\_record} also accept a trailing \code{.hea},
+which is removed). A record name is a full path, absolute (\code{"/data/mitdb/100"}) or in the
+home directory (\code{"\textasciitilde/Documents/100s"}), used as given; a relative path
 (\code{"100s"}, \code{"data/100s"}), read from the input directory if one is set,
 otherwise from the current directory, and written to the output directory if one is set,
 otherwise to the current directory (missing directories are created); or a URL
 (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network access is
-on (a URL cannot be written). The \code{input\_dir} option applies to relative names
-only, not to full paths or URLs. A writer given a name with a path creates the files in
-that directory, and the header names the record and its signal file without the path
-(\code{rec}, \code{rec.dat}), so that the record opens under any path that leads to it;
-in legacy mode, as in the original, the header gives the name with its path. With the
-\code{dir} option, the name must be a plain name: the files are created in \code{dir},
-and the record opens from that directory under its plain name.
+on (a URL cannot be written). Only \code{http://} and \code{https://} URLs are read: a
+name that begins with another URL scheme (\code{ftp://}, \code{file://}, \ldots) is
+refused, with or without network access (\cref{sec:network}). Nothing is searched for
+(legacy mode searches the WFDB path). So a record written under a plain name is written
+to the output directory and read again from the input directory: the two are the same
+unless one of them is set, with \code{wfdbx\_set\_input\_dir} and
+\code{wfdbx\_set\_output\_dir} (\cref{sec:julia-settings}) or with the environment
+variables \code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}. The readers take the
+keyword arguments \code{input\_dir} and \code{network}, and the writers \code{dir}: they
+apply to that one call, and the previous settings are restored when it returns, also
+when it throws. The \code{input\_dir} option applies to relative names only, not to full
+paths or URLs. A writer given a name with a path creates the files in that directory,
+and the header names the record and its signal file without the path (\code{rec},
+\code{rec.dat}), so that the record opens under any path that leads to it; in legacy
+mode, as in the original, the header gives the name with its path. With the \code{dir}
+option, the name must be a plain name: the files are created in \code{dir}, and the
+record opens from that directory under its plain name. The signal files that a header
+names are read from the header's directory.
 
 \paragraph{Times.} The keyword arguments \code{from} and \code{to} of \code{read\_record}
 and \code{read\_annotations} are sample numbers (whole numbers, such as \code{3600} or
@@ -278,13 +281,15 @@ applies, which is off unless it was turned on.
 when they throw, which closes anything opened with the WFDB library functions on that
 object. The library's settings (legacy mode, getvec mode, time resolution of output
 annotators, input and output directories, network access) are the same after a call as
-before it: the high-level functions and \code{check\_record} save \code{getgvmode()} and
-\code{getafreq()} when they start and restore them when they return, also when they
-throw, since opening an EDF record adds \code{WFDB\_HIGHRES} to the getvec mode and sets
-the time resolution to the record's sampling frequency (when none is set), as in C, and
-\code{wfdbquit()} resets neither. The C-style functions keep the behavior of C. The metadata functions do not
-call \code{wfdbquit()}: they open only the header, and leave the library's open files as
-they are.
+before it, whether it returns or throws: the high-level functions and
+\code{check\_record} save \code{getgvmode()} and \code{getafreq()} when they start and
+restore them when they return, since opening an EDF record adds \code{WFDB\_HIGHRES} to
+the getvec mode and sets the time resolution to the record's sampling frequency (when
+none is set), as in C, and \code{wfdbquit()} resets neither; the \code{fs} of
+\code{write\_annotations} applies to its file only. The C-style functions
+(\code{isigopen}, \code{wfdbquit}, \ldots) keep the behavior of C. The metadata
+functions do not call \code{wfdbquit()}: they open only the header, and leave the
+library's open files as they are.
 
 \paragraph{The examples} of this section run, each in a new module after \code{using
 WFDBX}, in a copy of the test records of \file{tests/data} (among them \code{100s}),
@@ -350,8 +355,12 @@ be a sample number or a time string''); if \code{from} cannot be reached (``can'
 to sample N of record REC''); if a time string needs the sampling frequency and the
 header gives none (``sampling frequency of record REC is not specified''); or if a signal
 file is shorter than its header says, or cannot be read or decoded (``can't read signal
-data of record REC (getvec status S)''). Data that do not match the checksums of the
-header are returned, with a warning (see \code{checksum\_warning}).}
+data of record REC (getvec status S)''), also when the checksums do not match either (the
+C-style \code{getvec} then returns the checksum error, $-4$, for the incomplete last
+frame): an incomplete frame is never returned. Data that do not match the checksums of
+the header are returned, with a warning (see \code{checksum\_warning}). At most $2^{26}$
+samples are allocated in advance, whatever length the header gives; the result grows as
+the samples are read.}
 \begin{lstlisting}[language=Julia,style=example]
 # Seconds 10 to 20 of lead MLII, in physical units.
 rec = read_record("100s"; channels=["MLII"], from="0:10", to="0:20")
@@ -452,10 +461,10 @@ or, for a record without a header or whose header gives none, the keyword argume
   frequency.
 \item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
   file \file{RECORD.atr}.
-\item[from] The first time to read: a sample number or a time string. \code{nothing}: the
-  beginning of the file.
-\item[to] The time at which to stop: annotations at or after it are not read.
-  \code{nothing}: the end of the file.
+\item[from] The first time to read: a sample number (a whole number $\ge 0$, such as
+  \code{100} or \code{100.0}) or a time string. \code{nothing}: the beginning of the file.
+\item[to] The time at which to stop: a sample number (a whole number) or a time string.
+  Annotations at or after it are not read. \code{nothing}: the end of the file.
 \item[fs] The sampling frequency, in Hz ($> 0$), to use when the record has no header or
   its header gives none. \code{nothing}: none.
 \item[input\_dir] The input directory for this call only (optional), as for
@@ -468,14 +477,20 @@ or, for a record without a header or whose header gives none, the keyword argume
 \returns{An \code{Annotations} (\cref{tab:julia-annotations}). Its \code{fs} is the
 frequency in which the times are counted: the one written in the annotation file, if
 there is one, or else the sampling frequency; it is 0 if none of them is known.}
-\raises{A \code{WfdbError} if \code{fs} is given and is not $> 0$ (``read\_annotations:
-fs must be > 0''); if the annotation file cannot be opened (``can't read annotator ANN for
-record REC''); if a time string needs the sampling frequency and none is known
+\raises{A \code{WfdbError}, before any file is opened, if \code{from} is negative
+(``read\_annotations: from must not be negative''), if \code{from} or \code{to} is a
+number that is not whole (``read\_annotations: from must be a whole number'') or beyond
+the range of a 64-bit integer, or is neither a number nor a string (``read\_annotations:
+from must be a sample number or a time string''), or if \code{fs} is given and is not
+$> 0$ (``read\_annotations: fs must be > 0''); if the annotation file cannot be opened
+(``can't read annotator ANN for record REC''); if a time string needs the sampling frequency and
+none is known
 (``sampling frequency of record REC is not specified''); if \code{from} cannot be reached
 (``can't seek in annotator ANN''); or if the file ends early or cannot be read before
 \code{to} is reached (``can't read annotation file ANN of record REC (getann status S)'',
 where S is the status that \code{getann} returned, such as $-3$ for an unexpected end of
-file).}
+file). Whatever happens, the annotation file is closed (\code{wfdbquit}) before the
+function returns.}
 \begin{lstlisting}[language=Julia,style=example]
 ann = read_annotations("100s", "atr"; from="0:10", to="0:30")
 println(length(ann), " ", ann.fs)                   # 24 360.0
@@ -549,13 +564,21 @@ write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::R
 \end{lstlisting}
 Writes samples in ADC units as a new record: the header \file{RECORD.hea} and one signal
 file, \file{RECORD.dat}, which holds all the signals (so they share one format). Existing
-files of these names are overwritten. The sampling frequency, the gain and ADC resolution
+files of these names are replaced. The sampling frequency, the gain and ADC resolution
 of each signal, and the units of each calibrated signal must be given: there are no
 defaults. Every check except those of the writing itself comes before any file is
-created, so an invalid argument writes nothing. The files are written as \code{putvec}
-and \code{newheader} write them, followed by the info strings (\code{putinfo}).
+touched, so an invalid argument writes nothing. The files are written as \code{putvec}
+and \code{newheader} write them, followed by the info strings (\code{putinfo}), to
+temporary files in the directories of the destinations (\file{.NAME.XXXXXXXX.tmp}),
+which replace the existing files only when both are complete: a failure (a full disk,
+for example) leaves the existing files as they were, and no temporary file is left. The
+files replaced keep their permissions; for a symbolic link, the file it leads to is
+replaced; a destination that is not a regular file (a device) is written directly. Text
+(the record name, \code{names}, \code{units}, \code{comments}) is written as its bytes: a
+\code{String} as its UTF-8 bytes.
 \begin{params}
-\item[record] Record name, without the \file{.hea} extension: a plain name
+\item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"}
+  is removed, as by the readers): a plain name
   (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output directory
   if one is set, otherwise in the current directory, missing directories included; or a
   full path, absolute or in the home directory (\code{"\textasciitilde/Documents/rec"}),
@@ -573,10 +596,13 @@ and \code{newheader} write them, followed by the info strings (\code{putinfo}).
   Default 16.
 \item[gains] The gain of each signal, in ADC units per physical unit (required): finite;
   0 marks an uncalibrated signal, and negative gains are allowed.
-\item[baselines] The ADC value of 0 physical units of each signal. \code{nothing}: the
-  signal's \code{adczero}.
-\item[adczeros] The ADC value of 0\,V of each signal. Default 0.
-\item[adcres] The ADC resolution of each signal, in bits, at least 1 (required).
+\item[baselines] The ADC value of 0 physical units of each signal, a whole number
+  within the range of \code{Int32} (an integer, or a finite float with a whole value).
+  \code{nothing}: the signal's \code{adczero}.
+\item[adczeros] The ADC value of 0\,V of each signal, a whole number within the range of
+  \code{Int32}. Default 0.
+\item[adcres] The ADC resolution of each signal, in bits: a whole number, at least 1
+  (required).
 \item[units] The physical units of each signal, such as \code{"mV"} (required for each
   calibrated signal; \code{nothing} for an uncalibrated one).
 \item[names] The description of each signal. \code{nothing}: none.
@@ -603,12 +629,16 @@ and \code{newheader} write them, followed by the info strings (\code{putinfo}).
   this call only.
 \end{params}
 \returns{\code{nothing}.}
-\raises{A \code{WfdbError}, before any file is created, if \code{record} is empty
+\raises{A \code{WfdbError}, before any file is touched, if \code{record} is empty
 (``write\_record: the record name must not be empty''); if there are no signals
 (``write\_record: at least one signal is required''); if \code{gains}, \code{adcres} or
 \code{units} is missing (``write\_record: gains must be specified'', ``write\_record: ADC
-resolution(s) must be specified'', ``write\_record: units must be specified''); if a
-\code{samps\_per\_frame} value is not an integer $\ge 1$ (``write\_record:
+resolution(s) must be specified'', ``write\_record: units must be specified''); if an ADC
+resolution, an ADC zero or a baseline is not a whole number within the range of
+\code{Int32} (``write\_record: adcres must be whole numbers within the range of a 32-bit
+integer'', and the same for \code{adczeros} and \code{baselines}; also in legacy mode), or
+an ADC resolution is less than 1 (``write\_record: ADC resolution(s) must be
+specified''); if a \code{samps\_per\_frame} value is not an integer $\ge 1$ (``write\_record:
 samps\_per\_frame must hold integers >= 1''), or the number of columns of \code{samples}
 is not their sum (``write\_record: signals has N columns, but samps\_per\_frame adds up to
 M''); if \code{fs} is not finite and $> 0$; if a gain is not finite (``write\_record:
@@ -620,8 +650,9 @@ an entry of \code{metadata} is not valid (``write\_record: metadata key "a:b" mu
 contain ':''', \ldots), or its key is also that of an entry in \code{comments}; or if
 \code{dir} does not exist (``directory D does not exist'') or \code{record} contains a
 directory while \code{dir} is given. A \code{WfdbError} also if a file cannot be created
-(``can't create signal file for record REC''), or cannot be written completely, for
-example on a full disk (``write error on record REC'').}
+(``can't create signal file for record REC'', ``can't create header for record REC''), or
+cannot be written completely, for example on a full disk (``write error on record
+REC'').}
 \begin{lstlisting}[language=Julia,style=example]
 x = Int32[0 100; 10 110; 20 120; 30 130]            # 4 samples of 2 signals
 write_record("two", x, 250; gains=[100, 200], adcres=12, units="mV",
@@ -696,7 +727,9 @@ write_annotations(w::Wfdb, record::ByteStr, annotator::ByteStr, ann::Annotations
 \end{lstlisting}
 Writes the annotations of an \code{Annotations} object to the annotation file
 \file{RECORD.ANNOTATOR}, in the output directory or in \code{dir}, as \code{putann}
-writes them. An existing file is overwritten. The type of each annotation is its mnemonic
+writes them, to a temporary file in the directory of the destination, which replaces an
+existing file only when it is complete (and, if needed, sorted): a failure leaves the
+existing file as it was. The type of each annotation is its mnemonic
 in \code{ann.symbols} if that is not empty, and its code in \code{ann.codes} otherwise;
 both may be given (as \code{read\_annotations} returns them) if they agree. As in C, the
 subtype, channel and annotator number are written in one byte each (other values wrap
@@ -728,15 +761,23 @@ around), and auxiliary text longer than 255 bytes is truncated.
 \item[legacy] \code{true} to behave as the original WFDB package, for this call only.
 \end{params}
 \returns{\code{nothing}.}
-\raises{A \code{WfdbError}, before the file is created, if a field of \code{ann} is
+\raises{A \code{WfdbError}, before the file is touched, if a field of \code{ann} is
 neither empty nor has one element per annotation (``write\_annotations: FIELD must have
-one entry per annotation (N), or none''); if \code{ann.symbols} and \code{ann.codes} are
+one entry per annotation (N), or none''); if there is at least one annotation and both
+\code{ann.symbols} and \code{ann.codes} are empty (``write\_annotations: symbols or codes
+must be given''; with no annotations, an empty file is written); if a time is \code{typemin(Int64)} or
+\code{typemax(Int64)}, which the file format reserves (``write\_annotations: annotation
+time T cannot be written (annotation times must be integers from -9223372036854775807 to
+9223372036854775806)''); if a code is not from 0 to 58 (``write\_annotations: annotation
+code C is reserved (59 to 63 are the control codes of the annotation file format)'' for
+59 to 63, ``write\_annotations: annotation code C is out of range (0 to 58)'' otherwise);
+if \code{ann.symbols} and \code{ann.codes} are
 both given and disagree (``write\_annotations: symbols and codes disagree at annotation
 K'', K counted from 0); if \code{fs} is neither 0 nor a finite frequency $> 0$; or if
 \code{dir} does not exist or \code{record} contains a directory while \code{dir} is given.
 A \code{WfdbError} also if the file cannot be created (``can't create annotator ANN for
-record REC'') or cannot be written completely (``write error on annotator ANN for record
-REC'').}
+record REC'') or cannot be written completely, or \code{putann} reports an error
+(``write error on annotator ANN for record REC'').}
 \begin{lstlisting}[language=Julia,style=example]
 ann = Annotations(samples=[100, 460, 820], symbols=[b"N", b"N", b"V"])
 write_annotations("100s", "qrs", ann; fs=360)       # writes 100s.qrs
@@ -882,7 +923,11 @@ are shared must be de-identified first.
 read_metadata(w::Wfdb, record::ByteStr; input_dir::OptByteStr=nothing,
               network::Union{Nothing,Bool}=nothing)
 \end{lstlisting}
-Reads the metadata entries of the header of a record, in file order. An info string is an
+Reads the metadata entries of the header of a record, in file order. The info strings
+are the lines that begin with \code{\#} after the record line, which is found as the
+header parser finds it, in every mode: the first line that holds something other than
+spaces, tabs and line endings and does not begin with \code{\#} (an empty or blank line
+before it, and the comments before it, are not read). An info string is an
 entry if it contains a colon: the key is the text before the first colon, the value the
 rest of the line, both without spaces at either end. Info strings without a colon, or
 whose key is empty or contains \code{\#}, are free comments, which are not returned.
@@ -1117,7 +1162,9 @@ symbols=[b"N"])}. \code{length(ann)} is the number of annotations.
   month, day)}; \code{nothing} if the header gives no date \\
 \code{sampfrom::Int64} & the number of the first sample returned \\
 \code{comments::Vector\{Vector\{UInt8\}\}} & the info strings of the record: the comments
-  of the header, and the lines of its \file{.info} file if it has one (see
+  of the header after its record line (found as the header parser finds it: an empty or
+  blank first line is not the record line; in legacy mode, as the original
+  \code{getinfo} finds it), and the lines of its \file{.info} file if it has one (see
   \code{getinfo}) \\
 \code{channels::Vector\{Int\}} & the number, in the record, of each signal returned
   (\code{0} is the first signal) \\
@@ -1277,10 +1324,16 @@ REC'', and \code{showerror} prints \code{WfdbError: MESSAGE}. The metadata funct
 for an invalid argument, and a \code{MethodError} is thrown, as for any Julia function,
 for an argument of a type that no method accepts (such as a number as the value of
 \code{set\_metadata}). Each function checks its arguments before it creates or changes a
-file, so an invalid argument leaves the files as they were. The library may also print a
-message of its own on the standard error when it cannot open a file (as in \code{init:
-can't open header for record REC}); \code{wfdberror()} returns the last such message, and
-\code{wfdbquiet()} turns these messages off (\cref{sec:julia-library}).
+file, so an invalid argument leaves the files as they were; the writers also write
+through temporary files, so that a failure while writing leaves the existing files as
+they were. A signal file that ends before its header says, or cannot be read, is an error
+of \code{read\_record} even in the frame at which a checksum is verified (whose checksum
+error the C-style \code{getvec} reports instead), and \code{check\_record} reports it as
+a short file (\code{length\_short}) or a read error (\code{read\_error}), not as a
+checksum error. The library may also print a message of its own on the standard error
+when it cannot open a file (as in \code{init: can't open header for record REC});
+\code{wfdberror()} returns the last such message, and \code{wfdbquiet()} turns these
+messages off (\cref{sec:julia-library}).
 
 \begin{table}[htbp]
 \centering
@@ -1329,15 +1382,6 @@ record REC has more than one entry for key KEY (lines L1, L2); the first is used
 spelled as in its first entry). \code{set\_metadata} and \code{update\_metadata} then
 refuse to change that key (an \code{ArgumentError}), and \code{remove\_metadata} removes
 all of its entries.
-
-\paragraph{The library's settings after an error.} Whether a high-level function returns or
-throws, the getvec mode (\code{getgvmode()}) and the time resolution of output annotators
-(\code{getafreq()}) are those of before the call, as are legacy mode and the input and
-output directories (\cref{sec:julia-conventions}). Opening an EDF record changes both, as
-in C, and \code{wfdbquit()} resets neither: after \code{read\_header("100s.edf")}, a
-\code{write\_annotations} without \code{fs} writes no time resolution, and the next
-\code{read\_record} reads in the mode it reads in by default. The C-style functions
-(\code{isigopen}, \code{wfdbquit}, \ldots) keep the behavior of C.
 
 \begin{lstlisting}[language=Julia,style=example]
 # A record whose last sample is changed after it was written: the checksum fails.
@@ -1451,10 +1495,11 @@ decoding whole blocks of the signal files; it returns the number of vectors read
 getvecs([w], out::Vector{Int32}, n) -> Int64
 getvecs_status([w], out::Vector{Int32}, n) -> (Int64, Int32)
 \end{lstlisting}
-\code{WfdbFile} is C's \code{FILE *} (or \code{WFDB\_FILE}): \code{wfdb\_open} and
-\code{wfdb\_fopen} return a \code{WfdbFile} or \code{nothing}, read and written with the
-functions of the C standard library (\code{getc}, \code{fread!}, \code{fgets!},
-\code{fwrite}, \code{fseek}, \code{fclose}, \ldots).
+\code{WfdbFile} is C's \code{FILE *} (or \code{WFDB\_FILE}): \code{WFDBX.wfdb\_open}
+and \code{WFDBX.wfdb\_fopen} return a \code{WfdbFile} or \code{nothing}, read and
+written with the functions of the C standard library, which are not exported either
+(\code{WFDBX.getc}, \code{WFDBX.fread!}, \code{WFDBX.fgets!}, \code{WFDBX.fwrite},
+\code{WFDBX.fseek}, \code{WFDBX.fclose}, \ldots).
 
 \subsection{The structures}
 \label{sec:julia-structures}
@@ -1529,8 +1574,9 @@ return the WFDB path, as in C.
 \code{wfdbx\_get\_input\_dir([w])} & returns the input directory as bytes, or
   \code{nothing} if none is set \\
 \code{wfdbx\_set\_output\_dir([w], dir::OptByteStr)} & sets the output directory: a local
-  directory or a \code{\textasciitilde} path (a URL is refused, with a message, and the
-  setting is unchanged); \code{nothing} or \code{""} restores the default
+  directory or a \code{\textasciitilde} path (a name that begins with a URL scheme, such
+  as \code{https://} or \code{ftp://}, is refused, with a message, and the setting is
+  unchanged); \code{nothing} or \code{""} restores the default
   (\code{WFDBX\_OUTPUT\_DIR}, or else the current directory). Returns the previous output
   directory, or \code{nothing} \\
 \code{wfdbx\_get\_output\_dir([w])} & returns the output directory as bytes, or
@@ -1559,14 +1605,18 @@ return the WFDB path, as in C.
   \code{wfdb\_open} finds a file of that name (in normal mode, a relative name under the
   input directory, a \code{\textasciitilde} name expanded, an absolute name as given; in
   legacy mode, the name as given). \code{""} and \code{"-"} are returned as given;
-  \code{nothing} for \code{nothing} or a URL (also one made by the input directory) \\
+  \code{nothing} for \code{nothing}, an \code{http://} or \code{https://} URL, or, in
+  normal mode, a name that begins with another URL scheme (also once the input directory
+  is prefixed to it) \\
 \code{wfdbx\_output\_path([w], name::OptByteStr)} & returns, as bytes, the path at which a
   program creates a file that it writes itself: where \code{wfdb\_open} creates a file of
   that name (in normal mode, a relative name under the output directory, a
   \code{\textasciitilde} name expanded, an absolute name as given; in legacy mode, any
   name under the output directory, used as a plain prefix). When the output directory has
   been prefixed, the missing directories of the path are created. \code{""} and
-  \code{"-"} are returned as given; \code{nothing} for \code{nothing} or a URL \\
+  \code{"-"} are returned as given; \code{nothing} for \code{nothing}, an
+  \code{http://} or \code{https://} URL, or, in normal mode, a name that begins with
+  another URL scheme \\
 \end{xltabular}
 
 \subsection{Examples}
@@ -1642,7 +1692,7 @@ export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
 wfdbx rdsamp -r 100s -t 10 -p     # the first 10 seconds of 100s, in physical units
 wfdbx rdann -r 100s -a atr        # its annotations
 wfdbx rdsamp --legacy -r 100s     # legacy mode: --legacy as the first argument
-wfdbx --version                   # WFDB-x 1.2.1
+wfdbx --version                   # WFDB-x 1.2.2
 \end{lstlisting}
 
 Without the script, the command is \cmd{julia -{}-startup-file=no
@@ -1660,11 +1710,14 @@ given).
 
 \paragraph{Inside a Julia session.} \code{WFDBX.run\_tool(tool, args; stdin=UInt8[],
 dir=nothing, env=nothing)} runs a tool in the current process, with a fresh library state,
-in the directory \code{dir}, with the environment variables of \code{env} set for the run
-and the bytes \code{stdin} as its standard input, and returns its exit status and what it
+in the directory \code{dir}, with the environment variables of \code{env}
+(\code{name => value} pairs) set (\code{WFDB}, \code{WFDBCAL}, \code{WFDBANNSORT}, \code{WFDBGVMODE},
+\code{WFDBX\_INPUT\_DIR}, \code{WFDBX\_OUTPUT\_DIR} and \code{WFDBX\_NETWORK} are
+restored afterwards, other variables are not), and the bytes
+\code{stdin} as its standard input, and returns its exit status and what it
 wrote to the standard output and the standard error, as bytes. The caller's library state
-and standard streams are restored when the tool returns. \code{WFDBX.tools()} returns the
-names of the tools, and an unknown name is an \code{ArgumentError}.
+and standard streams are restored when the tool returns. An unknown tool name is an
+\code{ArgumentError}. \code{WFDBX.tools()} returns the names of the tools.
 
 \begin{lstlisting}[language=Julia,style=example]
 status, out, err = WFDBX.run_tool("rdsamp", ["-r", "100s", "-t", "s3"]; dir=".")
@@ -1706,6 +1759,8 @@ read from a URL. In legacy mode, the files that a tool reads itself are opened a
   \file{wfdbcal}) \\
 \code{WFDB} & the WFDB path, used in legacy mode only (outside legacy mode, it is
   ignored, with a message) \\
+\code{WFDB\_FLAC\_CHECK\_MD5} & if set, the MD5 signature of FLAC signal files is
+  verified when they are read \\
 \code{HOME} (\code{USERPROFILE} on Windows) & the home directory, for
   \code{\textasciitilde} paths \\
 \bottomrule
@@ -1747,8 +1802,8 @@ standard library \code{Sockets}). The tests of \code{check\_record} write the co
 if that script cannot run.
 
 The cross-language conformance suite runs every tool and compares its results, byte for
-byte, with those of the original C programs (1135 cases), and, with \opt{-{}-legacy}, in
-legacy mode (883 cases). It runs the tools through \file{julia/bin/wfdbx.jl}:
+byte, with those of the original C programs (1155 cases), and, with \opt{-{}-legacy}, in
+legacy mode (886 cases). It runs the tools through \file{julia/bin/wfdbx.jl}:
 
 \begin{lstlisting}[style=shell]
 PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl julia -j8

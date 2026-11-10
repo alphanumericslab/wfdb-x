@@ -48,6 +48,7 @@ any later version. See LICENSE.
 
 import io
 import os
+import re
 import stat
 import sys
 
@@ -320,9 +321,15 @@ class _IOState:
         self.network = None
         self.env_network = False
         self.network_warned = False
-        self.fetched = {}            # URL -> contents (bytes), or None
+        self.scheme_warned = False   # see wfdb_fopen
+        self.fetched = {}            # URL -> contents (bytes)
         self.write_errors = 0        # see wfdbx_write_errors
         self.stdout_failed = False   # see wfdbx_stdout_error
+        # WFDB-x: the output files of a high-level writer, written to
+        # temporary files (see _staging_begin): {destination: temporary},
+        # or None when no writer is staging its files
+        self.staging = None
+        self.staging_dest = {}       # {destination: the file it leads to}
 
 
 _io = _IOState()
@@ -722,6 +729,18 @@ def _is_url(name):
     return name.startswith("http://") or name.startswith("https://")
 
 
+_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+://")
+
+
+def _has_scheme(name):
+    """True if name begins with a URL scheme followed by "://": a letter,
+    then at least one letter, digit, '+', '-' or '.' (http://, https://,
+    ftp://, sftp://, file://, ...).  A drive letter (C:) is not a scheme.
+    In normal mode, a name with a scheme is a URL, never a local file name,
+    and only an http:// or https:// URL can be read (see wfdb_fopen)."""
+    return _SCHEME.match(name) is not None
+
+
 def _is_dsep(c):
     """True if c is a directory separator ('/', and on MS-Windows '\\')."""
     return c == "/" or (os.name == "nt" and c == "\\")
@@ -801,7 +820,7 @@ def _init_output_dir():
         _io.output_dir_init = True
         v = os.environ.get("WFDBX_OUTPUT_DIR")
         if v:
-            if _is_url(v):
+            if _has_scheme(v):
                 wfdb_error(_OUTPUT_URL_ERROR)
             else:
                 _io.env_output_dir = _io.output_dir = v
@@ -818,8 +837,9 @@ def wfdbx_set_output_dir(d):
     Arguments:
       d   a local directory or a ~ path. None or "" restores the default: the
           WFDBX_OUTPUT_DIR environment variable if it is set, otherwise the
-          current directory. A URL is refused: an error is reported and the
-          setting does not change.
+          current directory. A URL (any name that begins with a URL
+          scheme, such as https:// or ftp://) is refused: an error is
+          reported and the setting does not change.
 
     Returns:
       the previous output directory, or None if none was set. If d is a URL,
@@ -836,7 +856,7 @@ def wfdbx_set_output_dir(d):
     Part of WFDB-x; not in the original WFDB package.
     """
     _init_output_dir()
-    if d and _is_url(d):
+    if d and _has_scheme(d):
         wfdb_error(_OUTPUT_URL_ERROR)
         return _io.output_dir
     previous = _io.output_dir
@@ -858,15 +878,22 @@ def wfdbx_get_output_dir():
 # WFDB-x: remote files are read in full with urllib; redirects are followed,
 # an HTTP status of 400 or more is a failure, and reading gives up if
 # connecting takes 30 s or no data arrives for 30 s, with no limit on the
-# total time. Each URL is requested at most once per process. Legacy mode
-# reads no remote files.
+# total time. A file that has been read is kept for the rest of the process;
+# a failure is not kept, so a later open requests the URL again. Only
+# http:// and https:// URLs can be read: a name with another URL scheme
+# (ftp://, sftp://, file://, ...) is refused. Legacy mode reads no remote
+# files.
 def wfdbx_set_network(on):
     """Turn network access on or off, and return the previous setting.
 
     With network access on, files can be read from URLs, such as a PhysioNet
-    database. It is off by default. Remote files are read once and kept for
-    the rest of the session. A download gives up when it cannot connect, or
-    receives nothing, for 30 seconds.
+    database. It is off by default. A remote file that has been read is kept
+    for the rest of the session; one that could not be read is requested
+    again the next time it is opened. A download gives up when it cannot
+    connect, or receives nothing, for 30 seconds. Only http:// and https://
+    URLs can be read: a name that begins with another URL scheme, such as
+    ftp:// or sftp://, is refused (an error, with or without network
+    access), and never read as a local file name.
 
     Arguments:
       on  True (or 1) to turn network access on, False (or 0) to turn it off.
@@ -1003,7 +1030,7 @@ def _resolve(name, output):
     one is set."""
     if name.startswith("~"):
         return _expand_home(name)
-    if _is_absolute_path(name) or _is_url(name):
+    if _is_absolute_path(name) or _has_scheme(name):
         return name
     if output:
         _init_output_dir()
@@ -1020,7 +1047,7 @@ def _in_header_dir(name):
     """True if a file name found in a header names a file in the header's
     directory or below it: a relative name that does not begin with '~'
     and has no ".." component (on MS-Windows, no drive letter either)."""
-    if _is_absolute_path(name) or _is_url(name) or name.startswith("~"):
+    if _is_absolute_path(name) or _has_scheme(name) or name.startswith("~"):
         return False
     if os.name == "nt":
         if name[1:2] == ":":
@@ -1096,7 +1123,7 @@ def _output_file(name):
     if not name or name == "-":
         return None
     r = _expand_record(name)
-    if _is_url(r):
+    if _has_scheme(r):
         return None
     return _resolve(r, True)
 
@@ -1122,8 +1149,9 @@ def wfdbx_input_path(name):
 
     Returns:
       the path to open, or None if name is a URL, or becomes one when the
-      input directory is prefixed to it: such a file cannot be opened in
-      this way.
+      input directory is prefixed to it (in normal mode, any name that
+      begins with a URL scheme, such as ftp://): such a file cannot be
+      opened in this way.
 
     Example (reads a text file from the input directory)::
 
@@ -1138,7 +1166,7 @@ def wfdbx_input_path(name):
     if name == "" or name == "-" or _legacy():
         return name
     r = _resolve(name, False)
-    return None if _is_url(r) else r
+    return None if _has_scheme(r) else r
 
 
 def wfdbx_output_path(name):
@@ -1160,7 +1188,8 @@ def wfdbx_output_path(name):
             treats it so) are returned as given.
 
     Returns:
-      the path to create, or None if name is a URL (which cannot be written).
+      the path to create, or None if name is a URL (in normal mode, any name
+      that begins with a URL scheme), which cannot be written.
 
     Example (writes a text file in the output directory)::
 
@@ -1180,6 +1209,8 @@ def wfdbx_output_path(name):
             return name
         r = _io.output_dir + DSEP + name
     else:
+        if _has_scheme(name):
+            return None
         if not _io.output_dir or name.startswith("~") or \
                 _is_absolute_path(name):
             return _resolve(name, True)
@@ -1298,8 +1329,9 @@ def wfdb_open(s, record, mode):
 
 
 def _fetch(url):
-    """Read a remote file in full (WFDB-x: once per process; failures are
-    remembered too).  Returns its contents (bytes), or None."""
+    """Read a remote file in full (WFDB-x: once per process; a failure is
+    not kept, so the next call requests the URL again).  Returns its
+    contents (bytes), or None."""
     if url in _io.fetched:
         return _io.fetched[url]
     data = None
@@ -1312,7 +1344,8 @@ def _fetch(url):
                 data = resp.read()
     except Exception:
         data = None
-    _io.fetched[url] = data
+    if data is not None:
+        _io.fetched[url] = data
     return data
 
 
@@ -1337,7 +1370,9 @@ def wfdb_fopen(fname, mode):
 
     ``mode`` is a binary mode ("rb", "wb" or "ab").  An http:// or https://
     URL can only be read, if network access is allowed (see
-    wfdbx_set_network).  When a file cannot be created, missing directories
+    wfdbx_set_network); a name with another URL scheme (ftp://, sftp://,
+    file://, ...) is refused, with a message the first time.  When a file
+    cannot be created, missing directories
     in its path are created and the attempt is repeated.  In legacy mode,
     names containing ".." or "://" are refused (as by the reference C
     library, built without network support).
@@ -1354,6 +1389,17 @@ def wfdb_fopen(fname, mode):
             return None
     elif _is_url(fname):
         return _fetch_open(fname) if mode[0] == "r" else None
+    elif _has_scheme(fname):
+        if not _io.scheme_warned:
+            _io.scheme_warned = True
+            wfdb_error("WFDB-x: can't open %s: only http:// and https:// "
+                       "URLs can be read (mount the server as a local "
+                       "folder, or download the files)\n", fname)
+        return None
+    if _io.staging is not None:     # WFDB-x: a high-level writer's file
+        f = _staged_open(fname, mode)
+        if f is not False:
+            return f
     try:
         if mode[0] == "r" and os.path.isdir(fname):
             return None
@@ -1377,6 +1423,132 @@ def wfdb_fopen(fname, mode):
             except OSError:
                 pass
     return None
+
+
+# WFDB-x: the high-level writers (write_record, write_annotations) check all
+# their arguments before any file is touched, and write their files so that a
+# failure leaves the existing files intact (1.2.2): while they write, each file
+# that the library creates is written to a temporary file in the directory of
+# its destination (".NAME.XXXXXXXX.tmp"), and the temporary files are renamed
+# over their destinations together once all of them are complete
+# (_staging_end), or removed if anything failed.  The library opens the
+# destination by its name as usual (in messages, and for the in-process
+# sorting of annotation files, which reads and rewrites the temporary file).
+# A destination that exists and is not a regular file (a device such as
+# /dev/full, a FIFO) is opened directly, as before; for a symbolic link, the
+# file it leads to is replaced.
+
+def _staging_begin():
+    """Start staging the output files (see above)."""
+    _io.staging = {}
+
+
+def _staged_key(fname):
+    return os.path.abspath(fname)
+
+
+def _staged_open(fname, mode):
+    """Open fname (a destination, mode "rb", "wb" or "ab") while staging:
+    the temporary file that stands for it, created for "wb" and "ab" if
+    there is none yet; None if it cannot be created; False if fname is not
+    staged ("rb" of a file not written here, or a destination that is not a
+    regular file), and is opened as usual."""
+    key = _staged_key(fname)
+    tmp = _io.staging.get(key)
+    if tmp is None:
+        if mode[0] == "r":
+            return False
+        dest = os.path.realpath(key)
+        if os.path.isdir(dest):
+            return None
+        try:
+            if os.path.exists(dest) and \
+                    not stat.S_ISREG(os.stat(dest).st_mode):
+                return False
+        except OSError:
+            return False
+        d = os.path.dirname(dest)
+        if not os.path.isdir(d):
+            # (missing directories are created, as wfdb_fopen does)
+            for i, c in enumerate(fname):
+                if c == "/":
+                    try:
+                        os.mkdir(fname[:i], 0o755)
+                    except OSError:
+                        pass
+        import tempfile
+        try:
+            fd, tmp = tempfile.mkstemp(prefix="." + os.path.basename(dest) +
+                                       ".", suffix=".tmp", dir=d)
+            os.close(fd)
+        except OSError:
+            return None
+        _io.staging[key] = tmp
+        _io.staging_dest[key] = dest
+    try:
+        fp = open(tmp, mode)
+    except OSError:
+        return None
+    return WFDBFile(fp, WFDB_LOCAL, fname, out=mode[0] != "r")
+
+
+def _staging_commit_one(fname):
+    """Rename the temporary file of the staged destination fname over it
+    now (before the end of the staging); True if done."""
+    st = _io.staging
+    key = _staged_key(fname) if fname else None
+    if st is None or key not in st:
+        return False
+    tmp = st.pop(key)
+    dest = _io.staging_dest.pop(key)
+    try:
+        _replace_with(tmp, dest)
+    except OSError:
+        _unlink(tmp)
+        return False
+    return True
+
+
+def _staging_end(commit):
+    """End the staging: if commit, rename every temporary file over its
+    destination (after all of them are complete) and return True, or, if a
+    rename fails, remove the temporary files not yet renamed and return
+    False; otherwise remove them all and return False."""
+    st, dests = _io.staging, _io.staging_dest
+    _io.staging = None
+    _io.staging_dest = {}
+    if st is None:
+        return bool(commit)
+    ok = bool(commit)
+    for key, tmp in st.items():
+        if ok:
+            try:
+                _replace_with(tmp, dests[key])
+                continue
+            except OSError:
+                ok = False
+        _unlink(tmp)
+    return ok
+
+
+def _replace_with(tmp, dest):
+    # The permissions are those that writing dest in place gives: its own
+    # if it exists, else those of a new file (0666 less the umask).
+    try:
+        mode = os.stat(dest).st_mode & 0o7777
+    except OSError:
+        m = os.umask(0)
+        os.umask(m)
+        mode = 0o666 & ~m
+    os.chmod(tmp, mode)
+    os.replace(tmp, dest)
+
+
+def _unlink(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 # WFDB-x: write errors.  Decided by Reza Sameni, Oct 2026: a program must not

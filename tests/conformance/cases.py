@@ -735,6 +735,9 @@ for tool, args, files in [
         ("xform", "-i 100s -o nf -n xo", _NF),
         ("xform", "-i uc -o 100s -n xu -t s10", _UC),
         ("wfdbtime", "-r nf 10", _NF),
+        ("time2sec", "-r nf s100", _NF),
+        ("time2sec", "-r nf 1:00", _NF),
+        ("time2sec", "--legacy -r nf s100", _NF),
         ("wfdb2mat", "-r nf", _NF),
         ("wfdb2mat", "-r uc -t s10", _UC),
         ("mit2wav", "-r nf -o x.wav", _NF),
@@ -971,6 +974,47 @@ for tool, args, cid, kw in [
          {"stdin": _rd("100s.atr.txt"), "env": _NET})]:
     case(tool, args, cid=cid, **kw)
 
+# A remote file that cannot be read is not remembered (WFDB-x, 1.2.2): a later
+# open of the same URL requests it again.  The server fails the first request
+# for a file under flaky/ (503) and serves it after that, so wfdbcat prints
+# the header the second time.
+case("wfdbcat", "{url}flaky/100s.hea {url}flaky/100s.hea",
+     cid="files-url-failure-retried",
+     env=_NET, www_files={"flaky/100s.hea": _rd("100s.hea")})
+
+# Other URL schemes (WFDB-x, 1.2.2): a name that begins with a URL scheme
+# other than http:// and https:// (ftp://, sftp://, file://, ...) is refused,
+# with a message the first time, whether network access is on or not, and is
+# never read as a local file name: the local files ftp:/h/db/sr.* (which the
+# name ftp://h/db/sr designates as a local path) are not read.  So too for an
+# input directory, a file named in a header, an output name, and the output
+# directory (which must be local).  A one-letter prefix (c://sr, like the
+# drive letter of C:\) is not a scheme.  In legacy mode, every name
+# containing :// is refused, without a message, as by the original library
+# (built without network support).
+_FTP = {"ftp:/h/db/" + k[4:]: v for k, v in _SR.items()}
+for tool, args, cid, kw in [
+        ("rdsamp", "-r ftp://h/db/sr -t s3", "files-scheme-ftp",
+         {"files": _FTP, "env": _NET}),
+        ("rdsamp", "-r ftp://h/db/sr -t s3", "files-scheme-ftp-network-off",
+         {"files": _FTP}),
+        ("rdsamp", "--legacy -r ftp://h/db/sr -t s3",
+         "files-scheme-ftp-legacy", {"files": _FTP}),
+        ("wfdbcat", "sftp://h/db/sr.hea file:///h/db/sr.hea fmt16.hea",
+         "files-scheme-once", {"env": _NET}),
+        ("rdsamp", "-r sr -t s3", "files-scheme-inputdir",
+         {"files": _FTP, "env": dict(_NET, WFDBX_INPUT_DIR="ftp://h/db")}),
+        ("rdsamp", "-r sub/bad -t s3", "files-hdr-scheme",
+         {"files": dict(_bad("ftp://h/db/sr.dat"), **_FTP), "env": _NET}),
+        ("wrann", "-r ftp://h/db/sr -a cpy", "files-write-scheme",
+         {"stdin": _rd("100s.atr.txt"), "env": _NET}),
+        ("wrann", "-r 100s -a cpy", "files-outputdir-scheme",
+         {"stdin": _rd("100s.atr.txt"),
+          "env": {"WFDBX_OUTPUT_DIR": "ftp://h/out"}}),
+        ("rdsamp", "-r c://sr -t s3", "files-scheme-one-letter",
+         {"files": {"c:/" + k[4:]: v for k, v in _SR.items()}})]:
+    case(tool, args, cid=cid, **kw)
+
 # ---------------------------------------------------------------------------
 # Files that a tool reads or creates itself, rather than through the library
 # (WFDB-x).  A file named on the command line that a tool reads (the -i file
@@ -1018,6 +1062,11 @@ for tool, args, cid, kw in [
         ("wrsamp", "-i in.txt" + _WR, "toolfiles-wrsamp-inputdir-url",
          {"files": {"in.txt": _TXT},
           "env": dict(_NET, WFDBX_INPUT_DIR="{url}")}),
+        ("wrsamp", "-i ftp://h/in.txt" + _WR, "toolfiles-wrsamp-scheme",
+         {"files": {"ftp:/h/in.txt": _TXT}, "env": _NET}),
+        ("wrsamp", "-i in.txt" + _WR, "toolfiles-wrsamp-inputdir-scheme",
+         {"files": {"ftp:/h/in.txt": _TXT},
+          "env": dict(_NET, WFDBX_INPUT_DIR="ftp://h")}),
         ("edf2mit", "-i fmt16.edf -r e2m", "toolfiles-edf2mit",
          {"files": _sub("fmt16.edf"), "env": _INOUT}),
         ("edf2mit", "-i fmt16.edf -r e2m", "toolfiles-edf2mit-missing",
@@ -1063,6 +1112,8 @@ for tool, args, cid, kw in [
         ("mit2edf", "-r fmt16 -o ~/h.edf", "toolfiles-mit2edf-home",
          {"env": _OUT}),
         ("mit2edf", "-r fmt16 -o {url}x.edf", "toolfiles-mit2edf-url",
+         {"env": _NET}),
+        ("mit2edf", "-r fmt16 -o ftp://h/x.edf", "toolfiles-mit2edf-scheme",
          {"env": _NET}),
         ("mit2edf", "--legacy -r fmt16 -o x.edf",
          "toolfiles-mit2edf-legacy-outputdir", {"env": _OUT}),
@@ -1418,7 +1469,8 @@ case("rdsamp", "-r nul -t s3", cid="edge-hdr-nul-file",
 case("sampfreq", "-a h", cid="edge-sampfreq-missing-dat",
      files={"h.hea": "h 2 250\nfmt16.dat 16 200 12 0 0 0 0 a\n"
                      "nosuch.dat 16 200 12 0 0 0 0 b\n"})
-# no sampling frequency (record 16), and a time that needs one
+# no sampling frequency (record 16), and a time that needs one (WFDB-x,
+# 1.2.2: an error; the original used the default of 250 Hz)
 case("time2sec", "-r 16 0.004", cid="edge-time2sec-nofreq")
 # hours beyond the range of an int
 case("wfdbtime", "-r q s9000000000000000", cid="edge-wfdbtime-hours",
@@ -1707,3 +1759,28 @@ case("xform", "-i m0 -o o1", cid="edge-xform-segment-messages",
             "m0_s1_1.dat": _rnd_bytes(24, 400),
             "m0_s1_2.dat": _rnd_bytes(25, 200)},
      flac_files=["o1_1.dat", "o1_2.dat"])
+
+# ---------------------------------------------------------------------------
+# Where the record line is (1.2.2): a header whose first line is empty or
+# blank, followed by a comment, the record line, a signal line and a comment.
+# readheader takes the record line to be the first line that has a token not
+# beginning with '#'; the original getinfo takes the first line that does not
+# begin with '#' (the empty line), and so returns the comment before the
+# record line as an info string.  WFDB-x's getinfo finds the record line as
+# readheader does (the Notes of wfdbdesc show "Age: 63" only), except in
+# legacy mode (both lines, as the original).
+_LEADING = {
+    "le": "\n# Age: 40\nle 1 250 10\nfmt16.dat 16 200 12 0 0 0 0 a\n"
+          "# Age: 63\n",
+    "lw": " \t\r\n# Age: 40\r\nlw 1 250 10\r\n"
+          "fmt16.dat 16 200 12 0 0 0 0 a\r\n# Age: 63\r\n",
+    "lc": "# first\n\n# Age: 40\n \t\n  # indented\nlc 1 250 10\n"
+          "fmt16.dat 16 200 12 0 0 0 0 a\n# Age: 63\n#last\n",
+}
+for _r, _cid in (("le", "edge-hdr-leading-empty-line"),
+                 ("lw", "edge-hdr-leading-blank-line-crlf"),
+                 ("lc", "edge-hdr-leading-comments-and-blanks")):
+    case("wfdbdesc", _r, cid=_cid, files={_r + ".hea": _LEADING[_r]})
+# ... and in legacy mode, with the C reference (the original rule)
+case("wfdbdesc", "--legacy le", cid="edge-hdr-leading-empty-line-legacy",
+     files={"le.hea": _LEADING["le"]})

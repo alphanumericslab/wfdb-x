@@ -145,8 +145,9 @@ one.
   settings. Files named in a header are opened with
   `self.wfdbx_open_in(header_dir, ...)` (normal mode: in the header's
   directory, with the containment check). The messages printed once per
-  process (the WFDB warning, network off, curl missing) and the cache of
-  fetched URLs are process-wide; all settings are per instance.
+  process (the WFDB warning, network off, curl missing, a URL scheme other
+  than http:// and https://) and the cache of fetched URLs (successful
+  downloads only) are process-wide; all settings are per instance.
 
 ## Data representation
 
@@ -323,8 +324,19 @@ off; `tests/bulk.rs` compares both paths.
   A status
   below -1 (for example -3, a signal file shorter than its header says) is
   an error, also in legacy mode, since the high-level API has no C
-  counterpart; `getvec`, `getvecs` and the tools are unchanged. A checksum
-  error (status -4) is not an error: the last, complete frame is kept,
+  counterpart; `getvec` and the tools are unchanged. `getskewedframe` sets
+  `SigState::read_failed` wherever its status becomes -3 (a decoder or I/O
+  error, an unexpected end of a signal file, a segment that cannot be
+  opened), whatever status `getvec` then returns: in the frame at which a
+  checksum is verified, the checksum error (-4) replaces -3. While
+  `SigState::read_checked` is on (`read_record` and `check_record` set it,
+  and clear `read_failed`, before reading, and clear both afterwards),
+  `getvecs_status` stops at such a frame without counting it, with status
+  -3; so an incomplete frame is never returned (a truncated file gave a
+  fabricated last sample), and `check_record` reports `length_short`. The
+  vector is allocated for at most 2^26 values in advance, whatever length
+  the header (or `to`) gives, and grows as the frames are read. A checksum
+  error alone (status -4) is not an error: the last, complete frame is kept,
   `getvec`'s own message is suppressed during the read
   (`SigState::cksum_quiet`), and the warning `WFDB-x: checksum error in
   record REC: ...` goes through `wfdb_error`, so `wfdbquiet` silences it.
@@ -348,11 +360,59 @@ off; `tests/bulk.rs` compares both paths.
   file, or for the standard input, `-`, without reading anything). `write_record` checks
   `WriteOptions::metadata` (`metadata::info_lines`) before any file is
   created, and writes the entries through `putinfo` after the comments.
-  `tests/metadata.rs` runs the shared cases of `tests/metadata/cases.tsv`.
+  `tests/metadata.rs` runs all 56 shared cases of `tests/metadata/cases.tsv`.
+  The record line is found as `readheader` finds it, in every mode
+  (`Hdr::from_lines`): the first line that has a token (separated by
+  spaces, tabs, CRs and LFs, up to a NUL byte) that does not begin with
+  `#`. `getinfo` follows the same rule in normal mode (`comment_or_blank`
+  in `signal.rs`; a header without a record line gives no info strings
+  from the `.hea` file), and C's rule (the first line that does not begin
+  with `#`) in legacy mode; this decides the `comments` of `read_header`
+  and `read_record` and the notes of `wfdbdesc`.
+* The writers check every argument before they touch any file:
+  `write_checks` (in the order of the Python reference: record name,
+  number of signals, `samps_per_frame`, per-signal lengths, frames, gains,
+  ADC resolutions, units, uncalibrated signals in physical units, `fs`,
+  finite gains), then the conversion of physical samples, the metadata and
+  the base time; `write_annotations` checks the field lengths, `fs`, the
+  reserved times (`i64::MIN`, `i64::MAX`), the codes (0 to 58; 59 to 63 are
+  the control codes of the format) and the agreement of symbols and codes.
+  The checks of the other languages for header text that is not Latin-1 and
+  for ADC values that are not whole 32-bit integers have no counterpart
+  (bytes and `i32`). A `putann` that fails is a write error.
+* Writing through temporary files (`wfdbio::Staging`): while a writer
+  writes (`Staging::begin` to `Staging::end`), `local_fopen` (which
+  `wfdb_fopen` and the in-process sort of annotation files use) opens each
+  destination written (`"wb"`/`"ab"`; keyed by its absolute name, not a
+  URL or the standard output) as a temporary file `.NAME.XXXXXXXX.tmp` in
+  the directory of the destination (with symbolic links resolved; created
+  exclusively, mode 0600; missing directories created as `local_fopen`
+  does); reopening the same destination, `"rb"` included, opens the same
+  temporary file. A destination that is a directory fails as before; one
+  that exists and is not a regular file (`/dev/full`, a FIFO) is opened
+  directly. At the end, if nothing failed and no write error was counted,
+  each temporary file gets the mode of the file it replaces (or 0666 less
+  the umask) and is renamed over it, after all are complete; otherwise all
+  are removed, and a failed rename gives the writer's "write error" error.
+  The state is thread-local (`STAGING`), and dropping a `Staging` removes
+  the files (a panic). In legacy mode, `oannclose` renames a staged
+  out-of-order file over its destination before it runs the `sortann`
+  program (`staging_commit_one`), and after a write error neither renames
+  nor sorts it.
 * `wfdbx_legacy_args(&mut argv)` is what the tools call first: it removes a
   leading `--legacy` and turns legacy mode on. In legacy mode the
   high-level functions keep their checks of a read error (see above) and
   their output directory.
+
+## Packaging
+
+`rust/LICENSE`, `rust/LICENSE-GPL` and `rust/NOTICE` are copies of the
+files at the root of the repository (keep them identical), so that they are
+in the crate (`cargo package --list` shows them); `Cargo.toml` gives the
+license expression `LGPL-2.1-or-later AND GPL-3.0-or-later AND
+BSD-3-Clause` (the BSD license is that of libFLAC, whose stream decoder
+`flac.rs` translates). The version is in `rust/Cargo.toml` and
+`benchmarks/rust/Cargo.toml` (see `docs/RELEASING.md`).
 
 ## Testing
 

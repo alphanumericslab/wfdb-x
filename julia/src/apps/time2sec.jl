@@ -7,8 +7,12 @@
 # 10.7.0, by George B. Moody. The translation follows the logic and behavior of
 # the original program, but it is new code, not the original C code.
 #
-# Changes from the original: none, apart from the language and the --legacy
-# option (as the first argument, it restores the original behavior).
+# Changes from the original: with -r, a record whose header cannot be read,
+# or gives no sampling frequency, is an error (exit status 2; "time2sec:
+# sampling frequency of record REC is not specified"), since WFDB-x assumes
+# no sampling frequency: the original used the default of 250 Hz (WFDB-x,
+# 1.2.2; see docs/DIVERGENCES.md). The --legacy option (as the first
+# argument) restores the original behavior.
 #
 # Original C program: app/time2sec.c, WFDB Software Package 10.7.0.
 #   Copyright (C) 2003-2009 George B. Moody.
@@ -25,15 +29,25 @@ const _TIME2SEC_MS = 1000
 function time2sec_main(args::Vector{String})
     # WFDB-x: --legacy as the first argument selects legacy mode (the
     # behavior of the original program; see wfdbx_legacy_args)
-    wfdbx_legacy_args(args)
+    legacy = wfdbx_legacy_args(args) != 0
     argv = cargs(args)              # C argv[i] (i >= 1) is argv[i]
     argc = length(argv) + 1
     pname = "time2sec"
 
     if argc == 4 && argv[1] == b"-r"
-        isigopen(argv[2], nothing, 0)
+        # WFDB-x: in normal mode, no sampling frequency is assumed: a record
+        # whose header cannot be read, or gives none, is an error (the
+        # original used the default of 250 Hz; a frequency of 0 gave a
+        # meaningless result with the exit status 0)
+        isigopen(argv[2], nothing, 0) < 0 && !legacy && cexit(2)
+        if sampfreq(nothing) <= 0.0 && !legacy
+            ceprintf("%s: sampling frequency of record %s is not specified\n", pname, argv[2])
+            cexit(2)
+        end
         t = Float64(strtim(argv[3]))
         t < 0 && (t = -t)
+        # (legacy mode, as in C: with no sampling frequency, t / sf is
+        # infinite or NaN)
         seconds = d2l(t / sampfreq(nothing))
         t -= Float64(seconds) * sampfreq(nothing)
         # (C: a long converted to int.)

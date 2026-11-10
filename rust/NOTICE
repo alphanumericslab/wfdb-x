@@ -1,0 +1,81 @@
+WFDB-x
+Copyright (C) 2026 Reza Sameni
+
+WFDB-x is an independent reimplementation of the WFDB Software Package,
+version 10.7.0 (the library and the command-line tools), in Python, C++,
+Rust, Julia, R, MATLAB/Octave and Kotlin. Its code in each language is a
+translation of the C code of the package, written for WFDB-x. The original
+WFDB Software Package is Copyright (C) 1983-2022 George B. Moody and the
+WFDB contributors; its library is distributed under the GNU Library General
+Public License, version 2 or later, and its tools under the GNU General
+Public License, version 2 or later. The authors of the original C code are
+credited in each source file and in docs/AUTHORS.md.
+
+
+Licenses of WFDB-x
+------------------
+
+* The command-line tools of each implementation (its "apps", translations
+  of the tools of the original package, and the "wfdbx" command) are
+  distributed under the GNU General Public License, version 3 or (at your
+  option) any later version (GPL-3.0-or-later): the file LICENSE-GPL
+  (COPYING in the R package).
+
+* The library, and everything else in WFDB-x that is not one of these
+  tools, are distributed under the GNU Lesser General Public License,
+  version 2.1 or (at your option) any later version (LGPL-2.1-or-later):
+  the file LICENSE (COPYING.LESSER in the R package). Programs under any
+  license may use the library on the terms of the LGPL.
+
+Each source file states its license.
+
+
+libFLAC
+-------
+
+The FLAC decoder of each implementation of WFDB-x is a translation of the
+stream decoder of libFLAC 1.4.3 (src/libFLAC/stream_decoder.c and
+bitreader.c, and the restore functions of fixed.c and lpc.c), by Josh
+Coalson and the Xiph.Org Foundation, made so that damaged FLAC files are
+decoded, resynchronized and reported exactly as by the C library, which
+uses libFLAC. These translations are in python/src/wfdbx/_flac.py,
+cpp/src/flac.cpp, cpp/src/flac.hpp, rust/src/flac.rs, julia/src/flac.jl,
+r/R/flac.R, matlab/+wfdbx/+internal/flac_decoder.m and
+kotlin/src/commonMain/kotlin/wfdbx/Flac.kt (in the packages, the files
+built from them); each carries libFLAC's notice. The FLAC encoders are
+WFDB-x's own code. libFLAC itself is not included in WFDB-x, which needs no
+external library at run time.
+
+libFLAC is distributed under the following license (BSD-3-Clause, the file
+COPYING.Xiph of libFLAC), which applies to the parts of WFDB-x translated
+from it:
+
+Copyright (C) 2000-2009  Josh Coalson
+Copyright (C) 2011-2023  Xiph.Org Foundation
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+- Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+- Neither the name of the Xiph.org Foundation nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

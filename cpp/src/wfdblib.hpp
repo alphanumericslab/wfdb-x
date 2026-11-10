@@ -175,6 +175,20 @@ using FilePtr = std::unique_ptr<WFDBFile>;
 bool wfdb_set_error_print(bool on);
 FilePtr wfdb_open(const char *file_type, const char *record, int mode);
 FilePtr wfdb_fopen(const char *fname, const char *mode);
+// WFDB-x: the staging of the output files of the high-level writers
+// (write_record, write_annotations; see wfdbio.cpp): while it is active,
+// each file opened for writing by wfdb_fopen is written to a temporary file
+// in the directory of its destination.  wfdbx_staging_end renames them all
+// over their destinations if `commit` (returning true, or false if a rename
+// fails: the others are then removed), or removes them all (returning
+// false).  wfdbx_staging_commit_one renames the temporary file of the
+// destination `fname` over it at once (true if done; for the legacy sorting
+// of annotation files by the sortann program), and wfdbx_is_staged tells
+// whether `fname` is a staged destination.
+void wfdbx_staging_begin();
+bool wfdbx_staging_end(bool commit);
+bool wfdbx_staging_commit_one(const std::string &fname);
+bool wfdbx_is_staged(const std::string &fname);
 int wfdb_checkname(const char *name, const char *description);
 std::string wfdb_striphea(const char *record);
 void wfdb_setirec(const char *record_name);
@@ -233,6 +247,13 @@ void wfdb_sampquit();
 // wfdberror) but not printed (used by the high-level read_record, which
 // reports a checksum error itself).  Returns the previous setting.
 bool wfdbx_set_checksum_quiet(bool on);
+// WFDB-x: while on (the high-level readers read_record and check_record),
+// getvecs stops before a frame in which a sample could not be read (getvec
+// status -3, even if the checksum error found in the same frame gives -4),
+// and returns the status -3; the C-style getvec and getframe, and getvecs
+// while it is off, are unchanged.  Clears the flag that records such a
+// frame, and returns the previous setting.
+bool wfdbx_set_read_checked(bool on);
 // WFDB-x: the bulk reader of getvecs (on by default); off, getvecs reads
 // frame by frame (for the unit tests, which compare the two).  Returns the
 // previous setting.
@@ -248,6 +269,10 @@ std::string wfdbx_input_state();
 // its base date (bdate, a Julian date; 0 if none), for the high-level
 // readers.
 void wfdbx_header_values(WFDB_Time *nsamp, long *btime, WFDB_Date *bdate);
+// WFDB-x: true if setbasetime() accepts `s` (its message is printed if it
+// does not); the base time and date are left as they were.  For the checks
+// of write_record, before any file is touched.
+bool wfdbx_check_basetime(const char *s);
 // WFDB-x: the year, month and day of a Julian date, computed as datstr()
 // does.
 void wfdbx_julian_ymd(WFDB_Date date, int *y, int *m, int *d);

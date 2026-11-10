@@ -63,11 +63,17 @@ wfdbx = { git = "https://github.com/alphanumericslab/wfdb-x" }
 wfdbx = { path = "../wfdb-x/rust" }
 \end{lstlisting}
 
-The crate is \code{wfdbx}, version \code{1.2.1}: its library under the GNU Lesser
+The crate is \code{wfdbx}, version \code{1.2.2}: its library under the GNU Lesser
 General Public License, version 2.1 or later, and its tools (the binaries of
 \file{src/bin}) under the GNU General Public License, version 3 or later
-(\cref{sec:license}). Programs that use it are built in release mode for speed
-(\cmd{cargo build -{}-release}, \cmd{cargo run -{}-release}).
+(\cref{sec:license}); its FLAC decoder translates the stream decoder of libFLAC 1.4.3,
+under the BSD-3-Clause license. Its license expression is therefore
+\code{LGPL-2.1-or-later AND GPL-3.0-or-later AND BSD-3-Clause}, and the crate (the
+directory \file{rust}) holds the files \file{LICENSE}, \file{LICENSE-GPL} and
+\file{NOTICE}, copies of those of the repository: \file{NOTICE} summarizes the licenses
+and gives the copyright notice and license of libFLAC. Programs that use the crate are
+built in release mode for speed (\cmd{cargo build -{}-release}, \cmd{cargo run
+-{}-release}).
 
 \subsection{Building and installing the tools}
 
@@ -198,10 +204,10 @@ parameters, such as \code{wfdbx::read\_record("100s", \&opt)}, which uses the de
 \code{Wfdb} value of the calling thread (one per thread). The entries of this section
 document the free functions; the methods take \code{\&mut self} first, and then the same
 parameters, with the same types and results. Separate \code{Wfdb} values share no state
-(except what belongs to the process: the count of write errors, the cache of fetched URLs
-and the messages printed once per process), so several
-records can be read at once, in one thread or in several; a \code{Wfdb} is \code{Send},
-and is used by one thread at a time.
+(except what belongs to the process: the count of write errors, the cache of downloaded
+remote files and the messages printed once per process), so several records can be read
+at once, in one thread or in several; a \code{Wfdb} is \code{Send}, and is used by one
+thread at a time.
 
 \begin{lstlisting}[language=Rust,style=example]
 use wfdbx::Wfdb;
@@ -229,8 +235,8 @@ default or the current setting.
 
 \paragraph{Record names and directories.} A record is named as in the other parts of
 WFDB-x (\cref{chap:records,sec:record-paths}), without the \file{.hea} extension (the
-readers, and \code{write\_annotations}, also accept a trailing \code{".hea"};
-\code{write\_record} does not). A record name is one of:
+readers, \code{write\_annotations} and \code{write\_record} also accept a trailing
+\code{".hea"}, which is removed). A record name is one of:
 \begin{itemize}
 \item a full path, absolute (\code{"/data/mitdb/100"}) or in the home directory
   (\code{"\textasciitilde/Documents/100s"}), used as given;
@@ -239,7 +245,8 @@ readers, and \code{write\_annotations}, also accept a trailing \code{".hea"};
   directory if one is set, otherwise to the current directory (missing directories are
   created);
 \item a URL (\code{"https://physionet.org/files/mitdb/1.0.0/100"}), read only if network
-  access is on; a URL cannot be written.
+  access is on, and only with the schemes \code{http://} and \code{https://}
+  (\cref{sec:network}); a URL cannot be written.
 \end{itemize}
 The input and output directories are set with \code{wfdbx\_set\_input\_dir} and
 \code{wfdbx\_set\_output\_dir} (\cref{sec:rust-settings}) or with the environment
@@ -298,19 +305,15 @@ the original WFDB package, with its assumed signal parameters and its search for
 only. With \code{false} (the default), the current setting of \code{wfdbx\_set\_legacy}
 applies, which is off unless it was turned on.
 
-\paragraph{State.} The functions that read and write records and annotation files call
-\code{wfdbquit()} on the \code{Wfdb} value they use, before and after their work, also
-when they fail, which closes anything opened with the WFDB library functions on that
-value. The library's settings (legacy mode, getvec mode, input and output directories,
-network access) are the same after a call as before it. \code{read\_record},
-\code{read\_header}, \code{read\_annotations}, \code{write\_record},
-\code{write\_record\_physical}, \code{write\_annotations}, their \code{\_with} forms and
-\code{check\_record} also leave the time resolution of output annotators
-(\code{getafreq()}) and the getvec mode (\code{getgvmode()}) as they were, also after
-reading an EDF record, whose opening sets both (as in C; the library functions keep that
-behavior). The metadata functions do not
-call \code{wfdbquit()}: they open only the header, and leave the library's open files as
-they are. Results are returned by value.
+\paragraph{State.} The functions that read and write records and annotation files, and
+\code{check\_record}, call \code{wfdbquit()} on the \code{Wfdb} value they use, before
+and after their work, also when they fail, which closes anything opened with the WFDB
+library functions on that value. The library's settings (legacy mode, input and output
+directories, network access, and for these functions also the getvec mode and the time
+resolution of output annotators, which opening an EDF record sets) are the same after a
+call as before it (\cref{sec:rust-warnings}). The metadata functions do not call
+\code{wfdbquit()}: they open only the header, and leave the library's open files as they
+are. Results are returned by value.
 
 \paragraph{The examples} of this section are the body of the function
 \code{fn main() -> Result<(), Box<dyn std::error::Error>{}>}, followed by \code{Ok(())},
@@ -365,8 +368,12 @@ negative sample number (``read\_record: from must not be negative'') or cannot b
 (``can't seek to sample N of record REC''); if a time string needs the sampling frequency
 and the header gives none (``sampling frequency of record REC is not specified''); or if a
 signal file is shorter than its header says, or cannot be read or decoded (``can't read
-signal data of record REC (getvec status S)''). Data that do not match the checksums of
-the header are returned, with a warning (see \code{checksum\_warning}).}
+signal data of record REC (getvec status S)''), also when the checksums do not match
+either (\code{getvec} then reports the checksum error, $-4$, for the incomplete last frame,
+and S is $-3$): an incomplete frame is never returned. Data that do not match the
+checksums of the header are returned, with a warning (see \code{checksum\_warning}). The
+samples are stored as they are read: at most $2^{26}$ values are allocated in advance,
+whatever length the header (or \code{opt.to}) gives.}
 \begin{lstlisting}[language=Rust,style=example]
 // Seconds 10 to 20 of lead MLII, in physical units.
 let opt = ReadOptions {
@@ -492,7 +499,7 @@ the option \opt{-F} of \code{rdann}.
 \item[record] Record name, as for \code{read\_record}: a full path (absolute or
   \code{\textasciitilde}), used as given; a relative path, read from the input directory
   if one is set, otherwise from the current directory; or a URL, read only if network
-  access is on Its header, if there is one, gives the sampling frequency.
+  access is on. Its header, if there is one, gives the sampling frequency.
 \item[annotator] Annotator name: the suffix of the annotation file. \code{"atr"} reads the
   file \file{RECORD.atr}.
 \item[from] The first time to read: a sample number or a time string. \code{None}: the
@@ -507,13 +514,16 @@ the option \opt{-F} of \code{rdann}.
 \returns{An \code{Annotations} (\cref{tab:rust-annotations}). Its \code{fs} is the
 frequency in which the times are counted: the one written in the annotation file, if
 there is one, or else the sampling frequency; it is 0 if none of them is known.}
-\raises{An \code{Error} if \code{fs} is given and is not $> 0$ (``fs must be > 0''); if
+\raises{An \code{Error} if \code{from} is a negative sample number
+(``read\_annotations: from must not be negative'', checked first, before any file is
+opened); if \code{fs} is given and is not $> 0$ (``fs must be > 0''); if
 the annotation file cannot be opened (``can't read annotator ANN for record REC''); if a
 time string needs the sampling frequency and none is known (``sampling frequency of
 record REC is not specified''); if \code{from} cannot be reached (``can't seek in
 annotator ANN''); or if the file ends early or cannot be read before \code{to} is reached
 (``can't read annotation file ANN of record REC (getann status S)'', where S is the
-status that \code{getann} returned, such as $-3$ for an unexpected end of file).}
+status that \code{getann} returned, such as $-3$ for an unexpected end of file). Whatever
+happens, the annotation file is closed before the function returns.}
 \begin{lstlisting}[language=Rust,style=example]
 let ann = read_annotations("100s", "atr", Some("0:10".into()), Some("0:30".into()), None, false)?;
 println!("{} {}", ann.len(), ann.fs); // 24 360
@@ -594,13 +604,22 @@ pub fn write_record(
 \end{lstlisting}
 Writes samples in ADC units as a new record: the header \file{RECORD.hea} and one signal
 file, \file{RECORD.dat}, which holds all the signals (so they share one format). Existing
-files of these names are overwritten. The sampling frequency, the gain and ADC resolution
+files of these names are replaced. The sampling frequency, the gain and ADC resolution
 of each signal, and the units of each calibrated signal must be given: there are no
 defaults. Every check except those of the writing itself comes before any file is
-created; whatever happens, the output signals are closed before the function returns,
-and the getvec mode and the time resolution of output annotators are left as they were.
+created or changed. Both files are written to temporary files in the directories of their
+destinations (\file{.NAME.XXXXXXXX.tmp}), which replace the existing files (keeping their
+permissions; a symbolic link is followed, and a destination that is not a regular file,
+such as a device, is written directly) only when both are complete, so that an error
+leaves the existing files as they were. Whatever happens, the output signals are closed
+and no temporary file is left before the function returns, and the getvec mode and the
+time resolution of output annotators are left as they were. (Text is bytes and ADC values
+are \code{i32}: the checks of the other languages for header text that is not Latin-1, and
+for ADC values that are not whole numbers within the range of a 32-bit integer, have no
+counterpart.)
 \begin{params}
-\item[record] Record name (not empty), without the \file{.hea} extension: a plain name
+\item[record] Record name (not empty), without the \file{.hea} extension (a trailing
+  \code{".hea"} is removed, as by the readers): a plain name
   (\code{"rec"}) or a relative path (\code{"data/rec"}), created in the output directory
   if one is set, otherwise in the current directory, missing directories included; or a
   full path, absolute or in the home directory (\code{"\textasciitilde/Documents/rec"}),
@@ -622,26 +641,27 @@ and the getvec mode and the time resolution of output annotators are left as the
   \code{legacy}.
 \end{params}
 \returns{\code{Ok(())}.}
-\raises{An \code{Error} if a \code{samps\_per\_frame} value is less than 1
-(``write\_record: samps\_per\_frame must hold integers >= 1'', checked first); with
-\code{opt.dir}, if the directory does not exist (``directory D does not exist'') or the
-record name contains one (``record name must not contain a directory when dir is
-given''); if the record name is empty (``write\_record: the record name must not be
-empty''); if \code{nsig} is 0 (``write\_record: at least one signal is required''); if a
+\raises{An \code{Error} with \code{opt.dir}, if the directory does not exist (``directory D
+does not exist'') or the record name contains one (``record name must not contain a
+directory when dir is given''); then, in this order: if the record name is empty
+(``write\_record: the record name must not be empty''); if \code{nsig} is 0
+(``write\_record: at least one signal is required''); if a \code{samps\_per\_frame}
+value is less than 1 (``write\_record: samps\_per\_frame must hold integers >= 1''); if a
 per-signal field of \code{opt} has more than one value but not one per signal
-(``write\_record: OPTION must have one value per signal''); if \code{fs} is not $> 0$ or
-not finite (``write\_record: the sampling frequency must be > 0'', ``\ldots must be
-finite''); if a gain is not finite (``write\_record: gains must be finite''); if an entry
-of \code{opt.metadata} is not valid (``write\_record: metadata key 'K' is also given in
-comments'', for example); if the gains, the ADC resolutions or the units of a calibrated
-signal are missing (``write\_record: gains must be specified'', ``write\_record: ADC
-resolution(s) must be specified'', ``write\_record: units must be specified''); if
-\code{samples.len()} is not a multiple of the frame size (``write\_record: the number of
-samples is not a multiple of the frame size''); if \code{opt.base\_time} is not a valid
-time (``write\_record: incorrect base time 'T'''); if the files cannot be created
-(``can't create signal file for record REC'', ``can't create header for record REC''); or
-if they cannot be written completely, for example on a full disk (``write error on record
-REC'').}
+(``write\_record: OPTION must have one value per signal''); if \code{samples.len()} is not
+a multiple of the frame size (``write\_record: the number of samples is not a multiple of
+the frame size''); if the gains, the ADC resolutions (in normal mode, each at least 1) or
+the units of a calibrated signal are missing (``write\_record: gains must be specified'',
+``write\_record: ADC resolution(s) must be specified'', ``write\_record: units must be
+specified''); if \code{fs} is not $> 0$ or not finite (``write\_record: the sampling
+frequency must be > 0'', ``\ldots must be finite''); if a gain is not finite
+(``write\_record: gains must be finite''); if an entry of \code{opt.metadata} is not valid
+(``write\_record: metadata key 'K' is also given in comments'', for example); if
+\code{opt.base\_time} is not a valid time (``write\_record: incorrect base time 'T''');
+then, if the files cannot be created (``can't create signal file for record REC'',
+``can't create header for record REC''); or if they cannot be written completely, for
+example on a full disk (``write error on record REC''); the existing files are then left
+as they were.}
 \begin{lstlisting}[language=Rust,style=example]
 // A ramp of 1000 samples of one signal, in millivolts, at 100 Hz: the record "ramp"
 // (ramp.hea and ramp.dat).
@@ -716,9 +736,10 @@ zero), and NaN is stored as an invalid sample. Every signal must have a gain oth
 \end{params}
 \returns{\code{Ok(())}.}
 \raises{As \code{write\_record}; also an \code{Error} if a gain is 0 (``write\_record:
-signal N is uncalibrated''), or if a sample is infinite or its ADC value is outside the
-range of \code{i32} (``write\_record: sample I is infinite or beyond the range of 32-bit
-ADC units''). Nothing is written then.}
+signal N is uncalibrated'', checked after the units), or if a sample is infinite or its
+ADC value is outside the range of \code{i32} (``write\_record: sample I is infinite or
+beyond the range of 32-bit ADC units'', checked after the gains, before the metadata).
+Nothing is written then.}
 \begin{lstlisting}[language=Rust,style=example]
 // Two sine waves, in millivolts, at 360 Hz, frame by frame: the record "sine".
 let fs = 360.0;
@@ -755,7 +776,7 @@ pub fn write_annotations(
 ) -> Result<(), Error>
 \end{lstlisting}
 Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
-that name is overwritten. The record need not have a header. The type of each annotation
+that name is replaced. The record need not have a header. The type of each annotation
 is its \code{symbols} entry (\code{b"N"}, \code{b"V"}, \ldots; an unknown mnemonic gives
 \code{NOTQRS}), or, if \code{symbols} is empty or the entry is empty, its \code{codes}
 entry (\cref{chap:formats}). Both may be given (as \code{read\_annotations} returns them)
@@ -765,10 +786,16 @@ each, as by \code{putann} (other values wrap around: the subtype and number to $
 127, the channel to 0 to 255), and \code{aux} texts are cut to 255 bytes. If the
 annotations are not in time order, the file is sorted when it is written, unless the
 environment variable \code{WFDBANNSORT} is \code{0} (\code{write\_annotations\_with}
-decides this for one call). The arguments are checked before the file is created;
-whatever happens, the annotator is closed before the function returns, and the getvec
-mode and the time resolution of output annotators (\code{getafreq()}) are left as they
-were (\code{fs} applies to this file only).
+decides this for one call). The times $-2^{63}$ and $2^{63}-1$ (\code{i64::MIN},
+\code{i64::MAX}) are reserved by the file format, and the codes are 0 to 58 (59 to 63 are
+its control codes). The arguments are checked before the file is created or changed. The
+file is written to a temporary file in the directory of its destination
+(\file{.NAME.XXXXXXXX.tmp}), which replaces an existing file (keeping its permissions; a
+symbolic link is followed) only when it is complete (and, if needed, sorted), so that an
+error leaves the existing file as it was. Whatever happens, the annotator is closed and no
+temporary file is left before the function returns, and the getvec mode and the time
+resolution of output annotators (\code{getafreq()}) are left as they were (\code{fs}
+applies to this file only).
 \begin{params}
 \item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
   also accepted): a plain name or a relative path (\code{"data/100s"}), created in the
@@ -779,7 +806,8 @@ were (\code{fs} applies to this file only).
 \item[annotator] Annotator name: the suffix of the file. \code{"qrs"} writes
   \file{RECORD.qrs}.
 \item[ann] The annotations (\cref{tab:rust-annotations}): \code{samples}, and
-  \code{symbols} or \code{codes}; \code{subtypes}, \code{chans}, \code{nums} and
+  \code{symbols} or \code{codes} (required when there is at least one annotation; with
+  no annotations, an empty file is written); \code{subtypes}, \code{chans}, \code{nums} and
   \code{aux} are optional. Each of these vectors is empty (\code{subtypes}, \code{chans}
   and \code{nums} are then 0, and there is no aux) or has one entry per annotation.
   \code{ann.record}, \code{ann.annotator} and \code{ann.fs} are not used.
@@ -790,16 +818,25 @@ were (\code{fs} applies to this file only).
   \file{DIR/RECORD.ANNOTATOR}. \code{None}: the output directory.
 \end{params}
 \returns{\code{Ok(())}.}
-\raises{An \code{Error} if a per-annotation field has another length than 0 or the number
-of annotations (``write\_annotations: symbols must have one entry per annotation (N), or
-none'', for example); if \code{symbols} and \code{codes} are both given and disagree
-(``write\_annotations: symbols and codes disagree at annotation K'', K counted from 0);
-if \code{fs} is not 0 and not a finite frequency $> 0$ (``write\_annotations: fs must be
-finite and > 0 (or 0: none)''); if the file cannot be created (``can't create annotator
-ANN for record REC''); if it cannot be written completely (``write error on annotator ANN
-for record REC''); or, with \code{dir}, if the directory does not exist (``directory D
+\raises{An \code{Error} with \code{dir}, if the directory does not exist (``directory D
 does not exist'') or \code{record} contains a directory (``record name must not contain a
-directory when dir is given'').}
+directory when dir is given''); then, in this order: if a per-annotation field has another
+length than 0 or the number of annotations (``write\_annotations: symbols must have one
+entry per annotation (N), or none'', for example); if there is at least one annotation
+and neither \code{symbols} nor \code{codes} is given (``write\_annotations: symbols or
+codes must be given''); if \code{fs} is not 0 and not a
+finite frequency $> 0$ (``write\_annotations: fs must be finite and > 0 (or 0: none)''); if a time is
+\code{i64::MIN} or \code{i64::MAX} (``write\_annotations: annotation time T cannot be
+written (annotation times must be integers from -9223372036854775807 to
+9223372036854775806)'', for the first such time); if a code is not from 0 to 58
+(``write\_annotations: annotation code C is reserved (59 to 63 are the control codes of
+the annotation file format)'', or ``\ldots annotation code C is out of range (0 to 58)'',
+for the first such code); if \code{symbols} and \code{codes} are both given and disagree
+(``write\_annotations: symbols and codes disagree at annotation K'', K counted from 0);
+then, if the file cannot be created (``can't create annotator ANN for record REC''); or if
+it cannot be written completely, or \code{putann} reports an error while writing it
+(``write error on annotator ANN for record REC''); the existing file is then left as it
+was.}
 \begin{lstlisting}[language=Rust,style=example]
 // Three beats and a rhythm change, by symbol, with an aux string for the rhythm.
 let a = Annotations {
@@ -998,9 +1035,13 @@ are shared must be de-identified first.
 \begin{lstlisting}[language=Rust,style=signature]
 pub fn read_metadata(record: impl AsRef<[u8]>) -> Result<Metadata, Error>
 \end{lstlisting}
-Reads the metadata entries of the header of a record, in file order. An info string is an
-entry if it contains a colon: the key is the text before the first colon, the value the
-rest of the line, both without spaces at either end. Info strings without a colon, or
+Reads the metadata entries of the header of a record, in file order. The info strings are
+the comment lines after the record line, which is found as the header parser finds it, in
+every mode: the first line that holds something other than spaces, tabs and CRs and does
+not begin with \code{\#} (an empty or blank line before it, and the comments before it,
+are not read). An info string is an entry if it contains a colon: the key is the text
+before the first colon, the value the rest of the line, both without spaces at either
+end. Info strings without a colon, or
 whose key is empty or contains \code{\#}, are free comments, which are not returned.
 \begin{params}
 \item[record] Record name, without the \file{.hea} extension (a trailing \code{".hea"} is
@@ -1602,7 +1643,11 @@ and \code{PartialEq}; \code{CheckReport} and \code{Issue} implement \code{Clone}
   \code{None} if the header gives no date \\
 \code{sampfrom: i64} & the number of the first sample returned \\
 \code{comments: Vec<Vec<u8>{}>} & the info strings of the record: the comments of the
-  header, and the lines of its \file{.info} file if it has one (see \code{getinfo}) \\
+  header after its record line (the first line that holds something other than spaces,
+  tabs and CRs and does not begin with \code{\#}, as the header parser finds it: an empty
+  or blank first line is not the record line; in legacy mode, the first line that does
+  not begin with \code{\#}, as C's \code{getinfo} finds it), and the lines of its
+  \file{.info} file if it has one (see \code{getinfo}) \\
 \code{checksum\_ok: bool} & \code{false} if the samples do not match the checksums of the
   header; checksums are checked only when a read reaches the end of the record, so a
   shorter read gives \code{true} \\
@@ -1770,14 +1815,19 @@ and \code{PartialEq}; \code{CheckReport} and \code{Issue} implement \code{Clone}
 \code{wfdbx::record::Error}, the one public item of the high-level API that is not
 available at the root of the crate. \code{e.message()} and \code{Display} give the
 message, which describes the failed operation, such as ``can't read record REC''; the
-type implements \code{std::error::Error}, \code{Clone}, \code{Debug} and \code{PartialEq},
-so it converts to \code{Box<dyn std::error::Error>} with the \code{?} operator. There is
+type implements \code{std::error::Error}, \code{Clone}, \code{Debug}, \code{PartialEq} and
+\code{Eq}, so it converts to \code{Box<dyn std::error::Error>} with the \code{?} operator. There is
 one error type: the messages tell the cases apart (\cref{tab:rust-errors}). Each function
 checks its arguments before it creates or changes a file, so an invalid argument leaves
-the files as they were. The library may also print a message of its own on the standard
-error when it cannot open a file (as in \code{init: can't open header for record REC});
-\code{wfdberror()} returns the last such message, and \code{wfdbquiet()} turns these
-messages off (\cref{sec:rust-library}). \code{Record::at}, like the indexing of the
+the files as they were; \code{write\_record} and \code{write\_annotations} also write
+through temporary files, so that a failure while writing (a full disk, for example)
+leaves the existing files as they were. A signal file that ends before the length its
+header gives is a read error even when the checksums do not match either (``\ldots(getvec
+status -3)''): \code{read\_record} never returns an incomplete frame, and
+\code{check\_record} reports the short file (\code{length\_short}). The library may also
+print a message of its own on the standard error when it cannot open a file (as in
+\code{init: can't open header for record REC}); \code{wfdberror()} returns the last such
+message, and \code{wfdbquiet()} turns these messages off (\cref{sec:rust-library}). \code{Record::at}, like the indexing of the
 result vectors, panics on an index out of range.
 
 \begin{table}[htbp]
@@ -1952,9 +2002,9 @@ record. Where C fills an array, the caller passes a mutable slice
 (\code{isigopen(record, \&mut si, n)}, \code{getvec(\&mut v)}); an empty slice stands for
 C's \code{NULL} (\code{isigopen(record, \&mut [], 0)}); \code{osigopen(record, \&mut [], 0)}
 closes the open output signals (unless the record name begins with \code{+}), reads the
-header, opens nothing and returns 0. Where C fills a structure, the
-caller passes a mutable reference (\code{getann(0, \&mut annot)}). \code{getseginfo}
-takes an \code{\&mut Option<Vec<Seginfo>{}>}, which receives a copy of the segment table.
+header, opens nothing and returns 0. Where C fills a structure, the caller passes a
+mutable reference (\code{getann(0, \&mut annot)}). \code{getseginfo} takes an
+\code{\&mut Option<Vec<Seginfo>{}>}, which receives a copy of the segment table.
 
 \paragraph{Strings} are returned by value, as \code{Vec<u8>}, or as
 \code{Option<Vec<u8>{}>} where the C function may return \code{NULL} (\code{anndesc},
@@ -1976,9 +2026,9 @@ record, its input signals, the output signals and the annotators remain open unt
 and the network setting as they are, and so, as in C, the time resolution of output
 annotators (\code{getafreq()}), which opening an EDF record sets to its sampling frequency
 when none is set, and the getvec mode (\code{getgvmode()}), to which it adds
-\code{WFDB\_HIGHRES}. Dropping a \code{Wfdb} value flushes its output
-buffers, as C's \code{exit} does, but does not close its records (no annotation end
-marks, no header updates): a program calls \code{wfdbquit()} before it ends. The
+\code{WFDB\_HIGHRES}. Dropping a \code{Wfdb} value flushes its output buffers, as C's
+\code{exit} does, but does not close its records (no annotation end marks, no
+header updates): a program calls \code{wfdbquit()} before it ends. The
 high-level functions of \cref{sec:rust-api} (except the metadata functions) call
 \code{wfdbquit()} on the \code{Wfdb} value they use, which closes anything opened with the
 library functions on that value, and leave those two settings as they were.
@@ -2049,8 +2099,8 @@ set where files are read and written, network access and legacy mode, for the
 high-level functions, the library functions and the tools alike
 (\cref{chap:files,chap:behavior}), and give the path under which a program opens a file
 that it reads or creates itself, as the tools do (\code{wfdbx\_input\_path},
-\code{wfdbx\_output\_path}; \cref{sec:tool-files}). Like the other library functions, each is a method of
-\code{Wfdb} and a free function, except \code{wfdbx\_write\_errors} and
+\code{wfdbx\_output\_path}; \cref{sec:tool-files}). Like the other library functions,
+each is a method of \code{Wfdb} and a free function, except \code{wfdbx\_write\_errors} and
 \code{wfdbx\_note\_write\_error} (free functions only: the count belongs to the process).
 Each \code{set} function returns the previous setting, so that it can be restored. The C
 function \code{setwfdb(p)} sets the input directory too (\code{p} must name at most one
@@ -2285,7 +2335,8 @@ cargo clippy --release --all-targets       # lints
 The integration tests cover the WFDB library functions (\file{signals.rs},
 \file{annotations.rs}, \file{wfdbio.rs}, \file{bulk.rs}, the C standard functions in
 \file{cstd.rs}), finding files and the settings (\file{files.rs}), network access
-(\file{network.rs}), the high-level functions, the metadata functions (\file{metadata.rs},
+(\file{network.rs}), the high-level functions of reading and writing (in
+\file{signals.rs}), the metadata functions (\file{metadata.rs},
 with the cases shared by the seven languages, in \file{tests/metadata}) and
 \code{check\_record} (\file{check.rs}). They run in temporary copies of the test records
 of \file{tests/data}. The tests of network access use a local HTTP server on 127.0.0.1
@@ -2297,8 +2348,8 @@ and compare the reports with its \file{expected.txt}.
 \file{DIR}.
 
 The cross-language conformance suite runs every tool and compares its results, byte for
-byte, with those of the original C programs (1135 cases), and, with \opt{-{}-legacy}, in
-legacy mode (883 cases). It runs the tools of \file{rust/target/release}:
+byte, with those of the original C programs (1155 cases), and, with \opt{-{}-legacy}, in
+legacy mode (886 cases). It runs the tools of \file{rust/target/release}:
 
 \begin{lstlisting}[style=shell]
 cargo build --release --manifest-path rust/Cargo.toml

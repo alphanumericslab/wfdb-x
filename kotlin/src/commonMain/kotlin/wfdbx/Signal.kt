@@ -646,6 +646,17 @@ internal class SigState {
     /** WFDB-x: true during a high-level read: getvec's checksum message is recorded but not printed. */
     var cksumQuiet = false
 
+    /**
+     * WFDB-x: set by getskewedframe when a sample cannot be read (getvec
+     * status -3: a signal file that ends before the length its header
+     * gives, a decoder or I/O error, a segment that cannot be opened),
+     * whatever status getvec then returns (a checksum error, -4, found in
+     * the same frame replaces -3). The high-level readers clear it before
+     * reading and treat it as a read error; the C-style functions only set
+     * it.
+     */
+    var readFailed = false
+
     /** WFDB-x: true if getvecs must not use its bulk path (see wfdbx_bulk_read; for tests). */
     var bulkOff = false
 
@@ -2354,9 +2365,11 @@ private fun Wfdb.getskewedframe(vecstart: IntArray, voff: Int): Int {
                 if (ig.stat == -2) {
                     // error in decoding compressed data
                     stat = -3
+                    sig.readFailed = true // WFDB-x (see SigState.readFailed)
                 } else if (isv.info.nsamp > 0) {
                     wfdb_error(cformat("getvec: unexpected EOF in signal %d\n", s))
                     stat = -3
+                    sig.readFailed = true
                 } else if (sig.inMsrec != 0 && sig.haveSegarray && sig.segp >= 0 && sig.segp < sig.segend) {
                     isv.info.cksum = cksum
                     switch = true
@@ -2385,6 +2398,7 @@ private fun Wfdb.getskewedframe(vecstart: IntArray, voff: Int): Int {
         val name = sig.segarray[sig.segp].recname
         if (isigopen(name, null, sig.nvsig) <= 0) {
             wfdb_error(cformat("getvec: error opening segment %s\n", name))
+            sig.readFailed = true
             return -3 // avoid looping if segment is bad
         }
         sig.istime = sig.segarray[sig.segp].samp0
@@ -3767,8 +3781,20 @@ fun Wfdb.getvecs(out: IntArray, n: Long): Long = getvecs_status(out, n).count
  */
 fun Wfdb.getvecs_status(out: IntArray, n: Long): GetvecsResult = getvecsStatusAt(out, 0, n)
 
-/** [getvecs_status] writing into [out] from index [off] (WFDB-x, for readRecord). */
-internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResult {
+/**
+ * [getvecs_status] writing into [out] from index [off] (WFDB-x, for
+ * readRecord and checkRecord).
+ *
+ * With [highLevel] (WFDB-x, for the high-level readers, which clear
+ * `SigState.readFailed` before reading): if a sample could not be read
+ * (`readFailed` is set after a vector), that vector is never counted nor
+ * kept, whatever status getvec returned, and the status is -3 (getvec
+ * returns -4 for a frame in which a signal file ended early, if the
+ * checksum of a signal is verified at that frame); reading stops. A -4
+ * alone (a checksum error, all samples read) leaves the vector in [out]
+ * after the vectors counted, as without [highLevel].
+ */
+internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long, highLevel: Boolean = false): GetvecsResult {
     if (n <= 0) return GetvecsResult(0, 0)
     var stat = 0
     var k = 0L
@@ -3792,6 +3818,11 @@ internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResu
                 // (the caller's array is too short for another vector)
                 val tmp = IntArray(need)
                 stat = getframeImpl(tmp, 0)
+                if (highLevel && st.readFailed) {
+                    // WFDB-x: an incomplete frame is never returned
+                    if (stat == -4 || stat >= -1) stat = -3
+                    break
+                }
                 val mm = minOf(maxOf(out.size - pos, 0), stride)
                 if (stat == -4) tmp.copyInto(out, pos, 0, mm) // (valid data with a checksum mismatch)
                 if (stat < 0) break
@@ -3804,6 +3835,11 @@ internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResu
             // (getframe, not getskewedframe: a segment opened by an earlier
             // frame may need deskewing)
             stat = getframeImpl(out, pos)
+            if (highLevel && st.readFailed) {
+                // WFDB-x: an incomplete frame is never returned
+                if (stat == -4 || stat >= -1) stat = -3
+                break
+            }
             if (stat < 0) break
             pos += stride
             k++
@@ -3825,6 +3861,11 @@ internal fun Wfdb.getvecsStatusAt(out: IntArray, off: Int, n: Long): GetvecsResu
             }
             if (pos + stride > out.size) break
             stat = getvecAt(out, pos)
+            if (highLevel && st.readFailed) {
+                // WFDB-x: an incomplete vector is never returned
+                if (stat == -4 || stat >= -1) stat = -3
+                break
+            }
             if (stat < 0) break
             pos += stride
             k++
@@ -4690,13 +4731,42 @@ private fun SigState.saveInfo(b: ByteArray) {
 }
 
 /**
+ * WFDB-x: whether readheader skips [line] when it looks for the record
+ * line: the line has no token (separated by spaces, tabs, CRs and LFs, up
+ * to a NUL byte), or its first token begins with '#'.
+ */
+internal fun commentOrBlank(line: ByteArray): Boolean {
+    for (b in line) {
+        when (b.toInt()) {
+            0 -> return true
+            ' '.code, '\t'.code, '\n'.code, '\r'.code -> continue
+            '#'.code -> return true
+            else -> return false
+        }
+    }
+    return true
+}
+
+/**
  * C `getinfo(record)`: on the first call (or with a record name), reads
  * the info strings of the record (from its header and .info file) and
  * returns the first; with null, returns the next one. null when there are
  * no more.
  *
+ * The record line is found as the header parser (readheader) finds it:
+ * the first line that has a token (separated by spaces, tabs, CRs and
+ * LFs, up to a NUL byte) that does not begin with '#'; every later line
+ * that begins with '#' is an info string (without the '#' and the line
+ * ending), and a header with no record line has none (the .info file is
+ * still read).
+ *
  * Translation of the C function getinfo() (lib/signal.c, WFDB 10.7.0): same
- * arguments and results.
+ * arguments and results, except for the record line (WFDB-x): the C
+ * function takes the first line that does not begin with '#', so that an
+ * empty or blank line before the record line is taken for it, and the
+ * comments between them are returned as info strings. In legacy mode, the
+ * C rule applies (at the end of the file, the buffer keeps its last line,
+ * so that a header of comments only returns its last comment).
  */
 fun Wfdb.getinfo(record: ByteArray?): ByteArray? {
     val rec = record?.let { cstr(it) }
@@ -4728,13 +4798,25 @@ fun Wfdb.getinfo(record: ByteArray?): ByteArray? {
                 // contents when the end of the file is reached.
                 var buf = ByteArray(0)
                 val line = ByteVec(256)
+                val legacyRule = legacy
+                var found = false
                 while (ifile.getline(line) > 0) {
                     buf = line.toByteArray()
-                    if (buf[0] != '#'.code.toByte()) break // skip initial comments
+                    if (legacyRule) {
+                        if (buf[0] != '#'.code.toByte()) break // skip initial comments
+                    } else if (!commentOrBlank(buf)) {
+                        // WFDB-x: the record line, as readheader finds it
+                        found = true
+                        break
+                    }
                 }
-                while (ifile.getline(line) > 0) {
-                    buf = line.toByteArray()
-                    if (buf[0] == '#'.code.toByte()) break // skip header content
+                if (!legacyRule && !found) {
+                    buf = ByteArray(0) // WFDB-x: no record line, no info
+                } else {
+                    while (ifile.getline(line) > 0) {
+                        buf = line.toByteArray()
+                        if (buf[0] == '#'.code.toByte()) break // skip header content
+                    }
                 }
                 while (buf.isNotEmpty() && buf[0] != 0.toByte()) {
                     // read and save info
@@ -4938,6 +5020,11 @@ internal fun Wfdb.wfdbxSetCksumQuiet(on: Boolean): Boolean {
     val p = sig.cksumQuiet
     sig.cksumQuiet = on
     return p
+}
+
+/** WFDB-x (for the high-level readers): clears the flag set when a sample cannot be read (see `SigState.readFailed`). */
+internal fun Wfdb.wfdbxClearReadFailed() {
+    sig.readFailed = false
 }
 
 // ---------------------------------------------------------------------------

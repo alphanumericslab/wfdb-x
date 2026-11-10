@@ -235,7 +235,7 @@ fn shared_cases() {
         assert_eq!(d.files("."), [format!("{header}.hea")], "{name}");
         n += 1;
     }
-    assert_eq!(n, 49);
+    assert_eq!(n, 56);
 }
 
 fn hex(b: &[u8]) -> String {

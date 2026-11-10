@@ -95,7 +95,7 @@ pairs <- function(s) {
 }
 lines <- readLines(file.path(meta, "cases.tsv"), warn = FALSE)
 lines <- lines[!startsWith(lines, "#") & nzchar(lines)]
-check(length(lines) == 49L, "49 shared cases")
+check(length(lines) == 56L, "56 shared cases")
 for (ln in lines) {
   f <- strsplit(ln, "\t", fixed = TRUE)[[1L]]
   if (length(f) < 10L) f <- c(f, rep("", 10L - length(f)))

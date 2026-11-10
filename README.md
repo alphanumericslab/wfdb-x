@@ -37,6 +37,8 @@ The original C sources are kept, unmodified, in
 [`third_party/wfdb-main.zip`](third_party/), and serve as the reference
 implementation for testing.
 
+The website of WFDB-x is [wfdb-x.org](https://wfdb-x.org), and its source
+code is at [github.com/alphanumericslab/wfdb-x](https://github.com/alphanumericslab/wfdb-x).
 The [user's manual](docs/user-manual/wfdb-x-user-manual.pdf) (PDF) documents every function and tool
 for the users of each language. To cite WFDB-x, cite the preprint
 [arXiv:2611.01358](https://arxiv.org/abs/2611.01358) (see
@@ -93,6 +95,11 @@ everything else:
   rdsamp -r 100 -t 10
   ```
 
+  Only `http://` and `https://` URLs can be read; a name with another URL
+  scheme, such as `ftp://` or `sftp://`, is an error (a server reached by
+  FTP or SFTP can be mounted as a local folder, with `sshfs` or `rclone`
+  for example). A remote file that could not be read is requested again
+  the next time it is opened.
 * **Annotation files are sorted without losing annotations**, inside the
   library rather than by running a separate program.
 * **A tool never writes a signal file over a signal file it is reading.**
@@ -118,7 +125,7 @@ This is verified by tests whose expected results were produced by the
 original C code, not written by hand:
 
 * **Conformance suite** ([`tests/conformance/`](tests/conformance/),
-  described in [`docs/conformance.md`](docs/conformance.md)): 1135
+  described in [`docs/conformance.md`](docs/conformance.md)): 1155
   command-line test cases, run by a language-independent harness. Their
   expected results were produced by the C programs, built from
   `third_party/` with FLAC support and with
@@ -164,7 +171,7 @@ requirements.
 | Rust | [`rust/`](rust/README.md) | `cargo install --path rust` | `rdsamp -r 100s` |
 | Julia | [`julia/`](julia/README.md) | `using Pkg; Pkg.develop(path="/path/to/wfdb-x/julia")` | `wfdbx rdsamp -r 100s` |
 | R | [`r/`](r/README.md) | `R CMD INSTALL r` | `wfdbx rdsamp -r 100s` |
-| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.2.1")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
+| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.2.2")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
 
 Record `100s` is the sample record in `tests/data`. Run the tools there, or
 point `WFDBX_INPUT_DIR` at that directory; the Python package also includes it
@@ -232,11 +239,14 @@ of `psd/` are outside the scope of this project.
 
 ## Documentation
 
+* [wfdb-x.org](https://wfdb-x.org): the website of WFDB-x, with these
+  pages and the README of each language
 * [User's manual (PDF)](docs/user-manual/wfdb-x-user-manual.pdf), built
   from the LaTeX sources in [`docs/user-manual/`](docs/user-manual/), for the users of each language: the concepts,
   every function of the high-level API with its arguments, results, errors
   and examples, the WFDB library functions, and the command-line tools
 * [`CHANGELOG.md`](CHANGELOG.md): the changes in each version
+* [`docs/TODO.md`](docs/TODO.md): the work planned for future versions
 * [`docs/DIVERGENCES.md`](docs/DIVERGENCES.md): the deliberate differences
   from the original package, the reasons for them, and legacy mode
 * [`docs/INVENTORY.md`](docs/INVENTORY.md): every tool and library
@@ -271,7 +281,7 @@ verification and unit testing**.
   C sources, and were reviewed and tested by human engineers.
 * **Cross-language verification.** Every implementation is checked
   against the outputs of the original C tools and library on the
-  conformance suite: 1135 cases, plus 883 for legacy mode. Because all
+  conformance suite: 1155 cases, plus 886 for legacy mode. Because all
   seven must pass the same cases, each implementation is also checked
   against the other six.
 * **Unit testing.** Each implementation has its own unit tests of the
@@ -285,7 +295,7 @@ issues.
 
 WFDB-x has its own version numbers, shared by the seven implementations and
 following [semantic versioning](https://semver.org); the current version is
-1.2.1 ([`CHANGELOG.md`](CHANGELOG.md) lists the changes in each version). They are independent of the version of the WFDB Software Package
+1.2.2 ([`CHANGELOG.md`](CHANGELOG.md) lists the changes in each version). They are independent of the version of the WFDB Software Package
 that WFDB-x implements, 10.7.0, which the library still reports as in C
 (`wfdbversion()` returns `"10.7.0"`, and `wfdberror()` names it).
 
@@ -366,6 +376,9 @@ the library, and the GNU General Public License, version 2 or later, for
 the tools.
 
 The original WFDB Software Package is Copyright (C) 1983-2022 George B. Moody
-and the WFDB contributors.
+and the WFDB contributors. [`NOTICE`](NOTICE) summarizes which parts of
+WFDB-x are under which license, and gives the copyright notice and license
+(BSD-3-Clause) of libFLAC 1.4.3, whose stream decoder the FLAC decoder of
+each implementation translates.
 
 <!-- {% endraw %} -->

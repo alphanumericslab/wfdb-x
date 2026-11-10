@@ -72,12 +72,24 @@ addpath('/path/to/wfdb-x/matlab')
 savepath      % optional: keep the folder on the path in later sessions
 \end{lstlisting}
 
+The folder \file{matlab} also holds copies of the license files of the repository:
+\file{LICENSE} (the GNU Lesser General Public License, version 2.1, of the library),
+\file{LICENSE-GPL} (the GNU General Public License, version 3, of the command-line tools:
+\file{+wfdbx/+apps}, the drivers of \file{bin} and the dispatcher
+\file{+wfdbx/+internal/cli\_main.m} and \file{app\_run.m}; the internal functions that
+the library also uses, such as \file{tool\_command.m}, which \code{wfdbx.oannclose} calls
+to run \cmd{sortann} in legacy mode, stay under the LGPL)
+and \file{NOTICE}, which summarizes the licenses and gives the BSD-3-Clause notice of
+libFLAC, whose stream decoder the FLAC code of \file{+wfdbx/+internal} translates. The
+folder is the MATLAB and Octave distribution of WFDB-x: a copy of it that is passed on
+keeps these three files.
+
 \code{help wfdbx.Contents} lists the functions, by group (in MATLAB, \code{help wfdbx}
 also does), and \code{help wfdbx.NAME} describes each one. \file{+wfdbx/Contents.m} gives
-the version of the package, \code{Version 1.2.1}, and the command-line driver prints it:
+the version of the package, \code{Version 1.2.2}, and the command-line driver prints it:
 
 \begin{lstlisting}[style=shell]
-octave-cli --no-gui --norc -q matlab/bin/wfdbx_cli.m --version    # WFDB-x 1.2.1
+octave-cli --no-gui --norc -q matlab/bin/wfdbx_cli.m --version    # WFDB-x 1.2.2
 \end{lstlisting}
 
 \subsection{The sample record}
@@ -167,8 +179,9 @@ MATLAB strings (converted to \code{char}).
 
 \paragraph{Record names and directories.} A record is named as in the other parts of
 WFDB-x (\cref{chap:records,chap:files}), without the \code{.hea} extension of its header
-(the readers, and \code{wfdbx.write\_annotations}, also accept a trailing \code{.hea};
-\code{wfdbx.write\_record} does not). A full path, absolute (\code{'/data/mitdb/100'}) or
+(the readers and the writers, \code{wfdbx.write\_record} and
+\code{wfdbx.write\_annotations}, also accept a trailing \code{.hea}, which is removed). A
+full path, absolute (\code{'/data/mitdb/100'}) or
 in the home directory (\code{'\textasciitilde/Documents/100s'}), is used as given; a
 relative path, such as \code{'100s'} or \code{'data/100s'}, is read from the input
 directory if one is set, otherwise from the current folder, and written to the output
@@ -178,11 +191,10 @@ access is on, and cannot be written. A writer given a name with a path creates t
 in that folder, and the header names the record and its signal file without the path
 (\code{'rec'}, \code{'rec.dat'}), so that the record opens under any path that leads to
 it; in legacy mode, as in the original package, the header gives the name with its path.
-The input and output directories are the current
-folder unless they are set, with \code{wfdbx.wfdbx\_set\_input\_dir} and
+The input and output directories are set with \code{wfdbx.wfdbx\_set\_input\_dir} and
 \code{wfdbx.wfdbx\_set\_output\_dir} (\cref{sec:matlab-settings}) or with the
-environment variables \code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}. URLs are read
-only when network access is on. The functions that read take the options
+environment variables \code{WFDBX\_INPUT\_DIR} and \code{WFDBX\_OUTPUT\_DIR}. The
+functions that read take the options
 \code{'input\_dir'} and \code{'network'}, and those that write take \code{'dir'}: they
 apply to that one call, and the previous settings are restored when it returns, also after
 an error. \code{'input\_dir'} is optional, and applies to relative names only, not to full
@@ -296,12 +308,19 @@ with the checksums of the header (\cref{sec:matlab-warnings}).
   \code{false} for no warning. The samples are returned either way, and
   \code{rec.checksum\_ok} is \code{false}.
 \end{params}
+The memory allocated does not depend on the length that the header gives, which may be
+far more than the signal files hold: the samples are read in chunks of about $2^{22}$,
+joined at the end.
 \returns{A structure (\cref{tab:matlab-record}).}
 \raises{Identifier \code{wfdbx:read\_record}: the record cannot be read (``can't read
 record REC''), or its signals cannot be opened; a signal file is shorter than its header
-says (``can't read signal data of record REC (getvec status -3)''); a requested signal is
-not in the record; \code{sampfrom} is negative, or \code{sampfrom} or \code{sampto} is
-not a whole number (a fraction, NaN or an infinite value); a time string needs the
+says, or cannot be read (a decoder or I/O error): ``can't read signal data of record REC
+(getvec status -3)'', even if the checksums do not match either (the checksum error is
+found in the frame in which the file ended), so that no incomplete frame is ever
+returned; a requested signal is not in the record; \code{sampfrom} is negative, or
+\code{sampfrom} or \code{sampto} is not a whole number (a fraction, NaN or an infinite
+value: ``read\_record: sampfrom must be a whole number''), or is neither a number nor a
+time string (``\ldots{} must be a sample number or a time string''); a time string needs the
 sampling frequency and the header gives none; \code{'physical'} is \code{true} and a
 signal read is uncalibrated; or an option is not valid. Warning \code{wfdbx:checksum} on
 a checksum error (see \code{checksum\_warning}).}
@@ -398,10 +417,11 @@ fourth arguments, without their names.
   sampling frequency.
 \item[annotator] Annotator name: the suffix of the annotation file. \code{'atr'} reads the
   file \file{RECORD.atr}.
-\item[sampfrom] The first time to read: a sample number or a time string. Default
-  \code{0}: the beginning of the file.
+\item[sampfrom] The first time to read: a sample number (a whole number $\ge 0$) or a
+  time string. Default \code{0}: the beginning of the file.
 \item[sampto] The time at which to stop: annotations at or after it are not read. A
-  sample number or a time string. Default \code{[]}: the end of the file.
+  sample number (a whole number) or a time string. Default \code{[]}: the end of the
+  file.
 \item[fs] The sampling frequency, in Hz (a number $> 0$), to use when the record has no
   header or its header gives none; it is ignored otherwise. Default \code{[]}: none.
 \item[input\_dir] The input directory for this call only (optional), under which
@@ -418,8 +438,13 @@ else the sampling frequency; it is 0 if none of them is known.}
 \raises{Identifier \code{wfdbx:read\_annotations}: the annotation file cannot be opened
 (``can't read annotator ANN for record REC''), or it ends unexpectedly or cannot be read
 before \code{sampto} (``can't read annotation file ANN of record REC (getann status
-S)''); \code{'fs'} is given and is not $> 0$; a time string needs the sampling frequency
-and none is known; or an option is not valid.}
+S)''); \code{'fs'} is given and is not $> 0$; \code{sampfrom} or \code{sampto} is not
+valid, as for \code{wfdbx.read\_record} (``read\_annotations: sampfrom must be a whole
+number'', ``\ldots{} must be a sample number or a time string'', ``\ldots{} is beyond
+the range of a 64-bit integer'', ``read\_annotations: sampfrom must not be negative''),
+which is checked before any file is opened; a time string needs the sampling frequency
+and none is known; or an option is not valid. Whatever happens, the annotation file is
+closed (\code{wfdbx.wfdbquit}) before the function returns.}
 \begin{lstlisting}[language=Matlab,style=example]
 ann = wfdbx.read_annotations('100s', 'atr', 'sampfrom', '0:10', 'sampto', '0:30');
 fprintf('%d %g\n', numel(ann.samples), ann.fs);       % 24 360
@@ -453,14 +478,19 @@ wfdbx.write_record(record, signals, fs, 'fmt', 16, 'gains', [], 'baselines', [],
 \end{lstlisting}
 Writes signals as a new record: the header \file{RECORD.hea} and one signal file,
 \file{RECORD.dat}, which holds all the signals (so they share one format). Existing files
-of these names are overwritten. The sampling frequency, the gain and ADC resolution of
+of these names are replaced: both files are written to temporary files in the
+destination folder (\file{.NAME.XXXXXXXX.tmp}, created with the permissions of the files
+they replace), which replace the existing files only when both are complete, so that an
+error leaves the existing record as it was, and no temporary file is left. The sampling
+frequency, the gain and ADC resolution of
 each signal, and the units of each calibrated signal must be given: there are no
 defaults. The per-signal options (\code{'fmt'}, \code{'gains'}, \code{'baselines'},
 \code{'adczeros'}, \code{'adcres'}, \code{'units'}, \code{'names'}) take one value for all
 the signals, or a vector or cell array with one value per signal. All the arguments are
-checked before any file is created.
+checked before any file is created or changed.
 \begin{params}
-\item[record] Record name (not empty), without the \code{.hea} extension: a plain name
+\item[record] Record name (not empty), without the \code{.hea} extension (a trailing
+  \code{.hea} is removed, as by the readers): a plain name
   (\code{'rec'}) or a relative path (\code{'data/rec'}), created in the output directory
   if one is set, otherwise in the current folder, missing folders included; or a full
   path, absolute or in the home directory (\code{'\textasciitilde/Documents/rec'}), used
@@ -468,7 +498,8 @@ checked before any file is created.
   record and its signal file without the path (\code{'rec'}, \code{'rec.dat'}), so that
   the record opens under any path that leads to it (in legacy mode, as in the original,
   the header gives the name with its path). A URL cannot be written.
-\item[signals] The samples: a matrix with one row per sample and one column per signal.
+\item[signals] The samples: a matrix (a 1-D or 2-D array) with one row per sample and one
+  column per signal.
   In ADC units (the default), the values are integers within the range of a 32-bit
   integer; with \code{'physical', true}, they are in physical units.
 \item[fs] The sampling frequency, in Hz: a finite number $> 0$.
@@ -478,11 +509,13 @@ checked before any file is created.
 \item[gains] The gain of each signal, in ADC units per physical unit: a finite number;
   \code{0} marks an uncalibrated signal, which is allowed only for samples given in ADC
   units. Negative gains are allowed. Required (default \code{[]}: not given).
-\item[baselines] The ADC value that corresponds to 0 physical units. Default \code{[]}:
-  the ADC zero of the signal.
-\item[adczeros] The ADC value at the middle of the ADC range. Default \code{0}.
-\item[adcres] The ADC resolution, in bits (an integer $\ge 1$). Required (default
-  \code{[]}: not given).
+\item[baselines] The ADC value that corresponds to 0 physical units (a whole number within
+  the range of a 32-bit integer; in a cell array, \code{[]} is the ADC zero). Default
+  \code{[]}: the ADC zero of the signal.
+\item[adczeros] The ADC value at the middle of the ADC range (a whole number within the
+  range of a 32-bit integer; in a cell array, \code{[]} is 0). Default \code{0}.
+\item[adcres] The ADC resolution, in bits (a whole number $\ge 1$, within the range of a
+  32-bit integer). Required (default \code{[]}: not given).
 \item[units] The physical units, such as \code{'mV'}: one string for all the signals, or a
   cell array with one per signal. Required for each signal whose gain is not 0. Default
   \code{[]}: not given.
@@ -515,12 +548,20 @@ checked before any file is created.
   200, and the ADC resolution to one based on the format. Default \code{false}.
 \end{params}
 \returns{Nothing.}
-\raises{Identifier \code{wfdbx:write\_record}: \code{record} is empty; a
+\raises{Identifier \code{wfdbx:write\_record}: \code{record} is empty; \code{record}
+has a character beyond 255 (``record name 'X' has a character that is not Latin-1 (one
+byte per character)''; the same for a signal name, the units and a comment: ``signal
+name 'X' \ldots'', ``units 'X' \ldots'', ``comment 'X' \ldots''; text is one byte per
+character, so this can happen only in MATLAB, whose characters are 16-bit);
+\code{signals} has more than two dimensions (``signals must be a 1-D or 2-D array''); a
 \code{'samps\_per\_frame'} value is not an integer $\ge 1$ (``samps\_per\_frame must hold
 integers >= 1''), or the number of columns of \code{signals} is not their sum (``signals
 has N columns, but samps\_per\_frame adds up to M''); \code{signals} has no signals (``at
 least one signal is required''); \code{fs} is not finite and $> 0$; a gain is not finite;
-the gains, the ADC resolutions or the required units are not given; a per-signal option
+the gains, the ADC resolutions or the required units are not given; an ADC resolution, ADC
+zero or baseline is not a whole number within the range of a 32-bit integer (text, NaN,
+12.5: ``adcres must be whole numbers within the range of a 32-bit integer'', and the same
+for \code{adczeros} and \code{baselines}); a per-signal option
 does not have one value or one value per signal; a sample in ADC units is not an integer
 or is outside the range of a 32-bit integer, or a sample in physical units is infinite or
 its ADC value is outside that range; \code{'physical'} is \code{true} and a gain is 0;
@@ -528,7 +569,8 @@ its ADC value is outside that range; \code{'physical'} is \code{true} and a gain
 have the same format; an entry of \code{'metadata'} is not valid; \code{record} contains
 a folder and \code{'dir'} is given, or \code{'dir'} does not exist; an option is not
 valid; or the files cannot be created, or cannot be written completely, for example on a
-full disk (``write error on record REC'', after the library's message).}
+full disk (``write error on record REC'', after the library's message; the existing files
+are then left as they were).}
 \begin{lstlisting}[language=Matlab,style=example]
 % Two signals of random numbers, in millivolts, at 360 Hz: the record "rand"
 % (rand.hea and rand.dat).
@@ -568,13 +610,16 @@ wfdbx.write_annotations(record, annotator, samples, 'symbols', [], 'codes', [], 
     'subtypes', 0, 'chans', 0, 'nums', 0, 'aux', [], 'fs', [], 'dir', [], ...
     'sort', [], 'legacy', false)
 \end{lstlisting}
-Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format; an existing file of
-that name is overwritten. The record need not have a header. The annotation types are
+Writes an annotation file, \file{RECORD.ANNOTATOR}, in the MIT format. An existing file of
+that name is replaced: the new file is written to a temporary file in the same folder
+(created with the permissions of the file it replaces), which replaces it only when it is
+complete (and sorted), so that an error leaves it as it was. The record need not have a
+header. The annotation types are
 given as \code{'symbols'} or as \code{'codes'} (\cref{chap:formats}). Each per-annotation
 option is one value for all the annotations, or a list with exactly one value per
 annotation. If the annotations are not in time order, the file is sorted when it is
 written, unless \code{'sort'} is \code{false}. All the arguments are checked before the
-file is created.
+file is created or changed.
 \begin{params}
 \item[record] Record name, without the \code{.hea} extension (a trailing \code{.hea} is
   also accepted): a plain name or a relative path (\code{'data/100s'}) is created in the
@@ -584,14 +629,17 @@ file is created.
   be written.
 \item[annotator] Annotator name: the suffix of the file, made of letters, digits,
   \code{\_}, \code{-} and \code{\textasciitilde}.
-\item[samples] The annotation times, in samples: a vector of integers within the range of
-  a 64-bit integer, one per annotation.
+\item[samples] The annotation times, in samples: a vector (a 1-D array) of integers from
+  $-2^{63}+1$ to $2^{63}-2$, one per annotation (the smallest and the largest 64-bit
+  integers are reserved by the file format; doubles are exact up to $2^{53}$, and
+  \code{int64} values are accepted).
 \item[symbols] The mnemonics of the annotation types, such as \code{'N'} or \code{'V'}: a
   cell array with one per annotation, a \code{char} vector of one-character mnemonics
   (\code{'NNV'}), or one mnemonic for all. An unknown mnemonic becomes code 0
   (\code{NOTQRS}). Default \code{[]}: the types are given by \code{'codes'}.
-\item[codes] The annotation codes (\code{wfdbx.NORMAL()}, \code{wfdbx.PVC()}, \ldots),
-  instead of \code{'symbols'}: one per annotation, or one value for all. If both are given
+\item[codes] The annotation codes (\code{wfdbx.NORMAL()}, \code{wfdbx.PVC()}, \ldots; 0
+  to 58, as 59 to 63 are the control codes of the file format), instead of
+  \code{'symbols'}: one per annotation, or one value for all. If both are given
   (as \code{wfdbx.read\_annotations} returns them), each symbol must be that of its code
   (an empty symbol is not checked), and the codes are written. Default \code{[]}.
 \item[subtypes] The subtype of each annotation, stored as a signed byte (other values wrap
@@ -615,15 +663,27 @@ file is created.
 \item[legacy] \code{true} to behave as the original WFDB package. Default \code{false}.
 \end{params}
 \returns{Nothing.}
-\raises{Identifier \code{wfdbx:write\_annotations}: neither \code{'symbols'} nor
-\code{'codes'} is given; both are given and disagree (``symbols and codes disagree at
-annotation K'', K counting from 0); a per-annotation option given as a list does not have
-one value per annotation (``\ldots{} must have one value per annotation''); a time is not
-an integer within the range of a 64-bit integer (NaN, an infinite value or a fraction); a
-code, subtype, channel or annotator number is NaN or infinite; \code{'fs'} is not finite
-and $> 0$; \code{record} contains a folder and \code{'dir'} is given, or \code{'dir'} does
-not exist; an option is not valid; or the file cannot be created, or cannot be written
-completely (``write error on annotator ANN for record REC'').}
+\raises{Identifier \code{wfdbx:write\_annotations}: \code{samples} is a matrix or an
+array of more dimensions (``samples must be a 1-D array''; the same for \code{'codes'},
+\code{'subtypes'}, \code{'chans'}, \code{'nums'}, and for \code{'symbols'} given with
+\code{'codes'}); neither \code{'symbols'} nor \code{'codes'} is given for one annotation
+or more (``symbols or codes must be given''; with no annotations, an empty file is
+written); a per-annotation
+option given as a list does not have one value per annotation (``\ldots{} must have one
+value per annotation''); a time is not an integer within the range of a 64-bit integer
+(NaN, an infinite value or a fraction); a code, subtype, channel or annotator number is
+NaN or infinite; \code{'fs'} is not finite and $> 0$; a time is $-2^{63}$ or, as an
+\code{int64}, $2^{63}-1$ (``annotation time T cannot be written (annotation times must be
+integers from -9223372036854775807 to 9223372036854775806)''); a code is not from 0 to 58
+(``annotation code C is reserved (59 to 63 are the control codes of the annotation file
+format)'', ``annotation code C is out of range (0 to 58)''); both \code{'symbols'} and
+\code{'codes'} are given and disagree (``symbols and codes disagree at annotation K'', K
+counting from 0); an aux text has a character beyond 255 (``aux text 'X' has a character
+that is not Latin-1 (one byte per character)'', in MATLAB only); \code{record} contains a
+folder and \code{'dir'} is given, or \code{'dir'} does not exist; an option is not valid;
+or the file cannot be created, or cannot be written completely, or the library reports an
+error while writing it (``write error on annotator ANN for record REC''; the existing file
+is then left as it was).}
 \begin{lstlisting}[language=Matlab,style=example]
 % Three beats and a rhythm change, by symbol, with an aux string for the rhythm.
 wfdbx.write_annotations('100s', 'test', [18 77 370 662], ...
@@ -729,7 +789,12 @@ keys and values are removed; text is one byte per character, and keys and values
 \code{char} vectors, MATLAB strings or \code{uint8} vectors of bytes. The entries are an
 N-by-2 cell array of \code{char} row vectors, one entry per row, \code{\{KEY, VALUE;
 ...\}}, in file order (\code{cell(0, 2)} if there is none); a structure cannot hold keys
-with spaces, such as \code{Date of birth}, so none is used. A change rewrites the header
+with spaces, such as \code{Date of birth}, so none is used. The info strings are the
+lines that begin with \code{\#} after the record line, which is found as the header
+parser of the library finds it, in every mode: the first line that holds something
+other than white space (spaces, tabs, CRs and LFs, up to a NUL character) and does not
+begin, after white space, with \code{\#}. Comment lines, and empty or blank lines,
+before the record line are never read or changed. A change rewrites the header
 in one step, through a temporary file, keeping every other byte of it; all the arguments
 are checked first, so an error leaves the header unchanged. Only the \file{.hea} file is
 read (not a \file{.info} file); for a multi-segment record, it is the master header,
@@ -749,14 +814,16 @@ are shared must be de-identified first.
 
 \begin{note}[Permissions of a changed header]
 The temporary file is renamed over the header (\code{rename} in Octave, \code{movefile}
-in MATLAB), so the header keeps its permissions only if the temporary file has them. It
-is made as a copy of the header (\code{copyfile}) and then written. In Octave, whose
-\code{copyfile} runs a shell command, the copy is made only for names of letters, digits,
-spaces and the characters \code{. \_ / + , = @ \textasciitilde{} -}; for other names, and
-whenever the copy cannot be written (a read-only header), the temporary file is a new
-file with the default permissions. So, unlike the other implementations, a change of a
-read-only header leaves it writable, in Octave (and in MATLAB if \code{copyfile} keeps the
-read-only permission).
+in MATLAB), so the header keeps its permissions only if the temporary file has them. The
+temporary file is created with the permissions of the header, whatever the name of the
+header (parentheses, spaces and any other characters included), and no shell command is
+run on the name: Octave, which has no \code{chmod} function, creates it under a
+\code{umask} that leaves exactly the read and write permissions of the header, so that a
+private (0600) header stays private, and is never readable by others while it is
+rewritten; MATLAB gives it the read, write and execute permissions of the header with
+\code{fileattrib}. In Octave, execute permissions (which a header does not normally have)
+are not kept. The files that \code{wfdbx.write\_record} and \code{wfdbx.write\_annotations}
+replace keep their permissions in the same way.
 \end{note}
 
 \apientry{wfdbx.read\_metadata}{Read the metadata of a record}
@@ -1010,7 +1077,10 @@ be changed.
   gives none \\
 \code{sampfrom} & the number of the first sample returned \\
 \code{comments} & a cell column of the info strings of the header (without the
-  \code{\#}) \\
+  \code{\#}): its lines that begin with \code{\#} after the record line, found as the
+  header parser finds it (an empty or blank first line is not the record line; in legacy
+  mode, as the C function \code{getinfo} finds it: the first line that does not begin
+  with \code{\#}) \\
 \code{checksum\_ok} & \code{false} if the samples do not match the checksums of the
   header; checksums are checked only when a read reaches the end of the record, so a
   shorter read gives \code{true} \\
@@ -1043,7 +1113,7 @@ be changed.
 \code{base\_time}, \code{base\_time\_ms}, \code{base\_date} & the start time and date, as
   for \code{wfdbx.read\_record} \\
 \code{comments} & a cell column of the info strings of the header (without the
-  \code{\#}) \\
+  \code{\#}), as for \code{wfdbx.read\_record} \\
 \code{metadata} & the metadata entries of the header, an N-by-2 cell array
   \code{\{KEY, VALUE; ...\}} in file order, as \code{wfdbx.read\_metadata} returns them:
   from the \file{.hea} file only; \code{cell(0, 2)}, without an error, for an EDF record
@@ -1198,7 +1268,12 @@ it cannot open a file (as in \code{init: can't open header for record REC});
 record whose samples do not match the checksums of its header, it returns all the samples
 and issues the warning \code{wfdbx:checksum}: ``checksum error in record REC: the signal
 data do not match the checksums in its header''. \code{'checksum\_warning', false} turns
-the warning off; \code{rec.checksum\_ok} is \code{false} either way.
+the warning off; \code{rec.checksum\_ok} is \code{false} either way. This applies only
+when every sample could be read: a signal file that ends before the length that its
+header gives is an error (``can't read signal data of record REC (getvec status -3)''),
+even though the checksum, verified at the frame in which the file ended, does not match
+either; \code{wfdbx.check\_record} reports it as \code{length\_short}, not as a
+checksum error.
 
 \paragraph{The duplicate-key warning.} When a header holds two metadata entries whose keys
 differ only in letter case (written by other software), \code{wfdbx.read\_metadata},
@@ -1573,7 +1648,7 @@ The script also takes these arguments, instead of a tool:
 \cmd{wfdbx TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with its
   status \\
 \cmd{wfdbx -{}-list} & lists the names of the tools, one per line \\
-\cmd{wfdbx -{}-version} & prints the version, \code{WFDB-x 1.2.1} \\
+\cmd{wfdbx -{}-version} & prints the version, \code{WFDB-x 1.2.2} \\
 \cmd{wfdbx -{}-help}, \cmd{wfdbx -h} & prints the usage \\
 \bottomrule
 \end{tabularx}
@@ -1582,9 +1657,9 @@ The script also takes these arguments, instead of a tool:
 Without arguments, the script prints the usage and exits with status 1; an unknown tool
 is an error (``wfdbx: unknown tool 'TOOL' (try 'wfdbx -{}-list')'', status 1), and a
 MATLAB error in a tool is reported as \code{wfdbx: error: MESSAGE} (status 1). When an
-output file or the standard output cannot be written (a full disk, for example), a tool
-reports it (``TOOL: write error on standard output'') and exits with status 1; in legacy
-mode, it keeps the original status, as in C. Octave starts in a fraction of a second, so
+output file cannot be written completely (a full disk, for example), or the standard
+output cannot be written (``TOOL: write error on standard output''), a tool exits with
+status 1; in legacy mode, it keeps the original status, as in C. Octave starts in a fraction of a second, so
 the script suits everyday use.
 
 \paragraph{From the shell, with MATLAB.} The shell script
@@ -1686,8 +1761,8 @@ network access use a local HTTP server on 127.0.0.1 only (a Python script, start
 \cmd{python3}; without it, they are skipped).
 
 The cross-language conformance suite runs every tool through \file{matlab/bin/wfdbx\_cli.m}
-and compares its results, byte for byte, with those of the original C programs (1135
-cases), and, with \opt{-{}-legacy}, in legacy mode (883 cases). From the root of the
+and compares its results, byte for byte, with those of the original C programs (1155
+cases), and, with \opt{-{}-legacy}, in legacy mode (886 cases). From the root of the
 repository:
 
 \begin{lstlisting}[style=shell]

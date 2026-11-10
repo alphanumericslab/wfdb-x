@@ -2,7 +2,10 @@
 // (port of python/src/wfdbx/metadata.py).
 //
 // The info strings of a header are its comment lines (lines that begin with
-// '#') after the record line, as the C function getinfo() reads them. Many
+// '#') after the record line, as the function getinfo() reads them. The
+// record line is the first line that holds something other than white space
+// and does not begin (after white space) with '#', as the header parser
+// finds it. Many
 // datasets store facts about the recording in them as "Key: value" pairs,
 // for example:
 //
@@ -29,8 +32,8 @@
 //   are removed. So "#Age:45", "# Age: 45" and "#  Age : 45" all give
 //   ("Age", "45"). An info string without a colon, or whose key is empty or
 //   contains '#', is a free comment: it is not returned, and it is never
-//   changed. Comment lines before the record line are not info strings,
-//   and are never read or changed. Only the header file (.hea) is read,
+//   changed. Comment lines (and empty or blank lines) before the record
+//   line are not info strings, and are never read or changed. Only the header file (.hea) is read,
 //   not the .info file that getinfo() also reads.
 // * Keys are compared without regard to letter case (A-Z and a-z only), so
 //   getMetadata(record, "age") finds "Age". If a header holds two entries
@@ -166,7 +169,14 @@ private class MEntry(val line: Int, val key: ByteArray, val value: ByteArray)
  */
 private class MHeader(data: ByteArray) {
     val lines: MutableList<MLine> = splitLines(data)
-    val rec: Int = lines.indexOfFirst { it.content.isEmpty() || it.content[0] != HASH }
+    // (the record line: the first line that has a token, separated by
+    // spaces, tabs, CRs and LFs up to a NUL byte, that does not begin with
+    // '#', as the header parser of the library, readheader, finds it; the C
+    // function getinfo() takes the first line that does not begin with
+    // '#', so an empty or blank line before the record line. WFDB-x's
+    // getinfo follows readheader, except in legacy mode; the metadata
+    // functions follow readheader in every mode.)
+    val rec: Int = lines.indexOfFirst { !commentOrBlank(it.content) }
     val info = ArrayList<Int>()
     val entries = ArrayList<MEntry>()
 

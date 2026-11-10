@@ -25,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -54,6 +55,16 @@ class AnnotationsTest {
         w.setwfdb(d.dir)
         w.wfdbx_set_legacy(0)
         if (saved == null) unsetenv("WFDB") else setenv("WFDB", saved)
+    }
+
+    @Test
+    fun writeAnnotationsLabelsRequired() = withData("annlabels") { d, w ->
+        // a label is required for each annotation; with no annotations, an
+        // empty file is written (1.2.2)
+        fails("symbols or codes must be given") { w.writeAnnotations("100s", "lbl", longArrayOf(100, 460)) }
+        assertFalse(fileExists(d.path("100s.lbl")))
+        w.writeAnnotations("100s", "lbl", LongArray(0))
+        assertEquals(0, w.readAnnotations("100s", "lbl").samples.size)
     }
 
     @Test
@@ -345,7 +356,16 @@ class AnnotationsTest {
         repeat(300) { aux[rng.nextInt(n)] = "y".repeat(rng.nextInt(256, 600)) }
         val a = Anns(times, a0.codes, a0.subtypes, a0.chans, a0.nums, aux)
         val ref = writeLowLevel(w, d, "ref", a, false, 360.0)
-        w.writeAnnotations("rec", "hl", times, codes = a.codes, subtypes = a.subtypes, chans = a.chans, nums = a.nums, aux = aux, fs = 360.0, sort = false)
+        // (writeAnnotations refuses the times that putann skips, the smallest
+        // and largest 64-bit integers; without them, it writes the same file,
+        // since putann leaves no trace of a skipped one)
+        val keep = (0 until n).filter { times[it] != WFDB_TIME_MIN && times[it] != WFDB_TIME_MAX }
+        assertTrue(keep.size < n)
+        w.writeAnnotations(
+            "rec", "hl", LongArray(keep.size) { times[keep[it]] }, codes = IntArray(keep.size) { a.codes[keep[it]] },
+            subtypes = IntArray(keep.size) { a.subtypes[keep[it]] }, chans = IntArray(keep.size) { a.chans[keep[it]] },
+            nums = IntArray(keep.size) { a.nums[keep[it]] }, aux = keep.map { aux[it] }, fs = 360.0, sort = false,
+        )
         assertContentEquals(ref, d.read("rec.hl"))
         assertContentEquals(ref, writeLowLevel(w, d, "blk", a, true, 360.0))
         // aux as given to putann: a length byte that differs from the

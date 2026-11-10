@@ -2,8 +2,8 @@ function init_output_dir(st)
 %INIT_OUTPUT_DIR Read the output directory from the environment, once.
 %   wfdbx.internal.init_output_dir(ST) (WFDB-x), for the I/O state ST: on
 %   the first call, the output directory is taken from the environment
-%   variable WFDBX_OUTPUT_DIR (if set and not empty; a URL is refused with
-%   an error message and ignored).
+%   variable WFDBX_OUTPUT_DIR (if set and not empty; a URL, any name with a
+%   URL scheme, is refused with an error message and ignored).
 %
 %   Part of WFDB-x; not in the original WFDB package.
 
@@ -22,7 +22,7 @@ if ~st.output_dir_init
     st.output_dir_init = true;
     v = wfdbx.internal.cgetenv('WFDBX_OUTPUT_DIR');
     if ischar(v)
-        if wfdbx.internal.is_url(v)
+        if wfdbx.internal.has_scheme(v)
             wfdbx.internal.wfdb_error(['wfdbx_set_output_dir: the output ' ...
                 'directory must be a local directory\n']);
         else

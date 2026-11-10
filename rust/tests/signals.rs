@@ -1135,9 +1135,12 @@ fn nodefaults_write_record() {
     };
     let e = w.write_record("ng", &[0; 6], 3, 100.0, &two).unwrap_err();
     assert!(e.message().contains("gains must be specified"), "{e}");
-    // the sampling frequency must be > 0
+    // the sampling frequency must be > 0 (checked after the gains, the ADC
+    // resolutions and the units)
     let g = WriteOptions {
         gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
         ..Default::default()
     };
     for fs in [0.0, -1.0, f64::NAN] {
@@ -2327,6 +2330,32 @@ fn write_record_write_error() {
 }
 
 #[test]
+fn write_record_trailing_hea() {
+    // a trailing ".hea" is removed, as by the readers (1.2.2)
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    let x = [1i32, 2, 3];
+    let o = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    w.write_record("th.hea", &x, 1, 250.0, &o).unwrap();
+    assert!(std::path::Path::new("th.hea").exists());
+    assert!(std::path::Path::new("th.dat").exists());
+    assert!(!std::path::Path::new("th.hea.dat").exists());
+    assert_eq!(
+        w.read_record("th", &ReadOptions::default())
+            .unwrap()
+            .samples,
+        x
+    );
+    let e = w.write_record("", &x, 1, 250.0, &o).unwrap_err();
+    assert!(e.message().contains("record name must not be empty"), "{e}");
+}
+
+#[test]
 fn write_record_frame_checks() {
     // Each signal has at least one sample per frame, and the samples make
     // whole frames; nothing is written otherwise.
@@ -2360,12 +2389,13 @@ fn write_record_frame_checks() {
             assert!(!std::path::Path::new("bad.dat").exists());
         }
     }
-    // the >= 1 check comes before the other checks
+    // the >= 1 check comes before the checks of the gains, the ADC
+    // resolutions, the units and the sampling frequency
     let e = w
         .write_record(
             "bad",
             &x,
-            0,
+            1,
             0.0,
             &WriteOptions {
                 samps_per_frame: vec![0],
@@ -2983,4 +3013,408 @@ fn osigopen_no_signals() {
     w.wfdbverbose();
     w.wfdbquit();
     assert_eq!(std::fs::metadata("o16.dat").unwrap().len(), 6);
+}
+
+// ---------------------------------------------------------------------------
+// WFDB-x 1.2.2: truncated records, bounded allocation, writer checks, the
+// record line
+
+/// The contents of every file of the current directory, by name.
+fn dir_files() -> std::collections::BTreeMap<String, Vec<u8>> {
+    std::fs::read_dir(".")
+        .unwrap()
+        .map(|e| e.unwrap())
+        .filter(|e| e.file_type().unwrap().is_file())
+        .map(|e| {
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                std::fs::read(e.path()).unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// The names of the temporary files left in the current directory.
+fn tmp_files() -> Vec<String> {
+    std::fs::read_dir(".")
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect()
+}
+
+#[test]
+fn read_record_truncated_frame_with_checksum() {
+    // A format-16 file holding the samples 1 and 2, whose header gives 3
+    // samples: getvec reports the unexpected end of file (-3), and then the
+    // checksum error (-4) of the frame at which the checksum is verified,
+    // whose status replaces -3. read_record returns the read error, and
+    // never the incomplete frame (it returned [1, 2, 257]).
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    std::fs::write("tr.dat", [1u8, 0, 2, 0]).unwrap();
+    std::fs::write("tr.hea", "tr 1 250 3\ntr.dat 16 200 16 0 1 0 0 s\n").unwrap();
+    let e = w.read_record("tr", &ReadOptions::default()).unwrap_err();
+    assert_eq!(
+        e.message(),
+        "can't read signal data of record tr (getvec status -3)"
+    );
+    // the library state is clean: no input signals are open
+    let mut v = [0i32; 4];
+    assert_eq!(w.getvec(&mut v), 0);
+    // the C-style getvec keeps the C behavior: -4 for the incomplete frame
+    let mut si = vec![Siginfo::default(); 1];
+    assert_eq!(w.isigopen("tr", &mut si, 1), 1);
+    assert_eq!(vec(w, 1), [1, 1]);
+    assert_eq!(vec(w, 1), [1, 2]);
+    assert_eq!(vec(w, 1)[0], -4);
+    // and so does getvecs, outside the high-level readers
+    assert_eq!(w.isigopen("tr", &mut si, 1), 1);
+    let mut buf = [0i32; 3];
+    assert_eq!(w.getvecs_status(&mut buf, 3), (2, -4));
+    w.wfdbquit();
+    // the frames before it are read when `to` stops before it
+    let opt = ReadOptions {
+        to: Some(2.into()),
+        ..Default::default()
+    };
+    assert_eq!(w.read_record("tr", &opt).unwrap().samples, [1, 2]);
+    // check_record reports the short file, not a checksum error
+    let rep = w.check_record("tr", &[]).unwrap();
+    let errors: Vec<&str> = rep
+        .issues
+        .iter()
+        .filter(|i| i.severity == Severity::Error)
+        .map(|i| i.code)
+        .collect();
+    assert_eq!(errors, ["length_short"]);
+    assert!(rep.lines().iter().any(
+        |l| l.contains("the signal files end after 2 frames, before the 3 given in the header")
+    ));
+    // a checksum error alone (all samples read) is still a warning
+    std::fs::write("tr.hea", "tr 1 250 2\ntr.dat 16 200 16 0 1 0 0 s\n").unwrap();
+    let r = w.read_record("tr", &ReadOptions::default()).unwrap();
+    assert_eq!(r.samples, [1, 2]);
+    assert!(!r.checksum_ok);
+    assert!(String::from_utf8_lossy(&w.wfdberror()).contains("checksum error in record tr"));
+}
+
+#[test]
+fn read_record_bounded_allocation() {
+    // A header that gives 10^12 samples for a signal file of 4 bytes: the
+    // reader allocates no more than it can read, and reports the short file
+    // as a read error.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    std::fs::write("big.dat", [1u8, 0, 2, 0]).unwrap();
+    std::fs::write(
+        "big.hea",
+        "big 1 250 1000000000000\nbig.dat 16 200 16 0 0 0 0 s\n",
+    )
+    .unwrap();
+    let e = w.read_record("big", &ReadOptions::default()).unwrap_err();
+    assert!(e.message().contains("getvec status -3"), "{e}");
+    for to in [2i64, 1_000_000_000_000] {
+        let opt = ReadOptions {
+            to: Some(to.into()),
+            ..Default::default()
+        };
+        match w.read_record("big", &opt) {
+            Ok(r) => assert!(to == 2 && r.samples == [1, 2]),
+            Err(e) => assert!(to != 2 && e.message().contains("getvec status -3")),
+        }
+    }
+    // a long record whose header gives no length is read whole, growing
+    // the vector
+    let x: Vec<i32> = (0..300000).map(|i| i % 30000).collect();
+    let o = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    w.write_record("long", &x, 3, 100.0, &o).unwrap();
+    let h = std::fs::read_to_string("long.hea").unwrap();
+    assert!(h.contains("long 3 100 100000"));
+    std::fs::write("long.hea", h.replace("long 3 100 100000", "long 3 100")).unwrap();
+    assert_eq!(
+        w.read_record("long", &ReadOptions::default())
+            .unwrap()
+            .samples,
+        x
+    );
+}
+
+/// Writes the record `r` (the first 100 frames of 100s).
+fn write_100s_copy(w: &mut Wfdb) {
+    let opt = ReadOptions {
+        to: Some(100.into()),
+        ..Default::default()
+    };
+    let x = w.read_record("100s", &opt).unwrap().samples;
+    let o = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![11],
+        units: vec![Some("mV".into())],
+        names: vec!["a".into(), "b".into()],
+        ..Default::default()
+    };
+    w.write_record("r", &x, 2, 360.0, &o).unwrap();
+}
+
+#[test]
+fn write_record_checks_before_writing() {
+    // Each invalid argument is refused before any file is touched: the
+    // existing record is unchanged, and no temporary file is left.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    write_100s_copy(w);
+    let before = dir_files();
+    let kw = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![12],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    let x = [0i32; 10];
+    let cases: Vec<(WriteOptions, usize, &str)> = vec![
+        (
+            WriteOptions {
+                adcres: vec![12, 0],
+                ..kw.clone()
+            },
+            2,
+            "ADC resolution(s) must be specified",
+        ),
+        (
+            WriteOptions {
+                adcres: vec![],
+                ..kw.clone()
+            },
+            2,
+            "ADC resolution(s) must be specified",
+        ),
+        (
+            WriteOptions {
+                gains: vec![200.0, f64::INFINITY],
+                ..kw.clone()
+            },
+            2,
+            "gains must be finite",
+        ),
+        (
+            WriteOptions {
+                gains: vec![],
+                ..kw.clone()
+            },
+            2,
+            "gains must be specified",
+        ),
+        (
+            WriteOptions {
+                units: vec![],
+                ..kw.clone()
+            },
+            2,
+            "units must be specified",
+        ),
+        (
+            WriteOptions {
+                samps_per_frame: vec![0, 1],
+                ..kw.clone()
+            },
+            2,
+            "samps_per_frame must hold integers >= 1",
+        ),
+        (kw.clone(), 3, "not a multiple of the frame size"),
+        (kw.clone(), 0, "at least one signal is required"),
+        (
+            WriteOptions {
+                base_time: Some(b"garbage".to_vec()),
+                ..kw.clone()
+            },
+            2,
+            "incorrect base time",
+        ),
+        (
+            WriteOptions {
+                metadata: vec![(b"".to_vec(), b"x".to_vec())],
+                ..kw.clone()
+            },
+            2,
+            "metadata key must not be empty",
+        ),
+    ];
+    w.wfdbquiet();
+    for (o, nsig, msg) in &cases {
+        let e = w.write_record("r", &x, *nsig, 360.0, o).expect_err(msg);
+        assert!(e.message().contains(msg), "{msg}: {e}");
+        assert_eq!(dir_files(), before, "{msg}");
+        // (in physical units, the same checks, and the conversion)
+        let e = w
+            .write_record_physical("r", &[0.0; 10], *nsig, 360.0, o)
+            .unwrap_err();
+        assert!(e.message().contains(msg), "{msg}: {e}");
+        assert_eq!(dir_files(), before, "{msg}");
+    }
+    let e = w
+        .write_record_physical("r", &[0.0, f64::INFINITY], 2, 360.0, &kw)
+        .unwrap_err();
+    assert!(e.message().contains("is infinite"), "{e}");
+    let e = w.write_record("", &x, 2, 360.0, &kw).unwrap_err();
+    assert!(e.message().contains("record name must not be empty"), "{e}");
+    assert_eq!(dir_files(), before);
+    assert!(tmp_files().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn write_record_failure_leaves_files() {
+    // A failure while writing leaves the existing files intact: both are
+    // written to temporary files, renamed over them at the end.
+    use std::os::unix::fs::PermissionsExt;
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    write_100s_copy(w);
+    let x: Vec<i32> = (0..20).collect();
+    let kw = WriteOptions {
+        gains: vec![200.0],
+        adcres: vec![12],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    // a directory in the way of the header: the signal file is not created
+    std::fs::create_dir("q.hea").unwrap();
+    let e = w.write_record("q", &x, 2, 250.0, &kw).unwrap_err();
+    assert_eq!(e.message(), "can't create header for record q");
+    assert!(!std::path::Path::new("q.dat").exists());
+    assert!(tmp_files().is_empty());
+    // a signal file that cannot be written (a device, written directly):
+    // the header is not replaced
+    if std::path::Path::new(FULL).exists() {
+        let hea = std::fs::read("r.hea").unwrap();
+        std::fs::rename("r.dat", "r.dat.old").unwrap();
+        std::os::unix::fs::symlink(FULL, "r.dat").unwrap();
+        let e = w.write_record("r", &x, 2, 250.0, &kw).unwrap_err();
+        assert_eq!(e.message(), "write error on record r");
+        assert_eq!(std::fs::read("r.hea").unwrap(), hea);
+        assert!(tmp_files().is_empty());
+        std::fs::remove_file("r.dat").unwrap();
+        std::fs::rename("r.dat.old", "r.dat").unwrap();
+    }
+    // success: the files are those written in place before, with the
+    // permissions of the files they replace
+    std::fs::set_permissions("r.dat", std::fs::Permissions::from_mode(0o640)).unwrap();
+    w.write_record("r", &x, 2, 250.0, &kw).unwrap();
+    let mode = std::fs::metadata("r.dat").unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o640);
+    let r = w.read_record("r", &ReadOptions::default()).unwrap();
+    assert_eq!(r.samples, x);
+    assert!(tmp_files().is_empty());
+    // a new file has the permissions that the umask gives (as one created
+    // in place)
+    std::fs::write("probe", b"").unwrap();
+    let want = std::fs::metadata("probe").unwrap().permissions().mode() & 0o777;
+    w.write_record("n", &x, 2, 250.0, &kw).unwrap();
+    for f in ["n.hea", "n.dat"] {
+        let mode = std::fs::metadata(f).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, want, "{f}");
+    }
+    // a symbolic link: the file that it leads to is replaced
+    std::fs::rename("r.hea", "target.hea").unwrap();
+    std::os::unix::fs::symlink("target.hea", "r.hea").unwrap();
+    w.write_record("r", &x[..10], 2, 250.0, &kw).unwrap();
+    assert!(std::fs::symlink_metadata("r.hea")
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert!(std::fs::read_to_string("target.hea")
+        .unwrap()
+        .starts_with("r 2 250 5"));
+    // a record in a directory that does not exist yet
+    w.write_record("sub/dir/s", &x, 2, 250.0, &kw).unwrap();
+    assert_eq!(
+        w.read_record("sub/dir/s", &ReadOptions::default())
+            .unwrap()
+            .samples,
+        x
+    );
+    assert!(tmp_files().is_empty());
+}
+
+#[test]
+fn getinfo_record_line() {
+    // The record line is found as readheader finds it: the first line with
+    // a token (separated by spaces, tabs, CRs and LFs) that does not begin
+    // with '#'. A comment before it is not an info string, even after an
+    // empty or blank first line (C's getinfo took the empty line for the
+    // record line); in legacy mode, the C rule applies.
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    let sig = "fmt16.dat 16 200 12 0 0 0 0 a\n";
+    let cases: [(&str, String, &[&str], &[&str]); 4] = [
+        (
+            "le",
+            format!("\n# Age: 40\nle 1 250 10\n{sig}# Age: 63\n"),
+            &[" Age: 63"],
+            &[" Age: 40", " Age: 63"],
+        ),
+        (
+            "lw",
+            format!(
+                " \t\r\n# Age: 40\r\nlw 1 250 10\r\n{}# Age: 63\r\n",
+                sig.replace('\n', "\r\n")
+            ),
+            &[" Age: 63"],
+            &[" Age: 40", " Age: 63"],
+        ),
+        (
+            "lc",
+            format!(
+                "# first\n\n# Age: 40\n \t\n  # indented\nlc 1 250 10\n{sig}# Age: 63\n#last\n"
+            ),
+            &[" Age: 63", "last"],
+            &[" Age: 40", " Age: 63", "last"],
+        ),
+        (
+            "ln",
+            "# only\n\n# comments\n".to_string(),
+            &[],
+            &[" comments"],
+        ),
+    ];
+    let strs = |v: &[&str]| -> Vec<Vec<u8>> { v.iter().map(|s| s.as_bytes().to_vec()).collect() };
+    for (name, text, normal, legacy) in cases {
+        std::fs::write(format!("{name}.hea"), text).unwrap();
+        for (mode, want) in [(0, normal), (1, legacy)] {
+            let previous = w.wfdbx_set_legacy(mode);
+            let mut got = Vec::new();
+            let mut c = w.getinfo(name);
+            while let Some(s) = c {
+                got.push(s);
+                c = w.getinfo(None::<&[u8]>);
+            }
+            w.wfdbx_set_legacy(previous);
+            assert_eq!(got, strs(want), "{name} {mode}");
+            w.wfdbquit();
+        }
+        if name != "ln" {
+            let age = vec![(b"Age".to_vec(), b"63".to_vec())];
+            let h = w.read_header(name, false).unwrap();
+            assert_eq!(h.comments, strs(normal), "{name}");
+            assert_eq!(h.metadata, age);
+            let h = w.read_header(name, true).unwrap();
+            assert_eq!(h.comments, strs(legacy), "{name}");
+            assert_eq!(h.metadata, age);
+            let opt = ReadOptions {
+                legacy: true,
+                checksum_warning: false,
+                ..Default::default()
+            };
+            assert_eq!(w.read_record(name, &opt).unwrap().comments, strs(legacy));
+        }
+    }
 }

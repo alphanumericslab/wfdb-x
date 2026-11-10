@@ -1,6 +1,6 @@
 [package]
 name = "wfdbx_bench"
-version = "1.2.1"
+version = "1.2.2"
 edition = "2021"
 description = "Benchmark driver for the Rust implementation of WFDB-x (see benchmarks/README.md)"
 license = "LGPL-2.1-or-later"
