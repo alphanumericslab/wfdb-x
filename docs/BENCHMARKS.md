@@ -150,6 +150,8 @@ fastest of 7 calls, and the better of two complete runs (see
 | write 4,500 annotations | 0.14 ms | 0.17 ms | 0.34 ms | 1.1 ms | 0.86 ms | 3.8 ms | 6.3 ms | 0.14 ms | 6.9 ms |
 | read `long` frame by frame (`getvec`) | 23.9 ms | | | | | | | 21.6 ms | |
 
+![Reading and writing: time of one call of each implementation, of the original C library and of wfdb-python, log scale](figures/benchmark-reading-writing.svg)
+
 ### Compared with the original C library
 
 The time of the C library divided by the time of each WFDB-x
@@ -189,6 +191,8 @@ program, only the table above matters.
 | write `long` | 19.7 ms | 20.6 ms | 19.9 ms | 41.5 ms | 158 ms | 316 ms | 74.8 ms | 16.1 ms | 483 ms |
 | read 4,500 annotations | 0.60 ms | 0.46 ms | 6.6 ms | 27.3 ms | 7.6 ms | 26.2 ms | 37.6 ms | 0.17 ms | 16.5 ms |
 
+![The first call in a new process, log scale](figures/benchmark-first-call.svg)
+
 ### Memory
 
 The peak memory of the whole process, the language's runtime included,
@@ -199,6 +203,8 @@ while reading a record. The samples of `long` take 10 MB.
 | read `long` | 24 MB | 13 MB | 311 MB | 149 MB | 80 MB | 157 MB | 115 MB | 12 MB | 118 MB |
 | read `mimic` | 35 MB | 17 MB | 313 MB | 168 MB | 69 MB | 221 MB | 165 MB | 17 MB | 159 MB |
 
+![Peak memory while reading a record, log scale](figures/benchmark-memory.svg)
+
 ### The command-line tools
 
 | | C++ | Rust | Julia | Kotlin | Python | R | MATLAB/Octave | C (original) |
@@ -206,6 +212,8 @@ while reading a record. The samples of `long` take 10 MB.
 | `rdsamp -r long` | 40.1 ms | 51.4 ms | 374 ms | 179 ms | 395 ms | 750 ms | 570 ms | 210 ms |
 | `rdann -r long -a atr` | 3.4 ms | 3.7 ms | 302 ms | 102 ms | 58.3 ms | 240 ms | 127 ms | 2.5 ms |
 | `wfdbdesc long` | 1.8 ms | 1.9 ms | 337 ms | 60.7 ms | 32.8 ms | 230 ms | 87.0 ms | 1.3 ms |
+
+![Time of one run of each tool, log scale](figures/benchmark-tools.svg)
 
 For scripts that run a tool many times on small inputs, the start-up time
 dominates. The C, C++ and Rust tools are the best choice there; so is one
@@ -362,6 +370,9 @@ WFDB_PYTHON=/path/to/python python3 benchmarks/run.py --reps 7
 the unmodified C package, once; it needs libFLAC, or `FLAC_PREFIX`), runs
 every operation in every language, compares their results, and prints the
 tables. `WFDB_PYTHON` names a Python that has wfdb-python (it is skipped
-otherwise), and `--cbin` another build of the C tools to time.
+otherwise), and `--cbin` another build of the C tools to time. The figures
+of this page (in [`figures/`](figures/)) are drawn from its tables by
+`python3 benchmarks/plot_results.py`: after the tables are updated, run it
+again.
 [`benchmarks/README.md`](../benchmarks/README.md) describes the programs and
 the format of the results.

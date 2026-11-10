@@ -9,6 +9,7 @@ to get the most speed from WFDB-x, are in
 python3 benchmarks/run.py                      # all languages (builds the drivers first)
 python3 benchmarks/run.py --langs cpp,c,python # some of them
 python3 benchmarks/run.py --cbin /path/to/wfdb/bin   # time another build of the C tools
+python3 benchmarks/plot_results.py             # the figures of docs/BENCHMARKS.md, from its tables
 ```
 
 The language `c` is the original C library: `benchmarks/c/build.sh` builds the
@@ -27,6 +28,12 @@ data (see below). For wfdb-python, set `WFDB_PYTHON` to a Python that has
 the `wfdb` package (`pip install wfdb`); without it, wfdb-python is skipped.
 Peak memory includes about 11 MB inherited from the runner, so values near
 that are upper bounds.
+
+`plot_results.py` draws the figures of `docs/BENCHMARKS.md`
+(`docs/figures/benchmark-*.svg`) from the tables of that page, one panel per
+row, on a logarithmic scale, with the seven WFDB-x implementations, the
+original C package and wfdb-python in three colours; it needs only the
+Python standard library. Run it after the tables are updated.
 
 ## The records
 

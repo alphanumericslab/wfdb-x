@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 378" width="1000" height="378" role="img" aria-label="Memory: the seven WFDB-x implementations, the original C package and wfdb-python, log scale" font-family="Helvetica, Arial, 'DejaVu Sans', sans-serif">
+<rect x="0" y="0" width="1000" height="378" fill="#ffffff"/>
+<text x="20.0" y="30.0" font-size="13" font-weight="normal" fill="#1f2933" text-anchor="start">Peak memory of the whole process while reading a record; log scale.</text>
+<text x="20.0" y="60.0" font-size="13.5" font-weight="bold" fill="#1f2933" text-anchor="start">read long</text>
+<line x1="140.0" y1="72" x2="140.0" y2="310" stroke="#e4e7eb" stroke-width="1"/>
+<text x="140.0" y="326.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1 MB</text>
+<line x1="233.3" y1="72" x2="233.3" y2="310" stroke="#e4e7eb" stroke-width="1"/>
+<text x="233.3" y="326.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">10 MB</text>
+<line x1="326.7" y1="72" x2="326.7" y2="310" stroke="#e4e7eb" stroke-width="1"/>
+<text x="326.7" y="326.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">100 MB</text>
+<line x1="420.0" y1="72" x2="420.0" y2="310" stroke="#e4e7eb" stroke-width="1"/>
+<text x="420.0" y="326.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1000 MB</text>
+<text x="132.0" y="90.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">C++</text>
+<rect x="140" y="76" width="128.8" height="20" fill="#1f5f99" rx="2"/>
+<text x="274.8" y="90.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">24 MB</text>
+<text x="132.0" y="116.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Rust</text>
+<rect x="140" y="102" width="104.0" height="20" fill="#1f5f99" rx="2"/>
+<text x="250.0" y="116.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">13 MB</text>
+<text x="132.0" y="142.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Julia</text>
+<rect x="140" y="128" width="232.7" height="20" fill="#1f5f99" rx="2"/>
+<text x="378.7" y="142.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">311 MB</text>
+<text x="132.0" y="168.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Kotlin</text>
+<rect x="140" y="154" width="202.8" height="20" fill="#1f5f99" rx="2"/>
+<text x="348.8" y="168.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">149 MB</text>
+<text x="132.0" y="194.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Python</text>
+<rect x="140" y="180" width="177.6" height="20" fill="#1f5f99" rx="2"/>
+<text x="323.6" y="194.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">80 MB</text>
+<text x="132.0" y="220.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">R</text>
+<rect x="140" y="206" width="205.0" height="20" fill="#1f5f99" rx="2"/>
+<text x="351.0" y="220.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">157 MB</text>
+<text x="132.0" y="246.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">MATLAB/Octave</text>
+<rect x="140" y="232" width="192.3" height="20" fill="#1f5f99" rx="2"/>
+<text x="338.3" y="246.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">115 MB</text>
+<text x="132.0" y="272.5" font-size="12" font-weight="bold" fill="#3e4c59" text-anchor="end">C (original)</text>
+<rect x="140" y="258" width="100.7" height="20" fill="#3e4c59" rx="2"/>
+<text x="246.7" y="272.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">12 MB</text>
+<text x="132.0" y="298.5" font-size="12" font-weight="bold" fill="#b4521f" text-anchor="end">wfdb-python</text>
+<rect x="140" y="284" width="193.4" height="20" fill="#b4521f" rx="2"/>
+<text x="339.4" y="298.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">118 MB</text>
+<text x="510.0" y="60.0" font-size="13.5" font-weight="bold" fill="#1f2933" text-anchor="start">read mimic</text>
+<line x1="630.0" y1="72" x2="630.0" y2="310" stroke="#e4e7eb" stroke-width="1"/>
+<text x="630.0" y="326.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1 MB</text>
+<line x1="723.3" y1="72" x2="723.3" y2="310" stroke="#e4e7eb" stroke-width="1"/>
+<text x="723.3" y="326.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">10 MB</text>
+<line x1="816.7" y1="72" x2="816.7" y2="310" stroke="#e4e7eb" stroke-width="1"/>
+<text x="816.7" y="326.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">100 MB</text>
+<line x1="910.0" y1="72" x2="910.0" y2="310" stroke="#e4e7eb" stroke-width="1"/>
+<text x="910.0" y="326.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1000 MB</text>
+<text x="622.0" y="90.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">C++</text>
+<rect x="630" y="76" width="144.1" height="20" fill="#1f5f99" rx="2"/>
+<text x="780.1" y="90.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">35 MB</text>
+<text x="622.0" y="116.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Rust</text>
+<rect x="630" y="102" width="114.8" height="20" fill="#1f5f99" rx="2"/>
+<text x="750.8" y="116.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">17 MB</text>
+<text x="622.0" y="142.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Julia</text>
+<rect x="630" y="128" width="232.9" height="20" fill="#1f5f99" rx="2"/>
+<text x="868.9" y="142.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">313 MB</text>
+<text x="622.0" y="168.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Kotlin</text>
+<rect x="630" y="154" width="207.7" height="20" fill="#1f5f99" rx="2"/>
+<text x="843.7" y="168.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">168 MB</text>
+<text x="622.0" y="194.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Python</text>
+<rect x="630" y="180" width="171.6" height="20" fill="#1f5f99" rx="2"/>
+<text x="807.6" y="194.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">69 MB</text>
+<text x="622.0" y="220.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">R</text>
+<rect x="630" y="206" width="218.8" height="20" fill="#1f5f99" rx="2"/>
+<text x="854.8" y="220.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">221 MB</text>
+<text x="622.0" y="246.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">MATLAB/Octave</text>
+<rect x="630" y="232" width="207.0" height="20" fill="#1f5f99" rx="2"/>
+<text x="843.0" y="246.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">165 MB</text>
+<text x="622.0" y="272.5" font-size="12" font-weight="bold" fill="#3e4c59" text-anchor="end">C (original)</text>
+<rect x="630" y="258" width="114.8" height="20" fill="#3e4c59" rx="2"/>
+<text x="750.8" y="272.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">17 MB</text>
+<text x="622.0" y="298.5" font-size="12" font-weight="bold" fill="#b4521f" text-anchor="end">wfdb-python</text>
+<rect x="630" y="284" width="205.5" height="20" fill="#b4521f" rx="2"/>
+<text x="841.5" y="298.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">159 MB</text>
+<rect x="20" y="346" width="14" height="14" fill="#1f5f99" rx="2"/>
+<text x="40.0" y="358.0" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">WFDB-x (7 languages)</text>
+<rect x="194.0" y="346" width="14" height="14" fill="#3e4c59" rx="2"/>
+<text x="214.0" y="358.0" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">original C package 10.7.0</text>
+<rect x="404.0" y="346" width="14" height="14" fill="#b4521f" rx="2"/>
+<text x="424.0" y="358.0" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">wfdb-python</text>
+<text x="980.0" y="358.0" font-size="11" font-weight="normal" fill="#52606d" text-anchor="end">Intel Xeon 2.1 GHz, x86-64 Linux; docs/BENCHMARKS.md</text>
+</svg>

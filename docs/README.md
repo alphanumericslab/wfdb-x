@@ -20,6 +20,7 @@ starting point.
 | [AUTHORS.md](AUTHORS.md) | The authors of the C code that each part of WFDB-x translates |
 | [RELEASING.md](RELEASING.md) | How to release the Python package on PyPI: accounts, API tokens, TestPyPI and PyPI |
 | [TODO.md](TODO.md) | The work planned for future versions (four more tools, partial reads of remote files), with the decisions already made |
+| [figures/](figures/) | The figures of BENCHMARKS.md, drawn from its tables by `benchmarks/plot_results.py` |
 | [overview.svg](overview.svg), [overview.png](overview.png) | WFDB-x at a glance: the figure shown in the project README |
 
 The tools and the library functions themselves are documented by the

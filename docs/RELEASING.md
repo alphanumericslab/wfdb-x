@@ -13,6 +13,68 @@ repository. They contain the `wfdbx` package, its sample record
 tests; those that need the repository's test records are skipped when the
 records are not there.
 
+## Quick reference
+
+The commands of a release, to copy and paste in order (bash or zsh, from
+the root of an up-to-date copy of the public repository). Set the version
+once; it must be the `__version__` of `python/src/wfdbx/__init__.py`, and
+the sections below explain each step.
+
+```sh
+V=1.2.2                                    # the version being released
+
+# Test (step 3)
+python3 -m venv /tmp/wfdbx-release && . /tmp/wfdbx-release/bin/activate
+pip install --upgrade pip build twine
+pip install -e "./python[test,examples]"
+pytest python/tests
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl python -j4
+PYTHONPATH=$PWD/python/src python3 tests/conformance/harness.py check --impl python -j4 --legacy
+
+# Build and check (step 4)
+cd python
+rm -rf dist build src/*.egg-info
+python3 -m build
+twine check dist/*
+unzip -l "dist/wfdb_x-$V-py3-none-any.whl" | grep -E 'LICENSE|NOTICE|sample_data/100s|examples/0'
+
+# Trial release on TestPyPI (step 5), then install it in a new environment
+twine upload --repository testpypi dist/*
+deactivate
+python3 -m venv /tmp/wfdbx-testpypi && . /tmp/wfdbx-testpypi/bin/activate
+pip install "numpy>=1.17" matplotlib jupyter
+pip install --no-deps --index-url https://test.pypi.org/simple/ "wfdb-x==$V"
+wfdbx --version                            # WFDB-x $V
+WFDBX_INPUT_DIR=$(python3 -c "import wfdbx; print(wfdbx.sample_data_dir())") wfdbx rdsamp -r 100s -t 2
+deactivate
+
+# Release on PyPI (step 6), from python/, with the files checked above
+. /tmp/wfdbx-release/bin/activate
+twine upload dist/*
+deactivate
+python3 -m venv /tmp/wfdbx-pypi && . /tmp/wfdbx-pypi/bin/activate
+pip install --no-cache-dir --upgrade wfdb-x
+wfdbx --version                            # WFDB-x $V
+deactivate
+
+# Tag the release
+cd ..
+git tag -a "v$V" -m "WFDB-x $V" && git push origin "v$V"
+```
+
+Notes:
+
+* `twine upload` and `dist/*` work only in `python/`, where `dist/` is
+  (from the repository root, zsh says `no matches found: dist/*`).
+* Until the upload to PyPI, `pip install --upgrade wfdb-x` installs the
+  previous version: the new one is not on PyPI yet.
+* A version uploaded to TestPyPI or PyPI cannot be uploaded again, even
+  after it is deleted: after a fix, use the next version (or a pre-release
+  number such as `1.2.3rc1` for TestPyPI).
+* Remove an environment left over from an earlier release before reusing
+  its name (`rm -rf /tmp/wfdbx-pypi`), or the old version stays installed
+  until `--upgrade` replaces it.
+
 ## Before the first release: accounts and API tokens
 
 PyPI and TestPyPI are separate services, with separate accounts and

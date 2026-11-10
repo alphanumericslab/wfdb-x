@@ -131,6 +131,15 @@
 \usepackage{xltabular}
 \usepackage{multirow}
 \usepackage{etoolbox}
+% longtable (v4.19 and earlier) sets the room of the current page to the full
+% text height when a long table starts (\global\@colroom\@colht in \LT@start),
+% forgetting a float already placed at the top of that page: when the table
+% then ends on that page, the text after it runs into the bottom margin, by the
+% height of the float. Keep the room that the page has.
+\makeatletter
+\patchcmd{\LT@start}{\global\@colroom\@colht}{}{}%
+  {\PackageWarning{wfdbx}{longtable patch not applied (\string\LT@start changed)}}
+\makeatother
 \newcolumntype{L}{>{\raggedright\arraybackslash}X}       % ragged-right X column
 \newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}} % ragged-right fixed-width column
 \renewcommand{\arraystretch}{1.2}

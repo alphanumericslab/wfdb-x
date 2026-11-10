@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 654" width="1000" height="654" role="img" aria-label="The command-line tools: the seven WFDB-x implementations, the original C package and wfdb-python, log scale" font-family="Helvetica, Arial, 'DejaVu Sans', sans-serif">
+<rect x="0" y="0" width="1000" height="654" fill="#ffffff"/>
+<text x="20.0" y="30.0" font-size="13" font-weight="normal" fill="#1f2933" text-anchor="start">Time of one run of each tool, start-up included; log scale.</text>
+<text x="20.0" y="60.0" font-size="13.5" font-weight="bold" fill="#1f2933" text-anchor="start">rdsamp -r long</text>
+<line x1="140.0" y1="72" x2="140.0" y2="284" stroke="#e4e7eb" stroke-width="1"/>
+<text x="140.0" y="300.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">10 ms</text>
+<line x1="280.0" y1="72" x2="280.0" y2="284" stroke="#e4e7eb" stroke-width="1"/>
+<text x="280.0" y="300.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">100 ms</text>
+<line x1="420.0" y1="72" x2="420.0" y2="284" stroke="#e4e7eb" stroke-width="1"/>
+<text x="420.0" y="300.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1000 ms</text>
+<text x="132.0" y="90.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">C++</text>
+<rect x="140" y="76" width="84.4" height="20" fill="#1f5f99" rx="2"/>
+<text x="230.4" y="90.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">40.1 ms</text>
+<text x="132.0" y="116.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Rust</text>
+<rect x="140" y="102" width="99.5" height="20" fill="#1f5f99" rx="2"/>
+<text x="245.5" y="116.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">51.4 ms</text>
+<text x="132.0" y="142.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Julia</text>
+<rect x="140" y="128" width="220.2" height="20" fill="#1f5f99" rx="2"/>
+<text x="366.2" y="142.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">374 ms</text>
+<text x="132.0" y="168.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Kotlin</text>
+<rect x="140" y="154" width="175.4" height="20" fill="#1f5f99" rx="2"/>
+<text x="321.4" y="168.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">179 ms</text>
+<text x="132.0" y="194.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Python</text>
+<rect x="140" y="180" width="223.5" height="20" fill="#1f5f99" rx="2"/>
+<text x="369.5" y="194.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">395 ms</text>
+<text x="132.0" y="220.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">R</text>
+<rect x="140" y="206" width="262.5" height="20" fill="#1f5f99" rx="2"/>
+<text x="408.5" y="220.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">750 ms</text>
+<text x="132.0" y="246.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">MATLAB/Octave</text>
+<rect x="140" y="232" width="245.8" height="20" fill="#1f5f99" rx="2"/>
+<text x="391.8" y="246.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">570 ms</text>
+<text x="132.0" y="272.5" font-size="12" font-weight="bold" fill="#3e4c59" text-anchor="end">C (original)</text>
+<rect x="140" y="258" width="185.1" height="20" fill="#3e4c59" rx="2"/>
+<text x="331.1" y="272.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">210 ms</text>
+<text x="510.0" y="60.0" font-size="13.5" font-weight="bold" fill="#1f2933" text-anchor="start">rdann -r long -a atr</text>
+<line x1="630.0" y1="72" x2="630.0" y2="284" stroke="#e4e7eb" stroke-width="1"/>
+<text x="630.0" y="300.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">0.1 ms</text>
+<line x1="700.0" y1="72" x2="700.0" y2="284" stroke="#e4e7eb" stroke-width="1"/>
+<text x="700.0" y="300.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1 ms</text>
+<line x1="770.0" y1="72" x2="770.0" y2="284" stroke="#e4e7eb" stroke-width="1"/>
+<text x="770.0" y="300.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">10 ms</text>
+<line x1="840.0" y1="72" x2="840.0" y2="284" stroke="#e4e7eb" stroke-width="1"/>
+<text x="840.0" y="300.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">100 ms</text>
+<line x1="910.0" y1="72" x2="910.0" y2="284" stroke="#e4e7eb" stroke-width="1"/>
+<text x="910.0" y="300.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1000 ms</text>
+<text x="622.0" y="90.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">C++</text>
+<rect x="630" y="76" width="107.2" height="20" fill="#1f5f99" rx="2"/>
+<text x="743.2" y="90.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">3.4 ms</text>
+<text x="622.0" y="116.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Rust</text>
+<rect x="630" y="102" width="109.8" height="20" fill="#1f5f99" rx="2"/>
+<text x="745.8" y="116.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">3.7 ms</text>
+<text x="622.0" y="142.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Julia</text>
+<rect x="630" y="128" width="243.6" height="20" fill="#1f5f99" rx="2"/>
+<text x="879.6" y="142.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">302 ms</text>
+<text x="622.0" y="168.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Kotlin</text>
+<rect x="630" y="154" width="210.6" height="20" fill="#1f5f99" rx="2"/>
+<text x="846.6" y="168.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">102 ms</text>
+<text x="622.0" y="194.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Python</text>
+<rect x="630" y="180" width="193.6" height="20" fill="#1f5f99" rx="2"/>
+<text x="829.6" y="194.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">58.3 ms</text>
+<text x="622.0" y="220.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">R</text>
+<rect x="630" y="206" width="236.6" height="20" fill="#1f5f99" rx="2"/>
+<text x="872.6" y="220.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">240 ms</text>
+<text x="622.0" y="246.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">MATLAB/Octave</text>
+<rect x="630" y="232" width="217.3" height="20" fill="#1f5f99" rx="2"/>
+<text x="853.3" y="246.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">127 ms</text>
+<text x="622.0" y="272.5" font-size="12" font-weight="bold" fill="#3e4c59" text-anchor="end">C (original)</text>
+<rect x="630" y="258" width="97.9" height="20" fill="#3e4c59" rx="2"/>
+<text x="733.9" y="272.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">2.5 ms</text>
+<text x="20.0" y="362.0" font-size="13.5" font-weight="bold" fill="#1f2933" text-anchor="start">wfdbdesc long</text>
+<line x1="140.0" y1="374" x2="140.0" y2="586" stroke="#e4e7eb" stroke-width="1"/>
+<text x="140.0" y="602.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">0.1 ms</text>
+<line x1="210.0" y1="374" x2="210.0" y2="586" stroke="#e4e7eb" stroke-width="1"/>
+<text x="210.0" y="602.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1 ms</text>
+<line x1="280.0" y1="374" x2="280.0" y2="586" stroke="#e4e7eb" stroke-width="1"/>
+<text x="280.0" y="602.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">10 ms</text>
+<line x1="350.0" y1="374" x2="350.0" y2="586" stroke="#e4e7eb" stroke-width="1"/>
+<text x="350.0" y="602.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">100 ms</text>
+<line x1="420.0" y1="374" x2="420.0" y2="586" stroke="#e4e7eb" stroke-width="1"/>
+<text x="420.0" y="602.0" font-size="10.5" font-weight="normal" fill="#52606d" text-anchor="middle">1000 ms</text>
+<text x="132.0" y="392.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">C++</text>
+<rect x="140" y="378" width="87.9" height="20" fill="#1f5f99" rx="2"/>
+<text x="233.9" y="392.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">1.8 ms</text>
+<text x="132.0" y="418.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Rust</text>
+<rect x="140" y="404" width="89.5" height="20" fill="#1f5f99" rx="2"/>
+<text x="235.5" y="418.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">1.9 ms</text>
+<text x="132.0" y="444.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Julia</text>
+<rect x="140" y="430" width="246.9" height="20" fill="#1f5f99" rx="2"/>
+<text x="392.9" y="444.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">337 ms</text>
+<text x="132.0" y="470.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Kotlin</text>
+<rect x="140" y="456" width="194.8" height="20" fill="#1f5f99" rx="2"/>
+<text x="340.8" y="470.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">60.7 ms</text>
+<text x="132.0" y="496.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">Python</text>
+<rect x="140" y="482" width="176.1" height="20" fill="#1f5f99" rx="2"/>
+<text x="322.1" y="496.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">32.8 ms</text>
+<text x="132.0" y="522.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">R</text>
+<rect x="140" y="508" width="235.3" height="20" fill="#1f5f99" rx="2"/>
+<text x="381.3" y="522.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">230 ms</text>
+<text x="132.0" y="548.5" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="end">MATLAB/Octave</text>
+<rect x="140" y="534" width="205.8" height="20" fill="#1f5f99" rx="2"/>
+<text x="351.8" y="548.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">87.0 ms</text>
+<text x="132.0" y="574.5" font-size="12" font-weight="bold" fill="#3e4c59" text-anchor="end">C (original)</text>
+<rect x="140" y="560" width="78.0" height="20" fill="#3e4c59" rx="2"/>
+<text x="224.0" y="574.5" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">1.3 ms</text>
+<rect x="20" y="622" width="14" height="14" fill="#1f5f99" rx="2"/>
+<text x="40.0" y="634.0" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">WFDB-x (7 languages)</text>
+<rect x="194.0" y="622" width="14" height="14" fill="#3e4c59" rx="2"/>
+<text x="214.0" y="634.0" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">original C package 10.7.0</text>
+<text x="980.0" y="634.0" font-size="11" font-weight="normal" fill="#52606d" text-anchor="end">Intel Xeon 2.1 GHz, x86-64 Linux; docs/BENCHMARKS.md</text>
+</svg>

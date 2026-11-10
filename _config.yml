@@ -5,6 +5,7 @@ title: WFDB-x
 description: >-
   A fast, lightweight implementation of the WFDB library and command-line
   tools, with identical behavior across seven programming languages
+url: "https://wfdb-x.org"   # the site's address (its custom domain)
 theme: jekyll-theme-minimal
 
 plugins:
