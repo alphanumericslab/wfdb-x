@@ -207,6 +207,66 @@ class CorrectionsTest {
     }
 
     @Test
+    fun writeRecordStorageChecks() = withData("wrstorage") { d, w ->
+        // The samples must fit the storage format, checked before any file
+        // is written (1.2.3); putvec wrapped them around without an error.
+        // (port of test_write_record_storage_checks of python/tests/test_signals.py)
+        val g = doubleArrayOf(200.0)
+        val res = intArrayOf(16)
+        val mv = listOf("mV")
+        val bad = listOf(
+            Triple(16, 40000, "writeRecord: signal 0 has a sample (40000) outside the range of format 16 (-32768 to 32767)"),
+            Triple(212, 3000, "writeRecord: signal 0 has a sample (3000) outside the range of format 212 (-2048 to 2047)"),
+            Triple(8, 200, "writeRecord: signal 0 changes by -199 between two samples, more than format 8 can store (-128 to 127)"),
+        )
+        for ((fmt, v, msg) in bad) {
+            val e = assertFailsWith<WfdbArgumentException> {
+                w.writeRecord("sc", intArrayOf(v, 1), 1, 250.0, fmt = fmt, gains = g, adcres = res, units = mv)
+            }
+            assertEquals(msg, e.message)
+            assertFalse(fileExists(d.path("sc.hea")) || fileExists(d.path("sc.dat")), msg)
+        }
+        argFails("writeRecord: signal 0 has an invalid sample, which format 8 cannot store") {
+            w.writeRecord("sc", doubleArrayOf(Double.NaN, 0.0), 1, 250.0, fmt = 8, gains = g, adcres = res, units = mv)
+        }
+        val e = assertFailsWith<WfdbArgumentException> {
+            w.writeRecord("sc", IntArray(5 * 12), 12, 250.0, fmt = 516, gains = g, adcres = res, units = mv)
+        }
+        assertEquals("writeRecord: format 516 (FLAC) stores at most 8 signals in a file; the record has 12", e.message)
+        w.writeRecord("sc", IntArray(5 * 8), 8, 250.0, fmt = 516, gains = g, adcres = res, units = mv)
+        // a multi-frequency signal: its samples in order (signal 1 below
+        // alternates between 0 and 150 across its two columns of a frame)
+        argFails("writeRecord: signal 1 changes by 150 between two samples") {
+            w.writeRecord(
+                "sc", intArrayOf(0, 0, 150, 0, 0, 150), 2, 250.0, fmt = 8, gains = g, adcres = res, units = mv,
+                sampsPerFrame = intArrayOf(1, 2),
+            )
+        }
+        // a sample that will be read back as invalid: a warning (none for
+        // the NaN samples of physical units, nor with invalidWarning = false)
+        val warnings = ArrayList<String>()
+        w.writeRecord(
+            "sc", intArrayOf(-2048, 0), 1, 250.0, fmt = 212, gains = g, adcres = res, units = mv,
+            onWarning = { warnings.add(it) },
+        )
+        assertEquals(
+            listOf("1 sample(s) of signal 0 will be read back as invalid (missing) samples (format 212 stores an invalid sample as -2048)"),
+            warnings,
+        )
+        warnings.clear()
+        w.writeRecord(
+            "sc", intArrayOf(-32768, 0), 1, 250.0, fmt = 16, gains = g, adcres = res, units = mv,
+            invalidWarning = false, onWarning = { warnings.add(it) },
+        )
+        w.writeRecord(
+            "sc", doubleArrayOf(Double.NaN, 0.0), 1, 250.0, fmt = 16, gains = g, adcres = res, units = mv,
+            onWarning = { warnings.add(it) },
+        )
+        assertEquals(emptyList(), warnings)
+        assertEquals(listOf(-32768, 0), w.readRecord("sc").samples.toList())
+    }
+
+    @Test
     fun writeRecordFailureLeavesFiles() = withData("wrfail") { d, w ->
         // A failure while writing (the header cannot be created, or the
         // samples cannot be written) leaves the existing files intact: both

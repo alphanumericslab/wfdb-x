@@ -171,7 +171,7 @@ requirements.
 | Rust | [`rust/`](rust/README.md) | `cargo install --path rust` | `rdsamp -r 100s` |
 | Julia | [`julia/`](julia/README.md) | `using Pkg; Pkg.develop(path="/path/to/wfdb-x/julia")` | `wfdbx rdsamp -r 100s` |
 | R | [`r/`](r/README.md) | `R CMD INSTALL r` | `wfdbx rdsamp -r 100s` |
-| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.2.2")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
+| Kotlin (Android, iOS, JVM) | [`kotlin/`](kotlin/README.md) | `cd kotlin && ./gradlew publishToMavenLocal`, then `implementation("io.github.alphanumericslab:wfdbx:1.2.3")` (Gradle, with `mavenLocal()`) | `kotlin/bin/wfdbx rdsamp -r 100s` |
 
 Record `100s` is the sample record in `tests/data`. Run the tools there, or
 point `WFDBX_INPUT_DIR` at that directory; the Python package also includes it

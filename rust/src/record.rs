@@ -538,7 +538,9 @@ impl Annotations {
 /// whose gain is not 0.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WriteOptions {
-    /// Storage format (the same for all signals; default 16).
+    /// Storage format (the same for all signals; default 16). The samples
+    /// must fit it (see [`write_record`]); a FLAC file (formats 508, 516 and
+    /// 524) holds at most 8 signals.
     pub fmt: i32,
     /// Gains, in ADC units per physical unit (required). A gain of 0 marks
     /// a signal as uncalibrated, which is only allowed for samples given in
@@ -579,6 +581,16 @@ pub struct WriteOptions {
     /// without a directory, and the record opens from that directory under
     /// its plain name. Default: `None`, the output directory.
     pub dir: Option<PathBuf>,
+    /// Report, for each signal, the samples that will be read back as
+    /// invalid (missing) samples: those equal to [`WFDB_INVALID_SAMPLE`] or
+    /// to the smallest value of the storage format, except the NaN samples
+    /// of [`write_record_physical`] (deliberate gaps). The warning, "WFDB-x:
+    /// N sample(s) of signal K will be read back as invalid (missing)
+    /// samples (format F stores an invalid sample as LO)", is written
+    /// through `wfdb_error`, as the checksum warning of [`read_record`]
+    /// (silenced by [`Wfdb::wfdbquiet`]). Default: `true`. Part of WFDB-x
+    /// (1.2.3).
+    pub invalid_warning: bool,
 }
 
 impl Default for WriteOptions {
@@ -597,6 +609,7 @@ impl Default for WriteOptions {
             metadata: Vec::new(),
             legacy: false,
             dir: None,
+            invalid_warning: true,
         }
     }
 }
@@ -736,6 +749,105 @@ fn write_checks(
         s.adcres = adcres[k];
     }
     Ok((si, frame))
+}
+
+/// WFDB-x (1.2.3): the number of bits of a sample of storage format `fmt`
+/// (`None` for format 0, which stores nothing, and format 8, which stores
+/// differences): its range is -2^(bits-1) to 2^(bits-1) - 1, and its
+/// smallest value is the value of an invalid (missing) sample, to which
+/// `putvec` also writes [`WFDB_INVALID_SAMPLE`].
+fn format_bits(fmt: i32) -> Option<u32> {
+    match fmt {
+        80 | 508 => Some(8),
+        16 | 61 | 160 | 516 => Some(16),
+        212 => Some(12),
+        310 | 311 => Some(10),
+        24 | 524 => Some(24),
+        32 => Some(32),
+        _ => None,
+    }
+}
+
+/// The largest number of signals in a FLAC file (formats 508, 516, 524).
+const FLAC_MAX_SIGNALS: usize = 8;
+
+/// Checks that `samples` (frame by frame, in ADC units, as described by
+/// `si`) can be stored in format `fmt`, before any file is written: an error
+/// for a sample outside the range of the format, for a difference between
+/// consecutive samples beyond what format 8 stores (-128 to 127), for an
+/// invalid sample in format 8, and for more than 8 signals in a FLAC file.
+/// Returns, for each signal, the number of samples that will be read back as
+/// invalid (missing) samples, other than the NaN samples of physical units
+/// (`gaps`: `true` where the sample was NaN). WFDB-x: `putvec` wraps the
+/// samples outside the range of the format around, and clips the
+/// differences of format 8, without an error.
+fn check_storage(
+    samples: &[i32],
+    si: &[Siginfo],
+    fmt: i32,
+    gaps: Option<&[bool]>,
+) -> Result<Vec<(usize, u64, i64)>, Error> {
+    let nsig = si.len();
+    if matches!(fmt, 508 | 516 | 524) && nsig > FLAC_MAX_SIGNALS {
+        return Err(Error::new(format!(
+            "write_record: format {fmt} (FLAC) stores at most {FLAC_MAX_SIGNALS} signals in a file; the record has {nsig}"
+        )));
+    }
+    let bits = format_bits(fmt);
+    let mut warnings = Vec::new();
+    if fmt != 8 && bits.is_none() {
+        return Ok(warnings);
+    }
+    let frame: usize = si.iter().map(|s| s.spf as usize).sum();
+    let (lo, hi) = match bits {
+        Some(b) => (-(1i64 << (b - 1)), (1i64 << (b - 1)) - 1),
+        None => (0, 0),
+    };
+    let mut first = 0;
+    for (k, s) in si.iter().enumerate() {
+        let cols = first..first + s.spf as usize;
+        first = cols.end;
+        let mut prev: Option<i64> = None;
+        let mut invalid = 0u64;
+        // (the samples of signal k, in order: its spf columns of each
+        // frame, frame after frame)
+        for f in (0..samples.len()).step_by(frame) {
+            for c in cols.clone() {
+                let i = f + c;
+                let v = samples[i] as i64;
+                let marker = samples[i] == WFDB_INVALID_SAMPLE;
+                if fmt == 8 {
+                    if marker {
+                        return Err(Error::new(format!(
+                            "write_record: signal {k} has an invalid sample, which format 8 cannot store"
+                        )));
+                    }
+                    if let Some(p) = prev {
+                        let d = v - p;
+                        if !(-128..=127).contains(&d) {
+                            return Err(Error::new(format!(
+                                "write_record: signal {k} changes by {d} between two samples, more than format 8 can store (-128 to 127)"
+                            )));
+                        }
+                    }
+                    prev = Some(v);
+                    continue;
+                }
+                if !marker && !(lo..=hi).contains(&v) {
+                    return Err(Error::new(format!(
+                        "write_record: signal {k} has a sample ({v}) outside the range of format {fmt} ({lo} to {hi})"
+                    )));
+                }
+                if (marker || v == lo) && !gaps.is_some_and(|g| g[i]) {
+                    invalid += 1;
+                }
+            }
+        }
+        if invalid > 0 {
+            warnings.push((k, invalid, lo));
+        }
+    }
+    Ok(warnings)
 }
 
 /// Checks that `n` samples are whole frames of `frame` samples.
@@ -1436,9 +1548,32 @@ impl Wfdb {
     ) -> Result<(), Error> {
         let legacy = self.wfdbx_get_legacy() != 0;
         let (si, frame) = write_checks(record, samples.len(), nsig, fs, opt, legacy, false)?;
+        self.storage_checks(samples, &si, opt, None)?;
         // WFDB-x: the metadata, written after the comments
         let info = crate::metadata::info_lines(&opt.metadata, &opt.comments)?;
         self.write_files(record, samples, &si, frame, fs, opt, &info)
+    }
+
+    /// WFDB-x (1.2.3): the checks of [`check_storage`], and its warnings
+    /// (unless [`WriteOptions::invalid_warning`] is `false`), written as the
+    /// checksum warning of `read_record`.
+    fn storage_checks(
+        &mut self,
+        samples: &[i32],
+        si: &[Siginfo],
+        opt: &WriteOptions,
+        gaps: Option<&[bool]>,
+    ) -> Result<(), Error> {
+        let warnings = check_storage(samples, si, opt.fmt, gaps)?;
+        if opt.invalid_warning {
+            for (k, n, lo) in warnings {
+                self.wfdb_error(format!(
+                    "WFDB-x: {n} sample(s) of signal {k} will be read back as invalid (missing) samples (format {} stores an invalid sample as {lo})\n",
+                    opt.fmt
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Writes the files of `write_record` (its arguments checked): the
@@ -1582,11 +1717,13 @@ impl Wfdb {
             }
         }
         let mut adc: Vec<i32> = Vec::with_capacity(samples.len());
+        let mut gaps = vec![false; samples.len()]; // the NaN samples (invalid)
         for (i, &x) in samples.iter().enumerate() {
             let c = i % g.len();
             let v = x * g[c];
             if v.is_nan() {
                 adc.push(WFDB_INVALID_SAMPLE);
+                gaps[i] = true;
                 continue;
             }
             let r = if v >= 0.0 {
@@ -1603,6 +1740,7 @@ impl Wfdb {
             }
             adc.push(d2i(r));
         }
+        self.storage_checks(&adc, &si, opt, Some(&gaps))?;
         // WFDB-x: the metadata, written after the comments
         let info = crate::metadata::info_lines(&opt.metadata, &opt.comments)?;
         self.write_files(record, &adc, &si, frame, fs, opt, &info)
@@ -2144,6 +2282,30 @@ pub fn read_annotations_with(
 ///   finite").
 /// * A gain is NaN or infinite: "gains must be finite". (A gain of 0 marks
 ///   an uncalibrated signal; negative gains are allowed.)
+/// * The samples do not fit the storage format (WFDB-x, 1.2.3; `putvec`
+///   wraps a sample outside the range of the format around, and clips the
+///   differences of format 8, without an error). The samples of each signal
+///   K are checked in order (for a multi-frequency signal, its
+///   `samps_per_frame` columns of each frame, frame after frame):
+///   * formats 508, 516 and 524 (FLAC) store at most 8 signals in a file:
+///     "format F (FLAC) stores at most 8 signals in a file; the record has
+///     N";
+///   * format 8 stores the difference between consecutive samples, from
+///     -128 to 127, and cannot store an invalid sample: "signal K has an
+///     invalid sample, which format 8 cannot store", "signal K changes by D
+///     between two samples, more than format 8 can store (-128 to 127)" (D:
+///     the first such difference);
+///   * formats 80 and 508 store 8 bits, 16, 61, 160 and 516 16 bits, 212 12
+///     bits, 310 and 311 10 bits, 24 and 524 24 bits and 32 32 bits, from
+///     LO = -2^(bits-1) to HI = 2^(bits-1) - 1: a sample other than
+///     [`WFDB_INVALID_SAMPLE`] outside that range is an error, "signal K has
+///     a sample (V) outside the range of format F (LO to HI)" (V: the first
+///     such sample);
+///   * format 0 is not checked.
+///
+///   A sample equal to [`WFDB_INVALID_SAMPLE`] or to LO is read back as an
+///   invalid (missing) sample: a warning tells how many there are in each
+///   signal (see [`WriteOptions::invalid_warning`]).
 /// * An entry of [`WriteOptions::metadata`] is not valid (as for
 ///   [`set_metadata`](crate::set_metadata)), two of its keys differ only
 ///   in letter case ("metadata key 'KEY' is given more than once (keys are
@@ -2219,7 +2381,11 @@ pub fn write_record(
 /// As [`write_record`]. Also if a gain is 0: "signal N is uncalibrated"
 /// (checked after the units), and if a sample is infinite or its ADC value
 /// is beyond the range of `i32`: "sample I is infinite or beyond the range
-/// of 32-bit ADC units" (checked after the gains, before the metadata).
+/// of 32-bit ADC units" (checked after the gains, before the metadata). The
+/// samples in ADC units are then checked as by [`write_record`]: the NaN
+/// samples are not counted in the warning of
+/// [`WriteOptions::invalid_warning`], and format 8 refuses them ("signal K
+/// has an invalid sample, which format 8 cannot store").
 ///
 /// Part of WFDB-x; not in the original WFDB package.
 pub fn write_record_physical(

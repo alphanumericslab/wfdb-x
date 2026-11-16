@@ -21,7 +21,7 @@ once; it must be the `__version__` of `python/src/wfdbx/__init__.py`, and
 the sections below explain each step.
 
 ```sh
-V=1.2.2                                    # the version being released
+V=1.2.3                                    # the version being released
 
 # Test (step 3)
 python3 -m venv /tmp/wfdbx-release && . /tmp/wfdbx-release/bin/activate

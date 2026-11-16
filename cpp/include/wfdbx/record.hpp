@@ -432,7 +432,10 @@ Annotations read_annotations(const std::string &record,
 /// none, for those that have a default); any other length throws Error.
 /// gains, adcres and units have no default: you must give them.
 struct WriteOptions {
-    int fmt = 16;               ///< storage format (the same for all signals)
+    /// Storage format (the same for all signals).  The samples must fit it
+    /// (see write_record()); a FLAC file (formats 508, 516 and 524) holds at
+    /// most 8 signals.
+    int fmt = 16;
     /// Gains, in ADC units per physical unit: required, and finite.  A gain
     /// of 0 marks a signal as uncalibrated, which only write_record() (ADC
     /// units) allows.  Negative gains are allowed.
@@ -466,6 +469,15 @@ struct WriteOptions {
     /// Behave as the original WFDB package, for this call only (see
     /// docs/DIVERGENCES.md).  Use it only to reproduce old results.
     bool legacy = false;
+    /// If true (the default), a warning is written through wfdb_error()
+    /// (as the checksum warning of read_record(); silenced by wfdbquiet())
+    /// for each signal that has samples that will be read back as invalid
+    /// (missing) samples: "WFDB-x: N sample(s) of signal K will be read
+    /// back as invalid (missing) samples (format F stores an invalid sample
+    /// as LO)".  These are the samples equal to WFDB_INVALID_SAMPLE or to
+    /// the smallest value of the format, except the NaN samples of
+    /// write_record_physical() (deliberate gaps).  Part of WFDB-x (1.2.3).
+    bool invalid_warning = true;
 };
 
 /// Write a record: the header "<record>.hea" and the signal file
@@ -495,14 +507,40 @@ struct WriteOptions {
 /// "ADC resolution(s) must be specified", "units must be specified"), if fs
 /// is not finite or not greater than 0, if a gain is not finite ("gains
 /// must be finite"), if opt.base_time is not a valid time ("incorrect base
-/// time 'T'"), if samples.size() is not a multiple of the frame size, if an
-/// entry of opt.metadata is not valid (ArgumentError; see
-/// WriteOptions::metadata); and then if the files cannot be created, or if
+/// time 'T'"), if samples.size() is not a multiple of the frame size, if
+/// the samples do not fit the storage format (see below), if an entry of
+/// opt.metadata is not valid (ArgumentError; see WriteOptions::metadata);
+/// and then if the files cannot be created, or if
 /// they cannot be written completely (for example, when the disk is full:
 /// "write error on record R").  Every check except the last two comes
 /// before any file is created or changed.  (The ADC resolutions, zeros and
 /// baselines are ints, and the text is bytes, so that any value of these
 /// types can be written.)
+///
+/// The samples must fit the storage format (WFDB-x, 1.2.3; putvec() wraps
+/// a sample outside the range of the format around, and clips the
+/// differences of format 8, without an error).  The samples of each signal
+/// K are checked in order (for a multi-frequency signal, its
+/// samps_per_frame columns of each frame, frame after frame):
+///
+/// * formats 508, 516 and 524 (FLAC) store at most 8 signals in a file:
+///   "format F (FLAC) stores at most 8 signals in a file; the record has N";
+/// * format 8 stores the difference between consecutive samples, from -128
+///   to 127, and cannot store an invalid sample: "signal K has an invalid
+///   sample, which format 8 cannot store", "signal K changes by D between
+///   two samples, more than format 8 can store (-128 to 127)" (D: the first
+///   such difference);
+/// * formats 80 and 508 store 8 bits, 16, 61, 160 and 516 16 bits, 212 12
+///   bits, 310 and 311 10 bits, 24 and 524 24 bits and 32 32 bits, from
+///   LO = -2^(bits-1) to HI = 2^(bits-1) - 1: a sample other than
+///   WFDB_INVALID_SAMPLE outside that range throws "signal K has a sample
+///   (V) outside the range of format F (LO to HI)" (V: the first such
+///   sample);
+/// * format 0 is not checked.
+///
+/// A sample equal to WFDB_INVALID_SAMPLE or to LO is read back as an invalid
+/// (missing) sample: a warning tells how many there are in each signal
+/// (see WriteOptions::invalid_warning).
 ///
 /// Existing files of the same names are replaced: the header and the
 /// signal file are written to temporary files in the directories of their
@@ -536,6 +574,9 @@ void write_record(const std::string &record,
 /// sample.  Throws Error ("signal N is uncalibrated") if a gain is 0, and
 /// ("sample I is out of range") if a sample is infinite or its ADC value is
 /// outside the range of a 32-bit integer; nothing is written then.  The
+/// samples in ADC units are checked as by write_record(); the NaN samples
+/// are not counted in the warning of WriteOptions::invalid_warning, and
+/// format 8 refuses them ("signal K has an invalid sample").  The
 /// record name and opt.dir are as for write_record(), and so are the
 /// settings left as they were.
 ///

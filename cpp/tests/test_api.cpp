@@ -423,6 +423,66 @@ WFDBX_TEST(write_record_requires_gains)
     }
 }
 
+// The samples must fit the storage format, checked before any file is
+// written (1.2.3); putvec wrapped them around without an error.
+WFDBX_TEST(write_record_storage_checks)
+{
+    DataDir d;
+    WriteOptions w;
+    w.gains = {200};
+    w.adcres = {16};
+    w.units = {std::string("mV")};
+    const std::pair<int, std::pair<int, const char *>> cases[] = {
+        {16, {40000, "write_record: signal 0 has a sample (40000) outside "
+                     "the range of format 16 (-32768 to 32767)"}},
+        {212, {3000, "write_record: signal 0 has a sample (3000) outside the "
+                     "range of format 212 (-2048 to 2047)"}},
+        {8, {200, "write_record: signal 0 changes by -199 between two "
+                  "samples, more than format 8 can store (-128 to 127)"}}};
+    for (const auto &c : cases) {
+        w.fmt = c.first;
+        std::vector<WFDB_Sample> x = {c.second.first, 1};
+        CHECK_EQ(error_of([&] { write_record("sc", x, 1, 250, w); }),
+                 c.second.second);
+        CHECK(!fs::exists("sc.hea") && !fs::exists("sc.dat"));
+    }
+    w.fmt = 8;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    CHECK_EQ(error_of([&] {
+                 write_record_physical("sc", {nan, 0.0}, 1, 250, w); }),
+             "write_record: signal 0 has an invalid sample, which format 8 "
+             "cannot store");
+    w.fmt = 516;
+    CHECK_EQ(error_of([&] {
+                 write_record("sc", std::vector<WFDB_Sample>(60, 0), 12, 250,
+                              w); }),
+             "write_record: format 516 (FLAC) stores at most 8 signals in a "
+             "file; the record has 12");
+    CHECK_EQ(error_of([&] {
+                 write_record("sc", std::vector<WFDB_Sample>(40, 0), 8, 250,
+                              w); }), "");
+    // a sample that will be read back as invalid: a warning (none for the
+    // NaN samples of physical units, nor with invalid_warning false)
+    w.fmt = 212;
+    {
+        wfdbx_tests::StderrCapture cap;
+        write_record("sc", {-2048, 0}, 1, 250, w);
+        CHECK_EQ(cap.text(), "WFDB-x: 1 sample(s) of signal 0 will be read "
+                 "back as invalid (missing) samples (format 212 stores an "
+                 "invalid sample as -2048)\n");
+    }
+    w.fmt = 16;
+    {
+        wfdbx_tests::StderrCapture cap;
+        w.invalid_warning = false;
+        write_record("sc", {-32768, 0}, 1, 250, w);
+        w.invalid_warning = true;
+        write_record_physical("sc", {nan, 0.0}, 1, 250, w);
+        CHECK_EQ(cap.text(), "");
+    }
+    CHECK(read_record("sc").samples == std::vector<WFDB_Sample>({-32768, 0}));
+}
+
 // A trailing ".hea" is removed, as by the readers (1.2.2).
 WFDBX_TEST(write_record_trailing_hea)
 {

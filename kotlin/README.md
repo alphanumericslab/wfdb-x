@@ -65,14 +65,14 @@ the library functions (and the C library) give.
 
 The library is built from a copy of the repository and installed in the
 local Maven repository (below); its Gradle coordinates are
-`io.github.alphanumericslab:wfdbx:1.2.2`. In a Gradle project (an Android
+`io.github.alphanumericslab:wfdbx:1.2.3`. In a Gradle project (an Android
 app, a JVM program, or the common source set of a Kotlin Multiplatform
 project) that lists `mavenLocal()` among its repositories, add it to the
 dependencies:
 
 ```kotlin
 dependencies {
-    implementation("io.github.alphanumericslab:wfdbx:1.2.2")
+    implementation("io.github.alphanumericslab:wfdbx:1.2.3")
 }
 ```
 
@@ -308,8 +308,29 @@ invalid argument throws a `WfdbArgumentException`), in this order: the
 record name (not empty, Latin-1), the number of signals, the number of
 values of each per-signal argument, the gains, the ADC resolutions
 ("writeRecord: ADC resolution(s) must be specified"), the units, the
-sampling frequency, the signal names and units (Latin-1), the samples, the
-comments (Latin-1), the metadata and the base time. The signal file and the
+sampling frequency, the signal names and units (Latin-1), the samples
+(their number, then whether they fit the storage format), the
+comments (Latin-1), the metadata and the base time.
+
+Every sample, in ADC units (after the conversion from physical units),
+must fit the storage format: within its range ("writeRecord: signal 0 has a
+sample (40000) outside the range of format 16 (-32768 to 32767)"), and, in
+format 8, within -128 to 127 of the sample before it in the same signal
+("writeRecord: signal K changes by D between two samples, more than format
+8 can store (-128 to 127)"); format 8 cannot store an invalid sample
+("writeRecord: signal K has an invalid sample, which format 8 cannot
+store"), and a FLAC file (formats 508, 516, 524) holds at most 8 signals
+("writeRecord: format 516 (FLAC) stores at most 8 signals in a file; the
+record has 12"). (Until WFDB-x 1.2.3, such samples were silently wrapped
+around: 40000 read back as -25536.) The smallest value of a format (-32768
+in format 16, -2048 in format 212) is the value of an invalid (missing)
+sample: samples equal to it, or to `WFDB_INVALID_SAMPLE`, are read back as
+invalid, and `writeRecord` gives a warning for them ("1 sample(s) of signal
+0 will be read back as invalid (missing) samples (format 16 stores an
+invalid sample as -32768)"), except for the NaN samples of physical units,
+which mark missing samples deliberately; `invalidWarning = false` omits
+it. The warning goes to `onWarning`, or, without it, to the standard error
+("WFDB-x: " + the warning), unless `wfdbquiet` was called. The signal file and the
 header are then written to temporary files in the directory of each file
 (`.NAME.XXXXXXXX.tmp`, readable and writable by their owner only while
 they are written), which replace the existing files only when both are
@@ -323,7 +344,7 @@ directly. The output signals are closed whatever happens.
 |---|---|
 | `samples`, `nsig` | the samples, frame by frame, and the number of signals |
 | `fs` | sampling frequency in Hz |
-| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
+| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC; at most 8 signals); default 16. Every sample must fit it (above) |
 | `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `baseTime`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
@@ -331,6 +352,8 @@ directly. The output signals are closed whatever happens.
 | `dir` | directory (which must exist) in which to create the files, for this call only; the record name must then be a plain name, and the record opens from that directory under it |
 | `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) |
 | `metadata` | `Key: value` entries, written after the comments as `# Key: value`: a list of pairs, `listOf("Age" to "63")` (a map converts with `toList()`; see [Header metadata](#header-metadata)). The keys must be unique, ignoring letter case, and none may be the key of an entry in `comments`; this is checked before any file is created |
+| `invalidWarning` | warn when samples will be read back as invalid (missing) samples; default `true` |
+| `onWarning` | receives the warnings (null: they are printed on the standard error, as the checksum warning of `readRecord`) |
 
 ### Writing annotations: `writeAnnotations`
 
@@ -571,7 +594,7 @@ WFDB-x, under the naming conventions of each:
 | `wfdbxSetNetwork`, `wfdbxGetNetwork` | `wfdbx_set_network`, `wfdbx_get_network` |
 | `wfdbxSetLegacy`, `wfdbxGetLegacy` | `wfdbx_set_legacy`, `wfdbx_get_legacy` |
 | `from`, `to` (`TimeSpec`) | `sampfrom`, `sampto` (Python, R, MATLAB); `from`, `to` (C++, Rust, Julia) |
-| `inputDir`, `checksumWarning`, `sampsPerFrame`, `baseTime` | `input_dir`, `checksum_warning`, `samps_per_frame`, `base_time` |
+| `inputDir`, `checksumWarning`, `invalidWarning`, `sampsPerFrame`, `baseTime` | `input_dir`, `checksum_warning`, `invalid_warning`, `samps_per_frame`, `base_time` |
 | `Record.checksumOk`, `baseTimeMs`, `baseDate` | `checksum_ok`, `base_time_ms`, `base_date` |
 | `WfdbArgumentException` (a `WfdbException`) | `ValueError` (Python) for the header metadata functions |
 | `WfdbException` | `IOError`/`ValueError` (Python), `wfdbx::Error` (C++), `wfdbx::record::Error` (Rust), `WfdbError` (Julia), an R error, a MATLAB error |

@@ -71,8 +71,8 @@ The package is attached with \code{library(wfdbx)}. Its version is given by
 \code{packageVersion("wfdbx")}, and by the driver script of the tools:
 
 \begin{lstlisting}[style=shell]
-Rscript -e 'cat(format(packageVersion("wfdbx")), "\n")'    # 1.2.2
-Rscript r/inst/bin/wfdbx.R --version                        # WFDB-x 1.2.2
+Rscript -e 'cat(format(packageVersion("wfdbx")), "\n")'    # 1.2.3
+Rscript r/inst/bin/wfdbx.R --version                        # WFDB-x 1.2.3
 \end{lstlisting}
 
 The help pages of the package (\code{?read\_record}, \code{?read\_metadata},
@@ -493,7 +493,7 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
              adczeros = 0, adcres = NULL, units = NULL, names = NULL,
              base_time = NULL, comments = NULL, physical = FALSE,
              samps_per_frame = NULL, dir = NULL,
-             legacy = FALSE, metadata = NULL)
+             legacy = FALSE, metadata = NULL, invalid_warning = TRUE)
 \end{lstlisting}
 Writes signals as a new record: the header \file{RECORD.hea} and one signal file,
 \file{RECORD.dat}, which holds all the signals (so they share one format). Existing files
@@ -529,8 +529,12 @@ a character beyond U+00FF, which would be written as several bytes, is an error.
   with \code{physical = TRUE}, they are in physical units.
 \item[fs] The sampling frequency, in Hz: a finite number $> 0$. Required.
 \item[fmt] The storage format, such as \code{16}, \code{212}, \code{24} or \code{516}
-  (FLAC); one value, or one per signal, all equal (\cref{chap:formats}). Default
-  \code{16}.
+  (FLAC); one value, or one per signal, all equal (\cref{chap:formats}). Every sample
+  must fit the format: within its range (\cref{tab:formats}; $-2048$ to 2047 for format
+  212, for example), and, in format 8, within $-128$ to 127 of the sample before it. The
+  smallest value of a format is the value of an invalid (missing) sample: a sample equal
+  to it, or to \code{WFDB\_INVALID\_SAMPLE}, is read back as invalid (see
+  \code{invalid\_warning}). A FLAC file holds at most 8 signals. Default \code{16}.
 \item[gains] The gain of each signal, in ADC units per physical unit: a finite number;
   \code{0} marks an uncalibrated signal, which is allowed only for samples given in ADC
   units. Negative gains are allowed. Required (no default).
@@ -571,6 +575,12 @@ a character beyond U+00FF, which would be written as several bytes, is an error.
   \code{read\_metadata}. Keys and values follow the rules of \code{set\_metadata}; a
   \code{NULL} or \code{NA} value is an error, no two keys may differ only in letter case,
   and none may be the key of an entry in \code{comments}. Default \code{NULL}: none.
+\item[invalid\_warning] \code{TRUE} to issue an R warning (\code{warning()}) when samples
+  will be read back as invalid (missing) samples (``N sample(s) of signal K will be read
+  back as invalid (missing) samples (format F stores an invalid sample as V)''): those
+  equal to the invalid value of the format or to \code{WFDB\_INVALID\_SAMPLE}, other than
+  the \code{NA} samples of physical units, which mark missing samples deliberately.
+  \code{FALSE} for no warning, when such samples are deliberate. Default \code{TRUE}.
 \end{params}
 \returns{\code{NULL}, invisibly.}
 \raises{Stops with an error if \code{record} is empty (``record name must not be
@@ -593,7 +603,12 @@ if a sample is not valid (``samples in ADC units must be integers'', ``samples i
 units must be within the range of a 32-bit integer'', or, with \code{physical = TRUE},
 ``signal K has a sample that is infinite or beyond the range of 32-bit ADC units''); if
 the signals do not all have the same format (``all signals of a record written by
-write\_record must have the same format''); if a \code{samps\_per\_frame} value is
+write\_record must have the same format''); if a sample does not fit the format
+(``signal K has a sample (V) outside the range of format F (LO to HI)''; in format 8,
+``signal K changes by D between two samples, more than format 8 can store (-128 to 127)''
+or ``signal K has an invalid sample, which format 8 cannot store''); if a FLAC format is
+given for more than 8 signals (``format 516 (FLAC) stores at most 8 signals in a file;
+the record has 12''); if a \code{samps\_per\_frame} value is
 not an integer $\ge 1$ (``samps\_per\_frame
 must hold integers >= 1''), or the number of columns of \code{signals} is not their sum
 (``signals has N columns, but samps\_per\_frame adds up to M''); if \code{metadata} is not
@@ -1649,7 +1664,7 @@ The driver script also takes these options, instead of a tool:
 \cmd{Rscript wfdbx.R TOOL [ARGUMENTS ...]} & runs the tool \code{TOOL}, and exits with
   its status \\
 \cmd{Rscript wfdbx.R --list} & lists the names of the tools, one per line \\
-\cmd{Rscript wfdbx.R --version} & prints the version, \code{WFDB-x 1.2.2} \\
+\cmd{Rscript wfdbx.R --version} & prints the version, \code{WFDB-x 1.2.3} \\
 \cmd{Rscript wfdbx.R --help}, \cmd{Rscript wfdbx.R -h} & prints the usage \\
 \bottomrule
 \end{tabularx}
@@ -1690,10 +1705,13 @@ wfdbx_tool(tool, args = character(0))
 \end{lstlisting}
 Runs one of the command-line tools with the given arguments, as the command line would,
 in the R session. The output of the tool goes directly to the standard output and error
-of the R process: \code{sink} and \code{capture.output} do not capture it, and a graphical
-console may not show it. To capture the output, the tool is run in a separate process
-with the driver script, as in \code{system2("Rscript", c(driver, "rdsamp", ...), stdout =
-TRUE)}.
+of the R process, in binary, and a graphical console may not show it. While the standard
+output of R is diverted by \code{sink} or \code{capture.output}, the standard output of
+the tool goes there instead, as Latin-1 text (one character per byte; NUL bytes, which an
+R string cannot hold, are lost; until WFDB-x 1.2.3 it went past the diversion). The
+standard error of the tool still goes to that of the process. To capture the output byte
+for byte, the tool is run in a separate process with the driver script, as in
+\code{system2("Rscript", c(driver, "rdsamp", ...), stdout = TRUE)}.
 \begin{params}
 \item[tool] The name of the tool, a character string (one of \code{wfdbx\_tools()}).
 \item[args] The command-line arguments of the tool, as a character vector (one element

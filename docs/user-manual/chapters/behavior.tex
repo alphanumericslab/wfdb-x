@@ -18,8 +18,9 @@ from the C package with the patch \file{tests/reference/divergences.patch}
 applied, which is the precise definition of the differences. The original
 behavior remains available in every case, on request, in \emph{legacy mode}
 (\cref{sec:legacy}). The file \file{docs/DIVERGENCES.md} gives the reasons
-for each difference in more detail, and \cref{sec:corrections-1-2-0,sec:corrections-1-2-2} list
-the corrections of versions 1.2.0 and 1.2.2.
+for each difference in more detail, and
+\cref{sec:corrections-1-2-0,sec:corrections-1-2-2,sec:corrections-1-2-3} list the
+corrections of versions 1.2.0, 1.2.2 and 1.2.3.
 
 \section{No built-in sampling frequency, gain, ADC resolution or units}
 \label{sec:no-defaults}
@@ -641,6 +642,33 @@ The library functions and the tools keep the behavior of C, except for
   \file{wfdbxConfigVersion.cmake}, so that
   \code{find\_package(wfdbx 1.2.2 CONFIG REQUIRED)} checks the version, and
   the \code{wfdbx} target requires C++17 of the programs that link to it.
+\end{itemize}
+
+\section{Corrections of version 1.2.3}
+\label{sec:corrections-1-2-3}
+
+Version 1.2.3 corrects the following points, reported by users, in all seven
+implementations. The library functions and the tools are unchanged.
+\begin{itemize}
+\item \textbf{\code{write\_record} checks that every sample fits the storage
+  format}, before any file is written. A sample outside the range of the
+  format (\cref{tab:formats}), in format 8 a sample more than 127 away from
+  the one before it or an invalid sample (format 8 stores differences, and
+  has no invalid value), and more than 8 signals in a FLAC format (a FLAC
+  file holds at most 8) are argument errors (\code{signal 0 has a sample
+  (40000) outside the range of format 16 (-32768 to 32767)}). Such samples
+  were silently wrapped around (40000 read back as $-25536$) or clipped by
+  \code{putvec}, which keeps that behavior of C.
+\item \textbf{A warning for samples that will be read back as invalid}: the
+  samples equal to the smallest value of the format (the value of an invalid
+  sample, such as $-32768$ in format 16) or to \code{WFDB\_INVALID\_SAMPLE},
+  except for the NaN samples of physical units, which mark missing samples
+  deliberately. The new option \code{invalid\_warning} turns it off.
+\item \textbf{Tools run in the same process write to a captured standard
+  output}: in Python, a tool whose \code{sys.stdout} was a text stream
+  without a binary buffer (\code{io.StringIO}) failed with a
+  \code{TypeError}; in R, the output of \code{wfdbx\_tool} went past
+  \code{sink()} and \code{capture.output()}.
 \end{itemize}
 
 \section{Legacy mode}

@@ -125,6 +125,42 @@ def test_write_record_requires_gains_and_frequency(datadir):
     assert r.gains == [200, 0] and r.units == ["mV", None]
 
 
+def test_write_record_storage_checks(datadir):
+    # the samples must fit the storage format, checked before any file is
+    # written (1.2.3); putvec wrapped them around without an error
+    G = dict(gains=200, adcres=16, units="mV")
+    for fmt, v, msg in ((16, 40000, r"\(40000\) outside the range of format "
+                         r"16 \(-32768 to 32767\)"),
+                        (212, 3000, r"outside the range of format 212 "
+                         r"\(-2048 to 2047\)"),
+                        (8, 200, r"changes by -199 between two samples, more "
+                         r"than format 8 can store")):
+        with pytest.raises(ValueError, match=msg):
+            w.write_record("sc", np.array([[v], [1]]), 250, fmt=fmt, **G)
+        assert not os.path.exists("sc.hea") and not os.path.exists("sc.dat")
+    with pytest.raises(ValueError, match="invalid sample, which format 8"):
+        w.write_record("sc", np.array([[np.nan], [0.0]]), 250, fmt=8,
+                       physical=True, **G)
+    with pytest.raises(ValueError, match=r"format 516 \(FLAC\) stores at most "
+                       r"8 signals in a file; the record has 12"):
+        w.write_record("sc", np.zeros((5, 12), int), 250, fmt=516, **G)
+    w.write_record("sc", np.zeros((5, 8), int), 250, fmt=516, **G)
+    # a sample that will be read back as invalid: a warning (none for the
+    # NaN samples of physical units, nor with invalid_warning=False)
+    with pytest.warns(RuntimeWarning, match=r"1 sample\(s\) of signal 0 will "
+                      r"be read back as invalid \(missing\) samples \(format "
+                      r"212 stores an invalid sample as -2048\)"):
+        w.write_record("sc", np.array([[-2048], [0]]), 250, fmt=212, **G)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        w.write_record("sc", np.array([[-32768], [0]]), 250, fmt=16,
+                       invalid_warning=False, **G)
+        w.write_record("sc", np.array([[np.nan], [0.0]]), 250, fmt=16,
+                       physical=True, **G)
+    assert w.read_record("sc").signals.ravel().tolist() == [-32768, 0]
+
+
 def test_write_record_trailing_hea(datadir):
     # a trailing ".hea" is removed, as by the readers (1.2.2)
     x = np.array([[1], [2], [3]])
@@ -271,11 +307,16 @@ def _write_both(monkeypatch, x, fmt, spf=None):
         for row in xx.tolist():
             putvec(row)
 
+    import wfdbx.highlevel as hl
     out = []
     for d, frames in (("fast", None), ("slow", slow)):
         os.makedirs(d, exist_ok=True)
         with monkeypatch.context() as m:
             m.setattr(sig, "putvec", counting_putvec)
+            # (the samples that the format cannot store are refused by
+            # write_record since 1.2.3; the writing path of the library,
+            # which the C-style functions use, is tested here)
+            m.setattr(hl, "_check_storage", lambda *a: None)
             if frames:
                 m.setattr(sig, "_putframes", frames)
             w.write_record("r", x, 360, fmt=fmt, gains=200,
@@ -690,7 +731,7 @@ def _random_record(name, rng, fmt, nsig, n, invalid=True):
             x[rng.random((n, nsig)) < 0.01] = w.WFDB_INVALID_SAMPLE
             x[:3, 0] = w.WFDB_INVALID_SAMPLE    # (invalid at the start)
     w.write_record(name, x, 250, fmt=fmt, gains=200, adcres=RES[fmt],
-                   units="mV")
+                   units="mV", invalid_warning=False)
     return x
 
 
@@ -920,7 +961,11 @@ def _mf_record(name, rng, fmt, spf, n, gains=None, names=None, invalid=True):
     hi = min(RANGES[fmt], 30000) if fmt == 8 else RANGES[fmt]
     cols = sum(spf)
     if fmt == 8:
-        x = np.cumsum(rng.integers(-60, 61, size=(n, cols)), axis=0)
+        # (format 8 stores the difference between consecutive samples of a
+        # signal, which alternate between its columns of a frame)
+        parts = [np.cumsum(rng.integers(-60, 61, size=n * k)).reshape(n, k)
+                 for k in spf]
+        x = np.concatenate(parts, axis=1)
     else:
         x = rng.integers(-hi + 1, hi + 1, size=(n, cols))
         if invalid:
@@ -928,7 +973,7 @@ def _mf_record(name, rng, fmt, spf, n, gains=None, names=None, invalid=True):
             x[:2, 0] = w.WFDB_INVALID_SAMPLE
     w.write_record(name, x, 250, fmt=fmt, gains=gains or 200,
                    adcres=RES[fmt], units="mV", samps_per_frame=spf,
-                   names=names)
+                   names=names, invalid_warning=False)
     return x
 
 

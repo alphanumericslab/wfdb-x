@@ -1716,7 +1716,7 @@ function mf_record(w, name, rng, fmt, spf, n; gains=200.0, names=nothing)
         x[1:2, 1] .= WFDB_INVALID_SAMPLE
     end
     W.write_record(w, name, x, 250.0; fmt, gains, adcres=MF_RES[fmt], units="mV",
-                   samps_per_frame=spf, names)
+                   samps_per_frame=spf, names, invalid_warning=false)
     x
 end
 
@@ -2176,6 +2176,13 @@ function wr_files(w, bulk, name, x, fs; kw...)
     end
 end
 
+# (the samples that the format cannot store are refused by write_record
+# since 1.2.3; the writing path of the library, which the C-style functions
+# use, is tested here: the check is bypassed by a more specific method,
+# deleted after the test)
+W._check_storage(frames::AbstractMatrix{<:Integer}, spf::Vector{Int}, fmt::Int,
+                 gaps::Union{Nothing,AbstractMatrix{Bool}}, invalid_warning::Bool) = nothing
+
 @testset "bulk writing equals putvec" begin
     with_data() do w
         rng = XorShift(0x2545f4914f6cdd1d ⊻ 99)
@@ -2224,6 +2231,8 @@ end
         end
     end
 end
+
+Base.delete_method(which(W._check_storage, (Matrix{Int32}, Vector{Int}, Int, Nothing, Bool)))
 
 # rdsamp's integer formatter (raw units), against printf.
 @testset "rdsamp integers as printf" begin
@@ -3021,6 +3030,47 @@ end
         si = W.read_header(w, "f").siginfo
         @test [s.adcres for s in si] == [12, 12] && [s.adczero for s in si] == [1, 2] &&
               [s.baseline for s in si] == [-3, -3]
+    end
+end
+
+# WFDB-x (1.2.3): the samples must fit the storage format, checked before
+# any file is written; putvec wrapped them around without an error.
+@testset "write_record storage checks" begin
+    with_data() do w
+        G = (gains=200, adcres=16, units="mV")
+        for (fmt, v, msg) in ((16, 40000, "write_record: signal 0 has a sample (40000) outside " *
+                                          "the range of format 16 (-32768 to 32767)"),
+                              (212, 3000, "write_record: signal 0 has a sample (3000) outside " *
+                                          "the range of format 212 (-2048 to 2047)"),
+                              (8, 200, "write_record: signal 0 changes by -199 between two " *
+                                       "samples, more than format 8 can store (-128 to 127)"))
+            @test hlerr(() -> W.write_record(w, "sc", reshape([v, 1], 2, 1), 250; fmt, G...)) ==
+                  msg
+            @test !isfile("sc.hea") && !isfile("sc.dat")
+        end
+        @test hlerr(() -> W.write_record_physical(w, "sc", reshape([NaN, 0.0], 2, 1), 250;
+                                                  fmt=8, G...)) ==
+              "write_record: signal 0 has an invalid sample, which format 8 cannot store"
+        @test hlerr(() -> W.write_record(w, "sc", zeros(Int, 5, 12), 250; fmt=516, G...)) ==
+              "write_record: format 516 (FLAC) stores at most 8 signals in a file; the " *
+              "record has 12"
+        @test !isfile("sc.hea") && !isfile("sc.dat")
+        @test_logs W.write_record(w, "sc", zeros(Int, 5, 8), 250; fmt=516, G...)
+        # (a multi-frequency signal: its samples in order, frame after frame)
+        @test hlerr(() -> W.write_record(w, "sc", [0 200 0; 0 200 0], 250; fmt=8,
+                                         samps_per_frame=[2, 1], G...)) ==
+              "write_record: signal 0 changes by 200 between two samples, more than format 8 " *
+              "can store (-128 to 127)"
+        # a sample that will be read back as invalid: a warning (none for the
+        # NaN samples of physical units, nor with invalid_warning=false)
+        @test_logs (:warn, "1 sample(s) of signal 0 will be read back as invalid (missing) " *
+                           "samples (format 212 stores an invalid sample as -2048)") #=
+            =# W.write_record(w, "sc", reshape([-2048, 0], 2, 1), 250; fmt=212, G...)
+        @test_logs W.write_record(w, "sc", reshape([-32768, 0], 2, 1), 250; fmt=16,
+                                  invalid_warning=false, G...)
+        @test_logs W.write_record_physical(w, "sc", reshape([NaN, 0.0], 2, 1), 250; fmt=16,
+                                           G...)
+        @test vec(W.read_record(w, "sc").samples) == [-32768, 0]
     end
 end
 

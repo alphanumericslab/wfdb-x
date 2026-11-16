@@ -66,6 +66,22 @@ def readfile(name):
 # ---------------------------------------------------------------------------
 # t_version
 
+def test_tools_write_to_text_streams(datadir):
+    # a tool run in the process writes to sys.stdout even when it is a text
+    # stream without a binary buffer (contextlib.redirect_stdout with an
+    # io.StringIO), as Latin-1 text (1.2.3: a TypeError)
+    import contextlib
+    import io
+    from wfdbx.apps import rdsamp, wfdbcat
+    s = io.StringIO()
+    with contextlib.redirect_stdout(s):
+        assert rdsamp.main(["rdsamp", "-r", "100s", "-t", "s2"]) == 0
+        assert wfdbcat.main(["wfdbcat", "100s.hea"]) == 0
+    out = s.getvalue()
+    assert out.startswith("              0\t    995\t   1011\n")
+    assert "100s 2 360 21600" in out
+
+
 def test_version_and_errors(datadir):
     # wfdbversion, wfdbdefwfdb, wfdbldflags and wfdbcflags depend on how the
     # C library was built (with configure); WFDB-x gives the values of a

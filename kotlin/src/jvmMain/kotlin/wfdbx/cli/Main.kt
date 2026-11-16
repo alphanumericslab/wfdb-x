@@ -81,7 +81,7 @@ fun main(args: Array<String>) {
             exit(0)
         }
         "--version" -> {
-            Stdout.write("WFDB-x 1.2.2\n")
+            Stdout.write("WFDB-x 1.2.3\n")
             exit(0)
         }
     }

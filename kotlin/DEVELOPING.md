@@ -30,7 +30,7 @@ the high-level API.
   Kotlin plugin); the POM lists LGPL-2.1-or-later, GPL-3.0-or-later and
   BSD-3-Clause (the FLAC decoder, translated from libFLAC). Check with
   `unzip -l build/libs/wfdbx-all.jar | grep META-INF`.
-* Coordinates: `io.github.alphanumericslab:wfdbx:1.2.2`; Kotlin package
+* Coordinates: `io.github.alphanumericslab:wfdbx:1.2.3`; Kotlin package
   `wfdbx` (`wfdbx.cstd` for the C standard library emulation; `wfdbx.apps`
   for the tools and `wfdbx.cli` for the launcher's `main`).
 

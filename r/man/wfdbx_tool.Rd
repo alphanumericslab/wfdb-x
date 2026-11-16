@@ -35,10 +35,15 @@ wfdbx_tools()
   (units).
 
   The output of a tool goes directly to the standard output and error of
-  the R process.  It appears in a terminal, but \code{sink} and
-  \code{capture.output} do not capture it, and a graphical console may
-  not show it.  To capture the output, run the tool in a separate process
-  with the driver script installed with the package:
+  the R process, in binary.  It appears in a terminal, but a graphical
+  console may not show it.  While the standard output of R is diverted
+  by \code{sink} or \code{capture.output}, the standard output of the
+  tool goes there instead, as Latin-1 text (one character per byte; NUL
+  bytes, which an R string cannot hold, are lost; until WFDB-x 1.2.3 it
+  went past the diversion).  The standard error of the tool still goes to
+  that of the process.  To capture the output byte for byte, run the tool
+  in a separate process with the driver script installed with the
+  package:
   \preformatted{Rscript <library>/wfdbx/bin/wfdbx.R TOOL [ARGUMENTS ...]
 Rscript <library>/wfdbx/bin/wfdbx.R --list}
   where \code{system.file("bin", "wfdbx.R", package = "wfdbx")} gives

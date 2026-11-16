@@ -533,6 +533,72 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
   rec
 }))))
 
+# WFDB-x (1.2.3): the samples that a storage format can hold.  For each
+# format, the number of bits of a sample: its range is -2^(bits-1) to
+# 2^(bits-1) - 1, and its smallest value is the value of an invalid
+# (missing) sample, to which putvec also writes WFDB_INVALID_SAMPLE.  Format 8
+# stores the difference between consecutive samples (-128 to 127), and has
+# no invalid value; format 0 stores nothing.  A FLAC file holds at most 8
+# signals.
+.HL_FMT_BITS <- c("80" = 8, "508" = 8, "16" = 16, "61" = 16, "160" = 16, "516" = 16,
+                  "212" = 12, "310" = 10, "311" = 10, "24" = 24, "524" = 24, "32" = 32)
+.HL_FLAC_FMTS <- c(508, 516, 524)
+.HL_FLAC_MAX_SIGNALS <- 8
+
+# WFDB-x (1.2.3): check that the samples x (one column per sample of a frame,
+# in ADC units; spf: the samples per frame of each signal) can be stored in
+# format fmt, before any file is written: an error for a sample outside the
+# range of the format, for a difference between consecutive samples beyond
+# what format 8 stores, for an invalid sample in format 8, and for more than
+# 8 signals in a FLAC file; a warning (unless invalid_warning is FALSE) for
+# the samples that will be read back as invalid (missing) samples, other
+# than the NA samples of physical units (gaps: TRUE where the sample was
+# NA; NULL for ADC units).  putvec wraps the samples outside the range of
+# the format around, and clips the differences of format 8, without an
+# error.
+.hl_check_storage <- function(x, spf, fmt, gaps, invalid_warning) {
+  nsig <- length(spf)
+  fmt <- as.numeric(fmt)
+  if (fmt %in% .HL_FLAC_FMTS && nsig > .HL_FLAC_MAX_SIGNALS)
+    stop(sprintf("format %.0f (FLAC) stores at most %d signals in a file; the record has %d",
+                 fmt, .HL_FLAC_MAX_SIGNALS, nsig), call. = FALSE)
+  bits <- .HL_FMT_BITS[sprintf("%.0f", fmt)]
+  if (fmt != 8 && is.na(bits)) return(invisible())
+  first <- 0
+  for (k in seq_len(nsig)) {
+    cols <- first + seq_len(spf[k])
+    first <- first + spf[k]
+    # (the samples of signal k, in order: its columns of each frame, frame
+    # after frame)
+    v <- as.vector(t(x[, cols, drop = FALSE]))
+    marker <- v == WFDB_INVALID_SAMPLE
+    if (fmt == 8) {
+      if (any(marker))
+        stop(sprintf("signal %d has an invalid sample, which format 8 cannot store", k - 1L),
+             call. = FALSE)
+      d <- diff(v)
+      bad <- d < -128 | d > 127
+      if (any(bad))
+        stop(sprintf("signal %d changes by %.0f between two samples, more than format 8 can store (-128 to 127)",
+                     k - 1L, d[bad][1L]), call. = FALSE)
+      next
+    }
+    lo <- -2^(bits - 1)
+    hi <- 2^(bits - 1) - 1
+    out <- !marker & (v < lo | v > hi)
+    if (any(out))
+      stop(sprintf("signal %d has a sample (%.0f) outside the range of format %.0f (%.0f to %.0f)",
+                   k - 1L, v[out][1L], fmt, lo, hi), call. = FALSE)
+    invalid <- marker | v == lo
+    if (!is.null(gaps)) invalid <- invalid & !as.vector(t(gaps[, cols, drop = FALSE]))
+    n <- sum(invalid)
+    if (n > 0 && isTRUE(invalid_warning))
+      warning(sprintf("%d sample(s) of signal %d will be read back as invalid (missing) samples (format %.0f stores an invalid sample as %.0f)",
+                      n, k - 1L, fmt, lo), call. = FALSE)
+  }
+  invisible()
+}
+
 #' Write signals (and a header) as record `record`.
 #'
 #' signals: a matrix (one row per sample, one column per signal) of ADC
@@ -580,6 +646,25 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' this call only; record must then be a plain name, without a directory,
 #' and the record opens from that directory under its plain name.  (WFDB-x)
 #'
+#' fmt: the storage format (one value, or one per signal, all equal).
+#' Every sample must fit it (WFDB-x 1.2.3, checked before any file is
+#' created, see .hl_check_storage): a sample outside the range of the
+#' format is an error ("signal K has a sample (V) outside the range of
+#' format F (LO to HI)"); in format 8, so are a difference between
+#' consecutive samples beyond -128 to 127 ("signal K changes by D between
+#' two samples, more than format 8 can store (-128 to 127)") and an invalid
+#' sample ("signal K has an invalid sample, which format 8 cannot store");
+#' a FLAC file holds at most 8 signals ("format F (FLAC) stores at most 8
+#' signals in a file; the record has N").  Until 1.2.3, putvec wrapped such
+#' samples around without an error.
+#'
+#' invalid_warning: if TRUE (the default), warn (warning(): "N sample(s)
+#' of signal K will be read back as invalid (missing) samples (format F
+#' stores an invalid sample as LO)") for the samples that will be read back
+#' as invalid: those equal to WFDB_INVALID_SAMPLE or to the smallest value
+#' of the format, other than the NA samples of physical units (deliberate
+#' gaps).  (WFDB-x 1.2.3)
+#'
 #' legacy: if TRUE, behave as the original package (default gains of 200
 #' adu/mV, ADC resolutions based on the format, no units required), with the
 #' library's legacy mode on for the duration of the call.  Kept for
@@ -598,7 +683,8 @@ read_record <- function(record, channels = NULL, sampfrom = 0, sampto = NULL,
 #' order: the record name, the dimensions of signals, samps_per_frame and
 #' the per-signal lengths, the gains, the ADC resolutions, the units, fs,
 #' base_time, the ADC values, the signal names and units, the samples, the
-#' format, the comments, the metadata).  The files are written to
+#' format, the storage of the samples in the format (1.2.3), the comments,
+#' the metadata).  The files are written to
 #' temporary files (created owner-only) in the directories of their
 #' destinations, which replace the existing files only when both are
 #' complete (see .staging_begin), so that an error leaves the existing
@@ -610,7 +696,8 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
                          adczeros = 0, adcres = NULL, units = NULL, names = NULL,
                          base_time = NULL, comments = NULL, physical = FALSE,
                          samps_per_frame = NULL, dir = NULL,
-                         legacy = FALSE, metadata = NULL) .hl_keep_settings(.hl_legacy(legacy, .hl_output_dir(record, dir, {
+                         legacy = FALSE, metadata = NULL,
+                         invalid_warning = TRUE) .hl_keep_settings(.hl_legacy(legacy, .hl_output_dir(record, dir, {
   if (!is.character(record) || length(record) != 1L || is.na(record) || !nzchar(record))
     stop("record name must not be empty")
   # WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
@@ -698,7 +785,9 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
     .hl_check_latin1(names_[[k]], "signal name")
     .hl_check_latin1(units_[[k]], "units")
   }
+  gaps <- NULL           # (physical units: the NA samples, written as invalid)
   if (physical) {
+    gaps <- is.na(x)
     c <- 0
     for (k in seq_len(nsig)) {
       g <- gains_[k]
@@ -730,6 +819,8 @@ write_record <- function(record, signals, fs, fmt = 16, gains, baselines = NULL,
   }
   if (length(unique(fmts)) > 1L)
     stop("all signals of a record written by write_record must have the same format")
+  # WFDB-x (1.2.3): the samples must fit the storage format
+  .hl_check_storage(x, spf, fmts[1L], gaps, invalid_warning)
   si <- lapply(seq_len(nsig), function(k) {
     siginfo(fname = paste0(record, ".dat"),
             desc = if (!is.null(names_[[k]])) as.character(names_[[k]]) else "",

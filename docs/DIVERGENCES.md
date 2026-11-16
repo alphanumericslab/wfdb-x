@@ -141,6 +141,14 @@ every language):
   resolutions, and the units of the calibrated signals; there are no
   defaults. A gain of 0 declares a signal uncalibrated, which is allowed
   only for samples given in ADC units.
+* `write_record` refuses samples that the storage format cannot hold (out
+  of its range; in format 8, a step beyond -128..127, or an invalid
+  sample), and more than 8 signals in a FLAC format, before any file is
+  written; `putvec` (the C-style function, as in C) wraps such samples
+  around or clips them. It warns about samples that will be read back as
+  invalid (equal to the smallest value of the format or to
+  `WFDB_INVALID_SAMPLE`), unless they were NaN in physical units or
+  `invalid_warning` is false (since 1.2.3).
 * `read_record` reports an unspecified frequency as 0 and fails for time
   strings that need it; with physical units, it fails if a selected signal
   is uncalibrated. Unspecified ADC resolutions are reported as 0 and

@@ -267,7 +267,7 @@ class FastPathTest {
                     }
                 }
                 w.writeRecord("p", x, nsig, 250.0, fmt = fmt, gains = DoubleArray(nsig) { 200.0 + it }, adcres = intArrayOf(12),
-                    units = listOf("mV"), sampsPerFrame = spf)
+                    units = listOf("mV"), sampsPerFrame = spf, invalidWarning = false)
                 val lengths = listOf<Long?>(n.toLong(), n / 2L, n - 1L, 1, 0, n + 1000L, null)
                 for (len in lengths) {
                     setLength(d, "p", len)
@@ -297,7 +297,7 @@ class FastPathTest {
             x[0] = WFDB_INVALID_SAMPLE
             x[x.size - 1] = WFDB_INVALID_SAMPLE
             w.writeRecord("ph", x, 3, 360.0, fmt = 212, gains = doubleArrayOf(200.0, 1.7, 1e-3), baselines = intArrayOf(5, -1000, 0),
-                adcres = intArrayOf(12), units = listOf("mV"), names = listOf("a", "b", "c"))
+                adcres = intArrayOf(12), units = listOf("mV"), names = listOf("a", "b", "c"), invalidWarning = false)
             val recs = listOf("ph") + listFiles(d.dir).filter { it.endsWith(".hea") }.map { it.removeSuffix(".hea") }
                 .filter { it != "8" && it != "16" }.sorted()
             var checked = 0

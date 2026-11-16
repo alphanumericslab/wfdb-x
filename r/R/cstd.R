@@ -1357,6 +1357,16 @@ csprintf_v <- function(fmt, ...) {
 .write_stdout <- function(b) {
   st <- .cstd
   if (st$stdout_failed) return(invisible())
+  # WFDB-x (1.2.3): while R's standard output is diverted (sink(), as by
+  # capture.output()), the bytes are written there, as Latin-1 text (one
+  # character per byte; NUL bytes, which an R string cannot hold, are
+  # lost); they were written to the file descriptor, past the diversion.
+  if (sink.number() > 0L) {
+    s <- rawToChar(b[b != as.raw(0L)])
+    if (isTRUE(l10n_info()[["UTF-8"]])) Encoding(s) <- "latin1"
+    cat(s)
+    return(invisible())
+  }
   con <- if (isFALSE(st$out_con)) FALSE else .open_std(1L)
   if (isFALSE(con)) {
     st$out_con <- FALSE

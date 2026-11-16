@@ -702,6 +702,31 @@ end
         # The standard input.
         st, out, err = W.run_tool("wfdbcat", ["-"]; stdin=UInt8[0x00, 0xff, 0x41], dir=d)
         @test st == 0 && out == UInt8[0x00, 0xff, 0x41]
+        # A tool run in the process by the driver writes to the standard
+        # output as redirected by redirect_stdout (here, to a file), and
+        # run_tool captures it there too (checked for 1.2.3: no error).
+        # (with a library state and process state of their own, restored
+        # afterwards, as run_tool does)
+        saved_lib, saved_proc = W._LIB[], W._PROC[]
+        W._LIB[] = W.WfdbLib()
+        W._PROC[] = W.CProc()
+        mktemp() do path, io
+            st = cd(d) do
+                withenv(env...) do
+                    redirect_stdout(io) do
+                        (W.main_cli(["rdsamp", "-r", "100s", "-t", "s2"]),
+                         W.main_cli(["wfdbcat", "100s.hea"]),
+                         W.run_tool("rdsamp", ["-r", "100s", "-t", "s1"])[1:2])
+                    end
+                end
+            end
+            close(io)
+            out = read(path, String)
+            @test st == (0, 0, (0, b"              0\t    995\t   1011\n"))
+            @test startswith(out, "              0\t    995\t   1011\n")
+            @test occursin("100s 2 360 21600", out)
+        end
+        W._LIB[], W._PROC[] = saved_lib, saved_proc
         rm(d; recursive=true)
     end
     @test "wfdbwhich" in W.tools()

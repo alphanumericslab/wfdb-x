@@ -244,12 +244,16 @@ class BulkTest {
         val cols = spf.sum()
         val x = IntArray(n * cols)
         if (fmt == 8) {
-            for (c in 0 until cols) {
+            // (format 8 stores the difference between consecutive samples of
+            // a signal, which alternate between its columns of a frame)
+            var first = 0
+            for (k in spf.indices) {
                 var v = 0L
-                for (i in 0 until n) {
+                for (j in 0 until n * spf[k]) {
                     v += rng.range(-60, 60)
-                    x[i * cols + c] = v.toInt()
+                    x[(j / spf[k]) * cols + first + j % spf[k]] = v.toInt()
                 }
+                first += spf[k]
             }
         } else {
             val (lo, hi) = range(fmt)
@@ -259,7 +263,7 @@ class BulkTest {
         }
         w.writeRecord(
             name, x, spf.size, 250.0, fmt = fmt, gains = gains, adcres = intArrayOf(16), units = listOf("mV"),
-            names = names, sampsPerFrame = spf,
+            names = names, sampsPerFrame = spf, invalidWarning = false,
         )
     }
 

@@ -83,7 +83,7 @@ To use the installed library from a CMake project, add these lines to its
 `CMakeLists.txt`:
 
 ```cmake
-find_package(wfdbx 1.2.2 CONFIG REQUIRED)
+find_package(wfdbx 1.2.3 CONFIG REQUIRED)
 target_link_libraries(myprogram PRIVATE wfdbx::wfdbx)
 ```
 
@@ -306,7 +306,8 @@ per-signal fields, the gains, the ADC resolutions (each at least 1: "ADC
 resolution(s) must be specified"), the units, the gains of a record in
 physical units, the sampling frequency, the finiteness of the gains, the
 base time, the samples (whole frames, and, for `write_record_physical`,
-values that fit in an ADC value), and the metadata. The ADC resolutions,
+values that fit in an ADC value), whether the samples fit the storage
+format, and the metadata. The ADC resolutions,
 zeros and baselines are `int`s, and the text is bytes, so that any value of
 these types can be written. Existing files of the same names are replaced:
 the header and the signal file are written to temporary files in their
@@ -320,7 +321,7 @@ FIFO) is written directly.
 
 | Field of `WriteOptions` | Meaning |
 |---|---|
-| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
+| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16. The samples must fit it (see below); a FLAC file holds at most 8 signals |
 | `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
@@ -328,6 +329,7 @@ FIFO) is written directly.
 | `samps_per_frame` | samples per frame of each signal, for a multi-frequency record |
 | `dir` | directory (which must exist) in which to create the files, for this call only; the record name must then be a plain name, without a directory |
 | `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) |
+| `invalid_warning` | warn about the samples that will be read back as invalid (missing) samples (default `true`; see below) |
 
 ### Writing annotations: `write_annotations`
 
@@ -499,8 +501,29 @@ text, exactly as given, and does not de-identify it. The comments of
   least one signal is required"), if an ADC resolution is missing or less
   than 1 ("write_record: ADC resolution(s) must be specified"), if
   `base_time` is not a valid time ("write_record: incorrect base time
-  'T'"), if the number of samples is not a multiple of the frame size, or
-  if an entry of `metadata` is not valid (`wfdbx::ArgumentError`).
+  'T'"), if the number of samples is not a multiple of the frame size, if
+  the samples do not fit the storage format, or if an entry of `metadata`
+  is not valid (`wfdbx::ArgumentError`). The samples of each signal are
+  checked in order (for a multi-frequency signal, its samples of each
+  frame, frame after frame): a FLAC format (508, 516, 524) holds at most 8
+  signals ("write_record: format 516 (FLAC) stores at most 8 signals in a
+  file; the record has 12"); format 8 stores the difference between
+  consecutive samples, from -128 to 127, and no invalid sample
+  ("write_record: signal K changes by D between two samples, more than
+  format 8 can store (-128 to 127)", "write_record: signal K has an invalid
+  sample, which format 8 cannot store"); the other formats, except 0,
+  store their range of bits, such as -2048 to 2047 for format 212
+  ("write_record: signal K has a sample (V) outside the range of format F
+  (LO to HI)"; `WFDB_INVALID_SAMPLE` is always accepted). Before WFDB-x
+  1.2.3, `putvec` wrapped such samples around without an error.
+* A sample equal to the smallest value of its format, or to
+  `WFDB_INVALID_SAMPLE`, is read back as an invalid (missing) sample:
+  `write_record` and `write_record_physical` then print a warning on the
+  standard error, "WFDB-x: N sample(s) of signal K will be read back as
+  invalid (missing) samples (format F stores an invalid sample as LO)"
+  (the NaN samples of `write_record_physical` are not counted: they mark
+  missing samples deliberately). `invalid_warning = false` turns the
+  warning off.
   `write_record_physical` also throws if a sample is infinite or out of the
   range of a 32-bit ADC value (NaN is stored as an invalid sample). Nothing
   is written then, and the existing files are left as they were (see the

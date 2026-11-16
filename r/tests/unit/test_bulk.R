@@ -85,8 +85,10 @@ if (.mode == "source") {
   mf_record <- function(name, fmt, spf, n, gains = 200, names = NULL) {
     cols <- sum(spf)
     if (fmt == 8) {
-      x <- apply(matrix(sample.int(121, n * cols, replace = TRUE) - 61, n, cols), 2, cumsum)
-      x <- matrix(x, n, cols)
+      # (format 8 stores the difference between consecutive samples of a
+      # signal, which alternate between its columns of a frame)
+      x <- do.call(cbind, lapply(spf, function(k)
+        matrix(cumsum(sample.int(121, n * k, replace = TRUE) - 61), n, k, byrow = TRUE)))
     } else {
       hi <- ranges[[as.character(fmt)]]
       x <- matrix(floor(runif(n * cols, -hi + 1, hi + 1)), n, cols)
@@ -94,7 +96,7 @@ if (.mode == "source") {
       x[1:2, 1] <- WFDB_INVALID_SAMPLE
     }
     write_record(name, x, 250, fmt = fmt, gains = gains, adcres = 16, units = "mV",
-                 samps_per_frame = spf, names = names)
+                 samps_per_frame = spf, names = names, invalid_warning = FALSE)
     x
   }
   modes <- list(list(), list(pad = TRUE), list(highres = TRUE),
@@ -225,7 +227,7 @@ if (.mode == "source") {
       }
     }
     write_record(name, x, 250, fmt = fmt, gains = gains, baselines = baselines,
-                 adcres = 16, units = "mV")
+                 adcres = 16, units = "mV", invalid_warning = FALSE)
     x
   }
   sf_modes <- list(list(), list(pad = TRUE), list(sampfrom = 7, sampto = 1301))

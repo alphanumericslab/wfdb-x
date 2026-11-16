@@ -962,19 +962,55 @@ def _spr2(record, ftype):
     return record + "." if ftype == "" else record + "." + ftype[:3]
 
 
+class _TextAsBytes:
+    """WFDB-x (1.2.3): the binary view of a text stream that has none (an
+    io.StringIO, as installed by contextlib.redirect_stdout): the bytes
+    written are decoded as Latin-1, one character per byte, as all text in
+    wfdbx."""
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, data):
+        self.stream.write(bytes(data).decode("latin-1"))
+        return len(data)
+
+    def flush(self):
+        self.stream.flush()
+
+
+def _binary_stream(stream, read=False):
+    """The binary stream under a standard stream: its buffer, or, for a
+    text stream without one (such as io.StringIO), a binary view of it
+    (WFDB-x, 1.2.3: the tools wrote bytes to it, and failed with a
+    TypeError)."""
+    b = getattr(stream, "buffer", None)
+    if b is not None:
+        return b
+    if read:
+        return io.BytesIO(stream.read().encode("latin-1"))
+    return _TextAsBytes(stream)
+
+
 _stdin_file = None
 _stdout_file = None
+_std_sources = [None, None]     # the streams of _stdin_file and _stdout_file
 
 
 def _std_stream(read):
+    """The WFDBFile of the standard input or output (the record name
+    "-"), made again when sys.stdin or sys.stdout has been replaced."""
     global _stdin_file, _stdout_file
     if read:
-        if _stdin_file is None:
-            _stdin_file = WFDBFile(sys.stdin.buffer, WFDB_LOCAL, "-", True)
+        if _stdin_file is None or _std_sources[0] is not sys.stdin:
+            _std_sources[0] = sys.stdin
+            _stdin_file = WFDBFile(_binary_stream(sys.stdin, True),
+                                   WFDB_LOCAL, "-", True)
         return _stdin_file
-    if _stdout_file is None:
-        _stdout_file = WFDBFile(sys.stdout.buffer, WFDB_LOCAL, "-", True,
-                                out=True)
+    if _stdout_file is None or _std_sources[1] is not sys.stdout:
+        _std_sources[1] = sys.stdout
+        _stdout_file = WFDBFile(_binary_stream(sys.stdout), WFDB_LOCAL, "-",
+                                True, out=True)
     return _stdout_file
 
 

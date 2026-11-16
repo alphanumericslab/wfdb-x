@@ -328,12 +328,20 @@ fn mf_record(
     let cols: usize = spf.iter().map(|&k| k as usize).sum();
     let mut x = vec![0i32; n * cols];
     if fmt == 8 {
-        for c in 0..cols {
+        // (format 8 stores the difference between consecutive samples of a
+        // signal, which alternate between its columns of a frame: each
+        // signal is one sequence)
+        let mut first = 0;
+        for &k in spf {
+            let k = k as usize;
             let mut v = 0i64;
             for i in 0..n {
-                v += rng.range(-60, 60);
-                x[i * cols + c] = v as i32;
+                for j in 0..k {
+                    v += rng.range(-60, 60);
+                    x[i * cols + first + j] = v as i32;
+                }
             }
+            first += k;
         }
     } else {
         let (lo, hi) = range(fmt);
@@ -356,6 +364,7 @@ fn mf_record(
         samps_per_frame: spf.to_vec(),
         names: names.iter().map(|s| s.as_bytes().to_vec()).collect(),
         dir: Some(dir.to_path_buf()),
+        invalid_warning: false,
         ..Default::default()
     };
     w.write_record(name, &x, spf.len(), 250.0, &opt).unwrap();

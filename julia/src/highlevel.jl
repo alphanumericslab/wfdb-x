@@ -1170,11 +1170,93 @@ function _with_staging(f::Function, w::Wfdb)
     complete
 end
 
+# WFDB-x (1.2.3): the samples that a storage format can hold. For each
+# format, the number of bits of a sample: its range is -2^(bits-1) to
+# 2^(bits-1) - 1, and its smallest value is the value of an invalid
+# (missing) sample, to which putvec also writes WFDB_INVALID_SAMPLE. Format 8
+# stores the difference between consecutive samples (-128 to 127), and has
+# no invalid value; format 0 stores nothing. A FLAC file holds at most 8
+# signals.
+const _FMT_BITS = Dict{Int,Int}(80 => 8, 508 => 8, 16 => 16, 61 => 16, 160 => 16, 516 => 16,
+                                212 => 12, 310 => 10, 311 => 10, 24 => 24, 524 => 24, 32 => 32)
+const _FLAC_FMTS = (508, 516, 524)
+const _FLAC_MAX_SIGNALS = 8
+
+# WFDB-x (1.2.3): check that the samples `frames` (one column per sample of
+# a frame, in ADC units; `spf`: the samples per frame of each signal) can
+# be stored in format `fmt`, before any file is written: a WfdbError for a
+# sample outside the range of the format, for a difference between
+# consecutive samples beyond what format 8 stores, for an invalid sample in
+# format 8, and for more than 8 signals in a FLAC file; a warning (unless
+# `invalid_warning` is false) for the samples that will be read back as
+# invalid (missing) samples, other than the NaN samples of physical units
+# (`gaps`: true where the sample was NaN; `nothing` for ADC units). putvec
+# wraps the samples outside the range of the format around, and clips the
+# differences of format 8, without an error.
+function _check_storage(frames::AbstractMatrix{<:Integer}, spf::Vector{Int}, fmt::Integer,
+                        gaps::Union{Nothing,AbstractMatrix{Bool}}, invalid_warning::Bool)
+    nsig = length(spf)
+    if fmt in _FLAC_FMTS && nsig > _FLAC_MAX_SIGNALS
+        throw(WfdbError("write_record: format $fmt (FLAC) stores at most " *
+                        "$_FLAC_MAX_SIGNALS signals in a file; the record has $nsig"))
+    end
+    bits = get(_FMT_BITS, Int(fmt), 0)
+    (fmt == 8 || bits > 0) || return nothing
+    lo = bits > 0 ? -(Int64(1) << (bits - 1)) : Int64(0)
+    hi = bits > 0 ? (Int64(1) << (bits - 1)) - 1 : Int64(0)
+    nf = size(frames, 1)
+    first = 0
+    for k in 1:nsig
+        cols = first+1:first+spf[k]
+        first += spf[k]
+        s = k - 1
+        prev = Int64(0)
+        n = 0
+        started = false
+        # (the samples of signal k, in order: its columns of each frame,
+        # frame after frame)
+        for i in 1:nf, c in cols
+            v = Int64(frames[i, c])
+            marker = v == WFDB_INVALID_SAMPLE
+            if fmt == 8
+                marker && throw(WfdbError("write_record: signal $s has an invalid " *
+                                          "sample, which format 8 cannot store"))
+                if started
+                    d = v - prev
+                    (-128 <= d <= 127) ||
+                        throw(WfdbError("write_record: signal $s changes by $d between " *
+                                        "two samples, more than format 8 can store " *
+                                        "(-128 to 127)"))
+                end
+                prev = v
+                started = true
+                continue
+            end
+            (!marker && (v < lo || v > hi)) &&
+                throw(WfdbError("write_record: signal $s has a sample ($v) outside the " *
+                                "range of format $fmt ($lo to $hi)"))
+            if (marker || v == lo) && (gaps === nothing || !gaps[i, c])
+                n += 1
+            end
+        end
+        if n > 0 && invalid_warning
+            @warn "$n sample(s) of signal $s will be read back as invalid (missing) " *
+                  "samples (format $fmt stores an invalid sample as $lo)"
+        end
+    end
+    nothing
+end
+
 # Write the record (the arguments checked by _check_write_args).
 function _write_adc(w::Wfdb, record::ByteStr, frames::AbstractMatrix{<:Integer}, fs::Real;
                     nsig::Integer, fmt::Integer, gains, baselines, adczeros, adcres, units,
-                    names, samps_per_frame, base_time, comments, metadata, legacy::Bool)
+                    names, samps_per_frame, base_time, comments, metadata, legacy::Bool,
+                    invalid_warning::Bool=true, gaps=nothing)
     _check_int32(frames)
+    # WFDB-x (1.2.3): the samples must fit the storage format
+    spf = Int[max(Int(_per_signal(samps_per_frame, k, 1)), 1) for k in 1:nsig]
+    sum(spf) == size(frames, 2) &&
+        _check_storage(frames, spf, fmt, gaps, invalid_warning)
     rec = copy(cstr(bytes(record)))
     infos = Vector{UInt8}[copy(bytes(c)) for c in comments]
     # WFDB-x: the metadata entries, written after the comments (checked
@@ -1254,7 +1336,8 @@ end
     write_record([w::Wfdb], record, samples::AbstractMatrix{<:Integer}, fs;
                  gains, adcres, units, fmt=16, baselines=nothing, adczeros=0,
                  names=nothing, samps_per_frame=nothing, base_time=nothing,
-                 comments=(), metadata=nothing, dir=nothing, legacy=false)
+                 comments=(), metadata=nothing, dir=nothing, legacy=false,
+                 invalid_warning=true)
 
 Write a record: the header `RECORD.hea` and the signal file `RECORD.dat`.
 Existing files are overwritten. Returns `nothing`.
@@ -1287,7 +1370,13 @@ must lie within the range of `Int32`.
 - `units` (required unless the gain is 0): the physical units, such as
   `"mV"`.
 - `fmt`: the storage format, such as 16, 212, 24 or 516 (FLAC), for all
-  signals. The default is 16.
+  signals. The default is 16. Every sample must fit the format: within
+  its range (-2048 to 2047 for format 212, for example), and, in format 8,
+  within -128 to 127 of the sample before it (format 8 has no invalid
+  value). The smallest value of a format is the value of an invalid
+  (missing) sample: a sample equal to it, or to `WFDB_INVALID_SAMPLE`, is
+  read back as invalid (see `invalid_warning`). A FLAC file holds at most
+  8 signals.
 - `baselines`: the ADC value of 0 physical units. The default is the
   signal's `adczero`.
 - `adczeros`: the ADC value of 0 volts. The default is 0.
@@ -1307,6 +1396,13 @@ must lie within the range of `Int32`.
   as given, without de-identification.
 $_DIR_DOC
 $_LEGACY_DOC
+- `invalid_warning`: `true`, the default, logs a warning (`@warn`) when
+  samples will be read back as invalid (missing) samples ("N sample(s) of
+  signal K will be read back as invalid (missing) samples (format F stores
+  an invalid sample as V)"): those equal to the invalid value of the
+  format or to `WFDB_INVALID_SAMPLE`, other than the `NaN` samples of
+  [`write_record_physical`](@ref), which mark missing samples
+  deliberately. `false`: no warning, when such samples are deliberate.
 
 Throws a [`WfdbError`](@ref) if:
 - `record` is empty (`"write_record: the record name must not be empty"`);
@@ -1331,6 +1427,15 @@ Throws a [`WfdbError`](@ref) if:
   values);
 - a sample lies outside the range of `Int32` (`"write_record: samples in
   ADC units must be within the range of a 32-bit integer"`);
+- a sample does not fit the storage format (`"write_record: signal K has a
+  sample (V) outside the range of format F (LO to HI)"`; in format 8,
+  `"write_record: signal K changes by D between two samples, more than
+  format 8 can store (-128 to 127)"` or `"write_record: signal K has an
+  invalid sample, which format 8 cannot store"`), or a FLAC format is
+  given for more than 8 signals (`"write_record: format 516 (FLAC) stores
+  at most 8 signals in a file; the record has 12"`). Until WFDB-x 1.2.3,
+  such samples were wrapped around without an error (40000 read back as
+  -25536 in format 16);
 - a file cannot be created, or cannot be written completely (for example,
   when the disk is full: `"write error on record R"`);
 - `dir` does not exist, or `record` contains a directory and `dir` is given;
@@ -1369,7 +1474,7 @@ function write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Intege
                       fmt::Integer=16, gains=nothing, baselines=nothing, adczeros=0,
                       adcres=nothing, units=nothing, names=nothing, samps_per_frame=nothing,
                       base_time=nothing, comments=(), metadata=nothing, dir=nothing,
-                      legacy::Bool=false)
+                      legacy::Bool=false, invalid_warning::Bool=true)
     # WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
     record = wfdb_striphea(record)
     _check_samps_per_frame(samples, samps_per_frame)
@@ -1383,7 +1488,7 @@ function write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Intege
                                   baselines, adczeros, adcres, units, names, base_time)
                 _write_adc(w, record, samples, fs; nsig, fmt, gains, baselines, adczeros,
                            adcres, units, names, samps_per_frame, base_time, comments,
-                           metadata, legacy)
+                           metadata, legacy, invalid_warning)
             end
         end
     end
@@ -1398,7 +1503,8 @@ write_record(record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::Real; kw..
 Write a record as [`write_record`](@ref) does, from samples in physical
 units. Each value `v` is stored as `round(v * gain) + baseline`, with
 halfway cases rounded away from zero. `NaN` is stored as an invalid
-sample. The keyword arguments are those of `write_record`. Returns
+sample (not counted by the warning of `invalid_warning`). The keyword
+arguments are those of `write_record`, `invalid_warning` included. Returns
 `nothing`.
 
 Throws a [`WfdbError`](@ref) in the cases listed for `write_record`, if a
@@ -1427,7 +1533,8 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
                                fmt::Integer=16, gains=nothing, baselines=nothing,
                                adczeros=0, adcres=nothing, units=nothing, names=nothing,
                                samps_per_frame=nothing, base_time=nothing, comments=(),
-                               metadata=nothing, dir=nothing, legacy::Bool=false)
+                               metadata=nothing, dir=nothing, legacy::Bool=false,
+                               invalid_warning::Bool=true)
     # WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
     record = wfdb_striphea(record)
     _check_samps_per_frame(samples, samps_per_frame)
@@ -1438,14 +1545,15 @@ function write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix
             _with_legacy(w, legacy) do
                 _write_physical(w, record, samples, fs; fmt, gains, baselines, adczeros, adcres,
                                 units, names, samps_per_frame, base_time, comments, metadata,
-                                legacy)
+                                legacy, invalid_warning)
             end
         end
     end
 end
 function _write_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real;
                          fmt::Integer, gains, baselines, adczeros, adcres, units, names,
-                         samps_per_frame, base_time, comments, metadata, legacy::Bool)
+                         samps_per_frame, base_time, comments, metadata, legacy::Bool,
+                         invalid_warning::Bool)
     nsig = samps_per_frame isa AbstractVector ? length(samps_per_frame) : size(samples, 2)
     # WFDB-x: every argument is checked before any file is touched
     _check_write_args(w, record, nsig, fs, legacy; fmt, physical=true, gains, baselines,
@@ -1469,10 +1577,12 @@ function _write_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Rea
     size(samples, 2) == length(g) ||
         throw(WfdbError("write_record: the number of columns is not the frame size ($(length(g)))"))
     adc = Matrix{Int32}(undef, size(samples))
+    gaps = falses(size(samples))        # the NaN samples (invalid)
     for c in 1:size(samples, 2), i in 1:size(samples, 1)
         v = samples[i, c] * g[c]
         if isnan(v)
             adc[i, c] = WFDB_INVALID_SAMPLE
+            gaps[i, c] = true
             continue
         end
         r = (v >= 0.0 ? trunc(v + 0.5) : trunc(v - 0.5)) + b[c]
@@ -1484,7 +1594,7 @@ function _write_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Rea
         adc[i, c] = d2i(r)
     end
     _write_adc(w, record, adc, fs; nsig, fmt, gains, baselines, adczeros, adcres, units, names,
-               samps_per_frame, base_time, comments, metadata, legacy)
+               samps_per_frame, base_time, comments, metadata, legacy, invalid_warning, gaps)
 end
 write_record_physical(record::ByteStr, samples::AbstractMatrix{<:Real}, fs::Real; kw...) =
     write_record_physical(lib(), record, samples, fs; kw...)

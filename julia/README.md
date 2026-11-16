@@ -242,12 +242,27 @@ and `baselines`), also in legacy mode. Text (the record name, `names`,
 `units`, `comments`) is written to the header as its bytes: a `String` as
 its UTF-8 bytes, bytes as given.
 
+Every sample must fit the storage format: a sample outside its range
+("write_record: signal 0 has a sample (40000) outside the range of format
+16 (-32768 to 32767)"), in format 8 a sample more than 127 away from the
+sample before it, or an invalid sample (format 8 has no invalid value),
+and more than 8 signals in a FLAC format, which a FLAC file cannot hold,
+throw a `WfdbError` before any file is touched. (Until 1.2.3, such samples
+were silently wrapped around: 40000 read back as -25536.) The smallest
+value of a format (-32768 in format 16, -2048 in format 212) is the value
+of an invalid (missing) sample: samples equal to it, or to
+`WFDB_INVALID_SAMPLE`, are read back as invalid, and `write_record` logs a
+warning with `@warn` for them ("1 sample(s) of signal 0 will be read back
+as invalid (missing) samples (format 16 stores an invalid sample as
+-32768)"), except for the `NaN` samples of `write_record_physical`, which
+mark missing samples deliberately; `invalid_warning=false` omits it.
+
 | Argument | Meaning |
 |---|---|
 | `record` | record name (a trailing `.hea` is removed, as by the readers) |
 | `samples` | matrix with one row per sample and one column per signal: integers for `write_record`, physical values for `write_record_physical` |
 | `fs` | sampling frequency in Hz |
-| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
+| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC; at most 8 signals); default 16. Every sample must fit it (above) |
 | `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
@@ -255,6 +270,7 @@ its UTF-8 bytes, bytes as given.
 | `samps_per_frame` | samples per frame of each signal, for a multi-frequency record |
 | `dir` | existing directory in which to create the files |
 | `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) |
+| `invalid_warning` | `false`: no warning for the samples that will be read back as invalid; default `true` |
 
 ### Writing annotations: `write_annotations`
 
@@ -627,7 +643,7 @@ The tools have the options and output of the original WFDB tools, which are
 described in the *WFDB Applications Guide*
 ([`third_party/wag.pdf`](https://github.com/alphanumericslab/wfdb-x/tree/main/third_party)).
 `WFDBX.tools()` returns their names, and `wfdbx --version` prints the
-version of WFDB-x ("WFDB-x 1.2.2"):
+version of WFDB-x ("WFDB-x 1.2.3"):
 
 * signals: `rdsamp`, `wrsamp`, `wfdbdesc`, `sigamp`, `snip`, `xform`,
   `sampfreq`, `signame`, `signum`, `wfdbcat`, `wfdbwhich`

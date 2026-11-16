@@ -15,6 +15,7 @@ version. See LICENSE-GPL.
 import sys
 
 from .._cstd import sprintf, sscanf
+from .. import _wfdbio as wio
 from .._wfdbio import (wfdbx_write_errors, wfdbx_note_write_error,
                        wfdbx_output_path,
                        wfdbx_stdout_error, wfdbx_stdout_failed)
@@ -32,7 +33,9 @@ class Output:
     def __init__(self, stream=None):
         if stream is None:
             stream = sys.stdout
-        self.raw = getattr(stream, "buffer", stream)
+        # (a text stream without a binary buffer, such as io.StringIO, is
+        # written as Latin-1 text: WFDB-x, 1.2.3)
+        self.raw = wio._binary_stream(stream)
         self.parts = []
         self.size = 0
         self.chars = 0
@@ -110,7 +113,7 @@ class RawOutput:
     see run)."""
 
     def __init__(self):
-        self.raw = sys.stdout.buffer
+        self.raw = wio._binary_stream(sys.stdout)
 
     def write(self, data):
         write_stdout(self.raw, data)

@@ -21,7 +21,7 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
              adczeros = 0, adcres = NULL, units = NULL, names = NULL,
              base_time = NULL, comments = NULL, physical = FALSE,
              samps_per_frame = NULL, dir = NULL, legacy = FALSE,
-             metadata = NULL)
+             metadata = NULL, invalid_warning = TRUE)
 }
 \arguments{
   \item{record}{\code{read_record}, \code{read_header}: the record name, without the \code{.hea} extension (a
@@ -100,7 +100,13 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     multi-frequency record, this is the frame rate.}
   \item{fmt}{the storage format of the signal file, such as 16, 212 or
     516 (FLAC); see \code{\link{WFDB_FMT_LIST}}.  All signals have the
-    same format.}
+    same format.  Every sample must fit the format: within its range
+    (-2048 to 2047 for format 212, for example), and, in format 8, within
+    -128 to 127 of the sample before it (format 8 has no invalid value).
+    The smallest value of a format is the value of an invalid (missing)
+    sample: a sample equal to it, or to
+    \code{\link{WFDB_INVALID_SAMPLE}}, is read back as invalid (see
+    \code{invalid_warning}).  A FLAC file holds at most 8 signals.}
   \item{gains}{the gain of each signal, in ADC units per physical unit
     (finite; negative gains are allowed).  A gain of 0 marks a signal as uncalibrated.  This is only allowed when
     \code{signals} are in ADC units.}
@@ -142,6 +148,13 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
     files, for this call only.  \code{record} must then be a plain name,
     without a directory, and the record opens from that directory under
     its plain name.}
+  \item{invalid_warning}{if \code{TRUE}, the default, \code{write_record}
+    warns when samples will be read back as invalid (missing) samples:
+    those equal to the invalid value of the format or to
+    \code{\link{WFDB_INVALID_SAMPLE}}, other than the \code{NA} samples of
+    physical units, which mark missing samples deliberately.
+    \code{FALSE} turns the warning off, when such samples are
+    deliberate.}
 }
 \details{
   In \code{write_record}, you must give \code{fs}, \code{gains},
@@ -269,8 +282,15 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
       legacy mode too, \samp{adcres (adczeros, baselines) must be whole
       numbers within the range of a 32-bit integer}; \samp{signal name 'X'
       has a character that is not Latin-1 (one byte per character)} and
-      \samp{units 'X' ...}; the samples and the format; \samp{comment 'X'
-      ...}; and the metadata.  All the arguments are checked first, and
+      \samp{units 'X' ...}; the samples and the format; whether the
+      samples fit the format (WFDB-x 1.2.3: \samp{signal K has a sample
+      (V) outside the range of format F (LO to HI)}; in format 8,
+      \samp{signal K changes by D between two samples, more than format 8
+      can store (-128 to 127)} or \samp{signal K has an invalid sample,
+      which format 8 cannot store}; \samp{format 516 (FLAC) stores at most
+      8 signals in a file; the record has 12}; until 1.2.3, such samples
+      were wrapped around without an error, 40000 read back as -25536 in
+      format 16); \samp{comment 'X' ...}; and the metadata.  All the arguments are checked first, and
       no file is created or changed if one is invalid.  Whatever happens,
       \code{write_record} closes the output signals
       (\code{\link{wfdbquit}}) and removes its temporary files before it
@@ -287,6 +307,11 @@ write_record(record, signals, fs, fmt = 16, gains, baselines = NULL,
       \code{read_record} returns all of them and issues the warning
       \samp{checksum error in record REC: the signal data do not match the
       checksums in its header}.
+    \item When samples will be read back as invalid (missing) samples,
+      \code{write_record} issues the warning \samp{N sample(s) of signal K
+      will be read back as invalid (missing) samples (format F stores an
+      invalid sample as V)}, unless \code{invalid_warning} is
+      \code{FALSE} (see \code{invalid_warning}).
   }
 }
 \section{Origin}{

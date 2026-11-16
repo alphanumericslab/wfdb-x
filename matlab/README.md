@@ -236,7 +236,7 @@ as it was.
 |---|---|
 | `signals` | matrix (a 1-D or 2-D array) with one row per sample and one column per signal; ADC units, or physical units with `'physical', true` |
 | `fs` | sampling frequency in Hz |
-| `'fmt'` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
+| `'fmt'` | storage format, such as 16, 212, 24 or 516 (FLAC; at most 8 signals); default 16. Every sample must fit it (see [Errors and warnings](#errors-and-warnings)) |
 | `'gains'`, `'adcres'`, `'units'` | gain, ADC resolution in bits (a whole number of 1 or more), and physical units |
 | `'baselines'`, `'adczeros'`, `'names'` | optional signal specifications (baselines and ADC zeros are whole numbers within the range of a 32-bit integer; in a cell array, `[]` is a missing value: an ADC zero of 0, a baseline equal to the ADC zero) |
 | `'base_time'`, `'comments'` | start time (`'hh:mm:ss dd/mm/yyyy'`) and a cell array of info strings |
@@ -244,6 +244,7 @@ as it was.
 | `'samps_per_frame'` | samples per frame of each signal, for a multi-frequency record |
 | `'dir'` | folder in which to create the files |
 | `'legacy'` | behave as the original package (see [Legacy mode](#legacy-mode)) |
+| `'invalid_warning'` | warn when samples will be read back as invalid (missing) samples; default `true` |
 
 ### Writing annotations: `write_annotations`
 
@@ -394,7 +395,24 @@ wfdbx.read_metadata` and `help wfdbx.set_metadata` give the full rules.
   signal names, units and comments must be text of one byte per character
   ("units 'X' has a character that is not Latin-1 (one byte per
   character)", which can only happen in MATLAB, whose characters are
-  16-bit; the same for aux texts in `write_annotations`). All the
+  16-bit; the same for aux texts in `write_annotations`). Every sample
+  must fit the storage format: within its range ("signal 0 has a sample
+  (40000) outside the range of format 16 (-32768 to 32767)"), and, in
+  format 8, within -128 to 127 of the sample before it in the same signal
+  ("signal K changes by D between two samples, more than format 8 can
+  store (-128 to 127)"); format 8 cannot store an invalid sample ("signal
+  K has an invalid sample, which format 8 cannot store"), and a FLAC file
+  (formats 508, 516, 524) holds at most 8 signals ("format 516 (FLAC)
+  stores at most 8 signals in a file; the record has 12"). (Until WFDB-x
+  1.2.3, such samples were silently wrapped around: 40000 read back as
+  -25536.) The smallest value of a format (-32768 in format 16, -2048 in
+  format 212) is the value of an invalid (missing) sample: samples equal
+  to it, or to `WFDB_INVALID_SAMPLE`, are read back as invalid, and
+  `write_record` issues the warning `wfdbx:invalid_samples` for them ("1
+  sample(s) of signal 0 will be read back as invalid (missing) samples
+  (format 16 stores an invalid sample as -32768)"), except for the NaN
+  samples of physical units, which mark missing samples deliberately;
+  `'invalid_warning', false` turns it off. All the
   arguments of `write_record` and `write_annotations` are checked before
   any file is created or changed. Their files are written to temporary
   files, which replace the existing files only when complete: an error

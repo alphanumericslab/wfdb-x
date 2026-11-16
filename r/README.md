@@ -233,7 +233,7 @@ vector with one value per signal.
 |---|---|
 | `signals` | matrix with one row per sample and one column per signal; ADC units (integers within the range of a 32-bit integer), or physical units with `physical = TRUE` (`NA` is written as an invalid sample; an infinite value, or one beyond the range of 32-bit ADC units, is an error) |
 | `fs` | sampling frequency in Hz (finite, > 0) |
-| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
+| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC; at most 8 signals); default 16. Every sample must fit it (below) |
 | `gains`, `adcres`, `units` | gain (finite), ADC resolution in bits (a whole number >= 1), and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications (baselines and ADC zeros: whole numbers within the range of a 32-bit integer) |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
@@ -241,8 +241,24 @@ vector with one value per signal.
 | `samps_per_frame` | samples per frame of each signal, for a multi-frequency record |
 | `dir` | directory (which must exist) in which to create the files, for this call only; `record` must then be a plain name, without a directory, and the record opens from that directory under its plain name |
 | `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) |
+| `invalid_warning` | `FALSE`: no warning for the samples that will be read back as invalid; default `TRUE` |
 
 `write_record` returns `NULL`, invisibly.
+
+Every sample must fit the storage format: a sample outside its range
+("signal 0 has a sample (40000) outside the range of format 16 (-32768 to
+32767)"), in format 8 a sample more than 127 away from the sample before
+it, or an invalid sample (format 8 has no invalid value), and more than 8
+signals in a FLAC format, which a FLAC file cannot hold, are errors,
+reported before any file is touched. (Until 1.2.3, such samples were
+silently wrapped around: 40000 read back as -25536.) The smallest value of
+a format (-32768 in format 16, -2048 in format 212) is the value of an
+invalid (missing) sample: samples equal to it, or to
+`WFDB_INVALID_SAMPLE`, are read back as invalid, and `write_record` issues
+an R warning for them ("1 sample(s) of signal 0 will be read back as
+invalid (missing) samples (format 16 stores an invalid sample as
+-32768)"), except for the `NA` samples of physical units, which mark
+missing samples deliberately; `invalid_warning = FALSE` omits it.
 
 Existing files of the same name are replaced safely: both files are
 written to temporary files (`.NAME.XXXXXXXX.tmp`, created with owner-only
@@ -805,10 +821,14 @@ describes what changes in legacy mode.
   [BENCHMARKS.md](https://github.com/alphanumericslab/wfdb-x/blob/main/docs/BENCHMARKS.md)
   compares the seven languages and wfdb-python.
 * **Tool output from R.** `wfdbx_tool` writes to the standard output and
-  error of the R process. `sink` and `capture.output` do not capture it, and
-  a graphical console may not show it. To capture the output, run the
-  driver script with `system2("Rscript", c(driver, "rdsamp", ...), stdout =
-  TRUE)`.
+  error of the R process, in binary, and a graphical console may not show
+  it. While R's standard output is diverted by `sink` or `capture.output`,
+  the standard output of the tool goes there instead, as Latin-1 text (one
+  character per byte; NUL bytes, which an R string cannot hold, are lost;
+  until 1.2.3 it went past the diversion). The standard error of the tool
+  still goes to that of the process. To capture the output byte for byte,
+  run the driver script with `system2("Rscript", c(driver, "rdsamp", ...),
+  stdout = TRUE)`.
 * **Start-up cache.** When run from a copy of the repository, the driver
   script keeps a compiled copy of the sources in `~/.cache/R/wfdbx/`, so
   that a tool starts quickly. Set `WFDBX_NO_CACHE=1` to turn this off.

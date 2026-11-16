@@ -193,7 +193,7 @@ with one value per signal.
 |---|---|
 | `signals` | array with one row per sample and one column per signal; ADC units, or physical units with `physical=True` |
 | `fs` | sampling frequency in Hz (finite, > 0) |
-| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
+| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC; at most 8 signals); default 16. Every sample must fit it (below) |
 | `gains`, `adcres`, `units` | gain (finite; 0 for an uncalibrated signal), ADC resolution in bits, and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
@@ -299,7 +299,20 @@ gives the full rules.
   whole numbers within the range of a 32-bit integer, and a record name,
   signal names, units or comments with a character that is not Latin-1
   ("units 'μV' has a character that is not Latin-1 (one byte per
-  character)"). (NaN in physical units is an invalid sample.) In
+  character)"). (NaN in physical units is an invalid sample.) So does a
+  sample that the storage format cannot hold: outside its range ("signal 0
+  has a sample (40000) outside the range of format 16 (-32768 to 32767)"),
+  or, in format 8, more than 127 away from the sample before it, or an
+  invalid sample (format 8 has no invalid value); and more than 8 signals
+  in a FLAC format, which a FLAC file cannot hold. (Until 1.2.3, such
+  samples were silently wrapped around: 40000 read back as -25536.) The
+  smallest value of a format (-32768 in format 16, -2048 in format 212) is
+  the value of an invalid (missing) sample: samples equal to it, or to
+  `WFDB_INVALID_SAMPLE`, are read back as invalid, and `write_record`
+  issues a `RuntimeWarning` for them ("1 sample(s) of signal 0 will be read
+  back as invalid (missing) samples (format 16 stores an invalid sample as
+  -32768)"), except for the NaN samples of physical units, which mark
+  missing samples deliberately; `invalid_warning=False` omits it. In
   `write_annotations`, `symbols` and `codes` that
   disagree ("symbols and codes disagree at annotation K"), an annotation
   time that is not an integer within the range of a

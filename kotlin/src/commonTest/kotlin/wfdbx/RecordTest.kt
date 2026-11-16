@@ -395,6 +395,10 @@ class RecordTest {
             val dir = d.path(if (bulk) "fast" else "slow")
             if (!fileExists("$dir/.keep")) writeFile("$dir/.keep", "")
             bulkPutOff = !bulk
+            // (the samples that the format cannot store are refused by
+            // writeRecord since 1.2.3; the writing path of the library,
+            // which the C-style functions use, is tested here)
+            storageCheckOff = true
             try {
                 w.writeRecord(
                     "r", x, nsig, 360.0, fmt = fmt, gains = doubleArrayOf(200.0), adcres = intArrayOf(res.getValue(fmt)),
@@ -402,6 +406,7 @@ class RecordTest {
                 )
             } finally {
                 bulkPutOff = false
+                storageCheckOff = false
             }
             out.add(listOf(readFile("$dir/r.dat")!!, readFile("$dir/r.hea")!!))
         }
@@ -818,7 +823,10 @@ class RecordTest {
                     for (i in x.indices) x[i] = if (rng.nextDouble() < 0.01) WFDB_INVALID_SAMPLE else rng.nextLong(-hi + 1L, hi + 1L).toInt()
                     for (i in 0 until 3) x[i * nsig] = WFDB_INVALID_SAMPLE
                 }
-                w.writeRecord("r", x, nsig, 250.0, fmt = fmt, gains = doubleArrayOf(200.0), adcres = intArrayOf(res.getValue(fmt)), units = listOf("mV"))
+                w.writeRecord(
+                    "r", x, nsig, 250.0, fmt = fmt, gains = doubleArrayOf(200.0), adcres = intArrayOf(res.getValue(fmt)),
+                    units = listOf("mV"), invalidWarning = false,
+                )
                 fun both(f: () -> Record): Pair<Record, Record> {
                     val a = f()
                     val prev = w.wfdbx_bulk_read(false)

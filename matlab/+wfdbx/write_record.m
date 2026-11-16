@@ -29,7 +29,9 @@ function write_record(record, signals, fs, varargin)
 %
 %     'fmt'         storage format: 8, 16, 61, 80, 160, 212, 310, 311, 24,
 %                   32, 508, 516 or 524 (default 16, the same for all
-%                   signals)
+%                   signals).  A FLAC file (formats 508, 516 and 524) holds
+%                   at most 8 signals.  The samples must fit the format
+%                   (see Storage checks below).
 %     'gains'       ADC units per physical unit (required); 0 marks a signal
 %                   as uncalibrated, which is only allowed for samples in ADC
 %                   units
@@ -69,6 +71,34 @@ function write_record(record, signals, fs, varargin)
 %                   under its plain name.
 %     'legacy'      true to behave as the original WFDB package (default
 %                   false; see wfdbx.wfdbx_set_legacy)
+%     'invalid_warning'  false to turn off the warning given for samples
+%                   that will be read back as invalid (missing) samples
+%                   (default true; see Storage checks below)
+%
+%   Storage checks: the samples in ADC units (after the conversion from
+%   physical units, where NaN becomes WFDB_INVALID_SAMPLE, -32768) must fit
+%   the storage format; this is checked before any file is created.  In a
+%   format with a sample width (80 and 508: 8 bits; 16, 61, 160 and 516:
+%   16; 212: 12; 310 and 311: 10; 24 and 524: 24; 32: 32), a sample other
+%   than -32768 must lie between LO = -2^(bits-1) and HI = 2^(bits-1)-1
+%   ("signal K has a sample (V) outside the range of format F (LO to
+%   HI)", for the first such sample V).  Format 8 stores the difference
+%   between consecutive samples of a signal, which must lie between -128
+%   and 127 ("signal K changes by D between two samples, more than format
+%   8 can store (-128 to 127)"), and cannot store an invalid sample
+%   ("signal K has an invalid sample, which format 8 cannot store").  A
+%   FLAC file holds at most 8 signals ("format F (FLAC) stores at most 8
+%   signals in a file; the record has N").  The samples of a
+%   multi-frequency signal are checked in order: its samples of each
+%   frame, frame after frame.  Format 0 stores no samples and has no check.
+%   Samples equal to -32768 or to LO are read back as invalid (missing)
+%   samples: unless 'invalid_warning' is false, a warning (identifier
+%   'wfdbx:invalid_samples') gives their number for each signal ("N
+%   sample(s) of signal K will be read back as invalid (missing) samples
+%   (format F stores an invalid sample as LO)"), not counting the NaN
+%   samples of physical units, which are meant as invalid.  (Before WFDB-x
+%   1.2.3, putvec wrapped samples outside the range of the format around,
+%   and clipped the differences of format 8, without an error.)
 %
 %   Errors: an error (identifier 'wfdbx:write_record') is thrown if a
 %   'samps_per_frame' value is not an integer >= 1 ("samps_per_frame must
@@ -90,8 +120,9 @@ function write_record(record, signals, fs, varargin)
 %   signal, if samples in ADC units are not integers or lie outside the
 %   range of a 32-bit integer, if samples in physical units are infinite or
 %   their ADC values lie outside that range, if 'physical' is true and a
-%   gain is 0, if an entry of 'metadata' is not valid, if 'dir' does not
-%   exist, if the files cannot be created, or
+%   gain is 0, if the signals do not all have the same format, if the
+%   samples do not fit the storage format (see Storage checks), if an entry
+%   of 'metadata' is not valid, if 'dir' does not exist, if the files cannot be created, or
 %   if they cannot be written completely, for example when the disk is full
 %   ("write error on record RECORD", after the library's messages; in
 %   legacy mode too).  The arguments are checked, in that order, before
@@ -150,7 +181,7 @@ check_latin1(record, 'record name');
 opt = struct('fmt', 16, 'gains', [], 'baselines', [], 'adczeros', 0, ...
     'adcres', [], 'units', [], 'names', [], 'base_time', [], ...
     'comments', [], 'physical', false, 'samps_per_frame', [], ...
-    'metadata', [], 'dir', [], 'legacy', false);
+    'metadata', [], 'dir', [], 'legacy', false, 'invalid_warning', true);
 opt = wfdbx.internal.hl_options(opt, varargin, 'write_record');
 % WFDB-x: the 'dir' option (the library's output directory, for this
 % call), checked before the other arguments
@@ -266,7 +297,9 @@ for k = 1:nsig
     check_latin1(names{k}, 'signal name');
     check_latin1(units{k}, 'units');
 end
+gaps = [];
 if opt.physical
+    gaps = false(size(x));      % the NaN samples (invalid)
     c = 0;
     for k = 1:nsig
         g = gains(k);
@@ -287,6 +320,7 @@ if opt.physical
                     'is infinite or beyond the range of 32-bit ADC units'], k - 1);
             end
             r(nan) = -32768;        % WFDB_INVALID_SAMPLE
+            gaps(:, c) = nan;
             x(:, c) = r;
         end
     end
@@ -305,6 +339,7 @@ if nsig > 1 && any(fmts ~= fmts(1))
     error('wfdbx:write_record', ['all signals of a record written by ' ...
         'write_record must have the same format']);
 end
+check_storage(x, spf, fmts(1), gaps, opt.invalid_warning);
 comments = opt.comments;
 if ischar(comments) || isa(comments, 'string')
     comments = cellstr(comments);
@@ -385,6 +420,74 @@ wfdbx.wfdbquit();
 complete = wfdbx.wfdbx_write_errors() == errors;
 if ~wfdbx.internal.staging_end(complete)
     error('wfdbx:write_record', 'write error on record %s', record);
+end
+end
+
+function check_storage(x, spf, fmt, gaps, invalid_warning)
+% WFDB-x (1.2.3): check that the samples X (one column per sample of a
+% frame, in ADC units) can be stored in format FMT, before any file is
+% written: an error for a sample outside the range of the format, for a
+% difference between consecutive samples beyond what format 8 stores, for
+% an invalid sample in format 8, and for more than 8 signals in a FLAC
+% file; a warning (unless INVALID_WARNING is false) for samples that will
+% be read back as invalid (missing) samples, other than the NaN samples of
+% physical units (GAPS: true where the sample was NaN; [] for ADC units).
+% For each format, the number of bits of a sample: its range is
+% -2^(bits-1) to 2^(bits-1)-1, and its smallest value is the value of an
+% invalid sample, to which putvec also writes WFDB_INVALID_SAMPLE.  Format
+% 8 has no invalid value; format 0 stores nothing.  (putvec wraps the
+% samples outside the range of the format around, and clips the
+% differences of format 8, without an error.)
+INV = -32768;               % WFDB_INVALID_SAMPLE
+nsig = numel(spf);
+if any(fmt == [508 516 524]) && nsig > 8
+    error('wfdbx:write_record', ['format %d (FLAC) stores at most 8 ' ...
+        'signals in a file; the record has %d'], fmt, nsig);
+end
+fmts = [80 508 16 61 160 516 212 310 311 24 524 32];
+widths = [8 8 16 16 16 16 12 10 10 24 24 32];
+bits = widths(fmts == fmt);
+first = 0;
+for k = 1:nsig
+    cols = first + (1:spf(k));
+    first = first + spf(k);
+    % the samples of signal k, in order (frame after frame)
+    v = reshape(x(:, cols).', [], 1);
+    marker = v == INV;
+    if fmt == 8
+        if any(marker)
+            error('wfdbx:write_record', ['signal %d has an invalid ' ...
+                'sample, which format 8 cannot store'], k - 1);
+        end
+        d = diff(v);
+        j = find(d < -128 | d > 127, 1);
+        if ~isempty(j)
+            error('wfdbx:write_record', ['signal %d changes by %d between ' ...
+                'two samples, more than format 8 can store (-128 to 127)'], ...
+                k - 1, d(j));
+        end
+        continue;
+    end
+    if isempty(bits)
+        continue;
+    end
+    lo = -2^(bits - 1);
+    hi = 2^(bits - 1) - 1;
+    j = find(~marker & (v < lo | v > hi), 1);
+    if ~isempty(j)
+        error('wfdbx:write_record', ['signal %d has a sample (%d) outside ' ...
+            'the range of format %d (%d to %d)'], k - 1, v(j), fmt, lo, hi);
+    end
+    invalid = marker | v == lo;
+    if ~isempty(gaps)
+        invalid = invalid & ~reshape(gaps(:, cols).', [], 1);
+    end
+    n = sum(invalid);
+    if n > 0 && invalid_warning
+        warning('wfdbx:invalid_samples', ['%d sample(s) of signal %d will ' ...
+            'be read back as invalid (missing) samples (format %d stores ' ...
+            'an invalid sample as %d)'], n, k - 1, fmt, lo);
+    end
 end
 end
 

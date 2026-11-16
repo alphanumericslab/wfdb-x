@@ -98,3 +98,31 @@ unlink(c(script, inp, outp, errp))
 if (.mode == "source") .wfdb_io$driver <- file.path(dirname(.rdir), "inst", "bin", "wfdbx.R")
 check(grepl("Rscript' '.*wfdbx[.]R' 'sortann'$", tool_command("sortann")), "tool_command")
 expect_equal(shell_quote("a'b"), "'a'\\''b'", "shell_quote")
+
+# a tool run in the process writes to R's standard output while it is
+# diverted (capture.output, sink), as Latin-1 text (1.2.3: the output went
+# to the file descriptor, past the diversion)
+if (.mode == "source") {
+  datasrc <- file.path(dirname(dirname(.rdir)), "tests", "data")
+  td <- tempfile("wfdbx-ts")
+  dir.create(td)
+  file.copy(file.path(datasrc, c("100s.hea", "100s.dat")), td)
+  writeBin(as.raw(c(0x41, 0xe9, 0x0a)), file.path(td, "lat.txt"))
+  owd <- setwd(td)
+  wfdbio_reset()
+  st <- NULL
+  out <- capture.output(st <- c(wfdbx_tool("rdsamp", c("-r", "100s", "-t", "s2")),
+                                cli_main(c("wfdbcat", "100s.hea")),
+                                cli_main(c("wfdbcat", "lat.txt"))))
+  setwd(owd)
+  wfdbio_reset()
+  unlink(td, recursive = TRUE)
+  expect_equal(st, c(0, 0, 0), "tools under capture.output: status")
+  expect_equal(out[1:2], c("              0\t    995\t   1011", "              1\t    995\t   1011"),
+               "tools under capture.output: rdsamp")
+  check(any(startsWith(out, "100s 2 360 21600")), "tools under capture.output: wfdbcat")
+  lat <- out[length(out)]
+  if (isTRUE(l10n_info()[["UTF-8"]])) lat <- iconv(lat, "UTF-8", "latin1", toRaw = TRUE)[[1L]] else
+    lat <- charToRaw(lat)
+  expect_equal(lat, as.raw(c(0x41, 0xe9)), "tools under capture.output: Latin-1 text")
+}

@@ -1070,7 +1070,9 @@ private fun Wfdb.readAnnotationsOpen(
  *   per frame has `spf` consecutive values in each frame.
  * @param nsig the number of signals
  * @param fs sampling frequency in Hz (frames per second; finite, > 0)
- * @param fmt storage format, such as 16, 212, 24 or 516 (FLAC)
+ * @param fmt storage format, such as 16, 212, 24 or 516 (FLAC). A FLAC
+ *   file (formats 508, 516 and 524) holds at most 8 signals. The samples
+ *   must fit the format (see Storage checks below).
  * @param gains gain in ADC units per physical unit (finite); 0 marks a
  *   signal as uncalibrated, and negative gains are allowed
  * @param baselines ADC value that corresponds to 0 physical units
@@ -1100,6 +1102,12 @@ private fun Wfdb.readAnnotationsOpen(
  *   may be the key of an entry in [comments], and a null value is not
  *   allowed. WFDB-x: metadata often holds patient information; it is
  *   written as given, without de-identification.
+ * @param invalidWarning warn when samples will be read back as invalid
+ *   (missing) samples (see Storage checks below; default true)
+ * @param onWarning receives the warnings (without the "WFDB-x: " prefix
+ *   and the newline); null: the library prints "WFDB-x: " + the warning on
+ *   the standard error, unless [wfdbquiet] was called, as for the checksum
+ *   warning of [readRecord]
  * @throws WfdbArgumentException (a [WfdbException]; every argument is
  *   checked before any file is created or changed, in this order)
  *   "writeRecord: sampsPerFrame must hold integers >= 1" (checked first,
@@ -1116,7 +1124,13 @@ private fun Wfdb.readAnnotationsOpen(
  *   be finite", "writeRecord: gains must be finite", "writeRecord: signal
  *   name 'X' has a character that is not Latin-1 (one byte per character)",
  *   "writeRecord: units 'X' has a character ...", "writeRecord: the number
- *   of samples is not a multiple of the frame size", "writeRecord: comment
+ *   of samples is not a multiple of the frame size", the storage checks
+ *   below ("writeRecord: format F (FLAC) stores at most 8 signals in a
+ *   file; the record has N", "writeRecord: signal K has an invalid sample,
+ *   which format 8 cannot store", "writeRecord: signal K changes by D
+ *   between two samples, more than format 8 can store (-128 to 127)",
+ *   "writeRecord: signal K has a sample (V) outside the range of format F
+ *   (LO to HI)"), "writeRecord: comment
  *   'X' has a character ...", an entry of [metadata] that is not valid
  *   ("writeRecord: metadata key 'a:b' must not contain ':'", "writeRecord:
  *   value of metadata key 'Age' must not be null", "writeRecord: metadata
@@ -1130,6 +1144,27 @@ private fun Wfdb.readAnnotationsOpen(
  *   "write error on record REC" (the signal file or the header cannot be
  *   written completely, for example when the disk is full, or cannot
  *   replace the existing file; also in legacy mode)
+ *
+ * Storage checks (WFDB-x 1.2.3; before any file is created): the samples
+ * in ADC units (after the conversion from physical units, where NaN
+ * becomes [WFDB_INVALID_SAMPLE], -32768) must fit the storage format. In a
+ * format with a sample width (80 and 508: 8 bits; 16, 61, 160 and 516: 16;
+ * 212: 12; 310 and 311: 10; 24 and 524: 24; 32: 32), a sample other than
+ * -32768 must lie between LO = -2^(bits-1) and HI = 2^(bits-1)-1 (the
+ * error names the first sample V outside that range). Format 8 stores the
+ * difference between consecutive samples of a signal, which must lie
+ * between -128 and 127 (the error names the first such difference D), and
+ * cannot store an invalid sample. A FLAC file holds at most 8 signals.
+ * The samples of a multi-frequency signal are checked in order: its
+ * samples of each frame, frame after frame. Format 0 stores no samples
+ * and has no check. Samples equal to -32768 or to LO are read back as
+ * invalid (missing) samples: unless [invalidWarning] is false, a warning
+ * gives their number for each signal, "N sample(s) of signal K will be
+ * read back as invalid (missing) samples (format F stores an invalid
+ * sample as LO)", not counting the NaN samples of physical units, which
+ * are meant as invalid. (Before, putvec wrapped samples outside the range
+ * of the format around, and clipped the differences of format 8, without
+ * an error.)
  *
  * ```
  * writeRecord("copy", rec.samples, rec.nsig, rec.fs, gains = rec.gains.toDoubleArray(),
@@ -1154,11 +1189,16 @@ fun Wfdb.writeRecord(
     dir: String? = null,
     legacy: Boolean = false,
     metadata: List<Pair<String, String?>>? = null,
+    invalidWarning: Boolean = true,
+    onWarning: ((String) -> Unit)? = null,
 ) {
     checkWriteSpf(sampsPerFrame)
     // WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
     val record = stripHea(record)
-    val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame, metadata)
+    val spec = WriteSpec(
+        fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame, metadata,
+        invalidWarning, onWarning,
+    )
     withSettings { withOutputDir(dir, record) { withLegacy(legacy) { writeAdc(record, samples, nsig, fs, spec) } } }
 }
 
@@ -1178,7 +1218,9 @@ fun Wfdb.writeRecord(
  * @throws WfdbException as [writeRecord]; [WfdbArgumentException]
  *   "writeRecord: signal N is uncalibrated" if a gain is 0, and
  *   "writeRecord: sample I is infinite or beyond the range of 32-bit ADC
- *   units"
+ *   units"; the samples must fit the storage format, as for [writeRecord]
+ *   (a NaN sample is not counted in the warning about invalid samples:
+ *   it is meant as invalid)
  *
  * ```
  * val x = DoubleArray(3600) { sin(it / 50.0) }
@@ -1204,11 +1246,16 @@ fun Wfdb.writeRecord(
     dir: String? = null,
     legacy: Boolean = false,
     metadata: List<Pair<String, String?>>? = null,
+    invalidWarning: Boolean = true,
+    onWarning: ((String) -> Unit)? = null,
 ) {
     checkWriteSpf(sampsPerFrame)
     // WFDB-x: a trailing ".hea" is removed, as by the readers (1.2.2)
     val record = stripHea(record)
-    val spec = WriteSpec(fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame, metadata)
+    val spec = WriteSpec(
+        fmt, gains, baselines, adczeros, adcres, units, names, baseTime, comments, sampsPerFrame, metadata,
+        invalidWarning, onWarning,
+    )
     withSettings {
         withOutputDir(dir, record) {
             withLegacy(legacy) {
@@ -1233,10 +1280,12 @@ fun Wfdb.writeRecord(
                     }
                 }
                 val nc = g.size
+                val gaps = BooleanArray(samples.size) // the NaN samples (invalid)
                 val adc = IntArray(samples.size) {
                     val c = it % nc
                     val v = samples[it] * g[c]
                     if (v.isNaN()) {
+                        gaps[it] = true
                         WFDB_INVALID_SAMPLE
                     } else {
                         val r = (if (v >= 0.0) kotlin.math.truncate(v + 0.5) else kotlin.math.truncate(v - 0.5)) + b[c].toDouble()
@@ -1249,7 +1298,7 @@ fun Wfdb.writeRecord(
                         d2i(r)
                     }
                 }
-                writeAdc(record, adc, nsig, fs, spec)
+                writeAdc(record, adc, nsig, fs, spec, gaps)
             }
         }
     }
@@ -1259,6 +1308,7 @@ private class WriteSpec(
     val fmt: Int, val gains: DoubleArray?, val baselines: IntArray?, val adczeros: IntArray?,
     val adcres: IntArray?, val units: List<String?>?, val names: List<String>?, val baseTime: String?,
     val comments: List<String>?, val sampsPerFrame: IntArray?, val metadata: List<Pair<String, String?>>?,
+    val invalidWarning: Boolean, val onWarning: ((String) -> Unit)?,
 )
 
 /** The gain of signal [k] (WFDB-x: no default gain; C assumed WFDB_DEFGAIN, as legacy mode does). */
@@ -1373,7 +1423,9 @@ private fun checkWriteFreq(fs: Double, legacy: Boolean) {
     if (!fs.isFinite()) argFail("writeRecord: the sampling frequency must be finite")
 }
 
-private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Double, spec: WriteSpec) {
+private fun Wfdb.writeAdc(
+    record: String, samples: IntArray, nsig: Int, fs: Double, spec: WriteSpec, gaps: BooleanArray? = null,
+) {
     val legacy = isLegacy()
     checkWriteArgs(record, nsig, fs, spec, legacy)
     val rec = fname(record)
@@ -1397,6 +1449,7 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
     if (samples.size % frame != 0) {
         argFail("writeRecord: the number of samples is not a multiple of the frame size")
     }
+    checkStorage(samples, si.map { it.spf }.toIntArray(), spec.fmt, gaps, spec.invalidWarning, spec.onWarning)
     // WFDB-x: the metadata entries, checked before anything is written, and
     // written after the comments, through putinfo, as "# Key: value"
     val comments = spec.comments ?: emptyList()
@@ -1437,6 +1490,94 @@ private fun Wfdb.writeAdc(record: String, samples: IntArray, nsig: Int, fs: Doub
         renamed = stagingEnd(complete)
     }
     if (!renamed) throw WfdbException("write error on record $record")
+}
+
+// WFDB-x (1.2.3): the samples that a storage format can hold. For each
+// format, the number of bits of a sample: its range is -2^(bits-1) to
+// 2^(bits-1) - 1, and its smallest value is the value of an invalid
+// (missing) sample, to which putvec also writes WFDB_INVALID_SAMPLE. Format
+// 8 stores the difference between consecutive samples (-128 to 127), and
+// has no invalid value; format 0 stores nothing. A FLAC file holds at most
+// 8 signals.
+private val FMT_BITS = mapOf(
+    80 to 8, 508 to 8, 16 to 16, 61 to 16, 160 to 16, 516 to 16, 212 to 12,
+    310 to 10, 311 to 10, 24 to 24, 524 to 24, 32 to 32,
+)
+private val FLAC_FMTS = setOf(508, 516, 524)
+private const val FLAC_MAX_SIGNALS = 8
+
+/**
+ * WFDB-x (for tests): true to skip the storage checks of writeRecord, so
+ * that the tests of the writing path of the library (putframes and putvec,
+ * which the C-style functions use) can write samples that the format
+ * cannot store.
+ */
+internal var storageCheckOff = false
+
+/**
+ * Checks that [samples] (frame by frame, in ADC units; [spf]: the samples
+ * per frame of each signal) can be stored in format [fmt], before any file
+ * is written: an argument error for a sample outside the range of the
+ * format, for a difference between consecutive samples beyond what format
+ * 8 stores, for an invalid sample in format 8, and for more than 8 signals
+ * in a FLAC file; a warning (unless [invalidWarning] is false) for samples
+ * that will be read back as invalid (missing) samples, other than the NaN
+ * samples of physical units ([gaps]: true where the sample was NaN).
+ * WFDB-x: putvec wraps the samples outside the range of the format around,
+ * and clips the differences of format 8, without an error.
+ */
+private fun Wfdb.checkStorage(
+    samples: IntArray, spf: IntArray, fmt: Int, gaps: BooleanArray?, invalidWarning: Boolean,
+    onWarning: ((String) -> Unit)?,
+) {
+    if (storageCheckOff) return
+    val nsig = spf.size
+    if (fmt in FLAC_FMTS && nsig > FLAC_MAX_SIGNALS) {
+        argFail("writeRecord: format $fmt (FLAC) stores at most $FLAC_MAX_SIGNALS signals in a file; the record has $nsig")
+    }
+    val frame = spf.sum()
+    val nframes = samples.size / frame
+    var first = 0
+    for (k in 0 until nsig) {
+        val off = first
+        first += spf[k]
+        // the samples of signal k, in order (frame after frame): sample j
+        // is samples[at(j)]
+        val count = nframes * spf[k]
+        val at = { j: Int -> (j / spf[k]) * frame + off + j % spf[k] }
+        if (fmt == 8) {
+            for (j in 0 until count) {
+                if (samples[at(j)] == WFDB_INVALID_SAMPLE) {
+                    argFail("writeRecord: signal $k has an invalid sample, which format 8 cannot store")
+                }
+            }
+            for (j in 1 until count) {
+                val d = samples[at(j)].toLong() - samples[at(j - 1)].toLong()
+                if (d < -128 || d > 127) {
+                    argFail("writeRecord: signal $k changes by $d between two samples, more than format 8 can store (-128 to 127)")
+                }
+            }
+            continue
+        }
+        val bits = FMT_BITS[fmt] ?: continue
+        val lo = -(1L shl (bits - 1))
+        val hi = (1L shl (bits - 1)) - 1
+        var n = 0
+        for (j in 0 until count) {
+            val i = at(j)
+            val v = samples[i]
+            val marker = v == WFDB_INVALID_SAMPLE
+            if (!marker && (v < lo || v > hi)) {
+                argFail("writeRecord: signal $k has a sample ($v) outside the range of format $fmt ($lo to $hi)")
+            }
+            if ((marker || v.toLong() == lo) && !(gaps != null && gaps[i])) n++
+        }
+        if (n > 0 && invalidWarning) {
+            val msg = "$n sample(s) of signal $k will be read back as invalid (missing) samples " +
+                "(format $fmt stores an invalid sample as $lo)"
+            if (onWarning != null) onWarning(msg) else wfdb_error("WFDB-x: $msg\n")
+        }
+    }
 }
 
 private fun Wfdb.writeFrames(samples: IntArray, nframes: Int) {

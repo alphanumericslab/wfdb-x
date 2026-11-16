@@ -63,7 +63,7 @@ Pkg.develop(path="/path/to/wfdb-x/julia")
 \end{lstlisting}
 
 In the package REPL, \code{] dev /path/to/wfdb-x/julia} does the same. The package is
-\code{WFDBX}, version \code{1.2.2} (its library under the GNU Lesser General Public
+\code{WFDBX}, version \code{1.2.3} (its library under the GNU Lesser General Public
 License, version 2.1 or later, its tools under the GNU General Public License, version
 3 or later: \cref{sec:license}), and is loaded with \code{using WFDBX}. The package is
 the directory \file{julia}, which holds copies of the license files (\file{LICENSE},
@@ -89,7 +89,7 @@ exec julia --startup-file=no --project=/path/to/wfdb-x/julia \
     /path/to/wfdb-x/julia/bin/wfdbx.jl "$@"
 \end{lstlisting}
 
-\cmd{wfdbx -{}-version} then prints the version of WFDB-x, \code{WFDB-x 1.2.2}. The
+\cmd{wfdbx -{}-version} then prints the version of WFDB-x, \code{WFDB-x 1.2.3}. The
 docstrings of the package document each function (\code{?read\_record} in the REPL), with
 examples.
 
@@ -560,7 +560,7 @@ write_record(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Integer}, fs::R
              fmt::Integer=16, gains=nothing, baselines=nothing, adczeros=0,
              adcres=nothing, units=nothing, names=nothing, samps_per_frame=nothing,
              base_time=nothing, comments=(), metadata=nothing, dir=nothing,
-             legacy::Bool=false)
+             legacy::Bool=false, invalid_warning::Bool=true)
 \end{lstlisting}
 Writes samples in ADC units as a new record: the header \file{RECORD.hea} and one signal
 file, \file{RECORD.dat}, which holds all the signals (so they share one format). Existing
@@ -592,8 +592,13 @@ replaced; a destination that is not a regular file (a device) is written directl
   \code{Int32}. \code{WFDB\_INVALID\_SAMPLE} is written as an invalid sample.
 \item[fs] The sampling frequency in Hz: finite and $> 0$ (the frame frequency of a
   multi-frequency record).
-\item[fmt] The storage format of all the signals, such as 16, 212, 24 or 516 (FLAC).
-  Default 16.
+\item[fmt] The storage format of all the signals, such as 16, 212, 24 or 516 (FLAC)
+  (\cref{chap:formats}). Every sample must fit the format: within its range
+  (\cref{tab:formats}; $-2048$ to 2047 for format 212, for example), and, in format 8,
+  within $-128$ to 127 of the sample before it. The smallest value of a format is the
+  value of an invalid (missing) sample: a sample equal to it, or to
+  \code{WFDB\_INVALID\_SAMPLE}, is read back as invalid (see \code{invalid\_warning}).
+  A FLAC file holds at most 8 signals. Default 16.
 \item[gains] The gain of each signal, in ADC units per physical unit (required): finite;
   0 marks an uncalibrated signal, and negative gains are allowed.
 \item[baselines] The ADC value of 0 physical units of each signal, a whole number
@@ -627,6 +632,13 @@ replaced; a destination that is not a regular file (a device) is written directl
 \item[legacy] \code{true} to behave as the original WFDB package, which assumes a gain of
   200, an ADC resolution based on the format and no units when they are not given, for
   this call only.
+\item[invalid\_warning] \code{true} to log a warning (\code{@warn}) when samples will be
+  read back as invalid (missing) samples (``N sample(s) of signal K will be read back as
+  invalid (missing) samples (format F stores an invalid sample as V)''): those equal to
+  the invalid value of the format or to \code{WFDB\_INVALID\_SAMPLE}, other than the
+  \code{NaN} samples of \code{write\_record\_physical}, which mark missing samples
+  deliberately. \code{false} for no warning, when such samples are deliberate. Default
+  \code{true}.
 \end{params}
 \returns{\code{nothing}.}
 \raises{A \code{WfdbError}, before any file is touched, if \code{record} is empty
@@ -645,7 +657,12 @@ M''); if \code{fs} is not finite and $> 0$; if a gain is not finite (``write\_re
 gains must be finite''); if a vector of per-signal values has neither one value nor one
 per signal (``write\_record: OPTION must have one value per signal''); if the number of
 columns does not match the signals; if a sample lies outside the range of \code{Int32};
-if \code{base\_time} is not a valid time (``write\_record: incorrect base time 'T'''); if
+if a sample does not fit the format (``write\_record: signal K has a sample (V) outside
+the range of format F (LO to HI)''; in format 8, ``write\_record: signal K changes by D
+between two samples, more than format 8 can store (-128 to 127)'' or ``write\_record:
+signal K has an invalid sample, which format 8 cannot store''); if a FLAC format is given
+for more than 8 signals (``write\_record: format 516 (FLAC) stores at most 8 signals in a
+file; the record has 12''); if \code{base\_time} is not a valid time (``write\_record: incorrect base time 'T'''); if
 an entry of \code{metadata} is not valid (``write\_record: metadata key "a:b" must not
 contain ':''', \ldots), or its key is also that of an entry in \code{comments}; or if
 \code{dir} does not exist (``directory D does not exist'') or \code{record} contains a
@@ -678,7 +695,8 @@ write_record_physical(w::Wfdb, record::ByteStr, samples::AbstractMatrix{<:Real},
                       fmt::Integer=16, gains=nothing, baselines=nothing,
                       adczeros=0, adcres=nothing, units=nothing, names=nothing,
                       samps_per_frame=nothing, base_time=nothing, comments=(),
-                      metadata=nothing, dir=nothing, legacy::Bool=false)
+                      metadata=nothing, dir=nothing, legacy::Bool=false,
+                      invalid_warning::Bool=true)
 \end{lstlisting}
 Writes a record as \code{write\_record} does, from samples in physical units. Each value
 \code{v} is stored as $\mathrm{round}(v \cdot \mathit{gain}) + \mathit{baseline}$, with
@@ -704,13 +722,18 @@ of every signal must be nonzero.
 \item[dir] The directory in which to write the files, as for \code{write\_record}.
 \item[legacy] \code{true} to behave as the original WFDB package (a gain of 0 is then
   taken as 200), for this call only.
+\item[invalid\_warning] \code{true} to log a warning for the samples that will be read
+  back as invalid, as for \code{write\_record}; the \code{NaN} samples are not counted.
+  Default \code{true}.
 \end{params}
 \returns{\code{nothing}.}
 \raises{A \code{WfdbError} in the cases of \code{write\_record}; if a gain is 0
-(``write\_record: signal N is uncalibrated'', N counted from 0); or if a value is
+(``write\_record: signal N is uncalibrated'', N counted from 0); if a value is
 infinite, or its ADC value lies outside the range of \code{Int32} (``write\_record:
 signal N has a sample that is infinite or beyond the range of 32-bit ADC units'', N
-counting the columns from 0). Nothing is written then.}
+counting the columns from 0); or if an ADC value does not fit the format (in format 8, a
+\code{NaN} too: ``write\_record: signal 0 has an invalid sample, which format 8 cannot
+store''). Nothing is written then.}
 \begin{lstlisting}[language=Julia,style=example]
 x = [0.0 1.0; 0.5 -1.0; NaN 0.25]                  # in mV; NaN: an invalid sample
 write_record_physical("phys", x, 100; gains=200, adcres=12, units="mV", names=["a", "b"])
@@ -1692,7 +1715,7 @@ export WFDBX_INPUT_DIR=/path/to/wfdb-x/tests/data
 wfdbx rdsamp -r 100s -t 10 -p     # the first 10 seconds of 100s, in physical units
 wfdbx rdann -r 100s -a atr        # its annotations
 wfdbx rdsamp --legacy -r 100s     # legacy mode: --legacy as the first argument
-wfdbx --version                   # WFDB-x 1.2.2
+wfdbx --version                   # WFDB-x 1.2.3
 \end{lstlisting}
 
 Without the script, the command is \cmd{julia -{}-startup-file=no

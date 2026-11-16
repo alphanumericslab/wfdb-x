@@ -290,7 +290,7 @@ complete (see [Errors and warnings](#errors-and-warnings)).
 | `samples` | the samples, frame by frame: `nsig` values per frame |
 | `nsig` | the number of signals |
 | `fs` | sampling frequency in Hz |
-| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16 |
+| `fmt` | storage format, such as 16, 212, 24 or 516 (FLAC); default 16. The samples must fit it (see [Errors and warnings](#errors-and-warnings)); a FLAC file holds at most 8 signals |
 | `gains`, `adcres`, `units` | gain, ADC resolution in bits, and physical units |
 | `baselines`, `adczeros`, `names` | optional signal specifications |
 | `base_time`, `comments` | start time (`"hh:mm:ss dd/mm/yyyy"`) and info strings |
@@ -298,6 +298,7 @@ complete (see [Errors and warnings](#errors-and-warnings)).
 | `samps_per_frame` | samples per frame of each signal, for a multi-frequency record |
 | `dir` | an existing directory in which to create the files, for this call only; `record` must then be a plain name |
 | `legacy` | behave as the original package (see [Legacy mode](#legacy-mode)) |
+| `invalid_warning` | warn about the samples that will be read back as invalid (missing) samples (default `true`; see [Errors and warnings](#errors-and-warnings)) |
 
 ### Writing annotations: `write_annotations`
 
@@ -476,7 +477,29 @@ text, exactly as given, and does not de-identify it.
   per-signal option, the number of samples (a multiple of the frame size),
   the gains, the ADC resolutions, the units, the gains of signals given in
   physical units, the sampling frequency, finite gains, the samples in
-  physical units, the metadata and the base time.
+  physical units, whether the samples fit the storage format, the metadata
+  and the base time.
+* `write_record` refuses the samples that the storage format cannot hold
+  (before WFDB-x 1.2.3, `putvec` wrapped them around without an error). The
+  samples of each signal are checked in order (for a multi-frequency
+  signal, its samples of each frame, frame after frame): a FLAC format
+  (508, 516, 524) holds at most 8 signals ("write_record: format 516 (FLAC)
+  stores at most 8 signals in a file; the record has 12"); format 8 stores
+  the difference between consecutive samples, from -128 to 127, and no
+  invalid sample ("write_record: signal K changes by D between two samples,
+  more than format 8 can store (-128 to 127)", "write_record: signal K has
+  an invalid sample, which format 8 cannot store"); the other formats,
+  except 0, store their range of bits, such as -2048 to 2047 for format 212
+  ("write_record: signal K has a sample (V) outside the range of format F
+  (LO to HI)"; `WFDB_INVALID_SAMPLE` is always accepted).
+* A sample equal to the smallest value of its format, or to
+  `WFDB_INVALID_SAMPLE`, is read back as an invalid (missing) sample:
+  `write_record` and `write_record_physical` then print a warning on the
+  standard error, "WFDB-x: N sample(s) of signal K will be read back as
+  invalid (missing) samples (format F stores an invalid sample as LO)"
+  (the NaN samples of `write_record_physical` are not counted: they mark
+  missing samples deliberately). `invalid_warning: false` turns the
+  warning off.
 
 `Error::message()` and `Display` give the text of an error. The WFDB
 library functions that a high-level function calls may also print their own

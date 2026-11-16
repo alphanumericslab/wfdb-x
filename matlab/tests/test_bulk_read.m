@@ -290,7 +290,16 @@ hi = ranges(k, 2);
 cols = sum(spf);
 u = reshape(r.rand(n * cols), n, cols) / wfdbx.internal.GlibcRand.RAND_MAX;
 if fmt == 8
-    x = cumsum(floor(u * 121) - 60);
+    % (format 8 stores the difference between consecutive samples of a
+    % signal, which alternate between its columns of a frame)
+    d = floor(u * 121) - 60;
+    x = zeros(n, cols);
+    first = 0;
+    for j = 1:numel(spf)
+        c = first + (1:spf(j));
+        first = first + spf(j);
+        x(:, c) = reshape(cumsum(reshape(d(:, c).', [], 1)), spf(j), n).';
+    end
 else
     x = floor(u * (2 * hi)) - hi + 1;
     w = reshape(r.rand(n * cols), n, cols) / wfdbx.internal.GlibcRand.RAND_MAX;
@@ -299,7 +308,7 @@ else
     x(end, :) = -32768;
 end
 opts = {'fmt', fmt, 'gains', gains, 'adcres', ranges(k, 3), 'units', 'mV', ...
-    'samps_per_frame', spf};
+    'samps_per_frame', spf, 'invalid_warning', false};
 if ~isempty(names)
     opts = [opts, {'names', names}];
 end

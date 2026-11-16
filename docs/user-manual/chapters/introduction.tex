@@ -106,7 +106,7 @@ MATLAB / GNU Octave & \file{matlab/} &
   untested) & \cmd{wfdbx rdsamp -r 100s} \\
 Kotlin (Android, iOS, JVM) & \file{kotlin/} & \cmd{cd kotlin \&\&
   ./gradlew publishToMavenLocal}, then
-  \cmd{implementation("io.github.\allowbreak alphanumericslab:\allowbreak wfdbx:1.2.2")} (Gradle,
+  \cmd{implementation("io.github.\allowbreak alphanumericslab:\allowbreak wfdbx:1.2.3")} (Gradle,
   with \code{mavenLocal()}) & \cmd{kotlin/bin/wfdbx rdsamp -r 100s} \\
 \bottomrule
 \end{tabularx}
@@ -316,7 +316,13 @@ each version:
   next time it is opened, and a name with a URL scheme other than
   \code{http://} and \code{https://} is refused instead of being read as a
   local file name (\cref{sec:network}); and the file \file{NOTICE} (the
-  licenses, and the notice of libFLAC) is included in every package.
+  licenses, and the notice of libFLAC) is included in every package;
+\item 1.2.3: corrections reported by users (\cref{sec:corrections-1-2-3}):
+  \code{write\_record} refuses samples that the storage format cannot hold
+  (they were silently wrapped around) and more than 8 signals in a FLAC
+  format, and warns about samples that will be read back as invalid; and, in
+  Python and R, a tool run in the same process writes to a captured
+  standard output.
 \end{itemize}
 
 The version numbers of \wfdbx{} are independent of the version of the WFDB

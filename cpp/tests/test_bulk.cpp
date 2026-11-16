@@ -88,6 +88,33 @@ int max_of(int fmt)
     }
 }
 
+// Write record `name` as write_record() does, through the C-style functions
+// (osigfopen, putvec, newheader), which store what putvec makes of samples
+// that the format cannot hold (since 1.2.3, write_record() refuses them).
+void write_with_putvec(const std::string &name,
+                       const std::vector<WFDB_Sample> &x, int nsig, int fmt,
+                       WFDB_Frequency fs)
+{
+    wfdbquit();
+    std::vector<WFDB_Siginfo> si(nsig);
+    for (WFDB_Siginfo &s : si) {
+        s.fname = name + ".dat";
+        s.desc = "";
+        s.units = "mV";
+        s.gain = 100;
+        s.fmt = fmt;
+        s.adcres = 16;
+    }
+    REQUIRE(osigfopen(si.data(), nsig) == nsig);
+    setsampfreq(fs);
+    setcfreq(0.0);
+    setbasecount(0.0);
+    for (size_t i = 0; i < x.size(); i += static_cast<size_t>(nsig))
+        putvec(&x[i]);
+    REQUIRE(newheader(name.c_str()) >= 0);
+    wfdbquit();
+}
+
 // Write record `name`: nframes frames of nsig signals of format fmt, random
 // values with some invalid samples.
 void write_random(const std::string &name, int fmt, int nsig, long nframes,
@@ -100,11 +127,19 @@ void write_random(const std::string &name, int fmt, int nsig, long nframes,
     for (WFDB_Sample &v : x)
         v = pct(rng) < 7 ? WFDB_INVALID_SAMPLE
                          : static_cast<WFDB_Sample>(val(rng));
+    if (fmt == 8) {
+        // (random values and invalid samples, which format 8 cannot store:
+        // the differences that putvec clips are read back here; write_record
+        // refuses them since 1.2.3)
+        write_with_putvec(name, x, nsig, fmt, 360);
+        return;
+    }
     WriteOptions w;
     w.fmt = fmt;
     w.gains = {100};
     w.adcres = {16};
     w.units = {std::string("mV")};
+    w.invalid_warning = false;
     write_record(name, x, nsig, 360, w);
 }
 
@@ -351,11 +386,19 @@ void mf_record(const std::string &name, std::mt19937 &rng, int fmt,
     for (int k : spf) cols += static_cast<size_t>(k);
     std::vector<WFDB_Sample> x(static_cast<size_t>(n) * cols);
     if (fmt == 8) {
+        // (format 8 stores the difference between consecutive samples of a
+        // signal, which alternate between its columns of a frame: each
+        // signal is one sequence)
         std::uniform_int_distribution<int> d(-60, 60);
-        for (size_t c = 0; c < cols; c++)
-            for (long i = 0, v = 0; i < n; i++)
-                x[static_cast<size_t>(i) * cols + c] =
-                    static_cast<WFDB_Sample>(v += d(rng));
+        size_t first = 0;
+        for (int k : spf) {
+            long v = 0;
+            for (long i = 0; i < n; i++)
+                for (int j = 0; j < k; j++)
+                    x[static_cast<size_t>(i) * cols + first + j] =
+                        static_cast<WFDB_Sample>(v += d(rng));
+            first += static_cast<size_t>(k);
+        }
     } else {
         long long m = max_of(fmt);
         std::uniform_int_distribution<long long> val(-m + 1, m);
@@ -372,6 +415,7 @@ void mf_record(const std::string &name, std::mt19937 &rng, int fmt,
     w.units = {std::string("mV")};
     w.samps_per_frame = spf;
     w.names = std::move(names);
+    w.invalid_warning = false;
     write_record(name, x, static_cast<int>(spf.size()), 250, w);
 }
 

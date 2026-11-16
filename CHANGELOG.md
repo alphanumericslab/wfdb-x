@@ -8,6 +8,44 @@ change existing behavior, and a new major number (x.0.0) for changes that
 can break existing code. Every version implements version 10.7.0 of the
 WFDB Software Package.
 
+## 1.2.3
+
+Corrections reported by users, in all seven languages. The C-style
+functions and the command-line tools are unchanged.
+
+* **`write_record` checks that every sample fits the storage format**,
+  before any file is written: a sample outside the range of the format
+  ("signal 0 has a sample (40000) outside the range of format 16 (-32768 to
+  32767)"), in format 8 a sample more than 127 away from the one before it
+  or an invalid sample (format 8 stores differences, and has no invalid
+  value), and more than 8 signals in a FLAC format (a FLAC file holds at
+  most 8) are argument errors. Such samples were silently wrapped around
+  (40000 read back as -25536) or clipped, and the FLAC limit was reported
+  only as "can't create signal file", after the library's own message.
+* **A warning for samples that will be read back as invalid.** The
+  smallest value of a format (-32768 in format 16, -2048 in format 212) is
+  the value of an invalid (missing) sample: `write_record` warns when
+  samples are equal to it, or to `WFDB_INVALID_SAMPLE` ("1 sample(s) of
+  signal 0 will be read back as invalid (missing) samples (format 16 stores
+  an invalid sample as -32768)"), except for the NaN samples of physical
+  units, which mark missing samples deliberately. The new option
+  `invalid_warning` (`false`: no warning) is for records whose invalid
+  samples are deliberate.
+* **Tools run from a program write to a captured standard output.** In
+  Python, a tool run in the same process (`wfdbx.apps.rdsamp.main`, for
+  example) failed with a `TypeError` when `sys.stdout` was a text stream
+  without a binary buffer, such as an `io.StringIO` installed by
+  `contextlib.redirect_stdout`; its output is now written to it as Latin-1
+  text. In R, the output of a tool run with `wfdbx_tool` went to the
+  process's standard output, past `sink()` and `capture.output()`; it now
+  goes to the sink. (Julia's `redirect_stdout` and MATLAB/Octave's `evalc`
+  already captured it; the C++, Rust and Kotlin tools are separate
+  programs.)
+* **Planned work.** [`docs/TODO.md`](docs/TODO.md) lists the features
+  requested with these reports: writing MATLAB files from a program, gains
+  at full precision, the smallest lossless format (`fmt="auto"`), and FLAC
+  records of more than 8 signals.
+
 ## 1.2.2
 
 Corrections from the fourth review of version 1.2.1, two corrections of

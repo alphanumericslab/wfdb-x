@@ -675,6 +675,101 @@ void check_write_args(const std::string &record, int nsig, WFDB_Frequency fs,
     }
 }
 
+// WFDB-x (1.2.3): the samples that a storage format can hold.  The number
+// of bits of a sample of each format (0 for a format without a range check:
+// format 0 stores nothing, and format 8 is checked apart): its range is
+// -2^(bits-1) to 2^(bits-1) - 1, and its smallest value is the value of an
+// invalid (missing) sample, to which putvec() also writes
+// WFDB_INVALID_SAMPLE.  Format 8 stores the difference between consecutive
+// samples (-128 to 127), and has no invalid value.  A FLAC file holds at
+// most 8 signals.
+int format_bits(int fmt)
+{
+    switch (fmt) {
+    case 80: case 508: return 8;
+    case 16: case 61: case 160: case 516: return 16;
+    case 212: return 12;
+    case 310: case 311: return 10;
+    case 24: case 524: return 24;
+    case 32: return 32;
+    default: return 0;
+    }
+}
+
+constexpr int FLAC_MAX_SIGNALS = 8;
+
+// Check that the samples (frame by frame, in ADC units; spf[k] samples of
+// signal k per frame) can be stored in format fmt, before any file is
+// written: Error for a sample outside the range of the format, for a
+// difference between consecutive samples beyond what format 8 stores, for an
+// invalid sample in format 8, and for more than 8 signals in a FLAC file; a
+// warning (wfdb_error(), as the checksum warning of read_record()) unless
+// invalid_warning is false, for the samples that will be read back as
+// invalid (missing) samples, other than the NaN samples of physical units
+// (gaps, if not null: nonzero where the sample was NaN).  WFDB-x: putvec()
+// wraps the samples outside the range of the format around, and clips the
+// differences of format 8, without an error.
+void check_storage(const std::vector<WFDB_Sample> &samples,
+                   const std::vector<int> &spf, int fmt,
+                   const std::vector<char> *gaps, bool invalid_warning)
+{
+    const int nsig = static_cast<int>(spf.size());
+    if ((fmt == 508 || fmt == 516 || fmt == 524) && nsig > FLAC_MAX_SIGNALS)
+        throw Error("write_record: format " + std::to_string(fmt) +
+                    " (FLAC) stores at most " +
+                    std::to_string(FLAC_MAX_SIGNALS) +
+                    " signals in a file; the record has " +
+                    std::to_string(nsig));
+    const int bits = format_bits(fmt);
+    if (fmt != 8 && bits == 0) return;
+    size_t frame = 0;
+    for (int n : spf) frame += static_cast<size_t>(n);
+    const long long lo = bits ? -(1LL << (bits - 1)) : 0;
+    const long long hi = bits ? (1LL << (bits - 1)) - 1 : 0;
+    size_t first = 0;
+    for (int k = 0; k < nsig; k++) {
+        const std::string sk = std::to_string(k);
+        long long prev = 0, invalid = 0;
+        bool have_prev = false;
+        // (the samples of signal k, in order: its spf[k] columns of each
+        // frame, frame after frame)
+        for (size_t f = 0; f < samples.size(); f += frame)
+            for (size_t c = first; c < first + spf[k]; c++) {
+                const long long v = samples[f + c];
+                const bool marker = v == WFDB_INVALID_SAMPLE;
+                if (fmt == 8) {
+                    if (marker)
+                        throw Error("write_record: signal " + sk +
+                                    " has an invalid sample, which format 8 "
+                                    "cannot store");
+                    if (have_prev && (v - prev < -128 || v - prev > 127))
+                        throw Error("write_record: signal " + sk +
+                                    " changes by " +
+                                    std::to_string(v - prev) +
+                                    " between two samples, more than format "
+                                    "8 can store (-128 to 127)");
+                    prev = v;
+                    have_prev = true;
+                    continue;
+                }
+                if (!marker && (v < lo || v > hi))
+                    throw Error("write_record: signal " + sk +
+                                " has a sample (" + std::to_string(v) +
+                                ") outside the range of format " +
+                                std::to_string(fmt) + " (" +
+                                std::to_string(lo) + " to " +
+                                std::to_string(hi) + ")");
+                if ((marker || v == lo) && !(gaps && (*gaps)[f + c]))
+                    invalid++;
+            }
+        first += static_cast<size_t>(spf[k]);
+        if (invalid && invalid_warning)
+            wfdb_error("WFDB-x: %lld sample(s) of signal %d will be read back "
+                       "as invalid (missing) samples (format %d stores an "
+                       "invalid sample as %lld)\n", invalid, k, fmt, lo);
+    }
+}
+
 // WFDB-x: the staging of the output files of a high-level writer (see
 // detail::wfdbx_staging_begin) for the lifetime of the object: end(true)
 // renames the temporary files over their destinations (false if that
@@ -697,7 +792,8 @@ private:
 
 void write_adc(const std::string &record,
                const std::vector<WFDB_Sample> &samples, int nsig,
-               WFDB_Frequency fs, const WriteOptions &options)
+               WFDB_Frequency fs, const WriteOptions &options,
+               const std::vector<char> *gaps = nullptr)
 {
     const WriteOptions opt = with_library_legacy(options);
     // WFDB-x: no default sampling frequency, gain, ADC resolution or units
@@ -722,6 +818,11 @@ void write_adc(const std::string &record,
     if (samples.size() % frame)
         throw Error("write_record: the number of samples is not a multiple "
                     "of the frame size");
+    {
+        std::vector<int> spf(nsig);
+        for (int k = 0; k < nsig; k++) spf[k] = si[k].spf;
+        check_storage(samples, spf, opt.fmt, gaps, opt.invalid_warning);
+    }
     // WFDB-x: the info strings of opt.metadata (" Key: value"), checked
     // before anything is written.
     std::vector<std::string> meta;
@@ -797,11 +898,13 @@ void write_record_physical(const std::string &record_arg,
         }
     }
     std::vector<WFDB_Sample> adc(samples.size());
+    std::vector<char> gaps(samples.size(), 0);  // the NaN samples (invalid)
     for (size_t i = 0; i < samples.size(); i++) {
         size_t c = i % g.size();
         double v = samples[i] * g[c];
         if (std::isnan(v)) {
             adc[i] = WFDB_INVALID_SAMPLE;
+            gaps[i] = 1;
             continue;
         }
         // An infinite value, or one whose ADC value is not an int, cannot
@@ -812,7 +915,7 @@ void write_record_physical(const std::string &record_arg,
                         " is out of range");
         adc[i] = static_cast<WFDB_Sample>(d);
     }
-    write_adc(record, adc, nsig, fs, opt);
+    write_adc(record, adc, nsig, fs, opt, &gaps);
 }
 
 void write_annotations(const std::string &record, const std::string &annotator,

@@ -1,18 +1,11 @@
 # Planned work
 
-Work accepted for future versions of WFDB-x, with the decisions already
-made, so that it is added together in a few releases rather than in many
-small changes. No version is assigned to any item: the items may be
-combined or delayed, and their priorities are set when each version is
-planned. Each item is implemented in all seven languages, checked by the
-conformance suite against the C reference, and documented in the READMEs,
-`docs/DIVERGENCES.md`, the user's manual and `CHANGELOG.md`, as every change
-is; each release that adds one ends with a review of the whole user's manual
-(every chapter, against the code), so that its claims stay accurate and its
-chapters consistent with one another. Sections 1 and 2 come from an external
-specification (November 2026) reviewed against the WFDB 10.7.0 sources; the
-parts of it not listed here were left out deliberately (see the end of this
-file).
+Known limitations of WFDB-x and features planned to address them in future
+versions, with the decisions already made. No version is assigned to any
+item; priorities are set when each version is planned. Each item, when
+done, covers all seven languages, the conformance suite and the
+documentation, and its release ends with a review of the whole user's
+manual.
 
 ## 1. Four more command-line tools
 
@@ -118,6 +111,31 @@ network support.)
   end of file and `416`, damaged responses, redirects, retries and recovery,
   the cache limit, and remote reads equal to local reads for every format
   (format 8 and FLAC may need earlier bytes: documented, not promised).
+
+## 3. Convenience features of the high-level API
+
+Requested by users (November 2026). Each adds to the high-level API of the
+seven languages without changing existing behavior.
+
+* **Writing MATLAB files from a program.** A `write_mat` function (or an
+  equivalent option of `write_record`), so that a program converts a record
+  to a `.mat` file without running the `wfdb2mat` tool, and a way to run a
+  tool in the same process with its own input and output directories and
+  its output returned (Julia has `run_tool`; Python and the others have
+  none), rather than through the process-wide settings.
+* **Gains at full precision.** An option of `write_record` that writes the
+  gains with 17 significant digits, which read back exactly; by default,
+  gains keep the 12 digits of the C library (`%.12g`), so that headers stay
+  identical to those of the C package.
+* **The smallest lossless format.** A `fmt="auto"` of `write_record` that
+  chooses the smallest storage format that holds every sample of each
+  signal exactly (and leaves room for the invalid-sample value), instead of
+  the caller checking the range (since 1.2.3, a sample that does not fit is
+  an error).
+* **FLAC records of more than 8 signals.** An option of `write_record` that
+  splits the signals of a FLAC format into several signal files (groups) of
+  at most 8 signals each; a FLAC stream holds at most 8 channels (since
+  1.2.3, more signals are refused before any file is written).
 
 ## Left out deliberately
 

@@ -14,7 +14,7 @@
 
 cmake_minimum_required(VERSION 3.14)
 
-project(wfdbx VERSION 1.2.2
+project(wfdbx VERSION 1.2.3
   DESCRIPTION "A reimplementation of the WFDB Software Package (library and command-line tools) in C++, part of WFDB-x: the same package in seven languages, tested to give byte-for-byte identical results"
   HOMEPAGE_URL "https://wfdb-x.org"
   LANGUAGES CXX)

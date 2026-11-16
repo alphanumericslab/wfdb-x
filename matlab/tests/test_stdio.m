@@ -51,6 +51,24 @@ try
 catch err
     assert_eq(err.message, 'boom', 'error passed on');
 end
+tools_write_to_evalc();
+end
+
+function tools_write_to_evalc()
+% A tool run in the process writes its standard output where MATLAB and
+% Octave send it, so that evalc captures it (the equivalent of
+% test_tools_write_to_text_streams of python/tests/test_api.py, where the
+% tools failed, before 1.2.3, with a text stream that has no binary buffer).
+here = fileparts(mfilename('fullpath'));
+data = fullfile(fileparts(fileparts(here)), 'tests', 'data');
+old = cd(data);
+back = onCleanup(@() cd(old)); %#ok<NASGU>
+out = evalc(['s1 = wfdbx.apps.rdsamp({''-r'', ''100s'', ''-t'', ''s2''}); ' ...
+    's2 = wfdbx.apps.wfdbcat({''100s.hea''});']);
+assert_eq([s1 s2], [0 0], 'tools under evalc: status');
+first = sprintf('              0\t    995\t   1011\n');
+assert(strncmp(out, first, numel(first)), 'tools under evalc: rdsamp');
+assert(~isempty(strfind(out, '100s 2 360 21600')), 'tools under evalc: wfdbcat');
 end
 
 function s = exit_with(st)

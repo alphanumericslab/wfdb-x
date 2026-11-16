@@ -985,7 +985,7 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                  baselines=None, adczeros=0, adcres=None, units=None,
                  names=None, base_time=None, comments=None, physical=False,
                  samps_per_frame=None, *, metadata=None, dir=None,
-                 legacy=False):
+                 legacy=False, invalid_warning=True):
     """Write signals as a new record: a header and one signal file.
 
     The files are named ``record + ".hea"`` and ``record + ".dat"``. All
@@ -1204,6 +1204,7 @@ def write_record(record, signals, fs, fmt=16, gains=None,
             for j in range(spf[k]):
                 cols.append((k, g, bases[k]))
         y = np.empty(x.shape, np.int64)
+        gaps = np.zeros(x.shape, bool)      # the NaN samples (invalid)
         for c, (k, g, b) in enumerate(cols):
             v = x[:, c].astype(np.float64) * g
             r = np.where(v >= 0, np.trunc(v + 0.5), np.trunc(v - 0.5)) + b
@@ -1214,10 +1215,12 @@ def write_record(record, signals, fs, fmt=16, gains=None,
                 raise ValueError("signal %d has a sample that is infinite or "
                                  "beyond the range of 32-bit ADC units" % k)
             r[nan] = sig.WFDB_INVALID_SAMPLE
+            gaps[:, c] = nan
             y[:, c] = r.astype(np.int64)
         x = y
     else:
         x = _digital_samples(x, np)
+        gaps = None
     si = []
     for k in range(nsig):
         si.append(sig.Siginfo(
@@ -1228,6 +1231,7 @@ def write_record(record, signals, fs, fmt=16, gains=None,
     if len(set(fmts)) > 1:
         raise ValueError("all signals of a record written by write_record "
                          "must have the same format")
+    _check_storage(x, spf, int(fmts[0]), gaps, invalid_warning, np)
     comments = list(comments or [])
     for c in comments:
         _check_latin1(c, "comment")
@@ -1266,6 +1270,72 @@ def write_record(record, signals, fs, fmt=16, gains=None,
         renamed = wio._staging_end(complete)
     if not renamed:
         raise IOError("write error on record %s" % record)
+
+
+# WFDB-x (1.2.3): the samples that a storage format can hold.  For each
+# format, the number of bits of a sample: its range is -2**(bits-1) to
+# 2**(bits-1) - 1, and its smallest value is the value of an invalid
+# (missing) sample, to which putvec also writes WFDB_INVALID_SAMPLE.  Format 8
+# stores the difference between consecutive samples (-128 to 127), and has
+# no invalid value; format 0 stores nothing.  A FLAC file holds at most 8
+# signals.
+_FMT_BITS = {80: 8, 508: 8, 16: 16, 61: 16, 160: 16, 516: 16, 212: 12,
+             310: 10, 311: 10, 24: 24, 524: 24, 32: 32}
+_FLAC_FMTS = (508, 516, 524)
+_FLAC_MAX_SIGNALS = 8
+
+
+def _check_storage(x, spf, fmt, gaps, invalid_warning, np):
+    """Check that the samples x (one column per sample of a frame, in ADC
+    units) can be stored in format fmt, before any file is written: a
+    ValueError for a sample outside the range of the format, for a
+    difference between consecutive samples beyond what format 8 stores, for
+    an invalid sample in format 8, and for more than 8 signals in a FLAC
+    file; a RuntimeWarning (unless invalid_warning is false) for samples
+    that will be read back as invalid (missing) samples, other than the NaN
+    samples of physical units (gaps: True where the sample was NaN).
+    WFDB-x: putvec wraps the samples outside the range of the format
+    around, and clips the differences of format 8, without an error."""
+    nsig = len(spf)
+    if fmt in _FLAC_FMTS and nsig > _FLAC_MAX_SIGNALS:
+        raise ValueError("format %d (FLAC) stores at most %d signals in a "
+                         "file; the record has %d" % (fmt, _FLAC_MAX_SIGNALS,
+                                                      nsig))
+    first = 0
+    for k in range(nsig):
+        cols = slice(first, first + spf[k])
+        first += spf[k]
+        v = x[:, cols].reshape(-1)          # the samples of signal k, in order
+        marker = v == sig.WFDB_INVALID_SAMPLE
+        if fmt == 8:
+            if marker.any():
+                raise ValueError("signal %d has an invalid sample, which "
+                                 "format 8 cannot store" % k)
+            d = np.diff(v)
+            bad = (d < -128) | (d > 127)
+            if bad.any():
+                raise ValueError("signal %d changes by %d between two "
+                                 "samples, more than format 8 can store "
+                                 "(-128 to 127)" % (k, d[bad][0]))
+            continue
+        if fmt not in _FMT_BITS:
+            continue
+        lo = -(1 << (_FMT_BITS[fmt] - 1))
+        hi = (1 << (_FMT_BITS[fmt] - 1)) - 1
+        out = ~marker & ((v < lo) | (v > hi))
+        if out.any():
+            raise ValueError("signal %d has a sample (%d) outside the range "
+                             "of format %d (%d to %d)"
+                             % (k, v[out][0], fmt, lo, hi))
+        invalid = marker | (v == lo)
+        if gaps is not None:
+            invalid &= ~gaps[:, cols].reshape(-1)
+        n = int(invalid.sum())
+        if n and invalid_warning:
+            warnings.warn("%d sample(s) of signal %d will be read back as "
+                          "invalid (missing) samples (format %d stores an "
+                          "invalid sample as %d)" % (n, k, fmt, lo),
+                          RuntimeWarning, stacklevel=_warn_level())
 
 
 @_legacy_option

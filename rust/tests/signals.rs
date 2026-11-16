@@ -1117,6 +1117,80 @@ fn write_nr() {
     .unwrap();
 }
 
+/// The samples must fit the storage format, checked before any file is
+/// written (1.2.3); putvec wrapped them around without an error.
+#[test]
+fn write_record_storage_checks() {
+    let mut d = DataDir::new();
+    let w = &mut d.w;
+    w.wfdbquiet();
+    let opt = |fmt: i32| WriteOptions {
+        fmt,
+        gains: vec![200.0],
+        adcres: vec![16],
+        units: vec![Some("mV".into())],
+        ..Default::default()
+    };
+    for (fmt, v, msg) in [
+        (
+            16,
+            40000,
+            "write_record: signal 0 has a sample (40000) outside the range of format 16 (-32768 to 32767)",
+        ),
+        (
+            212,
+            3000,
+            "write_record: signal 0 has a sample (3000) outside the range of format 212 (-2048 to 2047)",
+        ),
+        (
+            8,
+            200,
+            "write_record: signal 0 changes by -199 between two samples, more than format 8 can store (-128 to 127)",
+        ),
+    ] {
+        let e = w.write_record("sc", &[v, 1], 1, 250.0, &opt(fmt)).unwrap_err();
+        assert_eq!(e.message(), msg);
+        assert!(!std::path::Path::new("sc.hea").exists());
+        assert!(!std::path::Path::new("sc.dat").exists());
+    }
+    let e = w
+        .write_record_physical("sc", &[f64::NAN, 0.0], 1, 250.0, &opt(8))
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "write_record: signal 0 has an invalid sample, which format 8 cannot store"
+    );
+    let e = w
+        .write_record("sc", &[0; 60], 12, 250.0, &opt(516))
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "write_record: format 516 (FLAC) stores at most 8 signals in a file; the record has 12"
+    );
+    w.write_record("sc", &[0; 40], 8, 250.0, &opt(516)).unwrap();
+    // a sample that will be read back as invalid: a warning (none for the
+    // NaN samples of physical units, nor with invalid_warning false)
+    w.wfdb_error("-\n");
+    w.write_record("sc", &[-2048, 0], 1, 250.0, &opt(212))
+        .unwrap();
+    assert_eq!(
+        w.wfdberror(),
+        &b"WFDB-x: 1 sample(s) of signal 0 will be read back as invalid (missing) samples (format 212 stores an invalid sample as -2048)\n"[..]
+    );
+    w.wfdb_error("-\n");
+    let off = WriteOptions {
+        invalid_warning: false,
+        ..opt(16)
+    };
+    w.write_record("sc", &[-32768, 0], 1, 250.0, &off).unwrap();
+    w.write_record_physical("sc", &[f64::NAN, 0.0], 1, 250.0, &opt(16))
+        .unwrap();
+    assert_eq!(w.wfdberror(), &b"-\n"[..]);
+    let r = w.read_record("sc", &ReadOptions::default()).unwrap();
+    assert_eq!(r.samples, vec![-32768, 0]);
+    w.wfdbverbose();
+}
+
 #[test]
 fn nodefaults_write_record() {
     let mut d = DataDir::new();

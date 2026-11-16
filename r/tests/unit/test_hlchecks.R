@@ -377,4 +377,47 @@ if (.mode == "source") {
     }
   }
   check(clean(), "record line: state clean")
+
+  # ---- WFDB-x 1.2.3: the samples must fit the storage format, checked
+  # before any file is written (putvec wrapped them around without an
+  # error)
+  G <- list(gains = 200, adcres = 16, units = "mV")
+  wr <- function(x, fmt, ...) do.call(write_record, c(list("sc", x, 250, fmt = fmt), G, list(...)))
+  for (cs in list(list(16, 40000, "signal 0 has a sample (40000) outside the range of format 16 (-32768 to 32767)"),
+                  list(212, 3000, "signal 0 has a sample (3000) outside the range of format 212 (-2048 to 2047)"),
+                  list(8, 200, "signal 0 changes by -199 between two samples, more than format 8 can store (-128 to 127)"))) {
+    expect_equal(errmsg(wr(c(cs[[2L]], 1), cs[[1L]])), cs[[3L]], paste("storage check fmt", cs[[1L]]))
+    check(!file.exists("sc.hea") && !file.exists("sc.dat"), paste("storage check fmt", cs[[1L]], "no file"))
+  }
+  expect_equal(errmsg(wr(c(NA, 0), 8, physical = TRUE)),
+               "signal 0 has an invalid sample, which format 8 cannot store", "storage check fmt 8 invalid")
+  expect_equal(errmsg(wr(matrix(0, 5, 12), 516)),
+               "format 516 (FLAC) stores at most 8 signals in a file; the record has 12",
+               "storage check FLAC signals")
+  check(!file.exists("sc.hea") && !file.exists("sc.dat"), "storage check FLAC: no file")
+  wr(matrix(0, 5, 8), 516)
+  check(file.exists("sc.hea"), "FLAC: 8 signals")
+  # (a multi-frequency signal: its samples in order, frame after frame)
+  expect_equal(errmsg(wr(rbind(c(0, 200, 0), c(0, 200, 0)), 8, samps_per_frame = c(2, 1))),
+               "signal 0 changes by 200 between two samples, more than format 8 can store (-128 to 127)",
+               "storage check fmt 8 multi-frequency")
+  # a sample that will be read back as invalid: a warning (none for the NA
+  # samples of physical units, nor with invalid_warning = FALSE)
+  warns <- function(expr) {
+    w <- character(0)
+    withCallingHandlers(expr, warning = function(c) {
+      w <<- c(w, conditionMessage(c))
+      invokeRestart("muffleWarning")
+    })
+    w
+  }
+  expect_equal(warns(wr(c(-2048, 0), 212)),
+               "1 sample(s) of signal 0 will be read back as invalid (missing) samples (format 212 stores an invalid sample as -2048)",
+               "storage warning")
+  expect_equal(warns(wr(c(-32768, 0), 16, invalid_warning = FALSE)), character(0),
+               "storage warning: invalid_warning = FALSE")
+  expect_equal(warns(wr(c(NA, 0), 16, physical = TRUE)), character(0),
+               "storage warning: none for NA in physical units")
+  expect_equal(as.vector(read_record("sc")$signals), c(-32768, 0), "storage: invalid sample read back")
+  check(clean(), "storage checks: state clean")
 }

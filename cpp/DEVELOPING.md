@@ -123,7 +123,7 @@ after a Ninja Multi-Config or Visual Studio build). To check the package:
 
 ```sh
 cmake --install cpp/build --prefix /tmp/wfdbx-prefix
-# then, in a project with find_package(wfdbx 1.2.2 CONFIG REQUIRED) and
+# then, in a project with find_package(wfdbx 1.2.3 CONFIG REQUIRED) and
 # target_link_libraries(... wfdbx::wfdbx):
 cmake -S consumer -B consumer/build -DCMAKE_PREFIX_PATH=/tmp/wfdbx-prefix
 ```
